@@ -1559,3 +1559,28 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs seeded past its size |
 | When | a file in it is truncated to a smaller size |
 | Then | it succeeds, as only a growth is refused |
+
+## `FS-151` A Bind keeps a bounded number of host directories open for walks
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-122` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind over directories nested far past the bound |
+| When | a guest opens a file at the bottom and holds it |
+| Then | the open lands, and the Bind keeps at most 64 of those directories open |
+
+## `FS-152` A directory held open keeps its host directory past the bound
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-151` |
+| relates | `RT-121` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a Bind's directory open, and walks past the bound since |
+| When | the host moves that directory |
+| Then | a call through the descriptor still reaches the directory it opened |
