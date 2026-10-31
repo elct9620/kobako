@@ -372,6 +372,17 @@ fn named_groups(state: &RegexpState) -> Vec<(&str, Vec<usize>)> {
     groups
 }
 
+/// The group a name reads in one match: the last of its groups that took
+/// part, or simply its last when none did, as in MRI.
+pub(crate) fn group_of_name(indexes: &[usize], took_part: impl Fn(usize) -> bool) -> Option<usize> {
+    indexes
+        .iter()
+        .rev()
+        .find(|&&index| took_part(index))
+        .or(indexes.last())
+        .copied()
+}
+
 fn rx_inspect(mrb: &Mrb, self_: Value) -> Value {
     let Some(state) = read_state(mrb, self_) else {
         return qnil().as_value();
@@ -440,11 +451,9 @@ fn do_match(mrb: &Mrb, regexp: Value, subject: String, pos: usize) -> Result<Val
             let groups: Vec<Option<(usize, usize)>> = (0..count)
                 .map(|i| captures.get(i).map(|m| (m.start(), m.end())))
                 .collect();
-            let names: Vec<(String, usize)> = state
-                .regex
-                .capture_names()
-                .enumerate()
-                .filter_map(|(i, name)| name.map(|n| (n.to_string(), i)))
+            let names = named_groups(state)
+                .into_iter()
+                .map(|(name, indexes)| (name.to_string(), indexes))
                 .collect();
             // `captures` (and its borrow of `subject`) ends here, so the match
             // can take ownership of `subject` instead of cloning it.

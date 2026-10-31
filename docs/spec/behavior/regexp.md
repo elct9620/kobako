@@ -1274,3 +1274,77 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches nil from a String position |
 | Then | it raises `TypeError` |
+
+## `RX-257` A shared name reads the last of its groups that took part
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-096`, `RX-097` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads a match by a name several groups share |
+| Then | it answers the last of those groups that took part |
+
+## `RX-258` Named captures read a shared name the same way
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-104` |
+| relates | `RX-257` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the named captures of a match by a shared name |
+| Then | that name maps to the last of its groups that took part |
+
+## `RX-259` A match lists a shared name once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-105` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the names of a match by a shared name |
+| Then | each name comes back once, where it was first declared |
+
+## `RX-260` A named backreference expands a shared name per match
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-144` |
+| relates | `RX-257` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code substitutes with a replacement naming a name several groups share |
+| Then | each match expands the last of those groups that took part |
+
+## `RX-261` A pattern maps a shared name to all its group numbers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the named captures of a pattern where groups share a name |
+| Then | that name maps to every group carrying it |
+
+## `RX-262` A pattern lists a shared name once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the names of a pattern where groups share a name |
+| Then | each name comes back once, where it was first declared |

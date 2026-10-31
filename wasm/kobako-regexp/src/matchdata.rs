@@ -23,8 +23,16 @@ pub(crate) struct MatchState {
     /// Byte `(start, end)` of each group; index 0 is the whole match,
     /// `None` for a group that did not participate.
     pub groups: Vec<Option<(usize, usize)>>,
-    /// Named captures as `(name, group index)` in declaration order.
-    pub names: Vec<(String, usize)>,
+    /// Each capture name with its group indexes, in declaration order.
+    pub names: Vec<(String, Vec<usize>)>,
+}
+
+impl MatchState {
+    fn group_of(&self, indexes: &[usize]) -> Option<usize> {
+        regexp::group_of_name(indexes, |index| {
+            self.groups.get(index).is_some_and(Option::is_some)
+        })
+    }
 }
 
 pub(crate) fn read_state(mrb: &Mrb, value: Value) -> Option<&MatchState> {
@@ -108,13 +116,18 @@ fn numeric_index(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<i64
     }
     if Symbol::from_value(arg).is_some() || RString::from_value(arg).is_some() {
         let name = regexp::string_or_symbol_text(mrb, arg)?;
-        let Some((_, i)) = state.names.iter().find(|(n, _)| *n == name) else {
+        let index = state
+            .names
+            .iter()
+            .find(|(n, _)| *n == name)
+            .and_then(|(_, indexes)| state.group_of(indexes));
+        let Some(index) = index else {
             return Err(index_error(
                 mrb,
                 &format!("undefined group name reference: {name}"),
             ));
         };
-        return Ok(Some(*i as i64));
+        return Ok(Some(index as i64));
     }
     Ok(None)
 }
@@ -184,14 +197,17 @@ fn md_captures(mrb: &Mrb, state: &MatchState) -> Result<Value, Error> {
 fn md_named_captures(mrb: &Mrb, state: &MatchState, args: &[Value]) -> Result<Value, Error> {
     let symbolize = symbolize_names_requested(mrb, args)?;
     let map = mrb.hash_new();
-    for (name, index) in &state.names {
+    for (name, indexes) in &state.names {
         let key = mrb.str_new(name.as_bytes()).as_value();
         let key = if symbolize {
             key.funcall(mrb, c"to_sym", ())?
         } else {
             key
         };
-        map.aset(mrb, key, group_str(mrb, state, *index))?;
+        let value = state
+            .group_of(indexes)
+            .map_or(qnil().as_value(), |index| group_str(mrb, state, index));
+        map.aset(mrb, key, value)?;
     }
     Ok(map.as_value())
 }

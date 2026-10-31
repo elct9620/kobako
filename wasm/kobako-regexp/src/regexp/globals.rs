@@ -19,7 +19,7 @@ pub(super) fn finalize(
     regexp: Value,
     subject: String,
     groups: Vec<Option<(usize, usize)>>,
-    names: Vec<(String, usize)>,
+    names: Vec<(String, Vec<usize>)>,
 ) -> Value {
     // Set the derived globals from borrows first, then hand the subject and
     // group spans to the `MatchData` by move — the match owns them outright, so

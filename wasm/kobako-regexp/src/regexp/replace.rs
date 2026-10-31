@@ -4,7 +4,7 @@
 use crate::errors::{index_error, regexp_error, replace_expression_error};
 use beni::{Error, Mrb, Value};
 
-use super::{read_state, RegexpState};
+use super::{group_of_name, named_groups, read_state, RegexpState};
 
 /// Byte spans of one match: the whole match plus each numbered group.
 pub(crate) struct MatchSpan {
@@ -71,9 +71,11 @@ pub(crate) fn expand_replacement(
             Some('\\') => out.push('\\'),
             Some('k') => {
                 let name = read_group_name(mrb, &mut chars, replacement)?;
-                let index = state.and_then(|s| name_to_index(s, &name)).ok_or_else(|| {
-                    index_error(mrb, &format!("undefined group name reference: {name}"))
-                })?;
+                let index = state
+                    .and_then(|s| name_to_index(s, span, &name))
+                    .ok_or_else(|| {
+                        index_error(mrb, &format!("undefined group name reference: {name}"))
+                    })?;
                 push_group(&mut out, subject, span, index);
             }
             Some(digit) if digit.is_ascii_digit() => {
@@ -123,6 +125,10 @@ fn push_group(out: &mut String, subject: &str, span: &MatchSpan, index: usize) {
     }
 }
 
-fn name_to_index(state: &RegexpState, name: &str) -> Option<usize> {
-    state.regex.capture_names().position(|n| n == Some(name))
+fn name_to_index(state: &RegexpState, span: &MatchSpan, name: &str) -> Option<usize> {
+    let groups = named_groups(state);
+    let (_, indexes) = groups.iter().find(|(existing, _)| *existing == name)?;
+    group_of_name(indexes, |index| {
+        span.groups.get(index - 1).is_some_and(Option::is_some)
+    })
 }
