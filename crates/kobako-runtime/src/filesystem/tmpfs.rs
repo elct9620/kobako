@@ -57,6 +57,13 @@ enum Node {
 }
 
 impl Node {
+    /// Mark a file no directory holds any more, which a handle may outlive.
+    fn unnamed(&self) {
+        if let Self::File(data) = self {
+            lock(data).names = 0;
+        }
+    }
+
     fn file_type(&self) -> FileType {
         match self {
             Self::File(_) => FileType::File,
@@ -98,13 +105,20 @@ struct State {
 impl State {
     /// Hold `node` under `name`, a change to the directory's content.
     fn insert(&mut self, name: &str, node: Node) {
-        self.entries.insert(name.to_string(), node);
+        if let Node::File(data) = &node {
+            lock(data).names = 1;
+        }
+        if let Some(replaced) = self.entries.insert(name.to_string(), node) {
+            replaced.unnamed();
+        }
         self.times.touch();
     }
 
     /// Take the entry `name` away, a change to the directory's content.
     fn remove(&mut self, name: &str) {
-        self.entries.remove(name);
+        if let Some(removed) = self.entries.remove(name) {
+            removed.unnamed();
+        }
         self.times.touch();
     }
 }
@@ -245,6 +259,8 @@ struct Content {
     times: Times,
     dev: u64,
     ino: u64,
+    /// One while a directory holds it, as a Tmpfs holds no hard links.
+    names: u64,
 }
 
 impl Content {
@@ -268,14 +284,15 @@ impl Content {
             times: Times::now(),
             dev: tree.dev,
             ino: tree.next_ino.fetch_add(1, Ordering::Relaxed),
+            names: 1,
         }))
     }
 
-    /// What the file reports, named once, as a Tmpfs holds no hard links.
     fn metadata(&self) -> Metadata {
         self.times.report(
             Metadata::new(FileType::File, self.bytes.len() as u64)
-                .with_identity(self.dev, self.ino),
+                .with_identity(self.dev, self.ino)
+                .with_nlink(self.names),
         )
     }
 
