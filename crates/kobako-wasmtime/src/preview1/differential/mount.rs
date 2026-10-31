@@ -534,7 +534,7 @@ fn predict(call: Call, path: &str, mut oracle: Observation) -> Observation {
     {
         oracle.errno = Some(ERRNO_NOTEMPTY);
     }
-    if path.len() >= PATH_MAX {
+    if path.len() >= PATH_MAX && !refused_first {
         oracle.errno = Some(ERRNO_NAMETOOLONG);
     }
     oracle
