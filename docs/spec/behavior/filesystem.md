@@ -1597,3 +1597,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind on Windows |
 | When | a guest names a stream, a device, a wildcard, or a name ending in a dot or a space |
 | Then | the call is refused as invalid input, and a Policy judges no other spelling of an entry |
+
+## `FS-154` A Tmpfs answers a name past `NAME_MAX` as too long
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs |
+| When | a name of `NAME_MAX` bytes is made, and one past it looked up |
+| Then | the first lands, and the second answers ENAMETOOLONG |
