@@ -1681,3 +1681,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay whose lower Layer holds a directory, and another holding entries |
 | When | the first is renamed onto the second |
 | Then | the rename answers EXDEV rather than ENOTEMPTY |
+
+## `FS-161` A name kept for the next walk reaches nothing a host moved out
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-136`, `RT-216` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind whose walk left a name kept, with nothing holding it |
+| When | the host moves that directory out of the Mount, and the guest opens a file through the name |
+| Then | the open answers ENOENT |

@@ -2388,3 +2388,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem holding a file, and a name nothing stands at |
 | When | the guest opens each with `O_CREAT` and `O_TRUNC` |
 | Then | the first is opened, then asked `setattr` marked as from an open; the second is made and asked neither |
+
+## `RT-216` A name found standing stays for the next walk unless its Filesystem lets it go
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-145` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose names stand, with nothing holding one between two calls |
+| When | both calls name it |
+| Then | it is looked up once, and twice where `DentryOperations::delete` lets it go |

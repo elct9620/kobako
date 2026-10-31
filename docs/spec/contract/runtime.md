@@ -1671,6 +1671,17 @@ pub trait DentryOperations {
 }
 ```
 
+## `DentryOperations::delete`
+
+Whether a Dentry goes once nothing holds it, rather than stay for the next walk.
+A name whose `revalidate` cannot tell a change must answer true.
+
+```rust
+pub trait DentryOperations {
+    fn delete(&self, _dentry: &Dentry) -> bool;
+}
+```
+
 ## `InodeOperations::get_link`
 
 Where this link points, for the runtime to follow. An entry without it answers
