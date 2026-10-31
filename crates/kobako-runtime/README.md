@@ -32,7 +32,7 @@ Add the crate to an engine or a frontend that speaks the contract.
 
 ```toml
 [dependencies]
-kobako-runtime = "0.19.0" # x-release-please-version
+kobako-runtime = "0.20.0" # x-release-please-version
 ```
 
 ## License
