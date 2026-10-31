@@ -33,6 +33,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 - `test/e2e/test_ruby_filesystem_walk.rb`
 - `test/e2e/test_ruby_filesystem_moved_directory.rb`
 - `test/e2e/test_ruby_filesystem_stat.rb`
+- `test/e2e/test_ruby_filesystem_stat_answers.rb`
 
 ## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
 
@@ -415,3 +416,16 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `stat` answers `nlink` and three times, and one whose `stat` answers neither |
 | When | a permissive guest and a hermetic guest read what the path reports |
 | Then | each reads the count and one name without one; only the hermetic guest reads each time at the epoch |
+
+## `RF-032` A stat naming a device tells Filesystems apart by it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-017` |
+| relates | `RT-183` |
+
+| Step | Statement |
+| --- | --- |
+| Given | two Ruby Filesystems whose `stat` answers one `ino` |
+| When | a permissive guest reads that entry's inode number through each |
+| Then | the numbers match only where both `stat`s answer one `dev` |

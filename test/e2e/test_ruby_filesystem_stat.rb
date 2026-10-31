@@ -20,11 +20,6 @@ class TestE2ERubyFilesystemStat < Minitest::Test
     def directory? = directory
   end
 
-  # A stat saying what kind of entry it reports, as +File::Stat+ does.
-  KindStat = Data.define(:directory, :size, :ino, :ftype) do
-    def directory? = directory
-  end
-
   # A stat recording all a +File::Stat+ does beyond what a Filesystem must.
   RecordingStat = Data.define(:directory, :size, :ino, :nlink, :atime, :mtime, :ctime) do
     def directory? = directory
@@ -143,23 +138,5 @@ class TestE2ERubyFilesystemStat < Minitest::Test
     assert_equal [1, 0, 0, 0], seen.path[1, 4],
                  "path_filestat_get of a Ruby Filesystem's stat answering no nlink and no time must read one name " \
                  "and time zero"
-  end
-
-  # A FIFO's open would wait for a peer in the host's Ruby, past any deadline,
-  # so an object asked to open it fails this test rather than hanging it.
-  # @behavior RF-030
-  def test_a_stat_naming_a_special_file_keeps_its_open_from_reaching_ruby
-    %w[fifo socket blockSpecial characterSpecial].each do |ftype|
-      assert_equal "refused", opening_a_file_whose_stat_says(ftype),
-                   "File.open through a Ruby Filesystem whose stat answers the ftype #{ftype} must raise " \
-                   "Errno::EACCES without asking the object to open it"
-    end
-  end
-
-  def opening_a_file_whose_stat_says(ftype)
-    filesystem = OneFileFilesystem.new(KindStat.new(directory: false, size: 0, ino: 42, ftype: ftype), nil)
-    filesystem.define_singleton_method(:open) { |*| raise "the object's open must not be asked" }
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem)
-                   .eval('begin; File.open("/data/f"); rescue Errno::EACCES; "refused"; end').value
   end
 end
