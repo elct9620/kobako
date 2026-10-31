@@ -114,6 +114,13 @@ impl State {
         self.times.touch();
     }
 
+    /// Hold `node`, which keeps a name elsewhere, in place of what stands at
+    /// `name`, which does too, a change to the directory's content.
+    fn exchange(&mut self, name: &str, node: Node) {
+        self.entries.insert(name.to_string(), node);
+        self.times.touch();
+    }
+
     /// Take the entry `name` away, a change to the directory's content.
     fn remove(&mut self, name: &str) {
         if let Some(removed) = self.entries.remove(name) {
@@ -804,6 +811,41 @@ impl FileOperations for TmpfsFile {
 mod tests {
     use super::*;
     use crate::vfs::kern_path::{kern_path, KernPath};
+
+    // Each file leaves one name and takes another, so only keeping the count
+    // through the swap reports both as still named.
+    // @behavior FS-168
+    #[test]
+    fn an_exchange_leaves_both_files_named() {
+        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
+            [("a", "first"), ("b", "second")]
+                .into_iter()
+                .collect::<Tmpfs>(),
+        ));
+        let dentries = filesystem.dentries();
+        let root = dentries.root();
+        let (first, second) = (dentries.child(&root, "a"), dentries.child(&root, "b"));
+        filesystem
+            .root()
+            .rename(
+                &first,
+                filesystem.root().as_ref(),
+                &second,
+                Some(RenameFlag::Exchange),
+            )
+            .expect("the two must swap");
+        let nlink = |name| {
+            let dentry = dentries.child(&root, name);
+            dentry.lookup_inode(&root).expect("the name must be found");
+            dentry.getattr().map(|metadata| metadata.nlink)
+        };
+        assert_eq!(
+            (nlink("a"), nlink("b")),
+            (Ok(1), Ok(1)),
+            "InodeOperations::rename of a Tmpfs asked to exchange two files must leave each with \
+             one name"
+        );
+    }
 
     // Linux's VFS sets no limit on one name, so this is the Tmpfs's own.
     // @behavior FS-154

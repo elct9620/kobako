@@ -65,8 +65,8 @@ impl Tmpfs {
         let replaced = to_dir.get(to).ok();
         if flag == Some(RenameFlag::Exchange) {
             let replaced = replaced.ok_or(FilesystemError::NotFound)?;
-            from_dir.state().insert(from, replaced);
-            to_dir.state().insert(to, moving);
+            from_dir.state().exchange(from, replaced);
+            to_dir.state().exchange(to, moving);
             return Ok(());
         }
         if let Some(Node::Directory(dir)) = &replaced {
