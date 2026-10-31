@@ -4,7 +4,7 @@ What a Host App reaches when it writes a Filesystem in Ruby and mounts it like t
 
 ```
 guest File ─> runtime ─> Mount ─> Ruby object: open / stat / children / mkdir / rmdir / unlink / rename
-                                     └─ open answers a file: pread / pwrite / append / size / truncate / fsync / close
+                                     └─ open answers a file: pread / pwrite / append / size / truncate / fsync / close / stat
 ```
 
 ### Why these scenarios

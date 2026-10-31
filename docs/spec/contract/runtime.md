@@ -1283,7 +1283,7 @@ impl DirEntry {
 ## `Profile::guest_ino`
 
 The inode number a guest on this posture sees for an identity. A hermetic guest
-sees none. Any other sees a hash, which is not a secret.
+sees none. Any other sees a hash under a key the process draws once.
 
 ```rust
 impl Profile {
