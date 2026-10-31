@@ -23,7 +23,7 @@ mod readdir;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::inode::{ovl_inode, ovl_inode_is_kept, OverlayInode};
+use super::inode::{ovl_inode, OverlayInode};
 use super::path::OverlayPath;
 
 use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb, Metadata};
@@ -243,30 +243,20 @@ impl OverlayFs {
         self.work.is_some() && index == 0
     }
 
-    /// The directory of the view `dentry` names, its state found on the
-    /// dentry or, the first time it is reached, looked up beneath its
-    /// parent: the root's every Layer's root merged down to the first
-    /// marked opaque.
+    /// The directory of the view `dentry` names, its state found on the inode
+    /// its lookup recorded; the root, which no lookup finds, stands for every
+    /// Layer's root merged down to the first marked opaque.
     pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
-        let mut unreached = vec![dentry.get()];
-        while let Some(parent) = unreached
-            .last()
-            .filter(|at| !ovl_inode_is_kept(at))
-            .and_then(|at| at.parent())
-        {
-            unreached.push(parent);
-        }
-        let mut reached = None;
-        while let Some(dentry) = unreached.pop() {
-            let inode = ovl_inode(&dentry, || match &reached {
-                None => Ok(below_opaque_cut(
-                    self.roots.iter().cloned().map(Some).collect(),
-                )),
-                Some(ViewDir { inode, .. }) => self.enter(&inode.level(), &dentry.name()),
-            })?;
-            reached = Some(ViewDir { dentry, inode });
-        }
-        reached.ok_or(FilesystemError::NotFound)
+        let inode = ovl_inode(dentry, || match dentry.parent() {
+            Some(_) => Err(FilesystemError::NotADirectory),
+            None => Ok(below_opaque_cut(
+                self.roots.iter().cloned().map(Some).collect(),
+            )),
+        })?;
+        Ok(ViewDir {
+            dentry: dentry.get(),
+            inode,
+        })
     }
 
     /// The directory holding the entry `dentry` names.

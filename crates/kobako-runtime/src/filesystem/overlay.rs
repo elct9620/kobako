@@ -22,7 +22,7 @@ use super::{
     InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
 };
 use crate::vfs::{Dentry, Inode};
-use inode::{ovl_inode_of, ovl_inode_real};
+use inode::ovl_inode_of;
 use path::OverlayPath;
 use stack::OverlayFs;
 
@@ -111,25 +111,10 @@ impl Overlay {
         if stored != name {
             return Ok(Lookup::Spelled(stored));
         }
-        if let Some(real) = self.fs.sole_real(&level, &name) {
-            let Some((real, found)) = real?.and_then(|real| Some((real.clone(), real.inode()?)))
-            else {
-                return Ok(Lookup::Absent);
-            };
-            let inode = found.with_ops(self.ops_of(found.kind()));
-            if inode.kind() != FileType::Directory {
-                ovl_inode_real(&inode, real);
-            }
-            return Ok(Lookup::Found(inode));
-        }
-        let Some((found, real)) = self.fs.view_entry(&level, &name)? else {
-            return Ok(Lookup::Absent);
-        };
-        let inode = Inode::new(&found, self.ops_of(found.file_type));
-        if let Some(real) = real {
-            ovl_inode_real(&inode, real);
-        }
-        Ok(Lookup::Found(inode))
+        Ok(self
+            .fs
+            .view_entry(&level, &name, |kind| self.ops_of(kind))?
+            .map_or(Lookup::Absent, Lookup::Found))
     }
 
     fn rename_to(
@@ -142,14 +127,20 @@ impl Overlay {
             .downcast_ref::<Self>()
             .filter(|target| target.fs.is(&self.fs))
             .ok_or(FilesystemError::CrossesDevices)?;
-        self.fs
-            .rename(&self.fs.parent(from)?, from, &self.fs.parent(to)?, to)
+        self.fs.rename(
+            &self.fs.parent(from)?,
+            from,
+            &self.fs.parent(to)?,
+            &to.name(),
+        )
     }
 }
 
 /// A name stays valid while every Layer's dentry for it does, as
-/// `ovl_dentry_revalidate` asks each real dentry. Layers hold such a dentry
-/// only for what the view keeps open.
+/// `ovl_dentry_revalidate` asks each real dentry, and while a directory still
+/// stands for what each Layer holds there, as `ovl_clear_empty` drops a dentry
+/// whose upper no longer matches. Layers hold such a dentry only for what the
+/// view keeps open.
 impl DentryOperations for Overlay {
     fn revalidate(
         &self,
@@ -157,12 +148,18 @@ impl DentryOperations for Overlay {
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
         let name = dentry.name();
-        for layer in self.fs.parent(dentry)?.level().iter().flatten() {
+        let above = self.fs.parent(dentry)?.level();
+        for layer in above.iter().flatten() {
             if !layer.revalidate_real(&name)? {
                 return Ok(false);
             }
         }
-        Ok(true)
+        let kept = dentry.inode().as_deref().and_then(ovl_inode_of);
+        let shown = kept.map_or_else(Vec::new, |kept| kept.level());
+        Ok(above.iter().zip(&shown).all(|pair| match pair {
+            (Some(layer), Some(shown)) => layer.matches_real(&name, shown.dentry()),
+            _ => true,
+        }))
     }
 
     /// A name goes once nothing holds it where any Layer behind it would let
@@ -308,11 +305,12 @@ impl InodeOperations for Overlay {
     }
 
     fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.remove_dir(&self.fs.parent(dentry)?, dentry)
+        self.fs.remove_dir(&self.fs.parent(dentry)?, &dentry.name())
     }
 
     fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.remove_file(&self.fs.parent(dentry)?, dentry)
+        self.fs
+            .remove_file(&self.fs.parent(dentry)?, &dentry.name())
     }
 
     /// Both directories lie in one Overlay, however many directories of
@@ -1103,9 +1101,50 @@ mod tests {
         );
     }
 
+    // The Layer changes behind the view between the lookup and the listing, so
+    // only Layers bound as the name is found keep the directory it found, as
+    // they cannot be taken for another one by a move in that window.
+    // @behavior FS-165
+    #[test]
+    fn a_directory_found_stands_for_the_layers_it_was_found_in() {
+        use crate::vfs::lookup_slow;
+        let lower = Arc::new([("dir/old", "x")].into_iter().collect::<Tmpfs>());
+        let overlay = Arc::new(over(lower.clone(), Arc::new(Tmpfs::new())));
+        let filesystem = Filesystem::new(overlay.clone());
+        let root = filesystem.dentries().root();
+        let dir = lookup_slow(&filesystem, &root, "dir")
+            .expect("the directory must be found")
+            .1;
+        let layer = on(&lower);
+        layer
+            .rename("dir", &layer, "moved")
+            .expect("the Layer's directory must move");
+        layer.create_dir("dir").expect("another must be made");
+        overwrite(&layer, "dir/new", b"y");
+        let names: Vec<String> = overlay
+            .fs
+            .entries(
+                &overlay
+                    .fs
+                    .dir(&dir)
+                    .expect("the directory must stand")
+                    .level(),
+            )
+            .expect("the directory must list")
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(
+            names,
+            ["old"],
+            "OverlayFs::entries of a directory OverlayFs found before its Layer changed must list \
+             the Layer's directory found with it"
+        );
+    }
+
     // What fails after the exchange only a second writer's use of the inodes
-    // can force, so the exchange is called alone: the view must stand for the
-    // empty directory before anything else is asked of it.
+    // can force, so the exchange is called alone: the next walk must find the
+    // empty directory rather than the dentry whose upper no longer matches.
     // @behavior FS-164
     #[test]
     fn a_directory_emptied_for_its_removal_stays_empty_should_the_removal_fail() {
@@ -1126,20 +1165,23 @@ mod tests {
             .expect("the upper shows the root");
         overlay
             .fs
-            .clear_empty(&upper_root, "dir", &dir)
+            .clear_empty(&upper_root, "dir")
             .expect("the directory must be exchanged");
+        let walked = lookup_slow(&filesystem, &root, "dir")
+            .expect("the directory must be found again")
+            .1;
         let names = overlay.fs.entries(
             &overlay
                 .fs
-                .dir(&dir)
+                .dir(&walked)
                 .expect("the directory must stand")
                 .level(),
         );
         assert_eq!(
             names.map(|entries| entries.len()),
             Ok(0),
-            "OverlayFs::entries of a directory OverlayFs::clear_empty replaced must show nothing \
-             of the lower Layer below it"
+            "OverlayFs::entries of a directory found by a walk after OverlayFs::clear_empty \
+             replaced it must show nothing of the lower Layer below it"
         );
     }
 

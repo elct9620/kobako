@@ -134,26 +134,20 @@ impl OverlayFs {
 
     /// Replace the upper's directory `name` in `dir`, holding nothing but
     /// whiteouts, with an empty one marked opaque, as overlayfs's
-    /// `ovl_clear_empty` does, so the view shows it empty throughout. What
-    /// `child` names of it in the view now stands for the one exchanged in, as
-    /// `ovl_clear_empty` drops the dentry whose upper no longer matches, so the
-    /// view stays empty should what follows fail.
+    /// `ovl_clear_empty` does, so the view shows it empty throughout. Its
+    /// dentry in the view no longer matches, so the next walk finds the one
+    /// exchanged in, should what follows fail.
     pub(in super::super) fn clear_empty(
         &self,
         dir: &OverlayPath,
         name: &str,
-        child: &Dentry,
     ) -> Result<(), FilesystemError> {
         let inner = dir.open_dir(name)?;
         let cleared = inner.entries()?;
         if cleared.iter().any(|entry| !inner.is_whiteout(&entry.name)) {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.exchange_in_opaque_dir(dir, name)?;
-        if let Some(kept) = child.inode().as_deref().and_then(ovl_inode_of) {
-            kept.inode_replace(self.upper()?, &dir.open_dir(name)?);
-        }
-        Ok(())
+        self.exchange_in_opaque_dir(dir, name)
     }
 
     /// An empty directory marked opaque, exchanged in for what stands at
@@ -168,8 +162,7 @@ impl OverlayFs {
     /// Take `name` out of the view: a whiteout over any Layer that keeps
     /// it, which also takes the upper's own entry away, or else only the
     /// upper's entry, as overlayfs's `ovl_do_remove` chooses.
-    fn withdraw(&self, dir: &ViewDir, child: &Dentry, is_dir: bool) -> Result<(), FilesystemError> {
-        let name = &child.name();
+    fn withdraw(&self, dir: &ViewDir, name: &str, is_dir: bool) -> Result<(), FilesystemError> {
         let level = dir.level();
         let (holders, shadowed) = self.holders(&level, name)?;
         let lower = holders.iter().copied().find(|&index| !self.is_upper(index));
@@ -180,7 +173,7 @@ impl OverlayFs {
         // so it removes as an empty directory, and anything another writer
         // made in it meanwhile refuses the removal.
         if is_dir && upper_holds && holds_whiteouts(layer_dir(&level[0])?, name)? {
-            self.clear_empty(layer_dir(&level[0])?, name, child)?;
+            self.clear_empty(layer_dir(&level[0])?, name)?;
         }
         match whiteout_into {
             Some(upper) => {
@@ -251,9 +244,8 @@ impl OverlayFs {
     pub(in super::super) fn remove_dir(
         &self,
         dir: &ViewDir,
-        child: &Dentry,
+        name: &str,
     ) -> Result<(), FilesystemError> {
-        let name = &child.name();
         let level = dir.level();
         let (index, found) = self
             .lookup(&level, name)?
@@ -261,16 +253,16 @@ impl OverlayFs {
         if !self.is_empty(&level, name, (index, found))? {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.withdraw(dir, child, true)
+        self.withdraw(dir, name, true)
     }
 
     /// A link is removed as itself, wherever it points.
     pub(in super::super) fn remove_file(
         &self,
         dir: &ViewDir,
-        child: &Dentry,
+        name: &str,
     ) -> Result<(), FilesystemError> {
-        self.withdraw(dir, child, false)
+        self.withdraw(dir, name, false)
     }
 
     /// A directory moves only when the upper alone holds it; moving one
@@ -287,9 +279,9 @@ impl OverlayFs {
         from: &ViewDir,
         moved: &Dentry,
         to: &ViewDir,
-        target: &Dentry,
+        to_name: &str,
     ) -> Result<(), FilesystemError> {
-        let (from_name, to_name) = (&moved.name(), &target.name());
+        let from_name = &moved.name();
         let from_level = from.level();
         let moving = self.symlink_metadata(&from_level, from_name)?;
         let to_level = to.level();
@@ -325,7 +317,7 @@ impl OverlayFs {
         let replaces_dir =
             matches!(replaced, Some((_, found)) if found.file_type == FileType::Directory);
         if replaces_dir && holds(&target_dir, to_name)? {
-            self.clear_empty(&target_dir, to_name, target)?;
+            self.clear_empty(&target_dir, to_name)?;
         }
         let source_dir = from.level()[upper]
             .clone()

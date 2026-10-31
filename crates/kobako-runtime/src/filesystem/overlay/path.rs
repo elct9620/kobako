@@ -42,6 +42,14 @@ impl OverlayPath {
         }
     }
 
+    /// This Layer's directory standing at `dentry`.
+    pub(super) fn with_dentry(&self, dentry: Arc<Dentry>) -> Self {
+        Self {
+            dentry,
+            filesystem: self.filesystem.clone(),
+        }
+    }
+
     /// Where this directory stands in its Layer.
     pub(super) fn dentry(&self) -> &Arc<Dentry> {
         &self.dentry
@@ -60,6 +68,13 @@ impl OverlayPath {
             Some((held, ops)) => ops.revalidate(self.dentry.inode_ops()?.as_ref(), held),
             None => Ok(true),
         }
+    }
+
+    /// Whether what this Layer holds at `name`, if it holds a dentry there, is
+    /// `real`, as `ovl_matches_upper` compares what stands in the upper.
+    pub(super) fn matches_real(&self, name: &str, real: &Arc<Dentry>) -> bool {
+        let held = self.filesystem.dentries().lookup(&self.dentry, name);
+        held.is_none_or(|held| Arc::ptr_eq(&held, real))
     }
 
     /// The dentry of `name` as this directory stores it, what stands there

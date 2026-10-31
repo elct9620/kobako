@@ -3,32 +3,12 @@
 
 use std::sync::Arc;
 
-use super::super::super::{FileType, FilesystemError, Metadata};
+use super::super::super::{FileType, FilesystemError, InodeOperations, Metadata};
+use super::super::inode::{ovl_inode_init, OverlayInode};
 use super::{entry, layer_dir, shows_below, sole_layer, Level, OverlayFs};
-use crate::vfs::Dentry;
-
-/// What the view shows at a name, and the Layer's dentry anything but a
-/// directory answers through.
-type ViewEntry = (Metadata, Option<Arc<Dentry>>);
+use crate::vfs::Inode;
 
 impl OverlayFs {
-    /// Each Layer's directory the directory `name` in `level` stands for,
-    /// refusing a link standing there as a loop, since the runtime follows
-    /// a link itself, in the view.
-    pub(super) fn enter(&self, level: &Level, name: &str) -> Result<Level, FilesystemError> {
-        if let Some((index, dir)) = sole_layer(level) {
-            let mut only = vec![None; level.len()];
-            only[index] = Some(dir.open_dir(name)?);
-            return Ok(only);
-        }
-        let (index, found) = self.lookup(level, name)?.ok_or(FilesystemError::NotFound)?;
-        match found.file_type {
-            FileType::Directory => self.lookup_layers(level, name, (index, found)),
-            FileType::Symlink => Err(FilesystemError::FilesystemLoop),
-            _ => Err(FilesystemError::NotADirectory),
-        }
-    }
-
     /// The topmost Layer holding an entry at `name` in the directory
     /// `level`, and that entry, a link reported as itself.
     pub(super) fn lookup(
@@ -139,40 +119,51 @@ impl OverlayFs {
         self.merge_identity(level, name, index, found)
     }
 
-    /// As `symlink_metadata`, beside the Layer's dentry anything but a
-    /// directory answers through.
+    /// The inode of what the view shows at `name`, answered for by `ops_of` of
+    /// its kind, keeping what the lookup found, as `ovl_lookup` fills
+    /// `ovl_inode_params` for `ovl_get_inode` under the directory's lock. A
+    /// directory one Layer shows stays unmerged, so nothing more is asked of that
+    /// Layer, which shows nothing where it holds a whiteout, as
+    /// `ovl_lookup_single` stops at one in any layer.
     pub(in super::super) fn view_entry(
         &self,
         level: &Level,
         name: &str,
-    ) -> Result<Option<ViewEntry>, FilesystemError> {
+        ops_of: impl Fn(FileType) -> Arc<dyn InodeOperations>,
+    ) -> Result<Option<Inode>, FilesystemError> {
+        if let Some((index, dir)) = sole_layer(level) {
+            if dir.is_whiteout(name) {
+                return Ok(None);
+            }
+            let real = dir.real(name)?;
+            let Some(found) = real.inode() else {
+                return Ok(None);
+            };
+            let inode = found.with_ops(ops_of(found.kind()));
+            let kept = match found.kind() {
+                FileType::Directory => {
+                    let mut only = vec![None; level.len()];
+                    only[index] = Some(dir.with_dentry(real));
+                    OverlayInode::new(only, None)
+                }
+                _ => OverlayInode::new(Vec::new(), Some(real)),
+            };
+            ovl_inode_init(&inode, kept);
+            return Ok(Some(inode));
+        }
         let Some((index, found)) = self.lookup(level, name)? else {
             return Ok(None);
         };
-        let real = match found.file_type {
-            FileType::Directory => None,
-            _ => Some(layer_dir(&level[index])?.real(name)?),
-        };
-        Ok(Some((
-            self.merge_identity(level, name, index, found)?,
-            real,
-        )))
-    }
-
-    /// The dentry the one Layer `level` shows holds at `name`, as overlayfs
-    /// leaves a directory one layer shows unmerged, so it asks nothing more
-    /// of that Layer, which shows nothing where it holds a whiteout, as
-    /// `ovl_lookup_single` stops at one in any layer; `None` where `level`
-    /// spans more than one.
-    pub(in super::super) fn sole_real(
-        &self,
-        level: &Level,
-        name: &str,
-    ) -> Option<Result<Option<Arc<Dentry>>, FilesystemError>> {
-        sole_layer(level).map(|(_, dir)| match dir.is_whiteout(name) {
-            true => Ok(None),
-            false => dir.real(name).map(Some),
-        })
+        if found.file_type != FileType::Directory {
+            let real = layer_dir(&level[index])?.real(name)?;
+            let inode = Inode::new(&found, ops_of(found.file_type));
+            ovl_inode_init(&inode, OverlayInode::new(Vec::new(), Some(real)));
+            return Ok(Some(inode));
+        }
+        let merged = self.lookup_layers(level, name, (index, found))?;
+        let inode = Inode::new(&self.dir_metadata(&merged)?, ops_of(FileType::Directory));
+        ovl_inode_init(&inode, OverlayInode::new(merged, None));
+        Ok(Some(inode))
     }
 
     /// `name` spelled as the topmost Layer showing it stores it, the

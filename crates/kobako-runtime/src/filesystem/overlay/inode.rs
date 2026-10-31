@@ -35,7 +35,9 @@ fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl OverlayInode {
-    fn new(level: Level, real: Option<Arc<Dentry>>) -> Self {
+    /// A directory's Layers, or the Layer's dentry anything else answers
+    /// through, as `ovl_inode_params` carries them.
+    pub(super) fn new(level: Level, real: Option<Arc<Dentry>>) -> Self {
         Self {
             level: Mutex::new(level),
             lock: Arc::default(),
@@ -52,14 +54,6 @@ impl OverlayInode {
     /// dentry, so every handle of it asks that Layer too.
     pub(super) fn inode_update(&self, into: usize, dir: &OverlayPath) {
         lock(&self.level)[into] = Some(dir.clone());
-    }
-
-    /// Layer `into` now holds `dir` as this directory, marked opaque, so no
-    /// Layer below shows here any more.
-    pub(super) fn inode_replace(&self, into: usize, dir: &OverlayPath) {
-        let mut level = lock(&self.level);
-        level.fill(None);
-        level[into] = Some(dir.clone());
     }
 
     /// The Layer's dentry this file answers through.
@@ -89,19 +83,11 @@ pub(super) fn ovl_inode(
     Ok(downcast(inode.private().get_or_init(|| made).clone()))
 }
 
-/// Whether the entry `dentry` records keeps its state already.
-pub(super) fn ovl_inode_is_kept(dentry: &Dentry) -> bool {
-    dentry
-        .inode()
-        .is_some_and(|inode| inode.private().get().is_some())
-}
-
-/// Keep on `inode` the Layer's dentry its lookup found, as `ovl_lookup` keeps
-/// each real dentry.
-pub(super) fn ovl_inode_real(inode: &Inode, real: Arc<Dentry>) {
-    inode
-        .private()
-        .get_or_init(|| Arc::new(OverlayInode::new(Vec::new(), Some(real))));
+/// Keep on `inode` what its lookup found, as `ovl_inode_init` takes it from
+/// `ovl_lookup` under the directory's lock, so a name moved meanwhile cannot
+/// have the entry stand for another.
+pub(super) fn ovl_inode_init(inode: &Inode, kept: OverlayInode) {
+    inode.private().get_or_init(|| Arc::new(kept));
 }
 
 /// The state `inode` keeps, where it keeps any.
