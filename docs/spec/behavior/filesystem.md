@@ -1754,3 +1754,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind directory the runtime found, which the host then removed |
 | When | the directory is opened |
 | Then | the open answers ENOENT, as Linux's opens answer what `f_op->open` answered |
+
+## `FS-167` A directory the host replaced is not walked to in its place
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-136`, `FS-156` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind directory the runtime found, not yet opened on the host |
+| When | the host moves it away and makes another at its name, and the runtime asks about it |
+| Then | the call answers ENOENT rather than what stands there now |
