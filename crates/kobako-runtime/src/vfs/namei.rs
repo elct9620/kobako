@@ -223,14 +223,16 @@ pub(crate) fn lookup_slow(
     name: &str,
 ) -> Result<(String, Arc<Dentry>), FilesystemError> {
     let given = lookup_one(sb, dir, parent, name)?;
-    match given.lookup_inode(dir)? {
-        None => Ok((name.to_string(), given)),
+    let (stored, dentry) = match given.lookup_inode(dir)? {
+        None => (name.to_string(), given),
         Some(stored) => {
             let dentry = lookup_one(sb, dir, parent, &stored)?;
             dentry.lookup_inode(dir)?;
-            Ok((stored, dentry))
+            (stored, dentry)
         }
-    }
+    };
+    sb.dentries().retain(&dentry);
+    Ok((stored, dentry))
 }
 
 /// One name of a path still to walk, and whether a link's target named it.
@@ -1943,6 +1945,74 @@ mod tests {
             ],
             "vfs::filename_mkdirat and filename_symlinkat must answer EINVAL for a NUL, \
              ENAMETOOLONG for a path that fits no PATH_MAX, and ENOENT for an empty path or target"
+        );
+    }
+
+    /// A directory holding `file`, counting each lookup of it, whose names go
+    /// once nothing holds them where `deleted` says.
+    #[derive(Clone)]
+    struct CountsLookups {
+        looked_up: Arc<AtomicUsize>,
+        deleted: bool,
+    }
+
+    impl DentryOperations for CountsLookups {
+        fn revalidate(
+            &self,
+            _dir: &dyn InodeOperations,
+            _dentry: &Dentry,
+        ) -> Result<bool, FilesystemError> {
+            Ok(true)
+        }
+
+        fn delete(&self, _dentry: &Dentry) -> bool {
+            self.deleted
+        }
+    }
+
+    impl InodeOperations for CountsLookups {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            let kind = match dentry.parent() {
+                Some(_) => crate::filesystem::FileType::File,
+                None => crate::filesystem::FileType::Directory,
+            };
+            Ok(Metadata::new(kind, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            self.looked_up.fetch_add(1, Ordering::SeqCst);
+            let file = Metadata::new(crate::filesystem::FileType::File, 0);
+            Some(Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone())))))
+        }
+
+        fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+            Some(Arc::new(self.clone()))
+        }
+    }
+
+    /// How many lookups two stats of one name, with nothing held between, ask
+    /// of a Filesystem answering `deleted`.
+    fn lookups_of_two_stats(deleted: bool) -> usize {
+        let looked_up = Arc::new(AtomicUsize::new(0));
+        let root = root_of(Filesystem::new(Arc::new(CountsLookups {
+            looked_up: looked_up.clone(),
+            deleted,
+        })));
+        for _ in 0..2 {
+            vfs::vfs_fstatat(&Arc::default(), &root, "file", false)
+                .unwrap_or_else(|_| panic!("the file must stand"));
+        }
+        looked_up.load(Ordering::SeqCst)
+    }
+
+    // @behavior RT-216
+    #[test]
+    fn a_name_found_standing_stays_unless_its_filesystem_lets_it_go() {
+        assert_eq!(
+            (lookups_of_two_stats(false), lookups_of_two_stats(true)),
+            (1, 2),
+            "two vfs::vfs_fstatat of one name with nothing held between must look it up once, \
+             and twice where DentryOperations::delete lets it go"
         );
     }
 

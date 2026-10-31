@@ -506,6 +506,12 @@ impl DentryOperations for RubyFilesystem {
             Err(err) => Err(err),
         }
     }
+
+    /// Answering whether a name holds costs a `stat`, as finding it does, so
+    /// nothing is gained by keeping it, as FUSE's `entry_timeout=0` keeps none.
+    fn delete(&self, _dentry: &Dentry) -> bool {
+        true
+    }
 }
 
 impl RubyFile {

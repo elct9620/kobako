@@ -168,6 +168,20 @@ impl DentryOperations for Overlay {
         }
         Ok(true)
     }
+
+    /// A name goes once nothing holds it where any Layer behind it would let
+    /// its own go, since its `revalidate` answers only as those Layers do.
+    fn delete(&self, dentry: &Dentry) -> bool {
+        let Some(kept) = dentry.inode().as_deref().and_then(ovl_inode_of) else {
+            return true;
+        };
+        let real = kept.real().is_some_and(|real| real.goes_when_unused());
+        real || kept
+            .level()
+            .iter()
+            .flatten()
+            .any(|layer| layer.dentry().goes_when_unused())
+    }
 }
 
 /// A file of the view, or an entry a Layer holds that is none of the others, as

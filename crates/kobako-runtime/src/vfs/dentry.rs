@@ -1,12 +1,16 @@
 //! The names of one Filesystem a walk has reached, each kept by the
 //! directory above it and its name there while something holds it, as
 //! Linux's dentries are: a directory moved through the VFS takes every one
-//! beneath it along, and one removed or replaced through it is dead. Only a
-//! name something holds keeps what a lookup found, so the table is no cache
-//! of lookups.
+//! beneath it along, and one removed or replaced through it is dead. A name
+//! found standing stays for the next walk, as Linux's dcache keeps it, up to a
+//! bound; the walk asks `revalidate` before trusting it, so what changed behind
+//! the runtime's back is found again.
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+
+use lru::LruCache;
 
 use super::file::FileOperations;
 use super::inode::{Inode, InodeOperations, Lookup};
@@ -27,7 +31,17 @@ pub trait DentryOperations: Send + Sync {
         dir: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError>;
+
+    /// Whether `dentry` goes once nothing holds it, rather than stay for the
+    /// next walk, as `d_delete` answers. A name whose `revalidate` cannot tell
+    /// a change must answer `true`, since it would be trusted when reached again.
+    fn delete(&self, _dentry: &Dentry) -> bool {
+        false
+    }
 }
+
+/// The most names a Filesystem keeps that nothing holds.
+const MAX_CACHED_DENTRIES: NonZeroUsize = NonZeroUsize::new(1024).expect("the bound is not zero");
 
 /// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
 /// parents answers where the dentry stood at one instant.
@@ -179,6 +193,12 @@ impl Dentry {
         &self.fsdata
     }
 
+    /// Whether this goes once nothing holds it, as `d_delete` answers; a name
+    /// no one answers for stays.
+    pub(crate) fn goes_when_unused(&self) -> bool {
+        self.ops.as_ref().is_some_and(|ops| ops.delete(self))
+    }
+
     /// Whether both names stand for one entry, as hard links do, which Linux's
     /// `vfs_rename` answers as having nothing to move, comparing `source ==
     /// target`. A Filesystem naming no identity cannot tell.
@@ -310,6 +330,9 @@ pub(crate) struct Dentries {
     /// The directories held, by the directory above and the name there, as
     /// Linux's `dentry_hashtable` keeps them.
     hashtable: Mutex<Hashtable<(usize, String), Dentry>>,
+    /// The names kept for the next walk, most recently found last, as Linux's
+    /// `d_lru`, each by its address.
+    lru: Mutex<LruCache<usize, Arc<Dentry>>>,
 }
 
 fn key(parent: &Arc<Dentry>, name: &str) -> (usize, String) {
@@ -322,7 +345,26 @@ impl Dentries {
             root: Dentry::new(None, "", ops.clone()),
             ops,
             hashtable: Mutex::default(),
+            lru: Mutex::new(LruCache::new(MAX_CACHED_DENTRIES)),
         }
+    }
+
+    fn lru(&self) -> MutexGuard<'_, LruCache<usize, Arc<Dentry>>> {
+        self.lru.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Keep `dentry`, which a lookup found standing, for the next walk, unless
+    /// its Filesystem lets it go, as `dput` adds a dentry `d_delete` allows to
+    /// the LRU. What this pushes out goes once the table is let go of, as its
+    /// release may reach another Filesystem.
+    pub(crate) fn retain(&self, dentry: &Arc<Dentry>) {
+        if dentry.inode().is_none() || dentry.goes_when_unused() {
+            return;
+        }
+        let pushed_out = self
+            .lru()
+            .push(Arc::as_ptr(dentry) as usize, dentry.clone());
+        drop(pushed_out);
     }
 
     fn hashtable(&self) -> MutexGuard<'_, Hashtable<(usize, String), Dentry>> {
@@ -370,6 +412,8 @@ impl Dentries {
     /// Take `dentry` out of the table, so the next lookup of its name
     /// makes another, as Linux's `d_drop` unhashes one.
     pub(crate) fn drop(&self, dentry: &Arc<Dentry>) {
+        let kept = self.lru().pop(&(Arc::as_ptr(dentry) as usize));
+        drop(kept);
         let mut table = self.hashtable();
         let Some(parent) = dentry.state().parent.clone() else {
             return;

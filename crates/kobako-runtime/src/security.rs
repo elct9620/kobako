@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use crate::mount::{Mount, Policy};
 use crate::vfs::{
-    Access, Cred, Denial, Error, FileType, FilesystemError, Lookup, Path, SecurityOperations,
-    VfsMount, PATH_MAX,
+    Access, Cred, Denial, Error, FileType, FilesystemError, Path, SecurityOperations, VfsMount,
+    PATH_MAX,
 };
 
 /// What every Invocation holds to, whatever its Mounts allow.
@@ -114,21 +114,20 @@ impl SecurityOperations for MountPolicy {
     /// Refuse a call through a directory unless its dentry still names what
     /// the runtime opened there, so the Policy judges the path it stands at.
     /// A dentry dropped or removed is refused as Linux's AppArmor refuses an
-    /// unlinked one; one held is asked of the directory above through
-    /// `revalidate`, walking there from the root as gVisor's `revalidatePath`
-    /// walks; and one whose identity the runtime never learned cannot be told
-    /// from another, so it is refused too. Linux asks nothing of the dentry a
-    /// walk starts from; this keeps a host or another Filesystem instance
-    /// moving a directory behind the runtime's back from having a Policy judge
-    /// a path it no longer stands at.
+    /// unlinked one; one held is asked through `revalidate`, each name from the
+    /// root down, as gVisor's `revalidatePath` walks; and one whose identity the
+    /// runtime never learned cannot be told from another, so it is refused too.
+    /// Linux asks nothing of the dentry a walk starts from; this keeps a host or
+    /// another Filesystem instance moving a directory behind the runtime's back
+    /// from having a Policy judge a path it no longer stands at.
     fn path_walk(&self, path: &Path) -> Result<(), Error> {
         if !self.guards(path.mnt()) {
             return Ok(());
         }
         let dentry = path.dentry();
-        let Some(parent) = dentry.parent() else {
+        if dentry.parent().is_none() {
             return Ok(());
-        };
+        }
         let sb = path.mnt().sb();
         let dentries = sb.dentries();
         let told_apart = dentry
@@ -140,34 +139,20 @@ impl SecurityOperations for MountPolicy {
         let Some(ops) = dentry.ops() else {
             return Ok(());
         };
-        let mut above = Vec::new();
-        let mut at = Some(parent);
-        while let Some(next) = at {
-            at = next.parent();
-            above.push(next);
+        let mut chain = vec![dentry.clone()];
+        while let Some(above) = chain.last().and_then(|at| at.parent()) {
+            chain.push(above);
         }
-        let mut dir = sb.root().clone();
-        for ancestor in above.iter().rev().skip(1) {
-            dir = match dir.lookup(ancestor) {
-                Some(Ok(Lookup::Found(inode))) if inode.kind() == FileType::Directory => {
-                    inode.ops().clone()
-                }
-                Some(Err(err))
-                    if !matches!(
-                        err,
-                        FilesystemError::NotFound | FilesystemError::NotADirectory
-                    ) =>
-                {
-                    return Err(err.into())
-                }
-                _ => return Err(FilesystemError::NotFound.into()),
-            };
+        // Each name is asked in the directory above, already found to stand.
+        for pair in chain.windows(2).rev() {
+            let [name, above] = pair else { continue };
+            let inode = above.inode().ok_or(FilesystemError::NotFound)?;
+            if !ops.revalidate(inode.ops().as_ref(), name)? {
+                dentries.invalidate(name);
+                return Err(FilesystemError::NotFound.into());
+            }
         }
-        if ops.revalidate(dir.as_ref(), dentry)? {
-            return Ok(());
-        }
-        dentries.invalidate(dentry);
-        Err(FilesystemError::NotFound.into())
+        Ok(())
     }
 }
 

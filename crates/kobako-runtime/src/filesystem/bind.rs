@@ -171,33 +171,28 @@ impl Bind {
         Ok(Box::new(BindFile { file }))
     }
 
-    /// Whether the entry `dentry` recorded still stands where the dentry
-    /// does, walked to from the root by the names it stands at.
+    /// Whether the entry `dentry` recorded still stands at its name in the
+    /// directory above, as a walk asks each name once the one above it stood.
+    /// A host may reuse an inode number for what it made in its place, so the
+    /// kind must match too, as NFS compares a file handle's attributes.
     fn stands_as_recorded(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-        let Some(identity) = dentry.inode().and_then(|inode| inode.identity()) else {
+        let Some(inode) = dentry.inode().filter(|inode| inode.identity().is_some()) else {
             return Ok(true);
         };
-        let path = dentry.path_raw();
-        let names: Vec<String> = path.split('/').map(String::from).collect();
-        let Some((name, above)) = names.split_last() else {
-            return Ok(true);
-        };
-        let gone = |err: FilesystemError| match err {
-            FilesystemError::NotFound
-            | FilesystemError::NotADirectory
-            | FilesystemError::FilesystemLoop => Ok(false),
-            err => Err(err),
-        };
-        let parent = match above {
-            [] => self.root.clone(),
-            above => match walk::walk(&self.root, above) {
-                Ok(parent) => Arc::new(parent),
-                Err(err) => return gone(err),
-            },
-        };
-        match parent.symlink_metadata(name).map_err(to_error) {
-            Ok(found) => Ok(Identity::of(&to_metadata(found)) == Some(identity)),
-            Err(err) => gone(err),
+        let found = self.at(dentry, |dir, name| {
+            dir.symlink_metadata(name).map_err(to_error)
+        });
+        match found {
+            Ok(found) => {
+                let found = to_metadata(found);
+                Ok(Identity::of(&found) == inode.identity() && found.file_type == inode.kind())
+            }
+            Err(
+                FilesystemError::NotFound
+                | FilesystemError::NotADirectory
+                | FilesystemError::FilesystemLoop,
+            ) => Ok(false),
+            Err(err) => Err(err),
         }
     }
 
@@ -431,7 +426,8 @@ fn open_in(
 /// The host may move or remake what a dentry names behind the runtime's
 /// back, so a dentry recording an identity is valid only while the same
 /// entry stands at the path it stands for, as NFS compares the handle a
-/// fresh lookup finds. One recording none has nothing to compare.
+/// fresh lookup finds. One recording none has nothing to compare, so nothing
+/// keeps it once its holder lets go.
 impl DentryOperations for Bind {
     fn revalidate(
         &self,
@@ -439,6 +435,12 @@ impl DentryOperations for Bind {
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
         self.stands_as_recorded(dentry)
+    }
+
+    fn delete(&self, dentry: &Dentry) -> bool {
+        dentry
+            .inode()
+            .is_none_or(|inode| inode.identity().is_none())
     }
 }
 
@@ -759,6 +761,46 @@ mod tests {
             "vfs::do_file_open 200 directories beneath a Bind must land and keep at most 64 of \
              them open, keeping {}",
             bind.fids.len()
+        );
+    }
+
+    // Nothing holds `x` between the two opens, so only a walk asking whether
+    // the name it kept still stands finds the directory gone from beneath the
+    // Mount, rather than following what it kept out through the moved one.
+    // @behavior FS-161
+    #[cfg(unix)]
+    #[test]
+    fn a_name_kept_for_the_next_walk_reaches_nothing_the_host_moved_out() {
+        use crate::vfs::{self, OpenHow, Path as VfsPath};
+        let host = HostDir::new("kept-name");
+        fs::create_dir_all(host.0.join("m/x")).expect("the host tree must be made");
+        fs::create_dir(host.0.join("outside")).expect("the host tree must be made");
+        fs::write(host.0.join("m/x/secret"), "s").expect("the host file must be written");
+        let mount = crate::mount::Mount::new(
+            "/data",
+            crate::filesystem::Filesystem::new(Arc::new(
+                Bind::new(host.0.join("m")).expect("the host directory must open"),
+            )),
+            crate::mount::Access::Read,
+        )
+        .expect("/data is a guest path");
+        let root = VfsPath::root(mount.mnt());
+        let cred = crate::security::prepare_creds([&mount]);
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let open = || vfs::do_file_open(&cred, &root, "x/secret", &read).err();
+        let before = open();
+        fs::rename(host.0.join("m/x"), host.0.join("outside/x")).expect("the host must move it");
+        assert_eq!(
+            (before, open()),
+            (
+                None,
+                Some(vfs::Error::Filesystem(FilesystemError::NotFound))
+            ),
+            "vfs::do_file_open through a name kept since the last walk, once the host moved it \
+             out of the Mount, must answer ENOENT"
         );
     }
 
