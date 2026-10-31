@@ -105,6 +105,7 @@ const PATHS: &[&str] = &[
     "",
     ".",
     "a/",
+    "g",
     "l/",
     "n/",
     "g/",
@@ -410,6 +411,7 @@ fn wasmtime_wasi_preopen(host: &HostDir) -> (Store<WasiP1Ctx>, Linker<WasiP1Ctx>
 }
 
 const ERRNO_BUSY: i32 = 10;
+const ERRNO_EXIST: i32 = 20;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_ISDIR: i32 = 31;
 const ERRNO_LOOP: i32 = 32;
@@ -421,7 +423,6 @@ const ERRNO_NOTSUP: i32 = 58;
 const ERRNO_PERM: i32 = 63;
 const ERRNO_NOTCAPABLE: i32 = 76;
 
-/// Whether `path` reaches above the root it is resolved beneath.
 /// Whether `path` takes a `..`, or ends in a `.`, right after one of the
 /// host directory's links.
 fn steps_out_of_a_link(path: &str) -> bool {
@@ -434,6 +435,17 @@ fn steps_out_of_a_link(path: &str) -> bool {
         }
 }
 
+/// Whether `call` acts on the last name of `path` rather than land on it, a
+/// `.` or `..` there taking the walk nowhere, as Linux's `LOOKUP_PARENT` leaves
+/// it.
+fn acts_on_a_dot(call: Call, path: &str) -> bool {
+    matches!(
+        call,
+        Call::Mkdir | Call::Rmdir | Call::Unlink | Call::RenameFrom | Call::RenameTo
+    ) && matches!(path.rsplit('/').next(), Some("." | ".."))
+}
+
+/// Whether `path` reaches above the root it is resolved beneath.
 fn escapes(path: &str) -> bool {
     let mut depth = 0usize;
     path.starts_with('/')
@@ -479,8 +491,22 @@ fn predict(call: Call, path: &str, mut oracle: Observation) -> Observation {
         tree: HostDir::new().tree(),
     };
     let refused_first = matches!(oracle.errno, Some(ERRNO_BUSY | ERRNO_INVAL | ERRNO_NOTSUP));
-    if steps_out_of_a_link(path) && !refused_first {
+    if steps_out_of_a_link(path) && acts_on_a_dot(call, path) {
+        match call {
+            Call::Mkdir => return refused(ERRNO_EXIST),
+            Call::Unlink => return refused(ERRNO_ISDIR),
+            _ => {}
+        }
+    } else if steps_out_of_a_link(path) && !refused_first {
         return refused(ERRNO_LOOP);
+    }
+    // A file made through a link at the end would tell where the link points,
+    // so kobako refuses it, where wasmtime-wasi makes it.
+    if let Call::Open { oflags, .. } = call {
+        if path == "g" && oflags & OFLAGS_CREAT != 0 && oflags & OFLAGS_EXCL == 0 && !refused_first
+        {
+            return refused(ERRNO_LOOP);
+        }
     }
     if escapes(path) && oracle.errno == Some(ERRNO_PERM) {
         oracle.errno = Some(ERRNO_NOTCAPABLE);

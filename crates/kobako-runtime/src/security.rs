@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use crate::mount::{Mount, Policy};
 use crate::vfs::{
-    Access, Cred, Denial, Error, FileType, FilesystemError, Path, SecurityOperations, VfsMount,
-    PATH_MAX,
+    Access, Cred, Denial, Dentry, Error, FileType, FilesystemError, Path, SecurityOperations,
+    VfsMount, PATH_MAX,
 };
 
 /// What every Invocation holds to, whatever its Mounts allow.
@@ -103,9 +103,16 @@ impl SecurityOperations for MountPolicy {
 
     /// Everything beneath a directory would take paths the Policy never
     /// judged, so its move is refused as one across devices and the guest
-    /// copies entry by entry instead, as Landlock refuses such a move.
-    fn path_rename(&self, mnt: &Arc<VfsMount>, is_dir: bool) -> Result<(), FilesystemError> {
-        match is_dir && self.guards(mnt) {
+    /// copies entry by entry instead, as Landlock refuses such a move. A move
+    /// onto its own name takes no new path.
+    fn path_rename(
+        &self,
+        mnt: &Arc<VfsMount>,
+        old: &Arc<Dentry>,
+        new: &Arc<Dentry>,
+    ) -> Result<(), FilesystemError> {
+        let moves_dir = old.kind() == Ok(FileType::Directory) && !Arc::ptr_eq(old, new);
+        match moves_dir && self.guards(mnt) {
             true => Err(FilesystemError::CrossesDevices),
             false => Ok(()),
         }

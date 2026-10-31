@@ -29,9 +29,12 @@ use super::PATH_MAX;
 /// The most links one walk follows, as Linux's.
 const MAXSYMLINKS: usize = 40;
 
-/// Whether a path asks for a directory, ending in `/` or `/.`.
-pub(crate) fn names_directory(path: &str) -> bool {
-    matches!(path.rsplit('/').next(), Some("" | "."))
+/// What the last name of a path is, as Linux's `nd->last_type`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LastType {
+    Norm,
+    Dot,
+    DotDot,
 }
 
 /// A path walked beneath a directory, as Linux's `nameidata` carries
@@ -46,14 +49,23 @@ pub(crate) struct Nameidata {
     frames: Vec<Frame>,
     pending: VecDeque<Part>,
     links: usize,
+    /// The last name, as Linux's `nd->last`, empty unless it is a `Norm` one.
     pub(crate) name: String,
+    last_type: LastType,
+    /// Whether a `/` follows the last name, as `nd->last.name[nd->last.len]`.
+    trailing_slash: bool,
+    /// Whether a link's target named the last name.
+    last_from_link: bool,
     /// The dentry the walk looked `name` up on, kept for as long as the
     /// walk runs, as Linux's `nameidata` holds what it found, so what the
     /// lookup recorded there is what the call acts on.
     last: Option<Arc<Dentry>>,
-    /// Whether the path ended in `/` or `/.`, which only a directory
-    /// satisfies.
-    pub(crate) names_directory: bool,
+    /// Whether only a directory satisfies the path, as `LOOKUP_DIRECTORY`,
+    /// which stays once a trailing `/` sets it, through any link it follows.
+    lookup_directory: bool,
+    /// Whether the call acts on the last name rather than land on it, as
+    /// `LOOKUP_PARENT`, so a `.` or `..` there takes the walk nowhere.
+    lookup_parent: bool,
     /// What kind of entry stands at `name`, a link reported as itself, once
     /// asked.
     found: Option<Result<FileType, FilesystemError>>,
@@ -71,7 +83,7 @@ impl Nameidata {
     /// up afresh, as a change looks its name up again once it holds the
     /// directory's lock.
     pub(crate) fn child(&self) -> Result<Arc<Dentry>, FilesystemError> {
-        self.child_of(&self.name)
+        lookup_one(self.mnt.sb(), self.dentry(), &self.name)
     }
 
     /// The dentry the walk ended on, as Linux's `do_open` and `vfs_getattr`
@@ -84,16 +96,25 @@ impl Nameidata {
         }
     }
 
-    /// The dentry of `name` in the directory the walk stands in.
-    fn child_of(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        lookup_one(self.mnt.sb(), self.dentry(), name)
+    /// `name` as the directory the walk stands in stores it, and the dentry of
+    /// that spelling, what stands there recorded on it. The caller holds that
+    /// directory's lock. A directory removed through the VFS holds no name any
+    /// more, as Linux's lookup in a dead directory finds nothing.
+    fn lookup_slow(&self, name: &str) -> Result<(String, Arc<Dentry>), FilesystemError> {
+        if self.dentry().is_deaddir() {
+            return Err(FilesystemError::NotFound);
+        }
+        lookup_slow(self.mnt.sb(), self.dentry(), name)
     }
 
-    /// `name` as the directory the walk stands in stores it, and the
-    /// dentry of that spelling, what stands there recorded on it. The
-    /// caller holds that directory's lock.
-    fn lookup_slow(&self, name: &str) -> Result<(String, Arc<Dentry>), FilesystemError> {
-        lookup_slow(self.mnt.sb(), self.dentry(), name)
+    /// Find the last name afresh and keep what stands there, as a call looks
+    /// its name up once it holds the directory's lock.
+    fn lookup_last_locked(&mut self) -> Result<Arc<Dentry>, FilesystemError> {
+        let (stored, child) = self.lookup_slow(&self.name)?;
+        self.name = stored;
+        self.found = Some(child.kind());
+        self.last = Some(child.clone());
+        Ok(child)
     }
 
     /// What kind of entry stands at the name, a link reported as itself,
@@ -139,9 +160,9 @@ impl Nameidata {
     }
 
     /// Refuse the name as `NotADirectory` when it must be a directory and
-    /// something else stands there.
-    pub(crate) fn check_directory(&mut self) -> Result<(), Error> {
-        if self.names_directory {
+    /// something else stands there, as `LOOKUP_DIRECTORY` asks `d_can_lookup`.
+    fn check_directory(&mut self) -> Result<(), Error> {
+        if self.lookup_directory {
             match self.kind() {
                 Ok(FileType::Directory) | Err(FilesystemError::NotFound) => {}
                 Ok(_) => return Err(FilesystemError::NotADirectory.into()),
@@ -307,61 +328,91 @@ impl Nameidata {
         Ok(())
     }
 
-    /// Whether a final `.` after `name` stands in the directory there, `false`
-    /// for a link the security hooks let the walk go on through.
-    fn stays_in(&self, name: &str) -> Result<bool, Error> {
-        let _held = self.dentry().inode_lock_shared()?;
-        match self.lookup_slow(name)?.1.getattr()?.file_type {
-            FileType::Directory => Ok(true),
-            FileType::Symlink => {
-                self.cred.security_path_step_out_of_link()?;
-                Ok(false)
+    /// Walk every name but the last, which is left for the call to act on, as
+    /// Linux's `link_path_walk` leaves `nd->last` and `nd->last_type`.
+    fn link_path_walk(&mut self) -> Result<(), Error> {
+        loop {
+            let part = self.pending.pop_front().ok_or(FilesystemError::NotFound)?;
+            if part.name.is_empty() {
+                if self.pending.is_empty() {
+                    self.set_last("", part.from_link, true);
+                    return Ok(());
+                }
+                continue;
             }
-            _ => Err(FilesystemError::NotADirectory.into()),
+            let slashes = self
+                .pending
+                .iter()
+                .take_while(|rest| rest.name.is_empty())
+                .count();
+            self.pending.drain(..slashes);
+            if self.pending.is_empty() {
+                self.set_last(&part.name, part.from_link, slashes > 0);
+                return Ok(());
+            }
+            match part.name.as_str() {
+                "." => {}
+                ".." => self.follow_dotdot(part.from_link)?,
+                _ => {
+                    let lands = !self.lookup_parent
+                        || self
+                            .pending
+                            .iter()
+                            .skip(1)
+                            .any(|rest| !rest.name.is_empty());
+                    let dot = lands && matches!(self.pending[0].name.as_str(), "." | "..");
+                    self.walk_component(part, dot)?;
+                }
+            }
         }
     }
 
-    /// Walk every pending name but the last, which is left to act on.
-    fn link_path_walk(&mut self, mut last: Option<Part>) -> Result<Option<Part>, Error> {
-        while let Some(part) = self.pending.pop_front() {
-            let trailing = !part.from_link
-                && self
-                    .pending
-                    .iter()
-                    .all(|rest| !rest.from_link && matches!(rest.name.as_str(), "" | "."));
-            match part.name.as_str() {
-                "" | "." if trailing => {
-                    let through_link = match (part.name.as_str(), &last) {
-                        (".", Some(name)) => !self.stays_in(&name.name)?,
-                        _ => false,
-                    };
-                    if let Some(name) = last.take_if(|_| through_link) {
-                        self.pending.push_front(part);
-                        self.walk_component(name, false)?;
-                    }
-                }
-                "" | "." | ".." => {
-                    if let Some(name) = last.take() {
-                        let dot = !part.name.is_empty();
-                        self.pending.push_front(part);
-                        self.walk_component(name, dot)?;
-                        continue;
-                    }
-                    if part.name == ".." {
-                        self.follow_dotdot(part.from_link)?;
-                    }
-                }
-                _ => {
-                    if let Some(name) = last.take() {
-                        self.pending.push_front(part);
-                        self.walk_component(name, false)?;
-                        continue;
-                    }
-                    last = Some(part);
-                }
+    /// Leave `name` as the last name of the walk, with what kind it is.
+    fn set_last(&mut self, name: &str, from_link: bool, trailing_slash: bool) {
+        self.last_type = match name {
+            "" | "." => LastType::Dot,
+            ".." => LastType::DotDot,
+            _ => LastType::Norm,
+        };
+        self.name = match self.last_type {
+            LastType::Norm => name.to_string(),
+            _ => String::new(),
+        };
+        self.last_from_link = from_link;
+        self.trailing_slash = trailing_slash;
+    }
+
+    /// Find what the last name stands for, as Linux's `lookup_last` does: a
+    /// trailing `/` follows a link there and asks for a directory, and a link
+    /// followed leaves another last name to find. A trailing `/` refuses a file
+    /// `creating` would make, as `lookup_fast_for_open` refuses it.
+    fn lookup_last(&mut self, mut follow: bool, creating: bool) -> Result<(), Error> {
+        loop {
+            match self.last_type {
+                LastType::Dot => return Ok(()),
+                LastType::DotDot => return self.follow_dotdot(self.last_from_link),
+                LastType::Norm => {}
             }
+            if self.trailing_slash {
+                if creating {
+                    return Err(FilesystemError::IsADirectory.into());
+                }
+                follow = true;
+                self.lookup_directory = true;
+            }
+            let parent = self.dentry().clone();
+            let held = parent.inode_lock_shared()?;
+            let child = self.lookup_last_locked()?;
+            if !follow || child.kind() != Ok(FileType::Symlink) {
+                return Ok(());
+            }
+            self.pick_link(&child)?;
+            drop(held);
+            self.followed_link = true;
+            self.last = None;
+            self.found = None;
+            self.link_path_walk()?;
         }
-        Ok(last)
     }
 }
 
@@ -382,23 +433,16 @@ fn getname(path: &str) -> Result<(), FilesystemError> {
     Ok(())
 }
 
-/// `path`, beneath `start`. An empty path names nothing; an absolute path
-/// or a `..` above `start` itself is not the caller's to reach; a `..` or a
-/// final `.` after a component that is missing, no directory, or a link is
-/// `NotFound`, `NotADirectory`, or what the security hooks answer. Where
-/// `follow` asks, a link at the end is followed too.
-pub(crate) fn filename_lookup(
-    cred: &Arc<Cred>,
-    start: &Path,
-    path: &str,
-    follow: bool,
-) -> Result<Nameidata, Error> {
+/// The walk of `path` beneath `start`, ready to begin, as Linux's
+/// `set_nameidata` and `path_init` make one. An empty path names nothing, and an
+/// absolute one is not the caller's to reach.
+fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata, Error> {
     getname(path)?;
     cred.security_path_walk(start)?;
     if path.starts_with('/') {
         return Err(Error::Escape);
     }
-    let mut nd = Nameidata {
+    Ok(Nameidata {
         mnt: start.mnt().clone(),
         cred: cred.clone(),
         frames: vec![Frame {
@@ -408,44 +452,40 @@ pub(crate) fn filename_lookup(
         pending: parts(path, false),
         links: 0,
         name: String::new(),
+        last_type: LastType::Dot,
+        trailing_slash: false,
+        last_from_link: false,
         last: None,
-        names_directory: names_directory(path),
+        lookup_directory: false,
+        lookup_parent: false,
         found: None,
         followed_link: false,
-    };
-    let mut last = nd.link_path_walk(None)?;
-    let mut found = None;
-    while let Some(name) = last.as_ref().filter(|_| follow) {
-        let parent = nd.dentry().clone();
-        let held = parent.inode_lock_shared()?;
-        let (stored, dentry) = nd.lookup_slow(&name.name)?;
-        let looked_up = dentry.kind();
-        if looked_up != Ok(FileType::Symlink) {
-            found = Some(looked_up);
-            nd.name = stored;
-            nd.last = Some(dentry);
-            break;
-        }
-        nd.pick_link(&dentry)?;
-        drop(held);
-        nd.followed_link = true;
-        last = nd.link_path_walk(None)?;
-    }
-    if found.is_none() {
-        if let Some(part) = last {
-            let parent = nd.dentry().clone();
-            let _held = parent.inode_lock_shared()?;
-            let (stored, dentry) = nd.lookup_slow(&part.name)?;
-            nd.name = stored;
-            nd.last = Some(dentry);
-        }
-    }
-    nd.found = found;
-    // A directory removed through the VFS holds no name any more, as
-    // Linux's lookup in a dead directory finds nothing.
-    if !nd.name.is_empty() && nd.dentry().is_deaddir() {
-        return Err(FilesystemError::NotFound.into());
-    }
+    })
+}
+
+/// `path` beneath `start`, walked to the directory holding its last name, which
+/// is left unlooked up for the call to act on, as Linux's `filename_parentat`.
+/// A `..` above `start` is not the caller's to reach.
+fn filename_parentat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata, Error> {
+    let mut nd = set_nameidata(cred, start, path)?;
+    nd.lookup_parent = true;
+    nd.link_path_walk()?;
+    Ok(nd)
+}
+
+/// `path` beneath `start`, walked to what it names, as Linux's `filename_lookup`.
+/// Where `follow` asks, or a trailing `/` does, a link at the end is followed
+/// too. Nothing standing at the last name is for the call to answer.
+pub(crate) fn filename_lookup(
+    cred: &Arc<Cred>,
+    start: &Path,
+    path: &str,
+    follow: bool,
+) -> Result<Nameidata, Error> {
+    let mut nd = set_nameidata(cred, start, path)?;
+    nd.link_path_walk()?;
+    nd.lookup_last(follow, false)?;
+    nd.check_directory()?;
     Ok(nd)
 }
 
@@ -459,26 +499,19 @@ pub fn do_file_open(
     path: &str,
     how: &OpenHow,
 ) -> Result<File, Error> {
-    build_open_flags(how)?;
-    // A path ending in `/` asks for a directory, which cannot be created
-    // as a file. Linux answers it once the names before the last are
-    // walked, before it would follow a link standing at the last.
-    if path.ends_with('/') && how.create {
-        filename_lookup(cred, start, path, false)?;
-        return Err(FilesystemError::IsADirectory.into());
-    }
-    // A trailing `/` resolves a link standing there, as Linux's `open` does.
-    let follow = how.follow || names_directory(path);
-    let mut nd = filename_lookup(cred, start, path, follow)?;
+    let follow = build_open_flags(how)?;
+    let mut nd = set_nameidata(cred, start, path)?;
+    nd.link_path_walk()?;
+    nd.lookup_last(follow, how.create)?;
     // A create finds what stands at the name under the directory's lock it
     // creates under, and holds it until the file is open, as Linux's
     // `lookup_open` does, so nothing made or removed in between changes
     // what the open decided.
     let parent = nd.dentry().clone();
-    let _held = match how.create {
+    let _held = match how.create && nd.last_type == LastType::Norm {
         true => {
             let held = parent.inode_lock()?;
-            nd.found = Some(nd.child().and_then(|child| nd.look_up(&child)));
+            nd.lookup_last_locked()?;
             Some(held)
         }
         false => None,
@@ -514,12 +547,7 @@ pub fn do_file_open(
                 write: how.write,
                 truncate: how.truncate,
             };
-            // A create looked its name up afresh under the directory's lock;
-            // any other open acts on what the walk found.
-            let child = match how.create {
-                true => nd.child()?,
-                false => nd.last_dentry()?,
-            };
+            let child = nd.last_dentry()?;
             let f_op = match existing {
                 None => atomic_open(nd.dentry(), &child, &options)?,
                 Some(_) => child.open(&options)?,
@@ -578,14 +606,13 @@ pub fn filename_linkat(
     follow: bool,
 ) -> Result<(), Error> {
     let mut old = filename_lookup(cred, old_start, old_path, follow)?;
-    old.check_directory()?;
     old.kind()?;
     let target = match old.name.is_empty() {
         true => old.dentry().clone(),
         false => old.last_dentry()?,
     };
-    let new = filename_lookup(cred, new_start, new_path, false)?;
-    let (_held, child) = filename_create(&new, false)?;
+    let mut new = filename_parentat(cred, new_start, new_path)?;
+    let (_held, child) = filename_create(&mut new, false)?;
     if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
         return Err(FilesystemError::CrossesDevices.into());
     }
@@ -603,27 +630,29 @@ pub fn filename_symlinkat(
     path: &str,
 ) -> Result<(), Error> {
     getname(target)?;
-    let nd = filename_lookup(cred, start, path, false)?;
-    let (_held, child) = filename_create(&nd, false)?;
+    let mut nd = filename_parentat(cred, start, path)?;
+    let (_held, child) = filename_create(&mut nd, false)?;
     nd.security_path_perm(Access::ReadWrite)?;
     Ok(vfs_symlink(nd.dentry(), &child, target)?)
 }
 
 /// Hold the directory a name is made in and take the name's dentry, as
-/// Linux's `filename_create` does: what stands there answers before the
-/// mount refuses a change, so a call making what already stands learns so
-/// even beneath a read-only mount. A trailing `/` on anything but a directory
-/// being made finds nothing there to be one.
+/// Linux's `filename_create` does: a `.` or `..` already stands, and what stands
+/// there answers before the mount refuses a change, so a call making what
+/// already stands learns so even beneath a read-only mount. A trailing `/` on
+/// anything but a directory being made finds nothing there to be one.
 fn filename_create(
-    nd: &Nameidata,
+    nd: &mut Nameidata,
     want_dir: bool,
 ) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error> {
-    refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
+    if nd.last_type != LastType::Norm {
+        return Err(FilesystemError::AlreadyExists.into());
+    }
     let write = nd.mnt.mnt_want_write();
     let held = nd.dentry().inode_lock()?;
-    let child = nd.child()?;
+    let child = nd.lookup_last_locked()?;
     may_create_dentry(nd.dentry(), &child)?;
-    if nd.names_directory && !want_dir {
+    if nd.trailing_slash && !want_dir {
         return Err(FilesystemError::NotFound.into());
     }
     write?;
@@ -632,10 +661,10 @@ fn filename_create(
 
 /// Hold the directory a name is removed from and take the name's dentry, as
 /// Linux's `start_dirop` does before any security hook is asked.
-fn start_dirop(nd: &Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error> {
+fn start_dirop(nd: &mut Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error> {
     let held = nd.dentry().inode_lock()?;
-    let child = nd.child()?;
-    match kind_at(nd.dentry(), &child)? {
+    let child = nd.lookup_last_locked()?;
+    match child.inode() {
         Some(_) => Ok((held, child)),
         None => Err(FilesystemError::NotFound.into()),
     }
@@ -644,36 +673,44 @@ fn start_dirop(nd: &Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error>
 /// Make the directory `path` beneath `start`. A trailing `/` asks for the
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
 pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
-    let nd = filename_lookup(cred, start, path, false)?;
-    let (_held, child) = filename_create(&nd, true)?;
+    let mut nd = filename_parentat(cred, start, path)?;
+    let (_held, child) = filename_create(&mut nd, true)?;
     nd.security_path_perm(Access::ReadWrite)?;
     Ok(vfs_mkdir(nd.dentry(), &child)?)
 }
 
-/// Remove the empty directory `path` beneath `start`.
+/// Remove the empty directory `path` beneath `start`, as Linux's
+/// `filename_rmdir` does.
 pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
-    match filename_parentat(cred, start, path)? {
+    let mut nd = filename_parentat(cred, start, path)?;
+    match nd.last_type {
         LastType::Norm => {}
         LastType::Dot => return Err(FilesystemError::InvalidInput.into()),
         LastType::DotDot => return Err(FilesystemError::DirectoryNotEmpty.into()),
     }
-    let mut nd = filename_lookup(cred, start, path, false)?;
     nd.mnt.mnt_want_write()?;
-    nd.check_directory()?;
-    let (_held, child) = start_dirop(&nd)?;
+    let (_held, child) = start_dirop(&mut nd)?;
     nd.security_path_perm(Access::ReadWrite)?;
     Ok(vfs_rmdir(nd.mnt.sb(), nd.dentry(), &child)?)
 }
 
-/// Remove the file `path` beneath `start`. Linux's `unlink` follows no
-/// link at the end, so a trailing `/` is answered by the name itself: no
-/// file removes as a directory.
+/// Remove the file `path` beneath `start`, as Linux's `filename_unlinkat` does.
+/// It follows no link at the end, so a trailing `/` is answered by the name
+/// itself once it is found: no file removes as a directory.
 pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
-    let mut nd = filename_lookup(cred, start, path, false)?;
-    refuse_root(&nd.name, FilesystemError::IsADirectory)?;
+    let mut nd = filename_parentat(cred, start, path)?;
+    if nd.last_type != LastType::Norm {
+        return Err(FilesystemError::IsADirectory.into());
+    }
     nd.mnt.mnt_want_write()?;
-    nd.check_directory()?;
-    let (_held, child) = start_dirop(&nd)?;
+    let (_held, child) = start_dirop(&mut nd)?;
+    if nd.trailing_slash {
+        return Err(match child.kind() {
+            Ok(FileType::Directory) => FilesystemError::IsADirectory,
+            _ => FilesystemError::NotADirectory,
+        }
+        .into());
+    }
     nd.security_path_perm(Access::ReadWrite)?;
     Ok(vfs_unlink(nd.mnt.sb(), nd.dentry(), &child)?)
 }
@@ -689,38 +726,15 @@ pub fn filename_renameat2(
     to: &Path,
     to_path: &str,
 ) -> Result<(), Error> {
-    // Both sides are walked before anything is refused of either, as
-    // `filename_renameat2` answers a move across mounts ahead of a `.` or `..`
-    // at the end.
-    let walk = |start, path| match filename_parentat(cred, start, path)? {
-        LastType::Norm => filename_lookup(cred, start, path, false).map(Ok),
-        LastType::Dot | LastType::DotDot => Ok(Err(FilesystemError::ResourceBusy)),
-    };
-    let (source, target): (Result<_, FilesystemError>, _) =
-        (walk(from, from_path)?, walk(to, to_path)?);
+    let mut source = filename_parentat(cred, from, from_path)?;
+    let mut target = filename_parentat(cred, to, to_path)?;
     if !Arc::ptr_eq(from.mnt(), to.mnt()) {
         return Err(FilesystemError::CrossesDevices.into());
     }
-    let (mut source, mut target) = (source?, target?);
+    if source.last_type != LastType::Norm || target.last_type != LastType::Norm {
+        return Err(FilesystemError::ResourceBusy.into());
+    }
     from.mnt().mnt_want_write()?;
-    // A trailing `/` on either side asks that the source be a directory,
-    // which `rename(2)` checks before it finds a rename onto its own path
-    // leaves everything as it was. A rename moves a link rather than what
-    // it points at, so each side is checked as it stands.
-    let names_directory = source.names_directory || target.names_directory;
-    let onto_itself = Arc::ptr_eq(source.dentry(), target.dentry()) && source.name == target.name;
-    source.names_directory = names_directory;
-    source.check_directory()?;
-    if !onto_itself {
-        target.check_directory()?;
-    }
-    // A rename onto its own name changes nothing once the source stands and
-    // the hook allows it, as `vfs_rename` answers after `security_path_rename`.
-    if onto_itself {
-        source.kind()?;
-        source.security_path_perm(Access::ReadWrite)?;
-        return target.security_path_perm(Access::ReadWrite);
-    }
     let sb = from.mnt().sb();
     let rd = start_renaming(
         sb,
@@ -728,13 +742,17 @@ pub fn filename_renameat2(
         (target.dentry(), &target.name),
         None,
     )?;
-    let is_dir = source.look_up(&rd.old_dentry)? == FileType::Directory;
-    if names_directory && !is_dir {
+    source.name = rd.old_dentry.name();
+    target.name = rd.new_dentry.name();
+    // Unless the source is a directory, a trailing `/` on either side is
+    // refused, as `filename_renameat2` refuses it.
+    let is_dir = rd.old_dentry.kind()? == FileType::Directory;
+    if !is_dir && (source.trailing_slash || target.trailing_slash) {
         return Err(FilesystemError::NotADirectory.into());
     }
     source.security_path_perm(Access::ReadWrite)?;
     target.security_path_perm(Access::ReadWrite)?;
-    cred.security_path_rename(from.mnt(), is_dir)?;
+    cred.security_path_rename(from.mnt(), &rd.old_dentry, &rd.new_dentry)?;
     Ok(vfs_rename(sb, &rd)?)
 }
 
@@ -788,8 +806,8 @@ pub(crate) fn start_renaming(
     flag: Option<RenameFlag>,
 ) -> Result<RenameData, FilesystemError> {
     let _held = lock_rename(sb, old_dir, new_dir)?;
-    let old_dentry = lookup_one(sb, old_dir, old_name)?;
-    let new_dentry = lookup_one(sb, new_dir, new_name)?;
+    let old_dentry = lookup_slow(sb, old_dir, old_name)?.1;
+    let new_dentry = lookup_slow(sb, new_dir, new_name)?.1;
     if new_dir.is_subdir(&old_dentry) {
         return Err(FilesystemError::InvalidInput);
     }
@@ -863,7 +881,7 @@ pub(crate) fn vfs_rename(sb: &SuperBlock, rd: &RenameData) -> Result<(), Filesys
     let flag = rd.flag;
     let moving = kind_at(old_dir, old)?;
     let target = kind_at(new_dir, new)?;
-    if old.names_the_entry_of(new) {
+    if Arc::ptr_eq(old, new) || old.names_the_entry_of(new) {
         return Ok(());
     }
     let is_dir = moving == Some(FileType::Directory);
@@ -976,12 +994,9 @@ fn vfs_symlink(dir: &Dentry, child: &Dentry, target: &str) -> Result<(), Filesys
 
 /// What stands at `dentry` in `dir`, a link reported as itself, or `None` where
 /// nothing does, as a dentry is negative. It reads the kind the dentry records,
-/// as Linux's `d_is_*` do. A name the directory stores under another spelling
-/// has something there, of a kind not asked.
+/// as Linux's `d_is_*` do.
 fn kind_at(dir: &Dentry, dentry: &Dentry) -> Result<Option<FileType>, FilesystemError> {
-    if dentry.lookup_inode(dir)?.is_some() {
-        return Ok(Some(FileType::Unknown));
-    }
+    dentry.lookup_inode(dir)?;
     Ok(dentry.inode().map(|recorded| recorded.kind()))
 }
 
@@ -1015,43 +1030,6 @@ fn may_delete_dentry(
     }
     if dir.is_deaddir() {
         return Err(FilesystemError::NotFound);
-    }
-    Ok(())
-}
-
-/// What the last name of a path is, as Linux's `nd->last_type`.
-#[derive(Clone, Copy)]
-enum LastType {
-    Norm,
-    Dot,
-    DotDot,
-}
-
-/// What the last name of `path` is, which names no entry a call may remove or
-/// move where it is a `.` or a `..`, as `filename_parentat` tells each call.
-/// What stands before such a name is looked up first, a link there followed
-/// as one that is not the last name is, so a missing or non-directory parent
-/// answers as itself.
-fn filename_parentat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<LastType, Error> {
-    let trimmed = path.trim_end_matches('/');
-    let (parent, last) = trimmed.rsplit_once('/').unwrap_or(("", trimmed));
-    let last_type = match last {
-        "." => LastType::Dot,
-        ".." => LastType::DotDot,
-        _ => return Ok(LastType::Norm),
-    };
-    if !parent.is_empty()
-        && filename_lookup(cred, start, parent, true)?.kind()? != FileType::Directory
-    {
-        return Err(FilesystemError::NotADirectory.into());
-    }
-    Ok(last_type)
-}
-
-/// The directory a walk ended in is no name a call may make or remove.
-fn refuse_root(name: &str, refusal: FilesystemError) -> Result<(), Error> {
-    if name.is_empty() {
-        return Err(refusal.into());
     }
     Ok(())
 }

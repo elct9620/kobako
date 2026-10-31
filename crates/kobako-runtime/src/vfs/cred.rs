@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use super::dentry::Dentry;
 use super::mount::{Access, VfsMount};
 use super::path::Path;
 use super::{Error, FileType, FilesystemError};
@@ -38,9 +39,14 @@ pub trait SecurityOperations: Send + Sync {
         Ok(())
     }
 
-    /// Whether an entry beneath `mnt`, a directory where `is_dir` says, may
-    /// move.
-    fn path_rename(&self, _mnt: &Arc<VfsMount>, _is_dir: bool) -> Result<(), FilesystemError> {
+    /// Whether what `old` names beneath `mnt` may move to `new`, as
+    /// `security_path_rename` is handed both dentries.
+    fn path_rename(
+        &self,
+        _mnt: &Arc<VfsMount>,
+        _old: &Arc<Dentry>,
+        _new: &Arc<Dentry>,
+    ) -> Result<(), FilesystemError> {
         Ok(())
     }
 
@@ -111,11 +117,12 @@ impl Cred {
     pub(crate) fn security_path_rename(
         &self,
         mnt: &Arc<VfsMount>,
-        is_dir: bool,
+        old: &Arc<Dentry>,
+        new: &Arc<Dentry>,
     ) -> Result<(), FilesystemError> {
         self.security
             .iter()
-            .try_for_each(|module| module.path_rename(mnt, is_dir))
+            .try_for_each(|module| module.path_rename(mnt, old, new))
     }
 
     pub(crate) fn security_path_walk(&self, path: &Path) -> Result<(), Error> {

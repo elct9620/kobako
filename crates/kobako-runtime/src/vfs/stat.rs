@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use super::cred::Cred;
-use super::namei::{filename_lookup, names_directory};
+use super::namei::filename_lookup;
 use super::path::Path;
 use super::{Error, FilesystemError};
 
@@ -24,8 +24,7 @@ pub enum FileType {
     BlockDevice,
     /// A character device a host holds, or a whiteout, as Linux makes one.
     CharDevice,
-    /// What a platform names no kind for, or a name stored under another
-    /// spelling.
+    /// What a platform names no kind for.
     Unknown,
 }
 
@@ -112,11 +111,7 @@ pub fn vfs_fstatat(
     path: &str,
     follow: bool,
 ) -> Result<Metadata, Error> {
-    let follow = follow || names_directory(path);
     let mut nd = filename_lookup(cred, start, path, follow)?;
-    // A link the walk did not follow at the end is one swapped in since,
-    // so it is reported as itself rather than followed.
-    nd.check_directory()?;
     Ok(nd.getattr()?)
 }
 
@@ -124,7 +119,6 @@ pub fn vfs_fstatat(
 /// asks the security hook only of a link, and answers anything else invalid.
 pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<String, Error> {
     let mut nd = filename_lookup(cred, start, path, false)?;
-    nd.check_directory()?;
     if nd.kind()? != FileType::Symlink {
         return Err(FilesystemError::InvalidInput.into());
     }

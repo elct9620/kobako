@@ -33,7 +33,6 @@ pub fn do_utimes(
     times: &Iattr,
 ) -> Result<(), Error> {
     let mut nd = filename_lookup(cred, start, path, follow)?;
-    nd.check_directory()?;
     let dentry = match nd.name.is_empty() {
         true => nd.dentry().clone(),
         false => {

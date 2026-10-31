@@ -2145,6 +2145,79 @@ fn a_path_ending_in_a_dot_through_a_link_is_neither_removed_nor_moved() {
     );
 }
 
+// The dot is the last name, which these act on rather than land on, so
+// nothing of where the link points shows, and the answers are Linux's.
+// @behavior RT-219
+#[cfg(unix)]
+#[test]
+fn a_change_naming_a_dot_through_a_link_answers_as_linux() {
+    let host = LinkedHost::new("dot-change");
+    let mut guest = host.guest();
+    assert_eq!(
+        (
+            guest.call("make_dir", DIR_DOT),
+            guest.call("unlink_path", DIR_DOT),
+            host.0.join("real/inner").is_dir()
+        ),
+        (ERRNO_EXIST, ERRNO_ISDIR, true),
+        "path_create_directory and path_unlink_file of dir/., dir a host link to a directory \
+         beneath a Bind Mount, through preview1 must answer EEXIST and EISDIR, as Linux does, \
+         and leave the directory"
+    );
+}
+
+/// The root of `host` beneath a Bind Mount, as the VFS walks it.
+#[cfg(unix)]
+fn bind_root(host: &std::path::Path) -> Path {
+    let directory = Bind::new(host).expect("the host directory must open");
+    let mount = Mount::new(
+        "/data",
+        Filesystem::new(Arc::new(directory)),
+        Access::ReadWrite,
+    )
+    .expect("/data is a guest path");
+    Path::root(mount.mnt())
+}
+
+// No security module is registered, so were the link followed the file would
+// be made where it points, and only `O_EXCL` keeps that from happening.
+// @behavior RT-220
+#[cfg(unix)]
+#[test]
+fn an_exclusive_create_follows_no_link_at_the_end() {
+    let host = LinkedHost::new("excl-link");
+    let mut how = OpenHow::default();
+    how.write = true;
+    how.create = true;
+    how.exclusive = true;
+    how.follow = true;
+    let answer = vfs::do_file_open(&Arc::default(), &bind_root(&host.0), "gone", &how);
+    assert_eq!(
+        (answer.err(), host.0.join("nowhere").exists()),
+        (
+            Some(vfs::Error::Filesystem(FilesystemError::AlreadyExists)),
+            false
+        ),
+        "vfs::do_file_open with create and exclusive of a link to nothing, asking to follow it, \
+         must answer EEXIST, as Linux's O_EXCL does, and make nothing"
+    );
+}
+
+// The trailing `/` follows the link, so what is read stands at the directory,
+// where the walk that reports a link as itself would answer ENOTDIR.
+// @behavior RT-221
+#[cfg(unix)]
+#[test]
+fn a_trailing_slash_on_a_link_to_a_directory_reads_no_link() {
+    let host = LinkedHost::new("readlink-slash");
+    assert_eq!(
+        vfs::do_readlinkat(&Arc::default(), &bind_root(&host.0), "dir/").err(),
+        Some(vfs::Error::Filesystem(FilesystemError::InvalidInput)),
+        "vfs::do_readlinkat of dir/, dir a host link to a directory beneath a Bind Mount, must \
+         answer EINVAL, as Linux's does"
+    );
+}
+
 // Linux answers the trailing slash of a create before it would follow the
 // link, which points at nothing a create could make.
 // @behavior RT-162
