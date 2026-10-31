@@ -767,29 +767,31 @@ pub fn filename_renameat2(
         source.security_path(Access::ReadWrite)?;
         return target.security_path(Access::ReadWrite);
     }
-    let (old, new) = (source.child()?, target.child()?);
     let sb = from.mnt().sb();
     let (old_dir, new_dir) = (source.dentry(), target.dentry());
-    // What stands at the source, and which directory stands beneath the
-    // other, hold still once both are held, so each is asked then, as
-    // Linux's `do_renameat2` looks the source up under `lock_rename`.
-    let _held = start_renaming(sb, (old_dir, &old), (new_dir, &new), None)?;
-    let is_dir = source.look_up(&old)? == FileType::Directory;
+    let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
+    let rd = start_renaming(
+        sb,
+        (old_inode, old_dir, &source.name),
+        (new_inode, new_dir, &target.name),
+        None,
+    )?;
+    let (old, new) = (&rd.old_dentry, &rd.new_dentry);
+    let is_dir = source.look_up(old)? == FileType::Directory;
     if names_directory && !is_dir {
         return Err(FilesystemError::NotADirectory.into());
     }
     source.security_path(Access::ReadWrite)?;
     target.security_path(Access::ReadWrite)?;
     cred.security_path_rename(from.mnt(), is_dir)?;
-    let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
     Ok(vfs_rename(
         sb,
-        (old_inode, old_dir, &old),
-        (new_inode, new_dir, &new),
+        (old_inode, old_dir, old),
+        (new_inode, new_dir, new),
         None,
         || {
             old_inode
-                .rename(&old, new_inode, &new)
+                .rename(old, new_inode, new)
                 .unwrap_or(Err(FilesystemError::NotPermitted))
         },
     )?)
@@ -831,27 +833,44 @@ fn lock_rename(
     Ok(vec![rename, first, second.inode_lock()?])
 }
 
-/// Hold both directories a move of `old` to `new` changes, as Linux's
-/// `start_renaming` does through `lock_rename`, refusing a move whose
-/// source stands above its target directory, and one whose target stands
-/// above its source directory, which only an exchange may not empty.
+/// Both directories of a move held, and the dentries of its two names found
+/// under them, as Linux's `struct renamedata` carries a move once
+/// `start_renaming` returns.
+pub(crate) struct RenameData {
+    _held: Vec<RwSemaphoreGuard>,
+    pub(crate) old_dentry: Arc<Dentry>,
+    pub(crate) new_dentry: Arc<Dentry>,
+}
+
+/// Hold both directories of a move and find its names beneath them, as
+/// Linux's `start_renaming` does through `lock_rename`, so no other move
+/// changes what either name stands for before the call acts on it. A move
+/// whose source stands above its target directory is refused, and one whose
+/// target stands above its source directory, which only an exchange may not
+/// empty.
 pub(crate) fn start_renaming(
     sb: &SuperBlock,
-    (old_dir, old): (&Arc<Dentry>, &Arc<Dentry>),
-    (new_dir, new): (&Arc<Dentry>, &Arc<Dentry>),
+    (old_inode, old_dir, old_name): (&dyn InodeOperations, &Arc<Dentry>, &str),
+    (new_inode, new_dir, new_name): (&dyn InodeOperations, &Arc<Dentry>, &str),
     flag: Option<RenameFlag>,
-) -> Result<Vec<RwSemaphoreGuard>, FilesystemError> {
-    let held = lock_rename(sb, old_dir, new_dir)?;
-    if new_dir.is_subdir(old) {
+) -> Result<RenameData, FilesystemError> {
+    let _held = lock_rename(sb, old_dir, new_dir)?;
+    let old_dentry = lookup_one(sb, old_inode, old_dir, old_name)?;
+    let new_dentry = lookup_one(sb, new_inode, new_dir, new_name)?;
+    if new_dir.is_subdir(&old_dentry) {
         return Err(FilesystemError::InvalidInput);
     }
-    if old_dir.is_subdir(new) {
+    if old_dir.is_subdir(&new_dentry) {
         return Err(match flag {
             Some(RenameFlag::Exchange) => FilesystemError::InvalidInput,
             _ => FilesystemError::DirectoryNotEmpty,
         });
     }
-    Ok(held)
+    Ok(RenameData {
+        _held,
+        old_dentry,
+        new_dentry,
+    })
 }
 
 /// Hold what a move of `old` to `new` changes besides their directories, as
@@ -1145,6 +1164,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    use crate::filesystem::wrap::{self, Wrap};
     use crate::filesystem::{
         DentryOperations, DirEntry, FileOperations, Filesystem, FilesystemError, InodeOperations,
         Lookup, Metadata, OpenOptions, Tmpfs,
@@ -1908,6 +1928,100 @@ mod tests {
             ),
             "vfs::filename_unlinkat of `DIR/F` while vfs::filename_renameat2 moves `dir/f`, over a Filesystem \
              storing both as `DIR/F`, must wait for the move and then find nothing"
+        );
+    }
+
+    /// Holds a move of `k` inside its Filesystem, its directories and the
+    /// rename lock held, until told to go on.
+    struct HoldsMoveOfK {
+        reached: Mutex<mpsc::Sender<()>>,
+        go_on: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl wrap::Hook for HoldsMoveOfK {
+        fn rename(
+            &self,
+            inner: &dyn InodeOperations,
+            from: &Dentry,
+            to_dir: &dyn InodeOperations,
+            to: &Dentry,
+        ) -> Option<Result<(), FilesystemError>> {
+            if from.name() == "k" {
+                self.reached.lock().ok()?.send(()).ok()?;
+                self.go_on.lock().ok()?.recv().ok()?;
+            }
+            inner.rename(from, to_dir, to)
+        }
+    }
+
+    /// Refuses every change to the one path the move may not touch.
+    struct GuardsMoved;
+
+    impl Policy for GuardsMoved {
+        fn allows(&self, path: &str, _access: Access) -> bool {
+            path != "/data/a/moved"
+        }
+    }
+
+    // The move waits for the rename lock another move holds, having walked
+    // to `a/x`. A writer with no Policy renames it within `a` meanwhile, which
+    // takes no rename lock. A dentry taken before the wait would follow it to
+    // the name the Policy refuses, so only a name found under the lock answers
+    // ENOENT. The wait can only be slept for; a move not yet waiting is one the
+    // assertion passes on, never one it fails.
+    // @behavior RT-211
+    #[test]
+    fn a_move_acts_on_what_stands_at_its_names_once_it_holds_them() {
+        let tmpfs: Tmpfs = [("a/x", "X"), ("b/n", "n"), ("c/k", "k"), ("d/n", "n")]
+            .into_iter()
+            .collect();
+        let (reached, reaching) = mpsc::channel();
+        let (go_on, going_on) = mpsc::channel();
+        let hook = Arc::new(HoldsMoveOfK {
+            reached: Mutex::new(reached),
+            go_on: Mutex::new(going_on),
+        });
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook))),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path")
+        .with_policy(Arc::new(GuardsMoved));
+        let cred = crate::security::prepare_creds([&mount]);
+        let root = Path::root(mount.mnt());
+        let holder = {
+            let root = root.clone();
+            thread::spawn(move || {
+                vfs::filename_renameat2(&Arc::default(), &root, "c/k", &root, "d/k")
+            })
+        };
+        reaching
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the held move must reach its Filesystem");
+        let mover = {
+            let (cred, root) = (cred.clone(), root.clone());
+            thread::spawn(move || vfs::filename_renameat2(&cred, &root, "a/x", &root, "b/y"))
+        };
+        thread::sleep(Duration::from_millis(200));
+        let renamed = vfs::filename_renameat2(&Arc::default(), &root, "a/x", &root, "a/moved");
+        go_on.send(()).expect("the held move must be waiting");
+        holder
+            .join()
+            .expect("the holder must not panic")
+            .unwrap_or_else(|_| panic!("the held move must land"));
+        let moved = mover.join().expect("the mover must not panic");
+        let stands = |path| vfs::vfs_fstatat(&cred, &root, path, false).is_ok();
+        assert_eq!(
+            (renamed, moved, stands("a/moved"), stands("b/y")),
+            (
+                Ok(()),
+                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+                true,
+                false
+            ),
+            "vfs::filename_renameat2 of `a/x` that waited while another writer renamed it must \
+             answer ENOENT and leave `a/moved`, which the Policy refuses, where it stands"
         );
     }
 }

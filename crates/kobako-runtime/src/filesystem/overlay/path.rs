@@ -134,17 +134,16 @@ impl OverlayPath {
         to: &str,
         flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
-        let (old, new) = (self.child(from)?, target.child(to)?);
-        let _held = start_renaming(
+        let rd = start_renaming(
             &self.filesystem,
-            (&self.dentry, &old),
-            (&target.dentry, &new),
+            (self.dir.as_ref(), &self.dentry, from),
+            (target.dir.as_ref(), &target.dentry, to),
             flag,
         )?;
         vfs_rename(
             &self.filesystem,
-            (self.dir.as_ref(), &self.dentry, &old),
-            (target.dir.as_ref(), &target.dentry, &new),
+            (self.dir.as_ref(), &self.dentry, &rd.old_dentry),
+            (target.dir.as_ref(), &target.dentry, &rd.new_dentry),
             flag,
             || self.upper()?.rename2(from, target.upper()?, to, flag),
         )
