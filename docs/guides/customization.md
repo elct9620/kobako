@@ -361,6 +361,13 @@ gone, so a Filesystem keeps what that takes on the `Inode`. An operation an entr
 `None`, as a NULL in Linux's `inode_operations`, and the runtime answers for it as Linux's
 VFS does. One wrapping another forwards those it keeps.
 
+These two calls follow from what the runtime does itself, so a Filesystem answers them to fit.
+
+| The runtime | A Filesystem answers |
+|---|---|
+| truncates after `open`, through `setattr` with `Iattr::open` | success, if its `open` truncated |
+| keeps a name for the next walk | `DentryOperations::delete` true, if `revalidate` cannot judge it |
+
 | Method | Keeps | Without it, the runtime answers |
 |---|---|---|
 | `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | ENOTDIR, no directory to walk through |

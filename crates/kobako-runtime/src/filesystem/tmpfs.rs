@@ -684,7 +684,8 @@ impl FileOperations for TmpfsDir {
 /// A Tmpfs handed to more than one Filesystem instance changes through each,
 /// behind the others' dentries, so a dentry recording an identity is valid
 /// only while that entry stands at its name here, as NFS compares the handle
-/// a fresh lookup finds. One recording none has nothing to compare.
+/// a fresh lookup finds. One recording none has nothing to compare. Moves
+/// through two instances take no common lock, so together they are undefined.
 pub(super) struct TmpfsDentry;
 
 impl DentryOperations for TmpfsDentry {

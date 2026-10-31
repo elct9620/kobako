@@ -296,7 +296,7 @@ Bind opens only files and directories: a FIFO, socket, or device raises
 | `access: :read` unless the guest must write | a read-only Mount refuses every change |
 | a Tmpfs over a Bind | a Bind is a real host path the guest changes |
 | `size:` and `nr_inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
-| `open_file_limit:` sized against the host's own | a file holds up to two host descriptors, and a directory one per Bind Layer |
+| `open_file_limit:` sized against the host's own | host descriptors: two per file, one per directory's Layer, 64 per Bind |
 
 ### Mount Blocks
 
@@ -342,6 +342,8 @@ kobako defends a Mount against the guest and against another Sandbox's guest wri
 | a guest of another Mount of the same Filesystem | only that Mount's block judges it; a block guards its own Mount's paths |
 | the host, or a change to a Layer outside its Overlay | no crash or deadlock; the rest is the host's |
 
+A Filesystem keeps names a walk found, so one guest's walks can speed up another's. A permissive guest sharing that Filesystem may tell by timing which names were reached lately; a hermetic one has no clock.
+
 ### Host Side
 
 Some risks stay with the host, because kobako cannot see them.
@@ -365,7 +367,9 @@ Some risks stay with the host, because kobako cannot see them.
 | a host link a Ruby Filesystem's open meets on Windows | the Filesystem's to refuse, as Windows' Ruby has no `File::NOFOLLOW` |
 | a directory a Bind holds open on Windows | the host cannot move or remove it until the Bind is collected |
 | one Overlay's upper shared by another, or mounted on its own | undefined, as overlayfs leaves it; no crash or deadlock |
-| one Overlay mounted in invocations that run at once | a change in one directory or file waits for the other, past `timeout:` |
+| one Tmpfs handed to two Filesystem instances in the Rust SDK | undefined under concurrent moves, as each instance has its own locks |
+| one Filesystem mounted in invocations that run at once | a change in one directory or file waits for the other, past `timeout:` |
+| a name Windows reads as another on a Bind | refused as `Errno::EINVAL`: a stream, a device, a wildcard, or a trailing dot or space |
 
 ### Opened Directories
 

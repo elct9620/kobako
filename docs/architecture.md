@@ -213,7 +213,7 @@ The Filesystem context follows Linux's three layers: the Wasm Driver in the sysc
 ┌───────────────────────────────────────────┐
 │ VFS        kobako-runtime::vfs            │
 │ namei · dentries · inodes · vfsmount      │
-│ open files · pipes                        │
+│ open files · dentry cache                 │
 │                                           │
 │   ┌─────────────┐      ┌─────────────┐    │
 │   │ hook: cred  │      │ hook: i_op  │    │
@@ -224,7 +224,7 @@ The Filesystem context follows Linux's three layers: the Wasm Driver in the sysc
 │ Security Module     │ │ Filesystem Driver   │
 │ Policy              │ │ Tmpfs · Bind        │
 │ (kobako_runtime::   │ │ Overlay · Ruby      │
-│  security)          │ │                     │
+│  security)          │ │ pipefs              │
 └─────────────────────┘ └─────────────────────┘
 
 beneath the VFS and every Filesystem Driver:
