@@ -11,7 +11,7 @@ use super::inode::Identity;
 use super::mount::VfsMount;
 use super::openat2::{OpenHow, OpenOptions};
 use super::path::Path;
-use super::{Error, FileType, FilesystemError, Iattr, Metadata};
+use super::{Error, FileType, FilesystemError, Iattr, Metadata, PATH_MAX};
 
 /// The largest offset a file holds, where Linux's signed `loff_t` ends.
 const MAX_OFFSET: u64 = i64::MAX as u64;
@@ -221,6 +221,18 @@ impl<'a> DirContext<'a> {
     pub fn new(pos: u64, actor: &'a mut dyn FnMut(&DirEmit<'_>) -> bool) -> Self {
         Self { pos, actor }
     }
+}
+
+/// Refuse a name no directory can hold, as Linux's `verify_dirent_name` refuses
+/// what a Filesystem hands it, so a guest walking a listing is never handed a
+/// path where it was promised one name.
+fn verify_dirent_name(name: &str) -> Result<(), FilesystemError> {
+    if name.is_empty() || name.len() >= PATH_MAX || name.contains('/') {
+        return Err(FilesystemError::Other(
+            "a Filesystem listed a name no directory can hold".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// One open file or directory, as a descriptor refers to it.
@@ -664,7 +676,11 @@ impl File {
         if dentry.is_deaddir() {
             return Err(FilesystemError::NotFound.into());
         }
-        Ok(self.ops.iterate_shared(&dentry)?)
+        let entries = self.ops.iterate_shared(&dentry)?;
+        entries
+            .iter()
+            .try_for_each(|entry| verify_dirent_name(&entry.name))?;
+        Ok(entries)
     }
 
     /// What its Filesystem lists, with nothing the VFS adds, for a test of
@@ -691,6 +707,62 @@ mod tests {
     use crate::filesystem::{Filesystem, InodeOperations, Lookup, Overlay, Tmpfs};
     use crate::mount::{Access, Mount};
     use crate::vfs::Inode;
+
+    /// A directory listing one name, whatever it is.
+    struct Lists(&'static str);
+
+    impl FileOperations for Lists {
+        fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+            Ok(vec![DirEntry::new(self.0, FileType::File)])
+        }
+    }
+
+    impl InodeOperations for Lists {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::Directory, 0))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            Some(Ok(Box::new(Self(self.0))))
+        }
+    }
+
+    // A built-in Filesystem cannot hold such a name, so only one that hands it
+    // over shows the VFS is what refuses it.
+    // @behavior RT-212
+    #[test]
+    fn a_listing_refuses_a_name_no_directory_can_hold() {
+        let listed = |name| {
+            let mount = Mount::new(
+                "/data",
+                Filesystem::new(Arc::new(Lists(name))),
+                Access::Read,
+            )
+            .expect("/data is a guest path");
+            let mut root = File::root(mount.mnt(), Arc::default())
+                .unwrap_or_else(|_| panic!("the root must open"));
+            let mut names = Vec::new();
+            let answer = root.iterate_dir(&mut DirContext::new(2, &mut |emit| {
+                names.push(emit.name.to_string());
+                true
+            }));
+            (answer.is_ok(), names)
+        };
+        assert_eq!(
+            [listed("../escape"), listed(""), listed("name")],
+            [
+                (false, Vec::new()),
+                (false, Vec::new()),
+                (true, vec!["name".to_string()]),
+            ],
+            "File::iterate_dir of a Filesystem listing a name with a `/` or an empty one must \
+             fail and hand over neither, and one listing a plain name must hand it over"
+        );
+    }
 
     /// `file.txt`, seven bytes long, opened for `access`.
     fn open(read: bool, write: bool) -> File {
