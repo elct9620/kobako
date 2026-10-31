@@ -29,6 +29,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_ruby_filesystem_errno.rb`
 - `test/e2e/test_ruby_filesystem_append.rb`
+- `test/e2e/test_ruby_filesystem_truncate.rb`
 - `test/e2e/test_ruby_filesystem_sync.rb`
 - `test/e2e/test_ruby_filesystem_walk.rb`
 - `test/e2e/test_ruby_filesystem_moved_directory.rb`
@@ -429,3 +430,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | two Ruby Filesystems whose `stat` answers one `ino` |
 | When | a permissive guest reads that entry's inode number through each |
 | Then | the numbers match only where both `stat`s answer one `dev` |
+
+## `RF-033` A truncating open is answered by a Ruby object's `open`
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-215` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose file answers no `truncate` |
+| When | the guest opens a file to write over it |
+| Then | its `open` is handed `TRUNC`, and nothing more is asked |

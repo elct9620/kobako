@@ -2376,3 +2376,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Bind holding a link to a directory and a link to nothing, both beneath it |
 | When | a call steps out of the first, and creates through the second, under no security module |
 | Then | each resolves as Linux's, and under kobako's own module each answers ELOOP |
+
+## `RT-215` An open empties what stood through `setattr` once it is open
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-200` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem holding a file, and a name nothing stands at |
+| When | the guest opens each with `O_CREAT` and `O_TRUNC` |
+| Then | the first is opened, then asked `setattr` marked as from an open; the second is made and asked neither |

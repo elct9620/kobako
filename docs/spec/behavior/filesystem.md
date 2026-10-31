@@ -1609,3 +1609,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs |
 | When | a name of `NAME_MAX` bytes is made, and one past it looked up |
 | Then | the first lands, and the second answers ENAMETOOLONG |
+
+## `FS-155` A truncating open through an Overlay copies up none of the bytes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer holds a file bigger than its upper holds |
+| When | the guest opens the file with `O_TRUNC` |
+| Then | the open lands on an empty file, and the lower Layer keeps its bytes |
