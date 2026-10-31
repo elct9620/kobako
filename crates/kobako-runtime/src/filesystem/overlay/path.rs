@@ -14,8 +14,7 @@ use std::sync::Arc;
 
 use super::super::tmpfs::TmpfsFile;
 use super::super::{
-    DirEntry, FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Metadata,
-    OpenOptions, Tmpfs,
+    DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Tmpfs,
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
@@ -31,7 +30,6 @@ const OPAQUE: &[u8] = b"y";
 #[derive(Clone)]
 pub(super) struct OverlayPath {
     filesystem: Arc<Filesystem>,
-    dir: Arc<dyn InodeOperations>,
     dentry: Arc<Dentry>,
 }
 
@@ -39,7 +37,6 @@ impl OverlayPath {
     /// The root of the Layer `filesystem` stands for.
     pub(super) fn root(filesystem: &Arc<Filesystem>) -> Self {
         Self {
-            dir: filesystem.root().clone(),
             dentry: filesystem.dentries().root(),
             filesystem: filesystem.clone(),
         }
@@ -52,7 +49,7 @@ impl OverlayPath {
 
     /// The dentry of `name` in this directory.
     fn child(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        lookup_one(&self.filesystem, self.dir.as_ref(), &self.dentry, name)
+        lookup_one(&self.filesystem, &self.dentry, name)
     }
 
     /// Whether the dentry this Layer holds for `name`, if it holds one, still
@@ -60,7 +57,7 @@ impl OverlayPath {
     pub(super) fn revalidate_real(&self, name: &str) -> Result<bool, FilesystemError> {
         let held = self.filesystem.dentries().lookup(&self.dentry, name);
         match held.as_ref().and_then(|held| Some((held, held.ops()?))) {
-            Some((held, ops)) => ops.revalidate(self.dir.as_ref(), held),
+            Some((held, ops)) => ops.revalidate(self.dentry.inode_ops()?.as_ref(), held),
             None => Ok(true),
         }
     }
@@ -68,7 +65,7 @@ impl OverlayPath {
     /// The dentry of `name` as this directory stores it, what stands there
     /// recorded on it. The caller holds this directory's lock.
     fn lookup_real(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        Ok(lookup_slow(&self.filesystem, self.dir.as_ref(), &self.dentry, name)?.1)
+        Ok(lookup_slow(&self.filesystem, &self.dentry, name)?.1)
     }
 
     fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
@@ -80,12 +77,13 @@ impl OverlayPath {
     }
 
     /// This directory as a Tmpfs, the one kind holding an Overlay's marks.
-    fn tmpfs(&self) -> Option<&Tmpfs> {
-        (self.dir.as_ref() as &dyn Any).downcast_ref::<Tmpfs>()
+    fn tmpfs(&self) -> Option<Arc<Tmpfs>> {
+        let ops: Arc<dyn Any + Send + Sync> = self.dentry.inode_ops().ok()?;
+        ops.downcast().ok()
     }
 
     /// This directory of the upper, which is always a Tmpfs.
-    fn upper(&self) -> Result<&Tmpfs, FilesystemError> {
+    fn upper(&self) -> Result<Arc<Tmpfs>, FilesystemError> {
         self.tmpfs().ok_or(FilesystemError::ReadOnlyFilesystem)
     }
 
@@ -120,7 +118,7 @@ impl OverlayPath {
 
     pub(super) fn whiteout(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        may_create_dentry(self.dir.as_ref(), &self.dentry, &*self.child(name)?)?;
+        may_create_dentry(&self.dentry, &*self.child(name)?)?;
         self.upper()?.whiteout(name)
     }
 
@@ -135,16 +133,11 @@ impl OverlayPath {
     ) -> Result<(), FilesystemError> {
         let rd = start_renaming(
             &self.filesystem,
-            (self.dir.as_ref(), &self.dentry, from),
-            (target.dir.as_ref(), &target.dentry, to),
+            (&self.dentry, from),
+            (&target.dentry, to),
             flag,
         )?;
-        vfs_rename(
-            &self.filesystem,
-            (self.dir.as_ref(), &self.dentry, &rd.old_dentry),
-            (target.dir.as_ref(), &target.dentry, &rd.new_dentry),
-            flag,
-        )
+        vfs_rename(&self.filesystem, &rd)
     }
 
     pub(super) fn tmpfile(&self) -> Result<TmpfsFile, FilesystemError> {
@@ -153,7 +146,7 @@ impl OverlayPath {
 
     pub(super) fn link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        may_create_dentry(self.dir.as_ref(), &self.dentry, &*self.child(name)?)?;
+        may_create_dentry(&self.dentry, &*self.child(name)?)?;
         self.upper()?.link(file, name)
     }
 
@@ -178,12 +171,7 @@ impl OverlayPath {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let _held = self.inode_lock()?;
-        atomic_open(
-            self.dir.as_ref(),
-            &self.dentry,
-            &*self.child(name)?,
-            options,
-        )
+        atomic_open(&self.dentry, &*self.child(name)?, options)
     }
 
     /// The directory standing at `name`, a link there refused as a loop, as
@@ -194,7 +182,6 @@ impl OverlayPath {
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
             FileType::Directory => Ok(Self {
-                dir: inode.ops().clone(),
                 dentry,
                 filesystem: self.filesystem.clone(),
             }),
@@ -204,7 +191,7 @@ impl OverlayPath {
     }
 
     pub(super) fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.dir.getattr(&self.dentry)
+        self.dentry.getattr()
     }
 
     pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
@@ -215,7 +202,7 @@ impl OverlayPath {
     /// `name` as this directory stores it.
     pub(super) fn lookup(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.inode_lock_shared()?;
-        Ok(lookup_slow(&self.filesystem, self.dir.as_ref(), &self.dentry, name)?.0)
+        Ok(lookup_slow(&self.filesystem, &self.dentry, name)?.0)
     }
 
     /// This directory opened, kept open for whoever holds it, as overlayfs's
@@ -225,7 +212,10 @@ impl OverlayPath {
             read: true,
             ..OpenOptions::default()
         };
-        self.dir.open(&self.dentry, &options).ok()
+        self.dentry
+            .inode_ops()
+            .and_then(|dir| dir.open(&self.dentry, &options))
+            .ok()
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -234,33 +224,24 @@ impl OverlayPath {
             read: true,
             ..OpenOptions::default()
         };
-        self.dir
+        self.dentry
+            .inode_ops()?
             .open(&self.dentry, &options)?
             .iterate_shared(&self.dentry)
     }
 
     pub(super) fn create_dir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_mkdir(self.dir.as_ref(), &self.dentry, &*self.child(name)?)
+        vfs_mkdir(&self.dentry, &*self.child(name)?)
     }
 
     pub(super) fn remove_dir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_rmdir(
-            &self.filesystem,
-            self.dir.as_ref(),
-            &self.dentry,
-            &self.child(name)?,
-        )
+        vfs_rmdir(&self.filesystem, &self.dentry, &self.child(name)?)
     }
 
     pub(super) fn remove_file(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_unlink(
-            &self.filesystem,
-            self.dir.as_ref(),
-            &self.dentry,
-            &self.child(name)?,
-        )
+        vfs_unlink(&self.filesystem, &self.dentry, &self.child(name)?)
     }
 }

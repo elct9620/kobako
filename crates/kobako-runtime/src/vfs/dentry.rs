@@ -175,6 +175,14 @@ impl Dentry {
         self.state().inode.clone()
     }
 
+    /// What answers for the entry this names, as `d_inode(dentry)->i_op`.
+    pub(crate) fn inode_ops(&self) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
+        match self.inode() {
+            Some(inode) => Ok(inode.ops().clone()),
+            None => Err(FilesystemError::NotFound),
+        }
+    }
+
     /// Record `inode` as what the name stands for, `None` where nothing
     /// does, as a Filesystem's lookup hands Linux's `d_add` what it found.
     /// A dentry already naming something keeps it, as Linux instantiates a
@@ -212,14 +220,11 @@ impl Dentry {
     /// something and `lookup_slow` asks `->lookup` for one that does not. A
     /// directory holding the entry under another spelling answers that
     /// spelling, for the caller to take that dentry instead.
-    pub(crate) fn lookup_inode(
-        &self,
-        dir: &dyn InodeOperations,
-    ) -> Result<Option<String>, FilesystemError> {
+    pub(crate) fn lookup_inode(&self, dir: &Dentry) -> Result<Option<String>, FilesystemError> {
         if self.inode().is_some() {
             return Ok(None);
         }
-        match dir.lookup(self)? {
+        match dir.inode_ops()?.lookup(self)? {
             Lookup::Found(inode) => self.add(Some(inode)),
             Lookup::Absent => self.add(None),
             Lookup::Spelled(stored) => return Ok(Some(stored)),
@@ -381,13 +386,6 @@ impl Dentries {
         self.hashtable().get(&key(parent, name))
     }
 
-    /// `dentry` no longer names what stands at its name, as Linux's
-    /// `d_invalidate` drops it: the next lookup makes another, and
-    /// whoever holds this one keeps it, neither dead nor reached by name.
-    pub(crate) fn invalidate(&self, dentry: &Arc<Dentry>) {
-        self.drop(dentry);
-    }
-
     /// Whether `dentry` was taken out of the table, as Linux's
     /// `d_unlinked` answers for one no longer reached by its name.
     pub(crate) fn unlinked(&self, dentry: &Arc<Dentry>) -> bool {
@@ -400,9 +398,10 @@ impl Dentries {
             .is_some_and(|held| Arc::ptr_eq(&held, dentry))
     }
 
-    /// Take `dentry` out of the table, so the next lookup of its name
-    /// makes another, as Linux's `d_drop` unhashes one.
-    pub(crate) fn drop(&self, dentry: &Arc<Dentry>) {
+    /// Take `dentry` out of the table, so the next lookup of its name makes
+    /// another and whoever holds this one keeps it, as Linux's `d_drop` unhashes
+    /// one for `d_invalidate` and for a `d_delete` of one still in use.
+    pub(crate) fn unhash(&self, dentry: &Arc<Dentry>) {
         let kept = self.lru().pop(&(Arc::as_ptr(dentry) as usize));
         drop(kept);
         let mut table = self.hashtable();
@@ -416,13 +415,6 @@ impl Dentries {
         {
             table.remove(&at);
         }
-    }
-
-    /// The entry `dentry` names was removed, as Linux's `d_delete` leaves a
-    /// dentry still in use unhashed; every dentry the table holds is in
-    /// use.
-    pub(crate) fn delete(&self, dentry: &Arc<Dentry>) {
-        self.drop(dentry);
     }
 
     /// The entry `from_name` in `from` moved to `to_name` in `to`, taking

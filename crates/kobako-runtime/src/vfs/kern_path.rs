@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use super::namei::{
     atomic_open, filename_lookup, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata,
+    RenameData,
 };
 use super::path::Path;
 use super::{
@@ -81,7 +82,7 @@ impl KernPath {
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        atomic_open(nd.base().as_ref(), nd.dentry(), &child, options)
+        atomic_open(nd.dentry(), &child, options)
     }
 
     /// Truncate or extend the file at `path`, as `->setattr` is asked.
@@ -138,19 +139,19 @@ impl KernPath {
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        vfs_mkdir(nd.base().as_ref(), nd.dentry(), &child)
+        vfs_mkdir(nd.dentry(), &child)
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        vfs_rmdir(nd.mnt.sb(), nd.base().as_ref(), nd.dentry(), &child)
+        vfs_rmdir(nd.mnt.sb(), nd.dentry(), &child)
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        vfs_unlink(nd.mnt.sb(), nd.base().as_ref(), nd.dentry(), &child)
+        vfs_unlink(nd.mnt.sb(), nd.dentry(), &child)
     }
 
     /// Move `from` beneath this directory to `to` beneath `to_dir`,
@@ -170,12 +171,16 @@ impl KernPath {
         if source.dentry().is_subdir(&new) {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
         vfs_rename(
             source.mnt.sb(),
-            (old_inode, source.dentry(), &old),
-            (new_inode, target.dentry(), &new),
-            None,
+            &RenameData {
+                _held: Vec::new(),
+                old_parent: source.dentry().clone(),
+                old_dentry: old,
+                new_parent: target.dentry().clone(),
+                new_dentry: new,
+                flag: None,
+            },
         )
     }
 }

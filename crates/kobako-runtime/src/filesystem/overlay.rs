@@ -303,11 +303,8 @@ impl InodeOperations for Overlay {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let file = self
-            .fs
-            .create_file(&self.fs.parent(dentry)?, &dentry.name(), options)?;
-        dentry.lookup_inode(self)?;
-        Ok(file)
+        self.fs
+            .create_file(&self.fs.parent(dentry)?, &dentry.name(), options)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

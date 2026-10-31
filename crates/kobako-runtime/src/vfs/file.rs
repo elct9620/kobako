@@ -288,7 +288,7 @@ impl File {
             read: true,
             ..OpenOptions::default()
         };
-        let ops = path.dir().open(path.dentry(), &options)?;
+        let ops = path.dentry().inode_ops()?.open(path.dentry(), &options)?;
         let how = OpenHow {
             read: true,
             ..OpenHow::default()

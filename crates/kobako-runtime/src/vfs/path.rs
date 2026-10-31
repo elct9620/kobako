@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use super::dentry::Dentry;
-use super::inode::InodeOperations;
 use super::mount::VfsMount;
 use super::{Error, Metadata};
 
@@ -44,19 +43,8 @@ impl Path {
         &self.dentry
     }
 
-    /// The directory itself, where a call through it starts. A Path is made
-    /// only for a dentry recording its directory, which a dentry never
-    /// gives up.
-    pub(crate) fn dir(&self) -> Arc<dyn InodeOperations> {
-        self.dentry
-            .inode()
-            .expect("a Path's dentry records its directory")
-            .ops()
-            .clone()
-    }
-
     /// What the directory reports of itself.
     pub fn metadata(&self) -> Result<Metadata, Error> {
-        Ok(self.dir().getattr(&self.dentry)?)
+        Ok(self.dentry.getattr()?)
     }
 }

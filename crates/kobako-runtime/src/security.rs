@@ -148,7 +148,7 @@ impl SecurityOperations for MountPolicy {
             let [name, above] = pair else { continue };
             let inode = above.inode().ok_or(FilesystemError::NotFound)?;
             if !ops.revalidate(inode.ops().as_ref(), name)? {
-                dentries.invalidate(name);
+                dentries.unhash(name);
                 return Err(FilesystemError::NotFound.into());
             }
         }
