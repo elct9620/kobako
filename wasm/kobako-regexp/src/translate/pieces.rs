@@ -23,10 +23,16 @@ pub(super) enum Piece<'a> {
     PythonGroup,
 }
 
+/// What holds until the group a frame belongs to closes.
+#[derive(Clone, Copy)]
+struct Frame {
+    extended: bool,
+}
+
 pub(super) struct Pieces<'a> {
     rest: &'a str,
     class_depth: usize,
-    extended: bool,
+    frames: Vec<Frame>,
 }
 
 impl<'a> Pieces<'a> {
@@ -34,7 +40,7 @@ impl<'a> Pieces<'a> {
         Self {
             rest: source,
             class_depth: 0,
-            extended,
+            frames: vec![Frame { extended }],
         }
     }
 
@@ -42,6 +48,24 @@ impl<'a> Pieces<'a> {
         let (taken, rest) = self.rest.split_at(len);
         self.rest = rest;
         taken
+    }
+
+    fn frame(&mut self) -> &mut Frame {
+        self.frames
+            .last_mut()
+            .expect("the outermost frame is never closed")
+    }
+
+    fn open_frame(&mut self) {
+        let inherited = *self.frame();
+        self.frames.push(inherited);
+    }
+
+    /// A stray `)` is the engine's to refuse, so the outermost frame stays.
+    fn close_frame(&mut self) {
+        if self.frames.len() > 1 {
+            self.frames.pop();
+        }
     }
 
     fn escape(&mut self) -> Piece<'a> {
@@ -75,6 +99,7 @@ impl<'a> Pieces<'a> {
     fn group(&mut self) -> Piece<'a> {
         let Some(option) = self.rest[1..].strip_prefix('?') else {
             self.take(1);
+            self.open_frame();
             return Piece::PlainGroup;
         };
         if option.starts_with('#') {
@@ -85,15 +110,41 @@ impl<'a> Pieces<'a> {
             return Piece::PythonGroup;
         }
         if option.starts_with('(') && option[1..].starts_with(|c: char| c.is_ascii_digit()) {
-            return Piece::NumberedCondition(self.take(3));
+            // The condition's own `)` is read with it, so it closes no frame.
+            let len = option.find(')').map_or(self.rest.len(), |close| close + 3);
+            self.open_frame();
+            return Piece::NumberedCondition(self.take(len));
         }
         if !option.starts_with("<=") && !option.starts_with("<!") {
             if let Some((name, len)) = read_delimited(option) {
                 let text = self.take(2 + len);
+                self.open_frame();
                 return Piece::NamedGroup { text, name };
             }
         }
+        if let Some(letters) = read_option_letters(option) {
+            return Piece::Text(self.apply_options(letters));
+        }
+        self.open_frame();
         Piece::Text(self.take(1))
+    }
+
+    /// `(?x:` holds until its own group closes; `(?x)` holds until the
+    /// enclosing group does.
+    fn apply_options(&mut self, letters: &str) -> &'a str {
+        let close = self.rest.as_bytes()[2 + letters.len()];
+        if close == b':' {
+            self.open_frame();
+        }
+        let mut setting = true;
+        for letter in letters.chars() {
+            match letter {
+                '-' => setting = false,
+                'x' => self.frame().extended = setting,
+                _ => {}
+            }
+        }
+        self.take(3 + letters.len())
     }
 }
 
@@ -115,7 +166,11 @@ impl<'a> Iterator for Pieces<'a> {
                 1
             }
             '(' if self.class_depth == 0 => return Some(self.group()),
-            '#' if self.extended && self.class_depth == 0 => self
+            ')' if self.class_depth == 0 => {
+                self.close_frame();
+                1
+            }
+            '#' if self.frame().extended && self.class_depth == 0 => self
                 .rest
                 .find('\n')
                 .map_or(self.rest.len(), |newline| newline + 1),
@@ -134,6 +189,12 @@ fn read_delimited(text: &str) -> Option<(&str, usize)> {
     };
     let len = text[1..].find(close)?;
     Some((&text[1..=len], len + 2))
+}
+
+/// The letters of an option group: `(?i-m)` or `(?i-m:`, with the `(?` read.
+fn read_option_letters(option: &str) -> Option<&str> {
+    let len = option.find(|c: char| !c.is_ascii_alphanumeric() && c != '-')?;
+    matches!(option.as_bytes()[len], b')' | b':').then(|| &option[..len])
 }
 
 /// A `(?#…)` comment, whose `)` can be escaped; one left open runs to the end.

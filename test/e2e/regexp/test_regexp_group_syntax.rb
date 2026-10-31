@@ -28,6 +28,30 @@ class TestRegexpGroupSyntax < Minitest::Test
                  "a numbered backreference must still work when no group is named"
   end
 
+  # An inline x turns what follows it into a comment, so nothing spelled there
+  # may read as a group, a reference or a refused form.
+  # @behavior RX-273
+  def test_an_inline_extended_comment_spells_nothing
+    [
+      ['(?x)(a) # (?<m>z)\n(b)', "ab", %w[ab a b]],
+      ['(?x)(a)(b) # (?<m>z)\n\\\\1', "aba", %w[aba a b]],
+      ['(?x)(?<n>a) # (?<m>z)\n(?<n>b)\\\\k<n>', "abb", %w[abb a b]],
+      ['(?x)a # (?P<n>z)\n', "a", %w[a]],
+      ['(?x:(?<n>a) # (?<m>z)\n)(b)', "ab", %w[ab a]]
+    ].each do |source, subject, expected|
+      assert_equal expected, eval_regexp(%(Regexp.new("#{source}").match("#{subject}").to_a)),
+                   "#{source} through Regexp.new must treat its comment as a comment"
+    end
+  end
+
+  # @behavior RX-273
+  def test_an_inline_extended_option_ends_with_its_scope
+    assert_equal ["a # z", "z"], eval_regexp('Regexp.new("(?x)a(?-x) # (?<m>z)").match("a # z").to_a'),
+                 "a group after (?-x) through Regexp.new must count as a group"
+    assert_equal %w[a#c c], eval_regexp('Regexp.new("(?x:a#(b)\n)#(c)").match("a#c").to_a'),
+                 "a group after a closed (?x: through Regexp.new must count as a group"
+  end
+
   # @behavior RX-271
   def test_a_reference_by_number_beside_a_named_group_is_refused
     ['(?<n>a)(b)\\\\1', '(?<n>a)\\\\k<1>', '(?<n>a)\\\\k<-1>', '(?<n>a)\\\\g<1>', "(?<n>a)(?(1)b)"].each do |source|

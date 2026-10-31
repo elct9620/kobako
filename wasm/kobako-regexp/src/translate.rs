@@ -240,6 +240,13 @@ mod tests {
         assert_eq!(names(r"(?<n>a)\(?<m>b", 0), n_only);
         assert_eq!(names("(?<n>a) # (?<m>b)\n", EXTENDED), n_only);
         assert_eq!(names(r"(?<=a)(?<!b)(?<n>a)", 0), n_only);
+        assert_eq!(names("(?x)(?<n>a) # (?<m>b)\n", 0), n_only);
+        assert_eq!(names("(?x:(?<n>a) # (?<m>b)\n)", 0), n_only);
+        assert_eq!(names("(?<n>a)(?x:#\n)#(?<n>b)", 0).len(), 1);
+        assert_eq!(
+            names("(?x)(?<n>a)(?-x)#(?<m>b)", 0),
+            vec![("n".to_string(), vec![1]), ("m".to_string(), vec![2])]
+        );
     }
 
     // @behavior RX-274
