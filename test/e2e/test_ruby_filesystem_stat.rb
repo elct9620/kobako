@@ -9,8 +9,9 @@ class TestE2ERubyFilesystemStat < Minitest::Test
   include E2eGuestHelper
 
   FIXTURE = TestPaths.fixture("minimal_stat_fields.wat")
-  # 1,000 seconds and five nanoseconds past the epoch, as preview1 counts them.
-  MODIFIED = 1_000_000_000_005
+  # 1,000 seconds and 500 nanoseconds past the epoch, as preview1 counts them.
+  # Windows keeps a time to 100 nanoseconds, so the literal holds there too.
+  MODIFIED = 1_000_000_000_500
 
   Fields = Data.define(:errnos, :path, :open, :listed) do
     def self.from(answer) = new(errnos: answer[0, 4], path: answer[4, 5], open: answer[9, 5], listed: answer[14])
@@ -26,7 +27,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
   end
 
   def recording_stat(nlink:)
-    time = Time.at(1000, 5, :nsec)
+    time = Time.at(1000, 500, :nsec)
     RecordingStat.new(directory: false, size: 5, ino: 42, nlink: nlink, atime: time, mtime: time, ctime: time)
   end
 
