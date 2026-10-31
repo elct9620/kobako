@@ -1535,3 +1535,27 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs instance |
 | When | an Overlay is built with it as two of its Layers |
 | Then | it is refused as invalid input, as overlayfs refuses overlapping layers |
+
+## `FS-149` A Tmpfs file cut short lets go of what it held
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs file holding many bytes |
+| When | it is truncated |
+| Then | the host's memory for what was cut goes with it, so repeating this stays within the Tmpfs's size |
+
+## `FS-150` A Tmpfs file past its limit can still shrink
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-149` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs seeded past its size |
+| When | a file in it is truncated to a smaller size |
+| Then | it succeeds, as only a growth is refused |
