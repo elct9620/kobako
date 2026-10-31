@@ -329,13 +329,16 @@ impl Content {
     /// can be allocated, rather than aborting the host process.
     fn resize(&mut self, len: usize) -> Result<(), FilesystemError> {
         let growth = len.saturating_sub(self.bytes.len());
-        self.space.bytes.take(growth)?;
-        if self.bytes.try_reserve_exact(growth).is_err() {
-            self.space.bytes.give(growth);
-            return Err(FilesystemError::StorageFull);
+        if growth > 0 {
+            self.space.bytes.take(growth)?;
+            if self.bytes.try_reserve_exact(growth).is_err() {
+                self.space.bytes.give(growth);
+                return Err(FilesystemError::StorageFull);
+            }
         }
         self.space.bytes.give(self.bytes.len().saturating_sub(len));
         self.bytes.resize(len, 0);
+        self.bytes.shrink_to(len);
         self.times.touch();
         Ok(())
     }
@@ -803,6 +806,37 @@ impl FileOperations for TmpfsFile {
 mod tests {
     use super::*;
     use crate::vfs::kern_path::{kern_path, KernPath};
+
+    // The space a Tmpfs counts is what bounds the host's memory, and a count
+    // alone cannot tell, so only what the file still holds on to can.
+    // @behavior FS-149
+    #[test]
+    fn a_file_cut_short_lets_go_of_what_it_held() {
+        let tmpfs = Tmpfs::new();
+        let content = Content::create(&tmpfs.tree).expect("the file must make");
+        let mut data = lock(&content);
+        data.resize(1 << 20).expect("the file must grow");
+        data.resize(16).expect("the file must shrink");
+        assert!(
+            data.bytes.capacity() < 1 << 20,
+            "Content::resize down to 16 bytes from 1 MiB must let go of the rest, holding {}",
+            data.bytes.capacity()
+        );
+    }
+
+    // @behavior FS-150
+    #[test]
+    fn a_file_past_its_limit_can_still_shrink() {
+        let tmpfs = Tmpfs::try_from_iter([("file", vec![0; 100])])
+            .expect("the seed must fit")
+            .with_size(Some(10));
+        let fs = kern_path(Arc::new(tmpfs));
+        assert_eq!(
+            fs.truncate("file", 5),
+            Ok(()),
+            "a truncate through Tmpfs of a file seeded past its limit must shrink it"
+        );
+    }
 
     /// `tmpfs` reached through the VFS.
     // Built directly, as a path cannot reach this deep and stacking chains
