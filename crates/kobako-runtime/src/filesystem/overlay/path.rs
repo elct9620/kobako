@@ -238,7 +238,6 @@ impl OverlayPath {
     pub(super) fn open_real(&self) -> Option<Box<dyn FileOperations>> {
         let options = OpenOptions {
             read: true,
-            directory: true,
             ..OpenOptions::default()
         };
         self.dir.open(&self.dentry, &options)?.ok()
@@ -248,7 +247,6 @@ impl OverlayPath {
         let _held = self.inode_lock_shared()?;
         let options = OpenOptions {
             read: true,
-            directory: true,
             ..OpenOptions::default()
         };
         match self.dir.open(&self.dentry, &options) {

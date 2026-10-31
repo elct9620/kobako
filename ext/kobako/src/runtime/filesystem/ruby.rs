@@ -249,7 +249,7 @@ impl RubyFilesystem {
         match dentry.inode().map(|inode| inode.identity()) {
             None => {
                 let made = self.stat(dentry.path_raw())?;
-                dentry.add(Some(Inode::new(&made, Arc::new(*self))));
+                dentry.add(Some(Inode::new(&made, Arc::new(RubyRegular(*self)))));
             }
             // The object opens by path, so whatever stands there now may be
             // another entry than the one judged, as `Bind::open_file` finds.
@@ -307,20 +307,16 @@ impl RubyFilesystem {
     }
 }
 
-/// Every entry answers through the same object, asked by the path a dentry
-/// stands at, the path a Policy judges. A Ruby object answers `stat` alone,
-/// so it holds no links to follow.
-impl InodeOperations for RubyFilesystem {
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        Some(Arc::new(*self))
-    }
+/// Any entry of a Ruby Filesystem but a directory.
+struct RubyRegular(RubyFilesystem);
 
+impl InodeOperations for RubyRegular {
     /// A file open here answers for itself even once its name is gone, as 9p
     /// asks an open fid: its `size`, and its `stat` where it has one. It stays
     /// the entry its lookup recorded; anything else is asked by its path.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let Some(file) = open_file(dentry) else {
-            return self.stat(dentry.path_raw());
+            return self.0.stat(dentry.path_raw());
         };
         let metadata = ask(
             file.get(),
@@ -358,6 +354,27 @@ impl InodeOperations for RubyFilesystem {
         ))
     }
 
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        Some(self.0.open_at(dentry, options, false))
+    }
+}
+
+/// A directory of a Ruby Filesystem, asked by the path a dentry stands at, the
+/// path a Policy judges. A Ruby object answers `stat` alone, so it holds no
+/// links to follow.
+impl InodeOperations for RubyFilesystem {
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+        Some(Arc::new(*self))
+    }
+
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.stat(dentry.path_raw())
+    }
+
     /// A Ruby object matches names exactly, as its contract asks. A lookup
     /// asks its `stat` what stands at the name, as FUSE asks its daemon.
     fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
@@ -365,7 +382,13 @@ impl InodeOperations for RubyFilesystem {
             return Some(Err(FilesystemError::InvalidFilename));
         }
         Some(match self.stat(dentry.path_raw()) {
-            Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(*self)))),
+            Ok(found) => {
+                let ops: Arc<dyn InodeOperations> = match found.file_type {
+                    FileType::Directory => Arc::new(*self),
+                    _ => Arc::new(RubyRegular(*self)),
+                };
+                Ok(Lookup::Found(Inode::new(&found, ops)))
+            }
             Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
             Err(err) => Err(err),
         })
@@ -375,13 +398,10 @@ impl InodeOperations for RubyFilesystem {
     /// for the names only when the guest lists them.
     fn open(
         &self,
-        dentry: &Dentry,
-        options: &OpenOptions,
+        _dentry: &Dentry,
+        _options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        if options.directory {
-            return Some(Ok(Box::new(RubyDir(*self))));
-        }
-        Some(self.open_at(dentry, options, false))
+        Some(Ok(Box::new(RubyDir(*self))))
     }
 
     fn atomic_open(

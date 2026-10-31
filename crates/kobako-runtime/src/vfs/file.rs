@@ -291,7 +291,6 @@ impl File {
 
         let options = OpenOptions {
             read: true,
-            directory: true,
             ..OpenOptions::default()
         };
         let ops = match path.dir().open(path.dentry(), &options) {

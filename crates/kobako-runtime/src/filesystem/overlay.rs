@@ -116,7 +116,7 @@ impl Overlay {
             else {
                 return Ok(Lookup::Absent);
             };
-            let inode = found.with_ops(Arc::new(self.clone()));
+            let inode = found.with_ops(self.ops_of(found.kind()));
             if inode.kind() != FileType::Directory {
                 ovl_inode_real(&inode, real);
             }
@@ -125,7 +125,7 @@ impl Overlay {
         let Some((found, real)) = self.fs.view_entry(&level, &name)? else {
             return Ok(Lookup::Absent);
         };
-        let inode = Inode::new(&found, Arc::new(self.clone()));
+        let inode = Inode::new(&found, self.ops_of(found.file_type));
         if let Some(real) = real {
             ovl_inode_real(&inode, real);
         }
@@ -170,22 +170,26 @@ impl DentryOperations for Overlay {
     }
 }
 
-/// Every entry of the view answers through the Overlay, finding what a call
-/// is about through the dentry it is handed.
-impl InodeOperations for Overlay {
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        Some(Arc::new(self.clone()))
+/// A file of the view, or an entry a Layer holds that is none of the others, as
+/// `ovl_file_inode_operations` answers for one.
+struct OverlayRegular(Overlay);
+
+/// A link of the view, as `ovl_symlink_inode_operations` answers for one.
+struct OverlayLink(Overlay);
+
+impl Overlay {
+    /// The operations an entry of `kind` answers through.
+    fn ops_of(&self, kind: FileType) -> Arc<dyn InodeOperations> {
+        match kind {
+            FileType::Directory => Arc::new(self.clone()),
+            FileType::Symlink => Arc::new(OverlayLink(self.clone())),
+            _ => Arc::new(OverlayRegular(self.clone())),
+        }
     }
 
-    /// A directory reports its merged Layers; any other entry the Layer its
-    /// name is found in.
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        let is_dir = dentry
-            .inode()
-            .is_some_and(|inode| inode.kind() == FileType::Directory);
-        if is_dir {
-            return self.fs.dir_metadata(&self.fs.dir(dentry)?.level());
-        }
+    /// What the Layer the entry's name is found in reports, under the identity
+    /// the view recorded.
+    fn real_getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let (real, inode) = self.real_of(dentry).ok_or(FilesystemError::NotFound)?;
         let found = real.getattr()?;
         Ok(match inode.identity() {
@@ -193,19 +197,26 @@ impl InodeOperations for Overlay {
             None => found,
         })
     }
+}
+
+impl InodeOperations for OverlayRegular {
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.0.real_getattr(dentry)
+    }
 
     /// Copied up first, as `ovl_setattr` does, so a lower Layer stays as it
     /// was whatever its Filesystem would keep.
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
-        let (real, _) = self.real_of(dentry)?;
-        if !self.fs.is_in_upper(&real) {
-            if let Err(err) = self.fs.copy_up(dentry) {
+        let overlay = &self.0;
+        let (real, _) = overlay.real_of(dentry)?;
+        if !overlay.fs.is_in_upper(&real) {
+            if let Err(err) = overlay.fs.copy_up(dentry) {
                 return Some(Err(err));
             }
         }
-        let (real, _) = self.real_of(dentry)?;
+        let (real, _) = overlay.real_of(dentry)?;
         // A file whose name another entry took since has nowhere to land.
-        if !self.fs.is_in_upper(&real) {
+        if !overlay.fs.is_in_upper(&real) {
             return Some(Err(FilesystemError::ReadOnlyFilesystem));
         }
         let _held = match real.inode_lock() {
@@ -215,42 +226,74 @@ impl InodeOperations for Overlay {
         real.inode()?.ops().setattr(&real, attr)
     }
 
+    fn open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        let fs = &self.0.fs;
+        Some(
+            fs.parent(dentry)
+                .and_then(|parent| fs.open(&parent, dentry, options)),
+        )
+    }
+}
+
+impl InodeOperations for OverlayLink {
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.0.real_getattr(dentry)
+    }
+
+    /// Where the link points, as `ovl_get_link` asks the real dentry.
+    fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
+        let (real, _) = self.0.real_of(dentry)?;
+        Some(real.get_link())
+    }
+
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        Some(Err(FilesystemError::FilesystemLoop))
+    }
+}
+
+/// A directory of the view, finding what a call is about through the dentry it
+/// is handed, as `ovl_dir_inode_operations` answers for one.
+impl InodeOperations for Overlay {
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+        Some(Arc::new(self.clone()))
+    }
+
+    /// It reports its merged Layers.
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.fs.dir_metadata(&self.fs.dir(dentry)?.level())
+    }
+
     /// The entry as a Layer spells it, as `ovl_lookup` hands
     /// `d_splice_alias` the inode it made.
     fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
         Some(self.lookup_at(dentry))
     }
 
-    /// Where the link points, as `ovl_get_link` asks the real dentry.
-    fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
-        let (real, _) = self.real_of(dentry)?;
-        Some(real.get_link())
-    }
-
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        _options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        if options.directory {
-            let _real = self.fs.dir(dentry).map_or_else(
-                |_| Vec::new(),
-                |dir| {
-                    dir.level()
-                        .iter()
-                        .flatten()
-                        .flat_map(OverlayPath::open_real)
-                        .collect()
-                },
-            );
-            let fs = self.fs.clone();
-            return Some(Ok(Box::new(OverlayDir { fs, _real })));
-        }
-        Some(
-            self.fs
-                .parent(dentry)
-                .and_then(|parent| self.fs.open(&parent, dentry, options)),
-        )
+        let _real = self.fs.dir(dentry).map_or_else(
+            |_| Vec::new(),
+            |dir| {
+                dir.level()
+                    .iter()
+                    .flatten()
+                    .flat_map(OverlayPath::open_real)
+                    .collect()
+            },
+        );
+        let fs = self.fs.clone();
+        Some(Ok(Box::new(OverlayDir { fs, _real })))
     }
 
     fn atomic_open(
@@ -1331,7 +1374,7 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            if options.directory && dentry.parent().is_some() {
+            if dentry.kind() == Ok(FileType::Directory) && dentry.parent().is_some() {
                 self.start();
             }
             inner.open(dentry, options)
@@ -1906,7 +1949,7 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            if options.directory {
+            if dentry.kind() == Ok(FileType::Directory) {
                 return Some(Ok(Box::new(FoldedDir(self.root.clone()))));
             }
             Some(self.root.open(&folded(dentry), options))

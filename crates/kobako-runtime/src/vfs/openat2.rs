@@ -17,8 +17,6 @@ pub struct OpenOptions {
     pub write: bool,
     /// Empty the file once it is open.
     pub truncate: bool,
-    /// Open a directory, to list it, as `O_DIRECTORY` does.
-    pub directory: bool,
 }
 
 /// How to open a path, as Linux's `struct open_how` carries `openat2`'s

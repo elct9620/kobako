@@ -117,10 +117,15 @@ impl Bind {
                 return Ok(Lookup::Spelled(stored));
             }
             match dir.symlink_metadata(name).map_err(to_error) {
-                Ok(found) => Ok(Lookup::Found(Inode::new(
-                    &to_metadata(found),
-                    Arc::new(self.clone()),
-                ))),
+                Ok(found) => {
+                    let found = to_metadata(found);
+                    let ops: Arc<dyn InodeOperations> = match found.file_type {
+                        FileType::Directory => Arc::new(self.clone()),
+                        FileType::Symlink => Arc::new(BindLink(self.clone())),
+                        _ => Arc::new(BindRegular(self.clone())),
+                    };
+                    Ok(Lookup::Found(Inode::new(&found, ops)))
+                }
                 Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),
             }
@@ -140,7 +145,10 @@ impl Bind {
         let file = self.at(dentry, |dir, name| open_in(dir, name, options, create))?;
         let opened = to_metadata(cap_std::fs::Metadata::from_file(&file).map_err(to_error)?);
         match dentry.inode().map(|inode| inode.identity()) {
-            None => dentry.add(Some(Inode::new(&opened, Arc::new(self.clone())))),
+            None => dentry.add(Some(Inode::new(
+                &opened,
+                Arc::new(BindRegular(self.clone())),
+            ))),
             // A host path may by now hold another entry than the one judged,
             // which only what opened can tell, as NFS's open compares the file
             // handle it gets back.
@@ -434,50 +442,30 @@ impl DentryOperations for Bind {
     }
 }
 
-impl InodeOperations for Bind {
-    /// A directory answers from its own descriptor, which follows it
-    /// wherever it moves and keeps its inode taken while it is open; a file
-    /// open anywhere from the descriptor that holds it, even once its name
-    /// is gone; any other entry by its name in the directory above.
+/// A file of a Bind, or an entry a host holds that is none of the others, as
+/// `v9fs_file_inode_operations_dotl` answers for one.
+struct BindRegular(Bind);
+
+/// A link of a Bind, as `v9fs_symlink_inode_operations_dotl` answers for one.
+struct BindLink(Bind);
+
+/// What an entry standing at its name in the directory above reports.
+fn stat_at(bind: &Bind, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    bind.at(dentry, |dir, name| {
+        Ok(to_metadata(dir.symlink_metadata(name).map_err(to_error)?))
+    })
+}
+
+impl InodeOperations for BindRegular {
+    /// A file open anywhere answers from the descriptor that holds it, even
+    /// once its name is gone.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        let is_dir = dentry
-            .inode()
-            .is_some_and(|inode| inode.kind() == FileType::Directory);
-        if is_dir {
-            return Ok(to_metadata(
-                self.fid(dentry)?.dir_metadata().map_err(to_error)?,
-            ));
-        }
-        if let Some(file) = open_fid(dentry, false) {
-            return Ok(to_metadata(
+        match open_fid(dentry, false) {
+            Some(file) => Ok(to_metadata(
                 cap_std::fs::Metadata::from_file(&file).map_err(to_error)?,
-            ));
+            )),
+            None => stat_at(&self.0, dentry),
         }
-        self.at(dentry, |dir, name| {
-            Ok(to_metadata(dir.symlink_metadata(name).map_err(to_error)?))
-        })
-    }
-
-    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        Some(self.lookup_at(dentry))
-    }
-
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        Some(Arc::new(self.clone()))
-    }
-
-    /// Where it points as the host holds it, even outside this directory,
-    /// as `->get_link` answers, since the walk judges what a link leads to. A
-    /// target that is no valid UTF-8 answers `IllegalSequence`, as a guest path
-    /// is one.
-    fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
-        Some(self.at(dentry, |dir, name| {
-            dir.read_link_contents(name)
-                .map_err(to_error)?
-                .into_os_string()
-                .into_string()
-                .map_err(|_| FilesystemError::IllegalSequence)
-        }))
     }
 
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
@@ -493,14 +481,65 @@ impl InodeOperations for Bind {
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        if options.directory {
-            let fid = self.fid(dentry).ok();
-            if let Some(fid) = &fid {
-                OpenDirFid::set(dentry, fid);
-            }
-            return Some(Ok(Box::new(BindDir(self.clone(), fid))));
+        Some(self.0.open_file(dentry, options, false))
+    }
+}
+
+impl InodeOperations for BindLink {
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        stat_at(&self.0, dentry)
+    }
+
+    /// Where it points as the host holds it, even outside this directory,
+    /// as `->get_link` answers, since the walk judges what a link leads to. A
+    /// target that is no valid UTF-8 answers `IllegalSequence`, as a guest path
+    /// is one.
+    fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
+        Some(self.0.at(dentry, |dir, name| {
+            dir.read_link_contents(name)
+                .map_err(to_error)?
+                .into_os_string()
+                .into_string()
+                .map_err(|_| FilesystemError::IllegalSequence)
+        }))
+    }
+
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        Some(Err(FilesystemError::FilesystemLoop))
+    }
+}
+
+impl InodeOperations for Bind {
+    /// A directory answers from its own descriptor, which follows it wherever
+    /// it moves and keeps its inode taken while it is open.
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        Ok(to_metadata(
+            self.fid(dentry)?.dir_metadata().map_err(to_error)?,
+        ))
+    }
+
+    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        Some(self.lookup_at(dentry))
+    }
+
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+        Some(Arc::new(self.clone()))
+    }
+
+    fn open(
+        &self,
+        dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        let fid = self.fid(dentry).ok();
+        if let Some(fid) = &fid {
+            OpenDirFid::set(dentry, fid);
         }
-        Some(self.open_file(dentry, options, false))
+        Some(Ok(Box::new(BindDir(self.clone(), fid))))
     }
 
     fn atomic_open(

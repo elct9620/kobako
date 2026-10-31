@@ -597,7 +597,10 @@ where
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         let opened = self.inner.open(dentry, options)?;
-        if options.directory {
+        if dentry
+            .inode()
+            .is_none_or(|inode| inode.kind() == kobako_runtime::filesystem::FileType::Directory)
+        {
             return Some(opened);
         }
         Some(opened.map(|file| Box::new((self.wrap)(file)) as Box<dyn FileOperations>))

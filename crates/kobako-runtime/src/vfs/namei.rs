@@ -526,7 +526,6 @@ pub fn do_file_open(
                 read: how.read,
                 write: how.write,
                 truncate: how.truncate,
-                directory: false,
             };
             // A create looked its name up afresh under the directory's lock;
             // any other open acts on what the walk found.
@@ -1299,7 +1298,7 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            if options.directory {
+            if dentry.kind() == Ok(crate::filesystem::FileType::Directory) {
                 return Some(Ok(Box::new(FoldedDir(self.root.clone()))));
             }
             Some(self.root.open(&folded(dentry), options))

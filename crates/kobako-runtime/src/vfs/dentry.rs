@@ -234,12 +234,13 @@ impl Dentry {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         match self.inode() {
-            Some(inode) => inode.ops().open(self, options).unwrap_or_else(|| {
-                Err(match inode.kind() {
-                    FileType::Directory => FilesystemError::IsADirectory,
-                    _ => FilesystemError::Unsupported,
-                })
-            }),
+            Some(inode) if inode.kind() == FileType::Directory => {
+                Err(FilesystemError::IsADirectory)
+            }
+            Some(inode) => inode
+                .ops()
+                .open(self, options)
+                .unwrap_or(Err(FilesystemError::Unsupported)),
             None => Err(FilesystemError::NotFound),
         }
     }
@@ -475,7 +476,7 @@ mod tests {
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            if options.directory {
+            if dentry.kind() == Ok(FileType::Directory) {
                 return Some(Ok(Box::new(ByPathDir(self.root.clone()))));
             }
             Some(self.root.open(&dentry.path_raw(), options))
