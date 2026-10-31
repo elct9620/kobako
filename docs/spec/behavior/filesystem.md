@@ -1718,3 +1718,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind holding a file |
 | When | a rename of the file asks for a flag |
 | Then | the call answers EINVAL and the file stays |
+
+## `FS-164` A directory emptied for its removal stays empty should the removal fail
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay directory holding only whiteouts over what a lower Layer shows |
+| When | the upper's directory is replaced by an empty one and nothing further lands |
+| Then | the view lists it empty |
