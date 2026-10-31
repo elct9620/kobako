@@ -2161,7 +2161,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest stats the socket and opens it |
 | Then | the stat answers a stream socket, and the open answers EACCES |
 
-## `RT-197` Only a file, a directory, or a link opens, whatever a Filesystem allows
+## `RT-197` Only a file or a directory opens, whatever a Filesystem allows
 
 | Attribute | Value |
 | --- | --- |
@@ -2171,7 +2171,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | the rules every invocation holds to |
 | When | they judge an open of each kind a Filesystem reports |
-| Then | a file, a directory, and a link pass, and each other kind answers permission denied |
+| Then | a file and a directory pass, and each other kind answers permission denied |
 
 ## `RT-198` A pipe of the runtime's own reports a FIFO
 
