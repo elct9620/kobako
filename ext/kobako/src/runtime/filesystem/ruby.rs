@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
     DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Kiocb, Lookup, Metadata, OpenOptions,
+    Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
 };
 use kobako_runtime::vfs::{Dentry, Identity, Inode, NAME_MAX};
 
@@ -449,7 +449,11 @@ impl InodeOperations for RubyFilesystem {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
+        flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
+        if flag.is_some() {
+            return Err(FilesystemError::InvalidInput);
+        }
         self.rename_to(from, to_dir, to)
     }
 }

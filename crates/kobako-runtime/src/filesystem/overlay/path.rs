@@ -19,8 +19,8 @@ use super::super::{
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    atomic_open, lookup_one, lookup_slow, start_renaming, vfs_link, vfs_mkdir, vfs_rename,
-    vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, RenameFlag,
+    atomic_open, lookup_one, lookup_slow, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename,
+    vfs_rmdir, vfs_unlink, Dentry, RenameFlag,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -120,10 +120,8 @@ impl OverlayPath {
 
     pub(super) fn whiteout(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        let child = self.child(name)?;
-        vfs_whiteout(self.dir.as_ref(), &self.dentry, &child, || {
-            self.upper()?.whiteout(name)
-        })
+        may_create_dentry(self.dir.as_ref(), &self.dentry, &*self.child(name)?)?;
+        self.upper()?.whiteout(name)
     }
 
     /// Move `from` here to `to` in `target` as `renameat2` does with
@@ -146,7 +144,6 @@ impl OverlayPath {
             (self.dir.as_ref(), &self.dentry, &rd.old_dentry),
             (target.dir.as_ref(), &target.dentry, &rd.new_dentry),
             flag,
-            || self.upper()?.rename2(from, target.upper()?, to, flag),
         )
     }
 
@@ -156,10 +153,8 @@ impl OverlayPath {
 
     pub(super) fn link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        let child = self.child(name)?;
-        vfs_link(self.dir.as_ref(), &self.dentry, &child, || {
-            self.upper()?.link(file, name)
-        })
+        may_create_dentry(self.dir.as_ref(), &self.dentry, &*self.child(name)?)?;
+        self.upper()?.link(file, name)
     }
 
     pub(super) fn set_times(&self, metadata: &Metadata) -> Result<(), FilesystemError> {

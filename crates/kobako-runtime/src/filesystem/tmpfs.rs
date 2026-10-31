@@ -10,7 +10,7 @@ use std::time::SystemTime;
 use super::path::{ancestors, name, normalize_seed};
 use super::{
     DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Kiocb, Lookup, Metadata, OpenOptions,
+    Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
 };
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
 use whiteout::Whiteout;
@@ -641,17 +641,17 @@ impl InodeOperations for Tmpfs {
         self.unlink_at(&dentry.name())
     }
 
-    /// The move `rename2` makes with no flag, as `shmem_rename2` makes it.
     fn rename(
         &self,
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
+        flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(FilesystemError::CrossesDevices)?;
-        self.rename2(&from.name(), target, &to.name(), None)
+        self.rename_at(&from.name(), target, &to.name(), flag)
     }
 }
 

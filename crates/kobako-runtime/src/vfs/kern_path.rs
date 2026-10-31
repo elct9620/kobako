@@ -176,7 +176,6 @@ impl KernPath {
             (old_inode, source.dentry(), &old),
             (new_inode, target.dentry(), &new),
             None,
-            || old_inode.rename(&old, new_inode, &new),
         )
     }
 }

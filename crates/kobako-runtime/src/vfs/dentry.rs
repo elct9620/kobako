@@ -542,6 +542,7 @@ mod tests {
             from: &Dentry,
             to_dir: &dyn InodeOperations,
             to: &Dentry,
+            _flag: Option<crate::vfs::RenameFlag>,
         ) -> Result<(), FilesystemError> {
             (to_dir as &dyn Any)
                 .downcast_ref::<Self>()

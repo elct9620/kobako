@@ -50,7 +50,7 @@ impl Tmpfs {
     /// changes. Without one, what stands at `to` goes as rename(2)
     /// replaces it, once the VFS found the move fits what stands on each
     /// side.
-    pub(crate) fn rename2(
+    pub(super) fn rename_at(
         &self,
         from: &str,
         target: &Tmpfs,

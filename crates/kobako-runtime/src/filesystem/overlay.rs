@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use super::{
     DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
+    InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
 };
 use crate::vfs::{Dentry, Inode};
 use inode::{ovl_inode_of, ovl_inode_real};
@@ -324,13 +324,17 @@ impl InodeOperations for Overlay {
     }
 
     /// Both directories lie in one Overlay, however many directories of
-    /// it are open.
+    /// it are open. Only its upper takes a flag, which it asks itself.
     fn rename(
         &self,
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
+        flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
+        if flag.is_some() {
+            return Err(FilesystemError::InvalidInput);
+        }
         self.rename_to(from, to_dir, to)
     }
 }
@@ -1967,6 +1971,7 @@ mod tests {
             from: &Dentry,
             _to_dir: &dyn InodeOperations,
             to: &Dentry,
+            _flag: Option<RenameFlag>,
         ) -> Result<(), FilesystemError> {
             self.root.rename(&folded(from), &self.root, &folded(to))
         }

@@ -133,15 +133,30 @@ pub trait InodeOperations: Any + Send + Sync {
     /// checked what stands at `from` and never hands a move onto its own
     /// name, as Linux's VFS does before `inode_operations.rename`. It hands
     /// only a `to_dir` of the same Mount, so it is of this Filesystem's own
-    /// type, and one that is not answers `CrossesDevices`.
+    /// type, and one that is not answers `CrossesDevices`. One that takes no
+    /// `flag` refuses any as invalid input, as Linux's filesystems refuse a
+    /// `renameat2` flag they do not know.
     fn rename(
         &self,
         _from: &Dentry,
         _to_dir: &dyn InodeOperations,
         _to: &Dentry,
+        _flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
         Err(FilesystemError::NotPermitted)
     }
+}
+
+/// What a move asks of its target, as `renameat2`'s flags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RenameFlag {
+    /// Refuse the move when anything stands at the target.
+    NoReplace,
+    /// Swap the source and the target, both of which must stand.
+    Exchange,
+    /// Leave a whiteout where the source stood.
+    Whiteout,
 }
 
 /// What an entry without `open` opens as, as Linux's `empty_fops` is a file with

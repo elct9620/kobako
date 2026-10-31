@@ -13,7 +13,7 @@ use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
     DentryOperations, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup,
-    Metadata, OpenOptions, Overlay, Tmpfs,
+    Metadata, OpenOptions, Overlay, RenameFlag, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
@@ -1349,9 +1349,10 @@ impl Hook for ChangeCounter {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
+        flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
         self.change();
-        inner.rename(from, to_dir, to)
+        inner.rename(from, to_dir, to, flag)
     }
 }
 

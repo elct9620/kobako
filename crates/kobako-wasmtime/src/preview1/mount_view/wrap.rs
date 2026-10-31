@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
     DentryOperations, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata,
-    OpenOptions,
+    OpenOptions, RenameFlag,
 };
 use kobako_runtime::vfs::Dentry;
 
@@ -70,8 +70,9 @@ pub(super) trait Hook: Send + Sync + 'static {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
+        flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
-        inner.rename(from, to_dir, to)
+        inner.rename(from, to_dir, to, flag)
     }
 }
 
@@ -170,11 +171,12 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
+        flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(FilesystemError::CrossesDevices)?;
         self.hook
-            .rename(self.inner.as_ref(), from, target.inner.as_ref(), to)
+            .rename(self.inner.as_ref(), from, target.inner.as_ref(), to, flag)
     }
 }

@@ -25,8 +25,8 @@ mod super_block;
 mod utimes;
 
 pub(crate) use namei::{
-    atomic_open, lookup_one, lookup_slow, start_renaming, vfs_link, vfs_mkdir, vfs_rename,
-    vfs_rmdir, vfs_unlink, vfs_whiteout, RenameFlag,
+    atomic_open, lookup_one, lookup_slow, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename,
+    vfs_rmdir, vfs_unlink,
 };
 
 pub use attr::{Iattr, SetTime};
@@ -36,7 +36,7 @@ pub use errno::FilesystemError;
 pub use file::{
     DirContext, DirEmit, DirEntry, FMode, File, FileOperations, Kiocb, PollMask, Whence,
 };
-pub use inode::{Identity, Inode, InodeOperations, Lookup};
+pub use inode::{Identity, Inode, InodeOperations, Lookup, RenameFlag};
 pub use mount::{Access, Denial, VfsMount};
 pub use namei::{
     do_file_open, filename_linkat, filename_mkdirat, filename_renameat2, filename_rmdir,

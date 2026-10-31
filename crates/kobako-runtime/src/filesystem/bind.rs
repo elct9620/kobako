@@ -23,7 +23,7 @@ use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::{
     DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Kiocb, Lookup, Metadata, OpenOptions,
+    Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 use fid::{FidCache, OpenDirFid};
@@ -582,7 +582,11 @@ impl InodeOperations for Bind {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
+        flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
+        if flag.is_some() {
+            return Err(FilesystemError::InvalidInput);
+        }
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(FilesystemError::CrossesDevices)?;
@@ -1160,6 +1164,32 @@ mod tests {
             (Ok(3), b"new"),
             "vfs::do_file_open through an Overlay over a Bind whose host replaced a directory \
              a descriptor holds must read the file standing there now"
+        );
+    }
+
+    // A host's own rename takes no such flag, so only the refusal keeps a
+    // call asking for one from moving the file as a plain rename would.
+    // @behavior FS-163
+    #[test]
+    fn a_filesystem_taking_no_rename_flag_refuses_one() {
+        let host = HostDir::new("rename-flag");
+        fs::write(host.0.join("a"), "a").expect("the host file must be written");
+        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
+            Bind::new(&host.0).expect("the host directory must open"),
+        ));
+        let dentries = filesystem.dentries();
+        let root = dentries.root();
+        let answer = filesystem.root().rename(
+            &dentries.child(&root, "a"),
+            filesystem.root().as_ref(),
+            &dentries.child(&root, "b"),
+            Some(RenameFlag::NoReplace),
+        );
+        assert_eq!(
+            (answer, host.0.join("a").exists()),
+            (Err(FilesystemError::InvalidInput), true),
+            "InodeOperations::rename of a Bind asked for a flag must answer EINVAL and move \
+             nothing"
         );
     }
 
