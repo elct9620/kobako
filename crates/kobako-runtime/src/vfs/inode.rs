@@ -30,7 +30,7 @@ impl Identity {
     }
 
     /// `metadata`, naming this identity.
-    pub(crate) fn onto(self, metadata: Metadata) -> Metadata {
+    pub fn onto(self, metadata: Metadata) -> Metadata {
         metadata.with_identity(self.dev, self.ino)
     }
 }

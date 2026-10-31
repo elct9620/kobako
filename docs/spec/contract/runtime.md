@@ -708,6 +708,17 @@ impl Identity {
 }
 ```
 
+## `Identity::onto`
+
+The same metadata naming this identity, for an open file a Filesystem answers
+for apart from its path.
+
+```rust
+impl Identity {
+    pub fn onto(self, metadata: Metadata) -> Metadata {}
+}
+```
+
 ## `Inode`
 
 One entry of a Filesystem, as a lookup records it on a Dentry.

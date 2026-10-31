@@ -32,6 +32,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 - `test/e2e/test_ruby_filesystem_sync.rb`
 - `test/e2e/test_ruby_filesystem_walk.rb`
 - `test/e2e/test_ruby_filesystem_moved_directory.rb`
+- `test/e2e/test_ruby_filesystem_stat.rb`
 
 ## `RF-001` A Ruby object answering open and stat mounts as a Filesystem
 
@@ -364,3 +365,41 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `stat` and open file answer different sizes |
 | When | the script asks the size of the file and its path, removes the name, and asks the file again |
 | Then | the open file answers its `size` each time, and the path answers the `stat` |
+
+## `RF-028` A Ruby file open keeps the identity its lookup recorded
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-027` |
+| relates | `RT-183` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a permissive guest holding open a file of a Ruby Filesystem |
+| When | the guest reads the inode number of the path and of what it holds |
+| Then | both read one number, and it is not zero |
+
+## `RF-029` A Ruby file open reports what its own stat records
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-027` |
+| relates | `RT-156`, `RT-193` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a permissive guest holding open a file of a Ruby Filesystem |
+| When | the file answers `stat`, and when it does not |
+| Then | the guest reads that `stat`'s times and names, and otherwise one name and time zero |
+
+## `RF-030` A stat naming a special file keeps its open from reaching Ruby
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-001`, `RT-197` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `stat` answers the `ftype` of a FIFO, a socket, or a device |
+| When | the script opens the file |
+| Then | the open raises `Errno::EACCES`, and the object is not asked to open it |

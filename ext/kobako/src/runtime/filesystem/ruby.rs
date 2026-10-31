@@ -57,12 +57,7 @@ impl RubyFilesystem {
             FilesystemError::Unsupported,
             |_, fs| {
                 let stat: Value = fs.funcall("stat", (path,))?;
-                let file_type = if stat.funcall::<_, _, bool>("directory?", ())? {
-                    FileType::Directory
-                } else {
-                    FileType::File
-                };
-                let metadata = Metadata::new(file_type, stat.funcall("size", ())?);
+                let metadata = Metadata::new(kind_of(stat)?, stat.funcall("size", ())?);
                 // A stat names its identity as `File::Stat` does; without a
                 // `dev` the Filesystem stands for a device of its own, so it
                 // shares an identity with no other Filesystem.
@@ -71,21 +66,44 @@ impl RubyFilesystem {
                 } else {
                     own_dev
                 };
-                let metadata = metadata
-                    .with_identity(dev, stat.funcall("ino", ())?)
-                    .with_times(
-                        time_of(stat, "atime")?,
-                        time_of(stat, "mtime")?,
-                        time_of(stat, "ctime")?,
-                    );
-                Ok(if stat.respond_to("nlink", false)? {
-                    metadata.with_nlink(stat.funcall("nlink", ())?)
-                } else {
-                    metadata
-                })
+                recorded(stat, metadata.with_identity(dev, stat.funcall("ino", ())?))
             },
         )
     }
+}
+
+/// What a stat says its entry is. A `File::Stat` of a special file says so
+/// through `ftype`, so it is judged as what it is rather than opened; a stat
+/// reports no link, as a Ruby Filesystem holds none.
+fn kind_of(stat: Value) -> Result<FileType, MagnusError> {
+    if stat.funcall::<_, _, bool>("directory?", ())? {
+        return Ok(FileType::Directory);
+    }
+    if !stat.respond_to("ftype", false)? {
+        return Ok(FileType::File);
+    }
+    let ftype: String = stat.funcall("ftype", ())?;
+    Ok(match ftype.as_str() {
+        "fifo" => FileType::Fifo,
+        "socket" => FileType::Socket,
+        "blockSpecial" => FileType::BlockDevice,
+        "characterSpecial" => FileType::CharDevice,
+        _ => FileType::File,
+    })
+}
+
+/// `metadata` with the times and the count of names `stat` records.
+fn recorded(stat: Value, metadata: Metadata) -> Result<Metadata, MagnusError> {
+    let metadata = metadata.with_times(
+        time_of(stat, "atime")?,
+        time_of(stat, "mtime")?,
+        time_of(stat, "ctime")?,
+    );
+    Ok(if stat.respond_to("nlink", false)? {
+        metadata.with_nlink(stat.funcall("nlink", ())?)
+    } else {
+        metadata
+    })
 }
 
 /// Ask `object` its `name` method with the GVL held, `answer` making the
@@ -289,18 +307,30 @@ impl InodeOperations for RubyFilesystem {
         Some(Arc::new(*self))
     }
 
-    /// A file open here answers its own `size`, even once its name is gone;
-    /// anything else is asked by its path.
+    /// A file open here answers for itself even once its name is gone, as 9p
+    /// asks an open fid: its `size`, and its `stat` where it has one. It stays
+    /// the entry its lookup recorded; anything else is asked by its path.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         let Some(file) = open_file(dentry) else {
             return self.stat(dentry.path_raw());
         };
-        ask(
+        let metadata = ask(
             file.get(),
             "size",
             FilesystemError::Unsupported,
-            |_, file| Ok(Metadata::new(FileType::File, file.funcall("size", ())?)),
-        )
+            |_, file| {
+                let metadata = Metadata::new(FileType::File, file.funcall("size", ())?);
+                if file.respond_to("stat", false)? {
+                    recorded(file.funcall("stat", ())?, metadata)
+                } else {
+                    Ok(metadata)
+                }
+            },
+        )?;
+        Ok(match dentry.inode().and_then(|inode| inode.identity()) {
+            Some(identity) => identity.onto(metadata),
+            None => metadata,
+        })
     }
 
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {

@@ -103,6 +103,17 @@ Hand-written text-format module that serves neither an invocation nor a block. T
 | `#eval` | the invocation answered as unsupported |
 | `#run` | a call to `S#each` whose yield is answered as unsupported |
 
+## `minimal_stat_fields.wat`
+
+Hand-written text-format module that stats `f` by path and through a descriptor, then lists the first preopen. The real Guest Binary reads no listing, so its `#eval` result hands a test each number preview1 answered.
+
+| Member | Holds |
+|---|---|
+| 1–4 | the four calls' errnos |
+| 5–9 | the path's inode number, count of names, and three times |
+| 10–14 | the same five of the open file |
+| 15 | the inode number the listing gives `f` |
+
 ## `minimal_unknown_upcall.wat`
 
 Hand-written text-format module that sends the host an upcall under an unassigned tag. Its `#eval` result reports the arm that came back, so a test reads the host's answer.

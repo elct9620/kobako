@@ -26,7 +26,8 @@ module Kobako
     # A file a Filesystem written in Ruby opened; +::File+ answers it. One
     # that also answers _WritableFile takes writes too, one answering
     # _AppendableFile takes appends, and any file may answer _SyncableFile
-    # to flush or _ClosableFile to close.
+    # to flush, _ClosableFile to close, or _StatableFile to report its times
+    # and count of names.
     interface _File
       def pread: (Integer length, Integer offset) -> String?
       def size: () -> Integer
@@ -51,9 +52,14 @@ module Kobako
       def close: () -> void
     end
 
+    interface _StatableFile
+      def stat: () -> _Stat
+    end
+
     # What a Filesystem written in Ruby's +stat+ answers, as +File::Stat+
     # does; an +ino+ of zero names no identity. One that also answers
-    # _StatDevice names the device its +ino+ belongs to.
+    # _StatDevice names the device its +ino+ belongs to, and _StatKind says
+    # a special file is one.
     interface _Stat
       def directory?: () -> boolish
       def size: () -> Integer
@@ -62,6 +68,10 @@ module Kobako
 
     interface _StatDevice
       def dev: () -> Integer
+    end
+
+    interface _StatKind
+      def ftype: () -> String
     end
 
     class Tmpfs
