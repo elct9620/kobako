@@ -142,12 +142,8 @@ impl Overlay {
             .downcast_ref::<Self>()
             .filter(|target| target.fs.is(&self.fs))
             .ok_or(FilesystemError::CrossesDevices)?;
-        self.fs.rename(
-            &self.fs.parent(from)?,
-            from,
-            &self.fs.parent(to)?,
-            &to.name(),
-        )
+        self.fs
+            .rename(&self.fs.parent(from)?, from, &self.fs.parent(to)?, to)
     }
 }
 
@@ -312,12 +308,11 @@ impl InodeOperations for Overlay {
     }
 
     fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.remove_dir(&self.fs.parent(dentry)?, &dentry.name())
+        self.fs.remove_dir(&self.fs.parent(dentry)?, dentry)
     }
 
     fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs
-            .remove_file(&self.fs.parent(dentry)?, &dentry.name())
+        self.fs.remove_file(&self.fs.parent(dentry)?, dentry)
     }
 
     /// Both directories lie in one Overlay, however many directories of
@@ -1105,6 +1100,46 @@ mod tests {
             Ok(FileType::CharDevice),
             "a lower Layer's file removed through Overlay::remove_file must leave a whiteout, a \
              device of no kind the guest opens, at its name in the upper"
+        );
+    }
+
+    // What fails after the exchange only a second writer's use of the inodes
+    // can force, so the exchange is called alone: the view must stand for the
+    // empty directory before anything else is asked of it.
+    // @behavior FS-164
+    #[test]
+    fn a_directory_emptied_for_its_removal_stays_empty_should_the_removal_fail() {
+        use crate::vfs::{lookup_slow, vfs_unlink};
+        let lower = Arc::new([("dir/file", "x")].into_iter().collect::<Tmpfs>());
+        let overlay = Arc::new(over(lower, Arc::new(Tmpfs::new())));
+        let filesystem = Filesystem::new(overlay.clone());
+        let root = filesystem.dentries().root();
+        let dir = lookup_slow(&filesystem, &root, "dir")
+            .expect("the directory must be found")
+            .1;
+        let file = lookup_slow(&filesystem, &dir, "file")
+            .expect("the file must be found")
+            .1;
+        vfs_unlink(&filesystem, &dir, &file).expect("the file must be removed");
+        let upper_root = overlay.fs.dir(&root).expect("the root must stand").level()[0]
+            .clone()
+            .expect("the upper shows the root");
+        overlay
+            .fs
+            .clear_empty(&upper_root, "dir", &dir)
+            .expect("the directory must be exchanged");
+        let names = overlay.fs.entries(
+            &overlay
+                .fs
+                .dir(&dir)
+                .expect("the directory must stand")
+                .level(),
+        );
+        assert_eq!(
+            names.map(|entries| entries.len()),
+            Ok(0),
+            "OverlayFs::entries of a directory OverlayFs::clear_empty replaced must show nothing \
+             of the lower Layer below it"
         );
     }
 

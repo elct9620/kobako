@@ -87,19 +87,6 @@ fn below_opaque_cut(mut level: Level) -> Level {
     level
 }
 
-/// Whether the directory `name` in `dir` is marked opaque.
-fn opaque_inside(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
-    match dir.open_dir(name) {
-        Ok(inner) => Ok(inner.is_opaque()),
-        Err(
-            FilesystemError::NotFound
-            | FilesystemError::NotADirectory
-            | FilesystemError::FilesystemLoop,
-        ) => Ok(false),
-        Err(err) => Err(err),
-    }
-}
-
 /// Whether a Layer below `index` shows a directory in `level`, without
 /// which a mark at `index` hides nothing, as overlayfs reads no opaque
 /// mark in its last layer.
@@ -175,11 +162,10 @@ fn cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
 /// else, as overlayfs's `ovl_cleanup_whiteouts` does before it removes
 /// one; anything else stands there leaves it holding that.
 fn cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
-    let inner = match dir.open_dir(name) {
-        Ok(inner) => inner,
-        Err(FilesystemError::NotADirectory) => return Ok(()),
-        Err(err) => return Err(err),
-    };
+    if dir.symlink_metadata(name)?.file_type != FileType::Directory {
+        return Ok(());
+    }
+    let inner = dir.open_dir(name)?;
     for entry in inner.entries()? {
         if inner.is_whiteout(&entry.name) {
             inner.remove_file(&entry.name)?;

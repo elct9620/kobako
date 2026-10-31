@@ -110,12 +110,6 @@ impl OverlayPath {
         self.upper()?.setxattr(OPAQUE_XATTR, OPAQUE)
     }
 
-    pub(super) fn remove_opaque(&self) -> Result<(), FilesystemError> {
-        let _held = self.inode_lock()?;
-        self.upper()?.removexattr(OPAQUE_XATTR);
-        Ok(())
-    }
-
     pub(super) fn whiteout(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
         may_create_dentry(&self.dentry, &*self.child(name)?)?;

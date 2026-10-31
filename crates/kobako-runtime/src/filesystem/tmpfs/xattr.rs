@@ -19,10 +19,4 @@ impl Tmpfs {
             .insert(name.to_string(), value.to_vec());
         Ok(())
     }
-
-    /// Take the attribute `name` off this directory, as `removexattr`
-    /// does.
-    pub(crate) fn removexattr(&self, name: &str) {
-        self.dir.state().xattrs.remove(name);
-    }
 }

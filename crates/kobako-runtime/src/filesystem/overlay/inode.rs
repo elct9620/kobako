@@ -54,6 +54,14 @@ impl OverlayInode {
         lock(&self.level)[into] = Some(dir.clone());
     }
 
+    /// Layer `into` now holds `dir` as this directory, marked opaque, so no
+    /// Layer below shows here any more.
+    pub(super) fn inode_replace(&self, into: usize, dir: &OverlayPath) {
+        let mut level = lock(&self.level);
+        level.fill(None);
+        level[into] = Some(dir.clone());
+    }
+
     /// The Layer's dentry this file answers through.
     pub(super) fn real(&self) -> Option<Arc<Dentry>> {
         lock(&self.real).clone()

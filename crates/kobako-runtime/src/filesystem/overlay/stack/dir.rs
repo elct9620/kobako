@@ -8,22 +8,17 @@ use super::super::super::{FileOperations, FileType, FilesystemError, OpenOptions
 use super::super::file::ovl_file;
 use super::super::inode::ovl_inode_of;
 use super::super::path::OverlayPath;
-use super::{
-    cleanup, cleanup_whiteouts, entry, holds, layer_dir, opaque_inside, Level, OverlayFs, ViewDir,
-};
+use super::{cleanup, cleanup_whiteouts, entry, holds, layer_dir, Level, OverlayFs, ViewDir};
 use crate::vfs::{Dentry, RenameFlag};
 
 /// Whether the directory `name` in `dir` holds a whiteout, which
 /// overlayfs's `ovl_check_empty_dir` lists for `ovl_clear_empty`.
 fn holds_whiteouts(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
-    match dir.open_dir(name) {
-        Ok(inner) => Ok(inner
-            .entries()?
-            .iter()
-            .any(|entry| inner.is_whiteout(&entry.name))),
-        Err(FilesystemError::NotADirectory) => Ok(false),
-        Err(err) => Err(err),
-    }
+    let inner = dir.open_dir(name)?;
+    Ok(inner
+        .entries()?
+        .iter()
+        .any(|entry| inner.is_whiteout(&entry.name)))
 }
 
 impl OverlayFs {
@@ -44,7 +39,7 @@ impl OverlayFs {
             let hidden = match &found {
                 Some(metadata) => {
                     holders.push(index);
-                    metadata.file_type != FileType::Directory || opaque_inside(dir, name)?
+                    metadata.file_type != FileType::Directory || dir.open_dir(name)?.is_opaque()
                 }
                 None => dir.is_whiteout(name),
             };
@@ -139,14 +134,26 @@ impl OverlayFs {
 
     /// Replace the upper's directory `name` in `dir`, holding nothing but
     /// whiteouts, with an empty one marked opaque, as overlayfs's
-    /// `ovl_clear_empty` does, so the view shows it empty throughout.
-    fn clear_empty(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+    /// `ovl_clear_empty` does, so the view shows it empty throughout. What
+    /// `child` names of it in the view now stands for the one exchanged in, as
+    /// `ovl_clear_empty` drops the dentry whose upper no longer matches, so the
+    /// view stays empty should what follows fail.
+    pub(in super::super) fn clear_empty(
+        &self,
+        dir: &OverlayPath,
+        name: &str,
+        child: &Dentry,
+    ) -> Result<(), FilesystemError> {
         let inner = dir.open_dir(name)?;
         let cleared = inner.entries()?;
         if cleared.iter().any(|entry| !inner.is_whiteout(&entry.name)) {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.exchange_in_opaque_dir(dir, name)
+        self.exchange_in_opaque_dir(dir, name)?;
+        if let Some(kept) = child.inode().as_deref().and_then(ovl_inode_of) {
+            kept.inode_replace(self.upper()?, &dir.open_dir(name)?);
+        }
+        Ok(())
     }
 
     /// An empty directory marked opaque, exchanged in for what stands at
@@ -161,7 +168,8 @@ impl OverlayFs {
     /// Take `name` out of the view: a whiteout over any Layer that keeps
     /// it, which also takes the upper's own entry away, or else only the
     /// upper's entry, as overlayfs's `ovl_do_remove` chooses.
-    fn withdraw(&self, dir: &ViewDir, name: &str) -> Result<(), FilesystemError> {
+    fn withdraw(&self, dir: &ViewDir, child: &Dentry, is_dir: bool) -> Result<(), FilesystemError> {
+        let name = &child.name();
         let level = dir.level();
         let (holders, shadowed) = self.holders(&level, name)?;
         let lower = holders.iter().copied().find(|&index| !self.is_upper(index));
@@ -171,8 +179,8 @@ impl OverlayFs {
         // replaced by an empty one, as overlayfs's `ovl_clear_empty` does,
         // so it removes as an empty directory, and anything another writer
         // made in it meanwhile refuses the removal.
-        if upper_holds && holds_whiteouts(layer_dir(&level[0])?, name)? {
-            self.clear_empty(layer_dir(&level[0])?, name)?;
+        if is_dir && upper_holds && holds_whiteouts(layer_dir(&level[0])?, name)? {
+            self.clear_empty(layer_dir(&level[0])?, name, child)?;
         }
         match whiteout_into {
             Some(upper) => {
@@ -243,8 +251,9 @@ impl OverlayFs {
     pub(in super::super) fn remove_dir(
         &self,
         dir: &ViewDir,
-        name: &str,
+        child: &Dentry,
     ) -> Result<(), FilesystemError> {
+        let name = &child.name();
         let level = dir.level();
         let (index, found) = self
             .lookup(&level, name)?
@@ -252,16 +261,16 @@ impl OverlayFs {
         if !self.is_empty(&level, name, (index, found))? {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.withdraw(dir, name)
+        self.withdraw(dir, child, true)
     }
 
     /// A link is removed as itself, wherever it points.
     pub(in super::super) fn remove_file(
         &self,
         dir: &ViewDir,
-        name: &str,
+        child: &Dentry,
     ) -> Result<(), FilesystemError> {
-        self.withdraw(dir, name)
+        self.withdraw(dir, child, false)
     }
 
     /// A directory moves only when the upper alone holds it; moving one
@@ -269,8 +278,8 @@ impl OverlayFs {
     /// so it is refused as crossing devices, as overlayfs refuses it
     /// without `redirect_dir`; so is a link or another kind a lower Layer
     /// holds, which no copy up can make. What the view holds at `to` is
-    /// checked as rename(2) checks it. A directory moved over one a lower
-    /// Layer holds is marked opaque before it moves, and the source leaves
+    /// checked as rename(2) checks it. A directory moved into one a lower
+    /// Layer also shows is marked opaque before it moves, and the source leaves
     /// a whiteout as it moves when a lower Layer still shows it, as
     /// overlayfs's `ovl_rename` does.
     pub(in super::super) fn rename(
@@ -278,9 +287,9 @@ impl OverlayFs {
         from: &ViewDir,
         moved: &Dentry,
         to: &ViewDir,
-        to_name: &str,
+        target: &Dentry,
     ) -> Result<(), FilesystemError> {
-        let from_name = &moved.name();
+        let (from_name, to_name) = (&moved.name(), &target.name());
         let from_level = from.level();
         let moving = self.symlink_metadata(&from_level, from_name)?;
         let to_level = to.level();
@@ -305,14 +314,6 @@ impl OverlayFs {
                 return Err(FilesystemError::DirectoryNotEmpty);
             }
         }
-        let mut replaces_below = false;
-        if is_dir {
-            for (index, dir) in to_level.iter().enumerate() {
-                if let Some(dir) = dir {
-                    replaces_below |= index != upper && holds(dir, to_name)?;
-                }
-            }
-        }
         let lower = holders.iter().copied().find(|&index| index != upper);
         let shown_below = self
             .whiteout_layer(lower.into_iter().chain(shadowed).min())?
@@ -324,22 +325,24 @@ impl OverlayFs {
         let replaces_dir =
             matches!(replaced, Some((_, found)) if found.file_type == FileType::Directory);
         if replaces_dir && holds(&target_dir, to_name)? {
-            self.clear_empty(&target_dir, to_name)?;
+            self.clear_empty(&target_dir, to_name, target)?;
         }
         let source_dir = from.level()[upper]
             .clone()
             .ok_or(FilesystemError::NotFound)?;
-        let moving_dir = match is_dir {
-            true => Some(source_dir.open_dir(from_name)?),
-            false => None,
-        };
-        let marked = match &moving_dir {
-            Some(dir) if replaces_below && !dir.is_opaque() => {
-                dir.set_opaque()?;
-                Some(dir)
+        // Nothing below shows a directory the upper alone holds, so a mark left
+        // on one by a move that then fails changes nothing, as `ovl_rename`
+        // leaves it.
+        let into_merged = to_level
+            .iter()
+            .enumerate()
+            .any(|(index, dir)| index != upper && dir.is_some());
+        if is_dir && into_merged {
+            let moving = source_dir.open_dir(from_name)?;
+            if !moving.is_opaque() {
+                moving.set_opaque()?;
             }
-            _ => None,
-        };
+        }
         let onto_whiteout = target_dir.is_whiteout(to_name);
         let flag = match (shown_below, onto_whiteout) {
             (true, true) => Some(RenameFlag::Exchange),
@@ -347,12 +350,7 @@ impl OverlayFs {
             (false, true) if is_dir => Some(RenameFlag::Exchange),
             _ => None,
         };
-        if let Err(err) = source_dir.rename2(from_name, &target_dir, to_name, flag) {
-            if let Some(dir) = marked {
-                let _ = dir.remove_opaque();
-            }
-            return Err(err);
-        }
+        source_dir.rename2(from_name, &target_dir, to_name, flag)?;
         if flag == Some(RenameFlag::Exchange) && !shown_below {
             source_dir.remove_file(from_name)?;
         }
