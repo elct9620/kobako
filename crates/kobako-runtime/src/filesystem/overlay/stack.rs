@@ -23,7 +23,7 @@ mod readdir;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::inode::{ovl_inode, OverlayInode};
+use super::inode::{ovl_inode, ovl_inode_is_kept, OverlayInode};
 use super::path::OverlayPath;
 
 use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb, Metadata};
@@ -191,14 +191,22 @@ fn cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), FilesystemErro
 /// Take `name` out of the workdir with all it holds, as overlayfs's
 /// `ovl_workdir_cleanup` empties it of what an earlier mount left.
 fn workdir_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
-    if dir.symlink_metadata(name)?.file_type != FileType::Directory {
-        return dir.remove_file(name);
+    let mut pending = vec![(dir.clone(), name.to_string())];
+    while let Some((dir, name)) = pending.last().cloned() {
+        if dir.symlink_metadata(&name)?.file_type != FileType::Directory {
+            dir.remove_file(&name)?;
+            pending.pop();
+            continue;
+        }
+        let inner = dir.open_dir(&name)?;
+        let entries = inner.entries()?;
+        if entries.is_empty() {
+            dir.remove_dir(&name)?;
+            pending.pop();
+        }
+        pending.extend(entries.into_iter().map(|entry| (inner.clone(), entry.name)));
     }
-    let inner = dir.open_dir(name)?;
-    for entry in inner.entries()? {
-        workdir_cleanup(&inner, &entry.name)?;
-    }
-    dir.remove_dir(name)
+    Ok(())
 }
 
 /// Layers stacked into one view, topmost first, the upper among them on
@@ -254,16 +262,25 @@ impl OverlayFs {
     /// parent: the root's every Layer's root merged down to the first
     /// marked opaque.
     pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
-        let inode = ovl_inode(dentry, || match dentry.parent() {
-            None => Ok(below_opaque_cut(
-                self.roots.iter().cloned().map(Some).collect(),
-            )),
-            Some(parent) => self.enter(&self.dir(&parent)?.level(), &dentry.name()),
-        })?;
-        Ok(ViewDir {
-            dentry: dentry.get(),
-            inode,
-        })
+        let mut unreached = vec![dentry.get()];
+        while let Some(parent) = unreached
+            .last()
+            .filter(|at| !ovl_inode_is_kept(at))
+            .and_then(|at| at.parent())
+        {
+            unreached.push(parent);
+        }
+        let mut reached = None;
+        while let Some(dentry) = unreached.pop() {
+            let inode = ovl_inode(&dentry, || match &reached {
+                None => Ok(below_opaque_cut(
+                    self.roots.iter().cloned().map(Some).collect(),
+                )),
+                Some(ViewDir { inode, .. }) => self.enter(&inode.level(), &dentry.name()),
+            })?;
+            reached = Some(ViewDir { dentry, inode });
+        }
+        reached.ok_or(FilesystemError::NotFound)
     }
 
     /// The directory holding the entry `dentry` names.

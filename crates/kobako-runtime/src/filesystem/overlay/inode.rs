@@ -134,6 +134,13 @@ pub(super) fn ovl_inode(
     Ok(downcast(inode.private().get_or_init(|| made).clone()))
 }
 
+/// Whether the entry `dentry` records keeps its state already.
+pub(super) fn ovl_inode_is_kept(dentry: &Dentry) -> bool {
+    dentry
+        .inode()
+        .is_some_and(|inode| inode.private().get().is_some())
+}
+
 /// Keep on `inode` the Layer's dentry its lookup found, as `ovl_lookup` keeps
 /// each real dentry.
 pub(super) fn ovl_inode_real(inode: &Inode, real: Arc<Dentry>) {

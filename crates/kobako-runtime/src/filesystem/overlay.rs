@@ -621,6 +621,37 @@ mod tests {
         );
     }
 
+    // A recursive climb needs more than this stack at this depth, in a build
+    // of any optimization, so only a loop passes.
+    // @behavior FS-146
+    #[test]
+    fn a_change_copies_up_however_deep_it_lands() {
+        let deep = vec!["a"; 1500].join("/");
+        let lower: Tmpfs = [(format!("{deep}/file"), "x")].into_iter().collect();
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(lower))],
+            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+        )
+        .unwrap_or_else(|_| panic!("the Overlay must make"));
+        let made = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(move || {
+                let view = kern_path(Arc::new(overlay));
+                view.create_dir(&format!("{deep}/made"))?;
+                view.symlink_metadata(&format!("{deep}/made"))
+                    .map(|found| found.file_type)
+            })
+            .expect("the thread must start")
+            .join()
+            .expect("the thread must not panic");
+        assert_eq!(
+            made,
+            Ok(FileType::Directory),
+            "a directory made 1500 directories deep in a lower Layer, through an Overlay on a \
+             256 KiB stack, must copy every directory above it up and stand"
+        );
+    }
+
     // Each change would land in the writable Tmpfs, which holds no link,
     // so only refusing it keeps the write from parting with its target.
     // @behavior FS-051

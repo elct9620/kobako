@@ -1499,3 +1499,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs whose directories stand far deeper than a path reaches, as moves can stack them |
 | When | nothing holds it any more, on a thread with a small stack |
 | Then | it goes, and the thread still runs |
+
+## `FS-146` A change copies up however deep it lands
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-145` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer holds a directory as deep as a path reaches |
+| When | the guest makes an entry in it, on a thread with a small stack |
+| Then | every directory above is copied up, and the thread still runs |

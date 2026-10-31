@@ -12,25 +12,42 @@ use crate::vfs::{Dentry, RenameFlag};
 impl OverlayFs {
     /// The directory `dir` in Layer `into`, made there along with each
     /// directory above it that so far shows only from another Layer, as
-    /// overlayfs's `ovl_copy_up` climbs the dentry's parents to copy up
-    /// the topmost first. A directory is made in the workdir with the
-    /// lower one's times and moved into place, as `ovl_copy_up_workdir`
-    /// does.
+    /// overlayfs's `ovl_copy_up_flags` climbs the dentry's parents in a loop
+    /// to copy up the topmost first, however deep the Layer's tree is.
     pub(super) fn upper_dir(
         &self,
         dir: &ViewDir,
         into: usize,
     ) -> Result<OverlayPath, FilesystemError> {
-        if let Some(held) = &dir.level()[into] {
-            return Ok(held.clone());
-        }
-        let Some(above) = dir.dentry.parent() else {
-            return Err(FilesystemError::CrossesDevices);
+        let mut unmade = Vec::new();
+        let mut at = dir.clone();
+        let mut made = loop {
+            if let Some(held) = at.level()[into].clone() {
+                break held;
+            }
+            let above = at.dentry.parent().ok_or(FilesystemError::CrossesDevices)?;
+            let next = self.dir(&above)?;
+            unmade.push(at);
+            at = next;
         };
-        let parent = self.upper_dir(&self.dir(&above)?, into)?;
+        while let Some(dir) = unmade.pop() {
+            made = self.copy_up_dir(&dir, &made, into)?;
+        }
+        Ok(made)
+    }
+
+    /// The directory `dir` in Layer `into`, beneath `parent` there. It is made
+    /// in the workdir with the lower one's times and moved into place, as
+    /// `ovl_copy_up_workdir` does.
+    fn copy_up_dir(
+        &self,
+        dir: &ViewDir,
+        parent: &OverlayPath,
+        into: usize,
+    ) -> Result<OverlayPath, FilesystemError> {
         let name = dir.dentry.name();
         let _held = dir.inode.lock.down_write()?;
-        let made = match entry(&parent, &name)? {
+        let made = match entry(parent, &name)? {
             Some(found) if found.file_type == FileType::Directory => parent.open_dir(&name)?,
             Some(found) if found.file_type == FileType::Symlink => {
                 return Err(FilesystemError::CrossesDevices)
@@ -48,9 +65,8 @@ impl OverlayFs {
                 work.create_dir(&temp)?;
                 let made = work.open_dir(&temp).and_then(|made| made.set_times(&lower));
                 let parent_times = parent.metadata()?;
-                let moved = made.and_then(|()| {
-                    work.rename2(&temp, &parent, &name, Some(RenameFlag::NoReplace))
-                });
+                let moved = made
+                    .and_then(|()| work.rename2(&temp, parent, &name, Some(RenameFlag::NoReplace)));
                 if let Err(err) = moved {
                     let _ = work.remove_dir(&temp);
                     return Err(err);
