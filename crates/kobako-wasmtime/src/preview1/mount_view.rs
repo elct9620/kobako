@@ -1559,6 +1559,35 @@ fn a_guest_sees_a_fifo_as_of_an_unknown_type_and_cannot_open_it() {
     );
 }
 
+// Bound and never accepted, so an open reaching it would answer ENXIO rather
+// than the refusal asserted here.
+// @behavior RT-196
+#[cfg(unix)]
+#[test]
+fn a_guest_sees_a_socket_as_one_and_cannot_open_it() {
+    let host = std::env::temp_dir().join(format!("kobako-granted-sock-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&host);
+    std::fs::create_dir_all(&host).expect("the host directory must be created");
+    let _socket = std::os::unix::net::UnixListener::bind(host.join("file.txt"))
+        .expect("the socket must be bound");
+    let directory = Bind::new(&host).expect("the host directory must open");
+    let mut guest = Guest::new(&[grant(Arc::new(directory), Access::Read, None)]);
+    let stat = guest.stat_flagged(FILE, 0);
+    let filetype = guest
+        .instance
+        .get_memory(&mut guest.store, "memory")
+        .expect("probe exports its memory")
+        .data(&guest.store)[384 + 16];
+    let opened = guest.call("read_file", FILE);
+    let _ = std::fs::remove_dir_all(&host);
+    assert_eq!(
+        (stat, filetype, opened),
+        (0, 6, ERRNO_ACCES),
+        "path_filestat_get of a socket beneath a Bind Mount through preview1 must report a \
+         stream socket, and path_open of it must answer EACCES"
+    );
+}
+
 // The link points at a regular file, so only a stat that follows none
 // can answer a link.
 // @behavior RT-097

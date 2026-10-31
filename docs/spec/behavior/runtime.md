@@ -45,6 +45,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/fuzz/test_dispatch_scheduling_fuzz.rb`
 - `test/parity/test_hermetic.rb`
 - `test/e2e/test_mount_spelling.rb`
+- `crates/kobako-runtime/src/security.rs`
+- `crates/kobako-runtime/src/vfs/pipe.rs`
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`
@@ -2131,3 +2133,52 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a permissive guest and an entry whose Filesystem names its device and inode numbers |
 | When | the guest reads the entry's inode number twice |
 | Then | it reads one number, and that number is no hash computed without the process's key |
+
+## `RT-195` A guest sees a special file's kind as preview1 names it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-127`, `FS-144` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry of each kind a Filesystem reports |
+| When | a preview1 Driver encodes each kind |
+| Then | a socket reads as a stream socket, each device as itself, and a FIFO as unknown |
+
+## `RT-196` A socket a guest sees cannot be opened
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-090` |
+| relates | `RT-127` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Bind Mount holding a socket |
+| When | the guest stats the socket and opens it |
+| Then | the stat answers a stream socket, and the open answers EACCES |
+
+## `RT-197` Only a file, a directory, or a link opens, whatever a Filesystem allows
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-090` |
+
+| Step | Statement |
+| --- | --- |
+| Given | the rules every invocation holds to |
+| When | they judge an open of each kind a Filesystem reports |
+| Then | a file, a directory, and a link pass, and each other kind answers permission denied |
+
+## `RT-198` A pipe of the runtime's own reports a FIFO
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-195` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a pipe the runtime made |
+| When | a caller asks what its end reports |
+| Then | it reports a FIFO |

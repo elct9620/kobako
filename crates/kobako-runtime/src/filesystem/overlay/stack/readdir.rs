@@ -19,7 +19,8 @@ impl OverlayFs {
             for entry in dir.entries()? {
                 // A whiteout lists as a device, as overlayfs's
                 // `ovl_fill_merge` reads `DT_CHR` before asking.
-                let whiteout = entry.file_type == FileType::Unknown && dir.is_whiteout(&entry.name);
+                let whiteout =
+                    entry.file_type == FileType::CharDevice && dir.is_whiteout(&entry.name);
                 if taken.insert(entry.name.clone()) && !whiteout {
                     entries.push(entry);
                 }

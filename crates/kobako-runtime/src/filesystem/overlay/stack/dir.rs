@@ -351,9 +351,8 @@ impl OverlayFs {
                 let shown = *holders.first().ok_or(FilesystemError::NotFound)?;
                 self.copy_up_file(from, moved, shown, upper)?
             }
-            FileType::Symlink | FileType::Unknown if holders.first() != Some(&upper) => {
-                return Err(FilesystemError::CrossesDevices)
-            }
+            FileType::Directory | FileType::File => {}
+            _ if holders.first() != Some(&upper) => return Err(FilesystemError::CrossesDevices),
             _ => {}
         }
         let target_dir = self.upper_dir(to, upper)?;

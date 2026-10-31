@@ -61,7 +61,7 @@ impl Node {
         match self {
             Self::File(_) => FileType::File,
             Self::Directory(_) => FileType::Directory,
-            Self::Whiteout { .. } => FileType::Unknown,
+            Self::Whiteout { .. } => FileType::CharDevice,
         }
     }
 
@@ -481,7 +481,7 @@ impl Tmpfs {
         match node {
             Node::File(data) => lock(data).metadata(),
             Node::Directory(dir) => dir.metadata(self.tree.dev),
-            Node::Whiteout { .. } => Metadata::new(FileType::Unknown, 0),
+            Node::Whiteout { .. } => Metadata::new(FileType::CharDevice, 0),
         }
     }
 
@@ -692,7 +692,7 @@ struct TmpfsWhiteout;
 
 impl InodeOperations for TmpfsWhiteout {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata::new(FileType::Unknown, 0))
+        Ok(Metadata::new(FileType::CharDevice, 0))
     }
 }
 

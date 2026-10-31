@@ -85,11 +85,16 @@ fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
     }
 }
 
+/// `file_type` as a preview1 `filetype`, which has no code for a FIFO and two
+/// for the one kind `st_mode` names a socket.
 fn to_filetype(file_type: FileType) -> Filetype {
     match file_type {
         FileType::Directory => Filetype::Directory,
         FileType::Symlink => Filetype::SymbolicLink,
         FileType::File => Filetype::RegularFile,
+        FileType::Socket => Filetype::SocketStream,
+        FileType::BlockDevice => Filetype::BlockDevice,
+        FileType::CharDevice => Filetype::CharacterDevice,
         _ => Filetype::Unknown,
     }
 }
@@ -420,6 +425,32 @@ mod tests {
     //! Witness that renumbering onto an open file closes it as `fd_close`
     //! does, so its Filesystem learns of the close and may refuse it.
     use std::sync::Arc;
+
+    use super::{to_filetype, Filetype};
+
+    // @behavior RT-195
+    #[test]
+    fn a_special_files_kind_reads_as_preview1_names_it() {
+        assert_eq!(
+            [
+                FileType::Socket,
+                FileType::BlockDevice,
+                FileType::CharDevice,
+                FileType::Fifo,
+                FileType::Unknown,
+            ]
+            .map(to_filetype),
+            [
+                Filetype::SocketStream,
+                Filetype::BlockDevice,
+                Filetype::CharacterDevice,
+                Filetype::Unknown,
+                Filetype::Unknown,
+            ],
+            "to_filetype must name a socket as a stream, each device as itself, and a FIFO, which \
+             preview1 has no code for, as unknown"
+        );
+    }
 
     use super::{
         fdstat_get, fdstat_set_flags, filestat_set_size, filestat_set_times, renumber, seek, sync,

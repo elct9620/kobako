@@ -326,8 +326,14 @@ pub enum FileType {
     Directory,
     /// A link, as only a stat that does not follow it and a listing report one.
     Symlink,
-    /// Anything else a host holds, such as a FIFO, a socket, or a device,
-    /// which no Filesystem opens; a pipe of the runtime's own reports it too.
+    /// A FIFO a host holds, or a pipe of the runtime's own.
+    Fifo,
+    Socket,
+    BlockDevice,
+    /// A character device a host holds, or a whiteout, as Linux makes one.
+    CharDevice,
+    /// What a platform names no kind for, or a name stored under another
+    /// spelling.
     Unknown,
 }
 

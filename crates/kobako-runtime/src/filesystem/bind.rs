@@ -281,8 +281,29 @@ fn to_file_type(host: cap_std::fs::FileType) -> FileType {
     } else if host.is_file() {
         FileType::File
     } else {
-        FileType::Unknown
+        to_special_file_type(host)
     }
+}
+
+/// What a host entry neither a file, a directory, nor a link is, as `st_mode`
+/// names it on unix; elsewhere a Bind names no kind.
+fn to_special_file_type(host: cap_std::fs::FileType) -> FileType {
+    #[cfg(unix)]
+    {
+        use cap_std::fs::FileTypeExt;
+        if host.is_fifo() {
+            return FileType::Fifo;
+        } else if host.is_socket() {
+            return FileType::Socket;
+        } else if host.is_block_device() {
+            return FileType::BlockDevice;
+        } else if host.is_char_device() {
+            return FileType::CharDevice;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = host;
+    FileType::Unknown
 }
 
 /// What a host entry is, with the size the host reports. The host names
@@ -976,7 +997,7 @@ mod tests {
     // @behavior FS-091
     #[cfg(unix)]
     #[test]
-    fn a_directory_reports_a_fifo_as_of_an_unknown_type() {
+    fn a_directory_reports_a_fifo_as_one() {
         let host = make_fifo_host("fifo-type");
         let directory = bind_host(&host.0);
         let listed: Vec<_> = directory
@@ -995,13 +1016,34 @@ mod tests {
                     .map(|metadata| metadata.file_type),
                 listed
             ),
-            (
-                Ok(FileType::Unknown),
-                Ok(FileType::Unknown),
-                vec![FileType::Unknown]
-            ),
+            (Ok(FileType::Fifo), Ok(FileType::Fifo), vec![FileType::Fifo]),
             "a FIFO looked up through Bind::metadata and symlink_metadata, and listed \
-             through read_dir, must answer an unknown type"
+             through read_dir, must answer a FIFO"
+        );
+    }
+
+    // `/dev/null` stands on every unix host, and a socket needs only its file
+    // to stand here, so neither is opened.
+    // @behavior FS-144
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_reports_the_kind_its_host_gives_a_special_file() {
+        let host = HostDir::new("special");
+        let _socket = std::os::unix::net::UnixListener::bind(host.0.join("sock"))
+            .expect("the socket must be bound");
+        let kind = |directory: KernPath, name| {
+            directory
+                .symlink_metadata(name)
+                .map(|metadata| metadata.file_type)
+        };
+        assert_eq!(
+            (
+                kind(bind_host(&host.0), "sock"),
+                kind(bind_host("/dev"), "null"),
+            ),
+            (Ok(FileType::Socket), Ok(FileType::CharDevice)),
+            "Bind::symlink_metadata of a socket and of /dev/null must answer the kind the host \
+             gives each"
         );
     }
 

@@ -613,7 +613,7 @@ mod tests {
             (
                 Err(FilesystemError::IsADirectory),
                 Err(FilesystemError::NotADirectory),
-                Ok(FileType::Unknown),
+                Ok(FileType::Fifo),
                 Ok(FileType::Directory)
             ),
             "a FIFO renamed onto a directory through an Overlay must be refused as a directory, \
@@ -928,7 +928,7 @@ mod tests {
             on(&upper)
                 .symlink_metadata("upper/dir/file")
                 .map(|metadata| metadata.file_type),
-            Ok(FileType::Unknown),
+            Ok(FileType::CharDevice),
             "a lower Layer's file removed through Overlay::remove_file must leave a whiteout, a \
              device of no kind the guest opens, at its name in the upper"
         );

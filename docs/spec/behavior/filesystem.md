@@ -908,7 +908,7 @@ both live in the upper and never show, so no name is reserved
 | When | the FIFO and the device are opened |
 | Then | each open is refused as permission denied, without waiting |
 
-## `FS-091` A Bind reports a FIFO as of an unknown type
+## `FS-091` A Bind reports a FIFO as one
 
 | Attribute | Value |
 | --- | --- |
@@ -918,7 +918,7 @@ both live in the upper and never show, so no name is reserved
 | --- | --- |
 | Given | a Bind holding a FIFO |
 | When | the FIFO is looked up and listed |
-| Then | each answers an unknown type |
+| Then | each answers a FIFO |
 
 ## `FS-092` An Overlay neither copies up nor moves a FIFO below it
 
@@ -1475,3 +1475,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a guest holding a file open on a Bind, whose host then replaces it with a longer one |
 | When | the guest asks the size of the path, and of what it holds |
 | Then | the path answers the longer size, and what it holds its own |
+
+## `FS-144` A Bind reports the kind its host gives a special file
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-091` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind on a unix host holding a socket, and one over a directory holding a device |
+| When | each is looked up |
+| Then | the socket answers a socket, and the device a character device |

@@ -17,8 +17,8 @@ impl SecurityOperations for KobakoSecurity {
     /// FIFO or a socket, and a device would act on being opened.
     fn file_open(&self, kind: FileType) -> Result<(), FilesystemError> {
         match kind {
-            FileType::Unknown => Err(FilesystemError::PermissionDenied),
-            _ => Ok(()),
+            FileType::File | FileType::Directory | FileType::Symlink => Ok(()),
+            _ => Err(FilesystemError::PermissionDenied),
         }
     }
 
@@ -160,4 +160,33 @@ pub fn prepare_creds<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cre
         }
     }
     Cred::new(security)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A Bind refuses these itself, so only asking the rule directly shows it
+    // holds for a Filesystem that would open them.
+    // @behavior RT-197
+    #[test]
+    fn only_a_file_a_directory_or_a_link_opens() {
+        let judged = |kind| KobakoSecurity.file_open(kind).is_ok();
+        assert_eq!(
+            [
+                FileType::File,
+                FileType::Directory,
+                FileType::Symlink,
+                FileType::Fifo,
+                FileType::Socket,
+                FileType::BlockDevice,
+                FileType::CharDevice,
+                FileType::Unknown,
+            ]
+            .map(judged),
+            [true, true, true, false, false, false, false, false],
+            "KobakoSecurity::file_open must pass a file, a directory, and a link, and refuse \
+             every other kind"
+        );
+    }
 }

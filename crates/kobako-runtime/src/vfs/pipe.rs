@@ -30,7 +30,7 @@ struct PipeFs;
 
 impl InodeOperations for PipeFs {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata::new(FileType::Unknown, 0))
+        Ok(Metadata::new(FileType::Fifo, 0))
     }
 }
 
@@ -126,7 +126,7 @@ pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
     let name = PIPE_NAME.fetch_add(1, Ordering::Relaxed).to_string();
     let dentries = PIPE_MNT.mnt().filesystem().dentries();
     let dentry = dentries.child(PIPE_MNT.dentry(), &name);
-    let found = Metadata::new(FileType::Unknown, 0);
+    let found = Metadata::new(FileType::Fifo, 0);
     dentry.add(Some(Inode::new(&found, Arc::new(PipeFs))));
     let end = |how: OpenHow| {
         let mut file = File::new(
@@ -208,5 +208,16 @@ mod tests {
                 "create_pipe_files must open each end as a stream with no position"
             );
         }
+    }
+
+    // @behavior RT-198
+    #[test]
+    fn a_pipe_reports_a_fifo() {
+        let (reader, _writer) = create_pipe_files(&PipeInodeInfo::new(1));
+        assert_eq!(
+            reader.getattr().map(|metadata| metadata.file_type).ok(),
+            Some(FileType::Fifo),
+            "File::getattr of an end create_pipe_files made must report a FIFO"
+        );
     }
 }
