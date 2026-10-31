@@ -17,7 +17,7 @@ mod globals;
 mod render;
 mod replace;
 
-pub(crate) use globals::set_span_globals;
+pub(crate) use globals::{set_span_globals, settle_span_globals};
 pub(crate) use replace::{expand_replacement, match_spans, MatchSpan};
 
 use crate::errors::{argument_error, regexp_error, type_error};

@@ -97,6 +97,20 @@ pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &M
     finalize(mrb, regexp, subject.to_owned(), groups, names);
 }
 
+/// What a method that found every match at once leaves behind: the given
+/// match, or nothing when it found none.
+pub(crate) fn settle_span_globals(
+    mrb: &Mrb,
+    regexp: Value,
+    subject: &str,
+    span: Option<&MatchSpan>,
+) {
+    match span {
+        Some(span) => set_span_globals(mrb, regexp, subject, span),
+        None => clear_globals(mrb),
+    }
+}
+
 pub(super) fn clear_globals(mrb: &Mrb) {
     let _ = mrb.gv_set(c"$~", qnil().as_value());
     clear_derived(mrb);

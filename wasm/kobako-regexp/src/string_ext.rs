@@ -96,11 +96,13 @@ fn str_scan(mrb: &Mrb, self_: Value, pattern: Value) -> Result<Value, Error> {
         let item = scan_item(mrb, &subject, span)?;
         match block {
             Some(b) => {
+                regexp::set_span_globals(mrb, re, &subject, span);
                 b.call::<_, Value>(mrb, [item])?;
             }
             None => result.push(mrb, item)?,
         }
     }
+    regexp::settle_span_globals(mrb, re, &subject, spans.last());
     if block.is_some() {
         Ok(self_)
     } else {
@@ -142,9 +144,13 @@ fn str_gsub(
     for span in &spans {
         let (start, end) = span.whole;
         out.push_str(&subject[last..start]);
+        if block.is_some() {
+            regexp::set_span_globals(mrb, re, &subject, span);
+        }
         out.push_str(&substitution(mrb, re, &subject, span, block, replacement)?);
         last = end;
     }
+    regexp::settle_span_globals(mrb, re, &subject, spans.last());
     out.push_str(&subject[last..]);
     Ok(mrb.str_new(out.as_bytes()).as_value())
 }
@@ -165,6 +171,9 @@ fn str_sub(
     let re = regexp::literal_regexp(mrb, pattern)?;
     let subject = regexp::to_text(mrb, self_)?;
     let spans = regexp::match_spans(mrb, re, &subject)?;
+    // Set once, ahead of any block: unlike gsub, sub leaves `$~` as its block
+    // left it, as in MRI.
+    regexp::settle_span_globals(mrb, re, &subject, spans.first());
     let Some(span) = spans.first() else {
         return Ok(mrb.str_new(subject.as_bytes()).as_value());
     };
@@ -187,8 +196,7 @@ fn require_replacement(mrb: &Mrb, replacement: Option<Value>) -> Result<(), Erro
     Ok(())
 }
 
-/// A replacement argument wins over a block, as in MRI; a block runs only
-/// after `$1..$9` refresh to this match.
+/// A replacement argument wins over a block, as in MRI.
 fn substitution(
     mrb: &Mrb,
     re: Value,
@@ -207,7 +215,6 @@ fn substitution(
         return regexp::expand_replacement(mrb, re, subject, span, &regexp::to_text(mrb, rep)?);
     }
     if let Some(b) = block {
-        regexp::set_span_globals(mrb, re, subject, span);
         let matched = mrb.str_new(&subject.as_bytes()[start..end]).as_value();
         return regexp::to_text(mrb, b.call(mrb, [matched])?);
     }

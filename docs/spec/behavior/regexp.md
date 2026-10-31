@@ -1361,3 +1361,75 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code substitutes with a block reading the match global by a capture name |
 | Then | each iteration reads its own capture |
+
+## `RX-264` The match globals follow each iteration of a scan block
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-036`, `RX-136` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code scans with a block reading the match globals |
+| Then | each iteration reads its own match |
+
+## `RX-265` Scanning and global substitution leave the last match
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-031` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the match global after a scan or a global substitution |
+| Then | it holds the last match found |
+
+## `RX-266` A single substitution leaves the match it replaced
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-031`, `RX-265` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code reads the match global after a single substitution |
+| Then | it holds the match that was replaced |
+
+## `RX-267` A scan or substitution that finds nothing clears the match global
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-187` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary, and an earlier match |
+| When | guest code scans or substitutes with a pattern that finds nothing |
+| Then | the match global is nil |
+
+## `RX-268` A match inside a block stays only after a single substitution
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-265`, `RX-266` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches inside a scan or substitution block, then reads the match global afterwards |
+| Then | a scan or global substitution holds its last match, and a single substitution holds the inner match |
+
+## `RX-269` Splitting leaves the match global alone
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-265` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary, and an earlier match |
+| When | guest code splits a String by a pattern |
+| Then | the match global still holds the earlier match |
