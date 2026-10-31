@@ -1433,3 +1433,47 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary, and an earlier match |
 | When | guest code splits a String by a pattern |
 | Then | the match global still holds the earlier match |
+
+## `RX-270` Beside a named group, an unnamed group captures nothing
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-016`, `RX-095` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern mixing named and unnamed groups |
+| Then | only the named groups are captured and numbered |
+
+## `RX-271` Beside a named group, a reference by number is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-270` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a pattern with a named group and a reference by number |
+| Then | a `RegexpError` is raised |
+
+## `RX-272` A group spelled the Python way is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a pattern using a `(?P` group form |
+| Then | a `RegexpError` is raised |
+
+## `RX-273` Only what really opens a group counts as one
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-270` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a pattern whose comment, class or escape spells a group |
+| When | the pattern's groups are counted |
+| Then | that spelling counts as no group |
