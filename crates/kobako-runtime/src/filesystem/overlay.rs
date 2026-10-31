@@ -222,17 +222,14 @@ impl InodeOperations for OverlayRegular {
     /// was whatever its Filesystem would keep.
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
         let overlay = &self.0;
-        let (real, _) = overlay.real_of(dentry)?;
-        if !overlay.fs.is_in_upper(&real) {
-            if let Err(err) = overlay.fs.copy_up(dentry) {
-                return Some(Err(err));
-            }
+        if let Err(err) = overlay
+            .fs
+            .parent(dentry)
+            .and_then(|parent| overlay.fs.copy_up_file(&parent, dentry, false))
+        {
+            return Some(Err(err));
         }
         let (real, _) = overlay.real_of(dentry)?;
-        // A file whose name another entry took since has nowhere to land.
-        if !overlay.fs.is_in_upper(&real) {
-            return Some(Err(FilesystemError::ReadOnlyFilesystem));
-        }
         let _held = match real.inode_lock() {
             Ok(held) => held,
             Err(err) => return Some(Err(err)),
@@ -2129,8 +2126,8 @@ mod tests {
     }
 
     // A descriptor held across the removal still names the lower file, while
-    // what stands at its name now is another entry, so only checking where the
-    // copy up landed keeps the lower Layer from being asked.
+    // what stands at its name now is another entry, so only a copy up refusing
+    // a name taken keeps the lower Layer from being asked.
     // @behavior FS-158
     #[test]
     fn a_time_set_on_a_file_whose_name_was_taken_leaves_its_lower_layer() {
@@ -2175,6 +2172,71 @@ mod tests {
             (Err(FilesystemError::ReadOnlyFilesystem.into()), 0),
             "vfs::vfs_utimes on a held lower file whose name another entry took must answer EROFS \
              and leave the lower Layer unasked"
+        );
+    }
+
+    /// A lower Layer whose one entry, `pipe`, is a FIFO, counting each open.
+    struct HoldsFifo(Arc<AtomicUsize>);
+
+    impl InodeOperations for HoldsFifo {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(match dentry.name().as_str() {
+                "pipe" => Metadata::new(FileType::Fifo, 0).with_identity(1, 2),
+                _ => Metadata::new(FileType::Directory, 0).with_identity(1, 1),
+            })
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            Some(Ok(match dentry.name().as_str() {
+                "pipe" => Lookup::Found(Inode::new(
+                    &Metadata::new(FileType::Fifo, 0).with_identity(1, 2),
+                    Arc::new(Self(self.0.clone())),
+                )),
+                _ => Lookup::Absent,
+            }))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Some(Err(FilesystemError::Interrupted))
+        }
+    }
+
+    // A special file answers a time without any open having been asked, as
+    // an open of one could wait for a peer past the invocation's timeout.
+    // @behavior FS-162
+    #[test]
+    fn a_time_set_on_a_special_file_below_an_overlay_opens_nothing() {
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{self, Path};
+        let opened = Arc::new(AtomicUsize::new(0));
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(HoldsFifo(opened.clone())))],
+            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+        )
+        .expect("the Overlay must stack");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let answer = vfs::do_utimes(
+            &Arc::default(),
+            &Path::root(mount.mnt()),
+            "pipe",
+            false,
+            &Iattr::times(None, Some(crate::vfs::SetTime::Now)),
+        );
+        assert_eq!(
+            (answer, opened.load(Ordering::SeqCst)),
+            (Err(FilesystemError::PermissionDenied.into()), 0),
+            "vfs::do_utimes on a FIFO a lower Layer holds through an Overlay must answer EACCES \
+             and open nothing"
         );
     }
 

@@ -203,16 +203,10 @@ impl OverlayFs {
             let file = real.open(options)?;
             return Ok(ovl_file(file, real, child, kept));
         }
-        let upper = self.upper()?;
-        let (from, _) = self
-            .lookup(&dir.level(), &child.name())?
-            .ok_or(FilesystemError::NotFound)?;
-        self.copy_up_file(dir, child, from, upper, options.truncate)?;
-        let real = kept.real().ok_or(FilesystemError::IsADirectory)?;
-        match self.is_in_upper(&real) {
-            true => real.open(options),
-            false => Err(FilesystemError::ReadOnlyFilesystem),
-        }
+        self.copy_up_file(dir, child, options.truncate)?;
+        kept.real()
+            .ok_or(FilesystemError::IsADirectory)?
+            .open(options)
     }
 
     /// Make the file `name`, where the view shows nothing, in the upper.
@@ -324,8 +318,7 @@ impl OverlayFs {
             .whiteout_layer(lower.into_iter().chain(shadowed).min())?
             .is_some();
         if moving.file_type == FileType::File && !holds_above {
-            let shown = *holders.first().ok_or(FilesystemError::NotFound)?;
-            self.copy_up_file(from, moved, shown, upper, false)?;
+            self.copy_up_file(from, moved, false)?;
         }
         let target_dir = self.upper_dir(to, upper)?;
         let replaces_dir =

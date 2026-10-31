@@ -175,16 +175,6 @@ impl OverlayPath {
         self.lookup_real(name)
     }
 
-    /// Open the file standing at `name`.
-    pub(super) fn open(
-        &self,
-        name: &str,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let _held = self.inode_lock_shared()?;
-        self.lookup_real(name)?.open(options)
-    }
-
     /// Make the file `name` and open it, holding the directory, as
     /// `O_CREAT` does.
     pub(super) fn atomic_open(

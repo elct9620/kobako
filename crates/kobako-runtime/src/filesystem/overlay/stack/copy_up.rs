@@ -85,52 +85,44 @@ impl OverlayFs {
         root.is_some_and(|root| real.is_subdir(&root))
     }
 
-    /// Copy the file `child` names up from the lower Layer showing it, as
-    /// `ovl_copy_up` does before a change to it. A file the view no longer
-    /// shows has no place to land, and so cannot change.
-    pub(in super::super) fn copy_up(&self, child: &Dentry) -> Result<(), FilesystemError> {
-        let dir = self.parent(child)?;
-        let upper = self.upper()?;
-        match self.lookup(&dir.level(), &child.name())? {
-            Some((from, _)) => self.copy_up_file(&dir, child, from, upper, false),
-            None => Err(FilesystemError::ReadOnlyFilesystem),
-        }
-    }
-
-    /// Copy the file `child` names in `dir` from Layer `from` into Layer
-    /// `into`, as overlayfs's `ovl_copy_up_tmpfile` does: the copy is made
-    /// with no name, filled, given the lower file's times, and only then
-    /// named, so a copy that fails part way is never seen. A `truncate` copy up
-    /// leaves the bytes behind, as `ovl_copy_up_one` sets its size to zero for
-    /// `O_TRUNC`, since the open is about to empty it.
-    pub(super) fn copy_up_file(
+    /// Copy the file `child` names in `dir` up from the Layer its inode keeps,
+    /// as overlayfs's `ovl_copy_up_tmpfile` does: the copy is made with no
+    /// name, filled, given the lower file's times, and only then named, so a
+    /// copy that fails part way is never seen. A `truncate` copy up leaves the
+    /// bytes behind, as `ovl_copy_up_one` sets its size to zero for `O_TRUNC`,
+    /// since the open is about to empty it. Only a file copies up, as
+    /// overlayfs's `ovl_copy_up_data` only reads a regular file, so a special
+    /// file is never opened. A file whose name is gone from the view has no
+    /// place to land.
+    pub(in super::super) fn copy_up_file(
         &self,
         dir: &ViewDir,
         child: &Dentry,
-        from: usize,
-        into: usize,
         truncate: bool,
     ) -> Result<(), FilesystemError> {
         let name = child.name();
-        let source_dir = dir.level()[from].clone().ok_or(FilesystemError::NotFound)?;
-        let target_dir = self.upper_dir(dir, into)?;
+        let target_dir = self.upper_dir(dir, self.upper()?)?;
         let inode = ovl_inode(child, || Ok(Vec::new()))?;
         let _held = inode.lock.down_write()?;
+        let real = inode.real().ok_or(FilesystemError::NotFound)?;
         // Another call may have copied it up while this one waited, as
         // overlayfs's `ovl_already_copied_up_locked` checks.
-        if holds(&target_dir, &name)? {
+        if self.is_in_upper(&real) {
             return Ok(());
         }
-        let lower = source_dir.symlink_metadata(&name)?;
+        if holds(&target_dir, &name)? || target_dir.is_whiteout(&name) {
+            return Err(FilesystemError::ReadOnlyFilesystem);
+        }
+        let lower = real.getattr()?;
+        if lower.file_type != FileType::File {
+            return Err(FilesystemError::PermissionDenied);
+        }
         let mut copy = target_dir.tmpfile()?;
-        if !truncate || lower.file_type != FileType::File {
-            let mut source = source_dir.open(
-                &name,
-                &OpenOptions {
-                    read: true,
-                    ..OpenOptions::default()
-                },
-            )?;
+        if !truncate {
+            let mut source = real.open(&OpenOptions {
+                read: true,
+                ..OpenOptions::default()
+            })?;
             copy_whole(source.as_mut(), &mut copy)?;
         }
         copy.set_times(lower.accessed, lower.modified);
