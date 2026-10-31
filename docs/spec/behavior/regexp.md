@@ -1570,3 +1570,24 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches a pattern with an inline option before an alternation |
 | Then | the option and the text before it hold for each following alternative, until the group closes |
+
+## `RX-282` A condition can ask after a group by name
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern with a condition naming a group |
+| Then | the branch follows whether that group took part |
+
+## `RX-283` A condition on a shared name asks only its first group
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-282` |
+| relates | `RX-257` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern with a condition naming a name several groups share |
+| Then | the branch follows whether the first of those groups took part |

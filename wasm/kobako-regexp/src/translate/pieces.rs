@@ -30,6 +30,10 @@ pub(super) enum Piece<'a> {
         name: &'a str,
     },
     NumberedCondition(&'a str),
+    NamedCondition {
+        text: &'a str,
+        name: &'a str,
+    },
     PythonGroup,
 }
 
@@ -124,6 +128,13 @@ impl<'a> Pieces<'a> {
             let len = option.find(')').map_or(self.rest.len(), |close| close + 3);
             self.open_frame();
             return Piece::NumberedCondition(self.take(len));
+        }
+        if let Some((name, len)) = option.strip_prefix('(').and_then(read_delimited) {
+            if option[1 + len..].starts_with(')') {
+                self.open_frame();
+                let text = self.take(4 + len);
+                return Piece::NamedCondition { text, name };
+            }
         }
         if !option.starts_with("<=") && !option.starts_with("<!") {
             if let Some((name, len)) = read_delimited(option) {

@@ -88,6 +88,7 @@ fn rewrite_piece(
             | Piece::PlainGroup
             | Piece::NamedGroup { .. }
             | Piece::NumberedCondition(_)
+            | Piece::NamedCondition { .. }
             | Piece::Options { scoped: true, .. }
     ) {
         owed_closes.push(0);
@@ -146,6 +147,18 @@ fn rewrite_piece(
                 ('g', Some(_)) => return Err(format!("multiplex definition name <{name}> call")),
                 (_, Some(numbers)) => push_each_group(numbers, out),
                 _ => out.push_str(text),
+            }
+        }
+        // The engine has no condition by name, and MRI asks a shared name's
+        // first group alone.
+        Piece::NamedCondition { text, name } => {
+            match names.iter().find(|(existing, _)| *existing == name) {
+                Some((_, numbers)) => {
+                    out.push_str("(?(");
+                    out.push_str(&numbers[0].to_string());
+                    out.push(')');
+                }
+                None => out.push_str(text),
             }
         }
         Piece::PythonGroup => return Err("undefined group option".to_string()),
