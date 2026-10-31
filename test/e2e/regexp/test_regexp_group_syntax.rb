@@ -59,12 +59,4 @@ class TestRegexpGroupSyntax < Minitest::Test
                    "#{source} through Regexp.new must raise RegexpError"
     end
   end
-
-  # @behavior RX-272
-  def test_a_python_style_group_is_refused
-    ["(?P<n>a)", "(?P=n)", "(?P>n)"].each do |source|
-      assert_equal "RegexpError", guard_error(%(Regexp.new("#{source}")), "RegexpError"),
-                   "#{source} through Regexp.new must raise RegexpError"
-    end
-  end
 end

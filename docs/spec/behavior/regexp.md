@@ -1459,12 +1459,12 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code compiles a pattern with a named group and a reference by number |
 | Then | a `RegexpError` is raised |
 
-## `RX-272` A group spelled the Python way is refused
+## `RX-272` A group option the language does not name is refused
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code compiles a pattern using a `(?P` group form |
+| When | guest code compiles a pattern using an inline option or a `(?P` form outside the language's set |
 | Then | a `RegexpError` is raised |
 
 ## `RX-273` Only what really opens a group counts as one
@@ -1627,3 +1627,43 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches a pattern with a brace holding no bound |
 | Then | the brace matches itself |
+
+## `RX-288` A look-behind refuses what would need more than its text
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a look-behind holding a backreference, a look-ahead or an atomic group |
+| Then | a `RegexpError` is raised |
+
+## `RX-289` A negative look-behind refuses a capture
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-288`, `RX-270` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a negative look-behind holding a group that would capture |
+| Then | a `RegexpError` is raised |
+
+## `RX-290` A group name opening with a digit is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a pattern naming a group with a leading digit |
+| Then | a `RegexpError` is raised |
+
+## `RX-291` An interval whose upper bound is below its lower is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-284` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a pattern with an interval whose upper bound is below its lower |
+| Then | a `RegexpError` is raised |

@@ -72,4 +72,17 @@ class TestRegexpQuantifier < Minitest::Test
     assert_equal %w[{1,2}], eval_regexp('/\{1,2}+/.match("{1,2}").to_a'),
                  "an escaped brace through a match must read as a literal"
   end
+
+  # A brace an escape owns opens no interval, and the escape is one unit.
+  # @behavior RX-287
+  def test_a_brace_an_escape_owns_stays_with_it
+    assert_equal %w[a], eval_regexp('/\p{Alpha}/.match("a").to_a'),
+                 "a property class through a match must keep its brace"
+    assert_equal %w[1], eval_regexp('/\P{Alpha}/.match("1").to_a'),
+                 "a negated property class through a match must keep its brace"
+    assert_equal %w[abc], eval_regexp('/\p{Alpha}{1,2}+/.match("abc").to_a'),
+                 "an interval after a property class through a match must repeat the whole class"
+    assert_equal %w[A], eval_regexp('/\u{41}/.match("A").to_a'),
+                 "a code point escape through a match must keep its brace"
+  end
 end
