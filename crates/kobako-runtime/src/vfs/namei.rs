@@ -993,9 +993,12 @@ pub(crate) fn vfs_rename(
     rename: impl FnOnce() -> Result<(), FilesystemError>,
 ) -> Result<(), FilesystemError> {
     let moving = kind_at(old_inode, old)?;
+    let target = kind_at(new_inode, new)?;
+    if d_same_identity(old, new) {
+        return Ok(());
+    }
     let is_dir = moving == Some(FileType::Directory);
     may_delete_dentry(old_dir, moving, is_dir)?;
-    let target = kind_at(new_inode, new)?;
     match (target, flag) {
         (None, Some(RenameFlag::Exchange)) => return Err(FilesystemError::NotFound),
         (None, _) => may_create_dentry(new_dir, None)?,
@@ -1024,6 +1027,14 @@ pub(crate) fn vfs_rename(
     let (old_name, new_name) = (old.name(), new.name());
     dentries.move_dentry(old_dir, &old_name, new_dir, &new_name);
     Ok(())
+}
+
+/// Whether both names stand for one entry, as hard links do, which Linux's
+/// `vfs_rename` answers as having nothing to move, comparing `source == target`.
+/// A Filesystem naming no identity cannot tell.
+fn d_same_identity(old: &Dentry, new: &Dentry) -> bool {
+    let identity = |dentry: &Dentry| dentry.inode().and_then(|inode| inode.identity());
+    identity(old).is_some() && identity(old) == identity(new)
 }
 
 /// Remove the empty directory `victim` in `dir` through `inode`, the
@@ -1523,6 +1534,50 @@ mod tests {
             Err(vfs::Error::Filesystem(FilesystemError::CrossesDevices)),
             "vfs::filename_renameat2 of `.` to another Mount must answer EXDEV, as \
              filename_renameat2 answers a move across mounts first"
+        );
+    }
+
+    /// A directory where every name is one entry, as hard links are, counting
+    /// each move it is asked for.
+    struct OneEntry(Arc<AtomicUsize>);
+
+    impl InodeOperations for OneEntry {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(crate::filesystem::FileType::Directory, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            let entry = Metadata::new(crate::filesystem::FileType::File, 0).with_identity(1, 2);
+            Some(Ok(Lookup::Found(Inode::new(
+                &entry,
+                Arc::new(Self(self.0.clone())),
+            ))))
+        }
+
+        fn rename(
+            &self,
+            _from: &Dentry,
+            _to_dir: &dyn InodeOperations,
+            _to: &Dentry,
+        ) -> Option<Result<(), FilesystemError>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Some(Ok(()))
+        }
+    }
+
+    // @behavior RT-209
+    #[test]
+    fn a_move_between_two_names_of_one_entry_changes_nothing() {
+        let moves = Arc::new(AtomicUsize::new(0));
+        let root = root_of(Filesystem::new(Arc::new(OneEntry(moves.clone()))));
+        assert_eq!(
+            (
+                vfs::filename_renameat2(&Arc::default(), &root, "a", &root, "b"),
+                moves.load(Ordering::SeqCst)
+            ),
+            (Ok(()), 0),
+            "vfs::filename_renameat2 between two names of one entry must succeed without asking \
+             the Filesystem, as vfs_rename compares source and target"
         );
     }
 

@@ -2304,3 +2304,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount holding a file and a link |
 | When | the guest reads the link of what is missing, of the file, and of the link |
 | Then | the calls answer ENOENT, EINVAL, and ENOTSUP |
+
+## `RT-209` A move between two names of one entry changes nothing
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-205` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem holding one entry under two names |
+| When | the guest moves one name onto the other |
+| Then | the move succeeds, and the Filesystem is not asked |
