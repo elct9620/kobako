@@ -1550,3 +1550,23 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp Guest Binary built with Unicode support |
 | When | guest code matches a pattern with a word boundary inside a look-behind |
 | Then | it answers the match |
+
+## `RX-280` An inline multiline option means what the multiline flag means
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-169` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern turning multiline on or off inline |
+| Then | that option decides whether a dot crosses a newline, and anchors still match per line |
+
+## `RX-281` An inline option holds through the alternatives that follow it
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern with an inline option before an alternation |
+| Then | the option and the text before it hold for each following alternative, until the group closes |

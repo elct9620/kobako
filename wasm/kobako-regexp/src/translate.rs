@@ -47,9 +47,13 @@ pub(crate) fn build_pattern(source: &str, options: i64) -> Result<String, String
     out.push(')');
     let extended = options & EXTENDED != 0;
     let names = collect_names(source, extended);
+    // One entry per open group, plus the source itself: the option groups each
+    // owes a `)` when it closes.
+    let mut owed_closes = vec![0];
     for piece in Pieces::new(source, extended) {
-        rewrite_piece(piece, &names, &mut out)?;
+        rewrite_piece(piece, &names, &mut owed_closes, &mut out)?;
     }
+    out.push_str(&")".repeat(owed_closes.iter().sum()));
     Ok(out)
 }
 
@@ -74,11 +78,46 @@ fn collect_names(source: &str, extended: bool) -> Vec<(&str, Vec<usize>)> {
 fn rewrite_piece(
     piece: Piece,
     names: &[(&str, Vec<usize>)],
+    owed_closes: &mut Vec<usize>,
     out: &mut String,
 ) -> Result<(), String> {
     let named = !names.is_empty();
+    if matches!(
+        piece,
+        Piece::Open(_)
+            | Piece::PlainGroup
+            | Piece::NamedGroup { .. }
+            | Piece::NumberedCondition(_)
+            | Piece::Options { scoped: true, .. }
+    ) {
+        owed_closes.push(0);
+    }
     match piece {
-        Piece::Text(text) | Piece::NamedGroup { text, .. } => out.push_str(text),
+        Piece::Text(text) | Piece::Open(text) | Piece::NamedGroup { text, .. } => {
+            out.push_str(text);
+        }
+        Piece::Comment(text) => {
+            out.push_str(text);
+            if text.starts_with('#') && !text.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+        Piece::Close => {
+            let owed = if owed_closes.len() > 1 {
+                owed_closes.pop().unwrap_or(0)
+            } else {
+                0
+            };
+            out.push_str(&")".repeat(owed + 1));
+        }
+        Piece::Options { letters, scoped } => {
+            push_options(letters, out);
+            if !scoped {
+                if let Some(owed) = owed_closes.last_mut() {
+                    *owed += 1;
+                }
+            }
+        }
         Piece::PlainGroup => out.push_str(if named { "(?:" } else { "(" }),
         Piece::Escape {
             letter: 'b' | 'B',
@@ -115,6 +154,28 @@ fn rewrite_piece(
 }
 
 const NUMBERED_REFERENCE: &str = "numbered backref/call is not allowed. (use name)";
+
+/// Always as `(?on-off:`, since MRI holds an option through the alternatives
+/// that follow it, where the engine ends it at the next `|`. Ruby's `m` is the
+/// engine's `s`.
+fn push_options(letters: &str, out: &mut String) {
+    let (on, off) = letters.split_once('-').unwrap_or((letters, ""));
+    let engine_letters = |letters: &str| -> String {
+        letters
+            .chars()
+            .filter(|letter| *letter != '-')
+            .map(|letter| if letter == 'm' { 's' } else { letter })
+            .collect()
+    };
+    out.push_str("(?");
+    out.push_str(&engine_letters(on));
+    let off = engine_letters(off);
+    if !off.is_empty() {
+        out.push('-');
+        out.push_str(&off);
+    }
+    out.push(':');
+}
 
 fn find_shared_numbers<'n>(names: &'n [(&str, Vec<usize>)], name: &str) -> Option<&'n [usize]> {
     names

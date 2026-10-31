@@ -4,6 +4,16 @@
 /// One meaningful stretch of a pattern's source.
 pub(super) enum Piece<'a> {
     Text(&'a str),
+    /// A comment, which no later text may fall into.
+    Comment(&'a str),
+    /// Any group opening with no rule of its own.
+    Open(&'a str),
+    Close,
+    /// `(?i-m)`, holding until its enclosing group closes, or `(?i-m:`.
+    Options {
+        letters: &'a str,
+        scoped: bool,
+    },
     Escape {
         letter: char,
         in_class: bool,
@@ -103,7 +113,7 @@ impl<'a> Pieces<'a> {
             return Piece::PlainGroup;
         };
         if option.starts_with('#') {
-            return Piece::Text(self.take(comment_len(self.rest)));
+            return Piece::Comment(self.take(comment_len(self.rest)));
         }
         if option.starts_with('P') {
             self.take(1);
@@ -123,17 +133,17 @@ impl<'a> Pieces<'a> {
             }
         }
         if let Some(letters) = read_option_letters(option) {
-            return Piece::Text(self.apply_options(letters));
+            return self.apply_options(letters);
         }
         self.open_frame();
-        Piece::Text(self.take(1))
+        Piece::Open(self.take(1))
     }
 
     /// `(?x:` holds until its own group closes; `(?x)` holds until the
     /// enclosing group does.
-    fn apply_options(&mut self, letters: &str) -> &'a str {
-        let close = self.rest.as_bytes()[2 + letters.len()];
-        if close == b':' {
+    fn apply_options(&mut self, letters: &'a str) -> Piece<'a> {
+        let scoped = self.rest.as_bytes()[2 + letters.len()] == b':';
+        if scoped {
             self.open_frame();
         }
         let mut setting = true;
@@ -144,7 +154,8 @@ impl<'a> Pieces<'a> {
                 _ => {}
             }
         }
-        self.take(3 + letters.len())
+        self.take(3 + letters.len());
+        Piece::Options { letters, scoped }
     }
 }
 
@@ -156,6 +167,18 @@ impl<'a> Iterator for Pieces<'a> {
         if first == '\\' {
             return Some(self.escape());
         }
+        if first == ')' && self.class_depth == 0 {
+            self.close_frame();
+            self.take(1);
+            return Some(Piece::Close);
+        }
+        if first == '#' && self.class_depth == 0 && self.frame().extended {
+            let len = self
+                .rest
+                .find('\n')
+                .map_or(self.rest.len(), |newline| newline + 1);
+            return Some(Piece::Comment(self.take(len)));
+        }
         let text_len = match first {
             '[' => {
                 self.class_depth += 1;
@@ -166,14 +189,6 @@ impl<'a> Iterator for Pieces<'a> {
                 1
             }
             '(' if self.class_depth == 0 => return Some(self.group()),
-            ')' if self.class_depth == 0 => {
-                self.close_frame();
-                1
-            }
-            '#' if self.frame().extended && self.class_depth == 0 => self
-                .rest
-                .find('\n')
-                .map_or(self.rest.len(), |newline| newline + 1),
             _ => first.len_utf8(),
         };
         Some(Piece::Text(self.take(text_len)))
@@ -194,7 +209,8 @@ fn read_delimited(text: &str) -> Option<(&str, usize)> {
 /// The letters of an option group: `(?i-m)` or `(?i-m:`, with the `(?` read.
 fn read_option_letters(option: &str) -> Option<&str> {
     let len = option.find(|c: char| !c.is_ascii_alphanumeric() && c != '-')?;
-    matches!(option.as_bytes()[len], b')' | b':').then(|| &option[..len])
+    let close = option.as_bytes()[len];
+    (close == b':' || (close == b')' && len > 0)).then(|| &option[..len])
 }
 
 /// A `(?#…)` comment, whose `)` can be escaped; one left open runs to the end.
