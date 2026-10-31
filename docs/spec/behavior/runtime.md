@@ -2364,3 +2364,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a call on a path or a link target holding a NUL, empty, or past `PATH_MAX` |
 | When | it reaches the VFS, whichever Driver brought it |
 | Then | it answers EINVAL, ENOENT, or ENAMETOOLONG, and the Filesystem is not asked |
+
+## `RT-214` A link answers as Linux's where no security module refuses
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-119`, `RT-142` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind holding a link to a directory and a link to nothing, both beneath it |
+| When | a call steps out of the first, and creates through the second, under no security module |
+| Then | each resolves as Linux's, and under kobako's own module each answers ELOOP |
