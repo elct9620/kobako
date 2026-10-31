@@ -507,7 +507,9 @@ impl DentryOperations for RubyFilesystem {
             return Ok(dentry.inode().is_none());
         };
         match self.stat(dentry.path_raw()) {
-            Ok(found) => Ok(Identity::of(&found) == inode.identity()),
+            Ok(found) => {
+                Ok(Identity::of(&found) == inode.identity() && found.file_type == inode.kind())
+            }
             Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(false),
             Err(err) => Err(err),
         }

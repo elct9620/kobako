@@ -64,8 +64,9 @@ impl Bind {
     /// The host directory `dentry` names, as 9p's `v9fs_fid_lookup` finds a
     /// fid: the one kept for it, or the names beneath the nearest directory
     /// kept, read from the dentries as `build_path_from_dentry` reads them.
-    /// 9p holds the rename lock through a walk; one here is checked afterwards
-    /// instead, and walked again from the root when the dentry moved meanwhile.
+    /// 9p holds the rename lock through a walk; one here compares what it found
+    /// with what the dentry recorded instead, as NFS compares a file handle,
+    /// and walks again from the root where the dentry moved meanwhile.
     fn fid(&self, dentry: &Dentry) -> Result<Arc<Dir>, FilesystemError> {
         if let Some(held) = self.find_fid(dentry) {
             return Ok(held);
@@ -81,11 +82,22 @@ impl Bind {
             at = parent.parent();
         };
         names.reverse();
-        let mut dir = walk::walk(&above, &names)?;
-        if !dentry.names().ends_with(&names) {
+        let recorded = dentry.inode().and_then(|inode| inode.identity());
+        let stands = |dir: &Dir| {
+            recorded.is_none()
+                || dir
+                    .dir_metadata()
+                    .is_ok_and(|found| Identity::of(&to_metadata(found)) == recorded)
+        };
+        let mut dir = walk::walk(&above, &names);
+        if !dir.as_ref().is_ok_and(stands) {
             let path = dentry.path_raw();
             let names: Vec<String> = path.split('/').map(String::from).collect();
-            dir = walk::walk(&self.root, &names)?;
+            dir = walk::walk(&self.root, &names);
+        }
+        let dir = dir?;
+        if !stands(&dir) {
+            return Err(FilesystemError::NotFound);
         }
         let dir = Arc::new(dir);
         self.fids.put(dentry, &dir);
@@ -305,23 +317,26 @@ fn to_file_type(host: cap_std::fs::FileType) -> FileType {
 }
 
 /// What a host entry neither a file, a directory, nor a link is, as `st_mode`
-/// names it on unix; elsewhere a Bind names no kind.
+/// names it.
+#[cfg(unix)]
 fn to_special_file_type(host: cap_std::fs::FileType) -> FileType {
-    #[cfg(unix)]
-    {
-        use cap_std::fs::FileTypeExt;
-        if host.is_fifo() {
-            return FileType::Fifo;
-        } else if host.is_socket() {
-            return FileType::Socket;
-        } else if host.is_block_device() {
-            return FileType::BlockDevice;
-        } else if host.is_char_device() {
-            return FileType::CharDevice;
-        }
+    use cap_std::fs::FileTypeExt;
+    if host.is_fifo() {
+        FileType::Fifo
+    } else if host.is_socket() {
+        FileType::Socket
+    } else if host.is_block_device() {
+        FileType::BlockDevice
+    } else if host.is_char_device() {
+        FileType::CharDevice
+    } else {
+        FileType::Unknown
     }
-    #[cfg(not(unix))]
-    let _ = host;
+}
+
+/// Elsewhere a Bind names no kind.
+#[cfg(not(unix))]
+fn to_special_file_type(_host: cap_std::fs::FileType) -> FileType {
     FileType::Unknown
 }
 
@@ -560,15 +575,8 @@ impl InodeOperations for Bind {
         self.at(dentry, |dir, name| dir.remove_dir(name).map_err(to_error))
     }
 
-    /// A directory is refused as one on every host, where the host itself
-    /// answers EISDIR on Linux but EPERM on macOS.
     fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.at(dentry, |dir, name| {
-            if dir.symlink_metadata(name).is_ok_and(|m| m.is_dir()) {
-                return Err(FilesystemError::IsADirectory);
-            }
-            dir.remove_file(name).map_err(to_error)
-        })
+        self.at(dentry, |dir, name| dir.remove_file(name).map_err(to_error))
     }
 
     /// A host directory takes no lock the runtime's check of the source
@@ -1189,6 +1197,31 @@ mod tests {
             answer.err(),
             Some(FilesystemError::NotFound),
             "InodeOperations::open of a Bind's directory the host removed must answer ENOENT"
+        );
+    }
+
+    // A walk finds what stands at the names now, so only comparing it with what
+    // the dentry recorded keeps another directory from answering for it.
+    // @behavior FS-167
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_the_host_replaced_is_not_walked_to_in_its_place() {
+        let host = HostDir::new("replaced-before-walk");
+        fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
+        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
+            Bind::new(&host.0).expect("the host directory must open"),
+        ));
+        let dentries = filesystem.dentries();
+        let root = dentries.root();
+        let dir = dentries.child(&root, "a");
+        dir.lookup_inode(&root).expect("the name must be found");
+        fs::rename(host.0.join("a"), host.0.join("moved")).expect("the host must move it");
+        fs::create_dir(host.0.join("a")).expect("the host must make another");
+        assert_eq!(
+            dir.getattr().err(),
+            Some(FilesystemError::NotFound),
+            "InodeOperations::getattr of a Bind directory the host replaced must answer ENOENT \
+             rather than what stands there now"
         );
     }
 

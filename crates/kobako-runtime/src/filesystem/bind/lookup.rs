@@ -49,21 +49,32 @@ fn lookup_by_listing(parent: &Dir, name: &str) -> Result<String, FilesystemError
         }
         names.push(entry);
     }
-    #[cfg(unix)]
-    {
-        use cap_std::fs::MetadataExt;
-        use std::os::unix::fs::DirEntryExt;
-        for entry in names {
-            if entry.ino() == found.ino() {
-                return entry
-                    .file_name()
-                    .into_string()
-                    .map_err(|_| to_error(io::ErrorKind::InvalidData.into()));
-            }
-        }
-    }
-    #[cfg(not(unix))]
-    let _ = (found, names);
+    stored_by_inode(names, &found)
+}
+
+/// The name among `names` sharing the inode of `found`.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn stored_by_inode(
+    names: Vec<cap_std::fs::DirEntry>,
+    found: &cap_std::fs::Metadata,
+) -> Result<String, FilesystemError> {
+    use cap_std::fs::MetadataExt;
+    use std::os::unix::fs::DirEntryExt;
+    names
+        .into_iter()
+        .find(|entry| entry.ino() == found.ino())
+        .ok_or(FilesystemError::PermissionDenied)?
+        .file_name()
+        .into_string()
+        .map_err(|_| to_error(io::ErrorKind::InvalidData.into()))
+}
+
+/// Without an inode nothing ties a spelling to a listed name.
+#[cfg(not(unix))]
+fn stored_by_inode(
+    _names: Vec<cap_std::fs::DirEntry>,
+    _found: &cap_std::fs::Metadata,
+) -> Result<String, FilesystemError> {
     Err(FilesystemError::PermissionDenied)
 }
 
