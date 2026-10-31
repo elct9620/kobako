@@ -14,12 +14,12 @@ use magnus::value::BoxValue;
 use magnus::{Error as MagnusError, Ruby, Value};
 
 thread_local! {
-    static HELD: RefCell<Option<Held>> = const { RefCell::new(None) };
+    static ESCAPE: RefCell<Option<Escape>> = const { RefCell::new(None) };
 }
 
 /// The error and, when it carries one, its exception kept rooted while
 /// the guest finishes unwinding.
-struct Held {
+struct Escape {
     error: MagnusError,
     _rooted: Option<BoxValue<Value>>,
 }
@@ -30,8 +30,8 @@ pub(super) fn hold(ruby: &Ruby, error: MagnusError) -> Result<(), MagnusError> {
     if error.is_kind_of(ruby.exception_standard_error()) {
         return Err(error);
     }
-    HELD.with(|held| {
-        held.borrow_mut().get_or_insert_with(|| Held {
+    ESCAPE.with(|held| {
+        held.borrow_mut().get_or_insert_with(|| Escape {
             _rooted: error.value().map(BoxValue::new),
             error,
         });
@@ -41,12 +41,12 @@ pub(super) fn hold(ruby: &Ruby, error: MagnusError) -> Result<(), MagnusError> {
 
 /// Whether a callback on this thread holds an error for the host.
 pub(super) fn pending() -> bool {
-    HELD.with(|held| held.borrow().is_some())
+    ESCAPE.with(|held| held.borrow().is_some())
 }
 
 /// Raise what a callback held, once the run is back in Ruby.
 pub(super) fn resume() -> Result<(), MagnusError> {
-    match HELD.with(|held| held.borrow_mut().take()) {
+    match ESCAPE.with(|held| held.borrow_mut().take()) {
         Some(held) => Err(held.error),
         None => Ok(()),
     }
