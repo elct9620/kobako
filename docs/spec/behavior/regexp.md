@@ -1348,3 +1348,16 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code reads the names of a pattern where groups share a name |
 | Then | each name comes back once, where it was first declared |
+
+## `RX-263` The match global in a substitution block reads captures by name
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-036` |
+| relates | `RX-096`, `RX-257` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code substitutes with a block reading the match global by a capture name |
+| Then | each iteration reads its own capture |

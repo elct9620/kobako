@@ -8,6 +8,7 @@ use beni::{Mrb, Value};
 use core::ffi::CStr;
 
 use super::replace::MatchSpan;
+use super::{match_names, read_state};
 
 /// `$1`..`$9` global names, indexed by capture group minus one.
 const NUMBERED: [&CStr; 9] = [
@@ -85,14 +86,15 @@ pub(super) fn set_last_match(mrb: &Mrb, value: Value) {
     }
 }
 
-/// Run per gsub/scan iteration, so `$1` is fresh in each block call.
+/// Run before each block call, so the block reads the match it was handed.
 pub(crate) fn set_span_globals(mrb: &Mrb, regexp: Value, subject: &str, span: &MatchSpan) {
     let mut groups = Vec::with_capacity(span.groups.len() + 1);
     groups.push(Some(span.whole));
     groups.extend(span.groups.iter().copied());
+    let names = read_state(mrb, regexp).map_or_else(Vec::new, match_names);
     // A gsub/scan block reuses one subject across iterations, so each match's
     // `MatchData` takes its own owned copy.
-    finalize(mrb, regexp, subject.to_owned(), groups, Vec::new());
+    finalize(mrb, regexp, subject.to_owned(), groups, names);
 }
 
 pub(super) fn clear_globals(mrb: &Mrb) {
