@@ -330,12 +330,12 @@ mod tests {
 
     use super::{Dentries, Dentry};
     use crate::filesystem::{
-        DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata,
-        OpenOptions, Tmpfs,
+        DirEntry, FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup,
+        Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Access, Mount};
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, File, Filesystem, Identity, Inode, OpenHow, Path};
+    use crate::vfs::{self, File, Identity, Inode, OpenHow, Path};
 
     /// A Filesystem answering each call by the path its dentry stands at,
     /// as one written in Ruby does, so a removed directory it opened

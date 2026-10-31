@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
 use kobako_runtime::filesystem::Bind;
+use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
     DentryOperations, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup,
     Metadata, OpenOptions, Overlay, Tmpfs,
@@ -17,7 +18,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, Dentry, Filesystem, Inode, OpenHow, Path};
+use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path};
 use wasmtime::{Instance, Module, Store};
 
 use crate::cache::shared_engine;

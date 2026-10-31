@@ -16,8 +16,8 @@ use super::namei::{
 };
 use super::path::Path;
 use super::{
-    DirEntry, Error, File, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Metadata, OpenOptions,
+    DirEntry, Error, File, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
+    Metadata, OpenOptions, SuperBlock,
 };
 use crate::mount::{Access, Mount};
 
@@ -27,7 +27,7 @@ pub(crate) struct KernPath(Path);
 
 /// The root of `filesystem`, mounted read-write.
 pub(crate) fn kern_path(filesystem: Arc<dyn InodeOperations>) -> KernPath {
-    let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
+    let mount = Mount::new("/data", SuperBlock::new(filesystem), Access::ReadWrite)
         .expect("/data is a guest path");
     KernPath(Path::root(mount.mnt()))
 }
@@ -123,13 +123,13 @@ impl KernPath {
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        vfs_rmdir(nd.mnt.filesystem(), nd.base().as_ref(), nd.dentry(), &child)
+        vfs_rmdir(nd.mnt.sb(), nd.base().as_ref(), nd.dentry(), &child)
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let nd = self.resolve(path)?;
         let child = nd.child()?;
-        vfs_unlink(nd.mnt.filesystem(), nd.base().as_ref(), nd.dentry(), &child)
+        vfs_unlink(nd.mnt.sb(), nd.base().as_ref(), nd.dentry(), &child)
     }
 
     /// Move `from` beneath this directory to `to` beneath `to_dir`,
@@ -151,7 +151,7 @@ impl KernPath {
         }
         let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
         vfs_rename(
-            source.mnt.filesystem(),
+            source.mnt.sb(),
             (old_inode, source.dentry(), &old),
             (new_inode, target.dentry(), &new),
             None,

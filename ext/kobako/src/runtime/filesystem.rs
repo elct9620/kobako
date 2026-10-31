@@ -20,8 +20,7 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{Bind, Overlay, Tmpfs};
-use kobako_runtime::vfs::Filesystem;
+use kobako_runtime::filesystem::{Bind, Filesystem, Overlay, Tmpfs};
 
 pub(super) use grants::{to_grants, validate_mount};
 

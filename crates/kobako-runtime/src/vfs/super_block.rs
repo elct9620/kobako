@@ -6,11 +6,11 @@ use super::dentry::Dentries;
 use super::inode::{Inode, InodeOperations};
 use crate::locking::RwSemaphore;
 
-/// One Filesystem instance, with the directories of it a guest reaches.
-/// Every Mount of the same instance shares them, as a bind mount shares
-/// its super block, so a directory moved or removed beneath one Mount is
-/// moved or removed beneath every other.
-pub struct Filesystem {
+/// One Filesystem instance, with the directories of it a guest reaches, as a
+/// Host App names it through `filesystem::Filesystem`. Every Mount of the same
+/// instance shares them, as a bind mount shares its super block, so a directory
+/// moved or removed beneath one Mount is moved or removed beneath every other.
+pub struct SuperBlock {
     root: Arc<dyn InodeOperations>,
     dentries: Dentries,
     /// Held by a move between two directories, as Linux's
@@ -19,7 +19,7 @@ pub struct Filesystem {
     rename_mutex: Arc<RwSemaphore>,
 }
 
-impl Filesystem {
+impl SuperBlock {
     /// The instance `root` answers for.
     pub fn new(root: Arc<dyn InodeOperations>) -> Arc<Self> {
         let dentries = Dentries::new(root.dentry_ops());

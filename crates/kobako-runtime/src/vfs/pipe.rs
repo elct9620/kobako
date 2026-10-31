@@ -12,12 +12,13 @@ use super::inode::{Inode, InodeOperations};
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
 use super::path::Path;
-use super::{FileType, Filesystem, FilesystemError, Metadata};
+use super::super_block::SuperBlock;
+use super::{FileType, FilesystemError, Metadata};
 
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No guest
 /// path reaches it: a pipe is only ever open.
 static PIPE_MNT: LazyLock<Path> =
-    LazyLock::new(|| Path::root(&VfsMount::kern_mount(Filesystem::new(Arc::new(PipeFs)))));
+    LazyLock::new(|| Path::root(&VfsMount::kern_mount(SuperBlock::new(Arc::new(PipeFs)))));
 
 /// Each pipe's name on pipefs, which no guest ever reads.
 static PIPE_NAME: AtomicU64 = AtomicU64::new(0);
@@ -121,7 +122,7 @@ impl FileOperations for AnonPipe {
 /// both on one inode. Neither takes a position.
 pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
     let name = PIPE_NAME.fetch_add(1, Ordering::Relaxed).to_string();
-    let dentries = PIPE_MNT.mnt().filesystem().dentries();
+    let dentries = PIPE_MNT.mnt().sb().dentries();
     let dentry = dentries.child(PIPE_MNT.dentry(), &name);
     let found = Metadata::new(FileType::Fifo, 0);
     dentry.add(Some(Inode::new(&found, Arc::new(PipeFs))));

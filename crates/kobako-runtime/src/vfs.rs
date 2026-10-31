@@ -12,7 +12,6 @@ mod cred;
 mod dentry;
 mod errno;
 mod file;
-mod filesystem;
 mod inode;
 #[cfg(test)]
 pub(crate) mod kern_path;
@@ -23,6 +22,7 @@ mod path;
 mod pipe;
 mod seqlock;
 mod stat;
+mod super_block;
 mod utimes;
 
 pub(crate) use namei::{
@@ -37,7 +37,6 @@ pub use errno::FilesystemError;
 pub use file::{
     DirContext, DirEmit, DirEntry, FMode, File, FileOperations, Kiocb, PollMask, Whence,
 };
-pub use filesystem::Filesystem;
 pub use inode::{Identity, Inode, InodeOperations, Lookup};
 pub use mount::{Access, Denial, VfsMount};
 pub use namei::{
@@ -48,6 +47,7 @@ pub use openat2::{OpenHow, OpenOptions};
 pub use path::Path;
 pub use pipe::{create_pipe_files, PipeInodeInfo};
 pub use stat::{do_readlinkat, vfs_fstatat, FileType, Metadata};
+pub use super_block::SuperBlock;
 pub use utimes::{do_utimes, vfs_utimes};
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name

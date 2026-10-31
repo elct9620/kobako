@@ -680,7 +680,7 @@ mod tests {
         use crate::vfs::{self, OpenHow};
         let host = HostDir::new("remade");
         fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
-        let filesystem = crate::vfs::Filesystem::new(Arc::new(
+        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
         ));
         let mount = Mount::new("/data", filesystem, crate::mount::Access::ReadWrite)
@@ -733,7 +733,7 @@ mod tests {
         fs::create_dir_all(host.0.join("a/d")).expect("the host tree must be made");
         fs::create_dir_all(host.0.join("refused")).expect("the host tree must be made");
         fs::write(host.0.join("a/d/secret"), "s").expect("the host file must be written");
-        let filesystem = crate::vfs::Filesystem::new(Arc::new(
+        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
         ));
         let mount = Mount::new("/data", filesystem, crate::mount::Access::Read)
@@ -766,9 +766,9 @@ mod tests {
     /// `f`, by name.
     #[cfg(unix)]
     fn each_holding_five_bytes(host: &HostDir) -> [(&'static str, crate::vfs::Path); 3] {
+        use crate::filesystem::Filesystem;
         use crate::filesystem::{Overlay, Tmpfs};
         use crate::mount::{Access, Mount};
-        use crate::vfs::Filesystem;
         fs::write(host.0.join("f"), "hello").expect("the host file must be written");
         let tmpfs = || [("f", "hello")].into_iter().collect::<Tmpfs>();
         let overlay = Overlay::new(
@@ -884,9 +884,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_overlay_takes_afresh_a_name_its_bind_layer_no_longer_holds() {
+        use crate::filesystem::Filesystem;
         use crate::filesystem::{Overlay, Tmpfs};
         use crate::mount::{Access, Mount};
-        use crate::vfs::{self, Filesystem, OpenHow};
+        use crate::vfs::{self, OpenHow};
         let host = HostDir::new("overlay-replaced");
         fs::create_dir(host.0.join("a")).expect("the host directory must be made");
         let lower = Filesystem::new(Arc::new(
@@ -931,7 +932,7 @@ mod tests {
         let host = HostDir::new("named-then-moved");
         fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
         fs::write(host.0.join("a/note"), "n").expect("the host file must be written");
-        let filesystem = crate::vfs::Filesystem::new(Arc::new(
+        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
         ));
         let dentries = filesystem.dentries();

@@ -6,7 +6,8 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::vfs::{Filesystem, VfsMount};
+use crate::filesystem::Filesystem;
+use crate::vfs::VfsMount;
 
 pub use crate::vfs::{Access, Denial};
 
@@ -98,6 +99,6 @@ impl Mount {
 
     /// The Filesystem instance this Mount places.
     pub fn filesystem(&self) -> &Arc<Filesystem> {
-        self.mnt.filesystem()
+        self.mnt.sb()
     }
 }

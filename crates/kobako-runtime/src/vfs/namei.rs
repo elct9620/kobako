@@ -19,11 +19,11 @@ use std::sync::Arc;
 use super::cred::Cred;
 use super::dentry::Dentry;
 use super::file::{File, FileOperations};
-use super::filesystem::Filesystem;
 use super::inode::{Inode, InodeOperations, Lookup};
 use super::mount::{Access, VfsMount};
 use super::openat2::{build_open_flags, vfs_open, OpenHow, OpenOptions};
 use super::path::Path;
+use super::super_block::SuperBlock;
 use super::{Error, FileType, FilesystemError, Metadata};
 use crate::locking::RwSemaphoreGuard;
 
@@ -97,24 +97,14 @@ impl Nameidata {
 
     /// The dentry of `name` in the directory the walk stands in.
     fn child_of(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        lookup_one(
-            self.mnt.filesystem(),
-            self.base().as_ref(),
-            self.dentry(),
-            name,
-        )
+        lookup_one(self.mnt.sb(), self.base().as_ref(), self.dentry(), name)
     }
 
     /// `name` as the directory the walk stands in stores it, and the
     /// dentry of that spelling, what stands there recorded on it. The
     /// caller holds that directory's lock.
     fn lookup_slow(&self, name: &str) -> Result<(String, Arc<Dentry>), FilesystemError> {
-        lookup_slow(
-            self.mnt.filesystem(),
-            self.base().as_ref(),
-            self.dentry(),
-            name,
-        )
+        lookup_slow(self.mnt.sb(), self.base().as_ref(), self.dentry(), name)
     }
 
     /// What kind of entry stands at the name, a link reported as itself,
@@ -201,12 +191,12 @@ impl Nameidata {
 /// it still names what stands there, as `lookup_fast` asks
 /// `d_revalidate`, and dropped for a new one where it does not.
 pub(crate) fn lookup_one(
-    filesystem: &Filesystem,
+    sb: &SuperBlock,
     inode: &dyn InodeOperations,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<Arc<Dentry>, FilesystemError> {
-    let dentries = filesystem.dentries();
+    let dentries = sb.dentries();
     if let Some(held) = dentries.lookup(parent, name) {
         let valid = match held.ops() {
             Some(ops) => ops.revalidate(inode, &held)?,
@@ -249,16 +239,16 @@ pub(crate) fn d_lookup_inode(
 /// through `d_add_ci`: every spelling reaching one entry shares its dentry,
 /// and so its lock.
 pub(crate) fn lookup_slow(
-    filesystem: &Filesystem,
+    sb: &SuperBlock,
     dir: &dyn InodeOperations,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<(String, Arc<Dentry>), FilesystemError> {
-    let given = lookup_one(filesystem, dir, parent, name)?;
+    let given = lookup_one(sb, dir, parent, name)?;
     match d_lookup_inode(dir, &given)? {
         None => Ok((name.to_string(), given)),
         Some(stored) => {
-            let dentry = lookup_one(filesystem, dir, parent, &stored)?;
+            let dentry = lookup_one(sb, dir, parent, &stored)?;
             d_lookup_inode(dir, &dentry)?;
             Ok((stored, dentry))
         }
@@ -791,7 +781,7 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
     refuse_root(&nd.name, FilesystemError::InvalidInput)?;
     let _parent = nd.dentry().inode_lock()?;
     Ok(vfs_rmdir(
-        nd.mnt.filesystem(),
+        nd.mnt.sb(),
         nd.base().as_ref(),
         nd.dentry(),
         &nd.child()?,
@@ -808,7 +798,7 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(
     refuse_root(&nd.name, FilesystemError::IsADirectory)?;
     let _parent = nd.dentry().inode_lock()?;
     Ok(vfs_unlink(
-        nd.mnt.filesystem(),
+        nd.mnt.sb(),
         nd.base().as_ref(),
         nd.dentry(),
         &nd.child()?,
@@ -857,12 +847,12 @@ pub fn filename_renameat2(
         return Ok(());
     }
     let (old, new) = (source.child()?, target.child()?);
-    let filesystem = from.mnt().filesystem();
+    let sb = from.mnt().sb();
     let (old_dir, new_dir) = (source.dentry(), target.dentry());
     // What stands at the source, and which directory stands beneath the
     // other, hold still once both are held, so each is asked then, as
     // Linux's `do_renameat2` looks the source up under `lock_rename`.
-    let _held = start_renaming(filesystem, (old_dir, &old), (new_dir, &new), None)?;
+    let _held = start_renaming(sb, (old_dir, &old), (new_dir, &new), None)?;
     let is_dir = source.look_up(&old)? == FileType::Directory;
     if names_directory && !is_dir {
         return Err(FilesystemError::NotADirectory.into());
@@ -870,7 +860,7 @@ pub fn filename_renameat2(
     cred.security_path_rename(from.mnt(), is_dir)?;
     let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
     Ok(vfs_rename(
-        filesystem,
+        sb,
         (old_inode, old_dir, &old),
         (new_inode, new_dir, &new),
         None,
@@ -900,14 +890,14 @@ pub(crate) enum RenameFlag {
 /// directory above the one it removes first, and otherwise in a fixed
 /// order.
 fn lock_rename(
-    filesystem: &Filesystem,
+    sb: &SuperBlock,
     old_dir: &Arc<Dentry>,
     new_dir: &Arc<Dentry>,
 ) -> Result<Vec<RwSemaphoreGuard>, FilesystemError> {
     if Arc::ptr_eq(old_dir, new_dir) {
         return Ok(vec![old_dir.inode_lock()?]);
     }
-    let rename = filesystem.rename_mutex().down_write()?;
+    let rename = sb.rename_mutex().down_write()?;
     let old_first = new_dir.is_subdir(old_dir)
         || (!old_dir.is_subdir(new_dir) && Arc::as_ptr(old_dir) < Arc::as_ptr(new_dir));
     let (first, second) = match old_first {
@@ -923,12 +913,12 @@ fn lock_rename(
 /// source stands above its target directory, and one whose target stands
 /// above its source directory, which only an exchange may not empty.
 pub(crate) fn start_renaming(
-    filesystem: &Filesystem,
+    sb: &SuperBlock,
     (old_dir, old): (&Arc<Dentry>, &Arc<Dentry>),
     (new_dir, new): (&Arc<Dentry>, &Arc<Dentry>),
     flag: Option<RenameFlag>,
 ) -> Result<Vec<RwSemaphoreGuard>, FilesystemError> {
-    let held = lock_rename(filesystem, old_dir, new_dir)?;
+    let held = lock_rename(sb, old_dir, new_dir)?;
     if new_dir.is_subdir(old) {
         return Err(FilesystemError::InvalidInput);
     }
@@ -991,7 +981,7 @@ fn lock_two_nondirectories(
 /// holds it, and an exchange swaps the two names' dentries, as
 /// `d_exchange` does.
 pub(crate) fn vfs_rename(
-    filesystem: &Filesystem,
+    sb: &SuperBlock,
     (old_inode, old_dir, old): (&dyn InodeOperations, &Arc<Dentry>, &Arc<Dentry>),
     (new_inode, new_dir, new): (&dyn InodeOperations, &Arc<Dentry>, &Arc<Dentry>),
     flag: Option<RenameFlag>,
@@ -1017,7 +1007,7 @@ pub(crate) fn vfs_rename(
         flag,
     )?;
     rename()?;
-    let dentries = filesystem.dentries();
+    let dentries = sb.dentries();
     if flag == Some(RenameFlag::Exchange) {
         dentries.exchange(old, new);
         return Ok(());
@@ -1036,7 +1026,7 @@ pub(crate) fn vfs_rename(
 /// `dir`: the directory removed is held too, so nothing is made in it
 /// meanwhile, and its dentry dies before either is let go.
 pub(crate) fn vfs_rmdir(
-    filesystem: &Filesystem,
+    sb: &SuperBlock,
     inode: &dyn InodeOperations,
     dir: &Arc<Dentry>,
     victim: &Arc<Dentry>,
@@ -1047,7 +1037,7 @@ pub(crate) fn vfs_rmdir(
         .rmdir(victim)
         .unwrap_or(Err(FilesystemError::NotPermitted))?;
     victim.mark_dead();
-    filesystem.dentries().delete(victim);
+    sb.dentries().delete(victim);
     Ok(())
 }
 
@@ -1056,7 +1046,7 @@ pub(crate) fn vfs_rmdir(
 /// the name itself held too. Its dentry is then dropped, as `d_delete`
 /// drops one still in use, so a file made at the name later has its own.
 pub(crate) fn vfs_unlink(
-    filesystem: &Filesystem,
+    sb: &SuperBlock,
     inode: &dyn InodeOperations,
     dir: &Dentry,
     victim: &Arc<Dentry>,
@@ -1068,7 +1058,7 @@ pub(crate) fn vfs_unlink(
     inode
         .unlink(victim)
         .unwrap_or(Err(FilesystemError::NotPermitted))?;
-    filesystem.dentries().delete(victim);
+    sb.dentries().delete(victim);
     Ok(())
 }
 
@@ -1227,13 +1217,13 @@ mod tests {
     use std::time::Duration;
 
     use crate::filesystem::{
-        DentryOperations, DirEntry, FileOperations, FilesystemError, InodeOperations, Lookup,
-        Metadata, OpenOptions, Tmpfs,
+        DentryOperations, DirEntry, FileOperations, Filesystem, FilesystemError, InodeOperations,
+        Lookup, Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Access, Mount, Policy};
     use crate::sched::testing::count_waits;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, Dentry, Filesystem, Inode, OpenHow, Path};
+    use crate::vfs::{self, Dentry, Inode, OpenHow, Path};
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
 

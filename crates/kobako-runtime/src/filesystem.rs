@@ -17,5 +17,5 @@ pub use tmpfs::{SeedError, Tmpfs};
 
 pub use crate::vfs::{
     DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Kiocb, Lookup, Metadata, OpenOptions, SetTime,
+    Kiocb, Lookup, Metadata, OpenOptions, SetTime, SuperBlock as Filesystem,
 };

@@ -54,10 +54,10 @@ mod tests {
     use std::time::UNIX_EPOCH;
 
     use super::*;
-    use crate::filesystem::{FileType, InodeOperations, Metadata, SetTime, Tmpfs};
+    use crate::filesystem::{FileType, Filesystem, InodeOperations, Metadata, SetTime, Tmpfs};
     use crate::mount::{Access as MountAccess, Mount, Policy};
     use crate::security::prepare_creds;
-    use crate::vfs::{Denial, Dentry, Filesystem};
+    use crate::vfs::{Denial, Dentry};
 
     fn times() -> Iattr {
         Iattr::times(Some(SetTime::Now), Some(SetTime::At(UNIX_EPOCH)))

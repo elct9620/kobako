@@ -14,13 +14,13 @@ use std::sync::Arc;
 
 use super::super::tmpfs::TmpfsFile;
 use super::super::{
-    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Metadata, OpenOptions,
-    Tmpfs,
+    DirEntry, FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Metadata,
+    OpenOptions, Tmpfs,
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
     d_get_link, d_getattr, d_open, lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link,
-    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, Filesystem, RenameFlag,
+    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, RenameFlag,
 };
 
 /// The attribute marking a directory opaque, and its value, as

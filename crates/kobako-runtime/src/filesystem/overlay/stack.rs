@@ -26,8 +26,8 @@ use std::sync::Arc;
 use super::inode::{ovl_inode, OverlayInode};
 use super::path::OverlayPath;
 
-use super::super::{FileOperations, FileType, FilesystemError, Kiocb, Metadata};
-use crate::vfs::{Dentry, Filesystem};
+use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb, Metadata};
+use crate::vfs::Dentry;
 
 /// The directories of the upper Tmpfs holding the view's changes and the
 /// changes being built, as overlayfs's `upperdir` and `workdir`.

@@ -14,10 +14,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::filesystem::Bind;
+use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::Filesystem;
 use wasmtime::{Module, Store};
 use wasmtime_wasi::I32Exit;
 

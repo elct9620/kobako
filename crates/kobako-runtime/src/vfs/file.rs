@@ -670,9 +670,8 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::filesystem::{InodeOperations, Lookup, Overlay, Tmpfs};
+    use crate::filesystem::{Filesystem, InodeOperations, Lookup, Overlay, Tmpfs};
     use crate::mount::{Access, Mount};
-    use crate::vfs::Filesystem;
     use crate::vfs::Inode;
 
     /// `file.txt`, seven bytes long, opened for `access`.

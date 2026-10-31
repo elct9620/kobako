@@ -18,10 +18,10 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Lookup, Metadata, OpenOptions, Tmpfs,
+    DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
+    InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
 };
-use crate::vfs::{d_getattr, d_lookup_inode, Dentry, Filesystem, Inode};
+use crate::vfs::{d_getattr, d_lookup_inode, Dentry, Inode};
 use inode::{ovl_inode_kept, ovl_inode_real};
 use stack::OverlayFs;
 

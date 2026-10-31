@@ -8,12 +8,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata,
-    OpenOptions, Tmpfs,
+    FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Kiocb, Lookup,
+    Metadata, OpenOptions, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
-use kobako_runtime::vfs::{self, Dentry, Filesystem, OpenHow, Path};
+use kobako_runtime::vfs::{self, Dentry, OpenHow, Path};
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use super::filesystem::Filesystem;
+use super::super_block::SuperBlock;
 
 /// What the guest may do beneath a Mount.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,28 +24,25 @@ pub enum Denial {
 /// A Filesystem instance as the VFS walks it, as `vfsmount` holds its super
 /// block and `mnt_flags`.
 pub struct VfsMount {
-    filesystem: Arc<Filesystem>,
+    sb: Arc<SuperBlock>,
     read_only: bool,
 }
 
 impl VfsMount {
-    /// `filesystem` mounted, allowing only reads where `read_only` says.
-    pub fn new(filesystem: Arc<Filesystem>, read_only: bool) -> Arc<Self> {
-        Arc::new(Self {
-            filesystem,
-            read_only,
-        })
+    /// `sb` mounted, allowing only reads where `read_only` says.
+    pub fn new(sb: Arc<SuperBlock>, read_only: bool) -> Arc<Self> {
+        Arc::new(Self { sb, read_only })
     }
 
-    /// `filesystem` mounted for the runtime's own use, as `kern_mount` mounts
-    /// one no guest path reaches.
-    pub(crate) fn kern_mount(filesystem: Arc<Filesystem>) -> Arc<Self> {
-        Self::new(filesystem, false)
+    /// `sb` mounted for the runtime's own use, as `kern_mount` mounts one no
+    /// guest path reaches.
+    pub(crate) fn kern_mount(sb: Arc<SuperBlock>) -> Arc<Self> {
+        Self::new(sb, false)
     }
 
-    /// The Filesystem instance mounted.
-    pub fn filesystem(&self) -> &Arc<Filesystem> {
-        &self.filesystem
+    /// The Filesystem instance mounted, as `mnt_sb` names it.
+    pub fn sb(&self) -> &Arc<SuperBlock> {
+        &self.sb
     }
 
     /// Whether a change beneath it is refused.

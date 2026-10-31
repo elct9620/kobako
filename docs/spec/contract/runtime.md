@@ -31,7 +31,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/vfs/errno.rs`
 - `crates/kobako-runtime/src/vfs/mount.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`
-- `crates/kobako-runtime/src/vfs/filesystem.rs`
+- `crates/kobako-runtime/src/vfs/super_block.rs`
 - `crates/kobako-runtime/src/vfs/inode.rs`
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/openat2.rs`
@@ -592,31 +592,32 @@ impl Mount {
 }
 ```
 
-## `Filesystem`
+## `SuperBlock`
 
-One Filesystem instance. Its Mounts share the directories a Guest reaches
+One Filesystem instance, as Linux's `super_block`. A Host App names it
+`filesystem::Filesystem`. Its Mounts share the directories a Guest reaches
 beneath it, as bind mounts share a super block.
 
 ```rust
-pub struct Filesystem {}
+pub struct SuperBlock {}
 ```
 
-## `Filesystem::new`
+## `SuperBlock::new`
 
 The instance a Filesystem's root answers for.
 
 ```rust
-impl Filesystem {
+impl SuperBlock {
     pub fn new(root: Arc<dyn InodeOperations>) -> Arc<Self> {}
 }
 ```
 
-## `Filesystem::root`
+## `SuperBlock::root`
 
 The Filesystem's root directory.
 
 ```rust
-impl Filesystem {
+impl SuperBlock {
     pub fn root(&self) -> &Arc<dyn InodeOperations> {}
 }
 ```
@@ -849,17 +850,17 @@ A Filesystem mounted, allowing only reads where asked.
 
 ```rust
 impl VfsMount {
-    pub fn new(filesystem: Arc<Filesystem>, read_only: bool) -> Arc<Self> {}
+    pub fn new(sb: Arc<SuperBlock>, read_only: bool) -> Arc<Self> {}
 }
 ```
 
-## `VfsMount::filesystem`
+## `VfsMount::sb`
 
 The Filesystem instance mounted.
 
 ```rust
 impl VfsMount {
-    pub fn filesystem(&self) -> &Arc<Filesystem> {}
+    pub fn sb(&self) -> &Arc<SuperBlock> {}
 }
 ```
 

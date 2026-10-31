@@ -23,10 +23,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use kobako_runtime::filesystem::Bind;
+use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{Filesystem, PATH_MAX};
+use kobako_runtime::vfs::PATH_MAX;
 use wasmtime::{Linker, Module, Store};
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{FsPerms, WasiCtxBuilder};

@@ -22,7 +22,7 @@ impl Path {
     /// The root of `mnt`.
     pub fn root(mnt: &Arc<VfsMount>) -> Self {
         Self {
-            dentry: mnt.filesystem().dentries().root(),
+            dentry: mnt.sb().dentries().root(),
             mnt: mnt.clone(),
         }
     }

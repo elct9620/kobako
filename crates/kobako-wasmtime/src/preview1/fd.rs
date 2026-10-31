@@ -461,12 +461,13 @@ mod tests {
     use crate::preview1::path::create_directory;
     use crate::preview1::types::Whence;
     use kobako_runtime::filesystem::{
-        FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
+        FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup, Metadata,
+        OpenOptions,
     };
     use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::profile::Profile;
     use kobako_runtime::vfs::{
-        self, create_pipe_files, Dentry, Filesystem, Inode, OpenHow, Path, PipeInodeInfo,
+        self, create_pipe_files, Dentry, Inode, OpenHow, Path, PipeInodeInfo,
     };
     use wiggle::GuestPtr;
 

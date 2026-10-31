@@ -106,8 +106,8 @@ impl SecurityOperations for MountPolicy {
         let Some(parent) = dentry.parent() else {
             return Ok(());
         };
-        let filesystem = path.mnt().filesystem();
-        let dentries = filesystem.dentries();
+        let sb = path.mnt().sb();
+        let dentries = sb.dentries();
         let told_apart = dentry
             .inode()
             .is_some_and(|inode| inode.identity().is_some());
@@ -123,7 +123,7 @@ impl SecurityOperations for MountPolicy {
             at = next.parent();
             above.push(next);
         }
-        let mut dir = filesystem.root().clone();
+        let mut dir = sb.root().clone();
         for ancestor in above.iter().rev().skip(1) {
             dir = match dir.lookup(ancestor) {
                 Some(Ok(Lookup::Found(inode))) if inode.kind() == FileType::Directory => {
