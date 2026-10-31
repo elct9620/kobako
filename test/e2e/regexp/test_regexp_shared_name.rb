@@ -83,4 +83,43 @@ class TestRegexpSharedName < Minitest::Test
     assert_equal %w[a b], eval_regexp("/(?<a>x)(?<b>y)(?<a>z)/.names"),
                  "a shared name through Regexp#names must come back once, where it was first declared"
   end
+
+  # @behavior RX-274
+  def test_a_backreference_by_a_shared_name_tries_each_group
+    source = '/(?<n>a)(?<n>b)\k<n>/'
+
+    assert_equal %w[abb a b], eval_regexp(%(#{source}.match("abb").to_a)),
+                 "a shared name through a backreference must match the last group's text"
+    assert_equal %w[aba a b], eval_regexp(%(#{source}.match("aba").to_a)),
+                 "a shared name through a backreference must match an earlier group's text"
+    assert_nil eval_regexp(%(#{source}.match("abc")&.to_a)),
+               "a shared name through a backreference must fail when no group's text follows"
+  end
+
+  # @behavior RX-274
+  def test_a_backreference_by_a_shared_name_skips_a_group_that_did_not_take_part
+    assert_equal ["aa", "a", nil], eval_regexp('/(?:(?<n>a)|(?<n>b))\k<n>/.match("aa").to_a'),
+                 "a shared name through a backreference must read the first alternative when it took part"
+    assert_equal ["bb", nil, "b"], eval_regexp('/(?:(?<n>a)|(?<n>b))\k<n>/.match("bb").to_a'),
+                 "a shared name through a backreference must read the second alternative when it took part"
+    assert_equal %w[aab a b], eval_regexp('/(?<n>a)\k<n>(?<n>b)/.match("aab").to_a'),
+                 "a shared name through a backreference must reach a group declared after it"
+  end
+
+  # The last group's text matches here, but what follows it does not; the
+  # earlier group's text would let the whole match succeed, and MRI never
+  # returns to try it.
+  # @behavior RX-275
+  def test_a_backreference_by_a_shared_name_settles_on_the_first_group_that_matches
+    assert_nil eval_regexp('/(?<n>ab)(?<n>a)\k<n>c/.match("abaabc")&.to_a'),
+               "a shared name through a backreference must not return to try an earlier group"
+  end
+
+  # @behavior RX-276
+  def test_a_subexpression_call_by_a_shared_name_is_refused
+    assert_equal "RegexpError", guard_error('/(?<n>a)(?<n>b)\g<n>/.match("ab")', "RegexpError"),
+                 "a shared name through \\g must raise RegexpError"
+    assert_equal %w[aa a], eval_regexp('/(?<n>a)\g<n>/.match("aa").to_a'),
+                 "an unshared name through \\g must still call its group"
+  end
 end

@@ -1477,3 +1477,39 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a pattern whose comment, class or escape spells a group |
 | When | the pattern's groups are counted |
 | Then | that spelling counts as no group |
+
+## `RX-274` A backreference by a shared name tries each of its groups
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-257` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern with a backreference by a name several groups share |
+| Then | the text of any of those groups that took part satisfies it |
+
+## `RX-275` A backreference by a shared name settles on the first text that fits
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-274` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | a later part of the pattern fails after that backreference matched |
+| Then | the match does not return to try another group |
+
+## `RX-276` A subexpression call by a shared name is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-274` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a pattern calling a name several groups share |
+| Then | a `RegexpError` is raised |

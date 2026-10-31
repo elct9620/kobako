@@ -90,11 +90,15 @@ fn rewrite_piece(
             }
             out.push_str(text);
         }
-        Piece::NamedReference { text, name } => {
+        Piece::NamedReference { text, kind, name } => {
             if named && is_group_number(name) {
                 return Err(NUMBERED_REFERENCE.to_string());
             }
-            out.push_str(text);
+            match (kind, shared_numbers(names, name)) {
+                ('g', Some(_)) => return Err(format!("multiplex definition name <{name}> call")),
+                (_, Some(numbers)) => push_each_group(numbers, out),
+                _ => out.push_str(text),
+            }
         }
         Piece::PythonGroup => return Err("undefined group option".to_string()),
     }
@@ -102,6 +106,27 @@ fn rewrite_piece(
 }
 
 const NUMBERED_REFERENCE: &str = "numbered backref/call is not allowed. (use name)";
+
+fn shared_numbers<'n>(names: &'n [(&str, Vec<usize>)], name: &str) -> Option<&'n [usize]> {
+    names
+        .iter()
+        .find(|(existing, numbers)| *existing == name && numbers.len() > 1)
+        .map(|(_, numbers)| numbers.as_slice())
+}
+
+/// MRI tries a shared name's groups from the last, settling on the first that
+/// matches: an atomic alternation, since it never returns to try another.
+fn push_each_group(numbers: &[usize], out: &mut String) {
+    out.push_str("(?>");
+    for (position, number) in numbers.iter().rev().enumerate() {
+        if position > 0 {
+            out.push('|');
+        }
+        out.push('\\');
+        out.push_str(&number.to_string());
+    }
+    out.push(')');
+}
 
 fn is_group_number(name: &str) -> bool {
     let digits = name.strip_prefix('-').unwrap_or(name);
@@ -111,11 +136,21 @@ fn is_group_number(name: &str) -> bool {
 /// One meaningful stretch of a pattern's source.
 enum Piece<'a> {
     Text(&'a str),
-    Escape { letter: char, in_class: bool },
+    Escape {
+        letter: char,
+        in_class: bool,
+    },
     PlainGroup,
-    NamedGroup { text: &'a str, name: &'a str },
+    NamedGroup {
+        text: &'a str,
+        name: &'a str,
+    },
     NumberedReference(&'a str),
-    NamedReference { text: &'a str, name: &'a str },
+    NamedReference {
+        text: &'a str,
+        kind: char,
+        name: &'a str,
+    },
     NumberedCondition(&'a str),
     PythonGroup,
 }
@@ -153,7 +188,11 @@ impl<'a> Pieces<'a> {
             if matches!(letter, 'k' | 'g') {
                 if let Some((name, len)) = delimited(&after[1..]) {
                     let text = self.take(2 + len);
-                    return Piece::NamedReference { text, name };
+                    return Piece::NamedReference {
+                        text,
+                        kind: letter,
+                        name,
+                    };
                 }
             }
             if ('1'..='9').contains(&letter) {
@@ -341,6 +380,15 @@ mod tests {
         assert_eq!(names(r"(?<n>a)\(?<m>b", 0), n_only);
         assert_eq!(names("(?<n>a) # (?<m>b)\n", EXTENDED), n_only);
         assert_eq!(names(r"(?<=a)(?<!b)(?<n>a)", 0), n_only);
+    }
+
+    // @behavior RX-274
+    #[test]
+    fn rewrites_a_backreference_by_a_shared_name_from_its_last_group() {
+        assert_eq!(
+            translated(r"(?<n>a)(b)(?<m>c)(?<n>d)\k<n>\k'n'\k<m>", 0),
+            r"(?m)(?<n>a)(?:b)(?<m>c)(?<n>d)(?>\3|\1)(?>\3|\1)\k<m>"
+        );
     }
 
     fn translated(source: &str, options: i64) -> String {
