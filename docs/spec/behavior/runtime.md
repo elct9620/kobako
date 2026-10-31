@@ -2412,3 +2412,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a pipe still holding bytes |
 | When | a read gives it no room |
 | Then | it reads nothing and leaves the bytes for the next read |
+
+## `RT-218` An entry a Filesystem cannot open opens with no operations
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-175` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount whose Filesystem has no `open` for a file it holds |
+| When | the guest opens the file and reads it |
+| Then | the open succeeds and the read answers EINVAL, as Linux's opens with no `f_op->open` |

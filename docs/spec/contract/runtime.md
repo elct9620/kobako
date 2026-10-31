@@ -1607,9 +1607,8 @@ pub trait Policy {
 ## `InodeOperations`
 
 What one entry of a Filesystem answers, as Linux's `inode_operations`. Only
-`getattr` is required. An operation an entry lacks answers none, and the
-runtime answers for it as Linux's VFS does. A wrapper wraps each entry its
-`lookup` finds.
+`getattr` is required. An operation an entry lacks answers by default as Linux's
+VFS answers for it. A wrapper wraps each entry its `lookup` finds.
 
 ```rust
 pub trait InodeOperations {}
@@ -1632,7 +1631,7 @@ it is no directory to walk through.
 
 ```rust
 pub trait InodeOperations {
-    fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>>;
+    fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError>;
 }
 ```
 
@@ -1689,18 +1688,19 @@ invalid input.
 
 ```rust
 pub trait InodeOperations {
-    fn get_link(&self, _dentry: &Dentry) -> Option<Result<String, FilesystemError>>;
+    fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError>;
 }
 ```
 
 ## `InodeOperations::open`
 
-Open this entry, truncating a file where the options say to. A directory opens
-to be listed. The runtime refuses a link before it asks.
+Open this entry. A directory opens to be listed. The runtime refuses a link
+before it asks, and empties a file through `setattr` afterwards. An entry without
+it opens with no operations.
 
 ```rust
 pub trait InodeOperations {
-    fn open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn FileOperations>, FilesystemError>>;
+    fn open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Result<Box<dyn FileOperations>, FilesystemError>;
 }
 ```
 
@@ -1711,7 +1711,7 @@ it answers permission denied.
 
 ```rust
 pub trait InodeOperations {
-    fn atomic_open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn FileOperations>, FilesystemError>>;
+    fn atomic_open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Result<Box<dyn FileOperations>, FilesystemError>;
 }
 ```
 
@@ -1722,7 +1722,7 @@ not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn mkdir(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>>;
+    fn mkdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -1733,7 +1733,7 @@ answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn rmdir(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>>;
+    fn rmdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -1744,7 +1744,7 @@ answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn unlink(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>>;
+    fn unlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -1769,11 +1769,11 @@ impl Iattr {
 ## `InodeOperations::setattr`
 
 Apply a change to this entry, as it stands even once its name is gone. An entry
-without it refuses as invalid input.
+without it refuses a size as invalid input and a time as unsupported.
 
 ```rust
 pub trait InodeOperations {
-    fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Option<Result<(), FilesystemError>>;
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -1787,7 +1787,7 @@ answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn rename(&self, _from: &Dentry, _to_dir: &dyn InodeOperations, _to: &Dentry) -> Option<Result<(), FilesystemError>>;
+    fn rename(&self, _from: &Dentry, _to_dir: &dyn InodeOperations, _to: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 
