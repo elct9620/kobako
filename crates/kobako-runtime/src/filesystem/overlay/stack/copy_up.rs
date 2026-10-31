@@ -60,14 +60,15 @@ impl OverlayFs {
                     .next()
                     .ok_or(FilesystemError::NotFound)?
                     .metadata()?;
-                let (work, temp) = self.temp()?;
-                work.create_dir(&temp)?;
+                let (work, temp) = self.tempname()?;
+                work.do_mkdir(&temp)?;
                 let made = work.open_dir(&temp).and_then(|made| made.set_times(&lower));
                 let parent_times = parent.metadata()?;
-                let moved = made
-                    .and_then(|()| work.rename2(&temp, parent, &name, Some(RenameFlag::NoReplace)));
+                let moved = made.and_then(|()| {
+                    work.do_rename(&temp, parent, &name, Some(RenameFlag::NoReplace))
+                });
                 if let Err(err) = moved {
-                    let _ = work.remove_dir(&temp);
+                    let _ = work.do_rmdir(&temp);
                     return Err(err);
                 }
                 let _ = parent.set_times(&parent_times);
@@ -117,7 +118,7 @@ impl OverlayFs {
         if lower.file_type != FileType::File {
             return Err(FilesystemError::PermissionDenied);
         }
-        let mut copy = target_dir.tmpfile()?;
+        let mut copy = target_dir.do_tmpfile()?;
         if !truncate {
             let mut source = real.open(&OpenOptions {
                 read: true,
@@ -127,7 +128,7 @@ impl OverlayFs {
         }
         copy.set_times(lower.accessed, lower.modified);
         let parent_times = target_dir.metadata()?;
-        target_dir.link(&copy, &name)?;
+        target_dir.do_link(&copy, &name)?;
         let _ = target_dir.set_times(&parent_times);
         inode.set_real(target_dir.real(&name)?);
         Ok(())

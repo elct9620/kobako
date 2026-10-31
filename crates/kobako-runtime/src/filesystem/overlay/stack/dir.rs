@@ -91,15 +91,20 @@ impl OverlayFs {
     /// Hide `name` in `dir` with a whiteout made in the workdir first, then
     /// exchanged with what the upper holds there or moved in where it
     /// holds nothing, as overlayfs's `ovl_cleanup_and_whiteout` does.
-    fn whiteout(&self, dir: &OverlayPath, name: &str, holds: bool) -> Result<(), FilesystemError> {
-        let (work, temp) = self.temp()?;
-        work.whiteout(&temp)?;
+    fn cleanup_and_whiteout(
+        &self,
+        dir: &OverlayPath,
+        name: &str,
+        holds: bool,
+    ) -> Result<(), FilesystemError> {
+        let (work, temp) = self.tempname()?;
+        work.do_whiteout(&temp)?;
         let flag = match holds {
             true => RenameFlag::Exchange,
             false => RenameFlag::NoReplace,
         };
-        if let Err(err) = work.rename2(&temp, dir, name, Some(flag)) {
-            let _ = work.remove_file(&temp);
+        if let Err(err) = work.do_rename(&temp, dir, name, Some(flag)) {
+            let _ = work.do_unlink(&temp);
             return Err(err);
         }
         if holds {
@@ -119,10 +124,10 @@ impl OverlayFs {
         name: &str,
         make: impl FnOnce(&OverlayPath, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
-        let (work, temp) = self.temp()?;
+        let (work, temp) = self.tempname()?;
         let made = make(work, &temp)
             .and_then(|made| {
-                work.rename2(&temp, dir, name, Some(RenameFlag::Exchange))?;
+                work.do_rename(&temp, dir, name, Some(RenameFlag::Exchange))?;
                 Ok(made)
             })
             .inspect_err(|_| {
@@ -154,7 +159,7 @@ impl OverlayFs {
     /// `name` in `dir`.
     fn exchange_in_opaque_dir(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
         self.exchange_in(dir, name, |work, temp| {
-            work.create_dir(temp)?;
+            work.do_mkdir(temp)?;
             work.open_dir(temp)?.set_opaque()
         })
     }
@@ -162,7 +167,7 @@ impl OverlayFs {
     /// Take `name` out of the view: a whiteout over any Layer that keeps
     /// it, which also takes the upper's own entry away, or else only the
     /// upper's entry, as overlayfs's `ovl_do_remove` chooses.
-    fn withdraw(&self, dir: &ViewDir, name: &str, is_dir: bool) -> Result<(), FilesystemError> {
+    fn do_remove(&self, dir: &ViewDir, name: &str, is_dir: bool) -> Result<(), FilesystemError> {
         let level = dir.level();
         let (holders, shadowed) = self.holders(&level, name)?;
         let lower = holders.iter().copied().find(|&index| !self.is_upper(index));
@@ -178,7 +183,7 @@ impl OverlayFs {
         match whiteout_into {
             Some(upper) => {
                 let upper_dir = self.upper_dir(dir, upper)?;
-                self.whiteout(&upper_dir, name, upper_holds)
+                self.cleanup_and_whiteout(&upper_dir, name, upper_holds)
             }
             None if upper_holds => cleanup(layer_dir(&level[0])?, name),
             None => Err(FilesystemError::NotFound),
@@ -211,7 +216,7 @@ impl OverlayFs {
     }
 
     /// Make the file `name`, where the view shows nothing, in the upper.
-    pub(in super::super) fn create_file(
+    pub(in super::super) fn create(
         &self,
         dir: &ViewDir,
         name: &str,
@@ -228,41 +233,33 @@ impl OverlayFs {
 
     /// A directory made where a whiteout hid one is marked opaque, so the
     /// lower Layers' entries never show in it.
-    pub(in super::super) fn create_dir(
-        &self,
-        dir: &ViewDir,
-        name: &str,
-    ) -> Result<(), FilesystemError> {
+    pub(in super::super) fn mkdir(&self, dir: &ViewDir, name: &str) -> Result<(), FilesystemError> {
         let upper = self.upper()?;
         let upper_dir = self.upper_dir(dir, upper)?;
         match upper_dir.is_whiteout(name) {
             true => self.exchange_in_opaque_dir(&upper_dir, name),
-            false => upper_dir.create_dir(name),
+            false => upper_dir.do_mkdir(name),
         }
     }
 
-    pub(in super::super) fn remove_dir(
-        &self,
-        dir: &ViewDir,
-        name: &str,
-    ) -> Result<(), FilesystemError> {
+    pub(in super::super) fn rmdir(&self, dir: &ViewDir, name: &str) -> Result<(), FilesystemError> {
         let level = dir.level();
         let (index, found) = self
-            .lookup(&level, name)?
+            .lookup_layer(&level, name)?
             .ok_or(FilesystemError::NotFound)?;
         if !self.is_empty(&level, name, (index, found))? {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.withdraw(dir, name, true)
+        self.do_remove(dir, name, true)
     }
 
     /// A link is removed as itself, wherever it points.
-    pub(in super::super) fn remove_file(
+    pub(in super::super) fn unlink(
         &self,
         dir: &ViewDir,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        self.withdraw(dir, name, false)
+        self.do_remove(dir, name, false)
     }
 
     /// A directory moves only when the upper alone holds it; moving one
@@ -285,7 +282,7 @@ impl OverlayFs {
         let from_level = from.level();
         let moving = self.symlink_metadata(&from_level, from_name)?;
         let to_level = to.level();
-        let replaced = self.lookup(&to_level, to_name)?;
+        let replaced = self.lookup_layer(&to_level, to_name)?;
         let is_dir = moving.file_type == FileType::Directory;
         let upper = self.upper()?;
         let (holders, shadowed) = self.holders(&from_level, from_name)?;
@@ -342,9 +339,9 @@ impl OverlayFs {
             (false, true) if is_dir => Some(RenameFlag::Exchange),
             _ => None,
         };
-        source_dir.rename2(from_name, &target_dir, to_name, flag)?;
+        source_dir.do_rename(from_name, &target_dir, to_name, flag)?;
         if flag == Some(RenameFlag::Exchange) && !shown_below {
-            source_dir.remove_file(from_name)?;
+            source_dir.do_unlink(from_name)?;
         }
         Ok(())
     }

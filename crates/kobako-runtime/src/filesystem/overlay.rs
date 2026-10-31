@@ -113,7 +113,7 @@ impl Overlay {
         }
         Ok(self
             .fs
-            .view_entry(&level, &name, |kind| self.ops_of(kind))?
+            .lookup(&level, &name, |kind| self.ops_of(kind))?
             .map_or(Lookup::Absent, Lookup::Found))
     }
 
@@ -295,20 +295,19 @@ impl InodeOperations for Overlay {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.fs
-            .create_file(&self.fs.parent(dentry)?, &dentry.name(), options)
+            .create(&self.fs.parent(dentry)?, &dentry.name(), options)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.create_dir(&self.fs.parent(dentry)?, &dentry.name())
+        self.fs.mkdir(&self.fs.parent(dentry)?, &dentry.name())
     }
 
     fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.remove_dir(&self.fs.parent(dentry)?, &dentry.name())
+        self.fs.rmdir(&self.fs.parent(dentry)?, &dentry.name())
     }
 
     fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs
-            .remove_file(&self.fs.parent(dentry)?, &dentry.name())
+        self.fs.unlink(&self.fs.parent(dentry)?, &dentry.name())
     }
 
     /// Both directories lie in one Overlay, however many directories of
@@ -337,7 +336,7 @@ struct OverlayDir {
 
 impl FileOperations for OverlayDir {
     fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.fs.entries(&self.fs.dir(dentry)?.level())
+        self.fs.dir_read_merged(&self.fs.dir(dentry)?.level())
     }
 
     /// Its Layers answer for what they hold, and its upper is a Tmpfs, so
@@ -1121,7 +1120,7 @@ mod tests {
         overwrite(&layer, "dir/new", b"y");
         let names: Vec<String> = overlay
             .fs
-            .entries(
+            .dir_read_merged(
                 &overlay
                     .fs
                     .dir(&dir)
@@ -1135,7 +1134,7 @@ mod tests {
         assert_eq!(
             names,
             ["old"],
-            "OverlayFs::entries of a directory OverlayFs found before its Layer changed must list \
+            "OverlayFs::dir_read_merged of a directory OverlayFs found before its Layer changed must list \
              the Layer's directory found with it"
         );
     }
@@ -1168,7 +1167,7 @@ mod tests {
         let walked = lookup_slow(&filesystem, &root, "dir")
             .expect("the directory must be found again")
             .1;
-        let names = overlay.fs.entries(
+        let names = overlay.fs.dir_read_merged(
             &overlay
                 .fs
                 .dir(&walked)
@@ -1178,7 +1177,7 @@ mod tests {
         assert_eq!(
             names.map(|entries| entries.len()),
             Ok(0),
-            "OverlayFs::entries of a directory found by a walk after OverlayFs::clear_empty \
+            "OverlayFs::dir_read_merged of a directory found by a walk after OverlayFs::clear_empty \
              replaced it must show nothing of the lower Layer below it"
         );
     }

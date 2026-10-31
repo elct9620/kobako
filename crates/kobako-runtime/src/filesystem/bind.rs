@@ -67,7 +67,7 @@ impl Bind {
     /// 9p holds the rename lock through a walk; one here compares what it found
     /// with what the dentry recorded instead, as NFS compares a file handle,
     /// and walks again from the root where the dentry moved meanwhile.
-    fn fid(&self, dentry: &Dentry) -> Result<Arc<Dir>, FilesystemError> {
+    fn fid_lookup(&self, dentry: &Dentry) -> Result<Arc<Dir>, FilesystemError> {
         if let Some(held) = self.find_fid(dentry) {
             return Ok(held);
         }
@@ -112,7 +112,7 @@ impl Bind {
         call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
         let dir = match dentry.parent() {
-            Some(parent) => self.fid(&parent)?,
+            Some(parent) => self.fid_lookup(&parent)?,
             None => self.root.clone(),
         };
         call(&dir, to_host_name(&dentry.name())?)
@@ -209,7 +209,7 @@ impl Bind {
     }
 
     fn entries_of(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        let dir = self.fid(dentry)?;
+        let dir = self.fid_lookup(dentry)?;
         #[cfg(unix)]
         let dev = {
             use cap_std::fs::MetadataExt;
@@ -537,7 +537,7 @@ impl InodeOperations for Bind {
     /// it moves and keeps its inode taken while it is open.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         Ok(to_metadata(
-            self.fid(dentry)?.dir_metadata().map_err(to_error)?,
+            self.fid_lookup(dentry)?.dir_metadata().map_err(to_error)?,
         ))
     }
 
@@ -554,7 +554,7 @@ impl InodeOperations for Bind {
         dentry: &Dentry,
         _options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let fid = self.fid(dentry)?;
+        let fid = self.fid_lookup(dentry)?;
         OpenDirFid::set(dentry, &fid);
         Ok(Box::new(BindDir(self.clone(), fid)))
     }

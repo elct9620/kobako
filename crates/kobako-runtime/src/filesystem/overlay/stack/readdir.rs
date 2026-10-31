@@ -9,7 +9,7 @@ use super::{Level, OverlayFs};
 impl OverlayFs {
     /// Each Layer's entries topmost first, a name a Layer above shows or
     /// whites out taken once, down to the first directory marked opaque.
-    pub(in super::super) fn entries(
+    pub(in super::super) fn dir_read_merged(
         &self,
         level: &Level,
     ) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -40,7 +40,7 @@ impl OverlayFs {
         found: (usize, Metadata),
     ) -> Result<bool, FilesystemError> {
         Ok(self
-            .entries(&self.lookup_layers(level, name, found)?)?
+            .dir_read_merged(&self.lookup_layers(level, name, found)?)?
             .is_empty())
     }
 }

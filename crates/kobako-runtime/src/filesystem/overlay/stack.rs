@@ -140,9 +140,10 @@ fn layer_dir(dir: &Option<OverlayPath>) -> Result<&OverlayPath, FilesystemError>
     dir.as_ref().ok_or(FilesystemError::NotFound)
 }
 
-/// The directory `name` in `root`, made there first if it stands nowhere.
-fn subdir(root: &OverlayPath, name: &str) -> Result<OverlayPath, FilesystemError> {
-    match root.create_dir(name) {
+/// The directory `name` in `root`, made there first if it stands nowhere, as
+/// overlayfs's `ovl_workdir_create` makes its upperdir's sibling.
+fn workdir_create(root: &OverlayPath, name: &str) -> Result<OverlayPath, FilesystemError> {
+    match root.do_mkdir(name) {
         Ok(()) | Err(FilesystemError::AlreadyExists) => root.open_dir(name),
         Err(err) => Err(err),
     }
@@ -153,8 +154,8 @@ fn subdir(root: &OverlayPath, name: &str) -> Result<OverlayPath, FilesystemError
 /// workdir, so whatever another writer made in it meanwhile stays.
 fn cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
     match dir.symlink_metadata(name)?.file_type {
-        FileType::Directory => dir.remove_dir(name),
-        _ => dir.remove_file(name),
+        FileType::Directory => dir.do_rmdir(name),
+        _ => dir.do_unlink(name),
     }
 }
 
@@ -168,7 +169,7 @@ fn cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), FilesystemErro
     let inner = dir.open_dir(name)?;
     for entry in inner.entries()? {
         if inner.is_whiteout(&entry.name) {
-            inner.remove_file(&entry.name)?;
+            inner.do_unlink(&entry.name)?;
         }
     }
     Ok(())
@@ -180,14 +181,14 @@ fn workdir_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError>
     let mut pending = vec![(dir.clone(), name.to_string())];
     while let Some((dir, name)) = pending.last().cloned() {
         if dir.symlink_metadata(&name)?.file_type != FileType::Directory {
-            dir.remove_file(&name)?;
+            dir.do_unlink(&name)?;
             pending.pop();
             continue;
         }
         let inner = dir.open_dir(&name)?;
         let entries = inner.entries()?;
         if entries.is_empty() {
-            dir.remove_dir(&name)?;
+            dir.do_rmdir(&name)?;
             pending.pop();
         }
         pending.extend(entries.into_iter().map(|entry| (inner.clone(), entry.name)));
@@ -219,8 +220,8 @@ impl OverlayFs {
         let mut work = None;
         if let Some(upper) = upper {
             let root = OverlayPath::root(&upper);
-            roots.push(subdir(&root, UPPERDIR)?);
-            let made = subdir(&root, WORKDIR)?;
+            roots.push(workdir_create(&root, UPPERDIR)?);
+            let made = workdir_create(&root, WORKDIR)?;
             for entry in made.entries()? {
                 workdir_cleanup(&made, &entry.name)?;
             }
@@ -278,7 +279,7 @@ impl OverlayFs {
 
     /// The workdir and a name in it no change has taken, as overlayfs's
     /// `ovl_tempname` names one.
-    fn temp(&self) -> Result<(&OverlayPath, String), FilesystemError> {
+    fn tempname(&self) -> Result<(&OverlayPath, String), FilesystemError> {
         let work = self
             .work
             .as_ref()

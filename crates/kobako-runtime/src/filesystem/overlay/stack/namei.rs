@@ -11,7 +11,7 @@ use crate::vfs::Inode;
 impl OverlayFs {
     /// The topmost Layer holding an entry at `name` in the directory
     /// `level`, and that entry, a link reported as itself.
-    pub(super) fn lookup(
+    pub(super) fn lookup_layer(
         &self,
         level: &Level,
         name: &str,
@@ -115,7 +115,9 @@ impl OverlayFs {
         level: &Level,
         name: &str,
     ) -> Result<Metadata, FilesystemError> {
-        let (index, found) = self.lookup(level, name)?.ok_or(FilesystemError::NotFound)?;
+        let (index, found) = self
+            .lookup_layer(level, name)?
+            .ok_or(FilesystemError::NotFound)?;
         self.merge_identity(level, name, index, found)
     }
 
@@ -125,7 +127,7 @@ impl OverlayFs {
     /// directory one Layer shows stays unmerged, so nothing more is asked of that
     /// Layer, which shows nothing where it holds a whiteout, as
     /// `ovl_lookup_single` stops at one in any layer.
-    pub(in super::super) fn view_entry(
+    pub(in super::super) fn lookup(
         &self,
         level: &Level,
         name: &str,
@@ -151,7 +153,7 @@ impl OverlayFs {
             ovl_inode_init(&inode, kept);
             return Ok(Some(inode));
         }
-        let Some((index, found)) = self.lookup(level, name)? else {
+        let Some((index, found)) = self.lookup_layer(level, name)? else {
             return Ok(None);
         };
         if found.file_type != FileType::Directory {
@@ -178,7 +180,7 @@ impl OverlayFs {
         if let Some((_, dir)) = sole_layer(level) {
             return dir.lookup(name);
         }
-        match self.lookup(level, name)? {
+        match self.lookup_layer(level, name)? {
             Some((index, _)) => level[index]
                 .as_ref()
                 .ok_or(FilesystemError::NotFound)?

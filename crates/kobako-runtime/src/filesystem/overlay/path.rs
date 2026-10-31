@@ -125,7 +125,7 @@ impl OverlayPath {
         self.upper()?.setxattr(OPAQUE_XATTR, OPAQUE)
     }
 
-    pub(super) fn whiteout(&self, name: &str) -> Result<(), FilesystemError> {
+    pub(super) fn do_whiteout(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
         may_create_dentry(&self.dentry, &*self.child(name)?)?;
         self.upper()?.whiteout(name)
@@ -133,7 +133,7 @@ impl OverlayPath {
 
     /// Move `from` here to `to` in `target` as `renameat2` does with
     /// `flag`.
-    pub(super) fn rename2(
+    pub(super) fn do_rename(
         &self,
         from: &str,
         target: &OverlayPath,
@@ -149,11 +149,11 @@ impl OverlayPath {
         vfs_rename(&self.filesystem, &rd)
     }
 
-    pub(super) fn tmpfile(&self) -> Result<TmpfsFile, FilesystemError> {
+    pub(super) fn do_tmpfile(&self) -> Result<TmpfsFile, FilesystemError> {
         self.upper()?.tmpfile()
     }
 
-    pub(super) fn link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
+    pub(super) fn do_link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
         may_create_dentry(&self.dentry, &*self.child(name)?)?;
         self.upper()?.link(file, name)
@@ -236,17 +236,17 @@ impl OverlayPath {
             .iterate_shared(&self.dentry)
     }
 
-    pub(super) fn create_dir(&self, name: &str) -> Result<(), FilesystemError> {
+    pub(super) fn do_mkdir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
         vfs_mkdir(&self.dentry, &*self.child(name)?)
     }
 
-    pub(super) fn remove_dir(&self, name: &str) -> Result<(), FilesystemError> {
+    pub(super) fn do_rmdir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
         vfs_rmdir(&self.filesystem, &self.dentry, &self.child(name)?)
     }
 
-    pub(super) fn remove_file(&self, name: &str) -> Result<(), FilesystemError> {
+    pub(super) fn do_unlink(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
         vfs_unlink(&self.filesystem, &self.dentry, &self.child(name)?)
     }
