@@ -1781,14 +1781,23 @@ pub trait InodeOperations {
 
 Move what one Dentry names to another in a target directory, refusing what
 rename(2) refuses at the target. The runtime has already checked the source
-and never hands a move onto its own name. The target is a directory of the
-same Mount, so one of another type crosses devices. A directory without it
-answers not permitted.
+and never hands a move onto its own name. A target of another type crosses
+devices, and a flag this directory does not take is invalid input. A directory
+without it answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn rename(&self, _from: &Dentry, _to_dir: &dyn InodeOperations, _to: &Dentry) -> Result<(), FilesystemError>;
+    fn rename(&self, _from: &Dentry, _to_dir: &dyn InodeOperations, _to: &Dentry, _flag: Option<RenameFlag>) -> Result<(), FilesystemError>;
 }
+```
+
+## `RenameFlag`
+
+What a move asks of its target, as `renameat2`'s flags. It refuses a replacement,
+swaps the two, or leaves a whiteout.
+
+```rust
+pub enum RenameFlag {}
 ```
 
 ## `Lookup`

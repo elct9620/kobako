@@ -1706,3 +1706,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay whose lower Layer holds a FIFO |
 | When | a time is set on the FIFO through the Overlay |
 | Then | the call answers EACCES, and the lower Layer opens nothing |
+
+## `FS-163` A Filesystem taking no rename flag refuses one
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-175` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind holding a file |
+| When | a rename of the file asks for a flag |
+| Then | the call answers EINVAL and the file stays |
