@@ -652,37 +652,21 @@ mod tests {
         );
     }
 
-    // Each change would land in the writable Tmpfs, which holds no link,
-    // so only refusing it keeps the write from parting with its target.
+    // The upper is a Tmpfs, which holds no link, so a link cannot land there.
     // @behavior FS-051
     #[cfg(unix)]
     #[test]
-    fn an_overlay_refuses_a_change_through_a_link_its_read_only_layer_holds() {
+    fn an_overlay_refuses_to_move_a_link_its_read_only_layer_holds() {
         let host = LinkTree::new("through");
         let overlay = host.overlay();
-        let creates = OpenOptions {
-            write: true,
-            create: true,
-            ..OpenOptions::default()
-        };
-        let refused = [
-            write(&overlay, "link", b"upper"),
-            overlay.open("dangling", &creates).map(drop),
-            overlay.rename("link", &overlay, "moved"),
-        ];
         assert_eq!(
-            (refused, read(&overlay, "target")),
             (
-                [
-                    Err(FilesystemError::CrossesDevices),
-                    Err(FilesystemError::CrossesDevices),
-                    Err(FilesystemError::CrossesDevices)
-                ],
-                b"lower".to_vec()
+                overlay.rename("link", &overlay, "moved"),
+                read(&overlay, "target")
             ),
-            "a write, a create, and a rename reaching through a link a read-only Bind Layer \
-             holds, through an Overlay, must be refused as crossing devices and leave the target \
-             as it was"
+            (Err(FilesystemError::CrossesDevices), b"lower".to_vec()),
+            "a rename of a link a read-only Bind Layer holds, through an Overlay, must be refused \
+             as crossing devices and leave the target as it was"
         );
     }
 

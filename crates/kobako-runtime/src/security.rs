@@ -19,7 +19,7 @@ impl SecurityOperations for KobakoSecurity {
     /// FIFO or a socket, and a device would act on being opened.
     fn file_open(&self, kind: FileType) -> Result<(), FilesystemError> {
         match kind {
-            FileType::File | FileType::Directory | FileType::Symlink => Ok(()),
+            FileType::File | FileType::Directory => Ok(()),
             _ => Err(FilesystemError::PermissionDenied),
         }
     }
@@ -172,7 +172,7 @@ mod tests {
     // holds for a Filesystem that would open them.
     // @behavior RT-197
     #[test]
-    fn only_a_file_a_directory_or_a_link_opens() {
+    fn only_a_file_or_a_directory_opens() {
         let judged = |kind| KobakoSecurity.file_open(kind).is_ok();
         assert_eq!(
             [
@@ -186,9 +186,9 @@ mod tests {
                 FileType::Unknown,
             ]
             .map(judged),
-            [true, true, true, false, false, false, false, false],
-            "KobakoSecurity::file_open must pass a file, a directory, and a link, and refuse \
-             every other kind"
+            [true, true, false, false, false, false, false, false],
+            "KobakoSecurity::file_open must pass a file and a directory, and refuse every other \
+             kind"
         );
     }
 }

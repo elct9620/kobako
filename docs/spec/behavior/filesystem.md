@@ -559,7 +559,7 @@ both live in the upper and never show, so no name is reserved
 | When | each link is removed as a directory and then as a file |
 | Then | the first is refused as no directory, the rest leave the view, and the Layer stays as it was |
 
-## `FS-051` An Overlay refuses a change through a link its lower Layer holds
+## `FS-051` An Overlay refuses to move a link its lower Layer holds
 
 | Attribute | Value |
 | --- | --- |
@@ -568,9 +568,9 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose lower Bind Layer holds a link to a file and a link to nothing |
-| When | the guest writes, creates, or renames through one of those links |
-| Then | each change is refused as crossing devices, and the target stays |
+| Given | an Overlay whose lower Bind Layer holds a link to a file |
+| When | the guest renames the link |
+| Then | the move is refused as crossing devices, and the target stays |
 
 ## `FS-052` An Overlay finds a dangling link where a new entry would go
 

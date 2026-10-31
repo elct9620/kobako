@@ -2196,3 +2196,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a dentry held far beneath the root, as moves can stack the directories above it |
 | When | nothing holds it any more, on a thread with a small stack |
 | Then | it goes, and the thread still runs |
+
+## `RT-200` An open refuses a link before its Filesystem is asked
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-100` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose link would open if asked |
+| When | the guest opens the link following no link |
+| Then | the open answers ELOOP, and the Filesystem is not asked |

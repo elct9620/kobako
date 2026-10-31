@@ -216,31 +216,18 @@ impl OverlayFs {
         }
     }
 
-    /// A link pointing at nothing still names an entry, so an exclusive
-    /// create finds it there; any other create reaches through it, which
-    /// only the Layer holding the link may answer.
+    /// Make the file `name`, where the view shows nothing, in the upper.
     fn create_file(
         &self,
         dir: &ViewDir,
         name: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let level = dir.level();
-        match self.lookup(&level, name)? {
-            Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
-            Some((index, _)) if self.is_upper(index) => {
-                layer_dir(&level[index])?.open(name, options)
-            }
-            Some(_) => Err(FilesystemError::CrossesDevices),
-            None => {
-                let upper = self.upper()?;
-                let upper_dir = self.upper_dir(dir, upper)?;
-                if !upper_dir.is_whiteout(name) {
-                    return upper_dir.create(name, options);
-                }
-                self.exchange_in(&upper_dir, name, |work, temp| work.create(temp, options))
-            }
+        let upper_dir = self.upper_dir(dir, self.upper()?)?;
+        if !upper_dir.is_whiteout(name) {
+            return upper_dir.create(name, options);
         }
+        self.exchange_in(&upper_dir, name, |work, temp| work.create(temp, options))
     }
 
     /// A directory made where a whiteout hid one is marked opaque, so the

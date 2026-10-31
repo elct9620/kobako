@@ -617,7 +617,7 @@ pub fn do_file_open(
         Err(FilesystemError::NotFound) => None,
         Err(err) => return Err(err.into()),
     };
-    refuse_what_stands(cred, existing, how)?;
+    refuse_what_stands(existing, how)?;
     // Creating changes the Mount only where nothing stands yet, so the
     // Mount judges the open once, knowing what it does.
     let changes = how.write || how.truncate || (how.create && existing.is_none());
@@ -626,6 +626,9 @@ pub fn do_file_open(
     } else {
         Access::Read
     })?;
+    if let Some(kind) = existing {
+        cred.security_file_open(kind)?;
+    }
     match existing {
         Some(FileType::Directory) => vfs_open(start, nd),
         Some(_) | None => {
@@ -656,7 +659,7 @@ pub fn do_file_open(
 
 /// What stands at the path answers before any access is judged, as Linux's
 /// `do_open` answers it on a read-only mount.
-fn refuse_what_stands(cred: &Cred, existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
+fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
     let refusal = match existing {
         None if !how.create => Some(FilesystemError::NotFound),
         Some(_) if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
@@ -667,19 +670,20 @@ fn refuse_what_stands(cred: &Cred, existing: Option<FileType>, how: &OpenHow) ->
     };
     match refusal {
         Some(error) => Err(error.into()),
-        None => may_open(cred, existing, how),
+        None => may_open(existing, how),
     }
 }
 
 /// Refuse to open what stands at the path as Linux's `may_open` does: a
-/// directory for writing, then whatever a security hook refuses.
-fn may_open(cred: &Cred, existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
+/// link, which the walk would have followed if asked, and a directory for
+/// writing.
+fn may_open(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
     match existing {
+        Some(FileType::Symlink) => Err(FilesystemError::FilesystemLoop.into()),
         Some(FileType::Directory) if how.write || how.truncate => {
             Err(FilesystemError::IsADirectory.into())
         }
-        Some(kind) => Ok(cred.security_file_open(kind)?),
-        None => Ok(()),
+        _ => Ok(()),
     }
 }
 
@@ -1404,6 +1408,52 @@ mod tests {
                     .and_then(|()| self.root.rename(&folded(from), &self.root, &folded(to))),
             )
         }
+    }
+
+    /// A directory where every name is a link that would open if asked,
+    /// counting how often it was.
+    struct OpensItsLinks(Arc<AtomicUsize>);
+
+    impl InodeOperations for OpensItsLinks {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(crate::filesystem::FileType::Symlink, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            let link = Metadata::new(crate::filesystem::FileType::Symlink, 0);
+            let ops = Arc::new(Self(self.0.clone()));
+            Some(Ok(Lookup::Found(Inode::new(&link, ops))))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            struct Opened;
+            impl FileOperations for Opened {}
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Some(Ok(Box::new(Opened)))
+        }
+    }
+
+    // A built-in Filesystem refuses a link itself, so only one that would open
+    // it shows the VFS is what holds this line for every third party.
+    // @behavior RT-200
+    #[test]
+    fn an_open_refuses_a_link_before_its_filesystem_is_asked() {
+        let asked = Arc::new(AtomicUsize::new(0));
+        let root = root_of(Filesystem::new(Arc::new(OpensItsLinks(asked.clone()))));
+        let answer = vfs::do_file_open(&Arc::default(), &root, "link", &OpenHow::default());
+        assert_eq!(
+            (answer.err(), asked.load(Ordering::SeqCst)),
+            (
+                Some(vfs::Error::Filesystem(FilesystemError::FilesystemLoop)),
+                0
+            ),
+            "vfs::do_file_open of a link following none, over a Filesystem that would open it, \
+             must answer ELOOP and leave the Filesystem unasked"
+        );
     }
 
     fn root_of(filesystem: Arc<Filesystem>) -> Path {
