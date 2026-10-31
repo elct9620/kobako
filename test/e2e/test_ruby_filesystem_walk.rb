@@ -44,9 +44,9 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
                    .mount("/data", filesystem, access: :read)
                    .eval('File.read("/data/a/b/c/note.txt")')
 
-    assert_equal ["a", "a/b", "a/b/c", "a/b/c/note.txt"], filesystem.asked,
+    assert_equal ["a", "a/b", "a/b/c", "a/b/c/note.txt", "a/b/c/note.txt"], filesystem.asked,
                  "a file three directories deep read through Sandbox#mount of a Ruby Filesystem must ask its stat " \
-                 "once about each name on the way"
+                 "once about each name on the way, and again about the file once open"
   end
 
   # @behavior RF-026

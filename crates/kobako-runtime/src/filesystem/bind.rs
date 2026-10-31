@@ -138,9 +138,16 @@ impl Bind {
         create: bool,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let file = self.at(dentry, |dir, name| open_in(dir, name, options, create))?;
-        if dentry.inode().is_none() {
-            let made = cap_std::fs::Metadata::from_file(&file).map_err(to_error)?;
-            dentry.add(Some(Inode::new(&to_metadata(made), Arc::new(self.clone()))));
+        let opened = to_metadata(cap_std::fs::Metadata::from_file(&file).map_err(to_error)?);
+        match dentry.inode().map(|inode| inode.identity()) {
+            None => dentry.add(Some(Inode::new(&opened, Arc::new(self.clone())))),
+            // A host path may by now hold another entry than the one judged,
+            // which only what opened can tell, as NFS's open compares the file
+            // handle it gets back.
+            Some(Some(identity)) if Identity::of(&opened) != Some(identity) => {
+                return Err(FilesystemError::NotFound)
+            }
+            Some(_) => {}
         }
         let file = Arc::new(file);
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
@@ -713,6 +720,68 @@ mod tests {
             "vfs::do_file_open 200 directories beneath a Bind must land and keep at most 64 of \
              them open, keeping {}",
             bind.fids.len()
+        );
+    }
+
+    /// Runs what it holds once, as a Policy is asked, then allows it.
+    struct RunsWhenAsked(std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>);
+
+    impl crate::mount::Policy for RunsWhenAsked {
+        fn allows(&self, _path: &str, _access: crate::mount::Access) -> bool {
+            let run = self.0.lock().expect("never poisoned").take();
+            if let Some(run) = run {
+                run();
+            }
+            true
+        }
+    }
+
+    // Another writer moves the name the Policy judges, then moves a refused
+    // file onto where it went, between the judgement and the open, so only
+    // telling what opened from what was judged keeps the open from reaching it.
+    // @behavior FS-156
+    #[cfg(unix)]
+    #[test]
+    fn an_open_reaches_only_the_entry_it_judged() {
+        use crate::vfs::{self, OpenHow, Path as VfsPath};
+        let host = HostDir::new("open-identity");
+        for dir in ["public", "archive"] {
+            fs::create_dir(host.0.join(dir)).expect("the host tree must be made");
+        }
+        fs::write(host.0.join("public/x"), "judged").expect("the host file must be written");
+        fs::write(host.0.join("archive/secret"), "refused").expect("the host file must be written");
+        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
+            Bind::new(&host.0).expect("the host directory must open"),
+        ));
+        let writer =
+            crate::mount::Mount::new("/data", filesystem.clone(), crate::mount::Access::ReadWrite)
+                .expect("/data is a guest path");
+        let writer = VfsPath::root(writer.mnt());
+        let swap = Box::new(move || {
+            let cred = Arc::default();
+            vfs::filename_renameat2(&cred, &writer, "public/x", &writer, "archive/x")
+                .expect("the name must move");
+            vfs::filename_renameat2(&cred, &writer, "archive/secret", &writer, "archive/x")
+                .expect("the refused file must move onto it");
+        });
+        let mount = crate::mount::Mount::new("/data", filesystem, crate::mount::Access::Read)
+            .expect("/data is a guest path")
+            .with_policy(Arc::new(RunsWhenAsked(std::sync::Mutex::new(Some(swap)))));
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let opened = vfs::do_file_open(
+            &crate::security::prepare_creds([&mount]),
+            &VfsPath::root(mount.mnt()),
+            "public/x",
+            &read,
+        );
+        assert_eq!(
+            opened.err(),
+            Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
+            "vfs::do_file_open of a file another writer replaced after the Policy judged it must \
+             answer ENOENT rather than open what stands there now"
         );
     }
 

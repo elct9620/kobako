@@ -246,9 +246,19 @@ impl RubyFilesystem {
                 Ok(RubyFile::pin(ruby, file))
             },
         )?;
-        if dentry.inode().is_none() {
-            let made = self.stat(dentry.path_raw())?;
-            dentry.add(Some(Inode::new(&made, Arc::new(*self))));
+        match dentry.inode().map(|inode| inode.identity()) {
+            None => {
+                let made = self.stat(dentry.path_raw())?;
+                dentry.add(Some(Inode::new(&made, Arc::new(*self))));
+            }
+            // The object opens by path, so whatever stands there now may be
+            // another entry than the one judged, as `Bind::open_file` finds.
+            Some(Some(identity)) => {
+                if Identity::of(&self.stat(dentry.path_raw())?) != Some(identity) {
+                    return Err(FilesystemError::NotFound);
+                }
+            }
+            Some(None) => {}
         }
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         let kept = inode

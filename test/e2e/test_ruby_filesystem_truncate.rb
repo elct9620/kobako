@@ -51,4 +51,26 @@ class TestE2ERubyFilesystemTruncate < Minitest::Test
                  "File.open with w through a Ruby Filesystem whose file answers no truncate must " \
                  "empty the file through the flags its open was handed"
   end
+
+  # A note whose inode number a replacement changes.
+  class ReplacedFilesystem < NoteFilesystem
+    def replace = @ino = 3
+
+    def stat(path) = Stat.new(directory: path.empty?, size: note.bytesize, ino: path.empty? ? 1 : @ino || 2)
+  end
+
+  # @behavior RF-034
+  def test_an_open_reaches_only_the_entry_it_judged
+    filesystem = ReplacedFilesystem.new("judged")
+    judged = lambda { |_path, _access|
+      filesystem.replace
+      true
+    }
+    script = 'begin; File.read("/data/note.txt"); rescue Errno::ENOENT; "gone"; end'
+    answer = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: :read, &judged).eval(script)
+
+    assert_equal "gone", answer.value,
+                 "File.read through a Ruby Filesystem whose entry a block replaced as it judged the path must raise " \
+                 "Errno::ENOENT rather than read what stands there now"
+  end
 end
