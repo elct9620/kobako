@@ -64,7 +64,7 @@ The types those seams carry, by grade:
 |---|---|
 | **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Tmpfs, Bind, Overlay, Mount, MountPathError}` · `kobako_runtime::filesystem::Filesystem` · `kobako_runtime::filesystem::{PipeInodeInfo, create_pipe_files}` · `kobako_runtime::vfs::{Dentry, File, Identity, Inode, Path, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, vfs_fstatat, do_readlinkat, do_utimes, PATH_MAX, NAME_MAX}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
 | **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access, Denial}` · `kobako_runtime::vfs::Error` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
-| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, OpenOptions, Metadata, DirEntry}` · `kobako_runtime::vfs::OpenHow` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
+| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, OpenOptions, Metadata, DirEntry}` · `kobako_runtime::filesystem::RenameFlag` · `kobako_runtime::vfs::OpenHow` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
@@ -373,7 +373,8 @@ These two calls follow from what the runtime does itself, so a Filesystem answer
 | `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | ENOTDIR, no directory to walk through |
 | `dentry_ops` | a held dentry dropped once its name stands for another entry, through `DentryOperations::revalidate` | valid, as nothing changes it outside the runtime |
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
-| `create` | a file made under the directory's lock | EACCES |
+| `open` | an entry opened to read, write, or list | opens with no operations |
+| `atomic_open` | a file made and opened under the directory's lock | EACCES |
 | `setattr` | a file sized through what holds it, and times of the guest's choosing | EINVAL for a size, ENOTSUP for a time |
 | `link`, `symlink` | a name made under the directory's lock | EPERM |
 | `FileOperations::read_iter`, `write_iter` | a file's bytes, moving `Kiocb::pos` past what they took | EINVAL |
@@ -381,7 +382,8 @@ These two calls follow from what the runtime does itself, so a Filesystem answer
 | `FileOperations::fsync` | what was written made durable; answer `Ok` with nothing to flush | EINVAL |
 | `FileOperations::fallocate` | room reserved ahead of a write | ENOTSUP |
 | `FileOperations::poll` | what a call would find ready | ready to read and write |
-| `mkdir`, `rmdir`, `unlink`, `rename` | a change made under the directory's lock | EPERM |
+| `mkdir`, `rmdir`, `unlink` | a change made under the directory's lock | EPERM |
+| `rename` | as above; a `RenameFlag` it does not take answers EINVAL | EPERM |
 | `Kiocb::append` in `write_iter` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
 
 Every lock waits through the one `Blocking` a process registers, so a Filesystem says nothing
