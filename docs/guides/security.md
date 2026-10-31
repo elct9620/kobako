@@ -311,13 +311,25 @@ foresee. The block judges paths, so nothing may reach a path it never judged:
 | a link another writer swaps in after the block judges | never followed; the call reaches the directory it walked to |
 | another case or Unicode form of a name | the block judges the spelling the host stores |
 
-The block does not judge `stat` or a listing, so the guest still sees that a
-refused path exists. An open that what stands at the path refuses, such as
-`Errno::ENOENT`, fails before the block is asked.
+An open that what stands at the path refuses, such as `Errno::ENOENT`, fails
+before the block is asked.
 
 ```ruby
 sandbox.mount("/data", fs) { |path, _access| path.start_with?("/data/public/") }
 ```
+
+#### Refused Paths
+
+The block does not judge `stat` or a listing, as Landlock leaves `stat(2)` alone. A refused path keeps its content private and still reports the rest.
+
+| The guest reads | Reveals |
+|---|---|
+| that the path exists, and its kind | what stands there |
+| its size | how long the content is |
+| its inode number, on `permissive` | whether two paths are one file |
+| its count of names, on either posture | hard links, including any outside the Mount |
+
+Keep a file out of the Mount when even these must stay private.
 
 ### Shared Backends
 
