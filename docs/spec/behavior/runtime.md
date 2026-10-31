@@ -2292,3 +2292,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | two Mounts |
 | When | the guest moves `.` of one to a name in the other |
 | Then | the move answers EXDEV, and not EBUSY |
+
+## `RT-208` A readlink asks its hook only of a link
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-205` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount holding a file and a link |
+| When | the guest reads the link of what is missing, of the file, and of the link |
+| Then | the calls answer ENOENT, EINVAL, and ENOTSUP |

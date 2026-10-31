@@ -1526,6 +1526,38 @@ mod tests {
         );
     }
 
+    // Every Invocation holds the hook refusing a guest's readlink, so only
+    // what it answers around that refusal tells the order.
+    // @behavior RT-208
+    #[test]
+    fn a_readlink_asks_its_hook_only_of_a_link() {
+        let tmpfs: Tmpfs = [("file", "x")].into_iter().collect();
+        let plain = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
+            .expect("/data is a guest path");
+        let links = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(OpensItsLinks(Arc::default()))),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let cred = crate::security::prepare_creds([&plain, &links]);
+        let (plain, links) = (Path::root(plain.mnt()), Path::root(links.mnt()));
+        assert_eq!(
+            (
+                vfs::do_readlinkat(&cred, &plain, "missing"),
+                vfs::do_readlinkat(&cred, &plain, "file"),
+                vfs::do_readlinkat(&cred, &links, "link"),
+            ),
+            (
+                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+                Err(vfs::Error::Filesystem(FilesystemError::InvalidInput)),
+                Err(vfs::Error::Filesystem(FilesystemError::Unsupported)),
+            ),
+            "vfs::do_readlinkat must answer ENOENT for what does not stand, EINVAL for what is no \
+             link, and only a link what the security hook answers"
+        );
+    }
+
     // @behavior RT-200
     #[test]
     fn an_open_refuses_a_link_before_its_filesystem_is_asked() {
