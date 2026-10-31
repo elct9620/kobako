@@ -174,7 +174,8 @@ fn compile(mrb: &Mrb, source: String, options: i64) -> Result<Value, Error> {
     if let Some(regex) = cache_get(mrb, &source, options) {
         return Ok(wrap_regexp(mrb, regex, source, options));
     }
-    let pattern = translate::build_pattern(&source, options);
+    let pattern = translate::build_pattern(&source, options)
+        .map_err(|reason| regexp_error(mrb, &source, &reason))?;
     match fancy_regex::RegexBuilder::new(&pattern)
         .backtrack_limit(BACKTRACK_LIMIT)
         .build()
