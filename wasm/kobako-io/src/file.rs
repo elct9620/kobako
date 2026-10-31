@@ -22,6 +22,7 @@ use crate::stream::with_file;
 use crate::{descriptors, errno};
 
 pub(crate) mod mode;
+mod stat;
 
 pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     use beni::Module;
@@ -47,7 +48,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     file.define_singleton_method(mrb, c"basename", beni::method!(file_s_basename, -1))?;
     file.define_singleton_method(mrb, c"dirname", beni::method!(file_s_dirname, 1))?;
     file.define_singleton_method(mrb, c"extname", beni::method!(file_s_extname, 1))?;
-    Ok(())
+    stat::init(mrb, file)
 }
 
 /// Whether the host presents any mounted directory: a preopen is always

@@ -12,6 +12,8 @@ script ─ File / IO ─> wasi-libc ─ preopen at the Mount's path ─> runtime
 
 The failures are CRuby's classes, so a script handles them as it would on any host. A flag removes `File` outright for a Host App that wants no file surface at all.
 
+`File::Stat` answers what preview1 hands the guest. Whatever it could only answer wrongly it leaves undefined, so a script fails instead of reading a wrong answer.
+
 ```
 nothing mounted   -> NotImplementedError
 nothing at path   -> Errno::ENOENT
@@ -24,6 +26,10 @@ disable_file flag -> no File constant
 - `crates/kobako-wasmtime/tests/integration/guest_file.rs`
 - `test/parity/test_mount.rb`
 - `test/e2e/test_file_open_matrix.rb`
+- `test/e2e/test_file_stat.rb`
+- `test/e2e/test_file_stat_host.rb`
+- `test/e2e/test_file_stat_ino.rb`
+- `test/e2e/test_file_stat_refusal.rb`
 
 ## `FL-001` A script reads a file beneath a mounted path
 
@@ -463,3 +469,156 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a file |
 | When | the script sets the position to -1, seeks to -1, and seeks by whence 9 |
 | Then | each raises `Errno::EINVAL` |
+
+## `FL-038` A report says what a path names
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file, an empty file, and a directory |
+| When | the script asks `File.stat` or `File::Stat.new` about each |
+| Then | each answers its size, its kind, and its count of names, as CRuby does on Linux |
+
+## `FL-039` A stat follows a link, and an lstat reports it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-038` |
+| relates | `RT-097` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Bind Mount holding a link to a file and a link to nothing |
+| When | the script asks `File.stat`, `File.lstat`, `File.ftype`, and `File.symlink?` about them |
+| Then | `File.stat` reads the file; the others read each link as itself |
+
+## `FL-040` The class calls answer without raising for a missing file
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-038` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script asks `File.size?`, `File.zero?`, and `File.empty?` about a missing file |
+| Then | `File.size?` answers `nil`, and the others `false` |
+
+## `FL-041` A report of a missing file raises ENOENT
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-038` |
+| relates | `FL-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount that holds no file at a path |
+| When | the script asks `File.stat`, `File.lstat`, `File.ftype`, and `File::Stat.new` about it |
+| Then | each raises `Errno::ENOENT` |
+
+## `FL-042` A report with nothing mounted is unimplemented
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-038` |
+| relates | `FL-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation with nothing mounted |
+| When | the script asks `File.stat` or any class call built on one |
+| Then | each raises `NotImplementedError` |
+
+## `FL-043` A file reports itself, and a report keeps what it read
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-038` |
+| relates | `RT-183` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a permissive guest holding open a file beneath a Mount, with a report of it |
+| When | the file grows, and the script reads the report and asks the file again |
+| Then | the report keeps its size, and each report of the file reads one inode number |
+
+## `FL-044` A file whose name is gone counts no names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-043` |
+| relates | `FS-141` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding open three files of a Tmpfs |
+| When | it unlinks one, and renames the second onto the third |
+| Then | the unlinked and the replaced count no names, and the moved one counts one |
+
+## `FL-045` A closed file and a bad path raise what CRuby raises
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-038` |
+| relates | `FL-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount, and a file the script closed |
+| When | the script asks the file, a path holding a NUL byte, and an Integer for a report |
+| Then | they raise `IOError`, `ArgumentError`, and `TypeError` |
+
+## `FL-046` An inode number is read whole
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-183` |
+| relates | `FL-020` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a permissive guest and many entries, whose inode numbers pass 2\*\*63 |
+| When | the script reads each one's inode number |
+| Then | each is the number preview1 hands a guest |
+
+## `FL-047` What a report cannot answer truly it leaves undefined
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-038` |
+| relates | `MR-010`, `FL-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a report of a file |
+| When | a script asks for a time, a device, an owner, a permission, or a FIFO's kind |
+| Then | no such method is defined, and neither `File.identical?` nor `IO#stat` is |
+
+## `FL-048` A special file reads as preview1 names it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-038` |
+| relates | `RT-195` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed Bind Mounts holding a device, a socket, and a FIFO |
+| When | the script asks a report of each |
+| Then | the device and the socket read as themselves, and the FIFO reads `"unknown"` |
+
+## `FL-049` A block leaves a report alone and still refuses the open
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-038` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Bind Mount whose block refuses a path |
+| When | the script asks a report of that path, and opens it |
+| Then | the report answers, and the open raises `Errno::EACCES` |

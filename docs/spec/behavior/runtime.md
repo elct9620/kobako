@@ -46,6 +46,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/parity/test_hermetic.rb`
 - `test/e2e/test_mount_spelling.rb`
 - `test/e2e/test_ruby_filesystem_stat.rb`
+- `test/e2e/test_file_stat_ino.rb`
 - `crates/kobako-runtime/src/security.rs`
 - `crates/kobako-runtime/src/vfs/pipe.rs`
 - `crates/kobako-runtime/src/vfs/namei.rs`
