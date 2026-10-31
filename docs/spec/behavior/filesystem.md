@@ -1729,4 +1729,16 @@ both live in the upper and never show, so no name is reserved
 | --- | --- |
 | Given | an Overlay directory holding only whiteouts over what a lower Layer shows |
 | When | the upper's directory is replaced by an empty one and nothing further lands |
-| Then | the view lists it empty |
+| Then | the next walk finds it, and lists it empty |
+
+## `FS-165` A directory found stands for the Layers it was found in
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-136` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay directory the runtime found, not yet entered |
+| When | the lower Layer's directory is replaced behind the view, and the directory is listed |
+| Then | the listing shows the Layer's directory it was found in |
