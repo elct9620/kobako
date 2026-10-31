@@ -527,17 +527,17 @@ mod tests {
             Ok(Metadata::new(FileType::Directory, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let found = Metadata::new(FileType::File, 0);
-            Some(Ok(Lookup::Found(Inode::new(&found, Arc::new(Self)))))
+            Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
         }
 
         fn open(
             &self,
             _dentry: &Dentry,
             _options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            Some(Ok(Box::new(RefusesClose)))
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Ok(Box::new(RefusesClose))
         }
     }
 
@@ -682,12 +682,12 @@ mod tests {
             Ok(Metadata::new(FileType::Directory, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-            Some(Ok(Lookup::Absent))
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            Ok(Lookup::Absent)
         }
 
-        fn symlink(&self, _dentry: &Dentry, _target: &str) -> Option<Result<(), FilesystemError>> {
-            Some(Ok(()))
+        fn symlink(&self, _dentry: &Dentry, _target: &str) -> Result<(), FilesystemError> {
+            Ok(())
         }
     }
 

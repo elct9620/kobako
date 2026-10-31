@@ -577,42 +577,42 @@ where
         &self,
         dentry: &Dentry,
         attr: &kobako_runtime::filesystem::Iattr,
-    ) -> Option<Result<(), FilesystemError>> {
+    ) -> Result<(), FilesystemError> {
         self.inner.setattr(dentry, attr)
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        Some(self.inner.lookup(dentry)?.map(|lookup| match lookup {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        Ok(match self.inner.lookup(dentry)? {
             Lookup::Found(inode) => Lookup::Found(inode.with_ops(Arc::new(Self {
                 inner: inode.ops().clone(),
                 wrap: self.wrap.clone(),
             }))),
             other => other,
-        }))
+        })
     }
 
     fn open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let opened = self.inner.open(dentry, options)?;
         if dentry
             .inode()
             .is_none_or(|inode| inode.kind() == kobako_runtime::filesystem::FileType::Directory)
         {
-            return Some(opened);
+            return Ok(opened);
         }
-        Some(opened.map(|file| Box::new((self.wrap)(file)) as Box<dyn FileOperations>))
+        Ok(Box::new((self.wrap)(opened)))
     }
 
     fn atomic_open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let made = self.inner.atomic_open(dentry, options)?;
-        Some(made.map(|file| Box::new((self.wrap)(file)) as Box<dyn FileOperations>))
+        Ok(Box::new((self.wrap)(made)))
     }
 }
 
@@ -906,20 +906,20 @@ impl InodeOperations for ReportsLen {
         Ok(metadata)
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        Some(self.0.lookup(dentry)?.map(|lookup| match lookup {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        Ok(match self.0.lookup(dentry)? {
             Lookup::Found(inode) => {
                 Lookup::Found(inode.with_ops(Arc::new(Self(inode.ops().clone(), self.1))))
             }
             other => other,
-        }))
+        })
     }
 
     fn open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.0.open(dentry, options)
     }
 }

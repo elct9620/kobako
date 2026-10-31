@@ -612,7 +612,6 @@ pub fn filename_linkat(
             return Err(FilesystemError::NotPermitted);
         }
         dir.link(&target, &child)
-            .unwrap_or(Err(FilesystemError::NotPermitted))
     })?)
 }
 
@@ -631,7 +630,6 @@ pub fn filename_symlinkat(
     let dir = nd.base();
     Ok(vfs_link(dir.as_ref(), nd.dentry(), &child, || {
         dir.symlink(&child, target)
-            .unwrap_or(Err(FilesystemError::NotPermitted))
     })?)
 }
 
@@ -779,11 +777,7 @@ pub fn filename_renameat2(
         (old_inode, old_dir, old),
         (new_inode, new_dir, new),
         None,
-        || {
-            old_inode
-                .rename(old, new_inode, new)
-                .unwrap_or(Err(FilesystemError::NotPermitted))
-        },
+        || old_inode.rename(old, new_inode, new),
     )?)
 }
 
@@ -968,9 +962,7 @@ pub(crate) fn vfs_rmdir(
 ) -> Result<(), FilesystemError> {
     may_delete_dentry(dir, kind_at(inode, victim)?, true)?;
     let _victim = victim.inode_lock()?;
-    inode
-        .rmdir(victim)
-        .unwrap_or(Err(FilesystemError::NotPermitted))?;
+    inode.rmdir(victim)?;
     victim.mark_dead();
     sb.dentries().delete(victim);
     Ok(())
@@ -990,9 +982,7 @@ pub(crate) fn vfs_unlink(
     // A name the directory stores under another spelling records nothing
     // here to hold.
     let _victim = victim.inode().map(|target| target.lock()).transpose()?;
-    inode
-        .unlink(victim)
-        .unwrap_or(Err(FilesystemError::NotPermitted))?;
+    inode.unlink(victim)?;
     sb.dentries().delete(victim);
     Ok(())
 }
@@ -1005,9 +995,7 @@ pub(crate) fn vfs_mkdir(
     child: &Dentry,
 ) -> Result<(), FilesystemError> {
     may_create_dentry(dir, kind_at(inode, child)?)?;
-    inode
-        .mkdir(child)
-        .unwrap_or(Err(FilesystemError::NotPermitted))
+    inode.mkdir(child)
 }
 
 /// Make the file `child` in `dir` through `inode`, the directory holding
@@ -1020,9 +1008,7 @@ pub(crate) fn atomic_open(
     options: &OpenOptions,
 ) -> Result<Box<dyn FileOperations>, FilesystemError> {
     may_create_dentry(dir, kind_at(inode, child)?)?;
-    let file = inode
-        .atomic_open(child, options)
-        .unwrap_or(Err(FilesystemError::PermissionDenied))?;
+    let file = inode.atomic_open(child, options)?;
     // What was made stands at the name now, as `->atomic_open` calls
     // `d_instantiate`, for a Filesystem that did not record it itself.
     child.lookup_inode(inode)?;
@@ -1193,7 +1179,7 @@ mod tests {
             self.tmpfs.getattr(dentry)
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             self.tmpfs.lookup(dentry)
         }
 
@@ -1205,7 +1191,7 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.tmpfs.atomic_open(dentry, options)
         }
 
@@ -1213,26 +1199,23 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.tmpfs.open(dentry, options)
         }
 
-        fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
             match &self.making {
-                Some(making) => Some(making()),
+                Some(making) => making(),
                 None => self.tmpfs.mkdir(dentry),
             }
         }
 
-        fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(
-                self.tmpfs
-                    .rmdir(dentry)?
-                    .and_then(|()| self.removed.as_ref().map_or(Ok(()), |removed| removed())),
-            )
+        fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.tmpfs.rmdir(dentry)?;
+            self.removed.as_ref().map_or(Ok(()), |removed| removed())
         }
 
-        fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
             self.tmpfs.unlink(dentry)
         }
 
@@ -1241,10 +1224,10 @@ mod tests {
             from: &Dentry,
             to_dir: &dyn InodeOperations,
             to: &Dentry,
-        ) -> Option<Result<(), FilesystemError>> {
+        ) -> Result<(), FilesystemError> {
             self.renames.fetch_add(1, Ordering::SeqCst);
-            if let Some(Err(err)) = self.renaming.as_ref().map(|renaming| renaming()) {
-                return Some(Err(err));
+            if let Some(renaming) = &self.renaming {
+                renaming()?;
             }
             let to_dir = (to_dir as &dyn std::any::Any)
                 .downcast_ref::<Self>()
@@ -1284,46 +1267,46 @@ mod tests {
             self.root.symlink_metadata(&folded(dentry))
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let name = dentry.name();
             let upper = name.to_uppercase();
-            Some(match self.root.symlink_metadata(&folded(dentry)) {
+            match self.root.symlink_metadata(&folded(dentry)) {
                 Ok(_) if upper != name => Ok(Lookup::Spelled(upper)),
                 Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
                 Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),
-            })
+            }
         }
 
         fn open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(crate::filesystem::FileType::Directory) {
-                return Some(Ok(Box::new(FoldedDir(self.root.clone()))));
+                return Ok(Box::new(FoldedDir(self.root.clone())));
             }
-            Some(self.root.open(&folded(dentry), options))
+            self.root.open(&folded(dentry), options)
         }
 
         fn atomic_open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            Some(self.root.create(&folded(dentry), options))
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            self.root.create(&folded(dentry), options)
         }
 
-        fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.create_dir(&folded(dentry)))
+        fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.create_dir(&folded(dentry))
         }
 
-        fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.remove_dir(&folded(dentry)))
+        fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_dir(&folded(dentry))
         }
 
-        fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.remove_file(&folded(dentry)))
+        fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_file(&folded(dentry))
         }
 
         fn rename(
@@ -1331,11 +1314,9 @@ mod tests {
             from: &Dentry,
             _to_dir: &dyn InodeOperations,
             to: &Dentry,
-        ) -> Option<Result<(), FilesystemError>> {
-            Some(
-                (self.renaming)()
-                    .and_then(|()| self.root.rename(&folded(from), &self.root, &folded(to))),
-            )
+        ) -> Result<(), FilesystemError> {
+            (self.renaming)()?;
+            self.root.rename(&folded(from), &self.root, &folded(to))
         }
     }
 
@@ -1348,21 +1329,21 @@ mod tests {
             Ok(Metadata::new(crate::filesystem::FileType::Symlink, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let link = Metadata::new(crate::filesystem::FileType::Symlink, 0);
             let ops = Arc::new(Self(self.0.clone()));
-            Some(Ok(Lookup::Found(Inode::new(&link, ops))))
+            Ok(Lookup::Found(Inode::new(&link, ops)))
         }
 
         fn open(
             &self,
             _dentry: &Dentry,
             _options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             struct OpenLink;
             impl FileOperations for OpenLink {}
             self.0.fetch_add(1, Ordering::SeqCst);
-            Some(Ok(Box::new(OpenLink)))
+            Ok(Box::new(OpenLink))
         }
     }
 
@@ -1460,12 +1441,12 @@ mod tests {
             Ok(Metadata::new(crate::filesystem::FileType::Directory, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let entry = Metadata::new(crate::filesystem::FileType::File, 0).with_identity(1, 2);
-            Some(Ok(Lookup::Found(Inode::new(
+            Ok(Lookup::Found(Inode::new(
                 &entry,
                 Arc::new(Self(self.0.clone())),
-            ))))
+            )))
         }
 
         fn rename(
@@ -1473,9 +1454,9 @@ mod tests {
             _from: &Dentry,
             _to_dir: &dyn InodeOperations,
             _to: &Dentry,
-        ) -> Option<Result<(), FilesystemError>> {
+        ) -> Result<(), FilesystemError> {
             self.0.fetch_add(1, Ordering::SeqCst);
-            Some(Ok(()))
+            Ok(())
         }
     }
 
@@ -1979,10 +1960,10 @@ mod tests {
             Ok(Metadata::new(kind, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             self.looked_up.fetch_add(1, Ordering::SeqCst);
             let file = Metadata::new(crate::filesystem::FileType::File, 0);
-            Some(Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone())))))
+            Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
         }
 
         fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
@@ -2029,44 +2010,44 @@ mod tests {
             Ok(Metadata::new(crate::filesystem::FileType::Directory, 0))
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             if dentry.name() == "missing" {
-                return Some(Ok(Lookup::Absent));
+                return Ok(Lookup::Absent);
             }
             let file = Metadata::new(crate::filesystem::FileType::File, 0);
-            Some(Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone())))))
+            Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
         }
 
         fn setattr(
             &self,
             _dentry: &Dentry,
             attr: &crate::filesystem::Iattr,
-        ) -> Option<Result<(), FilesystemError>> {
+        ) -> Result<(), FilesystemError> {
             let call = if attr.open {
                 "setattr(open)"
             } else {
                 "setattr"
             };
-            self.0.lock().ok()?.push(call);
-            Some(Ok(()))
+            self.0.lock().expect("never poisoned").push(call);
+            Ok(())
         }
 
         fn open(
             &self,
             _dentry: &Dentry,
             _options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            self.0.lock().ok()?.push("open");
-            Some(Ok(Box::new(RecordedFile)))
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            self.0.lock().expect("never poisoned").push("open");
+            Ok(Box::new(RecordedFile))
         }
 
         fn atomic_open(
             &self,
             _dentry: &Dentry,
             _options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            self.0.lock().ok()?.push("atomic_open");
-            Some(Ok(Box::new(RecordedFile)))
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            self.0.lock().expect("never poisoned").push("atomic_open");
+            Ok(Box::new(RecordedFile))
         }
     }
 
@@ -2111,10 +2092,12 @@ mod tests {
             from: &Dentry,
             to_dir: &dyn InodeOperations,
             to: &Dentry,
-        ) -> Option<Result<(), FilesystemError>> {
+        ) -> Result<(), FilesystemError> {
             if from.name() == "k" {
-                self.reached.lock().ok()?.send(()).ok()?;
-                self.go_on.lock().ok()?.recv().ok()?;
+                let reached = self.reached.lock().expect("never poisoned");
+                reached.send(()).expect("the test waits to hear");
+                let go_on = self.go_on.lock().expect("never poisoned");
+                go_on.recv().expect("the test says when to go on");
             }
             inner.rename(from, to_dir, to)
         }

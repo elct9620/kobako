@@ -219,10 +219,7 @@ impl Dentry {
         if self.inode().is_some() {
             return Ok(None);
         }
-        match dir
-            .lookup(self)
-            .unwrap_or(Err(FilesystemError::NotADirectory))?
-        {
+        match dir.lookup(self)? {
             Lookup::Found(inode) => self.add(Some(inode)),
             Lookup::Absent => self.add(None),
             Lookup::Spelled(stored) => return Ok(Some(stored)),
@@ -257,10 +254,7 @@ impl Dentry {
             Some(inode) if inode.kind() == FileType::Directory => {
                 Err(FilesystemError::IsADirectory)
             }
-            Some(inode) => inode
-                .ops()
-                .open(self, options)
-                .unwrap_or(Err(FilesystemError::Unsupported)),
+            Some(inode) => inode.ops().open(self, options),
             None => Err(FilesystemError::NotFound),
         }
     }
@@ -269,10 +263,7 @@ impl Dentry {
     /// dentry holds; anything else refuses as `readlinkat` does.
     pub(crate) fn get_link(&self) -> Result<String, FilesystemError> {
         match self.inode() {
-            Some(inode) => inode
-                .ops()
-                .get_link(self)
-                .unwrap_or(Err(FilesystemError::InvalidInput)),
+            Some(inode) => inode.ops().get_link(self),
             None => Err(FilesystemError::NotFound),
         }
     }
@@ -502,8 +493,8 @@ mod tests {
             self.root.symlink_metadata(&dentry.path_raw())
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-            Some(match self.root.symlink_metadata(&dentry.path_raw()) {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            match self.root.symlink_metadata(&dentry.path_raw()) {
                 Ok(found) => Ok(Lookup::Found(Inode::new(
                     &found,
                     Arc::new(Self {
@@ -512,38 +503,38 @@ mod tests {
                 ))),
                 Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),
-            })
+            }
         }
 
         fn open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(FileType::Directory) {
-                return Some(Ok(Box::new(ByPathDir(self.root.clone()))));
+                return Ok(Box::new(ByPathDir(self.root.clone())));
             }
-            Some(self.root.open(&dentry.path_raw(), options))
+            self.root.open(&dentry.path_raw(), options)
         }
 
         fn atomic_open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            Some(self.root.create(&dentry.path_raw(), options))
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            self.root.create(&dentry.path_raw(), options)
         }
 
-        fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.create_dir(&dentry.path_raw()))
+        fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.create_dir(&dentry.path_raw())
         }
 
-        fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.remove_dir(&dentry.path_raw()))
+        fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_dir(&dentry.path_raw())
         }
 
-        fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.remove_file(&dentry.path_raw()))
+        fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_file(&dentry.path_raw())
         }
 
         fn rename(
@@ -551,12 +542,12 @@ mod tests {
             from: &Dentry,
             to_dir: &dyn InodeOperations,
             to: &Dentry,
-        ) -> Option<Result<(), FilesystemError>> {
-            (to_dir as &dyn Any).downcast_ref::<Self>()?;
-            Some(
-                self.root
-                    .rename(&from.path_raw(), &self.root, &to.path_raw()),
-            )
+        ) -> Result<(), FilesystemError> {
+            (to_dir as &dyn Any)
+                .downcast_ref::<Self>()
+                .ok_or(FilesystemError::CrossesDevices)?;
+            self.root
+                .rename(&from.path_raw(), &self.root, &to.path_raw())
         }
     }
 

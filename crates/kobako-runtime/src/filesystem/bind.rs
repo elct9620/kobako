@@ -470,20 +470,22 @@ impl InodeOperations for BindRegular {
         }
     }
 
-    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
-        let len = attr.size?;
-        Some(match open_fid(dentry, true) {
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+        let Some(len) = attr.size else {
+            return Err(FilesystemError::Unsupported);
+        };
+        match open_fid(dentry, true) {
             Some(file) => file.set_len(len).map_err(to_error),
             None => Err(FilesystemError::InvalidInput),
-        })
+        }
     }
 
     fn open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(self.0.open_file(dentry, options, false))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        self.0.open_file(dentry, options, false)
     }
 }
 
@@ -496,22 +498,22 @@ impl InodeOperations for BindLink {
     /// as `->get_link` answers, since the walk judges what a link leads to. A
     /// target that is no valid UTF-8 answers `IllegalSequence`, as a guest path
     /// is one.
-    fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
-        Some(self.0.at(dentry, |dir, name| {
+    fn get_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        self.0.at(dentry, |dir, name| {
             dir.read_link_contents(name)
                 .map_err(to_error)?
                 .into_os_string()
                 .into_string()
                 .map_err(|_| FilesystemError::IllegalSequence)
-        }))
+        })
     }
 
     fn open(
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(Err(FilesystemError::FilesystemLoop))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Err(FilesystemError::FilesystemLoop)
     }
 }
 
@@ -524,8 +526,8 @@ impl InodeOperations for Bind {
         ))
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        Some(self.lookup_at(dentry))
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        self.lookup_at(dentry)
     }
 
     fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
@@ -536,39 +538,39 @@ impl InodeOperations for Bind {
         &self,
         dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let fid = self.fid(dentry).ok();
         if let Some(fid) = &fid {
             OpenDirFid::set(dentry, fid);
         }
-        Some(Ok(Box::new(BindDir(self.clone(), fid))))
+        Ok(Box::new(BindDir(self.clone(), fid)))
     }
 
     fn atomic_open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(self.open_file(dentry, options, true))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        self.open_file(dentry, options, true)
     }
 
-    fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(self.at(dentry, |dir, name| dir.create_dir(name).map_err(to_error)))
+    fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.at(dentry, |dir, name| dir.create_dir(name).map_err(to_error))
     }
 
-    fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(self.at(dentry, |dir, name| dir.remove_dir(name).map_err(to_error)))
+    fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.at(dentry, |dir, name| dir.remove_dir(name).map_err(to_error))
     }
 
     /// A directory is refused as one on every host, where the host itself
     /// answers EISDIR on Linux but EPERM on macOS.
-    fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(self.at(dentry, |dir, name| {
+    fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.at(dentry, |dir, name| {
             if dir.symlink_metadata(name).is_ok_and(|m| m.is_dir()) {
                 return Err(FilesystemError::IsADirectory);
             }
             dir.remove_file(name).map_err(to_error)
-        }))
+        })
     }
 
     /// A host directory takes no lock the runtime's check of the source
@@ -580,21 +582,17 @@ impl InodeOperations for Bind {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        Some(
-            (to_dir as &dyn Any)
-                .downcast_ref::<Self>()
-                .ok_or(FilesystemError::CrossesDevices)
-                .and_then(|target| {
-                    self.at(from, |from_dir, from_name| {
-                        target.at(to, |to_dir, to_name| {
-                            from_dir
-                                .rename(from_name, to_dir, to_name)
-                                .map_err(to_error)
-                        })
-                    })
-                }),
-        )
+    ) -> Result<(), FilesystemError> {
+        let target = (to_dir as &dyn Any)
+            .downcast_ref::<Self>()
+            .ok_or(FilesystemError::CrossesDevices)?;
+        self.at(from, |from_dir, from_name| {
+            target.at(to, |to_dir, to_name| {
+                from_dir
+                    .rename(from_name, to_dir, to_name)
+                    .map_err(to_error)
+            })
+        })
     }
 }
 
@@ -1185,7 +1183,7 @@ mod tests {
         assert!(
             matches!(
                 filesystem.root().lookup(&note),
-                Some(Ok(Lookup::Found(inode))) if inode.kind() == FileType::File
+                Ok(Lookup::Found(inode)) if inode.kind() == FileType::File
             ),
             "a name looked up through Bind in a directory not yet opened, once its dentry moved \
              with it, must be found where the dentry stands"

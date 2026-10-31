@@ -27,8 +27,8 @@ pub enum Lookup {
 /// What one entry of a Filesystem answers: a directory for the names in it,
 /// a link for where it points, and any entry for itself, as Linux's
 /// `inode_operations` hang from each inode. An operation an entry does not
-/// have answers `None`, as a NULL in Linux's table, and the runtime answers
-/// for it as Linux's VFS does. One Filesystem may wrap another and answer by
+/// have answers by default as Linux's VFS answers a NULL in its table. One
+/// Filesystem may wrap another and answer by
 /// delegating, wrapping each entry its `lookup` finds, so it sees every call
 /// on the way through. A directory keeps its identity its own while it is
 /// open, as an open descriptor keeps a host's inode from being reused.
@@ -49,15 +49,18 @@ pub trait InodeOperations: Any + Send + Sync {
     /// open file holds it, as `ftruncate`, `open` with `O_TRUNC`, and
     /// `utimensat` reach `->setattr`. An entry without it refuses a size as
     /// invalid input and times as unsupported.
-    fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Option<Result<(), FilesystemError>> {
-        None
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+        match attr.size {
+            Some(_) => Err(FilesystemError::InvalidInput),
+            None => Err(FilesystemError::Unsupported),
+        }
     }
 
     /// What stands at the name `dentry` carries in this directory. The
     /// runtime asks once for a dentry naming nothing yet, and an entry
     /// without it is no directory to walk through.
-    fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        None
+    fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        Err(FilesystemError::NotADirectory)
     }
 
     /// What every dentry of this Filesystem answers through, asked of its
@@ -68,66 +71,61 @@ pub trait InodeOperations: Any + Send + Sync {
     }
 
     /// Where this link, which `dentry` names, points, as `get_link` answers,
-    /// for the VFS to follow. Anything else
-    /// without it refuses as `readlinkat` does.
-    fn get_link(&self, _dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
-        None
+    /// for the VFS to follow. Anything else refuses as `readlinkat` does.
+    fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
+        Err(FilesystemError::InvalidInput)
     }
 
     /// Open this entry, which `dentry` names, as `options` asks, as
     /// `f_op->open` makes the open file. The VFS empties a file an open asks to
-    /// truncate through `setattr` afterwards. A directory opens to be listed;
-    /// without it, listing one answers `NotADirectory`. The runtime refuses a
-    /// link before it asks.
+    /// truncate through `setattr` afterwards, and refuses a link before it
+    /// asks. An entry without it opens as Linux's opens with no `f_op->open`,
+    /// answering each call on the open file as `FileOperations` does by default.
     fn open(
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        None
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Ok(Box::new(EmptyFops))
     }
 
     /// Make the file `dentry` names in this directory, refusing one that
     /// already stands, and open it as `options` asks, in one step as
-    /// `->atomic_open` does. Without it the runtime answers `PermissionDenied`,
-    /// as Linux's VFS answers EACCES.
+    /// `->atomic_open` does. A directory without it answers EACCES, as
+    /// Linux's VFS does.
     fn atomic_open(
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        None
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Err(FilesystemError::PermissionDenied)
     }
 
-    /// Make the directory `dentry` names in this one. Without it, and
-    /// without `rmdir`, `unlink`, or `rename`, the runtime answers
-    /// `NotPermitted`, as Linux's VFS answers EPERM.
-    fn mkdir(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        None
+    /// Make the directory `dentry` names in this one. A directory without it,
+    /// or without any change below, answers EPERM, as Linux's VFS does.
+    fn mkdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
+        Err(FilesystemError::NotPermitted)
     }
 
     /// Give the entry `old` names another name, the one `dentry` carries in
-    /// this directory. Without it the runtime answers `NotPermitted`, as
-    /// Linux's `vfs_link` answers EPERM.
-    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        None
+    /// this directory.
+    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Result<(), FilesystemError> {
+        Err(FilesystemError::NotPermitted)
     }
 
     /// Make the link `dentry` names in this directory, pointing at `target`.
-    /// Without it the runtime answers `NotPermitted`, as Linux's
-    /// `vfs_symlink` answers EPERM.
-    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Option<Result<(), FilesystemError>> {
-        None
+    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Result<(), FilesystemError> {
+        Err(FilesystemError::NotPermitted)
     }
 
     /// Remove the empty directory `dentry` names in this one.
-    fn rmdir(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        None
+    fn rmdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
+        Err(FilesystemError::NotPermitted)
     }
 
     /// Remove the file `dentry` names in this directory.
-    fn unlink(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        None
+    fn unlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
+        Err(FilesystemError::NotPermitted)
     }
 
     /// Move the entry `from` names in this directory to `to` in `to_dir`,
@@ -141,10 +139,16 @@ pub trait InodeOperations: Any + Send + Sync {
         _from: &Dentry,
         _to_dir: &dyn InodeOperations,
         _to: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        None
+    ) -> Result<(), FilesystemError> {
+        Err(FilesystemError::NotPermitted)
     }
 }
+
+/// What an entry without `open` opens as, as Linux's `empty_fops` is a file with
+/// no operations.
+struct EmptyFops;
+
+impl FileOperations for EmptyFops {}
 
 /// What a directory is, apart from where it stands: the device and inode
 /// numbers its Filesystem names it by, as Linux reads `i_ino` and `s_dev`.

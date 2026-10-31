@@ -358,8 +358,8 @@ tell a directory from one made in its place.
 
 Only `getattr` is required. It answers for an entry an open file still holds once its name is
 gone, so a Filesystem keeps what that takes on the `Inode`. An operation an entry lacks answers
-`None`, as a NULL in Linux's `inode_operations`, and the runtime answers for it as Linux's
-VFS does. One wrapping another forwards those it keeps.
+by default as Linux's VFS answers a NULL in `inode_operations`. One wrapping another forwards
+those it keeps.
 
 These two calls follow from what the runtime does itself, so a Filesystem answers them to fit.
 

@@ -340,26 +340,28 @@ impl InodeOperations for RubyRegular {
     /// A Ruby object was handed `TRUNC` as it opened the file, so an open asking
     /// to truncate has nothing left to ask, as `fuse_do_setattr` finds with
     /// `atomic_o_trunc`.
-    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
-        let len = attr.size?;
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+        let Some(len) = attr.size else {
+            return Err(FilesystemError::Unsupported);
+        };
         if attr.open {
-            return Some(Ok(()));
+            return Ok(());
         }
-        let file = open_file(dentry)?;
-        Some(change(
+        let file = open_file(dentry).ok_or(FilesystemError::InvalidInput)?;
+        change(
             file.get(),
             "truncate",
             (len,),
             FilesystemError::ReadOnlyFilesystem,
-        ))
+        )
     }
 
     fn open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(self.0.open_at(dentry, options, false))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        self.0.open_at(dentry, options, false)
     }
 }
 
@@ -377,11 +379,11 @@ impl InodeOperations for RubyFilesystem {
 
     /// A Ruby object matches names exactly, as its contract asks. A lookup
     /// asks its `stat` what stands at the name, as FUSE asks its daemon.
-    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         if dentry.name().len() > NAME_MAX {
-            return Some(Err(FilesystemError::InvalidFilename));
+            return Err(FilesystemError::InvalidFilename);
         }
-        Some(match self.stat(dentry.path_raw()) {
+        match self.stat(dentry.path_raw()) {
             Ok(found) => {
                 let ops: Arc<dyn InodeOperations> = match found.file_type {
                     FileType::Directory => Arc::new(*self),
@@ -391,7 +393,7 @@ impl InodeOperations for RubyFilesystem {
             }
             Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
             Err(err) => Err(err),
-        })
+        }
     }
 
     /// A directory opens without asking the object anything; it is asked
@@ -400,43 +402,43 @@ impl InodeOperations for RubyFilesystem {
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(Ok(Box::new(RubyDir(*self))))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Ok(Box::new(RubyDir(*self)))
     }
 
     fn atomic_open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(self.open_at(dentry, options, true))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        self.open_at(dentry, options, true)
     }
 
-    fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(change(
+    fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        change(
             self.object,
             "mkdir",
             (dentry.path_raw(),),
             FilesystemError::ReadOnlyFilesystem,
-        ))
+        )
     }
 
-    fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(change(
+    fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        change(
             self.object,
             "rmdir",
             (dentry.path_raw(),),
             FilesystemError::ReadOnlyFilesystem,
-        ))
+        )
     }
 
-    fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(change(
+    fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        change(
             self.object,
             "unlink",
             (dentry.path_raw(),),
             FilesystemError::ReadOnlyFilesystem,
-        ))
+        )
     }
 
     /// `rename(from, to)`, as `File.rename` takes it. What stands at `from`
@@ -447,8 +449,8 @@ impl InodeOperations for RubyFilesystem {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        Some(self.rename_to(from, to_dir, to))
+    ) -> Result<(), FilesystemError> {
+        self.rename_to(from, to_dir, to)
     }
 }
 

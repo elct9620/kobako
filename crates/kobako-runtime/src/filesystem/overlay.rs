@@ -220,33 +220,24 @@ impl InodeOperations for OverlayRegular {
 
     /// Copied up first, as `ovl_setattr` does, so a lower Layer stays as it
     /// was whatever its Filesystem would keep.
-    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
         let overlay = &self.0;
-        if let Err(err) = overlay
+        overlay
             .fs
-            .parent(dentry)
-            .and_then(|parent| overlay.fs.copy_up_file(&parent, dentry, false))
-        {
-            return Some(Err(err));
-        }
-        let (real, _) = overlay.real_of(dentry)?;
-        let _held = match real.inode_lock() {
-            Ok(held) => held,
-            Err(err) => return Some(Err(err)),
-        };
-        real.inode()?.ops().setattr(&real, attr)
+            .copy_up_file(&overlay.fs.parent(dentry)?, dentry, false)?;
+        let (real, _) = overlay.real_of(dentry).ok_or(FilesystemError::NotFound)?;
+        let _held = real.inode_lock()?;
+        let found = real.inode().ok_or(FilesystemError::NotFound)?;
+        found.ops().setattr(&real, attr)
     }
 
     fn open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let fs = &self.0.fs;
-        Some(
-            fs.parent(dentry)
-                .and_then(|parent| fs.open(&parent, dentry, options)),
-        )
+        fs.open(&fs.parent(dentry)?, dentry, options)
     }
 }
 
@@ -256,17 +247,17 @@ impl InodeOperations for OverlayLink {
     }
 
     /// Where the link points, as `ovl_get_link` asks the real dentry.
-    fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
-        let (real, _) = self.0.real_of(dentry)?;
-        Some(real.get_link())
+    fn get_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        let (real, _) = self.0.real_of(dentry).ok_or(FilesystemError::NotFound)?;
+        real.get_link()
     }
 
     fn open(
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(Err(FilesystemError::FilesystemLoop))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Err(FilesystemError::FilesystemLoop)
     }
 }
 
@@ -284,15 +275,15 @@ impl InodeOperations for Overlay {
 
     /// The entry as a Layer spells it, as `ovl_lookup` hands
     /// `d_splice_alias` the inode it made.
-    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        Some(self.lookup_at(dentry))
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        self.lookup_at(dentry)
     }
 
     fn open(
         &self,
         dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let _real = self.fs.dir(dentry).map_or_else(
             |_| Vec::new(),
             |dir| {
@@ -304,47 +295,32 @@ impl InodeOperations for Overlay {
             },
         );
         let fs = self.fs.clone();
-        Some(Ok(Box::new(OverlayDir { fs, _real })))
+        Ok(Box::new(OverlayDir { fs, _real }))
     }
 
     fn atomic_open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(
-            self.fs
-                .parent(dentry)
-                .and_then(|parent| self.fs.create_file(&parent, &dentry.name(), options))
-                .and_then(|file| {
-                    dentry.lookup_inode(self)?;
-                    Ok(file)
-                }),
-        )
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        let file = self
+            .fs
+            .create_file(&self.fs.parent(dentry)?, &dentry.name(), options)?;
+        dentry.lookup_inode(self)?;
+        Ok(file)
     }
 
-    fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(
-            self.fs
-                .parent(dentry)
-                .and_then(|parent| self.fs.create_dir(&parent, &dentry.name())),
-        )
+    fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.fs.create_dir(&self.fs.parent(dentry)?, &dentry.name())
     }
 
-    fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(
-            self.fs
-                .parent(dentry)
-                .and_then(|parent| self.fs.remove_dir(&parent, &dentry.name())),
-        )
+    fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.fs.remove_dir(&self.fs.parent(dentry)?, &dentry.name())
     }
 
-    fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(
-            self.fs
-                .parent(dentry)
-                .and_then(|parent| self.fs.remove_file(&parent, &dentry.name())),
-        )
+    fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.fs
+            .remove_file(&self.fs.parent(dentry)?, &dentry.name())
     }
 
     /// Both directories lie in one Overlay, however many directories of
@@ -354,8 +330,8 @@ impl InodeOperations for Overlay {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        Some(self.rename_to(from, to_dir, to))
+    ) -> Result<(), FilesystemError> {
+        self.rename_to(from, to_dir, to)
     }
 }
 
@@ -729,26 +705,26 @@ mod tests {
             })
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-            Some(Ok(match dentry.name().as_str() {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            Ok(match dentry.name().as_str() {
                 "file" => Lookup::Found(Inode::new(
                     &Metadata::new(FileType::File, 0).with_identity(1, 2),
                     Arc::new(Self(self.0.clone())),
                 )),
                 _ => Lookup::Absent,
-            }))
+            })
         }
 
-        fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Result<(), FilesystemError> {
             self.0.fetch_add(1, Ordering::SeqCst);
-            Some(Ok(()))
+            Ok(())
         }
 
         fn open(
             &self,
             _dentry: &Dentry,
             _options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             struct Empty;
             impl FileOperations for Empty {
                 fn read_iter(
@@ -759,7 +735,7 @@ mod tests {
                     Ok(0)
                 }
             }
-            Some(Ok(Box::new(Empty)))
+            Ok(Box::new(Empty))
         }
     }
 
@@ -1384,7 +1360,7 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(FileType::Directory) && dentry.parent().is_some() {
                 self.start();
             }
@@ -1944,46 +1920,46 @@ mod tests {
             self.root.symlink_metadata(&folded(dentry))
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let name = dentry.name();
             let lower = name.to_lowercase();
-            Some(match self.root.symlink_metadata(&folded(dentry)) {
+            match self.root.symlink_metadata(&folded(dentry)) {
                 Ok(_) if lower != name => Ok(Lookup::Spelled(lower)),
                 Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
                 Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),
-            })
+            }
         }
 
         fn open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(FileType::Directory) {
-                return Some(Ok(Box::new(FoldedDir(self.root.clone()))));
+                return Ok(Box::new(FoldedDir(self.root.clone())));
             }
-            Some(self.root.open(&folded(dentry), options))
+            self.root.open(&folded(dentry), options)
         }
 
         fn atomic_open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            Some(self.root.create(&folded(dentry), options))
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            self.root.create(&folded(dentry), options)
         }
 
-        fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.create_dir(&folded(dentry)))
+        fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.create_dir(&folded(dentry))
         }
 
-        fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.remove_dir(&folded(dentry)))
+        fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_dir(&folded(dentry))
         }
 
-        fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.remove_file(&folded(dentry)))
+        fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.root.remove_file(&folded(dentry))
         }
 
         fn rename(
@@ -1991,8 +1967,8 @@ mod tests {
             from: &Dentry,
             _to_dir: &dyn InodeOperations,
             to: &Dentry,
-        ) -> Option<Result<(), FilesystemError>> {
-            Some(self.root.rename(&folded(from), &self.root, &folded(to)))
+        ) -> Result<(), FilesystemError> {
+            self.root.rename(&folded(from), &self.root, &folded(to))
         }
     }
 
@@ -2092,7 +2068,7 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             let opened = inner.open(dentry, options);
             let run = self.0.lock().expect("never poisoned").take();
             if let Some(run) = run {
@@ -2186,23 +2162,23 @@ mod tests {
             })
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-            Some(Ok(match dentry.name().as_str() {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            Ok(match dentry.name().as_str() {
                 "pipe" => Lookup::Found(Inode::new(
                     &Metadata::new(FileType::Fifo, 0).with_identity(1, 2),
                     Arc::new(Self(self.0.clone())),
                 )),
                 _ => Lookup::Absent,
-            }))
+            })
         }
 
         fn open(
             &self,
             _dentry: &Dentry,
             _options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.0.fetch_add(1, Ordering::SeqCst);
-            Some(Err(FilesystemError::Interrupted))
+            Err(FilesystemError::Interrupted)
         }
     }
 
@@ -2550,7 +2526,7 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if !self.opening.swap(true, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }

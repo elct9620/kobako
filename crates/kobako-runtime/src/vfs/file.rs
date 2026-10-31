@@ -282,21 +282,13 @@ impl File {
     }
 
     /// The directory at `path`, opened to be listed, as `dentry_open` calls
-    /// `f_op->open`. A directory without `open` opens as Linux's opens with
-    /// no `f_op->open`, and refuses a listing as one with no
-    /// `iterate_shared`.
+    /// `f_op->open`.
     pub(super) fn directory(path: Path, cred: Arc<Cred>) -> Result<Self, FilesystemError> {
-        struct Unlistable;
-        impl FileOperations for Unlistable {}
-
         let options = OpenOptions {
             read: true,
             ..OpenOptions::default()
         };
-        let ops = match path.dir().open(path.dentry(), &options) {
-            Some(opened) => opened?,
-            None => Box::new(Unlistable),
-        };
+        let ops = path.dir().open(path.dentry(), &options)?;
         let how = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -702,6 +694,50 @@ mod tests {
     use crate::mount::{Access, Mount};
     use crate::vfs::Inode;
 
+    /// A directory holding a file at every name, neither with `open`.
+    struct OpensNothing;
+
+    impl InodeOperations for OpensNothing {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(match dentry.parent() {
+                Some(_) => Metadata::new(FileType::File, 0),
+                None => Metadata::new(FileType::Directory, 0),
+            })
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let found = Metadata::new(FileType::File, 0);
+            Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
+        }
+    }
+
+    // A built-in Filesystem always has `open`, so only one without it shows
+    // what the runtime answers.
+    // @behavior RT-218
+    #[test]
+    fn an_entry_without_open_opens_with_no_operations() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(OpensNothing)),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let how = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let cred = Arc::default();
+        let read = do_file_open(&cred, &Path::root(mount.mnt()), "file", &how)
+            .map_err(|_| "the open was refused")
+            .map(|mut file| file.read(&mut [0; 1]));
+        assert_eq!(
+            read,
+            Ok(Err(FilesystemError::InvalidInput)),
+            "vfs::do_file_open of a file whose Filesystem has no open must succeed, and File::read \
+             of it must answer EINVAL, as Linux's opens with no f_op->open"
+        );
+    }
+
     /// A directory listing one name, whatever it is.
     struct Lists(&'static str);
 
@@ -720,8 +756,8 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            Some(Ok(Box::new(Self(self.0))))
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Ok(Box::new(Self(self.0)))
         }
     }
 
@@ -926,18 +962,18 @@ mod tests {
             Ok(Metadata::new(FileType::Directory, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let found = Metadata::new(FileType::File, 0);
             let ops = Arc::new(Self(self.0.clone()));
-            Some(Ok(Lookup::Found(Inode::new(&found, ops))))
+            Ok(Lookup::Found(Inode::new(&found, ops)))
         }
 
         fn open(
             &self,
             _dentry: &Dentry,
             _options: &OpenOptions,
-        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            Some(Ok(Box::new(CountsSyncs(self.0.clone()))))
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Ok(Box::new(CountsSyncs(self.0.clone())))
         }
     }
 

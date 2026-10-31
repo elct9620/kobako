@@ -26,7 +26,7 @@ pub(super) trait Hook: Send + Sync + 'static {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-    ) -> Option<Result<Lookup, FilesystemError>> {
+    ) -> Result<Lookup, FilesystemError> {
         inner.lookup(dentry)
     }
 
@@ -39,7 +39,7 @@ pub(super) trait Hook: Send + Sync + 'static {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         inner.open(dentry, options)
     }
 
@@ -48,31 +48,19 @@ pub(super) trait Hook: Send + Sync + 'static {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         inner.atomic_open(dentry, options)
     }
 
-    fn mkdir(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
+    fn mkdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
         inner.mkdir(dentry)
     }
 
-    fn rmdir(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
+    fn rmdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
         inner.rmdir(dentry)
     }
 
-    fn unlink(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
+    fn unlink(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
         inner.unlink(dentry)
     }
 
@@ -82,7 +70,7 @@ pub(super) trait Hook: Send + Sync + 'static {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
+    ) -> Result<(), FilesystemError> {
         inner.rename(from, to_dir, to)
     }
 }
@@ -127,19 +115,18 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         &self,
         dentry: &Dentry,
         attr: &kobako_runtime::filesystem::Iattr,
-    ) -> Option<Result<(), FilesystemError>> {
+    ) -> Result<(), FilesystemError> {
         self.inner.setattr(dentry, attr)
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        let found = self.hook.lookup(self.inner.as_ref(), dentry)?;
-        Some(found.map(|lookup| match lookup {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        Ok(match self.hook.lookup(self.inner.as_ref(), dentry)? {
             Lookup::Found(inode) => {
                 let wrapped = Self::new(inode.ops().clone(), self.hook.clone());
                 Lookup::Found(inode.with_ops(wrapped))
             }
             other => other,
-        }))
+        })
     }
 
     fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
@@ -154,7 +141,7 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.hook.open(self.inner.as_ref(), dentry, options)
     }
 
@@ -162,19 +149,19 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.hook.atomic_open(self.inner.as_ref(), dentry, options)
     }
 
-    fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+    fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.hook.mkdir(self.inner.as_ref(), dentry)
     }
 
-    fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+    fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.hook.rmdir(self.inner.as_ref(), dentry)
     }
 
-    fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+    fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.hook.unlink(self.inner.as_ref(), dentry)
     }
 
@@ -183,8 +170,10 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        let target = (to_dir as &dyn Any).downcast_ref::<Self>()?;
+    ) -> Result<(), FilesystemError> {
+        let target = (to_dir as &dyn Any)
+            .downcast_ref::<Self>()
+            .ok_or(FilesystemError::CrossesDevices)?;
         self.hook
             .rename(self.inner.as_ref(), from, target.inner.as_ref(), to)
     }

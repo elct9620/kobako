@@ -665,10 +665,10 @@ impl Hook for StoresUpperCase {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-    ) -> Option<Result<Lookup, FilesystemError>> {
+    ) -> Result<Lookup, FilesystemError> {
         let stored = dentry.name().to_uppercase();
         if stored != dentry.name() {
-            return Some(Ok(Lookup::Spelled(stored)));
+            return Ok(Lookup::Spelled(stored));
         }
         inner.lookup(dentry)
     }
@@ -1071,15 +1071,15 @@ impl Hook for ReusesInodes {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-    ) -> Option<Result<Lookup, FilesystemError>> {
-        Some(inner.lookup(dentry)?.and_then(|lookup| match lookup {
+    ) -> Result<Lookup, FilesystemError> {
+        Ok(match inner.lookup(dentry)? {
             Lookup::Found(inode) if dentry.name() == "dir" => {
                 self.found.lock().unwrap().push(Arc::downgrade(inode.ops()));
                 let found = self.dir_metadata(inode.ops().getattr(dentry)?);
-                Ok(Lookup::Found(Inode::new(&found, inode.ops().clone())))
+                Lookup::Found(Inode::new(&found, inode.ops().clone()))
             }
-            other => Ok(other),
-        }))
+            other => other,
+        })
     }
 
     fn dentry_ops(&self, _inner: &dyn InodeOperations) -> Option<Arc<dyn DentryOperations>> {
@@ -1088,12 +1088,8 @@ impl Hook for ReusesInodes {
 
     /// The call removing it holds what it looked up, so `dir` is open
     /// beyond that only where a descriptor holds it too.
-    fn rmdir(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        let removed = inner.rmdir(dentry)?;
+    fn rmdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
+        let removed = inner.rmdir(dentry);
         let held = self
             .found
             .lock()
@@ -1104,7 +1100,7 @@ impl Hook for ReusesInodes {
         if removed.is_ok() && dentry.name() == "dir" && held > 1 {
             self.removed_while_open.fetch_add(1, Ordering::SeqCst);
         }
-        Some(removed)
+        removed
     }
 }
 
@@ -1150,15 +1146,15 @@ impl Hook for NamesNoIdentity {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-    ) -> Option<Result<Lookup, FilesystemError>> {
-        Some(inner.lookup(dentry)?.and_then(|lookup| match lookup {
+    ) -> Result<Lookup, FilesystemError> {
+        Ok(match inner.lookup(dentry)? {
             Lookup::Found(inode) => {
                 let found = inode.ops().getattr(dentry)?;
                 let bare = Metadata::new(found.file_type, found.len);
-                Ok(Lookup::Found(Inode::new(&bare, inode.ops().clone())))
+                Lookup::Found(Inode::new(&bare, inode.ops().clone()))
             }
-            other => Ok(other),
-        }))
+            other => other,
+        })
     }
 }
 
@@ -1332,29 +1328,17 @@ impl ChangeCounter {
 }
 
 impl Hook for ChangeCounter {
-    fn mkdir(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
+    fn mkdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.change();
         inner.mkdir(dentry)
     }
 
-    fn rmdir(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
+    fn rmdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.change();
         inner.rmdir(dentry)
     }
 
-    fn unlink(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
+    fn unlink(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.change();
         inner.unlink(dentry)
     }
@@ -1365,7 +1349,7 @@ impl Hook for ChangeCounter {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
+    ) -> Result<(), FilesystemError> {
         self.change();
         inner.rename(from, to_dir, to)
     }
@@ -1430,20 +1414,14 @@ impl Hook for AppendedMeanwhile {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let writes = build_options(|options| options.write = true);
-        let file = match inner.open(dentry, options)? {
-            Ok(file) => file,
-            Err(err) => return Some(Err(err)),
-        };
-        let other = match inner.open(dentry, &writes)? {
-            Ok(other) => other,
-            Err(err) => return Some(Err(err)),
-        };
-        Some(Ok(Box::new(AppendedMeanwhileFile {
+        let file = inner.open(dentry, options)?;
+        let other = inner.open(dentry, &writes)?;
+        Ok(Box::new(AppendedMeanwhileFile {
             file,
             other: std::sync::Mutex::new(other),
-        })))
+        }))
     }
 }
 
@@ -1964,9 +1942,9 @@ impl Hook for FailsLookingUpDir {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-    ) -> Option<Result<Lookup, FilesystemError>> {
+    ) -> Result<Lookup, FilesystemError> {
         match dentry.name().as_str() {
-            "dir" => Some(Err(FilesystemError::Other("unreadable".into()))),
+            "dir" => Err(FilesystemError::Other("unreadable".into())),
             _ => inner.lookup(dentry),
         }
     }
@@ -2394,50 +2372,28 @@ const ERRNO_PERM: i32 = 63;
 
 /// A Tmpfs with no operation to make, remove, or move a name, as a NULL in
 /// Linux's `inode_operations`.
-struct ChangesNothing;
+struct ChangesNothing(Arc<dyn InodeOperations>);
 
-impl Hook for ChangesNothing {
-    fn atomic_open(
-        &self,
-        _inner: &dyn InodeOperations,
-        _dentry: &Dentry,
-        _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        None
+impl InodeOperations for ChangesNothing {
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.0.getattr(dentry)
     }
 
-    fn mkdir(
-        &self,
-        _inner: &dyn InodeOperations,
-        _dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        None
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        Ok(match self.0.lookup(dentry)? {
+            Lookup::Found(inode) => {
+                Lookup::Found(inode.with_ops(Arc::new(Self(inode.ops().clone()))))
+            }
+            other => other,
+        })
     }
 
-    fn rmdir(
+    fn open(
         &self,
-        _inner: &dyn InodeOperations,
-        _dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        None
-    }
-
-    fn unlink(
-        &self,
-        _inner: &dyn InodeOperations,
-        _dentry: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        None
-    }
-
-    fn rename(
-        &self,
-        _inner: &dyn InodeOperations,
-        _from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        _to: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        None
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        self.0.open(dentry, options)
     }
 }
 
@@ -2446,7 +2402,7 @@ impl Hook for ChangesNothing {
 // @behavior RT-175
 #[test]
 fn the_runtime_answers_for_an_operation_a_filesystem_lacks() {
-    let filesystem = Wrap::new(file_and_directory(), Arc::new(ChangesNothing));
+    let filesystem = Arc::new(ChangesNothing(file_and_directory()));
     let mut guest = Guest::new(&[grant(filesystem, Access::ReadWrite, None)]);
     assert_eq!(
         (

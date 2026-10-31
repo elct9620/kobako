@@ -20,10 +20,7 @@ pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Er
     cred.security_path_perm(path.mnt(), &|| dentry.path_raw(), Access::ReadWrite)?;
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
     let _held = dentry.inode_lock()?;
-    Ok(inode
-        .ops()
-        .setattr(dentry, times)
-        .unwrap_or(Err(FilesystemError::Unsupported))?)
+    Ok(inode.ops().setattr(dentry, times)?)
 }
 
 /// Set `times` on what `path` beneath `start` names, a link at its end
@@ -110,9 +107,9 @@ mod tests {
             Ok(Metadata::new(FileType::Directory, 0))
         }
 
-        fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
             *self.0.lock().unwrap() = Some(*attr);
-            Some(Ok(()))
+            Ok(())
         }
     }
 

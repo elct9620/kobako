@@ -587,15 +587,15 @@ impl InodeOperations for Tmpfs {
 
     /// A Tmpfs matches names byte for byte and holds no links, and refuses a
     /// name past `NAME_MAX`, as `simple_lookup` does.
-    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         let name = dentry.name();
         if name.len() > NAME_MAX {
-            return Some(Err(FilesystemError::InvalidFilename));
+            return Err(FilesystemError::InvalidFilename);
         }
         let node = match self.dir.get(&name) {
             Ok(node) => node,
-            Err(FilesystemError::NotFound) => return Some(Ok(Lookup::Absent)),
-            Err(err) => return Some(Err(err)),
+            Err(FilesystemError::NotFound) => return Ok(Lookup::Absent),
+            Err(err) => return Err(err),
         };
         let metadata = self.node_metadata(&node);
         let ops: Arc<dyn InodeOperations> = match node {
@@ -603,7 +603,7 @@ impl InodeOperations for Tmpfs {
             Node::File(data) => Arc::new(TmpfsRegular { data }),
             Node::Whiteout { .. } => Arc::new(TmpfsWhiteout),
         };
-        Some(Ok(Lookup::Found(Inode::new(&metadata, ops))))
+        Ok(Lookup::Found(Inode::new(&metadata, ops)))
     }
 
     fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
@@ -614,31 +614,31 @@ impl InodeOperations for Tmpfs {
         &self,
         dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(self.create_at(&dentry.name()))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        self.create_at(&dentry.name())
     }
 
     fn open(
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(Ok(Box::new(TmpfsDir {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Ok(Box::new(TmpfsDir {
             dir: self.dir.clone(),
             dev: self.tree.dev,
-        })))
+        }))
     }
 
-    fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(self.mkdir_at(&dentry.name()))
+    fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.mkdir_at(&dentry.name())
     }
 
-    fn rmdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(self.rmdir_at(&dentry.name()))
+    fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.rmdir_at(&dentry.name())
     }
 
-    fn unlink(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
-        Some(self.unlink_at(&dentry.name()))
+    fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.unlink_at(&dentry.name())
     }
 
     /// The move `rename2` makes with no flag, as `shmem_rename2` makes it.
@@ -647,13 +647,11 @@ impl InodeOperations for Tmpfs {
         from: &Dentry,
         to_dir: &dyn InodeOperations,
         to: &Dentry,
-    ) -> Option<Result<(), FilesystemError>> {
-        Some(
-            (to_dir as &dyn Any)
-                .downcast_ref::<Self>()
-                .ok_or(FilesystemError::CrossesDevices)
-                .and_then(|target| self.rename2(&from.name(), target, &to.name(), None)),
-        )
+    ) -> Result<(), FilesystemError> {
+        let target = (to_dir as &dyn Any)
+            .downcast_ref::<Self>()
+            .ok_or(FilesystemError::CrossesDevices)?;
+        self.rename2(&from.name(), target, &to.name(), None)
     }
 }
 
@@ -717,23 +715,22 @@ impl InodeOperations for TmpfsRegular {
         Ok(lock(&self.data).metadata())
     }
 
-    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
-        let len = attr.size?;
-        Some(
-            usize::try_from(len)
-                .map_err(|_| FilesystemError::InvalidInput)
-                .and_then(|len| lock(&self.data).resize(len)),
-        )
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+        let Some(len) = attr.size else {
+            return Err(FilesystemError::Unsupported);
+        };
+        let len = usize::try_from(len).map_err(|_| FilesystemError::InvalidInput)?;
+        lock(&self.data).resize(len)
     }
 
     fn open(
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(Ok(Box::new(TmpfsFile {
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Ok(Box::new(TmpfsFile {
             data: self.data.clone(),
-        })))
+        }))
     }
 }
 

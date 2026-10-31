@@ -249,22 +249,22 @@ impl InodeOperations for OneNote {
         Ok(Metadata::new(FileType::Directory, 0))
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
-        Some(Ok(match dentry.name().as_str() {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        Ok(match dentry.name().as_str() {
             "note.txt" => {
                 let found = Metadata::new(FileType::File, self.0.len() as u64);
                 Lookup::Found(Inode::new(&found, Arc::new(Note(self.0))))
             }
             _ => Lookup::Absent,
-        }))
+        })
     }
 
     fn open(
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(Ok(Box::new(NoteDir)))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Ok(Box::new(NoteDir))
     }
 }
 
@@ -289,8 +289,8 @@ impl InodeOperations for Note {
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(Ok(Box::new(NoteFile(self.0))))
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Ok(Box::new(NoteFile(self.0)))
     }
 }
 

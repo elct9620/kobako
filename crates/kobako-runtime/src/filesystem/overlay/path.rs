@@ -230,7 +230,7 @@ impl OverlayPath {
             read: true,
             ..OpenOptions::default()
         };
-        self.dir.open(&self.dentry, &options)?.ok()
+        self.dir.open(&self.dentry, &options).ok()
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -239,10 +239,9 @@ impl OverlayPath {
             read: true,
             ..OpenOptions::default()
         };
-        match self.dir.open(&self.dentry, &options) {
-            Some(opened) => opened?.iterate_shared(&self.dentry),
-            None => Err(FilesystemError::NotADirectory),
-        }
+        self.dir
+            .open(&self.dentry, &options)?
+            .iterate_shared(&self.dentry)
     }
 
     pub(super) fn create_dir(&self, name: &str) -> Result<(), FilesystemError> {

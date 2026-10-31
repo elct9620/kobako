@@ -58,10 +58,7 @@ pub(crate) fn build_open_flags(how: &OpenHow) -> Result<(), FilesystemError> {
 pub(crate) fn do_truncate(dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
     let _held = dentry.inode_lock()?;
-    inode
-        .ops()
-        .setattr(dentry, attr)
-        .unwrap_or(Err(FilesystemError::InvalidInput))
+    inode.ops().setattr(dentry, attr)
 }
 
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds

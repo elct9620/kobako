@@ -56,8 +56,7 @@ impl KernPath {
                 .inode()
                 .ok_or(FilesystemError::NotFound)?
                 .ops()
-                .setattr(&child, &Iattr::open_truncate())
-                .unwrap_or(Err(FilesystemError::InvalidInput))?;
+                .setattr(&child, &Iattr::open_truncate())?;
         }
         Ok(file)
     }
@@ -94,7 +93,6 @@ impl KernPath {
             .ok_or(FilesystemError::NotFound)?
             .ops()
             .setattr(&child, &Iattr::size(len))
-            .unwrap_or(Err(FilesystemError::InvalidInput))
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
@@ -178,11 +176,7 @@ impl KernPath {
             (old_inode, source.dentry(), &old),
             (new_inode, target.dentry(), &new),
             None,
-            || {
-                old_inode
-                    .rename(&old, new_inode, &new)
-                    .unwrap_or(Err(FilesystemError::NotPermitted))
-            },
+            || old_inode.rename(&old, new_inode, &new),
         )
     }
 }
