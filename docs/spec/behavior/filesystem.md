@@ -1523,3 +1523,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay whose lower Layer would keep a time it is asked to |
 | When | the guest sets a time on a file only that Layer holds |
 | Then | the file is copied up, and the lower Layer is not asked |
+
+## `FS-148` An Overlay refuses one instance as two Layers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-015` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs instance |
+| When | an Overlay is built with it as two of its Layers |
+| Then | it is refused as invalid input, as overlayfs refuses overlapping layers |

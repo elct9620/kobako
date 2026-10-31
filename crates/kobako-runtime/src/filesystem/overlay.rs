@@ -56,12 +56,21 @@ impl Overlay {
     /// asked through that Filesystem's dentries, as overlayfs asks each
     /// layer by its own lookup. As overlayfs's mount does, it refuses no
     /// lower Layer, a read-only view of fewer than two, too many lower
-    /// Layers, and a stack too deep; as gVisor's does, it refuses an
+    /// Layers, a stack too deep, and one instance as two Layers, as
+    /// overlayfs answers overlapping layers; as gVisor's does, it refuses an
     /// upper that is no Tmpfs.
     pub fn new(
         lower: Vec<Arc<Filesystem>>,
         upper: Option<Arc<Filesystem>>,
     ) -> Result<Self, FilesystemError> {
+        let layers: Vec<_> = lower.iter().chain(&upper).collect();
+        let overlapping = layers
+            .iter()
+            .enumerate()
+            .any(|(at, layer)| layers[..at].iter().any(|seen| Arc::ptr_eq(seen, layer)));
+        if overlapping {
+            return Err(FilesystemError::InvalidInput);
+        }
         let too_few = if upper.is_some() { 1 } else { 2 };
         let upper_tmpfs = upper
             .as_ref()
@@ -1148,6 +1157,27 @@ mod tests {
             refusal(vec![Arc::new(Tmpfs::new())], Some(Arc::new(bind))),
             Some(FilesystemError::InvalidInput),
             "Overlay::new with a Bind as its upper must be refused as invalid input"
+        );
+    }
+
+    // Nothing else tells these apart: every other rule holds of each list, and
+    // a view over them would show the upper's own workdir.
+    // @behavior FS-148
+    #[test]
+    fn an_overlay_refuses_one_instance_as_two_layers() {
+        let instance = || Filesystem::new(Arc::new(Tmpfs::new()));
+        let (shared, doubled) = (instance(), instance());
+        assert_eq!(
+            (
+                Overlay::new(vec![shared.clone()], Some(shared)).err(),
+                Overlay::new(vec![doubled.clone(), doubled, instance()], None).err(),
+            ),
+            (
+                Some(FilesystemError::InvalidInput),
+                Some(FilesystemError::InvalidInput),
+            ),
+            "Overlay::new with one instance as its upper and a lower Layer, or as two lower \
+             Layers, must be refused as invalid input"
         );
     }
 

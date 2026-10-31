@@ -160,7 +160,8 @@ fn overlay_new(args: &[Value]) -> Result<OverlayFs, MagnusError> {
     let overlay = Overlay::new(lower_fs, upper_fs).map_err(|_| {
         MagnusError::new(
             ruby.exception_arg_error(),
-            "an Overlay needs a lower Layer under its upper, or two lower Layers without one",
+            "an Overlay needs a lower Layer under its upper, or two lower Layers without one, \
+             each Filesystem at most once",
         )
     })?;
     Ok(OverlayFs {
