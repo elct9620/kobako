@@ -2340,3 +2340,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount with a Policy, and a move whose source another move takes away after the walk |
 | When | the first move holds both directories |
 | Then | it answers ENOENT, and nothing else moves |
+
+## `RT-212` A listing refuses a name no directory can hold
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-182` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem listing a name that is empty or holds a `/` |
+| When | the guest lists the directory |
+| Then | the call answers EIO, and hands over no such name |
