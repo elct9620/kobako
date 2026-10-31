@@ -29,7 +29,9 @@ pub(super) enum Piece<'a> {
         letter: char,
         in_class: bool,
     },
-    PlainGroup,
+    PlainGroup {
+        in_negative_look_behind: bool,
+    },
     NamedGroup {
         text: &'a str,
         name: &'a str,
@@ -45,13 +47,26 @@ pub(super) enum Piece<'a> {
         text: &'a str,
         name: &'a str,
     },
-    PythonGroup,
+    /// A spelling MRI refuses, with its reason.
+    Refused(&'static str),
 }
+
+/// The enclosing look-behind a piece sits in.
+#[derive(Clone, Copy, PartialEq)]
+enum LookBehind {
+    Outside,
+    Positive,
+    Negative,
+}
+
+const LOOK_BEHIND_REFUSAL: &str = "invalid pattern in look-behind";
+const UNDEFINED_OPTION: &str = "undefined group option";
 
 /// What holds until the group a frame belongs to closes.
 #[derive(Clone, Copy)]
 struct Frame {
     extended: bool,
+    look_behind: LookBehind,
 }
 
 pub(super) struct Pieces<'a> {
@@ -65,7 +80,10 @@ impl<'a> Pieces<'a> {
         Self {
             rest: source,
             class_depth: 0,
-            frames: vec![Frame { extended }],
+            frames: vec![Frame {
+                extended,
+                look_behind: LookBehind::Outside,
+            }],
         }
     }
 
@@ -100,9 +118,19 @@ impl<'a> Pieces<'a> {
         };
         let in_class = self.class_depth > 0;
         if !in_class {
+            // The brace belongs to the escape, and opens no interval.
+            if matches!(letter, 'p' | 'P' | 'x' | 'u' | 'o') && after[1..].starts_with('{') {
+                if let Some(close) = after.find('}') {
+                    return Piece::Text(self.take(close + 2));
+                }
+            }
+            let in_look_behind = self.frame().look_behind != LookBehind::Outside;
             if matches!(letter, 'k' | 'g') {
                 if let Some((name, len)) = read_delimited(&after[1..]) {
                     let text = self.take(2 + len);
+                    if letter == 'k' && in_look_behind {
+                        return Piece::Refused(LOOK_BEHIND_REFUSAL);
+                    }
                     return Piece::NamedReference {
                         text,
                         kind: letter,
@@ -114,7 +142,11 @@ impl<'a> Pieces<'a> {
                 let digits = after
                     .find(|c: char| !c.is_ascii_digit())
                     .unwrap_or(after.len());
-                return Piece::NumberedReference(self.take(1 + digits));
+                let text = self.take(1 + digits);
+                if in_look_behind {
+                    return Piece::Refused(LOOK_BEHIND_REFUSAL);
+                }
+                return Piece::NumberedReference(text);
             }
         }
         self.take(1 + letter.len_utf8());
@@ -125,14 +157,16 @@ impl<'a> Pieces<'a> {
         let Some(option) = self.rest[1..].strip_prefix('?') else {
             self.take(1);
             self.open_frame();
-            return Piece::PlainGroup;
+            return Piece::PlainGroup {
+                in_negative_look_behind: self.frame().look_behind == LookBehind::Negative,
+            };
         };
         if option.starts_with('#') {
             return Piece::Comment(self.take(comment_len(self.rest)));
         }
         if option.starts_with('P') {
             self.take(1);
-            return Piece::PythonGroup;
+            return Piece::Refused(UNDEFINED_OPTION);
         }
         if option.starts_with('(') && option[1..].starts_with(|c: char| c.is_ascii_digit()) {
             // The condition's own `)` is read with it, so it closes no frame.
@@ -150,18 +184,36 @@ impl<'a> Pieces<'a> {
         if !option.starts_with("<=") && !option.starts_with("<!") {
             if let Some((name, len)) = read_delimited(option) {
                 let text = self.take(2 + len);
+                let in_negative = self.frame().look_behind == LookBehind::Negative;
                 self.open_frame();
+                if in_negative {
+                    return Piece::Refused(LOOK_BEHIND_REFUSAL);
+                }
+                if name.starts_with(|c: char| c.is_ascii_digit()) {
+                    return Piece::Refused("invalid group name");
+                }
                 return Piece::NamedGroup { text, name };
             }
         }
         if let Some(letters) = read_option_letters(option) {
             return self.apply_options(letters);
         }
+        let outer = self.frame().look_behind;
         self.open_frame();
         let len = ["<=", "<!", "=", "!", ">", "~"]
             .iter()
             .find(|opener| option.starts_with(**opener))
             .map_or(2, |opener| 2 + opener.len());
+        let opener = &option[..len - 2];
+        match opener {
+            "<=" if outer == LookBehind::Outside => self.frame().look_behind = LookBehind::Positive,
+            "<!" => self.frame().look_behind = LookBehind::Negative,
+            "=" | "!" | ">" if outer != LookBehind::Outside => {
+                self.take(len);
+                return Piece::Refused(LOOK_BEHIND_REFUSAL);
+            }
+            _ => {}
+        }
         Piece::Open(self.take(len))
     }
 
@@ -193,6 +245,10 @@ impl<'a> Pieces<'a> {
         let scoped = self.rest.as_bytes()[2 + letters.len()] == b':';
         if scoped {
             self.open_frame();
+        }
+        if !are_known_options(letters) {
+            self.take(3 + letters.len());
+            return Piece::Refused(UNDEFINED_OPTION);
         }
         let mut setting = true;
         for letter in letters.chars() {
@@ -254,6 +310,13 @@ fn read_delimited(text: &str) -> Option<(&str, usize)> {
     };
     let len = text[1..].find(close)?;
     Some((&text[1..=len], len + 2))
+}
+
+/// MRI's `(?imxdau-imx)`: three of its letters can only be turned on.
+fn are_known_options(letters: &str) -> bool {
+    let (on, off) = letters.split_once('-').unwrap_or((letters, ""));
+    on.chars().all(|letter| "imxdau".contains(letter))
+        && off.chars().all(|letter| "imx-".contains(letter))
 }
 
 /// An interval's bounds and the length it spans, for text opening with `{`.

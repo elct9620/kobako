@@ -144,6 +144,9 @@ impl<'n, 's> Rewriter<'n, 's> {
                 return Ok(());
             }
             Piece::Interval { lower, upper } => {
+                if is_reversed(lower, upper) {
+                    return Err("upper is smaller than lower in repeat range".to_string());
+                }
                 if self.after_interval {
                     self.wrap_unit();
                 }
@@ -179,7 +182,7 @@ impl<'n, 's> Rewriter<'n, 's> {
                 self.unit_start = None;
             }
             Piece::Open(_)
-            | Piece::PlainGroup
+            | Piece::PlainGroup { .. }
             | Piece::NamedGroup { .. }
             | Piece::NumberedCondition(_)
             | Piece::NamedCondition { .. }
@@ -203,7 +206,16 @@ impl<'n, 's> Rewriter<'n, 's> {
         let named = !self.names.is_empty();
         match piece {
             Piece::Open(text) | Piece::NamedGroup { text, .. } => self.out.push_str(text),
-            Piece::PlainGroup => self.out.push_str(if named { "(?:" } else { "(" }),
+            // Beside a named group it captures nothing, so a negative look-behind
+            // may hold it.
+            Piece::PlainGroup {
+                in_negative_look_behind,
+            } => {
+                if in_negative_look_behind && !named {
+                    return Err("invalid pattern in look-behind".to_string());
+                }
+                self.out.push_str(if named { "(?:" } else { "(" });
+            }
             Piece::Options { letters, .. } => push_options(letters, &mut self.out),
             Piece::NumberedCondition(text) => {
                 if named {
@@ -258,7 +270,7 @@ impl<'n, 's> Rewriter<'n, 's> {
                     _ => self.out.push_str(text),
                 }
             }
-            Piece::PythonGroup => return Err("undefined group option".to_string()),
+            Piece::Refused(reason) => return Err(reason.to_string()),
             _ => {}
         }
         Ok(())
@@ -298,6 +310,14 @@ impl<'n, 's> Rewriter<'n, 's> {
 }
 
 const NUMBERED_REFERENCE: &str = "numbered backref/call is not allowed. (use name)";
+
+fn is_reversed(lower: &str, upper: Option<&str>) -> bool {
+    let bound = |text: &str| text.parse::<u64>().ok();
+    matches!(
+        (bound(lower), upper.and_then(bound)),
+        (Some(lower), Some(upper)) if lower > upper
+    )
+}
 
 /// Always as `(?on-off:`, since MRI holds an option through the alternatives
 /// that follow it, where the engine ends it at the next `|`. Ruby's `m` is the
