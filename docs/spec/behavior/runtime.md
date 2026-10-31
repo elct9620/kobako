@@ -2220,3 +2220,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest beneath a Policy, holding a file whose name is gone |
 | When | it sets a time on the file through its descriptor |
 | Then | the call answers ENOENT, and the Policy is not asked about the old path |
+
+## `RT-202` A link to an absolute path is not made
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-143` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem that makes any link it is asked to |
+| When | the guest makes one to an absolute path, then to a relative one |
+| Then | the first answers EPERM as wasi-testsuite requires, and the second is made |

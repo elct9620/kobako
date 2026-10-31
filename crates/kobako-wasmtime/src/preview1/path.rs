@@ -180,6 +180,11 @@ pub(crate) fn symlink(
 ) -> Answer {
     let dir = directory(table, fd)?;
     let (target, path) = (mem.path(old_path)?, mem.path(new_path)?);
+    // wasi-testsuite's symlink_create has a guest make no link to an absolute
+    // path, where Linux would make one; a guest walks none of them anyway.
+    if target.starts_with('/') {
+        return Err(Errno::Perm.into());
+    }
     Ok(vfs::filename_symlinkat(table.cred(), &target, dir, &path)?)
 }
 

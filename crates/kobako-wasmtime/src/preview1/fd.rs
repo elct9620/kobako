@@ -458,7 +458,7 @@ mod tests {
     };
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::memory::GuestMemory;
-    use crate::preview1::path::create_directory;
+    use crate::preview1::path::{create_directory, symlink};
     use crate::preview1::types::Whence;
     use kobako_runtime::filesystem::{
         FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup, Metadata,
@@ -672,6 +672,62 @@ mod tests {
             Some(Errno::Notdir),
             "path_create_directory starting from a file through preview1 must answer ENOTDIR, as \
              Linux refuses a walk starting there"
+        );
+    }
+
+    /// A directory that would make any link it is asked to.
+    struct MakesLinks;
+
+    impl InodeOperations for MakesLinks {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::Directory, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            Some(Ok(Lookup::Absent))
+        }
+
+        fn symlink(&self, _dentry: &Dentry, _target: &str) -> Option<Result<(), FilesystemError>> {
+            Some(Ok(()))
+        }
+    }
+
+    // No built-in Filesystem makes a link, so only one that would shows the
+    // call stopped here.
+    // @behavior RT-202
+    #[test]
+    fn a_link_to_an_absolute_path_is_not_made() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(MakesLinks)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let table = Descriptors::new(
+            create_pipe_files(&PipeInodeInfo::filled(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            vec![mount],
+            None,
+            Profile::Hermetic,
+        )
+        .unwrap_or_else(|_| panic!("the table must make"));
+        let mut bytes = *b"/trelative";
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mem = GuestMemory::new(&mut memory, 64);
+        let (absolute, relative, name) = (
+            GuestPtr::new((0, 2)),
+            GuestPtr::new((1, 1)),
+            GuestPtr::new((2, 8)),
+        );
+        assert_eq!(
+            (
+                errno(symlink(&table, &mem, absolute, 3, name)),
+                errno(symlink(&table, &mem, relative, 3, name)),
+            ),
+            (Some(Errno::Perm), None),
+            "path_symlink through preview1 to an absolute target must answer EPERM, as \
+             wasi-testsuite requires, and to a relative one must reach the Filesystem"
         );
     }
 
