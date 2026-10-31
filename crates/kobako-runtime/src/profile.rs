@@ -6,8 +6,8 @@
 //! actually built, and the frontend refuses a declaration below the
 //! request — so the request is also the floor.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasher, RandomState};
+use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::filesystem::{FileType, Metadata};
@@ -40,17 +40,13 @@ impl Profile {
     /// The inode number a guest on this posture sees for `identity`. A
     /// hermetic guest sees none, as a Filesystem's device number depends on
     /// how many were made before it in the process. Any other sees a hash of
-    /// it, as wasmtime-wasi hands preview1 a metadata hash, so it can tell
-    /// entries apart without reading a host's inode number; the hash is not a
-    /// secret, since its key is fixed.
+    /// it under a key the process draws once, so it can tell entries apart
+    /// and cannot work back to a host's inode number.
     pub fn guest_ino(self, identity: Option<Identity>) -> u64 {
+        static KEY: LazyLock<RandomState> = LazyLock::new(RandomState::new);
         match (self, identity) {
             (Self::Hermetic, _) | (_, None) => 0,
-            (Self::Permissive, Some(identity)) => {
-                let mut hasher = DefaultHasher::new();
-                identity.hash(&mut hasher);
-                hasher.finish()
-            }
+            (Self::Permissive, Some(identity)) => KEY.hash_one(identity),
         }
     }
 
@@ -116,6 +112,34 @@ mod tests {
             permissive.ino != 0 && permissive.ino != 9 && permissive.accessed == reported.accessed,
             "Profile::guest_metadata at the permissive rung must hash the inode number and keep \
              the time"
+        );
+    }
+
+    // An unkeyed hash answers what anyone can compute from a host's numbers,
+    // so the hash a guest reads must differ from it.
+    // @behavior RT-194
+    #[test]
+    fn a_guest_cannot_compute_the_inode_number_it_reads() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let reported = Metadata::new(FileType::File, 0).with_identity(7, 9);
+        let identity = Identity::of(&reported);
+        let mut unkeyed = DefaultHasher::new();
+        identity
+            .expect("an inode number names an identity")
+            .hash(&mut unkeyed);
+        let seen = Profile::Permissive.guest_ino(identity);
+        assert_eq!(
+            seen,
+            Profile::Permissive.guest_ino(identity),
+            "Profile::guest_ino of one identity must answer one number within a process"
+        );
+        assert_ne!(
+            seen,
+            unkeyed.finish(),
+            "Profile::guest_ino at the permissive rung must not answer a hash anyone can compute \
+             from the device and inode numbers"
         );
     }
 

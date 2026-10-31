@@ -2119,3 +2119,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem reporting no count of names for an entry |
 | When | a guest on either posture reads what the entry reports |
 | Then | it reads one name |
+
+## `RT-194` A permissive guest's inode number names no number its host keeps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-183` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a permissive guest and an entry whose Filesystem names its device and inode numbers |
+| When | the guest reads the entry's inode number twice |
+| Then | it reads one number, and that number is no hash computed without the process's key |
