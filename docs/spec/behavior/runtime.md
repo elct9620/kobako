@@ -2184,3 +2184,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a pipe the runtime made |
 | When | a caller asks what its end reports |
 | Then | it reports a FIFO |
+
+## `RT-199` A dentry goes however deep it stands
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-145` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a dentry held far beneath the root, as moves can stack the directories above it |
+| When | nothing holds it any more, on a thread with a small stack |
+| Then | it goes, and the thread still runs |

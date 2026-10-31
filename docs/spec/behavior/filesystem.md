@@ -1487,3 +1487,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind on a unix host holding a socket, and one over a directory holding a device |
 | When | each is looked up |
 | Then | the socket answers a socket, and the device a character device |
+
+## `FS-145` A Tmpfs goes however deep its directories stand
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-091` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs whose directories stand far deeper than a path reaches, as moves can stack them |
+| When | nothing holds it any more, on a thread with a small stack |
+| Then | it goes, and the thread still runs |

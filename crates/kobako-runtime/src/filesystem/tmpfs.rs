@@ -201,6 +201,35 @@ impl Dir {
             .cloned()
             .ok_or(FilesystemError::NotFound)
     }
+
+    /// Hand `nested` every directory this one holds, leaving it holding
+    /// nothing.
+    fn take_directories(&mut self, nested: &mut Vec<Arc<Dir>>) {
+        let state = self
+            .state
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for (_, node) in std::mem::take(&mut state.entries) {
+            if let Node::Directory(dir) = node {
+                nested.push(dir);
+            }
+        }
+    }
+}
+
+/// A guest can stack directories as deep as its inodes reach, so the last
+/// reference to one lets go of everything beneath it in a loop, as Linux's
+/// `dput` walks up in one, and no depth outruns the thread's stack.
+impl Drop for Dir {
+    fn drop(&mut self) {
+        let mut nested = Vec::new();
+        self.take_directories(&mut nested);
+        while let Some(dir) = nested.pop() {
+            if let Some(mut dir) = Arc::into_inner(dir) {
+                dir.take_directories(&mut nested);
+            }
+        }
+    }
 }
 
 /// What a Tmpfs holds: the bytes of its files, and its entries, each
@@ -776,6 +805,34 @@ mod tests {
     use crate::vfs::kern_path::{kern_path, KernPath};
 
     /// `tmpfs` reached through the VFS.
+    // Built directly, as a path cannot reach this deep and stacking chains
+    // through the VFS takes a moving of each. A depth a recursive release
+    // cannot survive on this stack is what tells it from a loop.
+    // @behavior FS-145
+    #[test]
+    fn a_tmpfs_goes_however_deep_its_directories_stand() {
+        let tmpfs = Tmpfs::new();
+        let mut at = tmpfs.dir.clone();
+        for _ in 0..200_000 {
+            let below = tmpfs.new_directory();
+            at.state()
+                .entries
+                .insert("a".to_string(), Node::Directory(below.clone()));
+            at = below;
+        }
+        drop(at);
+        let released = std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(move || drop(tmpfs))
+            .expect("the thread must start")
+            .join();
+        assert!(
+            released.is_ok(),
+            "a Tmpfs 200000 directories deep, dropped on a 64 KiB stack, must go without \
+             overflowing it"
+        );
+    }
+
     fn at(tmpfs: Tmpfs) -> KernPath {
         kern_path(Arc::new(tmpfs))
     }

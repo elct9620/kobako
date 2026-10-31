@@ -194,6 +194,26 @@ impl Dentry {
     }
 }
 
+/// A dentry holds the one above it, and moves can stack them as deep as a
+/// Filesystem holds directories, so the last reference lets go of each in a
+/// loop, as Linux's `dput` walks up in one.
+impl Drop for Dentry {
+    fn drop(&mut self) {
+        let parent = |dentry: &mut Dentry| {
+            dentry
+                .state
+                .get_mut()
+                .unwrap_or_else(PoisonError::into_inner)
+                .parent
+                .take()
+        };
+        let mut above = parent(self);
+        while let Some(mut dentry) = above.and_then(Arc::into_inner) {
+            above = parent(&mut dentry);
+        }
+    }
+}
+
 /// Every name of one Filesystem something still holds, by the directory
 /// above it and its name there.
 pub(crate) struct Dentries {
@@ -514,6 +534,28 @@ mod tests {
             Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
             "vfs::filename_mkdirat through a directory opened beneath one Mount, once vfs::filename_rmdir \
              removed it beneath another Mount of the same Filesystem, must answer NotFound"
+        );
+    }
+
+    // Built directly, as a path cannot reach this deep. A depth a recursive
+    // release cannot survive on this stack is what tells it from a loop.
+    // @behavior RT-199
+    #[test]
+    fn a_dentry_goes_however_deep_it_stands() {
+        let dentries = Dentries::new(None);
+        let mut leaf = dentries.root();
+        for _ in 0..200_000 {
+            leaf = dentries.child(&leaf, "a");
+        }
+        let released = std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(move || drop(leaf))
+            .expect("the thread must start")
+            .join();
+        assert!(
+            released.is_ok(),
+            "a dentry 200000 directories deep, dropped on a 64 KiB stack, must go without \
+             overflowing it"
         );
     }
 
