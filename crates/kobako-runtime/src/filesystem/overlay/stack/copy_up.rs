@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, OpenOptions};
-use super::super::inode::ovl_inode;
+use super::super::inode::ovl_inode_of;
 use super::super::path::OverlayPath;
 use super::{copy_whole, entry, holds, OverlayFs, ViewDir};
 use crate::vfs::{Dentry, RenameFlag};
@@ -103,7 +103,11 @@ impl OverlayFs {
     ) -> Result<(), FilesystemError> {
         let name = child.name();
         let target_dir = self.upper_dir(dir, self.upper()?)?;
-        let inode = ovl_inode(child, || Ok(Vec::new()))?;
+        let inode = child
+            .inode()
+            .as_deref()
+            .and_then(ovl_inode_of)
+            .ok_or(FilesystemError::NotFound)?;
         let _held = inode.lock.down_write()?;
         let real = inode.real().ok_or(FilesystemError::NotFound)?;
         // Another call may have copied it up while this one waited, as
