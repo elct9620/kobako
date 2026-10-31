@@ -47,14 +47,11 @@ pub(crate) fn build_pattern(source: &str, options: i64) -> Result<String, String
     out.push(')');
     let extended = options & EXTENDED != 0;
     let names = collect_names(source, extended);
-    // One entry per open group, plus the source itself: the option groups each
-    // owes a `)` when it closes.
-    let mut owed_closes = vec![0];
+    let mut rewriter = Rewriter::new(&names, out);
     for piece in Pieces::new(source, extended) {
-        rewrite_piece(piece, &names, &mut owed_closes, &mut out)?;
+        rewriter.rewrite(piece)?;
     }
-    out.push_str(&")".repeat(owed_closes.iter().sum()));
-    Ok(out)
+    Ok(rewriter.finish())
 }
 
 /// Each capture name with its group numbers. A named group makes every plain
@@ -75,95 +72,229 @@ fn collect_names(source: &str, extended: bool) -> Vec<(&str, Vec<usize>)> {
     names
 }
 
-fn rewrite_piece(
-    piece: Piece,
-    names: &[(&str, Vec<usize>)],
-    owed_closes: &mut Vec<usize>,
-    out: &mut String,
-) -> Result<(), String> {
-    let named = !names.is_empty();
-    if matches!(
-        piece,
-        Piece::Open(_)
+/// An open group: where it starts, and the `)` its isolated options each owe
+/// when it closes.
+struct OpenGroup {
+    start: usize,
+    owed_closes: usize,
+}
+
+/// Writes the engine's pattern, keeping what a later piece reaches back for.
+struct Rewriter<'n, 's> {
+    names: &'n [(&'s str, Vec<usize>)],
+    out: String,
+    /// The source itself comes first, so this is never empty.
+    groups: Vec<OpenGroup>,
+    /// Where the last repeatable unit starts in `out`.
+    unit_start: Option<usize>,
+    after_interval: bool,
+}
+
+impl<'n, 's> Rewriter<'n, 's> {
+    fn new(names: &'n [(&'s str, Vec<usize>)], out: String) -> Self {
+        Self {
+            names,
+            out,
+            groups: vec![OpenGroup {
+                start: 0,
+                owed_closes: 0,
+            }],
+            unit_start: None,
+            after_interval: false,
+        }
+    }
+
+    fn finish(mut self) -> String {
+        let owed = self.groups.iter().map(|group| group.owed_closes).sum();
+        self.out.push_str(&")".repeat(owed));
+        self.out
+    }
+
+    fn rewrite(&mut self, piece: Piece) -> Result<(), String> {
+        let start = self.out.len();
+        match piece {
+            Piece::Comment(text) => {
+                self.out.push_str(text);
+                if text.starts_with('#') && !text.ends_with('\n') {
+                    self.out.push('\n');
+                }
+                return Ok(());
+            }
+            Piece::ClassText(text) => {
+                self.out.push_str(text);
+                return Ok(());
+            }
+            Piece::ClassClose => {
+                self.out.push(']');
+                return Ok(());
+            }
+            Piece::Escape {
+                in_class: true,
+                letter,
+            } => {
+                self.push_escape(letter, true);
+                return Ok(());
+            }
+            Piece::Quantifier(text) => {
+                if self.after_interval && text != "?" {
+                    self.wrap_unit();
+                }
+                self.out.push_str(text);
+                self.after_interval = false;
+                return Ok(());
+            }
+            Piece::Interval { lower, upper } => {
+                if self.after_interval {
+                    self.wrap_unit();
+                }
+                self.push_interval(lower, upper);
+                self.after_interval = true;
+                return Ok(());
+            }
+            _ => self.after_interval = false,
+        }
+        match piece {
+            Piece::Text("|") => {
+                self.out.push('|');
+                self.unit_start = None;
+            }
+            Piece::Close => {
+                let group = if self.groups.len() > 1 {
+                    self.groups.pop()
+                } else {
+                    None
+                };
+                let owed = group.as_ref().map_or(0, |group| group.owed_closes);
+                self.out.push_str(&")".repeat(owed + 1));
+                self.unit_start = group.map(|group| group.start);
+            }
+            Piece::Options {
+                letters,
+                scoped: false,
+            } => {
+                push_options(letters, &mut self.out);
+                if let Some(group) = self.groups.last_mut() {
+                    group.owed_closes += 1;
+                }
+                self.unit_start = None;
+            }
+            Piece::Open(_)
             | Piece::PlainGroup
             | Piece::NamedGroup { .. }
             | Piece::NumberedCondition(_)
             | Piece::NamedCondition { .. }
-            | Piece::Options { scoped: true, .. }
-    ) {
-        owed_closes.push(0);
-    }
-    match piece {
-        Piece::Text(text) | Piece::Open(text) | Piece::NamedGroup { text, .. } => {
-            out.push_str(text);
-        }
-        Piece::Comment(text) => {
-            out.push_str(text);
-            if text.starts_with('#') && !text.ends_with('\n') {
-                out.push('\n');
+            | Piece::Options { scoped: true, .. } => {
+                self.groups.push(OpenGroup {
+                    start,
+                    owed_closes: 0,
+                });
+                self.push_opening(piece)?;
+                self.unit_start = None;
+            }
+            _ => {
+                self.push_unit(piece)?;
+                self.unit_start = Some(start);
             }
         }
-        Piece::Close => {
-            let owed = if owed_closes.len() > 1 {
-                owed_closes.pop().unwrap_or(0)
-            } else {
-                0
-            };
-            out.push_str(&")".repeat(owed + 1));
-        }
-        Piece::Options { letters, scoped } => {
-            push_options(letters, out);
-            if !scoped {
-                if let Some(owed) = owed_closes.last_mut() {
-                    *owed += 1;
+        Ok(())
+    }
+
+    fn push_opening(&mut self, piece: Piece) -> Result<(), String> {
+        let named = !self.names.is_empty();
+        match piece {
+            Piece::Open(text) | Piece::NamedGroup { text, .. } => self.out.push_str(text),
+            Piece::PlainGroup => self.out.push_str(if named { "(?:" } else { "(" }),
+            Piece::Options { letters, .. } => push_options(letters, &mut self.out),
+            Piece::NumberedCondition(text) => {
+                if named {
+                    return Err(NUMBERED_REFERENCE.to_string());
+                }
+                self.out.push_str(text);
+            }
+            // The engine has no condition by name, and MRI asks a shared name's
+            // first group alone.
+            Piece::NamedCondition { text, name } => {
+                match self.names.iter().find(|(existing, _)| *existing == name) {
+                    Some((_, numbers)) => {
+                        self.out.push_str("(?(");
+                        self.out.push_str(&numbers[0].to_string());
+                        self.out.push(')');
+                    }
+                    None => self.out.push_str(text),
                 }
             }
+            _ => {}
         }
-        Piece::PlainGroup => out.push_str(if named { "(?:" } else { "(" }),
-        Piece::Escape {
-            letter: 'b' | 'B',
-            in_class: false,
-        } if !cfg!(feature = "unicode") => {
-            return Err("a word boundary needs the Unicode build".to_string());
+        Ok(())
+    }
+
+    fn push_unit(&mut self, piece: Piece) -> Result<(), String> {
+        let named = !self.names.is_empty();
+        match piece {
+            Piece::Text(text) | Piece::ClassOpen(text) => self.out.push_str(text),
+            Piece::LiteralBrace => self.out.push_str(r"\{"),
+            Piece::Escape {
+                letter: 'b' | 'B',
+                in_class: false,
+            } if !cfg!(feature = "unicode") => {
+                return Err("a word boundary needs the Unicode build".to_string());
+            }
+            Piece::Escape { letter, in_class } => self.push_escape(letter, in_class),
+            Piece::NumberedReference(text) => {
+                if named {
+                    return Err(NUMBERED_REFERENCE.to_string());
+                }
+                self.out.push_str(text);
+            }
+            Piece::NamedReference { text, kind, name } => {
+                if named && is_group_number(name) {
+                    return Err(NUMBERED_REFERENCE.to_string());
+                }
+                match (kind, find_shared_numbers(self.names, name)) {
+                    ('g', Some(_)) => {
+                        return Err(format!("multiplex definition name <{name}> call"));
+                    }
+                    (_, Some(numbers)) => push_each_group(numbers, &mut self.out),
+                    _ => self.out.push_str(text),
+                }
+            }
+            Piece::PythonGroup => return Err("undefined group option".to_string()),
+            _ => {}
         }
-        Piece::Escape { letter, in_class } => match ascii_class(letter, in_class) {
-            Some(replacement) => out.push_str(replacement),
+        Ok(())
+    }
+
+    fn push_escape(&mut self, letter: char, in_class: bool) {
+        match ascii_class(letter, in_class) {
+            Some(replacement) => self.out.push_str(replacement),
             None => {
-                out.push('\\');
-                out.push(letter);
-            }
-        },
-        Piece::NumberedReference(text) | Piece::NumberedCondition(text) => {
-            if named {
-                return Err(NUMBERED_REFERENCE.to_string());
-            }
-            out.push_str(text);
-        }
-        Piece::NamedReference { text, kind, name } => {
-            if named && is_group_number(name) {
-                return Err(NUMBERED_REFERENCE.to_string());
-            }
-            match (kind, find_shared_numbers(names, name)) {
-                ('g', Some(_)) => return Err(format!("multiplex definition name <{name}> call")),
-                (_, Some(numbers)) => push_each_group(numbers, out),
-                _ => out.push_str(text),
+                self.out.push('\\');
+                self.out.push(letter);
             }
         }
-        // The engine has no condition by name, and MRI asks a shared name's
-        // first group alone.
-        Piece::NamedCondition { text, name } => {
-            match names.iter().find(|(existing, _)| *existing == name) {
-                Some((_, numbers)) => {
-                    out.push_str("(?(");
-                    out.push_str(&numbers[0].to_string());
-                    out.push(')');
-                }
-                None => out.push_str(text),
-            }
-        }
-        Piece::PythonGroup => return Err("undefined group option".to_string()),
     }
-    Ok(())
+
+    /// The engine reads `{,n}` as literal text, where MRI reads no lower bound
+    /// as zero.
+    fn push_interval(&mut self, lower: &str, upper: Option<&str>) {
+        self.out.push('{');
+        self.out
+            .push_str(if lower.is_empty() { "0" } else { lower });
+        if let Some(upper) = upper {
+            self.out.push(',');
+            self.out.push_str(upper);
+        }
+        self.out.push('}');
+    }
+
+    /// MRI reads a quantifier after an interval as repeating it, where the
+    /// engine reads the pair as a modifier or refuses it.
+    fn wrap_unit(&mut self) {
+        if let Some(start) = self.unit_start {
+            self.out.insert_str(start, "(?:");
+            self.out.push(')');
+        }
+    }
 }
 
 const NUMBERED_REFERENCE: &str = "numbered backref/call is not allowed. (use name)";

@@ -1591,3 +1591,39 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches a pattern with a condition naming a name several groups share |
 | Then | the branch follows whether the first of those groups took part |
+
+## `RX-284` A quantifier after an interval repeats that interval
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern where a plus, a star or an interval follows an interval |
+| Then | the second quantifier repeats the whole interval rather than modifying it |
+
+## `RX-285` A question mark after an interval makes it lazy
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-284` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern where a question mark follows an interval |
+| Then | the interval takes as little as it can |
+
+## `RX-286` An interval with no lower bound starts at zero
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern with an interval giving only its upper bound |
+| Then | it repeats from zero up to that bound |
+
+## `RX-287` A brace that opens no interval is literal
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern with a brace holding no bound |
+| Then | the brace matches itself |

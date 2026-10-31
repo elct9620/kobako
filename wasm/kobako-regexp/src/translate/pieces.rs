@@ -9,6 +9,17 @@ pub(super) enum Piece<'a> {
     /// Any group opening with no rule of its own.
     Open(&'a str),
     Close,
+    ClassOpen(&'a str),
+    ClassText(&'a str),
+    ClassClose,
+    Quantifier(&'a str),
+    /// `{n}`, `{n,}`, `{,m}` or `{n,m}`; `upper` is `None` without a comma.
+    Interval {
+        lower: &'a str,
+        upper: Option<&'a str>,
+    },
+    /// A `{` that opens no interval.
+    LiteralBrace,
     /// `(?i-m)`, holding until its enclosing group closes, or `(?i-m:`.
     Options {
         letters: &'a str,
@@ -147,7 +158,33 @@ impl<'a> Pieces<'a> {
             return self.apply_options(letters);
         }
         self.open_frame();
-        Piece::Open(self.take(1))
+        let len = ["<=", "<!", "=", "!", ">", "~"]
+            .iter()
+            .find(|opener| option.starts_with(**opener))
+            .map_or(2, |opener| 2 + opener.len());
+        Piece::Open(self.take(len))
+    }
+
+    fn brace(&mut self) -> Piece<'a> {
+        let Some((lower, upper, len)) = read_interval(self.rest) else {
+            self.take(1);
+            return Piece::LiteralBrace;
+        };
+        self.take(len);
+        Piece::Interval { lower, upper }
+    }
+
+    fn class_piece(&mut self, first: char) -> Piece<'a> {
+        match first {
+            '[' => self.class_depth += 1,
+            ']' => self.class_depth -= 1,
+            _ => {}
+        }
+        if self.class_depth == 0 {
+            self.take(1);
+            return Piece::ClassClose;
+        }
+        Piece::ClassText(self.take(first.len_utf8()))
     }
 
     /// `(?x:` holds until its own group closes; `(?x)` holds until the
@@ -178,31 +215,33 @@ impl<'a> Iterator for Pieces<'a> {
         if first == '\\' {
             return Some(self.escape());
         }
-        if first == ')' && self.class_depth == 0 {
-            self.close_frame();
-            self.take(1);
-            return Some(Piece::Close);
+        if self.class_depth > 0 {
+            return Some(self.class_piece(first));
         }
-        if first == '#' && self.class_depth == 0 && self.frame().extended {
-            let len = self
-                .rest
-                .find('\n')
-                .map_or(self.rest.len(), |newline| newline + 1);
-            return Some(Piece::Comment(self.take(len)));
-        }
-        let text_len = match first {
+        let extended = self.frame().extended;
+        Some(match first {
             '[' => {
-                self.class_depth += 1;
-                1
+                self.class_depth = 1;
+                Piece::ClassOpen(self.take(1))
             }
-            ']' if self.class_depth > 0 => {
-                self.class_depth -= 1;
-                1
+            '(' => self.group(),
+            ')' => {
+                self.close_frame();
+                self.take(1);
+                Piece::Close
             }
-            '(' if self.class_depth == 0 => return Some(self.group()),
-            _ => first.len_utf8(),
-        };
-        Some(Piece::Text(self.take(text_len)))
+            '{' => self.brace(),
+            '?' | '*' | '+' => Piece::Quantifier(self.take(1)),
+            '#' if extended => {
+                let len = self
+                    .rest
+                    .find('\n')
+                    .map_or(self.rest.len(), |newline| newline + 1);
+                Piece::Comment(self.take(len))
+            }
+            c if extended && c.is_ascii_whitespace() => Piece::Comment(self.take(1)),
+            c => Piece::Text(self.take(c.len_utf8())),
+        })
     }
 }
 
@@ -215,6 +254,20 @@ fn read_delimited(text: &str) -> Option<(&str, usize)> {
     };
     let len = text[1..].find(close)?;
     Some((&text[1..=len], len + 2))
+}
+
+/// An interval's bounds and the length it spans, for text opening with `{`.
+/// Without a bound on either side, it is no interval.
+fn read_interval(text: &str) -> Option<(&str, Option<&str>, usize)> {
+    let close = text.find('}')?;
+    let body = &text[1..close];
+    let (lower, upper) = match body.split_once(',') {
+        Some((lower, upper)) => (lower, Some(upper)),
+        None => (body, None),
+    };
+    let digits = |bound: &str| bound.bytes().all(|byte| byte.is_ascii_digit());
+    let bounded = !lower.is_empty() || upper.is_some_and(|upper| !upper.is_empty());
+    (bounded && digits(lower) && upper.is_none_or(digits)).then_some((lower, upper, close + 1))
 }
 
 /// The letters of an option group: `(?i-m)` or `(?i-m:`, with the `(?` read.
