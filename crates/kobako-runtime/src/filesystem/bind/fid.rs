@@ -50,7 +50,7 @@ impl FidCache {
     }
 
     /// How many directories are kept.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn len(&self) -> usize {
         self.entries().len()
     }

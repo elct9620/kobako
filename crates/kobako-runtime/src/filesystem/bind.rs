@@ -804,19 +804,6 @@ mod tests {
         );
     }
 
-    /// Runs what it holds once, as a Policy is asked, then allows it.
-    struct RunsWhenAsked(std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>);
-
-    impl crate::mount::Policy for RunsWhenAsked {
-        fn allows(&self, _path: &str, _access: crate::mount::Access) -> bool {
-            let run = self.0.lock().expect("never poisoned").take();
-            if let Some(run) = run {
-                run();
-            }
-            true
-        }
-    }
-
     // Another writer moves the name the Policy judges, then moves a refused
     // file onto where it went, between the judgement and the open, so only
     // telling what opened from what was judged keeps the open from reaching it.
@@ -825,6 +812,20 @@ mod tests {
     #[test]
     fn an_open_reaches_only_the_entry_it_judged() {
         use crate::vfs::{self, OpenHow, Path as VfsPath};
+
+        /// Runs what it holds once, as a Policy is asked, then allows it.
+        struct RunsWhenAsked(std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>);
+
+        impl crate::mount::Policy for RunsWhenAsked {
+            fn allows(&self, _path: &str, _access: crate::mount::Access) -> bool {
+                let run = self.0.lock().expect("never poisoned").take();
+                if let Some(run) = run {
+                    run();
+                }
+                true
+            }
+        }
+
         let host = HostDir::new("open-identity");
         for dir in ["public", "archive"] {
             fs::create_dir(host.0.join(dir)).expect("the host tree must be made");
