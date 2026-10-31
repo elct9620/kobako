@@ -28,6 +28,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 - `test/e2e/regexp/test_unicode_gate.rb`
 - `test/e2e/regexp/test_carrier_class.rb`
 - `wasm/kobako-regexp/src/translate.rs`
+- `wasm/kobako-regexp/src/translate/pieces.rs`
 
 ## `RX-001` The match operator answers where the match starts
 
