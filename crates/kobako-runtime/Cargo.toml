@@ -40,6 +40,8 @@ cap-std = "4.0.3"
 # cap-fs-ext opens a Bind's directory by name without following a link,
 # as no Filesystem follows one the runtime has not.
 cap-fs-ext = "4.0.3"
+# Bounds the host directories a Bind keeps open for walks.
+lru = "0.19.0"
 
 # rustix switches a Bind's file to append mode for one write, so the
 # host places it at the file's end in one step; std cannot set file flags.

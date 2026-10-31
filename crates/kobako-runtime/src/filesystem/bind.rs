@@ -8,6 +8,7 @@
 //! directory whatever a caller hands over, and answers alike on every
 //! host, Windows among them.
 
+mod fid;
 mod lookup;
 mod walk;
 
@@ -25,6 +26,7 @@ use super::{
     Kiocb, Lookup, Metadata, OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
+use fid::{Opened, Walked};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -32,13 +34,13 @@ use crate::vfs::{Dentry, Identity, Inode};
 /// Every entry beneath it answers through a Bind too, finding what a call is
 /// about through the dentry it is handed, as Linux's 9p does. A directory is
 /// opened on the host when first asked, as 9p walks to a dentry's fid only
-/// when a call needs one, and kept on the dentry, as 9p keeps its fid in
-/// `d_fsdata`. Only a directory asked about, or one above it, holds a host
-/// descriptor.
+/// when a call needs one. One a guest holds open holds a host descriptor; the
+/// others a walk asked about hold one only up to a bound.
 #[derive(Clone)]
 pub struct Bind {
     /// The host directory the Bind was made at.
     root: Arc<Dir>,
+    walked: Arc<Walked>,
 }
 
 impl Bind {
@@ -47,52 +49,47 @@ impl Bind {
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
         Ok(Self {
             root: Arc::new(Dir::open_ambient_dir(path, ambient_authority())?),
+            walked: Arc::default(),
         })
     }
 
-    /// The host directory `dentry` names, as 9p's `v9fs_fid_lookup` finds
-    /// a fid: the one already on the dentry, one name walked from the
-    /// directory held on its parent, or every name walked from the root,
-    /// read from the dentry as `build_path_from_dentry` reads them. 9p
-    /// holds the rename lock through a walk; a one-name walk here is
-    /// checked afterwards instead, and walked again from the root when the
-    /// dentry moved meanwhile.
+    /// The host directory kept for `dentry`, if one is.
+    fn held_fid(&self, dentry: &Dentry) -> Option<Arc<Dir>> {
+        if dentry.parent().is_none() {
+            return Some(self.root.clone());
+        }
+        Opened::get(dentry).or_else(|| self.walked.get(dentry))
+    }
+
+    /// The host directory `dentry` names, as 9p's `v9fs_fid_lookup` finds a
+    /// fid: the one kept for it, or the names beneath the nearest directory
+    /// kept, read from the dentries as `build_path_from_dentry` reads them.
+    /// 9p holds the rename lock through a walk; one here is checked afterwards
+    /// instead, and walked again from the root when the dentry moved meanwhile.
     fn fid(&self, dentry: &Dentry) -> Result<Arc<Dir>, FilesystemError> {
-        if let Some(held) = held_dir(dentry) {
+        if let Some(held) = self.held_fid(dentry) {
             return Ok(held);
         }
-        let Some(parent) = dentry.parent() else {
-            return Ok(self.root.clone());
-        };
-        let name = dentry.name();
-        let above = match parent.parent() {
-            None => Some(self.root.clone()),
-            Some(_) => held_dir(&parent),
-        };
-        let walked = match above {
-            Some(above) => {
-                let walked = walk::walk(&above, std::slice::from_ref(&name))?;
-                let moved = !dentry
-                    .parent()
-                    .is_some_and(|now| Arc::ptr_eq(&now, &parent))
-                    || dentry.name() != name;
-                (!moved).then_some(walked)
+        let mut names = vec![dentry.name()];
+        let mut at = dentry.parent();
+        let above = loop {
+            let parent = at.expect("a dentry stands beneath its root, which is always held");
+            if let Some(held) = self.held_fid(&parent) {
+                break held;
             }
-            None => None,
+            names.push(parent.name());
+            at = parent.parent();
         };
-        let dir = match walked {
-            Some(dir) => dir,
-            None => {
-                let path = dentry.path_raw();
-                let names: Vec<String> = path.split('/').map(String::from).collect();
-                walk::walk(&self.root, &names)?
-            }
-        };
-        let fid: Arc<dyn Any + Send + Sync> = Arc::new(dir);
-        let kept = dentry.fsdata().get_or_init(|| fid).clone();
-        Ok(kept
-            .downcast::<Dir>()
-            .expect("a Bind's dentry keeps a host directory"))
+        names.reverse();
+        let mut dir = walk::walk(&above, &names)?;
+        if !dentry.names().ends_with(&names) {
+            let path = dentry.path_raw();
+            let names: Vec<String> = path.split('/').map(String::from).collect();
+            dir = walk::walk(&self.root, &names)?;
+        }
+        let dir = Arc::new(dir);
+        self.walked.keep(dentry, &dir);
+        Ok(dir)
     }
 
     /// Answer `call` with the directory above `dentry` and the name it
@@ -214,11 +211,6 @@ impl Bind {
             })
             .collect()
     }
-}
-
-/// The host directory a Bind keeps on `dentry`, once one was opened.
-fn held_dir(dentry: &Dentry) -> Option<Arc<Dir>> {
-    dentry.fsdata().get()?.clone().downcast::<Dir>().ok()
 }
 
 /// The directory `name` in `dir`, a link there refused as a loop, as
@@ -487,7 +479,11 @@ impl InodeOperations for Bind {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         if options.directory {
-            return Some(Ok(Box::new(BindDir(self.clone(), self.fid(dentry).ok()))));
+            let fid = self.fid(dentry).ok();
+            if let Some(fid) = &fid {
+                Opened::set(dentry, fid);
+            }
+            return Some(Ok(Box::new(BindDir(self.clone(), fid))));
         }
         Some(self.open_file(dentry, options))
     }
@@ -669,6 +665,90 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// A Bind over `depth` nested directories each named `d`, with the file
+    /// `f` at the bottom, and the path to that file.
+    #[cfg(unix)]
+    fn nested(host: &HostDir, depth: usize) -> (Arc<Bind>, String) {
+        let path = vec!["d"; depth].join("/");
+        fs::create_dir_all(host.0.join(&path)).expect("the host tree must be made");
+        fs::write(host.0.join(&path).join("f"), "x").expect("the host file must be written");
+        let bind = Arc::new(Bind::new(&host.0).expect("the host directory must open"));
+        (bind, format!("{path}/f"))
+    }
+
+    // Counted on the Bind, as a count of the process's descriptors would see
+    // every other test's. Past the bound the walk still lands, so nothing a
+    // guest reaches depends on what was kept.
+    // @behavior FS-151
+    #[cfg(unix)]
+    #[test]
+    fn a_walk_keeps_a_bounded_number_of_host_directories_open() {
+        use crate::vfs::{self, OpenHow, Path as VfsPath};
+        let host = HostDir::new("bounded-fids");
+        let (bind, file) = nested(&host, 200);
+        let mount = crate::mount::Mount::new(
+            "/data",
+            crate::filesystem::Filesystem::new(bind.clone()),
+            crate::mount::Access::Read,
+        )
+        .expect("/data is a guest path");
+        let root = VfsPath::root(mount.mnt());
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let opened = vfs::do_file_open(&Arc::default(), &root, &file, &read);
+        assert!(
+            opened.is_ok() && bind.walked.len() <= 64,
+            "vfs::do_file_open 200 directories beneath a Bind must land and keep at most 64 of \
+             them open, keeping {}",
+            bind.walked.len()
+        );
+    }
+
+    // Other walks push what the descriptor walked to out of the bound, so only
+    // a descriptor keeping its own directory still reaches it once the host
+    // moved it.
+    // @behavior FS-152
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_held_open_keeps_its_host_directory_past_the_bound() {
+        use crate::vfs::{self, OpenHow, Path as VfsPath};
+        let host = HostDir::new("held-past-bound");
+        fs::create_dir_all(host.0.join("held")).expect("the host tree must be made");
+        fs::write(host.0.join("held/f"), "x").expect("the host file must be written");
+        let (bind, file) = nested(&host, 100);
+        let mount = crate::mount::Mount::new(
+            "/data",
+            crate::filesystem::Filesystem::new(bind),
+            crate::mount::Access::Read,
+        )
+        .expect("/data is a guest path");
+        let root = VfsPath::root(mount.mnt());
+        let cred = Arc::default();
+        let directory = OpenHow {
+            directory: true,
+            ..OpenHow::default()
+        };
+        let Ok(held) = vfs::do_file_open(&cred, &root, "held", &directory) else {
+            panic!("the directory must open");
+        };
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        assert!(
+            vfs::do_file_open(&cred, &root, &file, &read).is_ok(),
+            "the deep file must open"
+        );
+        fs::rename(host.0.join("held"), host.0.join("moved")).expect("the host must move it");
+        assert!(
+            vfs::vfs_fstatat(&cred, held.path(), "f", false).is_ok(),
+            "vfs::vfs_fstatat through a directory held open beneath a Bind, once a walk passed \
+             the bound and the host moved it, must still reach the directory it opened"
+        );
     }
 
     // The dentry the descriptor holds names the moved directory, so only a

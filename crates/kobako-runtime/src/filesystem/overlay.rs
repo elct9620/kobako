@@ -23,6 +23,7 @@ use super::{
 };
 use crate::vfs::{Dentry, Inode};
 use inode::{ovl_inode_kept, ovl_inode_real};
+use path::OverlayPath;
 use stack::OverlayFs;
 
 /// Read-only lower Layers under an upper Tmpfs, stacked into one
@@ -246,7 +247,18 @@ impl InodeOperations for Overlay {
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
         if options.directory {
-            return Some(Ok(Box::new(OverlayDir(self.clone()))));
+            let _real = self.fs.dir(dentry).map_or_else(
+                |_| Vec::new(),
+                |dir| {
+                    dir.level()
+                        .iter()
+                        .flatten()
+                        .flat_map(OverlayPath::open_real)
+                        .collect()
+                },
+            );
+            let fs = self.fs.clone();
+            return Some(Ok(Box::new(OverlayDir { fs, _real })));
         }
         self.open_at(dentry, options)
     }
@@ -296,12 +308,16 @@ impl InodeOperations for Overlay {
 }
 
 /// A directory of the view, open: it merges its Layers each time it is
-/// listed, finding them through the dentry it is handed.
-struct OverlayDir(Overlay);
+/// listed, finding them through the dentry it is handed, and holds each Layer's
+/// directory open while it is, as `struct ovl_dir_file` holds its `realfile`.
+struct OverlayDir {
+    fs: OverlayFs,
+    _real: Vec<Box<dyn FileOperations>>,
+}
 
 impl FileOperations for OverlayDir {
     fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.fs.entries(&self.0.fs.dir(dentry)?.level())
+        self.fs.entries(&self.fs.dir(dentry)?.level())
     }
 
     /// Its Layers answer for what they hold, and its upper is a Tmpfs, so
@@ -2000,6 +2016,49 @@ mod tests {
             "a read through a directory Overlay::open_dir opened, once its Layer moved it away \
              and made another in its place outside the Overlay, must read the directory it \
              opened"
+        );
+    }
+
+    // Only the directory the view holds open keeps its Layer's host directory
+    // through walks past a Bind's bound, so only that reaches it once the host
+    // moved it.
+    // @behavior FS-152
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_directory_held_open_keeps_its_bind_layers_directory_past_the_bound() {
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{self, OpenHow, Path};
+        let host = std::env::temp_dir().join(format!("kobako-overlay-held-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&host);
+        let deep = host.join(vec!["d"; 100].join("/"));
+        std::fs::create_dir_all(&deep).expect("the host tree must be made");
+        std::fs::create_dir_all(host.join("held")).expect("the host tree must be made");
+        std::fs::write(host.join("held/f"), "x").expect("the host file must be written");
+        let lower = Filesystem::new(Arc::new(
+            crate::filesystem::Bind::new(&host).expect("the host directory must open"),
+        ));
+        let overlay = Overlay::new(vec![lower], Some(Filesystem::new(Arc::new(Tmpfs::new()))))
+            .expect("the Overlay must stack");
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(overlay)), Access::Read)
+            .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let cred = Arc::default();
+        let directory = OpenHow {
+            directory: true,
+            ..OpenHow::default()
+        };
+        let Ok(held) = vfs::do_file_open(&cred, &root, "held", &directory) else {
+            panic!("the directory must open");
+        };
+        vfs::vfs_fstatat(&cred, &root, &vec!["d"; 100].join("/"), false)
+            .unwrap_or_else(|_| panic!("the deep directory must stand"));
+        std::fs::rename(host.join("held"), host.join("moved")).expect("the host must move it");
+        let reached = vfs::vfs_fstatat(&cred, held.path(), "f", false);
+        let _ = std::fs::remove_dir_all(&host);
+        assert!(
+            reached.is_ok(),
+            "vfs::vfs_fstatat through an Overlay directory held open over a Bind Layer, once a \
+             walk passed the bound and the host moved it, must still reach the directory it opened"
         );
     }
 

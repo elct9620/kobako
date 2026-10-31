@@ -237,6 +237,17 @@ impl OverlayPath {
         self.looked_up(name)?.get_link()
     }
 
+    /// This directory opened, kept open for whoever holds it, as overlayfs's
+    /// `ovl_dir_open` opens the real directory.
+    pub(super) fn open_real(&self) -> Option<Box<dyn FileOperations>> {
+        let options = OpenOptions {
+            read: true,
+            directory: true,
+            ..OpenOptions::default()
+        };
+        self.dir.open(&self.dentry, &options)?.ok()
+    }
+
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.shared()?;
         let options = OpenOptions {
