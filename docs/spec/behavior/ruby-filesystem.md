@@ -303,7 +303,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | --- | --- |
 | Given | a Ruby Filesystem holding a file three directories deep |
 | When | the script reads that file |
-| Then | the object's `stat` is asked once about each name on the way, by its whole path |
+| Then | `stat` is asked once about each name by its whole path, and again about the file once open |
 
 ## `RF-023` A Ruby Filesystem opens without a no-follow flag where its host's Ruby has none
 
@@ -442,3 +442,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose file answers no `truncate` |
 | When | the guest opens a file to write over it |
 | Then | its `open` is handed `TRUNC`, and nothing more is asked |
+
+## `RF-034` A Ruby Filesystem opens only the entry a call judged
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-156` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `stat` answers an `ino`, and a mount block replacing the file as it judges |
+| When | the guest reads that file |
+| Then | the read raises `Errno::ENOENT` |

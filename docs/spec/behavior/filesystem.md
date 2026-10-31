@@ -1621,3 +1621,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay whose lower Layer holds a file bigger than its upper holds |
 | When | the guest opens the file with `O_TRUNC` |
 | Then | the open lands on an empty file, and the lower Layer keeps its bytes |
+
+## `FS-156` A Bind opens only the entry a call judged
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-120`, `RT-211` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount with a Policy, and another writer replacing a file after the Policy judged it |
+| When | the open reaches the Filesystem |
+| Then | it answers ENOENT rather than open what stands there now |
