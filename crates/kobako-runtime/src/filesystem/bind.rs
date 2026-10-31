@@ -337,7 +337,6 @@ fn unix_time(seconds: i64, nanoseconds: i64) -> Option<std::time::SystemTime> {
     std::time::UNIX_EPOCH.checked_add(std::time::Duration::new(seconds, nanoseconds))
 }
 
-/// Open `name` in `dir` as `options` asks.
 /// The descriptors open on one file, and which were opened to write, as 9p
 /// keeps open fids on `i_private`.
 #[derive(Default)]
@@ -354,6 +353,7 @@ fn open_fid(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::File>> {
         .find_map(|(fid, _)| fid.upgrade())
 }
 
+/// Open `name` in `dir` as `options` asks.
 fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<std::fs::File, FilesystemError> {
     // The host creates only for a writer, so a file already there is
     // opened as asked rather than for writing it was never given.

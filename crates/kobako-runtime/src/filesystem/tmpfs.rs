@@ -673,7 +673,6 @@ impl FileOperations for TmpfsDir {
     }
 }
 
-/// A file of a Tmpfs.
 /// A Tmpfs handed to more than one Filesystem instance changes through each,
 /// behind the others' dentries, so a dentry recording an identity is valid
 /// only while that entry stands at its name here, as NFS compares the handle
@@ -699,6 +698,7 @@ impl DentryOperations for TmpfsDentry {
     }
 }
 
+/// A file of a Tmpfs.
 struct TmpfsRegular {
     data: Arc<Mutex<Content>>,
 }

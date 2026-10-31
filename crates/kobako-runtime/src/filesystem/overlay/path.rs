@@ -19,8 +19,8 @@ use super::super::{
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    d_get_link, d_getattr, d_open, lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link,
-    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, RenameFlag,
+    lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link, vfs_mkdir, vfs_rename,
+    vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, RenameFlag,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -182,7 +182,7 @@ impl OverlayPath {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let _held = self.shared()?;
-        d_open(&*self.looked_up(name)?, options)
+        self.looked_up(name)?.open(options)
     }
 
     /// Make the file `name` and open it, holding the directory, as
@@ -224,7 +224,7 @@ impl OverlayPath {
 
     pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.shared()?;
-        d_getattr(&*self.looked_up(name)?)
+        self.looked_up(name)?.getattr()
     }
 
     /// `name` as this directory stores it.
@@ -235,7 +235,7 @@ impl OverlayPath {
 
     pub(super) fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.shared()?;
-        d_get_link(&*self.looked_up(name)?)
+        self.looked_up(name)?.get_link()
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

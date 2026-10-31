@@ -8,11 +8,8 @@
 
 use std::sync::Arc;
 
-#[cfg(unix)]
-use super::namei::d_get_link;
 use super::namei::{
-    d_can_lookup, d_open, filename_lookup, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir,
-    vfs_unlink, Nameidata,
+    filename_lookup, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata,
 };
 use super::path::Path;
 use super::{
@@ -58,7 +55,7 @@ impl KernPath {
             Err(FilesystemError::NotFound) if options.create || options.create_new => {
                 vfs_create(nd.base().as_ref(), nd.dentry(), &child, options)
             }
-            _ => d_open(&child, options),
+            _ => child.open(options),
         }
     }
 
@@ -81,7 +78,7 @@ impl KernPath {
         if inode.kind() == FileType::Symlink {
             return Err(FilesystemError::FilesystemLoop);
         }
-        d_can_lookup(inode.ops(), &dentry)?;
+        dentry.can_lookup(inode.ops())?;
         Ok(Self(self.0.with_dentry(dentry)))
     }
 
@@ -107,7 +104,7 @@ impl KernPath {
     #[cfg(unix)]
     pub(crate) fn read_link(&self, path: &str) -> Result<String, FilesystemError> {
         let nd = self.resolve(path)?;
-        d_get_link(&*nd.child()?)
+        nd.child()?.get_link()
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

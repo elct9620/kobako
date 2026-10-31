@@ -1,7 +1,7 @@
 //! A Mount: the Grant handing a Filesystem to the guest at an absolute
-//! guest path, with the access it allows there. The Mount decides each
-//! open and each change itself, so a runtime asks it rather than reading
-//! its access, and a Filesystem of a third party's checks nothing.
+//! guest path, with the access it allows there and the Policy that may refuse
+//! more, which the VFS asks through its Cred, so a Filesystem of a third
+//! party's checks nothing.
 
 use std::fmt;
 use std::sync::Arc;

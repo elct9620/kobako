@@ -19,7 +19,7 @@ use std::sync::Arc;
 use super::cred::Cred;
 use super::dentry::Dentry;
 use super::file::{File, FileOperations};
-use super::inode::{Inode, InodeOperations, Lookup};
+use super::inode::{Inode, InodeOperations};
 use super::mount::{Access, VfsMount};
 use super::openat2::{build_open_flags, vfs_open, OpenHow, OpenOptions};
 use super::path::Path;
@@ -127,8 +127,8 @@ impl Nameidata {
         match self.name.as_str() {
             "" => Ok(self.base().getattr(self.dentry())?.file_type),
             _ => {
-                d_lookup_inode(self.base().as_ref(), child)?;
-                d_kind(child)
+                child.lookup_inode(self.base().as_ref())?;
+                child.kind()
             }
         }
     }
@@ -144,7 +144,7 @@ impl Nameidata {
         self.kind()?;
         let parent = self.dentry().clone();
         let _held = parent.inode_lock_shared()?;
-        d_getattr(&*self.walked()?)
+        self.walked()?.getattr()
     }
 
     /// Refuse the name as `NotADirectory` when it must be a directory and
@@ -212,29 +212,6 @@ pub(crate) fn lookup_one(
     Ok(dentries.child(parent, name))
 }
 
-/// Ask the directory `dir` what stands at `dentry` where the dentry records
-/// nothing yet, and record it, as Linux's `lookup_fast` keeps a dentry that
-/// names something and `lookup_slow` asks `->lookup` for one that does not.
-/// A directory holding the entry under another spelling answers that
-/// spelling, for the caller to take that dentry instead.
-pub(crate) fn d_lookup_inode(
-    dir: &dyn InodeOperations,
-    dentry: &Dentry,
-) -> Result<Option<String>, FilesystemError> {
-    if dentry.inode().is_some() {
-        return Ok(None);
-    }
-    match dir
-        .lookup(dentry)
-        .unwrap_or(Err(FilesystemError::NotADirectory))?
-    {
-        Lookup::Found(inode) => dentry.add(Some(inode)),
-        Lookup::Absent => dentry.add(None),
-        Lookup::Spelled(stored) => return Ok(Some(stored)),
-    }
-    Ok(None)
-}
-
 /// `name` in `parent`, whose directory is `dir`, as `dir` stores it, and the
 /// dentry of that spelling with what stands there recorded on it, as Linux's
 /// `lookup_slow` asks `->lookup` and a case-insensitive filesystem answers
@@ -247,60 +224,13 @@ pub(crate) fn lookup_slow(
     name: &str,
 ) -> Result<(String, Arc<Dentry>), FilesystemError> {
     let given = lookup_one(sb, dir, parent, name)?;
-    match d_lookup_inode(dir, &given)? {
+    match given.lookup_inode(dir)? {
         None => Ok((name.to_string(), given)),
         Some(stored) => {
             let dentry = lookup_one(sb, dir, parent, &stored)?;
-            d_lookup_inode(dir, &dentry)?;
+            dentry.lookup_inode(dir)?;
             Ok((stored, dentry))
         }
-    }
-}
-
-/// What kind of entry `dentry` records, `NotFound` where it records none, as
-/// Linux's `d_is_*` read the dentry without asking its filesystem.
-fn d_kind(dentry: &Dentry) -> Result<FileType, FilesystemError> {
-    dentry
-        .inode()
-        .map(|inode| inode.kind())
-        .ok_or(FilesystemError::NotFound)
-}
-
-/// What the entry `dentry` records reports of itself, `NotFound` where it
-/// records none, as `vfs_getattr` asks the inode a dentry holds.
-pub(crate) fn d_getattr(dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-    match dentry.inode() {
-        Some(inode) => inode.ops().getattr(dentry),
-        None => Err(FilesystemError::NotFound),
-    }
-}
-
-/// Open the file `dentry` records as `options` asks, as `vfs_open` finds
-/// `f_op->open` on the inode a dentry holds.
-pub(crate) fn d_open(
-    dentry: &Dentry,
-    options: &OpenOptions,
-) -> Result<Box<dyn FileOperations>, FilesystemError> {
-    match dentry.inode() {
-        Some(inode) => inode.ops().open(dentry, options).unwrap_or_else(|| {
-            Err(match inode.kind() {
-                FileType::Directory => FilesystemError::IsADirectory,
-                _ => FilesystemError::Unsupported,
-            })
-        }),
-        None => Err(FilesystemError::NotFound),
-    }
-}
-
-/// Where the link `dentry` records points, as `vfs_readlink` asks the inode
-/// a dentry holds; anything else refuses as `readlinkat` does.
-pub(crate) fn d_get_link(dentry: &Dentry) -> Result<String, FilesystemError> {
-    match dentry.inode() {
-        Some(inode) => inode
-            .ops()
-            .get_link(dentry)
-            .unwrap_or(Err(FilesystemError::InvalidInput)),
-        None => Err(FilesystemError::NotFound),
     }
 }
 
@@ -325,18 +255,6 @@ struct Frame {
     dir: Arc<dyn InodeOperations>,
     dentry: Arc<Dentry>,
     through_link: bool,
-}
-
-/// Refuse what a directory just stepped into, or just opened for a
-/// descriptor, answers unless it opened as a directory.
-pub(crate) fn d_can_lookup(
-    dir: &Arc<dyn InodeOperations>,
-    dentry: &Dentry,
-) -> Result<(), FilesystemError> {
-    match dir.getattr(dentry)?.file_type {
-        FileType::Directory => Ok(()),
-        _ => Err(FilesystemError::NotADirectory),
-    }
 }
 
 impl Nameidata {
@@ -370,7 +288,7 @@ impl Nameidata {
         if self.links > MAXSYMLINKS {
             return Err(FilesystemError::FilesystemLoop.into());
         }
-        let target = d_get_link(dentry)?;
+        let target = dentry.get_link()?;
         if target.starts_with('/') {
             return Err(Error::Escape);
         }
@@ -402,7 +320,7 @@ impl Nameidata {
     /// and no link.
     fn stays_in(&self, name: &str) -> Result<(), Error> {
         let _held = self.dentry().inode_lock_shared()?;
-        match d_getattr(&self.lookup_slow(name)?.1)?.file_type {
+        match self.lookup_slow(name)?.1.getattr()?.file_type {
             FileType::Directory => Ok(()),
             FileType::Symlink => Err(FilesystemError::FilesystemLoop.into()),
             _ => Err(FilesystemError::NotADirectory.into()),
@@ -418,7 +336,7 @@ impl Nameidata {
         found: Result<FileType, FilesystemError>,
     ) -> Result<Result<FileType, FilesystemError>, Error> {
         if found.is_err() && self.descended() {
-            d_can_lookup(self.base(), self.dentry())?;
+            self.dentry().can_lookup(self.base())?;
         }
         Ok(found)
     }
@@ -513,7 +431,7 @@ pub(crate) fn filename_lookup(
         let parent = nd.dentry().clone();
         let held = parent.inode_lock_shared()?;
         let (stored, dentry) = nd.lookup_slow(&name.name)?;
-        let looked_up = d_kind(&dentry);
+        let looked_up = dentry.kind();
         if looked_up != Ok(FileType::Symlink) {
             found = Some(looked_up);
             nd.name = stored;
@@ -630,7 +548,7 @@ pub fn do_file_open(
             };
             let f_op = match options.create {
                 true => vfs_create(nd.base().as_ref(), nd.dentry(), &child, &options)?,
-                false => d_open(&child, &options)?,
+                false => child.open(&options)?,
             };
             Ok(File::new(start.with_dentry(child), cred.clone(), f_op, how))
         }
@@ -994,7 +912,7 @@ pub(crate) fn vfs_rename(
 ) -> Result<(), FilesystemError> {
     let moving = kind_at(old_inode, old)?;
     let target = kind_at(new_inode, new)?;
-    if d_same_identity(old, new) {
+    if old.names_the_entry_of(new) {
         return Ok(());
     }
     let is_dir = moving == Some(FileType::Directory);
@@ -1027,14 +945,6 @@ pub(crate) fn vfs_rename(
     let (old_name, new_name) = (old.name(), new.name());
     dentries.move_dentry(old_dir, &old_name, new_dir, &new_name);
     Ok(())
-}
-
-/// Whether both names stand for one entry, as hard links do, which Linux's
-/// `vfs_rename` answers as having nothing to move, comparing `source == target`.
-/// A Filesystem naming no identity cannot tell.
-fn d_same_identity(old: &Dentry, new: &Dentry) -> bool {
-    let identity = |dentry: &Dentry| dentry.inode().and_then(|inode| inode.identity());
-    identity(old).is_some() && identity(old) == identity(new)
 }
 
 /// Remove the empty directory `victim` in `dir` through `inode`, the
@@ -1110,7 +1020,7 @@ pub(crate) fn vfs_create(
         .unwrap_or(Err(FilesystemError::PermissionDenied))?;
     // What was made stands at the name now, as `->create` calls
     // `d_instantiate`, for a Filesystem that did not record it itself.
-    d_lookup_inode(inode, child)?;
+    child.lookup_inode(inode)?;
     Ok(file)
 }
 
@@ -1147,7 +1057,7 @@ fn kind_at(
     inode: &dyn InodeOperations,
     dentry: &Dentry,
 ) -> Result<Option<FileType>, FilesystemError> {
-    if d_lookup_inode(inode, dentry)?.is_some() {
+    if dentry.lookup_inode(inode)?.is_some() {
         return Ok(Some(FileType::Unknown));
     }
     Ok(dentry.inode().map(|recorded| recorded.kind()))

@@ -9,7 +9,6 @@ use super::cred::Cred;
 use super::dentry::Dentry;
 use super::inode::Identity;
 use super::mount::VfsMount;
-use super::namei::d_getattr;
 use super::openat2::{OpenHow, OpenOptions};
 use super::path::Path;
 use super::{Error, FileType, FilesystemError, Iattr, Metadata};
@@ -566,7 +565,7 @@ impl File {
                 self.cred.security_path_walk(&self.path)?;
                 self.path.metadata()
             }
-            false => Ok(d_getattr(self.path.dentry())?),
+            false => Ok(self.path.dentry().getattr()?),
         }
     }
 
@@ -642,7 +641,8 @@ impl File {
     /// none rather than failing the listing.
     fn dot_identities(&self) -> (Option<Identity>, Option<Identity>) {
         let identity = |dentry: &Dentry| {
-            d_getattr(dentry)
+            dentry
+                .getattr()
                 .ok()
                 .and_then(|metadata| Identity::of(&metadata))
         };

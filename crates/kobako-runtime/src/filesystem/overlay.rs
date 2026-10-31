@@ -21,7 +21,7 @@ use super::{
     DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
     InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
 };
-use crate::vfs::{d_getattr, d_lookup_inode, Dentry, Inode};
+use crate::vfs::{Dentry, Inode};
 use inode::{ovl_inode_kept, ovl_inode_real};
 use stack::OverlayFs;
 
@@ -165,7 +165,7 @@ impl Overlay {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let file = self.fs.open(&self.fs.parent(dentry)?, dentry, options)?;
-        d_lookup_inode(self, dentry)?;
+        dentry.lookup_inode(self)?;
         Ok(file)
     }
 }
@@ -206,7 +206,7 @@ impl InodeOperations for Overlay {
             return self.fs.dir_metadata(&self.fs.dir(dentry)?.level());
         }
         let (real, inode) = self.real_of(dentry).ok_or(FilesystemError::NotFound)?;
-        let found = d_getattr(&real)?;
+        let found = real.getattr()?;
         Ok(match inode.identity() {
             Some(identity) => identity.onto(found),
             None => found,

@@ -3,9 +3,9 @@
 //! call's arguments in and its answer out.
 //!
 //! A path never climbs above the directory it is resolved beneath, as a
-//! capability never widens, and the Mount judges each open and each change
-//! before the Filesystem is asked, so a Filesystem of a third party's
-//! checks neither.
+//! capability never widens, and a read-only mount and the security hooks
+//! answer each open and each change before the Filesystem is asked, so a
+//! Filesystem of a third party's checks neither.
 
 mod attr;
 mod cred;
@@ -26,8 +26,8 @@ mod super_block;
 mod utimes;
 
 pub(crate) use namei::{
-    d_get_link, d_getattr, d_lookup_inode, d_open, lookup_one, lookup_slow, start_renaming,
-    vfs_create, vfs_link, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, RenameFlag,
+    lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link, vfs_mkdir, vfs_rename,
+    vfs_rmdir, vfs_unlink, vfs_whiteout, RenameFlag,
 };
 
 pub use attr::{Iattr, SetTime};

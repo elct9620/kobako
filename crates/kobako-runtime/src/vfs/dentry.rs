@@ -1,16 +1,17 @@
 //! The names of one Filesystem a guest has reached, each kept by the
 //! directory above it and its name there while something holds it, as
 //! Linux's dentries are: a directory moved through the VFS takes every one
-//! beneath it along, and one removed or replaced through it is dead. What
-//! a Filesystem answers about a name is asked again on every call, so the
-//! table caches no lookup.
+//! beneath it along, and one removed or replaced through it is dead. Only a
+//! name something holds keeps what a lookup found, so the table is no cache
+//! of lookups.
 
 use std::any::Any;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
-use super::inode::{Inode, InodeOperations};
+use super::file::FileOperations;
+use super::inode::{Inode, InodeOperations, Lookup};
 use super::seqlock::SeqLock;
-use super::FilesystemError;
+use super::{FileType, FilesystemError, Metadata, OpenOptions};
 use crate::hashtable::Hashtable;
 use crate::locking::RwSemaphoreGuard;
 
@@ -176,6 +177,92 @@ impl Dentry {
     /// `d_fsdata` holds a filesystem's own state for a dentry.
     pub fn fsdata(&self) -> &OnceLock<Arc<dyn Any + Send + Sync>> {
         &self.fsdata
+    }
+
+    /// Whether both names stand for one entry, as hard links do, which Linux's
+    /// `vfs_rename` answers as having nothing to move, comparing `source ==
+    /// target`. A Filesystem naming no identity cannot tell.
+    pub(crate) fn names_the_entry_of(&self, other: &Dentry) -> bool {
+        let identity = |dentry: &Dentry| dentry.inode().and_then(|inode| inode.identity());
+        identity(self).is_some() && identity(self) == identity(other)
+    }
+
+    /// Ask the directory `dir` what stands here where nothing is recorded yet,
+    /// and record it, as Linux's `lookup_fast` keeps a dentry that names
+    /// something and `lookup_slow` asks `->lookup` for one that does not. A
+    /// directory holding the entry under another spelling answers that
+    /// spelling, for the caller to take that dentry instead.
+    pub(crate) fn lookup_inode(
+        &self,
+        dir: &dyn InodeOperations,
+    ) -> Result<Option<String>, FilesystemError> {
+        if self.inode().is_some() {
+            return Ok(None);
+        }
+        match dir
+            .lookup(self)
+            .unwrap_or(Err(FilesystemError::NotADirectory))?
+        {
+            Lookup::Found(inode) => self.add(Some(inode)),
+            Lookup::Absent => self.add(None),
+            Lookup::Spelled(stored) => return Ok(Some(stored)),
+        }
+        Ok(None)
+    }
+
+    /// What kind of entry this records, `NotFound` where it records none, as
+    /// Linux's `d_is_*` read a dentry without asking its filesystem.
+    pub(crate) fn kind(&self) -> Result<FileType, FilesystemError> {
+        self.inode()
+            .map(|inode| inode.kind())
+            .ok_or(FilesystemError::NotFound)
+    }
+
+    /// What the entry this records reports of itself, `NotFound` where it
+    /// records none, as `vfs_getattr` asks the inode a dentry holds.
+    pub(crate) fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        match self.inode() {
+            Some(inode) => inode.ops().getattr(self),
+            None => Err(FilesystemError::NotFound),
+        }
+    }
+
+    /// Open the file this records as `options` asks, as `vfs_open` finds
+    /// `f_op->open` on the inode a dentry holds.
+    pub(crate) fn open(
+        &self,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        match self.inode() {
+            Some(inode) => inode.ops().open(self, options).unwrap_or_else(|| {
+                Err(match inode.kind() {
+                    FileType::Directory => FilesystemError::IsADirectory,
+                    _ => FilesystemError::Unsupported,
+                })
+            }),
+            None => Err(FilesystemError::NotFound),
+        }
+    }
+
+    /// Where the link this records points, as `vfs_readlink` asks the inode a
+    /// dentry holds; anything else refuses as `readlinkat` does.
+    pub(crate) fn get_link(&self) -> Result<String, FilesystemError> {
+        match self.inode() {
+            Some(inode) => inode
+                .ops()
+                .get_link(self)
+                .unwrap_or(Err(FilesystemError::InvalidInput)),
+            None => Err(FilesystemError::NotFound),
+        }
+    }
+
+    /// Refuse what the directory `dir` just stepped into, or just opened for
+    /// a descriptor, answers unless it opened as a directory, as `d_can_lookup`.
+    pub(crate) fn can_lookup(&self, dir: &Arc<dyn InodeOperations>) -> Result<(), FilesystemError> {
+        match dir.getattr(self)?.file_type {
+            FileType::Directory => Ok(()),
+            _ => Err(FilesystemError::NotADirectory),
+        }
     }
 
     /// Whether this dentry is `ancestor` or stands beneath it, as Linux's
@@ -573,8 +660,8 @@ mod tests {
                 Arc::ptr_eq(&dentries.child(&root, "a"), &b)
             ),
             ("d/b".to_string(), "a".to_string(), true),
-            "Dentries::d_exchange must hand each dentry the other's name, and find each by \
-             its new name"
+            "Dentries::exchange must hand each dentry the other's name, and find each by its new \
+             name"
         );
     }
 
@@ -619,7 +706,7 @@ mod tests {
             moving.join().expect("the moves must not panic");
             assert_eq!(
                 torn, 0,
-                "Dentry::path_raw while Dentries::d_move moves the directories above it must \
+                "Dentry::path_raw while Dentries::move_dentry moves the directories above it must \
                  answer only a path the dentry stood at"
             );
         }

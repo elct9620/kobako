@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use super::cred::Cred;
-use super::namei::{d_get_link, filename_lookup, names_directory};
+use super::namei::{filename_lookup, names_directory};
 use super::path::Path;
 use super::{Error, FilesystemError};
 
@@ -129,5 +129,5 @@ pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Strin
         return Err(FilesystemError::InvalidInput.into());
     }
     cred.security_inode_readlink()?;
-    Ok(d_get_link(&*nd.walked()?)?)
+    Ok(nd.walked()?.get_link()?)
 }

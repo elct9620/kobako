@@ -208,8 +208,10 @@ mod tests {
         let mount = prepare(mount);
         let cred = prepare_creds([&mount]);
         let root = Path::root(mount.mnt());
-        let mut how = crate::vfs::OpenHow::default();
-        how.directory = true;
+        let how = crate::vfs::OpenHow {
+            directory: true,
+            ..Default::default()
+        };
         let held = crate::vfs::do_file_open(&cred, &root, &format!("c0/{deep}"), &how)
             .unwrap_or_else(|_| panic!("the directory must open"));
         crate::vfs::filename_renameat2(

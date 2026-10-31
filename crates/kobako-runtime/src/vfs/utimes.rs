@@ -152,8 +152,10 @@ mod tests {
         let mount = mount_of(tmpfs(), MountAccess::ReadWrite).with_policy(policy.clone());
         let cred = prepare_creds([&mount]);
         let root = Path::root(mount.mnt());
-        let mut how = crate::vfs::OpenHow::default();
-        how.read = true;
+        let how = crate::vfs::OpenHow {
+            read: true,
+            ..Default::default()
+        };
         let file = crate::vfs::do_file_open(&cred, &root, "file.txt", &how)
             .unwrap_or_else(|_| panic!("the file must open"));
         crate::vfs::filename_unlinkat(&cred, &root, "file.txt").expect("the name must go");
