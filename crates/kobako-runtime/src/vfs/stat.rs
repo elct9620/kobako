@@ -113,7 +113,7 @@ pub fn vfs_fstatat(
     follow: bool,
 ) -> Result<Metadata, Error> {
     let follow = follow || names_directory(path);
-    let mut nd = filename_lookup(cred, start, path, follow, false)?;
+    let mut nd = filename_lookup(cred, start, path, follow)?;
     // A link the walk did not follow at the end is one swapped in since,
     // so it is reported as itself rather than followed.
     nd.check_directory()?;
@@ -123,7 +123,7 @@ pub fn vfs_fstatat(
 /// Where the link at `path` beneath `start` points, as Linux's `do_readlinkat`
 /// asks the security hook only of a link, and answers anything else invalid.
 pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<String, Error> {
-    let mut nd = filename_lookup(cred, start, path, false, false)?;
+    let mut nd = filename_lookup(cred, start, path, false)?;
     nd.check_directory()?;
     if nd.kind()? != FileType::Symlink {
         return Err(FilesystemError::InvalidInput.into());

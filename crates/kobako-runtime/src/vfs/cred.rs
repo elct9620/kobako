@@ -49,6 +49,18 @@ pub trait SecurityOperations: Send + Sync {
     fn path_walk(&self, _path: &Path) -> Result<(), Error> {
         Ok(())
     }
+
+    /// Whether a `.` or `..` may take a walk out of a link or a directory one
+    /// led to, kobako's own hook, as Linux lets any walk.
+    fn path_step_out_of_link(&self) -> Result<(), FilesystemError> {
+        Ok(())
+    }
+
+    /// Whether a file may be made, where a link at the end of the path led to
+    /// its name if `followed_link` says, as `security_path_mknod` is asked.
+    fn path_mknod(&self, _followed_link: bool) -> Result<(), FilesystemError> {
+        Ok(())
+    }
 }
 
 /// Who a call is made for: one per Invocation, holding the security modules
@@ -110,5 +122,17 @@ impl Cred {
         self.security
             .iter()
             .try_for_each(|module| module.path_walk(path))
+    }
+
+    pub(crate) fn security_path_step_out_of_link(&self) -> Result<(), FilesystemError> {
+        self.security
+            .iter()
+            .try_for_each(|module| module.path_step_out_of_link())
+    }
+
+    pub(crate) fn security_path_mknod(&self, followed_link: bool) -> Result<(), FilesystemError> {
+        self.security
+            .iter()
+            .try_for_each(|module| module.path_mknod(followed_link))
     }
 }

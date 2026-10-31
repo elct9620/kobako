@@ -41,7 +41,7 @@ impl KernPath {
     /// `path` resolved beneath this directory, a link at its end left as
     /// it stands.
     fn resolve(&self, path: &str) -> Result<Nameidata, FilesystemError> {
-        filename_lookup(&Arc::default(), &self.0, path, false, false).map_err(to_filesystem_error)
+        filename_lookup(&Arc::default(), &self.0, path, false).map_err(to_filesystem_error)
     }
 
     pub(crate) fn open(

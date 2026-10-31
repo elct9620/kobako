@@ -7,11 +7,8 @@
 //! in on the way leads the walk elsewhere. A link is followed only where
 //! the walk itself reads where it points, within the directory the walk
 //! started from, as `openat2`'s `RESOLVE_BENEATH` keeps a resolution: one
-//! leading out of it, or to an absolute path, escapes it. A `..` or
-//! a `.` taking the walk out of a directory a link led to is refused as a
-//! loop, so a guest never learns where a link points. Beneath a Mount with
-//! a Policy no link is followed at all, as `RESOLVE_NO_SYMLINKS` refuses
-//! one.
+//! leading out of it, or to an absolute path, escapes it. What else a link may
+//! do is for the security hooks to answer.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -60,6 +57,8 @@ pub(crate) struct Nameidata {
     /// What kind of entry stands at `name`, a link reported as itself, once
     /// asked.
     found: Option<Result<FileType, FilesystemError>>,
+    /// Whether a link at the end of the path led to `name`.
+    followed_link: bool,
 }
 
 impl Nameidata {
@@ -266,8 +265,12 @@ impl Nameidata {
         let (_, dentry) = self.lookup_slow(&part.name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
-            FileType::Symlink if dot => Err(FilesystemError::FilesystemLoop.into()),
-            FileType::Symlink => self.pick_link(&dentry),
+            FileType::Symlink => {
+                if dot {
+                    self.cred.security_path_step_out_of_link()?;
+                }
+                self.pick_link(&dentry)
+            }
             FileType::Directory => {
                 self.frames.push(Frame {
                     dir: inode.ops().clone(),
@@ -303,26 +306,29 @@ impl Nameidata {
 
     /// Step out of the directory the walk stands in. Out of the one the
     /// walk started from, no `..` holds a capability, as `RESOLVE_BENEATH`
-    /// refuses a guest's and a link's alike; out of one a link led to, a
-    /// guest's `..` would tell where the link points.
+    /// refuses a guest's and a link's alike; out of one a link led to, the
+    /// security hooks are asked.
     fn follow_dotdot(&mut self, from_link: bool) -> Result<(), Error> {
         if self.frames.len() == 1 {
             return Err(Error::Escape);
         }
         if !from_link && self.frames.last().is_some_and(|frame| frame.through_link) {
-            return Err(FilesystemError::FilesystemLoop.into());
+            self.cred.security_path_step_out_of_link()?;
         }
         self.frames.pop();
         Ok(())
     }
 
-    /// A final `.` after `name` stands in it, which must be a directory
-    /// and no link.
-    fn stays_in(&self, name: &str) -> Result<(), Error> {
+    /// Whether a final `.` after `name` stands in the directory there, `false`
+    /// for a link the security hooks let the walk go on through.
+    fn stays_in(&self, name: &str) -> Result<bool, Error> {
         let _held = self.dentry().inode_lock_shared()?;
         match self.lookup_slow(name)?.1.getattr()?.file_type {
-            FileType::Directory => Ok(()),
-            FileType::Symlink => Err(FilesystemError::FilesystemLoop.into()),
+            FileType::Directory => Ok(true),
+            FileType::Symlink => {
+                self.cred.security_path_step_out_of_link()?;
+                Ok(false)
+            }
             _ => Err(FilesystemError::NotADirectory.into()),
         }
     }
@@ -359,8 +365,13 @@ impl Nameidata {
                     .all(|rest| !rest.from_link && matches!(rest.name.as_str(), "" | "."));
             match part.name.as_str() {
                 "" | "." if trailing => {
-                    if let (".", Some(name)) = (part.name.as_str(), &last) {
-                        self.stays_in(&name.name)?;
+                    let through_link = match (part.name.as_str(), &last) {
+                        (".", Some(name)) => !self.stays_in(&name.name)?,
+                        _ => false,
+                    };
+                    if let Some(name) = last.take_if(|_| through_link) {
+                        self.pending.push_front(part);
+                        self.walk_component(name, false)?;
                     }
                 }
                 "" | "." | ".." => {
@@ -408,16 +419,14 @@ fn getname(path: &str) -> Result<(), FilesystemError> {
 /// `path`, beneath `start`. An empty path names nothing; an absolute path
 /// or a `..` above `start` itself is not the guest's to reach; a `..` or a
 /// final `.` after a component that is missing, no directory, or a link is
-/// `NotFound`, `NotADirectory`, or `FilesystemLoop`. A name past
-/// `NAME_MAX` is `InvalidFilename`. Where `follow` asks, a link at the end is followed
-/// too; one pointing at nothing is `FilesystemLoop` to a call that
-/// `creates`, since what it would create could lie outside `start`.
+/// `NotFound`, `NotADirectory`, or what the security hooks answer. A name past
+/// `NAME_MAX` is `InvalidFilename`. Where `follow` asks, a link at the end is
+/// followed too.
 pub(crate) fn filename_lookup(
     cred: &Arc<Cred>,
     start: &Path,
     path: &str,
     follow: bool,
-    creates: bool,
 ) -> Result<Nameidata, Error> {
     getname(path)?;
     cred.security_path_walk(start)?;
@@ -438,10 +447,10 @@ pub(crate) fn filename_lookup(
         last: None,
         names_directory: names_directory(path),
         found: None,
+        followed_link: false,
     };
     let mut last = nd.link_path_walk(None)?;
     let mut found = None;
-    let mut followed = false;
     while let Some(name) = last.as_ref().filter(|_| follow) {
         let parent = nd.dentry().clone();
         let held = parent.inode_lock_shared()?;
@@ -455,7 +464,7 @@ pub(crate) fn filename_lookup(
         }
         nd.pick_link(&dentry)?;
         drop(held);
-        followed = true;
+        nd.followed_link = true;
         last = nd.link_path_walk(None)?;
     }
     if found.is_none() {
@@ -477,9 +486,6 @@ pub(crate) fn filename_lookup(
         }
         None => None,
     };
-    if followed && creates && matches!(nd.found, Some(Err(FilesystemError::NotFound))) {
-        return Err(FilesystemError::FilesystemLoop.into());
-    }
     // A directory removed through the VFS holds no name any more, as
     // Linux's lookup in a dead directory finds nothing.
     if !nd.name.is_empty() && nd.dentry().is_deaddir() {
@@ -503,12 +509,12 @@ pub fn do_file_open(
     // as a file. Linux answers it once the names before the last are
     // walked, before it would follow a link standing at the last.
     if path.ends_with('/') && how.create {
-        filename_lookup(cred, start, path, false, how.create)?;
+        filename_lookup(cred, start, path, false)?;
         return Err(FilesystemError::IsADirectory.into());
     }
     // A trailing `/` resolves a link standing there, as Linux's `open` does.
     let follow = how.follow || names_directory(path);
-    let mut nd = filename_lookup(cred, start, path, follow, how.create)?;
+    let mut nd = filename_lookup(cred, start, path, follow)?;
     // A create finds what stands at the name under the directory's lock it
     // creates under, and holds it until the file is open, as Linux's
     // `lookup_open` does, so nothing made or removed in between changes
@@ -530,6 +536,9 @@ pub fn do_file_open(
         Err(FilesystemError::NotFound) => None,
         Err(err) => return Err(err.into()),
     };
+    if how.create && existing.is_none() {
+        cred.security_path_mknod(nd.followed_link)?;
+    }
     refuse_what_stands(existing, how)?;
     // Creating changes the Mount only where nothing stands yet, so the
     // Mount judges the open once, knowing what it does.
@@ -613,14 +622,14 @@ pub fn filename_linkat(
     new_path: &str,
     follow: bool,
 ) -> Result<(), Error> {
-    let mut old = filename_lookup(cred, old_start, old_path, follow, false)?;
+    let mut old = filename_lookup(cred, old_start, old_path, follow)?;
     old.check_directory()?;
     let kind = old.kind()?;
     let target = match old.name.is_empty() {
         true => old.dentry().clone(),
         false => old.last_dentry()?,
     };
-    let new = filename_lookup(cred, new_start, new_path, false, false)?;
+    let new = filename_lookup(cred, new_start, new_path, false)?;
     let (_held, child) = filename_create(&new, false)?;
     if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
         return Err(FilesystemError::CrossesDevices.into());
@@ -646,7 +655,7 @@ pub fn filename_symlinkat(
     path: &str,
 ) -> Result<(), Error> {
     getname(target)?;
-    let nd = filename_lookup(cred, start, path, false, false)?;
+    let nd = filename_lookup(cred, start, path, false)?;
     let (_held, child) = filename_create(&nd, false)?;
     nd.security_path(Access::ReadWrite)?;
     let dir = nd.base();
@@ -691,7 +700,7 @@ fn start_dirop(nd: &Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error>
 /// Make the directory `path` beneath `start`. A trailing `/` asks for the
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
 pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
-    let nd = filename_lookup(cred, start, path, false, false)?;
+    let nd = filename_lookup(cred, start, path, false)?;
     let (_held, child) = filename_create(&nd, true)?;
     nd.security_path(Access::ReadWrite)?;
     Ok(vfs_mkdir(nd.base().as_ref(), nd.dentry(), &child)?)
@@ -706,7 +715,7 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
     if let Some(refusal) = dot_end(cred, start, path, dots)? {
         return Err(refusal.into());
     }
-    let mut nd = filename_lookup(cred, start, path, false, false)?;
+    let mut nd = filename_lookup(cred, start, path, false)?;
     refuse_root(&nd.name, FilesystemError::InvalidInput)?;
     nd.mnt.mnt_want_write()?;
     nd.check_directory()?;
@@ -724,7 +733,7 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
 /// link at the end, so a trailing `/` is answered by the name itself: no
 /// file removes as a directory.
 pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
-    let mut nd = filename_lookup(cred, start, path, false, false)?;
+    let mut nd = filename_lookup(cred, start, path, false)?;
     refuse_root(&nd.name, FilesystemError::IsADirectory)?;
     nd.mnt.mnt_want_write()?;
     nd.check_directory()?;
@@ -754,7 +763,7 @@ pub fn filename_renameat2(
     // at the end.
     let walk = |start, path| match dot_end(cred, start, path, BUSY_DOTS)? {
         Some(refusal) => Ok(Err(refusal)),
-        None => filename_lookup(cred, start, path, false, false).map(Ok),
+        None => filename_lookup(cred, start, path, false).map(Ok),
     };
     let (source, target): (Result<_, FilesystemError>, _) =
         (walk(from, from_path)?, walk(to, to_path)?);
@@ -1156,7 +1165,7 @@ fn dot_end(
         _ => return Ok(None),
     };
     if !parent.is_empty()
-        && filename_lookup(cred, start, parent, true, false)?.kind()? != FileType::Directory
+        && filename_lookup(cred, start, parent, true)?.kind()? != FileType::Directory
     {
         return Err(FilesystemError::NotADirectory.into());
     }

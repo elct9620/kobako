@@ -28,6 +28,20 @@ impl SecurityOperations for KobakoSecurity {
     fn inode_readlink(&self) -> Result<(), FilesystemError> {
         Err(FilesystemError::Unsupported)
     }
+
+    /// Where a walk lands stepping out of a link tells where the link points.
+    fn path_step_out_of_link(&self) -> Result<(), FilesystemError> {
+        Err(FilesystemError::FilesystemLoop)
+    }
+
+    /// Which name a file made through a link appears at tells where the link
+    /// points.
+    fn path_mknod(&self, followed_link: bool) -> Result<(), FilesystemError> {
+        match followed_link {
+            true => Err(FilesystemError::FilesystemLoop),
+            false => Ok(()),
+        }
+    }
 }
 
 /// A Mount's Policy, answering only for that Mount.
@@ -250,6 +264,55 @@ mod tests {
             (Err(FilesystemError::InvalidFilename.into()), 1),
             "vfs::filename_mkdirat through a directory moved past PATH_MAX, beneath a Policy, \
              must answer ENAMETOOLONG, the Policy asked only of the open before the move"
+        );
+    }
+
+    // With no security module a walk answers as Linux's, so the rules against
+    // stepping out of a link and making a file through one are this module's
+    // and no part of the VFS.
+    // @behavior RT-214
+    #[cfg(unix)]
+    #[test]
+    fn a_link_answers_as_linuxs_where_no_module_refuses() {
+        use crate::vfs::{do_file_open, vfs_fstatat, OpenHow};
+        let host = std::env::temp_dir().join(format!("kobako-link-rules-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&host);
+        std::fs::create_dir_all(host.join("dir/sub")).expect("the host tree must be made");
+        std::os::unix::fs::symlink("dir/sub", host.join("link")).expect("the link must be made");
+        std::os::unix::fs::symlink("dir/made", host.join("dangling"))
+            .expect("the link must be made");
+        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
+            crate::filesystem::Bind::new(&host).expect("the host directory must open"),
+        ));
+        let mount = Mount::new("/data", filesystem, Access::ReadWrite).expect("a guest path");
+        let root = Path::root(mount.mnt());
+        let create = OpenHow {
+            write: true,
+            create: true,
+            follow: true,
+            ..OpenHow::default()
+        };
+        let answers = |cred: &Arc<Cred>| {
+            (
+                vfs_fstatat(cred, &root, "link/..", false).map(|_| ()),
+                vfs_fstatat(cred, &root, "link/.", false).map(|_| ()),
+                do_file_open(cred, &root, "dangling", &create).map(|_| ()),
+            )
+        };
+        let refused = answers(&prepare_creds([&mount]));
+        let linuxs = answers(&Arc::default());
+        let made = host.join("dir/made").exists();
+        let _ = std::fs::remove_dir_all(&host);
+        let looped = || Err(FilesystemError::FilesystemLoop.into());
+        assert_eq!(
+            (refused, linuxs, made),
+            (
+                (looped(), looped(), looped()),
+                (Ok(()), Ok(()), Ok(())),
+                true
+            ),
+            "`..` and `.` out of a link and a create through a dangling one must answer ELOOP \
+             under KobakoSecurity, and resolve as Linux's where no module refuses"
         );
     }
 
