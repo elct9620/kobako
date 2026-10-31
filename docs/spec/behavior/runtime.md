@@ -2208,3 +2208,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose link would open if asked |
 | When | the guest opens the link following no link |
 | Then | the open answers ELOOP, and the Filesystem is not asked |
+
+## `RT-201` A time set through a descriptor is judged where it stands
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-186` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest beneath a Policy, holding a file whose name is gone |
+| When | it sets a time on the file through its descriptor |
+| Then | the call answers ENOENT, and the Policy is not asked about the old path |

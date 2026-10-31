@@ -15,6 +15,7 @@ use super::{Error, FilesystemError, Iattr};
 /// without `setattr` keeps no time to set, as this VFS holds none on an inode.
 pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Error> {
     path.mnt().mnt_want_write()?;
+    cred.security_path_walk(path)?;
     let dentry = path.dentry();
     cred.security_inode_permission(path.mnt(), &|| dentry.path_raw(), Access::ReadWrite)?;
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
@@ -128,6 +129,46 @@ mod tests {
             (Ok(()), Some(times())),
             "vfs::vfs_utimes on a Filesystem with setattr must hand it the times and answer what \
              it answers"
+        );
+    }
+
+    /// A Policy allowing everything, keeping each path it was asked about.
+    #[derive(Default)]
+    struct RecordsPaths(Mutex<Vec<String>>);
+
+    impl Policy for RecordsPaths {
+        fn allows(&self, path: &str, _access: MountAccess) -> bool {
+            self.0.lock().unwrap().push(path.to_string());
+            true
+        }
+    }
+
+    // A file's descriptor outlives its name, so only the walk's own check
+    // keeps a Policy from judging a path it no longer stands at.
+    // @behavior RT-201
+    #[test]
+    fn a_time_set_through_a_descriptor_is_judged_where_it_stands() {
+        let policy = Arc::new(RecordsPaths::default());
+        let mount = mount_of(tmpfs(), MountAccess::ReadWrite).with_policy(policy.clone());
+        let cred = prepare_creds([&mount]);
+        let root = Path::root(mount.mnt());
+        let mut how = crate::vfs::OpenHow::default();
+        how.read = true;
+        let file = crate::vfs::do_file_open(&cred, &root, "file.txt", &how)
+            .unwrap_or_else(|_| panic!("the file must open"));
+        crate::vfs::filename_unlinkat(&cred, &root, "file.txt").expect("the name must go");
+        policy.0.lock().unwrap().clear();
+        assert_eq!(
+            (
+                vfs_utimes(&cred, file.path(), &times()),
+                policy.0.lock().unwrap().clone()
+            ),
+            (
+                Err(Error::Filesystem(FilesystemError::NotFound)),
+                Vec::new()
+            ),
+            "vfs::vfs_utimes through a descriptor of a file whose name is gone, beneath a Policy, \
+             must answer ENOENT without asking the Policy about the path it stood at"
         );
     }
 
