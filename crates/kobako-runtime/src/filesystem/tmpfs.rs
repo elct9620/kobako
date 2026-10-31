@@ -610,7 +610,7 @@ impl InodeOperations for Tmpfs {
         Some(Arc::new(TmpfsDentry))
     }
 
-    fn create(
+    fn atomic_open(
         &self,
         dentry: &Dentry,
         _options: &OpenOptions,
@@ -819,11 +819,10 @@ mod tests {
         let fs = kern_path(Arc::new(Tmpfs::new()));
         let options = OpenOptions {
             write: true,
-            create: true,
             ..OpenOptions::default()
         };
         assert!(
-            fs.open(&"x".repeat(NAME_MAX), &options).is_ok()
+            fs.create(&"x".repeat(NAME_MAX), &options).is_ok()
                 && matches!(
                     fs.symlink_metadata(&"x".repeat(NAME_MAX + 1)),
                     Err(FilesystemError::InvalidFilename)
@@ -992,11 +991,10 @@ mod tests {
     fn a_tmpfs_keeps_what_was_written() {
         let tmpfs = at(Tmpfs::new());
         let mut file = tmpfs
-            .open(
+            .open_or_create(
                 "notes.txt",
                 &OpenOptions {
                     write: true,
-                    create: true,
                     ..OpenOptions::default()
                 },
             )
@@ -1040,11 +1038,10 @@ mod tests {
     }
 
     fn writable(fs: &KernPath, path: &str) -> Box<dyn FileOperations> {
-        fs.open(
+        fs.open_or_create(
             path,
             &OpenOptions {
                 write: true,
-                create: true,
                 ..OpenOptions::default()
             },
         )
@@ -1160,11 +1157,10 @@ mod tests {
     }
 
     fn create(fs: &KernPath, path: &str) -> Result<(), FilesystemError> {
-        fs.open(
+        fs.open_or_create(
             path,
             &OpenOptions {
                 write: true,
-                create: true,
                 ..OpenOptions::default()
             },
         )
@@ -1474,10 +1470,11 @@ mod tests {
         let options = OpenOptions {
             read: true,
             write: true,
-            create: true,
             ..OpenOptions::default()
         };
-        let mut file = tmpfs.open("file", &options).expect("the file must be made");
+        let mut file = tmpfs
+            .open_or_create("file", &options)
+            .expect("the file must be made");
         file.write_iter(&mut Kiocb::at(0), b"ab")
             .expect("the file must take a write");
         let made = tmpfs

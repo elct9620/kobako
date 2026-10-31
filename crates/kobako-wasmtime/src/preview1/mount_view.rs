@@ -2397,7 +2397,7 @@ const ERRNO_PERM: i32 = 63;
 struct ChangesNothing;
 
 impl Hook for ChangesNothing {
-    fn create(
+    fn atomic_open(
         &self,
         _inner: &dyn InodeOperations,
         _dentry: &Dentry,

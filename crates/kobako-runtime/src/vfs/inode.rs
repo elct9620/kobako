@@ -86,10 +86,11 @@ pub trait InodeOperations: Any + Send + Sync {
         None
     }
 
-    /// Make the file `dentry` names in this directory and open it as
-    /// `options` asks, as `->create` does. Without it the runtime answers
-    /// `PermissionDenied`, as Linux's VFS answers EACCES.
-    fn create(
+    /// Make the file `dentry` names in this directory, refusing one that
+    /// already stands, and open it as `options` asks, in one step as
+    /// `->atomic_open` does. Without it the runtime answers `PermissionDenied`,
+    /// as Linux's VFS answers EACCES.
+    fn atomic_open(
         &self,
         _dentry: &Dentry,
         _options: &OpenOptions,

@@ -198,7 +198,6 @@ impl OverlayFs {
             Some((_, found)) if found.file_type == FileType::Directory => {
                 Err(FilesystemError::IsADirectory)
             }
-            Some(_) if options.create_new => Err(FilesystemError::AlreadyExists),
             Some((index, _)) if self.is_upper(index) => {
                 layer_dir(&level[index])?.open(name, options)
             }
@@ -211,13 +210,12 @@ impl OverlayFs {
                 self.copy_up_file(dir, child, index, upper)?;
                 layer_dir(&dir.level()[upper])?.open(name, options)
             }
-            None if options.create || options.create_new => self.create_file(dir, name, options),
             None => Err(FilesystemError::NotFound),
         }
     }
 
     /// Make the file `name`, where the view shows nothing, in the upper.
-    fn create_file(
+    pub(in super::super) fn create_file(
         &self,
         dir: &ViewDir,
         name: &str,
@@ -225,9 +223,11 @@ impl OverlayFs {
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let upper_dir = self.upper_dir(dir, self.upper()?)?;
         if !upper_dir.is_whiteout(name) {
-            return upper_dir.create(name, options);
+            return upper_dir.atomic_open(name, options);
         }
-        self.exchange_in(&upper_dir, name, |work, temp| work.create(temp, options))
+        self.exchange_in(&upper_dir, name, |work, temp| {
+            work.atomic_open(temp, options)
+        })
     }
 
     /// A directory made where a whiteout hid one is marked opaque, so the

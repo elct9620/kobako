@@ -26,7 +26,7 @@ mod super_block;
 mod utimes;
 
 pub(crate) use namei::{
-    lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link, vfs_mkdir, vfs_rename,
+    atomic_open, lookup_one, lookup_slow, start_renaming, vfs_link, vfs_mkdir, vfs_rename,
     vfs_rmdir, vfs_unlink, vfs_whiteout, RenameFlag,
 };
 

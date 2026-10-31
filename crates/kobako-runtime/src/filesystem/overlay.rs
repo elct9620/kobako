@@ -149,26 +149,6 @@ impl Overlay {
             &to.name(),
         )
     }
-
-    fn open_at(
-        &self,
-        dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(self.open_file(dentry, options))
-    }
-
-    /// Open the file `dentry` names. What this made is recorded after, as
-    /// `->create` calls `d_instantiate`.
-    fn open_file(
-        &self,
-        dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let file = self.fs.open(&self.fs.parent(dentry)?, dentry, options)?;
-        dentry.lookup_inode(self)?;
-        Ok(file)
-    }
 }
 
 /// A name stays valid while every Layer's dentry for it does, as
@@ -260,15 +240,27 @@ impl InodeOperations for Overlay {
             let fs = self.fs.clone();
             return Some(Ok(Box::new(OverlayDir { fs, _real })));
         }
-        self.open_at(dentry, options)
+        Some(
+            self.fs
+                .parent(dentry)
+                .and_then(|parent| self.fs.open(&parent, dentry, options)),
+        )
     }
 
-    fn create(
+    fn atomic_open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        self.open_at(dentry, options)
+        Some(
+            self.fs
+                .parent(dentry)
+                .and_then(|parent| self.fs.create_file(&parent, &dentry.name(), options))
+                .and_then(|file| {
+                    dentry.lookup_inode(self)?;
+                    Ok(file)
+                }),
+        )
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -400,11 +392,10 @@ mod tests {
     }
 
     fn write(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
-        fs.open(
+        fs.open_or_create(
             path,
             &OpenOptions {
                 write: true,
-                create: true,
                 truncate: true,
                 ..OpenOptions::default()
             },
@@ -937,12 +928,11 @@ mod tests {
         let overlay = host.overlay();
         let exclusive = OpenOptions {
             write: true,
-            create_new: true,
             ..OpenOptions::default()
         };
         assert_eq!(
             (
-                overlay.open("dangling", &exclusive).map(drop),
+                overlay.create("dangling", &exclusive).map(drop),
                 overlay.create_dir("dangling")
             ),
             (
@@ -1904,12 +1894,12 @@ mod tests {
             Some(self.root.open(&folded(dentry), options))
         }
 
-        fn create(
+        fn atomic_open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            Some(self.root.open(&folded(dentry), options))
+            Some(self.root.create(&folded(dentry), options))
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {

@@ -39,13 +39,13 @@ pub(crate) trait Hook: Send + Sync + 'static {
         inner.open(dentry, options)
     }
 
-    fn create(
+    fn atomic_open(
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        inner.create(dentry, options)
+        inner.atomic_open(dentry, options)
     }
 
     fn mkdir(
@@ -146,12 +146,12 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         self.hook.open(self.inner.as_ref(), dentry, options)
     }
 
-    fn create(
+    fn atomic_open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        self.hook.create(self.inner.as_ref(), dentry, options)
+        self.hook.atomic_open(self.inner.as_ref(), dentry, options)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {

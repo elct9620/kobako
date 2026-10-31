@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use super::namei::{
-    filename_lookup, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata,
+    atomic_open, filename_lookup, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata,
 };
 use super::path::Path;
 use super::{
@@ -49,14 +49,30 @@ impl KernPath {
         path: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let mut nd = self.resolve(path)?;
-        let child = nd.child()?;
-        match nd.kind() {
-            Err(FilesystemError::NotFound) if options.create || options.create_new => {
-                vfs_create(nd.base().as_ref(), nd.dentry(), &child, options)
-            }
-            _ => child.open(options),
+        self.resolve(path)?.child()?.open(options)
+    }
+
+    /// Open the file at `path`, made first where nothing stands.
+    pub(crate) fn open_or_create(
+        &self,
+        path: &str,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        match self.symlink_metadata(path) {
+            Err(FilesystemError::NotFound) => self.create(path, options),
+            _ => self.open(path, options),
         }
+    }
+
+    /// Make the file at `path` and open it, as `->atomic_open` does.
+    pub(crate) fn create(
+        &self,
+        path: &str,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        let nd = self.resolve(path)?;
+        let child = nd.child()?;
+        atomic_open(nd.base().as_ref(), nd.dentry(), &child, options)
     }
 
     /// Truncate or extend the file at `path`, as `->setattr` is asked.

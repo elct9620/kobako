@@ -5,7 +5,7 @@
 //! `lookup_one_unlocked`, and exclusive while one is made, removed, or
 //! moved, as `start_creating`, `start_removing`, and `start_renaming`. A
 //! name is found through the VFS's `lookup_one`, and an entry made,
-//! removed, or moved through its `vfs_mkdir`, `vfs_create`, `vfs_rmdir`,
+//! removed, or moved through its `vfs_mkdir`, `atomic_open`, `vfs_rmdir`,
 //! `vfs_unlink`, and `vfs_rename`, as overlayfs's are, so the VFS checks
 //! what stands there and the Layer's dentries follow each change.
 
@@ -19,7 +19,7 @@ use super::super::{
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    lookup_one, lookup_slow, start_renaming, vfs_create, vfs_link, vfs_mkdir, vfs_rename,
+    atomic_open, lookup_one, lookup_slow, start_renaming, vfs_link, vfs_mkdir, vfs_rename,
     vfs_rmdir, vfs_unlink, vfs_whiteout, Dentry, RenameFlag,
 };
 
@@ -187,13 +187,13 @@ impl OverlayPath {
 
     /// Make the file `name` and open it, holding the directory, as
     /// `O_CREAT` does.
-    pub(super) fn create(
+    pub(super) fn atomic_open(
         &self,
         name: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_create(
+        atomic_open(
             self.dir.as_ref(),
             &self.dentry,
             &*self.child(name)?,

@@ -1693,14 +1693,14 @@ pub trait InodeOperations {
 }
 ```
 
-## `InodeOperations::create`
+## `InodeOperations::atomic_open`
 
 Make the file a Dentry names in this directory and open it. A directory without
 it answers permission denied.
 
 ```rust
 pub trait InodeOperations {
-    fn create(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn FileOperations>, FilesystemError>>;
+    fn atomic_open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Option<Result<Box<dyn FileOperations>, FilesystemError>>;
 }
 ```
 
@@ -1906,7 +1906,7 @@ pub trait FileOperations {
 
 ## `OpenOptions`
 
-How a file is opened: for reading, writing, creating, or truncating.
+How a file is opened: for reading, writing, or truncating.
 
 ```rust
 pub struct OpenOptions {}

@@ -13,10 +13,6 @@ use super::FilesystemError;
 pub struct OpenOptions {
     pub read: bool,
     pub write: bool,
-    /// Create the file when it does not exist.
-    pub create: bool,
-    /// Create the file, refusing one that already exists.
-    pub create_new: bool,
     /// Empty the file once it is open.
     pub truncate: bool,
     /// Open a directory, to list it, as `O_DIRECTORY` does.

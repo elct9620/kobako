@@ -179,7 +179,7 @@ fn to_error(err: MagnusError) -> FilesystemError {
 
 /// `File::Constants` flags for `options`, read from Ruby since their
 /// values differ by platform.
-fn to_flags(ruby: &Ruby, options: &OpenOptions) -> Result<i64, MagnusError> {
+fn to_flags(ruby: &Ruby, options: &OpenOptions, create: bool) -> Result<i64, MagnusError> {
     let constants: RModule = ruby
         .class_object()
         .const_get::<_, RClass>("File")?
@@ -190,11 +190,8 @@ fn to_flags(ruby: &Ruby, options: &OpenOptions) -> Result<i64, MagnusError> {
         (false, true) => flag("WRONLY")?,
         (true, true) => flag("RDWR")?,
     };
-    if options.create || options.create_new {
-        flags |= flag("CREAT")?;
-    }
-    if options.create_new {
-        flags |= flag("EXCL")?;
+    if create {
+        flags |= flag("CREAT")? | flag("EXCL")?;
     }
     if options.truncate {
         flags |= flag("TRUNC")?;
@@ -237,6 +234,7 @@ impl RubyFilesystem {
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
+        create: bool,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let path = dentry.path_raw();
         let file = ask(
@@ -244,7 +242,7 @@ impl RubyFilesystem {
             "open",
             FilesystemError::Unsupported,
             |ruby, fs| {
-                let file: Value = fs.funcall("open", (path, to_flags(ruby, options)?))?;
+                let file: Value = fs.funcall("open", (path, to_flags(ruby, options, create)?))?;
                 Ok(RubyFile::pin(ruby, file))
             },
         )?;
@@ -367,15 +365,15 @@ impl InodeOperations for RubyFilesystem {
         if options.directory {
             return Some(Ok(Box::new(RubyDir(*self))));
         }
-        Some(self.open_at(dentry, options))
+        Some(self.open_at(dentry, options, false))
     }
 
-    fn create(
+    fn atomic_open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(self.open_at(dentry, options))
+        Some(self.open_at(dentry, options, true))
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {

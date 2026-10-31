@@ -130,13 +130,14 @@ impl Bind {
     /// Open the file `dentry` names and keep its descriptor on the inode, so
     /// the entry answers from it however its name changes, as 9p's
     /// `v9fs_open_fid_add` keeps an open fid. What this made is recorded
-    /// first, as `->create` calls `d_instantiate`.
+    /// first, as `->atomic_open` calls `d_instantiate`.
     fn open_file(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
+        create: bool,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let file = self.at(dentry, |dir, name| open_in(dir, name, options))?;
+        let file = self.at(dentry, |dir, name| open_in(dir, name, options, create))?;
         if dentry.inode().is_none() {
             let made = cap_std::fs::Metadata::from_file(&file).map_err(to_error)?;
             dentry.add(Some(Inode::new(&to_metadata(made), Arc::new(self.clone()))));
@@ -361,30 +362,22 @@ fn open_fid(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::File>> {
         .find_map(|(fid, _)| fid.upgrade())
 }
 
-/// Open `name` in `dir` as `options` asks.
-fn open_in(dir: &Dir, name: &str, options: &OpenOptions) -> Result<std::fs::File, FilesystemError> {
-    // The host creates only for a writer, so a file already there is
-    // opened as asked rather than for writing it was never given.
-    if options.create && !(options.create_new || options.write || options.truncate) {
-        let existing = OpenOptions {
-            create: false,
-            ..*options
-        };
-        match open_in(dir, name, &existing) {
-            Err(FilesystemError::NotFound) => {}
-            opened => return opened,
-        }
-    }
-    let creates = options.create || options.create_new || options.truncate;
-    let writes = options.write || creates;
+/// Open `name` in `dir` as `options` asks, made first where `create` says,
+/// refusing one that already stands.
+fn open_in(
+    dir: &Dir,
+    name: &str,
+    options: &OpenOptions,
+    create: bool,
+) -> Result<std::fs::File, FilesystemError> {
+    let writes = options.write || options.truncate || create;
     let mut open = CapOpenOptions::new();
     // The host refuses an open for neither reading nor writing, and one
     // that creates or truncates without writing; the runtime decides
     // what is read and written, so such opens read or write here.
     open.read(options.read || !writes)
         .write(writes)
-        .create(options.create)
-        .create_new(options.create_new)
+        .create_new(create)
         .truncate(options.truncate);
     // Only a file or a directory opens: a FIFO would wait for a peer
     // and a device would act on being opened. The host could swap an
@@ -501,15 +494,15 @@ impl InodeOperations for Bind {
             }
             return Some(Ok(Box::new(BindDir(self.clone(), fid))));
         }
-        Some(self.open_file(dentry, options))
+        Some(self.open_file(dentry, options, false))
     }
 
-    fn create(
+    fn atomic_open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        Some(self.open_file(dentry, options))
+        Some(self.open_file(dentry, options, true))
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
@@ -1187,11 +1180,10 @@ mod tests {
         let host = HostDir::new("writes");
         let directory = bind_host(&host.0);
         directory
-            .open(
+            .open_or_create(
                 "out.txt",
                 &OpenOptions {
                     write: true,
-                    create: true,
                     ..OpenOptions::default()
                 },
             )
@@ -1315,11 +1307,10 @@ mod tests {
     fn a_directory_answers_a_host_failure_as_the_error_naming_it() {
         let host = HostDir::new("names");
         let directory = bind_host(&host.0);
-        let created = directory.open(
+        let created = directory.open_or_create(
             &"x".repeat(300),
             &OpenOptions {
                 write: true,
-                create: true,
                 ..OpenOptions::default()
             },
         );
@@ -1379,13 +1370,12 @@ mod tests {
         let directory = bind_host(&host.0);
         let creates = OpenOptions {
             read: true,
-            create: true,
             ..OpenOptions::default()
         };
         assert_eq!(
             (
-                directory.open("note", &creates).map(drop),
-                directory.open("new", &creates).map(drop),
+                directory.open_or_create("note", &creates).map(drop),
+                directory.open_or_create("new", &creates).map(drop),
                 host.0.join("new").exists()
             ),
             (Ok(()), Ok(()), true),
@@ -1684,11 +1674,10 @@ mod tests {
             .open_dir("dir")
             .expect("the host directory must open");
         fs::rename(host.0.join("dir"), host.0.join("moved")).expect("the host must move it");
-        dir.open(
+        dir.open_or_create(
             "made",
             &OpenOptions {
                 write: true,
-                create: true,
                 ..OpenOptions::default()
             },
         )

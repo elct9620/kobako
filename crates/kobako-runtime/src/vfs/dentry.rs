@@ -481,12 +481,12 @@ mod tests {
             Some(self.root.open(&dentry.path_raw(), options))
         }
 
-        fn create(
+        fn atomic_open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            Some(self.root.open(&dentry.path_raw(), options))
+            Some(self.root.create(&dentry.path_raw(), options))
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {

@@ -595,12 +595,12 @@ where
         Some(opened.map(|file| Box::new((self.wrap)(file)) as Box<dyn FileOperations>))
     }
 
-    fn create(
+    fn atomic_open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        let made = self.inner.create(dentry, options)?;
+        let made = self.inner.atomic_open(dentry, options)?;
         Some(made.map(|file| Box::new((self.wrap)(file)) as Box<dyn FileOperations>))
     }
 }

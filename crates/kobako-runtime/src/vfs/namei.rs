@@ -525,10 +525,6 @@ pub fn do_file_open(
             let options = OpenOptions {
                 read: how.read,
                 write: how.write,
-                // A file already there is opened as it is, so a host that
-                // opens only to create never asks for more than the caller.
-                create: how.create && existing.is_none(),
-                create_new: how.create && how.exclusive,
                 truncate: how.truncate,
                 directory: false,
             };
@@ -538,9 +534,9 @@ pub fn do_file_open(
                 true => nd.child()?,
                 false => nd.last_dentry()?,
             };
-            let f_op = match options.create {
-                true => vfs_create(nd.base().as_ref(), nd.dentry(), &child, &options)?,
-                false => child.open(&options)?,
+            let f_op = match existing {
+                None => atomic_open(nd.base().as_ref(), nd.dentry(), &child, &options)?,
+                Some(_) => child.open(&options)?,
             };
             Ok(File::new(start.with_dentry(child), cred.clone(), f_op, how))
         }
@@ -1009,23 +1005,19 @@ pub(crate) fn vfs_mkdir(
 }
 
 /// Make the file `child` in `dir` through `inode`, the directory holding
-/// it, and open it as `options` asks, as Linux's `vfs_create` does once
+/// it, and open it as `options` asks, as Linux's `atomic_open` does once
 /// its caller holds `dir`.
-pub(crate) fn vfs_create(
+pub(crate) fn atomic_open(
     inode: &dyn InodeOperations,
     dir: &Dentry,
     child: &Dentry,
     options: &OpenOptions,
 ) -> Result<Box<dyn FileOperations>, FilesystemError> {
     may_create_dentry(dir, kind_at(inode, child)?)?;
-    let options = OpenOptions {
-        create_new: true,
-        ..*options
-    };
     let file = inode
-        .create(child, &options)
+        .atomic_open(child, options)
         .unwrap_or(Err(FilesystemError::PermissionDenied))?;
-    // What was made stands at the name now, as `->create` calls
+    // What was made stands at the name now, as `->atomic_open` calls
     // `d_instantiate`, for a Filesystem that did not record it itself.
     child.lookup_inode(inode)?;
     Ok(file)
@@ -1203,12 +1195,12 @@ mod tests {
             Some(Arc::new(HookedDentry(self.stale.clone())))
         }
 
-        fn create(
+        fn atomic_open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            self.tmpfs.create(dentry, options)
+            self.tmpfs.atomic_open(dentry, options)
         }
 
         fn open(
@@ -1308,12 +1300,12 @@ mod tests {
             Some(self.root.open(&folded(dentry), options))
         }
 
-        fn create(
+        fn atomic_open(
             &self,
             dentry: &Dentry,
             options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            Some(self.root.open(&folded(dentry), options))
+            Some(self.root.create(&folded(dentry), options))
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
