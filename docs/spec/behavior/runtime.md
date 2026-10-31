@@ -1468,7 +1468,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it waits to write a file open to read, and sizes one open to write |
 | Then | the wait is ready and the file is sized, the Policy unasked by either |
 
-## `RT-140` A link leading out of an opened directory is not permitted
+## `RT-140` A link leading out of an opened directory escapes it
 
 | Attribute | Value |
 | --- | --- |
@@ -1478,7 +1478,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a guest holding a directory it opened beneath a Mount without a Policy |
 | When | it opens or stats a path through that directory whose link leads out of it |
-| Then | the call answers EPERM, as wasmtime-wasi does |
+| Then | the call answers ENOTCAPABLE, as `RESOLVE_BENEATH` answers a link and a `..` alike |
 
 ## `RT-141` A link staying within an opened directory is followed
 
@@ -1505,7 +1505,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it opens the link's path to create a file, following the link |
 | Then | the open answers ELOOP and creates nothing |
 
-## `RT-143` A link leading out of a Mount is not permitted
+## `RT-143` A link leading out of a Mount escapes it
 
 | Attribute | Value |
 | --- | --- |
@@ -1515,7 +1515,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a Bind Mount holding a link to a file outside its host directory |
 | When | the guest opens the link's path from the Mount's root |
-| Then | the open answers EPERM, as wasmtime-wasi does |
+| Then | the open answers ENOTCAPABLE, as an absolute path does |
 
 ## `RT-144` A file's access is checked before a buffer outside memory is bounded
 

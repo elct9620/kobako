@@ -459,11 +459,13 @@ impl InodeOperations for Bind {
         Some(Arc::new(self.clone()))
     }
 
-    /// A target that is no valid UTF-8 answers `IllegalSequence`, as a
-    /// guest path is one.
+    /// Where it points as the host holds it, even outside this directory,
+    /// as `->get_link` answers, since the walk judges what a link leads to. A
+    /// target that is no valid UTF-8 answers `IllegalSequence`, as a guest path
+    /// is one.
     fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
         Some(self.at(dentry, |dir, name| {
-            dir.read_link(name)
+            dir.read_link_contents(name)
                 .map_err(to_error)?
                 .into_os_string()
                 .into_string()

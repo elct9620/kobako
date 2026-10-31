@@ -354,7 +354,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a Bind's host disk | kobako caps no space there; the host directory's own quota does |
 | a device swapped into a Bind as the guest opens a file | opened once before its refusal |
 | a link in a Bind without a block | the guest reaches its target, never beyond the Bind, and never reads where it points |
-| a link through a directory the guest opened | followed only within it; leading out raises `Errno::EPERM` |
+| a link through a directory the guest opened | followed only within it; leading out raises `Errno::EACCES`, as a `..` leading out does |
 | a link loop without a block | `Errno::ELOOP` after 40 links, as Linux answers |
 | a `..` out of where a link led | `Errno::ELOOP`, as the guest never learns where it points |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |

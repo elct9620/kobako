@@ -62,8 +62,9 @@ pub enum Error {
     Filesystem(FilesystemError),
     /// The Mount refused it.
     Denied(Denial),
-    /// The path is absolute, or climbs above the directory it is resolved
-    /// beneath, escaping it as `openat2`'s `RESOLVE_BENEATH` refuses.
+    /// The path is absolute, climbs above the directory it is resolved
+    /// beneath, or holds a link that does either, escaping it as `openat2`'s
+    /// `RESOLVE_BENEATH` refuses.
     Escape,
 }
 

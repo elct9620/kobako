@@ -7,7 +7,7 @@
 //! in on the way leads the walk elsewhere. A link is followed only where
 //! the walk itself reads where it points, within the directory the walk
 //! started from, as `openat2`'s `RESOLVE_BENEATH` keeps a resolution: one
-//! leading out of it, or to an absolute path, is not permitted. A `..` or
+//! leading out of it, or to an absolute path, escapes it. A `..` or
 //! a `.` taking the walk out of a directory a link led to is refused as a
 //! loop, so a guest never learns where a link points. Beneath a Mount with
 //! a Policy no link is followed at all, as `RESOLVE_NO_SYMLINKS` refuses
@@ -372,7 +372,7 @@ impl Nameidata {
         }
         let target = d_get_link(dentry)?;
         if target.starts_with('/') {
-            return Err(FilesystemError::NotPermitted.into());
+            return Err(Error::Escape);
         }
         if target.is_empty() {
             return Err(FilesystemError::NotFound.into());
@@ -384,16 +384,12 @@ impl Nameidata {
     }
 
     /// Step out of the directory the walk stands in. Out of the one the
-    /// walk started from, a guest's `..` is no capability it holds and a
-    /// link's is one leading out; out of one a link led to, a guest's `..`
-    /// would tell where the link points.
+    /// walk started from, no `..` holds a capability, as `RESOLVE_BENEATH`
+    /// refuses a guest's and a link's alike; out of one a link led to, a
+    /// guest's `..` would tell where the link points.
     fn follow_dotdot(&mut self, from_link: bool) -> Result<(), Error> {
         if self.frames.len() == 1 {
-            return Err(if from_link {
-                FilesystemError::NotPermitted.into()
-            } else {
-                Error::Escape
-            });
+            return Err(Error::Escape);
         }
         if !from_link && self.frames.last().is_some_and(|frame| frame.through_link) {
             return Err(FilesystemError::FilesystemLoop.into());

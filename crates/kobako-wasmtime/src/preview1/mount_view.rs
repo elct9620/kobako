@@ -2852,7 +2852,7 @@ impl Drop for LinkedBeneath {
 // @behavior RT-140
 #[cfg(unix)]
 #[test]
-fn a_link_leading_out_of_an_opened_directory_is_not_permitted() {
+fn a_link_leading_out_of_an_opened_directory_escapes_it() {
     let host = LinkedBeneath::new("out");
     let answers = |overlay| {
         let mut guest = host.guest(overlay);
@@ -2870,10 +2870,10 @@ fn a_link_leading_out_of_an_opened_directory_is_not_permitted() {
             answers(true),
             host.0.join("escaped").exists()
         ),
-        ([ERRNO_PERM; 5], [ERRNO_PERM; 5], false),
+        ([ERRNO_NOTCAPABLE; 5], [ERRNO_NOTCAPABLE; 5], false),
         "an open, a stat, or a create through preview1 of a path whose link leads out of a \
          directory opened beneath a Bind Mount, or an Overlay's Bind Layer, must answer \
-         EPERM, as wasmtime-wasi does, and create nothing"
+         ENOTCAPABLE, as a `..` leading out does, and create nothing"
     );
 }
 
@@ -2995,12 +2995,12 @@ fn a_create_through_a_dangling_link_beneath_an_opened_directory_is_refused() {
     );
 }
 
-// The link names a file outside the host directory, so cap-std refuses it
-// with no OS code, which wasmtime-wasi answers as EPERM.
+// The link names a file outside the host directory by an absolute path, so
+// the walk refuses it before any host call is made.
 // @behavior RT-143
 #[cfg(unix)]
 #[test]
-fn a_link_leading_out_of_a_mount_is_not_permitted() {
+fn a_link_leading_out_of_a_mount_escapes_it() {
     let host = LinkedBeneath::new("mount");
     let outside =
         std::env::temp_dir().join(format!("kobako-beneath-outside-{}", std::process::id()));
@@ -3010,9 +3010,9 @@ fn a_link_leading_out_of_a_mount_is_not_permitted() {
     let errno = host.guest(false).call("open_following", DIR_UP);
     let _ = std::fs::remove_file(&outside);
     assert_eq!(
-        errno, ERRNO_PERM,
+        errno, ERRNO_NOTCAPABLE,
         "an open through preview1 from a Bind Mount's root of a link to a file outside its \
-         host directory must answer EPERM, as wasmtime-wasi does"
+         host directory must answer ENOTCAPABLE, as an absolute path does"
     );
 }
 
