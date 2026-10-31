@@ -171,16 +171,20 @@ impl Nameidata {
         names.join("/")
     }
 
-    /// Whether the guest may reach the path with `access`: a change asks the
-    /// mount first, then the security hook, as Linux's `mnt_want_write` comes
-    /// before `security_path_*`.
-    pub(crate) fn check(&self, access: Access) -> Result<(), Error> {
+    /// Whether the guest may reach the path with `access`, as an open asks:
+    /// a change asks the mount first, then the security hook.
+    fn check(&self, access: Access) -> Result<(), Error> {
         if access == Access::ReadWrite {
             self.mnt.mnt_want_write()?;
         }
-        Ok(self
-            .cred
-            .security_inode_permission(&self.mnt, &|| self.dentry_path(), access)?)
+        self.security_path(access)
+    }
+
+    /// Whether a security hook lets the guest reach the path with `access`,
+    /// as Linux's `security_path_*` asks once its call holds the name.
+    fn security_path(&self, access: Access) -> Result<(), Error> {
+        self.cred
+            .security_inode_permission(&self.mnt, &|| self.dentry_path(), access)
     }
 }
 
@@ -679,22 +683,19 @@ pub fn filename_linkat(
     let mut old = filename_lookup(cred, old_start, old_path, follow, false)?;
     old.check_directory()?;
     let kind = old.kind()?;
-    old.check(Access::ReadWrite)?;
-    let new = filename_lookup(cred, new_start, new_path, false, false)?;
-    new.check(Access::ReadWrite)?;
-    refuse_root(&new.name, FilesystemError::AlreadyExists)?;
     let target = match old.name.is_empty() {
         true => old.dentry().clone(),
         false => old.walked()?,
     };
-    let _held = new.dentry().inode_lock()?;
-    let child = new.child()?;
+    let new = filename_lookup(cred, new_start, new_path, false, false)?;
+    let (_held, child) = filename_create(&new, false)?;
+    if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
+        return Err(FilesystemError::CrossesDevices.into());
+    }
+    old.security_path(Access::ReadWrite)?;
+    new.security_path(Access::ReadWrite)?;
     let dir = new.base();
     Ok(vfs_link(dir.as_ref(), new.dentry(), &child, || {
-        refuse_trailing_slash(&new)?;
-        if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
-            return Err(FilesystemError::CrossesDevices);
-        }
         if kind == FileType::Directory {
             return Err(FilesystemError::NotPermitted);
         }
@@ -712,24 +713,44 @@ pub fn filename_symlinkat(
     path: &str,
 ) -> Result<(), Error> {
     let nd = filename_lookup(cred, start, path, false, false)?;
-    nd.check(Access::ReadWrite)?;
-    refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
-    let _held = nd.dentry().inode_lock()?;
-    let child = nd.child()?;
+    let (_held, child) = filename_create(&nd, false)?;
+    nd.security_path(Access::ReadWrite)?;
     let dir = nd.base();
     Ok(vfs_link(dir.as_ref(), nd.dentry(), &child, || {
-        refuse_trailing_slash(&nd)?;
         dir.symlink(&child, target)
             .unwrap_or(Err(FilesystemError::NotPermitted))
     })?)
 }
 
-/// Refuse a name to make that asks for a directory, as Linux's
-/// `filename_create` finds nothing there to be one.
-fn refuse_trailing_slash(nd: &Nameidata) -> Result<(), FilesystemError> {
-    match nd.names_directory {
-        true => Err(FilesystemError::NotFound),
-        false => Ok(()),
+/// Hold the directory a name is made in and take the name's dentry, as
+/// Linux's `filename_create` does: what stands there answers before the
+/// mount refuses a change, so a call making what already stands learns so
+/// even beneath a read-only mount. A trailing `/` on anything but a directory
+/// being made finds nothing there to be one.
+fn filename_create(
+    nd: &Nameidata,
+    want_dir: bool,
+) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error> {
+    refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
+    let write = nd.mnt.mnt_want_write();
+    let held = nd.dentry().inode_lock()?;
+    let child = nd.child()?;
+    may_create_dentry(nd.dentry(), kind_at(nd.base().as_ref(), &child)?)?;
+    if nd.names_directory && !want_dir {
+        return Err(FilesystemError::NotFound.into());
+    }
+    write?;
+    Ok((held, child))
+}
+
+/// Hold the directory a name is removed from and take the name's dentry, as
+/// Linux's `start_dirop` does before any security hook is asked.
+fn start_dirop(nd: &Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error> {
+    let held = nd.dentry().inode_lock()?;
+    let child = nd.child()?;
+    match kind_at(nd.base().as_ref(), &child)? {
+        Some(_) => Ok((held, child)),
+        None => Err(FilesystemError::NotFound.into()),
     }
 }
 
@@ -737,34 +758,31 @@ fn refuse_trailing_slash(nd: &Nameidata) -> Result<(), FilesystemError> {
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
 pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
     let nd = filename_lookup(cred, start, path, false, false)?;
-    nd.check(Access::ReadWrite)?;
-    refuse_root(&nd.name, FilesystemError::AlreadyExists)?;
-    let _held = nd.dentry().inode_lock()?;
-    let child = nd.child()?;
+    let (_held, child) = filename_create(&nd, true)?;
+    nd.security_path(Access::ReadWrite)?;
     Ok(vfs_mkdir(nd.base().as_ref(), nd.dentry(), &child)?)
 }
 
 /// Remove the empty directory `path` beneath `start`.
 pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
-    refuse_dot_end(
-        cred,
-        start,
-        path,
-        [
-            FilesystemError::InvalidInput,
-            FilesystemError::DirectoryNotEmpty,
-        ],
-    )?;
+    let dots = [
+        FilesystemError::InvalidInput,
+        FilesystemError::DirectoryNotEmpty,
+    ];
+    if let Some(refusal) = dot_end(cred, start, path, dots)? {
+        return Err(refusal.into());
+    }
     let mut nd = filename_lookup(cred, start, path, false, false)?;
-    nd.check(Access::ReadWrite)?;
-    nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::InvalidInput)?;
-    let _parent = nd.dentry().inode_lock()?;
+    nd.mnt.mnt_want_write()?;
+    nd.check_directory()?;
+    let (_held, child) = start_dirop(&nd)?;
+    nd.security_path(Access::ReadWrite)?;
     Ok(vfs_rmdir(
         nd.mnt.sb(),
         nd.base().as_ref(),
         nd.dentry(),
-        &nd.child()?,
+        &child,
     )?)
 }
 
@@ -773,15 +791,16 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
 /// file removes as a directory.
 pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
     let mut nd = filename_lookup(cred, start, path, false, false)?;
-    nd.check(Access::ReadWrite)?;
-    nd.check_directory()?;
     refuse_root(&nd.name, FilesystemError::IsADirectory)?;
-    let _parent = nd.dentry().inode_lock()?;
+    nd.mnt.mnt_want_write()?;
+    nd.check_directory()?;
+    let (_held, child) = start_dirop(&nd)?;
+    nd.security_path(Access::ReadWrite)?;
     Ok(vfs_unlink(
         nd.mnt.sb(),
         nd.base().as_ref(),
         nd.dentry(),
-        &nd.child()?,
+        &child,
     )?)
 }
 
@@ -796,13 +815,22 @@ pub fn filename_renameat2(
     to: &Path,
     to_path: &str,
 ) -> Result<(), Error> {
-    let busy = [FilesystemError::ResourceBusy, FilesystemError::ResourceBusy];
-    refuse_dot_end(cred, from, from_path, busy.clone())?;
-    refuse_dot_end(cred, to, to_path, busy)?;
-    let mut source = filename_lookup(cred, from, from_path, false, false)?;
-    let mut target = filename_lookup(cred, to, to_path, false, false)?;
+    // Both sides are walked before anything is refused of either, as
+    // `filename_renameat2` answers a move across mounts ahead of a `.` or `..`
+    // at the end.
+    let walk = |start, path| match dot_end(cred, start, path, BUSY_DOTS)? {
+        Some(refusal) => Ok(Err(refusal)),
+        None => filename_lookup(cred, start, path, false, false).map(Ok),
+    };
+    let (source, target): (Result<_, FilesystemError>, _) =
+        (walk(from, from_path)?, walk(to, to_path)?);
+    if !Arc::ptr_eq(from.mnt(), to.mnt()) {
+        return Err(FilesystemError::CrossesDevices.into());
+    }
+    let (mut source, mut target) = (source?, target?);
     refuse_root(&source.name, FilesystemError::ResourceBusy)?;
     refuse_root(&target.name, FilesystemError::ResourceBusy)?;
+    from.mnt().mnt_want_write()?;
     // A trailing `/` on either side asks that the source be a directory,
     // which `rename(2)` checks before it finds a rename onto its own path
     // leaves everything as it was. A rename moves a link rather than what
@@ -814,16 +842,12 @@ pub fn filename_renameat2(
     if !onto_itself {
         target.check_directory()?;
     }
-    if !Arc::ptr_eq(from.mnt(), to.mnt()) {
-        return Err(FilesystemError::CrossesDevices.into());
-    }
-    source.check(Access::ReadWrite)?;
-    target.check(Access::ReadWrite)?;
-    // A rename onto its own name changes nothing once the source stands, as
-    // `rename(2)` answers.
+    // A rename onto its own name changes nothing once the source stands and
+    // the hook allows it, as `vfs_rename` answers after `security_path_rename`.
     if onto_itself {
         source.kind()?;
-        return Ok(());
+        source.security_path(Access::ReadWrite)?;
+        return target.security_path(Access::ReadWrite);
     }
     let (old, new) = (source.child()?, target.child()?);
     let sb = from.mnt().sb();
@@ -836,6 +860,8 @@ pub fn filename_renameat2(
     if names_directory && !is_dir {
         return Err(FilesystemError::NotADirectory.into());
     }
+    source.security_path(Access::ReadWrite)?;
+    target.security_path(Access::ReadWrite)?;
     cred.security_path_rename(from.mnt(), is_dir)?;
     let (old_inode, new_inode) = (source.base().as_ref(), target.base().as_ref());
     Ok(vfs_rename(
@@ -1151,31 +1177,34 @@ fn may_delete_dentry(
     Ok(())
 }
 
-/// Refuse a guest path ending in `.` or `..` as the refusal `[dot,
-/// dotdot]` names for it, since it names no entry a call may remove or
-/// move, as Linux answers each by the kind of its last name. Linux looks
-/// up what stands before it first, following a link there as it follows
-/// one that is not the last name, so a missing or non-directory parent
-/// answers as itself.
-fn refuse_dot_end(
+/// What a move answers for a `.` or a `..` at the end of a path.
+const BUSY_DOTS: [FilesystemError; 2] =
+    [FilesystemError::ResourceBusy, FilesystemError::ResourceBusy];
+
+/// The refusal `[dot, dotdot]` names for a guest path ending in `.` or `..`,
+/// which names no entry a call may remove or move, as Linux answers each by
+/// the kind of its last name. Linux looks up what stands before it first,
+/// following a link there as it follows one that is not the last name, so a
+/// missing or non-directory parent answers as itself.
+fn dot_end(
     cred: &Arc<Cred>,
     start: &Path,
     path: &str,
     [dot, dotdot]: [FilesystemError; 2],
-) -> Result<(), Error> {
+) -> Result<Option<FilesystemError>, Error> {
     let trimmed = path.trim_end_matches('/');
     let (parent, last) = trimmed.rsplit_once('/').unwrap_or(("", trimmed));
     let refusal = match last {
         "." => dot,
         ".." => dotdot,
-        _ => return Ok(()),
+        _ => return Ok(None),
     };
     if !parent.is_empty()
         && filename_lookup(cred, start, parent, true, false)?.kind()? != FileType::Directory
     {
         return Err(FilesystemError::NotADirectory.into());
     }
-    Err(refusal.into())
+    Ok(Some(refusal))
 }
 
 /// A Mount's root is where the guest stands, not a directory it may
@@ -1414,6 +1443,89 @@ mod tests {
 
     // A built-in Filesystem refuses a link itself, so only one that would open
     // it shows the VFS is what holds this line for every third party.
+    /// What each call answers beneath a mount `prepare` finishes, over a
+    /// Tmpfs holding the directory `dir`.
+    fn answers(prepare: impl Fn(Mount) -> Mount, access: Access) -> [Result<(), vfs::Error>; 3] {
+        let tmpfs: Tmpfs = [("dir/file", "x")].into_iter().collect();
+        let mount = prepare(
+            Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), access)
+                .expect("/data is a guest path"),
+        );
+        let cred = crate::security::prepare_creds([&mount]);
+        let root = Path::root(mount.mnt());
+        [
+            vfs::filename_mkdirat(&cred, &root, "dir"),
+            vfs::filename_rmdir(&cred, &root, "missing"),
+            vfs::filename_unlinkat(&cred, &root, "missing"),
+        ]
+    }
+
+    struct RefusesAll;
+
+    impl Policy for RefusesAll {
+        fn allows(&self, _path: &str, _access: Access) -> bool {
+            false
+        }
+    }
+
+    // Linux's answers in a container: `mkdir` of what stands is EEXIST on a
+    // read-only mount, `rmdir` and `unlink` of what does not are EROFS.
+    // @behavior RT-205
+    #[test]
+    fn a_read_only_mount_answers_what_stands_in_linuxs_order() {
+        assert_eq!(
+            answers(|mount| mount, Access::Read),
+            [
+                Err(vfs::Error::Filesystem(FilesystemError::AlreadyExists)),
+                Err(vfs::Error::Denied(vfs::Denial::ReadOnly)),
+                Err(vfs::Error::Denied(vfs::Denial::ReadOnly)),
+            ],
+            "vfs::filename_mkdirat of what stands beneath a read-only Mount must answer EEXIST, \
+             and vfs::filename_rmdir and filename_unlinkat of what does not EROFS"
+        );
+    }
+
+    // @behavior RT-206
+    #[test]
+    fn a_policy_is_asked_only_once_a_call_holds_what_stands() {
+        assert_eq!(
+            answers(
+                |mount| mount.with_policy(Arc::new(RefusesAll)),
+                Access::ReadWrite
+            ),
+            [
+                Err(vfs::Error::Filesystem(FilesystemError::AlreadyExists)),
+                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+            ],
+            "vfs::filename_mkdirat of what stands, and vfs::filename_rmdir and filename_unlinkat \
+             of what does not, beneath a Policy refusing everything, must answer as \
+             security_path_* would after the name is held"
+        );
+    }
+
+    // @behavior RT-207
+    #[test]
+    fn a_move_across_mounts_answers_ahead_of_a_dot_at_its_end() {
+        let mount = |tmpfs: Tmpfs| {
+            Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
+                .expect("/data is a guest path")
+        };
+        let (first, second) = (mount(Tmpfs::new()), mount(Tmpfs::new()));
+        assert_eq!(
+            vfs::filename_renameat2(
+                &Arc::default(),
+                &Path::root(first.mnt()),
+                ".",
+                &Path::root(second.mnt()),
+                "moved"
+            ),
+            Err(vfs::Error::Filesystem(FilesystemError::CrossesDevices)),
+            "vfs::filename_renameat2 of `.` to another Mount must answer EXDEV, as \
+             filename_renameat2 answers a move across mounts first"
+        );
+    }
+
     // @behavior RT-200
     #[test]
     fn an_open_refuses_a_link_before_its_filesystem_is_asked() {

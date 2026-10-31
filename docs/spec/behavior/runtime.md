@@ -2256,3 +2256,39 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory that moved past `PATH_MAX` from the root, beneath a Policy |
 | When | it makes an entry there |
 | Then | the call answers ENAMETOOLONG, and the Policy is not asked about that path |
+
+## `RT-205` A read-only Mount answers what stands in Linux's order
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-078` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-only Mount |
+| When | the guest makes what stands, or removes what does not |
+| Then | the first answers EEXIST, and the second EROFS |
+
+## `RT-206` A Policy is asked only once a call holds what stands
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-205` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-write Mount whose Policy refuses everything |
+| When | the guest makes what stands, or removes what does not |
+| Then | the first answers EEXIST, and the second ENOENT |
+
+## `RT-207` A move across Mounts answers ahead of a dot at its end
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-205` |
+
+| Step | Statement |
+| --- | --- |
+| Given | two Mounts |
+| When | the guest moves `.` of one to a name in the other |
+| Then | the move answers EXDEV, and not EBUSY |

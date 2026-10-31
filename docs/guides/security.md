@@ -311,8 +311,8 @@ foresee. The block judges paths, so nothing may reach a path it never judged:
 | a link another writer swaps in after the block judges | never followed; the call reaches the directory it walked to |
 | another case or Unicode form of a name | the block judges the spelling the host stores |
 
-An open that what stands at the path refuses, such as `Errno::ENOENT`, fails
-before the block is asked.
+A call that what stands at the path refuses, such as `Errno::ENOENT` or
+`Errno::EEXIST`, fails before the block is asked.
 
 ```ruby
 sandbox.mount("/data", fs) { |path, _access| path.start_with?("/data/public/") }
