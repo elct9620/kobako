@@ -92,7 +92,7 @@ impl OverlayFs {
         let dir = self.parent(child)?;
         let upper = self.upper()?;
         match self.lookup(&dir.level(), &child.name())? {
-            Some((from, _)) => self.copy_up_file(&dir, child, from, upper),
+            Some((from, _)) => self.copy_up_file(&dir, child, from, upper, false),
             None => Err(FilesystemError::ReadOnlyFilesystem),
         }
     }
@@ -100,13 +100,16 @@ impl OverlayFs {
     /// Copy the file `child` names in `dir` from Layer `from` into Layer
     /// `into`, as overlayfs's `ovl_copy_up_tmpfile` does: the copy is made
     /// with no name, filled, given the lower file's times, and only then
-    /// named, so a copy that fails part way is never seen.
+    /// named, so a copy that fails part way is never seen. A `truncate` copy up
+    /// leaves the bytes behind, as `ovl_copy_up_one` sets its size to zero for
+    /// `O_TRUNC`, since the open is about to empty it.
     pub(super) fn copy_up_file(
         &self,
         dir: &ViewDir,
         child: &Dentry,
         from: usize,
         into: usize,
+        truncate: bool,
     ) -> Result<(), FilesystemError> {
         let name = child.name();
         let source_dir = dir.level()[from].clone().ok_or(FilesystemError::NotFound)?;
@@ -118,16 +121,18 @@ impl OverlayFs {
         if holds(&target_dir, &name)? {
             return Ok(());
         }
-        let mut source = source_dir.open(
-            &name,
-            &OpenOptions {
-                read: true,
-                ..OpenOptions::default()
-            },
-        )?;
-        let mut copy = target_dir.tmpfile()?;
-        copy_whole(source.as_mut(), &mut copy)?;
         let lower = source_dir.symlink_metadata(&name)?;
+        let mut copy = target_dir.tmpfile()?;
+        if !truncate || lower.file_type != FileType::File {
+            let mut source = source_dir.open(
+                &name,
+                &OpenOptions {
+                    read: true,
+                    ..OpenOptions::default()
+                },
+            )?;
+            copy_whole(source.as_mut(), &mut copy)?;
+        }
         copy.set_times(lower.accessed, lower.modified);
         let parent_times = target_dir.metadata()?;
         target_dir.link(&copy, &name)?;

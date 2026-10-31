@@ -1,6 +1,8 @@
 //! What an open asks for and what it reaches, as Linux's `openat2` takes
 //! an `open_how` and `vfs_open` holds what the walk opened.
 
+use super::attr::Iattr;
+use super::dentry::Dentry;
 use super::file::File;
 use super::namei::Nameidata;
 use super::path::Path;
@@ -51,6 +53,17 @@ pub(crate) fn build_open_flags(how: &OpenHow) -> Result<(), FilesystemError> {
         true => Err(FilesystemError::InvalidInput),
         false => Ok(()),
     }
+}
+
+/// Truncate or extend what `dentry` names as `attr` asks, under its lock, as
+/// Linux's `do_truncate` reaches `->setattr`. An entry without it refuses.
+pub(crate) fn do_truncate(dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+    let _held = dentry.inode_lock()?;
+    inode
+        .ops()
+        .setattr(dentry, attr)
+        .unwrap_or(Err(FilesystemError::InvalidInput))
 }
 
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds

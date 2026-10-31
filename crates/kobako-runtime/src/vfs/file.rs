@@ -9,7 +9,7 @@ use super::cred::Cred;
 use super::dentry::Dentry;
 use super::inode::Identity;
 use super::mount::VfsMount;
-use super::openat2::{OpenHow, OpenOptions};
+use super::openat2::{do_truncate, OpenHow, OpenOptions};
 use super::path::Path;
 use super::{Error, FileType, FilesystemError, Iattr, Metadata, PATH_MAX};
 
@@ -586,12 +586,7 @@ impl File {
         if self.is_directory() || !self.writable() || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
         }
-        let dentry = self.path.dentry();
-        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-        inode
-            .ops()
-            .setattr(dentry, &Iattr::size(len))
-            .unwrap_or(Err(FilesystemError::InvalidInput))
+        do_truncate(self.path.dentry(), &Iattr::size(len))
     }
 
     /// Hand `ctx` the entries of the directory from its position, `.` and `..`

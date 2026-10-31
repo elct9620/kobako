@@ -123,6 +123,14 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         self.hook.getattr(self.inner.as_ref(), dentry)
     }
 
+    fn setattr(
+        &self,
+        dentry: &Dentry,
+        attr: &kobako_runtime::filesystem::Iattr,
+    ) -> Option<Result<(), FilesystemError>> {
+        self.inner.setattr(dentry, attr)
+    }
+
     fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
         let found = self.hook.lookup(self.inner.as_ref(), dentry)?;
         Some(found.map(|lookup| match lookup {

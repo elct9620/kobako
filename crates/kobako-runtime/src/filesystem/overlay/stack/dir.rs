@@ -207,7 +207,7 @@ impl OverlayFs {
             }
             Some((index, _)) => {
                 let upper = self.upper()?;
-                self.copy_up_file(dir, child, index, upper)?;
+                self.copy_up_file(dir, child, index, upper, options.truncate)?;
                 layer_dir(&dir.level()[upper])?.open(name, options)
             }
             None => Err(FilesystemError::NotFound),
@@ -336,7 +336,7 @@ impl OverlayFs {
             }
             FileType::File if holders.first() != Some(&upper) => {
                 let shown = *holders.first().ok_or(FilesystemError::NotFound)?;
-                self.copy_up_file(from, moved, shown, upper)?
+                self.copy_up_file(from, moved, shown, upper, false)?
             }
             FileType::Directory | FileType::File => {}
             _ if holders.first() != Some(&upper) => return Err(FilesystemError::CrossesDevices),

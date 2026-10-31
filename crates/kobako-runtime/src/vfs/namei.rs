@@ -18,10 +18,10 @@ use super::dentry::Dentry;
 use super::file::{File, FileOperations};
 use super::inode::{Inode, InodeOperations};
 use super::mount::{Access, VfsMount};
-use super::openat2::{build_open_flags, vfs_open, OpenHow, OpenOptions};
+use super::openat2::{build_open_flags, do_truncate, vfs_open, OpenHow, OpenOptions};
 use super::path::Path;
 use super::super_block::SuperBlock;
-use super::{Error, FileType, FilesystemError, Metadata};
+use super::{Error, FileType, FilesystemError, Iattr, Metadata};
 use crate::locking::RwSemaphoreGuard;
 
 use super::PATH_MAX;
@@ -538,6 +538,11 @@ pub fn do_file_open(
                 None => atomic_open(nd.base().as_ref(), nd.dentry(), &child, &options)?,
                 Some(_) => child.open(&options)?,
             };
+            // Only what stood is emptied, as Linux's `do_open` calls
+            // `handle_truncate` for a regular file it did not make.
+            if how.truncate && existing == Some(FileType::File) {
+                do_truncate(&child, &Iattr::open_truncate())?;
+            }
             Ok(File::new(start.with_dentry(child), cred.clone(), f_op, how))
         }
     }
@@ -1939,6 +1944,87 @@ mod tests {
             ],
             "vfs::filename_mkdirat and filename_symlinkat must answer EINVAL for a NUL, \
              ENAMETOOLONG for a path that fits no PATH_MAX, and ENOENT for an empty path or target"
+        );
+    }
+
+    /// A directory holding one file at every name, recording each call.
+    #[derive(Clone, Default)]
+    struct RecordsCalls(Arc<Mutex<Vec<&'static str>>>);
+
+    /// A file answering no call but those it records.
+    struct RecordedFile;
+    impl FileOperations for RecordedFile {}
+
+    impl InodeOperations for RecordsCalls {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(crate::filesystem::FileType::Directory, 0))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            if dentry.name() == "missing" {
+                return Some(Ok(Lookup::Absent));
+            }
+            let file = Metadata::new(crate::filesystem::FileType::File, 0);
+            Some(Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone())))))
+        }
+
+        fn setattr(
+            &self,
+            _dentry: &Dentry,
+            attr: &crate::filesystem::Iattr,
+        ) -> Option<Result<(), FilesystemError>> {
+            let call = if attr.open {
+                "setattr(open)"
+            } else {
+                "setattr"
+            };
+            self.0.lock().ok()?.push(call);
+            Some(Ok(()))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            self.0.lock().ok()?.push("open");
+            Some(Ok(Box::new(RecordedFile)))
+        }
+
+        fn atomic_open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            self.0.lock().ok()?.push("atomic_open");
+            Some(Ok(Box::new(RecordedFile)))
+        }
+    }
+
+    // @behavior RT-215
+    #[test]
+    fn an_open_empties_what_stood_through_setattr_once_it_is_open() {
+        let calls = RecordsCalls::default();
+        let root = root_of(Filesystem::new(Arc::new(calls.clone())));
+        let cred = Arc::default();
+        let truncate = OpenHow {
+            write: true,
+            create: true,
+            truncate: true,
+            ..OpenHow::default()
+        };
+        let opened = (
+            vfs::do_file_open(&cred, &root, "file", &truncate).is_ok(),
+            vfs::do_file_open(&cred, &root, "missing", &truncate).is_ok(),
+        );
+        assert_eq!(
+            (opened, calls.0.lock().map(|calls| calls.clone()).ok()),
+            (
+                (true, true),
+                Some(vec!["open", "setattr(open)", "atomic_open"])
+            ),
+            "vfs::do_file_open with O_TRUNC of a file that stands must open it and then ask \
+             setattr marked as from an open, and of one it makes must ask neither"
         );
     }
 

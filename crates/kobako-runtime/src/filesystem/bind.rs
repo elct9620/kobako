@@ -151,7 +151,7 @@ impl Bind {
         if let Ok(fids) = kept.downcast::<OpenFids>() {
             let mut fids = fids.0.lock().unwrap_or_else(PoisonError::into_inner);
             fids.retain(|(fid, _)| fid.strong_count() > 0);
-            fids.push((Arc::downgrade(&file), options.write));
+            fids.push((Arc::downgrade(&file), options.write || options.truncate));
         }
         Ok(Box::new(BindFile { file }))
     }
@@ -377,8 +377,7 @@ fn open_in(
     // what is read and written, so such opens read or write here.
     open.read(options.read || !writes)
         .write(writes)
-        .create_new(create)
-        .truncate(options.truncate);
+        .create_new(create);
     // Only a file or a directory opens: a FIFO would wait for a peer
     // and a device would act on being opened. The host could swap an
     // entry in between, so what opened is checked again before its

@@ -331,8 +331,14 @@ impl InodeOperations for RubyFilesystem {
         })
     }
 
+    /// A Ruby object was handed `TRUNC` as it opened the file, so an open asking
+    /// to truncate has nothing left to ask, as `fuse_do_setattr` finds with
+    /// `atomic_o_trunc`.
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
         let len = attr.size?;
+        if attr.open {
+            return Some(Ok(()));
+        }
         let file = open_file(dentry)?;
         Some(change(
             file.get(),

@@ -404,6 +404,18 @@ mod tests {
         .map(drop)
     }
 
+    /// Write at the start of what stands at `path`, so a copy up brings its
+    /// bytes along.
+    fn write_over(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
+        let options = OpenOptions {
+            write: true,
+            ..OpenOptions::default()
+        };
+        fs.open(path, &options)?
+            .write_iter(&mut Kiocb::at(0), contents)
+            .map(drop)
+    }
+
     fn overwrite(fs: &KernPath, path: &str, contents: &[u8]) {
         write(fs, path, contents).expect("the write must land");
     }
@@ -1783,7 +1795,7 @@ mod tests {
         let (overlay, _) = overlay_on(upper.clone());
         assert_eq!(
             (
-                write(&overlay, "dir/file", b"x"),
+                write_over(&overlay, "dir/file", b"x"),
                 on(&upper).symlink_metadata("upper/dir/file"),
                 read(&overlay, "dir/file")
             ),
@@ -2006,6 +2018,42 @@ mod tests {
             "a read through a directory Overlay::open_dir opened, once its Layer moved it away \
              and made another in its place outside the Overlay, must read the directory it \
              opened"
+        );
+    }
+
+    // The lower file is far bigger than the upper holds, so only a copy up
+    // leaving its bytes behind can land.
+    // @behavior FS-155
+    #[test]
+    fn a_truncating_open_copies_up_none_of_the_bytes() {
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{self, OpenHow, Path};
+        let lower: Tmpfs = [("file", vec![b'x'; 1 << 20])].into_iter().collect();
+        let upper = Tmpfs::new().with_size(Some(4096)).with_nr_inodes(None);
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(lower))],
+            Some(Filesystem::new(Arc::new(upper))),
+        )
+        .expect("the Overlay must stack");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let cred = Arc::default();
+        let how = OpenHow {
+            read: true,
+            write: true,
+            truncate: true,
+            ..OpenHow::default()
+        };
+        let opened = vfs::do_file_open(&cred, &root, "file", &how);
+        assert!(
+            opened.is_ok_and(|mut file| file.read(&mut [0; 8]) == Ok(0)),
+            "vfs::do_file_open with O_TRUNC of a lower file past what the upper holds must land \
+             on an empty file"
         );
     }
 
@@ -2256,11 +2304,11 @@ mod tests {
         let overlay = over(Arc::new(lower), Arc::new(Tmpfs::new()));
         let first = at(overlay);
         let second = first.clone();
-        let copying = thread::spawn(move || write(&first, "note", b"first"));
+        let copying = thread::spawn(move || write_over(&first, "note", b"first"));
         while !sleeps.opening.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(1));
         }
-        let waited = write(&second, "note", b"later");
+        let waited = write_over(&second, "note", b"later");
         assert_eq!(
             (
                 copying.join().expect("the first copy up must not panic"),

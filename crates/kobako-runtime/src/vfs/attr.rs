@@ -13,6 +13,9 @@ pub struct Iattr {
     /// The access and modification times to set.
     pub atime: Option<SetTime>,
     pub mtime: Option<SetTime>,
+    /// Whether the size comes from an open asking to truncate, as `ATTR_OPEN`
+    /// says, so a Filesystem that truncated in `->open` has nothing left to do.
+    pub open: bool,
 }
 
 impl Iattr {
@@ -22,6 +25,15 @@ impl Iattr {
             size: Some(len),
             atime: None,
             mtime: None,
+            open: false,
+        }
+    }
+
+    /// A change emptying a file an open asked to truncate.
+    pub(crate) fn open_truncate() -> Self {
+        Self {
+            open: true,
+            ..Self::size(0)
         }
     }
 
@@ -31,6 +43,7 @@ impl Iattr {
             size: None,
             atime,
             mtime,
+            open: false,
         }
     }
 }

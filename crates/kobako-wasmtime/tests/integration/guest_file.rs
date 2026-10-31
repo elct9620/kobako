@@ -573,6 +573,14 @@ where
         self.inner.getattr(dentry)
     }
 
+    fn setattr(
+        &self,
+        dentry: &Dentry,
+        attr: &kobako_runtime::filesystem::Iattr,
+    ) -> Option<Result<(), FilesystemError>> {
+        self.inner.setattr(dentry, attr)
+    }
+
     fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
         Some(self.inner.lookup(dentry)?.map(|lookup| match lookup {
             Lookup::Found(inode) => Lookup::Found(inode.with_ops(Arc::new(Self {

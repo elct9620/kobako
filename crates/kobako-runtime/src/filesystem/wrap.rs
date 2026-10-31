@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use super::{
-    DentryOperations, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata,
+    DentryOperations, FileOperations, FilesystemError, Iattr, InodeOperations, Lookup, Metadata,
     OpenOptions,
 };
 use crate::vfs::Dentry;
@@ -128,6 +128,10 @@ impl<H: Hook> InodeOperations for Wrap<H> {
             }
             other => other,
         }))
+    }
+
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        self.inner.setattr(dentry, attr)
     }
 
     fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {

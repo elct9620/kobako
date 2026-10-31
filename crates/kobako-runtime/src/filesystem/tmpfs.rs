@@ -728,13 +728,8 @@ impl InodeOperations for TmpfsRegular {
     fn open(
         &self,
         _dentry: &Dentry,
-        options: &OpenOptions,
+        _options: &OpenOptions,
     ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-        if options.truncate {
-            if let Err(err) = lock(&self.data).resize(0) {
-                return Some(Err(err));
-            }
-        }
         Some(Ok(Box::new(TmpfsFile {
             data: self.data.clone(),
         })))

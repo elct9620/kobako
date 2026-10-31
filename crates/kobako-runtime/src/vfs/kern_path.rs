@@ -49,7 +49,17 @@ impl KernPath {
         path: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.resolve(path)?.child()?.open(options)
+        let child = self.resolve(path)?.child()?;
+        let file = child.open(options)?;
+        if options.truncate {
+            child
+                .inode()
+                .ok_or(FilesystemError::NotFound)?
+                .ops()
+                .setattr(&child, &Iattr::open_truncate())
+                .unwrap_or(Err(FilesystemError::InvalidInput))?;
+        }
+        Ok(file)
     }
 
     /// Open the file at `path`, made first where nothing stands.

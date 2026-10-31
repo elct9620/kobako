@@ -46,9 +46,9 @@ pub trait InodeOperations: Any + Send + Sync {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 
     /// Apply `attr` to this entry, even once its name is gone and only an
-    /// open file holds it, as `ftruncate` and `utimensat` reach `->setattr`.
-    /// An entry without it refuses a size as invalid input and times as
-    /// unsupported.
+    /// open file holds it, as `ftruncate`, `open` with `O_TRUNC`, and
+    /// `utimensat` reach `->setattr`. An entry without it refuses a size as
+    /// invalid input and times as unsupported.
     fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Option<Result<(), FilesystemError>> {
         None
     }
@@ -74,10 +74,11 @@ pub trait InodeOperations: Any + Send + Sync {
         None
     }
 
-    /// Open this entry, which `dentry` names, as `options` asks, truncating
-    /// a file where they say to, as `f_op->open` makes the open file. A
-    /// directory opens to be listed; without it, listing one answers
-    /// `NotADirectory`. The runtime refuses a link before it asks.
+    /// Open this entry, which `dentry` names, as `options` asks, as
+    /// `f_op->open` makes the open file. The VFS empties a file an open asks to
+    /// truncate through `setattr` afterwards. A directory opens to be listed;
+    /// without it, listing one answers `NotADirectory`. The runtime refuses a
+    /// link before it asks.
     fn open(
         &self,
         _dentry: &Dentry,
