@@ -224,14 +224,30 @@ fn open_dir_nofollow(dir: &Dir, name: &str) -> Result<Dir, FilesystemError> {
         })
 }
 
-/// `name` as `cap_std` takes it. Windows reads `\` as a separator too, so
-/// there a name holding one is refused rather than reached as names a
-/// Mount's Policy never saw.
+/// `name` as `cap_std` takes it. Windows reads some names as other names or as
+/// devices, so there one is refused rather than reached as an entry a Mount's
+/// Policy never saw.
 fn to_host_name(name: &str) -> Result<&str, FilesystemError> {
-    if cfg!(windows) && name.contains('\\') {
+    if cfg!(windows) && is_windows_alias(name) {
         return Err(FilesystemError::InvalidInput);
     }
     Ok(name)
+}
+
+/// Whether Windows reads `name` as something else: a `\` as a separator, a `:`
+/// as a stream of a file, a trailing `.` or space as nothing, a wildcard as a
+/// pattern, or a device's name, whatever extension follows, as the device.
+fn is_windows_alias(name: &str) -> bool {
+    const DEVICES: [&str; 33] = [
+        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$", "COM0", "COM1", "COM2", "COM3",
+        "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT0", "LPT1",
+        "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
+    ];
+    let reserved = |c: char| c.is_ascii_control() || "\\:*?\"<>|".contains(c);
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    name.contains(reserved)
+        || name.ends_with(['.', ' '])
+        || DEVICES.contains(&stem.to_uppercase().as_str())
 }
 
 /// The FilesystemError a host failure names. cap-std's own refusal of a
@@ -1235,6 +1251,60 @@ mod tests {
             ),
             "a path holding a backslash opened through a Bind on Windows must be refused as \
              invalid input"
+        );
+    }
+
+    // Judged on every host, as only Windows's own CI reaches the refusal, and
+    // what the host would do with each name is what no other host can show.
+    // @behavior FS-153
+    #[test]
+    fn a_name_windows_reads_as_another_is_told_apart() {
+        let aliases = [
+            "secret.",
+            "secret ",
+            "file:stream",
+            r"d\f",
+            "con",
+            "NUL.txt",
+            "conin$",
+            "com1 .log",
+            "a?",
+            "a*",
+            "a<",
+            "a|",
+            "a\"",
+            "a\u{1}",
+        ];
+        let plain = ["secret", "file.txt", "console", "com10", ".hidden", "a.b.c"];
+        assert_eq!(
+            (
+                aliases
+                    .iter()
+                    .filter(|name| !is_windows_alias(name))
+                    .count(),
+                plain.iter().filter(|name| is_windows_alias(name)).count(),
+            ),
+            (0, 0),
+            "is_windows_alias must name every spelling Windows reads as another, and no plain name"
+        );
+    }
+
+    // @behavior FS-153
+    #[cfg(windows)]
+    #[test]
+    fn a_directory_on_windows_refuses_a_name_it_reads_as_another() {
+        let host = HostDir::new("aliases");
+        fs::write(host.0.join("secret"), "x").expect("the host file must be written");
+        let directory = bind_host(&host.0);
+        assert!(
+            ["secret.", "secret:stream", "CON"]
+                .iter()
+                .all(|name| matches!(
+                    directory.open(name, &OpenOptions::default()),
+                    Err(FilesystemError::InvalidInput)
+                )),
+            "a name Windows reads as another, opened through a Bind on Windows, must be refused \
+             as invalid input"
         );
     }
 
