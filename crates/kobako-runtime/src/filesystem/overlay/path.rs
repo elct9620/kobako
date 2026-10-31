@@ -216,15 +216,12 @@ impl OverlayPath {
 
     /// This directory opened, kept open for whoever holds it, as overlayfs's
     /// `ovl_dir_open` opens the real directory.
-    pub(super) fn open_real(&self) -> Option<Box<dyn FileOperations>> {
+    pub(super) fn open_real(&self) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let options = OpenOptions {
             read: true,
             ..OpenOptions::default()
         };
-        self.dentry
-            .inode_ops()
-            .and_then(|dir| dir.open(&self.dentry, &options))
-            .ok()
+        self.dentry.inode_ops()?.open(&self.dentry, &options)
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {

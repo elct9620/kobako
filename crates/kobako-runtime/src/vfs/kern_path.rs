@@ -99,12 +99,14 @@ impl KernPath {
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
         let nd = self.resolve(path)?;
         let dentry = nd.child()?;
-        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-        if inode.kind() == FileType::Symlink {
-            return Err(FilesystemError::FilesystemLoop);
+        match dentry.kind()? {
+            FileType::Symlink => Err(FilesystemError::FilesystemLoop),
+            FileType::Directory => {
+                dentry.getattr()?;
+                Ok(Self(self.0.with_dentry(dentry)))
+            }
+            _ => Err(FilesystemError::NotADirectory),
         }
-        dentry.can_lookup(inode.ops())?;
-        Ok(Self(self.0.with_dentry(dentry)))
     }
 
     /// What the directory reports of itself.

@@ -68,10 +68,7 @@ pub(crate) fn vfs_open(start: &Path, nd: Nameidata, how: &OpenHow) -> Result<Fil
         "" => nd.dentry().clone(),
         _ => {
             let _held = nd.dentry().inode_lock_shared()?;
-            let dentry = nd.last_dentry()?;
-            let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-            dentry.can_lookup(inode.ops())?;
-            dentry
+            nd.last_dentry()?
         }
     };
     Ok(File::directory(start.with_dentry(dentry), nd.cred.clone())?.with_flags(how))

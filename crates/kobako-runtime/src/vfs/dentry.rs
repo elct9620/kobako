@@ -273,15 +273,6 @@ impl Dentry {
         }
     }
 
-    /// Refuse what the directory `dir` just stepped into, or just opened for
-    /// a descriptor, answers unless it opened as a directory, as `d_can_lookup`.
-    pub(crate) fn can_lookup(&self, dir: &Arc<dyn InodeOperations>) -> Result<(), FilesystemError> {
-        match dir.getattr(self)?.file_type {
-            FileType::Directory => Ok(()),
-            _ => Err(FilesystemError::NotADirectory),
-        }
-    }
-
     /// Whether this dentry is `ancestor` or stands beneath it, as Linux's
     /// `is_subdir` answers.
     pub(crate) fn is_subdir(self: &Arc<Self>, ancestor: &Arc<Dentry>) -> bool {

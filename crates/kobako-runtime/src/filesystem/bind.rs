@@ -539,10 +539,8 @@ impl InodeOperations for Bind {
         dentry: &Dentry,
         _options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let fid = self.fid(dentry).ok();
-        if let Some(fid) = &fid {
-            OpenDirFid::set(dentry, fid);
-        }
+        let fid = self.fid(dentry)?;
+        OpenDirFid::set(dentry, &fid);
         Ok(Box::new(BindDir(self.clone(), fid)))
     }
 
@@ -603,7 +601,7 @@ impl InodeOperations for Bind {
 /// A host directory, open: it reaches the descriptor kept on the dentry it is
 /// handed, so it follows the directory wherever it moves. It also keeps the
 /// descriptor it opened with, for a sync, which is handed no dentry.
-struct BindDir(Bind, Option<Arc<Dir>>);
+struct BindDir(Bind, Arc<Dir>);
 
 impl FileOperations for BindDir {
     fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -613,7 +611,7 @@ impl FileOperations for BindDir {
     /// Make the host directory's names durable. Windows syncs no directory, so
     /// there the host answers for them itself.
     fn fsync(&mut self) -> Result<(), FilesystemError> {
-        self.1.as_deref().map_or(Ok(()), sync_dir)
+        sync_dir(&self.1)
     }
 }
 
@@ -1164,6 +1162,33 @@ mod tests {
             (Ok(3), b"new"),
             "vfs::do_file_open through an Overlay over a Bind whose host replaced a directory \
              a descriptor holds must read the file standing there now"
+        );
+    }
+
+    // The host took the directory after the name was found, so only the open
+    // asking the host answers that it is gone, rather than a descriptor that
+    // fails at its first use.
+    // @behavior FS-166
+    #[test]
+    fn a_directory_that_cannot_open_answers_why() {
+        let host = HostDir::new("gone-before-open");
+        fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
+        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
+            Bind::new(&host.0).expect("the host directory must open"),
+        ));
+        let dentries = filesystem.dentries();
+        let root = dentries.root();
+        let dir = dentries.child(&root, "a");
+        dir.lookup_inode(&root).expect("the name must be found");
+        fs::remove_dir(host.0.join("a")).expect("the host must remove it");
+        let answer = dir
+            .inode_ops()
+            .expect("the name records its directory")
+            .open(&dir, &OpenOptions::default());
+        assert_eq!(
+            answer.err(),
+            Some(FilesystemError::NotFound),
+            "InodeOperations::open of a Bind's directory the host removed must answer ENOENT"
         );
     }
 

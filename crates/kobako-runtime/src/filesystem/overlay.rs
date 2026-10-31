@@ -277,16 +277,14 @@ impl InodeOperations for Overlay {
         dentry: &Dentry,
         _options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let _real = self.fs.dir(dentry).map_or_else(
-            |_| Vec::new(),
-            |dir| {
-                dir.level()
-                    .iter()
-                    .flatten()
-                    .flat_map(OverlayPath::open_real)
-                    .collect()
-            },
-        );
+        let _real = self
+            .fs
+            .dir(dentry)?
+            .level()
+            .iter()
+            .flatten()
+            .map(OverlayPath::open_real)
+            .collect::<Result<_, _>>()?;
         let fs = self.fs.clone();
         Ok(Box::new(OverlayDir { fs, _real }))
     }
