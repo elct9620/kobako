@@ -4,7 +4,6 @@
 
 use std::cell::Cell;
 
-use kobako_runtime::vfs::PATH_MAX;
 use wiggle::{GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -66,20 +65,10 @@ impl<'a, 'm> GuestMemory<'a, 'm> {
     }
 
     /// A guest path, which preview1 requires to be UTF-8, charged to the
-    /// call's fuel before it is read, as wasmtime-wasi charges it. One
-    /// that would not fit Linux's `PATH_MAX` with its terminating NUL is
-    /// refused before it is copied, as Linux's `getname` refuses it, and
-    /// one holding a NUL names nothing a host can hold, as cap-std refuses
-    /// it.
+    /// call's fuel before it is read, as wasmtime-wasi charges it.
     pub(crate) fn path(&self, ptr: GuestPtr<str>) -> Answer<String> {
         self.consume(ptr.len(), 1)?;
         let bytes = self.memory.as_cow(ptr.as_bytes())?;
-        if bytes.len() >= PATH_MAX {
-            return Err(Errno::Nametoolong.into());
-        }
-        if bytes.contains(&0) {
-            return Err(Errno::Inval.into());
-        }
         String::from_utf8(bytes.into_owned()).map_err(|_| Errno::Ilseq.into())
     }
 

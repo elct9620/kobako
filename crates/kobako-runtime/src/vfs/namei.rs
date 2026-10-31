@@ -27,7 +27,7 @@ use super::super_block::SuperBlock;
 use super::{Error, FileType, FilesystemError, Metadata};
 use crate::locking::RwSemaphoreGuard;
 
-use super::NAME_MAX;
+use super::{NAME_MAX, PATH_MAX};
 
 /// The most links one walk follows, as Linux's.
 const MAXSYMLINKS: usize = 40;
@@ -388,6 +388,23 @@ impl Nameidata {
     }
 }
 
+/// Refuse a path no call can take, as Linux's `getname` does before any call
+/// looks at it: an empty one names nothing, one past `PATH_MAX` with its
+/// terminating NUL is too long, and one holding a NUL names nothing a
+/// Filesystem can hold.
+fn getname(path: &str) -> Result<(), FilesystemError> {
+    if path.is_empty() {
+        return Err(FilesystemError::NotFound);
+    }
+    if path.len() >= PATH_MAX {
+        return Err(FilesystemError::InvalidFilename);
+    }
+    if path.contains('\0') {
+        return Err(FilesystemError::InvalidInput);
+    }
+    Ok(())
+}
+
 /// `path`, beneath `start`. An empty path names nothing; an absolute path
 /// or a `..` above `start` itself is not the guest's to reach; a `..` or a
 /// final `.` after a component that is missing, no directory, or a link is
@@ -402,10 +419,8 @@ pub(crate) fn filename_lookup(
     follow: bool,
     creates: bool,
 ) -> Result<Nameidata, Error> {
+    getname(path)?;
     cred.security_path_walk(start)?;
-    if path.is_empty() {
-        return Err(FilesystemError::NotFound.into());
-    }
     if path.starts_with('/') {
         return Err(Error::Escape);
     }
@@ -630,6 +645,7 @@ pub fn filename_symlinkat(
     start: &Path,
     path: &str,
 ) -> Result<(), Error> {
+    getname(target)?;
     let nd = filename_lookup(cred, start, path, false, false)?;
     let (_held, child) = filename_create(&nd, false)?;
     nd.security_path(Access::ReadWrite)?;
@@ -1928,6 +1944,39 @@ mod tests {
             ),
             "vfs::filename_unlinkat of `DIR/F` while vfs::filename_renameat2 moves `dir/f`, over a Filesystem \
              storing both as `DIR/F`, must wait for the move and then find nothing"
+        );
+    }
+
+    // Called with no Driver in front, so the VFS is what answers for every ABI.
+    // @behavior RT-213
+    #[test]
+    fn a_path_no_call_can_take_is_refused_before_a_filesystem_is_asked() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(Tmpfs::new())),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let cred = Arc::default();
+        let error = |error| Err(vfs::Error::Filesystem(error));
+        assert_eq!(
+            [
+                vfs::filename_mkdirat(&cred, &root, "a\0b"),
+                vfs::filename_mkdirat(&cred, &root, &"a/".repeat(2048)),
+                vfs::filename_mkdirat(&cred, &root, ""),
+                vfs::filename_symlinkat(&cred, "", &root, "link"),
+                vfs::filename_symlinkat(&cred, "a\0b", &root, "link"),
+            ],
+            [
+                error(FilesystemError::InvalidInput),
+                error(FilesystemError::InvalidFilename),
+                error(FilesystemError::NotFound),
+                error(FilesystemError::NotFound),
+                error(FilesystemError::InvalidInput),
+            ],
+            "vfs::filename_mkdirat and filename_symlinkat must answer EINVAL for a NUL, \
+             ENAMETOOLONG for a path that fits no PATH_MAX, and ENOENT for an empty path or target"
         );
     }
 
