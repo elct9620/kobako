@@ -1766,3 +1766,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind directory the runtime found, not yet opened on the host |
 | When | the host moves it away and makes another at its name, and the runtime asks about it |
 | Then | the call answers ENOENT rather than what stands there now |
+
+## `FS-168` A Tmpfs exchange leaves both files named
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-163` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs holding two files |
+| When | a rename exchanges them |
+| Then | each stands at the other's name and reports one name |
