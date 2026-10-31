@@ -3,6 +3,8 @@
 //! with the lower one's times before it is named, and leaving the times
 //! of the directory it lands in as they were.
 
+use std::sync::Arc;
+
 use super::super::super::{FileType, FilesystemError, OpenOptions};
 use super::super::inode::ovl_inode;
 use super::super::path::OverlayPath;
@@ -74,6 +76,25 @@ impl OverlayFs {
         };
         dir.inode.inode_update(into, &made);
         Ok(made)
+    }
+
+    /// Whether `real`, a Layer's dentry, stands in the upper Tmpfs, in its
+    /// workdir too, where a removal leaves a file something still holds.
+    pub(in super::super) fn is_in_upper(&self, real: &Arc<Dentry>) -> bool {
+        let root = self.work.as_ref().and_then(|work| work.dentry().parent());
+        root.is_some_and(|root| real.is_subdir(&root))
+    }
+
+    /// Copy the file `child` names up from the lower Layer showing it, as
+    /// `ovl_copy_up` does before a change to it. A file the view no longer
+    /// shows has no place to land, and so cannot change.
+    pub(in super::super) fn copy_up(&self, child: &Dentry) -> Result<(), FilesystemError> {
+        let dir = self.parent(child)?;
+        let upper = self.upper()?;
+        match self.lookup(&dir.level(), &child.name())? {
+            Some((from, _)) => self.copy_up_file(&dir, child, from, upper),
+            None => Err(FilesystemError::ReadOnlyFilesystem),
+        }
     }
 
     /// Copy the file `child` names in `dir` from Layer `from` into Layer

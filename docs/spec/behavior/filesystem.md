@@ -1511,3 +1511,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay whose lower Layer holds a directory as deep as a path reaches |
 | When | the guest makes an entry in it, on a thread with a small stack |
 | Then | every directory above is copied up, and the thread still runs |
+
+## `FS-147` A time set through an Overlay leaves its lower Layer as it was
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer would keep a time it is asked to |
+| When | the guest sets a time on a file only that Layer holds |
+| Then | the file is copied up, and the lower Layer is not asked |

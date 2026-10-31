@@ -45,6 +45,11 @@ impl OverlayPath {
         }
     }
 
+    /// Where this directory stands in its Layer.
+    pub(super) fn dentry(&self) -> &Arc<Dentry> {
+        &self.dentry
+    }
+
     /// The dentry of `name` in this directory.
     fn child(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
         lookup_one(&self.filesystem, self.dir.as_ref(), &self.dentry, name)

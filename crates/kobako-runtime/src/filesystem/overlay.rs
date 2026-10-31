@@ -204,7 +204,15 @@ impl InodeOperations for Overlay {
         })
     }
 
+    /// Copied up first, as `ovl_setattr` does, so a lower Layer stays as it
+    /// was whatever its Filesystem would keep.
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        let (real, _) = self.real_of(dentry)?;
+        if !self.fs.is_in_upper(&real) {
+            if let Err(err) = self.fs.copy_up(dentry) {
+                return Some(Err(err));
+            }
+        }
         let (real, _) = self.real_of(dentry)?;
         real.inode()?.ops().setattr(&real, attr)
     }
@@ -618,6 +626,93 @@ mod tests {
             ),
             "a FIFO renamed onto a directory through an Overlay must be refused as a directory, \
              and a directory renamed onto a FIFO as no directory, leaving both in place"
+        );
+    }
+
+    /// A lower Layer whose one file, `file`, would keep any time it is asked
+    /// to, recording that it was.
+    struct KeepsTimes(Arc<AtomicUsize>);
+
+    impl InodeOperations for KeepsTimes {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(match dentry.name().as_str() {
+                "file" => Metadata::new(FileType::File, 0).with_identity(1, 2),
+                _ => Metadata::new(FileType::Directory, 0).with_identity(1, 1),
+            })
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+            Some(Ok(match dentry.name().as_str() {
+                "file" => Lookup::Found(Inode::new(
+                    &Metadata::new(FileType::File, 0).with_identity(1, 2),
+                    Arc::new(Self(self.0.clone())),
+                )),
+                _ => Lookup::Absent,
+            }))
+        }
+
+        fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Some(Ok(()))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            struct Empty;
+            impl FileOperations for Empty {
+                fn read_iter(
+                    &mut self,
+                    _iocb: &mut Kiocb,
+                    _buf: &mut [u8],
+                ) -> Result<usize, FilesystemError> {
+                    Ok(0)
+                }
+            }
+            Some(Ok(Box::new(Empty)))
+        }
+    }
+
+    // Every built-in Filesystem refuses a time, so only one keeping it shows
+    // the call stopped at the upper.
+    // @behavior FS-147
+    #[test]
+    fn a_time_set_through_an_overlay_leaves_its_lower_layer_as_it_was() {
+        let asked = Arc::new(AtomicUsize::new(0));
+        let upper = Arc::new(Tmpfs::new());
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(KeepsTimes(asked.clone())))],
+            Some(Filesystem::new(upper.clone())),
+        )
+        .unwrap_or_else(|_| panic!("the Overlay must make"));
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)),
+            crate::mount::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let answer = crate::vfs::do_utimes(
+            &Arc::default(),
+            &crate::vfs::Path::root(mount.mnt()),
+            "file",
+            false,
+            &Iattr::times(None, Some(crate::filesystem::SetTime::Now)),
+        );
+        assert_eq!(
+            (
+                answer,
+                asked.load(Ordering::SeqCst),
+                kern_path(upper).symlink_metadata("upper/file").is_ok()
+            ),
+            (
+                Err(crate::vfs::Error::Filesystem(FilesystemError::Unsupported)),
+                0,
+                true
+            ),
+            "vfs::do_utimes through an Overlay on a file of its lower Layer must copy the file \
+             up, answer what the upper answers, and never ask the lower Layer"
         );
     }
 
