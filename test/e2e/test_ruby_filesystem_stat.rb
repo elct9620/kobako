@@ -103,6 +103,48 @@ class TestE2ERubyFilesystemStat < Minitest::Test
                  "zero rather than what its path's stat says"
   end
 
+  # The hash is drawn per process, so only agreement and its absence are
+  # literal: a Ruby Filesystem names a listed entry as a stat of it does.
+  # @behavior RT-183
+  def test_a_permissive_guest_reads_one_inode_number_in_a_stat_and_a_listing
+    seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), bare_file), profile: :permissive)
+
+    refute_equal 0, seen.listed,
+                 "fd_readdir of a Ruby Filesystem's directory through a permissive guest must name an inode number"
+    assert_equal seen.path[0], seen.listed,
+                 "fd_readdir and path_filestat_get of one file a Ruby Filesystem holds must answer one inode number"
+  end
+
+  # @behavior RT-183
+  def test_a_hermetic_guest_reads_no_inode_number_of_a_ruby_filesystem
+    seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), bare_file), profile: :hermetic)
+
+    assert_equal [0, 0, 0], [seen.path[0], seen.open[0], seen.listed],
+                 "path_filestat_get, fd_filestat_get, and fd_readdir of a Ruby Filesystem's file through a hermetic " \
+                 "guest must answer inode number 0"
+  end
+
+  # @behavior RF-031
+  def test_a_stat_reports_the_times_and_names_it_records
+    filesystem = -> { OneFileFilesystem.new(recording_stat(nlink: 3), bare_file) }
+
+    assert_equal [3, MODIFIED, MODIFIED, MODIFIED], fields(filesystem.call, profile: :permissive).path[1, 4],
+                 "path_filestat_get through a permissive guest must read the count of names and the times a Ruby " \
+                 "Filesystem's stat records"
+    assert_equal [3, 0, 0, 0], fields(filesystem.call, profile: :hermetic).path[1, 4],
+                 "path_filestat_get through a hermetic guest must read the count of names a Ruby Filesystem's stat " \
+                 "records, and every time at the epoch"
+  end
+
+  # @behavior RF-031
+  def test_a_stat_recording_neither_reports_one_name_and_time_zero
+    seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), bare_file), profile: :permissive)
+
+    assert_equal [1, 0, 0, 0], seen.path[1, 4],
+                 "path_filestat_get of a Ruby Filesystem's stat answering no nlink and no time must read one name " \
+                 "and time zero"
+  end
+
   # A FIFO's open would wait for a peer in the host's Ruby, past any deadline,
   # so an object asked to open it fails this test rather than hanging it.
   # @behavior RF-030

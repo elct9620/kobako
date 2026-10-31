@@ -403,3 +403,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `stat` answers the `ftype` of a FIFO, a socket, or a device |
 | When | the script opens the file |
 | Then | the open raises `Errno::EACCES`, and the object is not asked to open it |
+
+## `RF-031` A Ruby Filesystem's stat reports the times and names it records
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-001`, `RT-156`, `RT-157`, `RT-193` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `stat` answers `nlink` and three times, and one whose `stat` answers neither |
+| When | a permissive guest and a hermetic guest read what the path reports |
+| Then | each reads the count and one name without one; only the hermetic guest reads each time at the epoch |
