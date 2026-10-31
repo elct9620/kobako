@@ -3,8 +3,7 @@
 
 use crate::locking::Deadlock;
 
-/// Why a Filesystem call failed. The runtime hands the guest the matching
-/// error code.
+/// Why a Filesystem call failed, for the ABI above to encode as its error code.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FilesystemError {

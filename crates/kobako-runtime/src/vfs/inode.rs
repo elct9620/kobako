@@ -33,7 +33,7 @@ pub enum Lookup {
 /// on the way through. A directory keeps its identity its own while it is
 /// open, as an open descriptor keeps a host's inode from being reused.
 ///
-/// The runtime walks a guest's path one name at a time and follows a link
+/// The VFS walks a path one name at a time and follows a link
 /// itself, as the VFS above a filesystem does, so a link never leads a call
 /// out of the directory a descriptor opened. Every Invocation reaches the
 /// same Filesystem; one that should start afresh is handed in its place for
@@ -42,7 +42,7 @@ pub trait InodeOperations: Any + Send + Sync {
     /// What this entry, which `dentry` names, reports of itself, as
     /// `getattr` is handed the path it answers for, even once its name is
     /// gone and only an open file holds it, as `fstat` asks the same. A link
-    /// reports itself; the runtime keeps its size from the guest.
+    /// reports itself.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
 
     /// Apply `attr` to this entry, even once its name is gone and only an
@@ -68,7 +68,7 @@ pub trait InodeOperations: Any + Send + Sync {
     }
 
     /// Where this link, which `dentry` names, points, as `get_link` answers,
-    /// for the runtime to follow; a guest never reads it. Anything else
+    /// for the VFS to follow. Anything else
     /// without it refuses as `readlinkat` does.
     fn get_link(&self, _dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
         None

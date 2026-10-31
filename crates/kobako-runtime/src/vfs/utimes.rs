@@ -1,6 +1,6 @@
 //! Setting the times of an entry, as Linux's `utimensat` does. What answers is
 //! the entry's own `setattr`, so a Filesystem decides whether it keeps a time
-//! of the guest's choosing.
+//! of the caller's choosing.
 
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Er
     path.mnt().mnt_want_write()?;
     cred.security_path_walk(path)?;
     let dentry = path.dentry();
-    cred.security_inode_permission(path.mnt(), &|| dentry.path_raw(), Access::ReadWrite)?;
+    cred.security_path_perm(path.mnt(), &|| dentry.path_raw(), Access::ReadWrite)?;
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
     let _held = dentry.inode_lock()?;
     Ok(inode

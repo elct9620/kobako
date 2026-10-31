@@ -15,12 +15,12 @@ use super::path::Path;
 use super::super_block::SuperBlock;
 use super::{FileType, FilesystemError, Metadata};
 
-/// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No guest
-/// path reaches it: a pipe is only ever open.
+/// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No path
+/// reaches it: a pipe is only ever open.
 static PIPE_MNT: LazyLock<Path> =
     LazyLock::new(|| Path::root(&VfsMount::kern_mount(SuperBlock::new(Arc::new(PipeFs)))));
 
-/// Each pipe's name on pipefs, which no guest ever reads.
+/// Each pipe's name on pipefs, which no call ever reads.
 static PIPE_NAME: AtomicU64 = AtomicU64::new(0);
 
 /// A pipe reports what it is and no length, as `get_pipe_inode` makes one.

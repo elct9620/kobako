@@ -73,7 +73,7 @@ impl SecurityOperations for MountPolicy {
     /// entry it refuses by another. One a Policy could not be handed within
     /// `PATH_MAX` is refused as too long, as AppArmor's `aa_path_name` refuses
     /// one past its buffer.
-    fn inode_permission(
+    fn path_perm(
         &self,
         mnt: &Arc<VfsMount>,
         path: &dyn Fn() -> String,

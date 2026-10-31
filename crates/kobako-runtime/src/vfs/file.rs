@@ -93,11 +93,10 @@ pub trait FileOperations: Send {
         Err(FilesystemError::InvalidInput)
     }
 
-    /// Answer, as the guest closes the file, whether what it held was kept,
-    /// as `f_op->flush` answers `close(2)`. The default has nothing to flush.
+    /// Answer, as the file is closed, whether what it held was kept, as
+    /// `f_op->flush` answers `close(2)`. The default has nothing to flush.
     /// What the file holds goes when it is dropped, as `->release` runs and
-    /// no caller reads its answer, so a file the guest never closes still
-    /// lets go of it.
+    /// no caller reads its answer, so a file never closed still lets go of it.
     fn flush(&mut self) -> Result<(), FilesystemError> {
         Ok(())
     }
@@ -224,7 +223,7 @@ impl<'a> DirContext<'a> {
 }
 
 /// Refuse a name no directory can hold, as Linux's `verify_dirent_name` refuses
-/// what a Filesystem hands it, so a guest walking a listing is never handed a
+/// what a Filesystem hands it, so whoever walks a listing is never handed a
 /// path where it was promised one name.
 fn verify_dirent_name(name: &str) -> Result<(), FilesystemError> {
     if name.is_empty() || name.len() >= PATH_MAX || name.contains('/') {

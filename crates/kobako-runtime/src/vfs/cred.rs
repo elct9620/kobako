@@ -13,8 +13,8 @@ use super::{Error, FileType, FilesystemError};
 /// not have allows the call, and a module can only refuse.
 pub trait SecurityOperations: Send + Sync {
     /// Whether the path `path` names beneath `mnt` may be reached with
-    /// `access`.
-    fn inode_permission(
+    /// `access`, as AppArmor's `aa_path_perm` judges a whole path once.
+    fn path_perm(
         &self,
         _mnt: &Arc<VfsMount>,
         _path: &dyn Fn() -> String,
@@ -76,7 +76,7 @@ impl Cred {
         Arc::new(Self { security })
     }
 
-    pub(crate) fn security_inode_permission(
+    pub(crate) fn security_path_perm(
         &self,
         mnt: &Arc<VfsMount>,
         path: &dyn Fn() -> String,
@@ -84,7 +84,7 @@ impl Cred {
     ) -> Result<(), Error> {
         self.security
             .iter()
-            .try_for_each(|module| module.inode_permission(mnt, path, access))
+            .try_for_each(|module| module.path_perm(mnt, path, access))
     }
 
     pub(crate) fn security_file_open(&self, kind: FileType) -> Result<(), FilesystemError> {

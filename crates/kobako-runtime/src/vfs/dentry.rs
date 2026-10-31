@@ -1,4 +1,4 @@
-//! The names of one Filesystem a guest has reached, each kept by the
+//! The names of one Filesystem a walk has reached, each kept by the
 //! directory above it and its name there while something holds it, as
 //! Linux's dentries are: a directory moved through the VFS takes every one
 //! beneath it along, and one removed or replaced through it is dead. Only a

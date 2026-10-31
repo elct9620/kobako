@@ -1,11 +1,11 @@
 //! One Filesystem mounted, as Linux's `vfsmount`: what a walk stands on and
-//! what it allows, and nothing of where a guest finds it.
+//! what it allows, and nothing of a path it is found at.
 
 use std::sync::Arc;
 
 use super::super_block::SuperBlock;
 
-/// What the guest may do beneath a Mount.
+/// What a call may do beneath a mount, as Linux's `MAY_READ` and `MAY_WRITE`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     Read,
@@ -35,7 +35,7 @@ impl VfsMount {
     }
 
     /// `sb` mounted for the runtime's own use, as `kern_mount` mounts one no
-    /// guest path reaches.
+    /// path reaches.
     pub(crate) fn kern_mount(sb: Arc<SuperBlock>) -> Arc<Self> {
         Self::new(sb, false)
     }

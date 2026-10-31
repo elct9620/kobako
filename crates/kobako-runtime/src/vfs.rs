@@ -1,6 +1,6 @@
-//! The calls a guest makes on paths beneath its Mounts, answered as the
-//! VFS above a filesystem answers them, so an engine only carries each
-//! call's arguments in and its answer out.
+//! The calls made on paths beneath a mount, answered as the VFS above a
+//! filesystem answers them, so an ABI above only carries each call's arguments
+//! in and its answer out.
 //!
 //! A path never climbs above the directory it is resolved beneath, as a
 //! capability never widens, and a read-only mount and the security hooks

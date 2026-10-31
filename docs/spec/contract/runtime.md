@@ -910,13 +910,13 @@ module can only refuse.
 pub trait SecurityOperations: Send + Sync {}
 ```
 
-## `SecurityOperations::inode_permission`
+## `SecurityOperations::path_perm`
 
 Whether a path beneath a mount may be reached with an access.
 
 ```rust
 pub trait SecurityOperations {
-    fn inode_permission(&self, _mnt: &Arc<VfsMount>, _path: &dyn Fn() -> String, _access: Access) -> Result<(), Error>;
+    fn path_perm(&self, _mnt: &Arc<VfsMount>, _path: &dyn Fn() -> String, _access: Access) -> Result<(), Error>;
 }
 ```
 

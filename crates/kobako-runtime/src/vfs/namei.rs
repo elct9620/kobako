@@ -1,4 +1,4 @@
-//! Resolving a guest path beneath a directory, one name at a time, and the
+//! Resolving a path beneath a directory, one name at a time, and the
 //! calls that act on the name it ends at: opening it, making it, removing
 //! it, and moving it, as Linux's `namei.c` holds both.
 //!
@@ -29,12 +29,12 @@ use super::{NAME_MAX, PATH_MAX};
 /// The most links one walk follows, as Linux's.
 const MAXSYMLINKS: usize = 40;
 
-/// Whether a guest path asks for a directory, ending in `/` or `/.`.
+/// Whether a path asks for a directory, ending in `/` or `/.`.
 pub(crate) fn names_directory(path: &str) -> bool {
     matches!(path.rsplit('/').next(), Some("" | "."))
 }
 
-/// A guest path walked beneath a directory, as Linux's `nameidata` carries
+/// A path walked beneath a directory, as Linux's `nameidata` carries
 /// one walk from where it starts to the call it ends in: the directories
 /// it stands in, the names still to walk, and the last name, empty for
 /// the directory itself, left for the call to act on.
@@ -170,20 +170,20 @@ impl Nameidata {
         names.join("/")
     }
 
-    /// Whether the guest may reach the path with `access`, as an open asks:
-    /// a change asks the mount first, then the security hook.
+    /// Whether the path may be reached with `access`, as an open asks: a change
+    /// asks the mount first, then the security hook.
     fn check(&self, access: Access) -> Result<(), Error> {
         if access == Access::ReadWrite {
             self.mnt.mnt_want_write()?;
         }
-        self.security_path(access)
+        self.security_path_perm(access)
     }
 
-    /// Whether a security hook lets the guest reach the path with `access`,
-    /// as Linux's `security_path_*` asks once its call holds the name.
-    fn security_path(&self, access: Access) -> Result<(), Error> {
+    /// Whether a security hook lets the path be reached with `access`, as
+    /// Linux's `security_path_*` asks once its call holds the name.
+    fn security_path_perm(&self, access: Access) -> Result<(), Error> {
         self.cred
-            .security_inode_permission(&self.mnt, &|| self.dentry_path(), access)
+            .security_path_perm(&self.mnt, &|| self.dentry_path(), access)
     }
 }
 
@@ -306,7 +306,7 @@ impl Nameidata {
 
     /// Step out of the directory the walk stands in. Out of the one the
     /// walk started from, no `..` holds a capability, as `RESOLVE_BENEATH`
-    /// refuses a guest's and a link's alike; out of one a link led to, the
+    /// refuses a caller's and a link's alike; out of one a link led to, the
     /// security hooks are asked.
     fn follow_dotdot(&mut self, from_link: bool) -> Result<(), Error> {
         if self.frames.len() == 1 {
@@ -331,25 +331,6 @@ impl Nameidata {
             }
             _ => Err(FilesystemError::NotADirectory.into()),
         }
-    }
-
-    /// Settle what the walk found at its last name, as Linux's
-    /// `complete_walk` settles a lazy walk: a failure there may belong to
-    /// a directory stepped into but not yet opened, so that directory is
-    /// opened now, and its own failure answers the walk instead.
-    fn complete_walk(
-        &self,
-        found: Result<FileType, FilesystemError>,
-    ) -> Result<Result<FileType, FilesystemError>, Error> {
-        if found.is_err() && self.descended() {
-            self.dentry().can_lookup(self.base())?;
-        }
-        Ok(found)
-    }
-
-    /// Whether the walk stepped into any directory beneath where it began.
-    fn descended(&self) -> bool {
-        self.frames.len() > 1
     }
 
     /// Walk every pending name but the last, which is left to act on.
@@ -417,7 +398,7 @@ fn getname(path: &str) -> Result<(), FilesystemError> {
 }
 
 /// `path`, beneath `start`. An empty path names nothing; an absolute path
-/// or a `..` above `start` itself is not the guest's to reach; a `..` or a
+/// or a `..` above `start` itself is not the caller's to reach; a `..` or a
 /// final `.` after a component that is missing, no directory, or a link is
 /// `NotFound`, `NotADirectory`, or what the security hooks answer. A name past
 /// `NAME_MAX` is `InvalidFilename`. Where `follow` asks, a link at the end is
@@ -476,16 +457,7 @@ pub(crate) fn filename_lookup(
             nd.last = Some(dentry);
         }
     }
-    // A walk that stepped into directories not yet opened settles its last
-    // name now; one that stepped into none leaves it to the call to ask.
-    nd.found = match found {
-        Some(found) => Some(nd.complete_walk(found)?),
-        None if nd.descended() => {
-            let looked_up = nd.kind();
-            Some(nd.complete_walk(looked_up)?)
-        }
-        None => None,
-    };
+    nd.found = found;
     // A directory removed through the VFS holds no name any more, as
     // Linux's lookup in a dead directory finds nothing.
     if !nd.name.is_empty() && nd.dentry().is_deaddir() {
@@ -558,7 +530,7 @@ pub fn do_file_open(
                 read: how.read,
                 write: how.write,
                 // A file already there is opened as it is, so a host that
-                // opens only to create never asks for more than the guest.
+                // opens only to create never asks for more than the caller.
                 create: how.create && existing.is_none(),
                 create_new: how.create && how.exclusive,
                 truncate: how.truncate,
@@ -634,8 +606,8 @@ pub fn filename_linkat(
     if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
         return Err(FilesystemError::CrossesDevices.into());
     }
-    old.security_path(Access::ReadWrite)?;
-    new.security_path(Access::ReadWrite)?;
+    old.security_path_perm(Access::ReadWrite)?;
+    new.security_path_perm(Access::ReadWrite)?;
     let dir = new.base();
     Ok(vfs_link(dir.as_ref(), new.dentry(), &child, || {
         if kind == FileType::Directory {
@@ -657,7 +629,7 @@ pub fn filename_symlinkat(
     getname(target)?;
     let nd = filename_lookup(cred, start, path, false)?;
     let (_held, child) = filename_create(&nd, false)?;
-    nd.security_path(Access::ReadWrite)?;
+    nd.security_path_perm(Access::ReadWrite)?;
     let dir = nd.base();
     Ok(vfs_link(dir.as_ref(), nd.dentry(), &child, || {
         dir.symlink(&child, target)
@@ -702,25 +674,22 @@ fn start_dirop(nd: &Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error>
 pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
     let nd = filename_lookup(cred, start, path, false)?;
     let (_held, child) = filename_create(&nd, true)?;
-    nd.security_path(Access::ReadWrite)?;
+    nd.security_path_perm(Access::ReadWrite)?;
     Ok(vfs_mkdir(nd.base().as_ref(), nd.dentry(), &child)?)
 }
 
 /// Remove the empty directory `path` beneath `start`.
 pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
-    let dots = [
-        FilesystemError::InvalidInput,
-        FilesystemError::DirectoryNotEmpty,
-    ];
-    if let Some(refusal) = dot_end(cred, start, path, dots)? {
-        return Err(refusal.into());
+    match filename_parentat(cred, start, path)? {
+        LastType::Norm => {}
+        LastType::Dot => return Err(FilesystemError::InvalidInput.into()),
+        LastType::DotDot => return Err(FilesystemError::DirectoryNotEmpty.into()),
     }
     let mut nd = filename_lookup(cred, start, path, false)?;
-    refuse_root(&nd.name, FilesystemError::InvalidInput)?;
     nd.mnt.mnt_want_write()?;
     nd.check_directory()?;
     let (_held, child) = start_dirop(&nd)?;
-    nd.security_path(Access::ReadWrite)?;
+    nd.security_path_perm(Access::ReadWrite)?;
     Ok(vfs_rmdir(
         nd.mnt.sb(),
         nd.base().as_ref(),
@@ -738,7 +707,7 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(
     nd.mnt.mnt_want_write()?;
     nd.check_directory()?;
     let (_held, child) = start_dirop(&nd)?;
-    nd.security_path(Access::ReadWrite)?;
+    nd.security_path_perm(Access::ReadWrite)?;
     Ok(vfs_unlink(
         nd.mnt.sb(),
         nd.base().as_ref(),
@@ -761,9 +730,9 @@ pub fn filename_renameat2(
     // Both sides are walked before anything is refused of either, as
     // `filename_renameat2` answers a move across mounts ahead of a `.` or `..`
     // at the end.
-    let walk = |start, path| match dot_end(cred, start, path, BUSY_DOTS)? {
-        Some(refusal) => Ok(Err(refusal)),
-        None => filename_lookup(cred, start, path, false).map(Ok),
+    let walk = |start, path| match filename_parentat(cred, start, path)? {
+        LastType::Norm => filename_lookup(cred, start, path, false).map(Ok),
+        LastType::Dot | LastType::DotDot => Ok(Err(FilesystemError::ResourceBusy)),
     };
     let (source, target): (Result<_, FilesystemError>, _) =
         (walk(from, from_path)?, walk(to, to_path)?);
@@ -771,8 +740,6 @@ pub fn filename_renameat2(
         return Err(FilesystemError::CrossesDevices.into());
     }
     let (mut source, mut target) = (source?, target?);
-    refuse_root(&source.name, FilesystemError::ResourceBusy)?;
-    refuse_root(&target.name, FilesystemError::ResourceBusy)?;
     from.mnt().mnt_want_write()?;
     // A trailing `/` on either side asks that the source be a directory,
     // which `rename(2)` checks before it finds a rename onto its own path
@@ -789,8 +756,8 @@ pub fn filename_renameat2(
     // the hook allows it, as `vfs_rename` answers after `security_path_rename`.
     if onto_itself {
         source.kind()?;
-        source.security_path(Access::ReadWrite)?;
-        return target.security_path(Access::ReadWrite);
+        source.security_path_perm(Access::ReadWrite)?;
+        return target.security_path_perm(Access::ReadWrite);
     }
     let sb = from.mnt().sb();
     let (old_dir, new_dir) = (source.dentry(), target.dentry());
@@ -806,8 +773,8 @@ pub fn filename_renameat2(
     if names_directory && !is_dir {
         return Err(FilesystemError::NotADirectory.into());
     }
-    source.security_path(Access::ReadWrite)?;
-    target.security_path(Access::ReadWrite)?;
+    source.security_path_perm(Access::ReadWrite)?;
+    target.security_path_perm(Access::ReadWrite)?;
     cred.security_path_rename(from.mnt(), is_dir)?;
     Ok(vfs_rename(
         sb,
@@ -1142,38 +1109,36 @@ fn may_delete_dentry(
     Ok(())
 }
 
-/// What a move answers for a `.` or a `..` at the end of a path.
-const BUSY_DOTS: [FilesystemError; 2] =
-    [FilesystemError::ResourceBusy, FilesystemError::ResourceBusy];
+/// What the last name of a path is, as Linux's `nd->last_type`.
+#[derive(Clone, Copy)]
+enum LastType {
+    Norm,
+    Dot,
+    DotDot,
+}
 
-/// The refusal `[dot, dotdot]` names for a guest path ending in `.` or `..`,
-/// which names no entry a call may remove or move, as Linux answers each by
-/// the kind of its last name. Linux looks up what stands before it first,
-/// following a link there as it follows one that is not the last name, so a
-/// missing or non-directory parent answers as itself.
-fn dot_end(
-    cred: &Arc<Cred>,
-    start: &Path,
-    path: &str,
-    [dot, dotdot]: [FilesystemError; 2],
-) -> Result<Option<FilesystemError>, Error> {
+/// What the last name of `path` is, which names no entry a call may remove or
+/// move where it is a `.` or a `..`, as `filename_parentat` tells each call.
+/// What stands before such a name is looked up first, a link there followed
+/// as one that is not the last name is, so a missing or non-directory parent
+/// answers as itself.
+fn filename_parentat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<LastType, Error> {
     let trimmed = path.trim_end_matches('/');
     let (parent, last) = trimmed.rsplit_once('/').unwrap_or(("", trimmed));
-    let refusal = match last {
-        "." => dot,
-        ".." => dotdot,
-        _ => return Ok(None),
+    let last_type = match last {
+        "." => LastType::Dot,
+        ".." => LastType::DotDot,
+        _ => return Ok(LastType::Norm),
     };
     if !parent.is_empty()
         && filename_lookup(cred, start, parent, true)?.kind()? != FileType::Directory
     {
         return Err(FilesystemError::NotADirectory.into());
     }
-    Ok(Some(refusal))
+    Ok(last_type)
 }
 
-/// A Mount's root is where the guest stands, not a directory it may
-/// remove or move; each call refuses it as Linux refuses its own root.
+/// The directory a walk ended in is no name a call may make or remove.
 fn refuse_root(name: &str, refusal: FilesystemError) -> Result<(), Error> {
     if name.is_empty() {
         return Err(refusal.into());
