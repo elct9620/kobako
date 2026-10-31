@@ -137,6 +137,7 @@ impl OverlayFs {
         let parent_times = target_dir.metadata()?;
         target_dir.link(&copy, &name)?;
         let _ = target_dir.set_times(&parent_times);
-        inode.copied_up(&target_dir, &name)
+        inode.set_real(target_dir.real(&name)?);
+        Ok(())
     }
 }

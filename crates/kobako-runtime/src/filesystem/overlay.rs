@@ -204,6 +204,14 @@ impl InodeOperations for Overlay {
             }
         }
         let (real, _) = self.real_of(dentry)?;
+        // A file whose name another entry took since has nowhere to land.
+        if !self.fs.is_in_upper(&real) {
+            return Some(Err(FilesystemError::ReadOnlyFilesystem));
+        }
+        let _held = match real.inode_lock() {
+            Ok(held) => held,
+            Err(err) => return Some(Err(err)),
+        };
         real.inode()?.ops().setattr(&real, attr)
     }
 
@@ -213,12 +221,10 @@ impl InodeOperations for Overlay {
         Some(self.lookup_at(dentry))
     }
 
+    /// Where the link points, as `ovl_get_link` asks the real dentry.
     fn get_link(&self, dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
-        Some(
-            self.fs
-                .parent(dentry)
-                .and_then(|parent| self.fs.read_link(&parent.level(), &dentry.name())),
-        )
+        let (real, _) = self.real_of(dentry)?;
+        Some(real.get_link())
     }
 
     fn open(
@@ -2018,6 +2024,100 @@ mod tests {
             "a read through a directory Overlay::open_dir opened, once its Layer moved it away \
              and made another in its place outside the Overlay, must read the directory it \
              opened"
+        );
+    }
+
+    /// A lower Layer running what it holds right after its first open, while a
+    /// file of it is being opened through the view.
+    #[derive(Default)]
+    struct RunsAfterOpen(Mutex<Option<Box<dyn FnOnce() + Send>>>);
+
+    impl Hook for RunsAfterOpen {
+        fn open(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+            options: &OpenOptions,
+        ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+            let opened = inner.open(dentry, options);
+            let run = self.0.lock().expect("never poisoned").take();
+            if let Some(run) = run {
+                thread::spawn(run)
+                    .join()
+                    .expect("the writer must not panic");
+            }
+            opened
+        }
+    }
+
+    // The copy up lands between the lower open and whatever the file does to
+    // learn of one, so only a file asking where the data is at each read sees
+    // it. A count taken after the open would say no reader was there to tell.
+    // @behavior FS-157
+    #[test]
+    fn a_file_opened_as_a_copy_up_lands_reads_the_copy() {
+        let hook = Arc::new(RunsAfterOpen::default());
+        let lower = Wrap::new(tmpfs_with("note", "lower"), hook.clone());
+        let overlay = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
+        *hook.0.lock().expect("never poisoned") = Some({
+            let writer = overlay.clone();
+            Box::new(move || overwrite(&writer, "note", b"upper"))
+        });
+        assert_eq!(
+            read(&overlay, "note"),
+            b"upper".to_vec(),
+            "a read through a file of a lower Layer opened while a write copied it up must read \
+             the copy"
+        );
+    }
+
+    // A descriptor held across the removal still names the lower file, while
+    // what stands at its name now is another entry, so only checking where the
+    // copy up landed keeps the lower Layer from being asked.
+    // @behavior FS-158
+    #[test]
+    fn a_time_set_on_a_file_whose_name_was_taken_leaves_its_lower_layer() {
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{self, OpenHow, Path};
+        let asked = Arc::new(AtomicUsize::new(0));
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(KeepsTimes(asked.clone())))],
+            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+        )
+        .expect("the Overlay must stack");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let cred = Arc::default();
+        let (read, create) = (
+            OpenHow {
+                read: true,
+                ..OpenHow::default()
+            },
+            OpenHow {
+                write: true,
+                create: true,
+                ..OpenHow::default()
+            },
+        );
+        let held = vfs::do_file_open(&cred, &root, "file", &read)
+            .unwrap_or_else(|_| panic!("the file must open"));
+        vfs::filename_unlinkat(&cred, &root, "file").expect("the file must be removed");
+        drop(vfs::do_file_open(&cred, &root, "file", &create));
+        let answer = vfs::vfs_utimes(
+            &cred,
+            held.path(),
+            &Iattr::times(None, Some(crate::vfs::SetTime::Now)),
+        );
+        assert_eq!(
+            (answer, asked.load(Ordering::SeqCst)),
+            (Err(FilesystemError::ReadOnlyFilesystem.into()), 0),
+            "vfs::vfs_utimes on a held lower file whose name another entry took must answer EROFS \
+             and leave the lower Layer unasked"
         );
     }
 

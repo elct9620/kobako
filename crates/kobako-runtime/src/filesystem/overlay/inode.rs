@@ -1,7 +1,7 @@
 //! The entries of an Overlay's view as it keeps them on their inodes, as
 //! overlayfs keeps an `ovl_inode` for each: a directory's Layers'
-//! directories, the lock a copy up of the entry holds, and the copy a file
-//! open to read reads once a copy up made one.
+//! directories, the lock a copy up of the entry holds, and where a file's
+//! data is.
 //!
 //! The runtime records one inode for each dentry it reaches, so every handle
 //! of an entry reaches the same state, and a removal or a replacement
@@ -9,17 +9,13 @@
 //! its own.
 
 use std::any::Any;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use super::super::{FileOperations, FilesystemError, OpenOptions};
+use super::super::FilesystemError;
 use super::path::OverlayPath;
 use super::stack::Level;
 use crate::locking::RwSemaphore;
 use crate::vfs::{Dentry, Inode};
-
-/// A copy a file open to read reads once a copy up made it.
-pub(super) type Copy = Arc<Mutex<Box<dyn FileOperations>>>;
 
 /// One entry of the view.
 pub(super) struct OverlayInode {
@@ -28,10 +24,6 @@ pub(super) struct OverlayInode {
     /// The lock a copy up of the entry holds, as overlayfs's
     /// `ovl_inode_lock`, so two calls never copy one entry up at once.
     pub(super) lock: Arc<RwSemaphore>,
-    /// How many files of a lower Layer are open to read here, so a copy up
-    /// opens its copy only while one is.
-    readers: AtomicUsize,
-    copy: Mutex<Option<Copy>>,
     /// The Layer's dentry a lookup found this file at, or a copy up made,
     /// as `struct ovl_entry` holds the real dentries, so the entry answers
     /// from it even once its name is gone from the view.
@@ -47,8 +39,6 @@ impl OverlayInode {
         Self {
             level: Mutex::new(level),
             lock: Arc::default(),
-            readers: AtomicUsize::new(0),
-            copy: Mutex::new(None),
             real: Mutex::new(real),
         }
     }
@@ -69,53 +59,10 @@ impl OverlayInode {
         lock(&self.real).clone()
     }
 
-    /// The copy a copy up made, once one did for a file read here.
-    pub(super) fn copy(&self) -> Option<Copy> {
-        lock(&self.copy).clone()
-    }
-
-    /// Count a file of a lower Layer open to read here until the guard is
-    /// dropped.
-    pub(super) fn hold_reader(self: &Arc<Self>) -> ReaderGuard {
-        self.readers.fetch_add(1, Ordering::SeqCst);
-        ReaderGuard(self.clone())
-    }
-
-    /// This file was copied up as `name` into `dir`, the upper's
-    /// directory; a file opened to read here reads the copy from now on,
-    /// as overlayfs's open file reaches the upper inode.
-    pub(super) fn copied_up(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
-        *lock(&self.real) = Some(dir.real(name)?);
-        if self.readers.load(Ordering::SeqCst) == 0 {
-            return Ok(());
-        }
-        let copy = dir.open(
-            name,
-            &OpenOptions {
-                read: true,
-                ..OpenOptions::default()
-            },
-        )?;
-        *lock(&self.copy) = Some(Arc::new(Mutex::new(copy)));
-        Ok(())
-    }
-}
-
-/// One file of a lower Layer counted as open to read at an entry, until it
-/// is dropped.
-pub(super) struct ReaderGuard(Arc<OverlayInode>);
-
-impl std::ops::Deref for ReaderGuard {
-    type Target = OverlayInode;
-
-    fn deref(&self) -> &OverlayInode {
-        &self.0
-    }
-}
-
-impl Drop for ReaderGuard {
-    fn drop(&mut self) {
-        self.0.readers.fetch_sub(1, Ordering::SeqCst);
+    /// This file's data now stands at `real`, in the upper, as
+    /// `ovl_dentry_set_upper_alias` records a copy up.
+    pub(super) fn set_real(&self, real: Arc<Dentry>) {
+        *lock(&self.real) = Some(real);
     }
 }
 

@@ -233,11 +233,6 @@ impl OverlayPath {
         Ok(lookup_slow(&self.filesystem, self.dir.as_ref(), &self.dentry, name)?.0)
     }
 
-    pub(super) fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        let _held = self.inode_lock_shared()?;
-        self.lookup_real(name)?.get_link()
-    }
-
     /// This directory opened, kept open for whoever holds it, as overlayfs's
     /// `ovl_dir_open` opens the real directory.
     pub(super) fn open_real(&self) -> Option<Box<dyn FileOperations>> {

@@ -5,7 +5,8 @@
 //! all.
 
 use super::super::super::{FileOperations, FileType, FilesystemError, OpenOptions};
-use super::super::file::reader;
+use super::super::file::ovl_file;
+use super::super::inode::ovl_inode_of;
 use super::super::path::OverlayPath;
 use super::{
     cleanup, cleanup_whiteouts, entry, holds, layer_dir, opaque_inside, Level, OverlayFs, ViewDir,
@@ -183,34 +184,34 @@ impl OverlayFs {
         }
     }
 
-    /// Open the file `child` names in `dir`. A lower Layer's file opened to
-    /// read reads the copy once a copy up makes one.
+    /// Open the file `child` names in `dir` on the Layer's dentry its inode
+    /// keeps, copied up first for a change, as `ovl_open` does. A lower Layer's
+    /// file opened to read reads the upper's once a copy up makes one.
     pub(in super::super) fn open(
         &self,
         dir: &ViewDir,
         child: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let name = &child.name();
-        let changes = options.write || options.truncate;
-        let level = dir.level();
-        match self.lookup(&level, name)? {
-            Some((_, found)) if found.file_type == FileType::Directory => {
-                Err(FilesystemError::IsADirectory)
-            }
-            Some((index, _)) if self.is_upper(index) => {
-                layer_dir(&level[index])?.open(name, options)
-            }
-            Some((index, _)) if !changes => {
-                let file = layer_dir(&level[index])?.open(name, options)?;
-                reader(file, child)
-            }
-            Some((index, _)) => {
-                let upper = self.upper()?;
-                self.copy_up_file(dir, child, index, upper, options.truncate)?;
-                layer_dir(&dir.level()[upper])?.open(name, options)
-            }
-            None => Err(FilesystemError::NotFound),
+        let inode = child.inode().ok_or(FilesystemError::NotFound)?;
+        let kept = ovl_inode_of(&inode).ok_or(FilesystemError::IsADirectory)?;
+        let real = kept.real().ok_or(FilesystemError::IsADirectory)?;
+        if self.is_in_upper(&real) {
+            return real.open(options);
+        }
+        if !(options.write || options.truncate) {
+            let file = real.open(options)?;
+            return Ok(ovl_file(file, real, child, kept));
+        }
+        let upper = self.upper()?;
+        let (from, _) = self
+            .lookup(&dir.level(), &child.name())?
+            .ok_or(FilesystemError::NotFound)?;
+        self.copy_up_file(dir, child, from, upper, options.truncate)?;
+        let real = kept.real().ok_or(FilesystemError::IsADirectory)?;
+        match self.is_in_upper(&real) {
+            true => real.open(options),
+            false => Err(FilesystemError::ReadOnlyFilesystem),
         }
     }
 

@@ -190,19 +190,4 @@ impl OverlayFs {
             None => Ok(name.to_string()),
         }
     }
-
-    /// Where the link the view shows at `name` points, as the Layer
-    /// holding it reads it.
-    pub(in super::super) fn read_link(
-        &self,
-        level: &Level,
-        name: &str,
-    ) -> Result<String, FilesystemError> {
-        match self.lookup(level, name)?.ok_or(FilesystemError::NotFound)? {
-            (index, found) if found.file_type == FileType::Symlink => {
-                layer_dir(&level[index])?.read_link(name)
-            }
-            _ => Err(FilesystemError::InvalidInput),
-        }
-    }
 }
