@@ -295,6 +295,15 @@ impl File {
         Ok(Self::new(path, cred, ops, &how))
     }
 
+    /// This directory keeping the flags it was opened with, as `f_flags` does
+    /// whatever the file is.
+    pub(super) fn with_flags(mut self, how: &OpenHow) -> Self {
+        self.append = how.append;
+        self.nonblock = how.nonblock;
+        self.sync = how.sync;
+        self
+    }
+
     /// This file with no position, as `stream_open` makes a pipe's ends.
     pub(super) fn stream_open(&mut self) {
         let access = self.mode.0 & (FMode::READ.0 | FMode::WRITE.0);
@@ -897,6 +906,30 @@ mod tests {
             (0, 2),
             "File::write and pwrite must ask a file opened to sync to sync once per write landing \
              bytes, as generic_write_sync does, and a file opened otherwise never"
+        );
+    }
+
+    // Linux's answer in a container: `F_GETFL` reports `O_NONBLOCK` and
+    // `O_SYNC` on a directory opened with them.
+    // @behavior RT-210
+    #[test]
+    fn a_directory_opened_with_flags_reports_them() {
+        let tmpfs: Arc<Tmpfs> = Arc::new([("dir/a", "x")].into_iter().collect());
+        let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
+            .expect("/data is a guest path");
+        let how = OpenHow {
+            read: true,
+            nonblock: true,
+            sync: true,
+            ..OpenHow::default()
+        };
+        let dir = do_file_open(&Arc::default(), &Path::root(mount.mnt()), "dir", &how)
+            .unwrap_or_else(|_| panic!("the directory must open"));
+        assert_eq!(
+            (dir.nonblock(), dir.sync()),
+            (true, true),
+            "File::nonblock and File::sync on a directory do_file_open opened with both must \
+             report them, as F_GETFL does"
         );
     }
 

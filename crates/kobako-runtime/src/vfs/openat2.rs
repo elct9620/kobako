@@ -59,7 +59,7 @@ pub(crate) fn build_open_flags(how: &OpenHow) -> Result<(), FilesystemError> {
 
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds
 /// what it opened, so the descriptor follows it wherever it moves.
-pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<File, Error> {
+pub(crate) fn vfs_open(start: &Path, nd: Nameidata, how: &OpenHow) -> Result<File, Error> {
     let dentry = match nd.name.as_str() {
         "" => nd.dentry().clone(),
         _ => {
@@ -70,5 +70,5 @@ pub(crate) fn vfs_open(start: &Path, nd: Nameidata) -> Result<File, Error> {
             dentry
         }
     };
-    Ok(File::directory(start.with_dentry(dentry), nd.cred.clone())?)
+    Ok(File::directory(start.with_dentry(dentry), nd.cred.clone())?.with_flags(how))
 }

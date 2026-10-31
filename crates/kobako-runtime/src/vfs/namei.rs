@@ -610,7 +610,7 @@ pub fn do_file_open(
         cred.security_file_open(kind)?;
     }
     match existing {
-        Some(FileType::Directory) => vfs_open(start, nd),
+        Some(FileType::Directory) => vfs_open(start, nd, how),
         Some(_) | None => {
             let options = OpenOptions {
                 read: how.read,

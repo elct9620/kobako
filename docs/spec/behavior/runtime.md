@@ -2316,3 +2316,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem holding one entry under two names |
 | When | the guest moves one name onto the other |
 | Then | the move succeeds, and the Filesystem is not asked |
+
+## `RT-210` A directory opened with flags reports them
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-184` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory |
+| When | the guest opens it asking not to wait and to sync |
+| Then | the open file reports both flags |
