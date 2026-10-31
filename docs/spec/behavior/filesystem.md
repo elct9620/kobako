@@ -1633,3 +1633,27 @@ both live in the upper and never show, so no name is reserved
 | Given | a Mount with a Policy, and another writer replacing a file after the Policy judged it |
 | When | the open reaches the Filesystem |
 | Then | it answers ENOENT rather than open what stands there now |
+
+## `FS-157` A file opened as a copy up lands reads the copy
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay file being opened to read from a lower Layer |
+| When | a write copies it up before the open returns |
+| Then | a read through that file reads the copy |
+
+## `FS-158` A time set on a file whose name was taken leaves its lower Layer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-147` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a held file of a lower Layer, removed through an Overlay, whose name another file took |
+| When | a time is set through the held file |
+| Then | the call answers EROFS, and the lower Layer is not asked |
