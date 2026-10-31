@@ -59,7 +59,7 @@ impl Stat {
     }
 
     /// The size, `nil` for an empty entry, as `size?` answers.
-    fn size_value(self, mrb: &Mrb) -> Value {
+    fn nonzero_size(self, mrb: &Mrb) -> Value {
         match self.size {
             0 => qnil().as_value(),
             size => size.into_value(mrb),
@@ -255,7 +255,7 @@ fn stat_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 fn stat_size_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    Ok(Stat::of(mrb, self_)?.size_value(mrb))
+    Ok(Stat::of(mrb, self_)?.nonzero_size(mrb))
 }
 
 fn stat_zero_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
@@ -341,7 +341,7 @@ fn file_s_symlink_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error>
 
 fn file_s_size_p(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
     let (_, found) = asked_of(mrb, "File.size?", path, raw::following)?;
-    Ok(found.map_or(qnil().as_value(), |stat| stat.size_value(mrb)))
+    Ok(found.map_or(qnil().as_value(), |stat| stat.nonzero_size(mrb)))
 }
 
 fn file_s_zero_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {

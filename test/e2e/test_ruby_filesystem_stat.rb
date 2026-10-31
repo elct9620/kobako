@@ -61,8 +61,8 @@ class TestE2ERubyFilesystemStat < Minitest::Test
 
   def bare_file = StringIO.new(+"hello")
 
-  # A file open answers its own size, so nothing else it reports reaches its
-  # path's stat, and the inode number comes from what its lookup recorded.
+  # A file open answers for itself rather than asking its path's stat, so its
+  # inode number comes from what its lookup recorded.
   # @behavior RF-028
   def test_an_open_file_keeps_the_identity_its_lookup_recorded
     seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), bare_file), profile: :permissive)
