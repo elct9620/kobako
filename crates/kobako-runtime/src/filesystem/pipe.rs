@@ -6,14 +6,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use super::dentry::Dentry;
-use super::file::{FMode, File, FileOperations, Kiocb, PollMask};
-use super::inode::{Inode, InodeOperations};
-use super::mount::VfsMount;
-use super::openat2::OpenHow;
-use super::path::Path;
-use super::super_block::SuperBlock;
-use super::{FileType, FilesystemError, Metadata};
+use crate::vfs::{
+    Dentry, FMode, File, FileOperations, FileType, FilesystemError, Inode, InodeOperations, Kiocb,
+    Metadata, OpenHow, Path, PollMask, SuperBlock, VfsMount,
+};
 
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No path
 /// reaches it: a pipe is only ever open.
@@ -47,17 +43,17 @@ struct PipeState {
 impl PipeInodeInfo {
     /// An empty pipe holding at most `capacity` bytes.
     pub fn new(capacity: usize) -> Arc<Self> {
-        Self::holding(Vec::new(), capacity)
+        Self::with_bytes(Vec::new(), capacity)
     }
 
     /// A pipe already holding `bytes`, as the Preamble's stream does, with no
     /// room for more.
-    pub fn filled(bytes: Vec<u8>) -> Arc<Self> {
+    pub fn from_bytes(bytes: Vec<u8>) -> Arc<Self> {
         let capacity = bytes.len();
-        Self::holding(bytes, capacity)
+        Self::with_bytes(bytes, capacity)
     }
 
-    fn holding(bytes: Vec<u8>, capacity: usize) -> Arc<Self> {
+    fn with_bytes(bytes: Vec<u8>, capacity: usize) -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(PipeState { bytes, read: 0 }),
             capacity,
@@ -78,17 +74,13 @@ impl PipeInodeInfo {
 struct AnonPipe(Arc<PipeInodeInfo>);
 
 impl FileOperations for AnonPipe {
-    /// A pipe has no offsets, so a read takes what comes next. A read of
-    /// nothing from a pipe still holding bytes answers `Interrupted`, as a
-    /// blocking read given nothing to fill returns before it would wait; one
-    /// from a drained pipe reads nothing, as a closed writer's pipe does.
+    /// A pipe has no offsets, so a read takes what comes next. A drained pipe
+    /// reads nothing, as a closed writer's does, and so does a read into no
+    /// room, as `pipe_read` answers one.
     fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.0.state();
         let start = state.read;
         let rest = &state.bytes[start..];
-        if buf.is_empty() && !rest.is_empty() {
-            return Err(FilesystemError::Interrupted);
-        }
         let take = rest.len().min(buf.len());
         buf[..take].copy_from_slice(&rest[..take]);
         state.read += take;
@@ -154,7 +146,7 @@ mod tests {
 
     #[test]
     fn a_reader_reads_in_order_then_nothing() {
-        let (mut reader, _) = create_pipe_files(&PipeInodeInfo::filled(b"abc".to_vec()));
+        let (mut reader, _) = create_pipe_files(&PipeInodeInfo::from_bytes(b"abc".to_vec()));
         let mut buf = [0; 2];
         assert_eq!(
             (
@@ -169,15 +161,15 @@ mod tests {
         );
     }
 
+    // @behavior RT-217
     #[test]
-    fn a_read_of_nothing_is_interrupted_only_while_bytes_remain() {
-        let (mut holding, _) = create_pipe_files(&PipeInodeInfo::filled(b"a".to_vec()));
-        let (mut drained, _) = create_pipe_files(&PipeInodeInfo::filled(Vec::new()));
+    fn a_read_into_no_room_reads_nothing() {
+        let (mut holding, _) = create_pipe_files(&PipeInodeInfo::from_bytes(b"a".to_vec()));
+        let mut byte = [0];
         assert_eq!(
-            (holding.read(&mut []), drained.read(&mut [])),
-            (Err(FilesystemError::Interrupted), Ok(0)),
-            "File::read of a pipe into no room must answer Interrupted while bytes remain and \
-             nothing once drained"
+            (holding.read(&mut []), holding.read(&mut byte), byte),
+            (Ok(0), Ok(1), *b"a"),
+            "File::read of a pipe into no room must read nothing and leave its bytes for the next"
         );
     }
 

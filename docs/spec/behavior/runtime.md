@@ -48,7 +48,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `test/e2e/test_ruby_filesystem_stat.rb`
 - `test/e2e/test_file_stat_ino.rb`
 - `crates/kobako-runtime/src/security.rs`
-- `crates/kobako-runtime/src/vfs/pipe.rs`
+- `crates/kobako-runtime/src/filesystem/pipe.rs`
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`
@@ -2400,3 +2400,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose names stand, with nothing holding one between two calls |
 | When | both calls name it |
 | Then | it is looked up once, and twice where `DentryOperations::delete` lets it go |
+
+## `RT-217` A read of a pipe into no room reads nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-177` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a pipe still holding bytes |
+| When | a read gives it no room |
+| Then | it reads nothing and leaves the bytes for the next read |

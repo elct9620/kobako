@@ -7,12 +7,14 @@
 mod bind;
 mod overlay;
 mod path;
+mod pipe;
 mod tmpfs;
 #[cfg(test)]
 pub(crate) mod wrap;
 
 pub use bind::Bind;
 pub use overlay::Overlay;
+pub use pipe::{create_pipe_files, PipeInodeInfo};
 pub use tmpfs::{SeedError, Tmpfs};
 
 pub use crate::vfs::{

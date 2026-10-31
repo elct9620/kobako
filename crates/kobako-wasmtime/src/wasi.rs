@@ -13,10 +13,10 @@ use kobako_runtime::endpoint;
 use kobako_runtime::error::Trap;
 use std::sync::Arc;
 
+use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{create_pipe_files, PipeInodeInfo};
 
 /// One instance's WASI context: its descriptor table, the clocks its
 /// waits pass on, and the capture pipes stdout and stderr write into, so
@@ -91,7 +91,7 @@ impl Wasi {
         // call that reads a descriptor (`crate::preview1`); the builder
         // keeps only what the remaining imports read.
         let descriptors = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::filled(stdin_content)).0,
+            create_pipe_files(&PipeInodeInfo::from_bytes(stdin_content)).0,
             create_pipe_files(&stdout).1,
             create_pipe_files(&stderr).1,
             mounts,

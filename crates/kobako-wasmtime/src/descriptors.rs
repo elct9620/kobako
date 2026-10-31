@@ -137,7 +137,7 @@ impl Descriptors {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kobako_runtime::vfs::{create_pipe_files, PipeInodeInfo};
+    use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 
     fn pipe_end() -> File {
         create_pipe_files(&PipeInodeInfo::new(1)).1

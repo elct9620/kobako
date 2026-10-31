@@ -16,6 +16,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/filesystem.rs`
 - `crates/kobako-runtime/src/filesystem/bind.rs`
 - `crates/kobako-runtime/src/filesystem/overlay.rs`
+- `crates/kobako-runtime/src/filesystem/pipe.rs`
 - `crates/kobako-runtime/src/filesystem/tmpfs.rs`
 - `crates/kobako-runtime/src/grant.rs`
 - `crates/kobako-runtime/src/mount.rs`
@@ -36,7 +37,6 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/openat2.rs`
 - `crates/kobako-runtime/src/vfs/path.rs`
-- `crates/kobako-runtime/src/vfs/pipe.rs`
 - `crates/kobako-runtime/src/vfs/stat.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-runtime/src/yielder.rs`
@@ -1389,13 +1389,13 @@ impl PipeInodeInfo {
 }
 ```
 
-## `PipeInodeInfo::filled`
+## `PipeInodeInfo::from_bytes`
 
 A pipe already holding these bytes, with no room for more.
 
 ```rust
 impl PipeInodeInfo {
-    pub fn filled(bytes: Vec<u8>) -> Arc<Self> {}
+    pub fn from_bytes(bytes: Vec<u8>) -> Arc<Self> {}
 }
 ```
 

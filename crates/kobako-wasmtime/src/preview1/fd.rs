@@ -460,21 +460,20 @@ mod tests {
     use crate::preview1::memory::GuestMemory;
     use crate::preview1::path::{create_directory, symlink};
     use crate::preview1::types::Whence;
+    use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
     use kobako_runtime::filesystem::{
         FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup, Metadata,
         OpenOptions,
     };
     use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::profile::Profile;
-    use kobako_runtime::vfs::{
-        self, create_pipe_files, Dentry, Inode, OpenHow, Path, PipeInodeInfo,
-    };
+    use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path};
     use wiggle::GuestPtr;
 
     /// A table holding only the three standard streams.
     fn standard_streams() -> Descriptors {
         Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::filled(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             Vec::new(),
@@ -604,7 +603,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let mut table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::filled(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             vec![mount],
@@ -633,7 +632,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::filled(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             vec![mount],
@@ -704,7 +703,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::filled(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             vec![mount],

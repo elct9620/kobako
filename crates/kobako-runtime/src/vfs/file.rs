@@ -262,7 +262,7 @@ pub struct File {
 
 impl File {
     /// The file `ops` answers for, opened at `path` for `cred` as `how` asks.
-    pub(super) fn new(
+    pub(crate) fn new(
         path: Path,
         cred: Arc<Cred>,
         ops: Box<dyn FileOperations>,
@@ -314,7 +314,7 @@ impl File {
     }
 
     /// This file with no position, as `stream_open` makes a pipe's ends.
-    pub(super) fn stream_open(&mut self) {
+    pub(crate) fn stream_open(&mut self) {
         let access = self.mode.0 & (FMode::READ.0 | FMode::WRITE.0);
         self.mode = FMode(access | FMode::STREAM.0);
     }
@@ -693,8 +693,9 @@ impl File {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{create_pipe_files, do_file_open, vfs_fstatat, PipeInodeInfo};
+    use super::super::{do_file_open, vfs_fstatat};
     use super::*;
+    use crate::filesystem::{create_pipe_files, PipeInodeInfo};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use crate::filesystem::{Filesystem, InodeOperations, Lookup, Overlay, Tmpfs};

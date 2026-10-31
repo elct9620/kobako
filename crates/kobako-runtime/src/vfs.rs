@@ -19,7 +19,6 @@ mod mount;
 mod namei;
 mod openat2;
 mod path;
-mod pipe;
 mod seqlock;
 mod stat;
 mod super_block;
@@ -45,7 +44,6 @@ pub use namei::{
 };
 pub use openat2::{OpenHow, OpenOptions};
 pub use path::Path;
-pub use pipe::{create_pipe_files, PipeInodeInfo};
 pub use stat::{do_readlinkat, vfs_fstatat, FileType, Metadata};
 pub use super_block::SuperBlock;
 pub use utimes::{do_utimes, vfs_utimes};

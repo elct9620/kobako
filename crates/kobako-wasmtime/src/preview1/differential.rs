@@ -398,6 +398,7 @@ fn answered_as_a_linux_pipe(call: &str, fd: i32) -> Option<i32> {
         ("fd_fdstat_set_flags" | "fd_filestat_get" | "fd_filestat_set_times", 0..=2) => {
             Some(ERRNO_SUCCESS)
         }
+        ("fd_read_empty", 0) => Some(ERRNO_SUCCESS),
         ("fd_readdir" | "fd_readdir_far", 0..=2) => Some(ERRNO_NOTDIR),
         (
             "path_create_directory"
