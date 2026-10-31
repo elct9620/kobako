@@ -1195,7 +1195,7 @@ mod tests {
         let mut first = writable(&tmpfs, "log");
         let mut second = writable(&tmpfs, "log");
         let (mut from_first, mut from_second) =
-            (Kiocb::at(0).appending(), Kiocb::at(0).appending());
+            (Kiocb::at(0).with_append(), Kiocb::at(0).with_append());
         assert_eq!(
             (
                 first.write_iter(&mut from_first, b"bb"),

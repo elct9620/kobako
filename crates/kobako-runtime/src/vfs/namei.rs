@@ -86,7 +86,7 @@ impl Nameidata {
     /// The dentry the walk ended on, as Linux's `do_open` and `vfs_getattr`
     /// act on what the walk found without looking it up again, so a change
     /// made since cannot lead the call anywhere but where the walk stands.
-    pub(crate) fn walked(&self) -> Result<Arc<Dentry>, FilesystemError> {
+    pub(crate) fn last_dentry(&self) -> Result<Arc<Dentry>, FilesystemError> {
         match &self.last {
             Some(dentry) => Ok(dentry.clone()),
             None => self.child(),
@@ -112,7 +112,7 @@ impl Nameidata {
         if self.found.is_none() {
             let parent = self.dentry().clone();
             self.found = Some(parent.inode_lock_shared().and_then(|_held| {
-                let child = self.walked()?;
+                let child = self.last_dentry()?;
                 self.look_up(&child)
             }));
         }
@@ -144,7 +144,7 @@ impl Nameidata {
         self.kind()?;
         let parent = self.dentry().clone();
         let _held = parent.inode_lock_shared()?;
-        self.walked()?.getattr()
+        self.last_dentry()?.getattr()
     }
 
     /// Refuse the name as `NotADirectory` when it must be a directory and
@@ -544,7 +544,7 @@ pub fn do_file_open(
             // any other open acts on what the walk found.
             let child = match how.create {
                 true => nd.child()?,
-                false => nd.walked()?,
+                false => nd.last_dentry()?,
             };
             let f_op = match options.create {
                 true => vfs_create(nd.base().as_ref(), nd.dentry(), &child, &options)?,
@@ -603,7 +603,7 @@ pub fn filename_linkat(
     let kind = old.kind()?;
     let target = match old.name.is_empty() {
         true => old.dentry().clone(),
-        false => old.walked()?,
+        false => old.last_dentry()?,
     };
     let new = filename_lookup(cred, new_start, new_path, false, false)?;
     let (_held, child) = filename_create(&new, false)?;
@@ -1375,10 +1375,10 @@ mod tests {
             _dentry: &Dentry,
             _options: &OpenOptions,
         ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
-            struct Opened;
-            impl FileOperations for Opened {}
+            struct OpenLink;
+            impl FileOperations for OpenLink {}
             self.0.fetch_add(1, Ordering::SeqCst);
-            Some(Ok(Box::new(Opened)))
+            Some(Ok(Box::new(OpenLink)))
         }
     }
 
@@ -1955,9 +1955,9 @@ mod tests {
     }
 
     /// Refuses every change to the one path the move may not touch.
-    struct GuardsMoved;
+    struct RefusesMovedName;
 
-    impl Policy for GuardsMoved {
+    impl Policy for RefusesMovedName {
         fn allows(&self, path: &str, _access: Access) -> bool {
             path != "/data/a/moved"
         }
@@ -1987,7 +1987,7 @@ mod tests {
             Access::ReadWrite,
         )
         .expect("/data is a guest path")
-        .with_policy(Arc::new(GuardsMoved));
+        .with_policy(Arc::new(RefusesMovedName));
         let cred = crate::security::prepare_creds([&mount]);
         let root = Path::root(mount.mnt());
         let holder = {

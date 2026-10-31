@@ -127,7 +127,7 @@ fn timestamp(time: Option<SystemTime>) -> u64 {
 /// The times `flags` ask to set, `None` where they ask none, as `utimensat`
 /// returns before it looks at anything. Setting a timestamp and setting it to
 /// now are exclusive: asking both is `INVAL`.
-pub(crate) fn times_asked(
+pub(crate) fn to_iattr(
     atim: types::Timestamp,
     mtim: types::Timestamp,
     flags: Fstflags,
@@ -230,7 +230,7 @@ pub(crate) fn filestat_set_times(
     mtim: types::Timestamp,
     flags: Fstflags,
 ) -> Answer {
-    let times = times_asked(atim, mtim, flags)?;
+    let times = to_iattr(atim, mtim, flags)?;
     let file = &descriptor(table, fd)?.file;
     match times {
         Some(times) => Ok(vfs::vfs_utimes(table.cred(), file.path(), &times)?),

@@ -67,15 +67,15 @@ impl OverlayPath {
 
     /// The dentry of `name` as this directory stores it, what stands there
     /// recorded on it. The caller holds this directory's lock.
-    fn looked_up(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
+    fn lookup_real(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
         Ok(lookup_slow(&self.filesystem, self.dir.as_ref(), &self.dentry, name)?.1)
     }
 
-    fn shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+    fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
         self.dentry.inode_lock_shared()
     }
 
-    fn exclusive(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+    fn inode_lock(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
         self.dentry.inode_lock()
     }
 
@@ -93,10 +93,11 @@ impl OverlayPath {
     /// holds none, and one whose directory cannot be held is read as
     /// holding one, so nothing below shows through it.
     pub(super) fn is_whiteout(&self, name: &str) -> bool {
-        self.tmpfs().is_some_and(|tmpfs| match self.shared() {
-            Ok(_held) => tmpfs.is_whiteout(name),
-            Err(_) => true,
-        })
+        self.tmpfs()
+            .is_some_and(|tmpfs| match self.inode_lock_shared() {
+                Ok(_held) => tmpfs.is_whiteout(name),
+                Err(_) => true,
+            })
     }
 
     /// Whether this directory hides the Layers below it.
@@ -107,18 +108,18 @@ impl OverlayPath {
     }
 
     pub(super) fn set_opaque(&self) -> Result<(), FilesystemError> {
-        let _held = self.exclusive()?;
+        let _held = self.inode_lock()?;
         self.upper()?.setxattr(OPAQUE_XATTR, OPAQUE)
     }
 
     pub(super) fn remove_opaque(&self) -> Result<(), FilesystemError> {
-        let _held = self.exclusive()?;
+        let _held = self.inode_lock()?;
         self.upper()?.removexattr(OPAQUE_XATTR);
         Ok(())
     }
 
     pub(super) fn whiteout(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.exclusive()?;
+        let _held = self.inode_lock()?;
         let child = self.child(name)?;
         vfs_whiteout(self.dir.as_ref(), &self.dentry, &child, || {
             self.upper()?.whiteout(name)
@@ -154,7 +155,7 @@ impl OverlayPath {
     }
 
     pub(super) fn link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.exclusive()?;
+        let _held = self.inode_lock()?;
         let child = self.child(name)?;
         vfs_link(self.dir.as_ref(), &self.dentry, &child, || {
             self.upper()?.link(file, name)
@@ -162,7 +163,7 @@ impl OverlayPath {
     }
 
     pub(super) fn set_times(&self, metadata: &Metadata) -> Result<(), FilesystemError> {
-        let _held = self.exclusive()?;
+        let _held = self.inode_lock()?;
         self.upper()?
             .set_times(metadata.accessed, metadata.modified);
         Ok(())
@@ -170,8 +171,8 @@ impl OverlayPath {
 
     /// The dentry of the entry standing at `name`.
     pub(super) fn real(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        let _held = self.shared()?;
-        self.looked_up(name)
+        let _held = self.inode_lock_shared()?;
+        self.lookup_real(name)
     }
 
     /// Open the file standing at `name`.
@@ -180,8 +181,8 @@ impl OverlayPath {
         name: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let _held = self.shared()?;
-        self.looked_up(name)?.open(options)
+        let _held = self.inode_lock_shared()?;
+        self.lookup_real(name)?.open(options)
     }
 
     /// Make the file `name` and open it, holding the directory, as
@@ -191,7 +192,7 @@ impl OverlayPath {
         name: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let _held = self.exclusive()?;
+        let _held = self.inode_lock()?;
         vfs_create(
             self.dir.as_ref(),
             &self.dentry,
@@ -203,8 +204,8 @@ impl OverlayPath {
     /// The directory standing at `name`, a link there refused as a loop, as
     /// `ovl_lookup` follows no link in a Layer.
     pub(super) fn open_dir(&self, name: &str) -> Result<Self, FilesystemError> {
-        let _held = self.shared()?;
-        let dentry = self.looked_up(name)?;
+        let _held = self.inode_lock_shared()?;
+        let dentry = self.lookup_real(name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
             FileType::Directory => Ok(Self {
@@ -222,19 +223,19 @@ impl OverlayPath {
     }
 
     pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
-        let _held = self.shared()?;
-        self.looked_up(name)?.getattr()
+        let _held = self.inode_lock_shared()?;
+        self.lookup_real(name)?.getattr()
     }
 
     /// `name` as this directory stores it.
     pub(super) fn lookup(&self, name: &str) -> Result<String, FilesystemError> {
-        let _held = self.shared()?;
+        let _held = self.inode_lock_shared()?;
         Ok(lookup_slow(&self.filesystem, self.dir.as_ref(), &self.dentry, name)?.0)
     }
 
     pub(super) fn read_link(&self, name: &str) -> Result<String, FilesystemError> {
-        let _held = self.shared()?;
-        self.looked_up(name)?.get_link()
+        let _held = self.inode_lock_shared()?;
+        self.lookup_real(name)?.get_link()
     }
 
     /// This directory opened, kept open for whoever holds it, as overlayfs's
@@ -249,7 +250,7 @@ impl OverlayPath {
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        let _held = self.shared()?;
+        let _held = self.inode_lock_shared()?;
         let options = OpenOptions {
             read: true,
             directory: true,
@@ -262,12 +263,12 @@ impl OverlayPath {
     }
 
     pub(super) fn create_dir(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.exclusive()?;
+        let _held = self.inode_lock()?;
         vfs_mkdir(self.dir.as_ref(), &self.dentry, &*self.child(name)?)
     }
 
     pub(super) fn remove_dir(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.exclusive()?;
+        let _held = self.inode_lock()?;
         vfs_rmdir(
             &self.filesystem,
             self.dir.as_ref(),
@@ -277,7 +278,7 @@ impl OverlayPath {
     }
 
     pub(super) fn remove_file(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.exclusive()?;
+        let _held = self.inode_lock()?;
         vfs_unlink(
             &self.filesystem,
             self.dir.as_ref(),

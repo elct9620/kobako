@@ -1406,7 +1406,7 @@ impl AppendedMeanwhileFile {
         self.other
             .lock()
             .expect("the other writer's lock must not be poisoned")
-            .write_iter(&mut Kiocb::at(0).appending(), b"bbb")
+            .write_iter(&mut Kiocb::at(0).with_append(), b"bbb")
             .map(drop)
     }
 }

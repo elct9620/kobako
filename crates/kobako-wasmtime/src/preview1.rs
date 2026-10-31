@@ -342,7 +342,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         fst_flags: types::Fstflags,
     ) -> Answer {
         self.answer(memory, |mem, inv| {
-            let times = fd::times_asked(atim, mtim, fst_flags)?;
+            let times = fd::to_iattr(atim, mtim, fst_flags)?;
             path::filestat_set_times(table(inv), mem, fd.into(), flags, path, times)
         })
     }

@@ -129,5 +129,5 @@ pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Strin
         return Err(FilesystemError::InvalidInput.into());
     }
     cred.security_inode_readlink()?;
-    Ok(nd.walked()?.get_link()?)
+    Ok(nd.last_dentry()?.get_link()?)
 }

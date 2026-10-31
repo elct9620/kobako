@@ -12,7 +12,7 @@ use super::types;
 
 /// A memory shared between threads hands out no slice to read or write, and
 /// no Guest Binary declares one.
-fn unshared<T>(slice: Option<T>) -> Answer<T> {
+fn require_unshared<T>(slice: Option<T>) -> Answer<T> {
     slice.ok_or_else(|| {
         types::Error::trap(wasmtime::Error::msg(
             "a preview1 call needs the guest's memory unshared",
@@ -43,11 +43,11 @@ impl<'a, 'm> GuestMemory<'a, 'm> {
     }
 
     pub(crate) fn bytes(&self, ptr: GuestPtr<[u8]>) -> Answer<&[u8]> {
-        unshared(self.memory.as_slice(ptr)?)
+        require_unshared(self.memory.as_slice(ptr)?)
     }
 
     pub(crate) fn bytes_mut(&mut self, ptr: GuestPtr<[u8]>) -> Answer<&mut [u8]> {
-        unshared(self.memory.as_slice_mut(ptr)?)
+        require_unshared(self.memory.as_slice_mut(ptr)?)
     }
 
     pub(crate) fn read<T: GuestType>(&self, ptr: GuestPtr<T>) -> Answer<T> {
@@ -132,10 +132,10 @@ mod tests {
         // A guest's memory starts aligned, and wiggle refuses an `iovec` at a
         // host address that is not.
         #[repr(align(8))]
-        struct Aligned([u8; 64]);
+        struct AlignedBytes([u8; 64]);
 
-        let mut array_bytes = Aligned([0; 64]);
-        let mut buffer_bytes = Aligned([0; 64]);
+        let mut array_bytes = AlignedBytes([0; 64]);
+        let mut buffer_bytes = AlignedBytes([0; 64]);
         buffer_bytes.0[4..8].copy_from_slice(&(128u32 << 20).wrapping_add(1).to_le_bytes());
         let answer = |bytes: &mut [u8], count: u32| {
             let mut memory = wiggle::GuestMemory::Unshared(bytes);

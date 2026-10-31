@@ -36,7 +36,7 @@ impl Kiocb {
 
     /// This call, landing at the file's end as it stands when the write
     /// lands.
-    pub fn appending(self) -> Self {
+    pub fn with_append(self) -> Self {
         Self {
             append: true,
             ..self
@@ -448,7 +448,7 @@ impl File {
     /// `init_sync_kiocb` takes `IOCB_APPEND` from `f_flags`.
     fn kiocb(&self, pos: u64) -> Kiocb {
         match self.append {
-            true => Kiocb::at(pos).appending(),
+            true => Kiocb::at(pos).with_append(),
             false => Kiocb::at(pos),
         }
     }
@@ -620,7 +620,7 @@ impl File {
                 (
                     entry.name.as_str(),
                     entry.file_type,
-                    Identity::named(entry.dev, entry.ino),
+                    Identity::from_numbers(entry.dev, entry.ino),
                 )
             }));
             let skip = usize::try_from(ctx.pos).unwrap_or(usize::MAX);

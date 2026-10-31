@@ -43,7 +43,7 @@ pub fn do_utimes(
             nd.kind()?;
             let parent = nd.dentry().clone();
             let _held = parent.inode_lock_shared()?;
-            nd.walked()?
+            nd.last_dentry()?
         }
     };
     vfs_utimes(cred, &start.with_dentry(dentry), times)

@@ -156,12 +156,12 @@ impl Identity {
     /// The identity `metadata` names, `None` where its inode of zero reports
     /// none.
     pub fn of(metadata: &Metadata) -> Option<Self> {
-        Self::named(metadata.dev, metadata.ino)
+        Self::from_numbers(metadata.dev, metadata.ino)
     }
 
     /// The identity `dev` and `ino` name, `None` where an inode of zero
     /// reports none.
-    pub(crate) fn named(dev: u64, ino: u64) -> Option<Self> {
+    pub(crate) fn from_numbers(dev: u64, ino: u64) -> Option<Self> {
         (ino != 0).then_some(Self { dev, ino })
     }
 

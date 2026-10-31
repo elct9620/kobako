@@ -22,7 +22,7 @@ use super::{
     InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
 };
 use crate::vfs::{Dentry, Inode};
-use inode::{ovl_inode_kept, ovl_inode_real};
+use inode::{ovl_inode_of, ovl_inode_real};
 use path::OverlayPath;
 use stack::OverlayFs;
 
@@ -100,7 +100,7 @@ impl Overlay {
     /// the view recorded, as `ovl_getattr` asks the real path.
     fn real_of(&self, dentry: &Dentry) -> Option<(Arc<Dentry>, Arc<Inode>)> {
         let inode = dentry.inode()?;
-        let real = ovl_inode_kept(&inode)?.real()?;
+        let real = ovl_inode_of(&inode)?.real()?;
         Some((real, inode))
     }
 

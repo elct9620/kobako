@@ -26,7 +26,7 @@ use super::{
     Kiocb, Lookup, Metadata, OpenOptions,
 };
 use crate::vfs::{Dentry, Identity, Inode};
-use fid::{Opened, Walked};
+use fid::{FidCache, OpenDirFid};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -40,7 +40,7 @@ use fid::{Opened, Walked};
 pub struct Bind {
     /// The host directory the Bind was made at.
     root: Arc<Dir>,
-    walked: Arc<Walked>,
+    fids: Arc<FidCache>,
 }
 
 impl Bind {
@@ -49,16 +49,16 @@ impl Bind {
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
         Ok(Self {
             root: Arc::new(Dir::open_ambient_dir(path, ambient_authority())?),
-            walked: Arc::default(),
+            fids: Arc::default(),
         })
     }
 
     /// The host directory kept for `dentry`, if one is.
-    fn held_fid(&self, dentry: &Dentry) -> Option<Arc<Dir>> {
+    fn find_fid(&self, dentry: &Dentry) -> Option<Arc<Dir>> {
         if dentry.parent().is_none() {
             return Some(self.root.clone());
         }
-        Opened::get(dentry).or_else(|| self.walked.get(dentry))
+        OpenDirFid::get(dentry).or_else(|| self.fids.get(dentry))
     }
 
     /// The host directory `dentry` names, as 9p's `v9fs_fid_lookup` finds a
@@ -67,14 +67,14 @@ impl Bind {
     /// 9p holds the rename lock through a walk; one here is checked afterwards
     /// instead, and walked again from the root when the dentry moved meanwhile.
     fn fid(&self, dentry: &Dentry) -> Result<Arc<Dir>, FilesystemError> {
-        if let Some(held) = self.held_fid(dentry) {
+        if let Some(held) = self.find_fid(dentry) {
             return Ok(held);
         }
         let mut names = vec![dentry.name()];
         let mut at = dentry.parent();
         let above = loop {
             let parent = at.expect("a dentry stands beneath its root, which is always held");
-            if let Some(held) = self.held_fid(&parent) {
+            if let Some(held) = self.find_fid(&parent) {
                 break held;
             }
             names.push(parent.name());
@@ -88,7 +88,7 @@ impl Bind {
             dir = walk::walk(&self.root, &names)?;
         }
         let dir = Arc::new(dir);
-        self.walked.keep(dentry, &dir);
+        self.fids.put(dentry, &dir);
         Ok(dir)
     }
 
@@ -481,7 +481,7 @@ impl InodeOperations for Bind {
         if options.directory {
             let fid = self.fid(dentry).ok();
             if let Some(fid) = &fid {
-                Opened::set(dentry, fid);
+                OpenDirFid::set(dentry, fid);
             }
             return Some(Ok(Box::new(BindDir(self.clone(), fid))));
         }
@@ -670,7 +670,7 @@ mod tests {
     /// A Bind over `depth` nested directories each named `d`, with the file
     /// `f` at the bottom, and the path to that file.
     #[cfg(unix)]
-    fn nested(host: &HostDir, depth: usize) -> (Arc<Bind>, String) {
+    fn nested_tree(host: &HostDir, depth: usize) -> (Arc<Bind>, String) {
         let path = vec!["d"; depth].join("/");
         fs::create_dir_all(host.0.join(&path)).expect("the host tree must be made");
         fs::write(host.0.join(&path).join("f"), "x").expect("the host file must be written");
@@ -687,7 +687,7 @@ mod tests {
     fn a_walk_keeps_a_bounded_number_of_host_directories_open() {
         use crate::vfs::{self, OpenHow, Path as VfsPath};
         let host = HostDir::new("bounded-fids");
-        let (bind, file) = nested(&host, 200);
+        let (bind, file) = nested_tree(&host, 200);
         let mount = crate::mount::Mount::new(
             "/data",
             crate::filesystem::Filesystem::new(bind.clone()),
@@ -701,10 +701,10 @@ mod tests {
         };
         let opened = vfs::do_file_open(&Arc::default(), &root, &file, &read);
         assert!(
-            opened.is_ok() && bind.walked.len() <= 64,
+            opened.is_ok() && bind.fids.len() <= 64,
             "vfs::do_file_open 200 directories beneath a Bind must land and keep at most 64 of \
              them open, keeping {}",
-            bind.walked.len()
+            bind.fids.len()
         );
     }
 
@@ -719,7 +719,7 @@ mod tests {
         let host = HostDir::new("held-past-bound");
         fs::create_dir_all(host.0.join("held")).expect("the host tree must be made");
         fs::write(host.0.join("held/f"), "x").expect("the host file must be written");
-        let (bind, file) = nested(&host, 100);
+        let (bind, file) = nested_tree(&host, 100);
         let mount = crate::mount::Mount::new(
             "/data",
             crate::filesystem::Filesystem::new(bind),
@@ -1209,7 +1209,7 @@ mod tests {
             .expect("the host file must open");
         assert_eq!(
             (
-                file.write_iter(&mut Kiocb::at(0).appending(), b"y").err(),
+                file.write_iter(&mut Kiocb::at(0).with_append(), b"y").err(),
                 fs::read(host.0.join("f")).expect("the host file must read")
             ),
             (Some(FilesystemError::Unsupported), b"x".to_vec()),
@@ -1530,7 +1530,7 @@ mod tests {
                         .open("log.txt", &options)
                         .expect("the host file must open to write");
                     for _ in 0..10_000 {
-                        file.write_iter(&mut Kiocb::at(0).appending(), byte)
+                        file.write_iter(&mut Kiocb::at(0).with_append(), byte)
                             .expect("the append must succeed");
                     }
                 })

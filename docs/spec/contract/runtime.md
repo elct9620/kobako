@@ -1817,13 +1817,13 @@ impl Kiocb {
 }
 ```
 
-## `Kiocb::appending`
+## `Kiocb::with_append`
 
 The same call, landing at the file's end as it stands when the write lands.
 
 ```rust
 impl Kiocb {
-    pub fn appending(self) -> Self {}
+    pub fn with_append(self) -> Self {}
 }
 ```
 

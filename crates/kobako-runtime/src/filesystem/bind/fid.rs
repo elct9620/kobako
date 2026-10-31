@@ -14,18 +14,18 @@ use lru::LruCache;
 use crate::vfs::Dentry;
 
 /// The most directories a Bind keeps open for walks.
-const WALKED_MAX: NonZeroUsize = NonZeroUsize::new(64).expect("the bound is not zero");
+const MAX_CACHED_FIDS: NonZeroUsize = NonZeroUsize::new(64).expect("the bound is not zero");
+
+/// A directory, and the dentry it was walked to for.
+type CachedFid = (Weak<Dentry>, Arc<Dir>);
 
 /// Directories a Bind walked to, by the address of the dentry naming each.
 /// Each entry holds that dentry's allocation, so no other can take its address.
-pub(super) struct Walked(Mutex<LruCache<usize, Kept>>);
+pub(super) struct FidCache(Mutex<LruCache<usize, CachedFid>>);
 
-/// A directory, and the dentry it was walked to for.
-type Kept = (Weak<Dentry>, Arc<Dir>);
-
-impl Default for Walked {
+impl Default for FidCache {
     fn default() -> Self {
-        Self(Mutex::new(LruCache::new(WALKED_MAX)))
+        Self(Mutex::new(LruCache::new(MAX_CACHED_FIDS)))
     }
 }
 
@@ -33,8 +33,8 @@ fn key(dentry: &Dentry) -> usize {
     std::ptr::from_ref(dentry) as usize
 }
 
-impl Walked {
-    fn entries(&self) -> MutexGuard<'_, LruCache<usize, Kept>> {
+impl FidCache {
+    fn entries(&self) -> MutexGuard<'_, LruCache<usize, CachedFid>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -44,7 +44,7 @@ impl Walked {
     }
 
     /// Keep `dir` for `dentry`, letting go of the oldest past the bound.
-    pub(super) fn keep(&self, dentry: &Dentry, dir: &Arc<Dir>) {
+    pub(super) fn put(&self, dentry: &Dentry, dir: &Arc<Dir>) {
         let entry = (Arc::downgrade(&dentry.get()), dir.clone());
         self.entries().put(key(dentry), entry);
     }
@@ -59,9 +59,9 @@ impl Walked {
 /// The host directory a guest holds open on a dentry, kept on it for as long
 /// as the guest holds it, as 9p keeps a fid in `d_fsdata`.
 #[derive(Default)]
-pub(super) struct Opened(Mutex<Weak<Dir>>);
+pub(super) struct OpenDirFid(Mutex<Weak<Dir>>);
 
-impl Opened {
+impl OpenDirFid {
     /// The directory on `dentry`, while a guest holds it open.
     pub(super) fn get(dentry: &Dentry) -> Option<Arc<Dir>> {
         let kept = dentry.fsdata().get()?.clone().downcast::<Self>().ok()?;

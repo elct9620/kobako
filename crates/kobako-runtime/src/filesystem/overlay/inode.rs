@@ -150,7 +150,7 @@ pub(super) fn ovl_inode_real(inode: &Inode, real: Arc<Dentry>) {
 }
 
 /// The state `inode` keeps, where it keeps any.
-pub(super) fn ovl_inode_kept(inode: &Inode) -> Option<Arc<OverlayInode>> {
+pub(super) fn ovl_inode_of(inode: &Inode) -> Option<Arc<OverlayInode>> {
     Some(downcast(inode.private().get()?.clone()))
 }
 
