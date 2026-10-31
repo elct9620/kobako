@@ -2352,3 +2352,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem listing a name that is empty or holds a `/` |
 | When | the guest lists the directory |
 | Then | the call answers EIO, and hands over no such name |
+
+## `RT-213` A path no call can take is refused before a Filesystem is asked
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-122` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a call on a path or a link target holding a NUL, empty, or past `PATH_MAX` |
+| When | it reaches the VFS, whichever Driver brought it |
+| Then | it answers EINVAL, ENOENT, or ENAMETOOLONG, and the Filesystem is not asked |
