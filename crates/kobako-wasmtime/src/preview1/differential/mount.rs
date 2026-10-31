@@ -485,6 +485,13 @@ fn predict(call: Call, path: &str, mut oracle: Observation) -> Observation {
     if escapes(path) && oracle.errno == Some(ERRNO_PERM) {
         oracle.errno = Some(ERRNO_NOTCAPABLE);
     }
+    // A directory keeps the flags it opened with, as Linux's `F_GETFL`
+    // reports them, where wasmtime-wasi reports none on one.
+    if let Call::Open { fdflags, .. } = call {
+        if oracle.errno == Some(0) && oracle.fdstat[0] == FILETYPE_DIRECTORY {
+            oracle.fdstat[2] = fdflags as u8;
+        }
+    }
     // A trailing `/` makes Linux's `lstat` follow the link at the end,
     // where cap-std leaves it, so the host's own `lstat` answers.
     if matches!(call, Call::StatNoFollow) && path.ends_with('/') {
