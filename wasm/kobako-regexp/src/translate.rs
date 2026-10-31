@@ -79,6 +79,19 @@ struct OpenGroup {
     owed_closes: usize,
 }
 
+/// What a written piece means to the repeatable unit a later quantifier reaches
+/// back for.
+enum Role {
+    /// Comments, a class's inside, and a quantifier leave the unit in place.
+    Inert,
+    Interval,
+    /// An alternation or an isolated option leaves nothing to repeat.
+    Boundary,
+    Unit,
+    Opening,
+    Closing,
+}
+
 /// Writes the engine's pattern, keeping what a later piece reaches back for.
 struct Rewriter<'n, 's> {
     names: &'n [(&'s str, Vec<usize>)],
@@ -112,56 +125,22 @@ impl<'n, 's> Rewriter<'n, 's> {
 
     fn rewrite(&mut self, piece: Piece) -> Result<(), String> {
         let start = self.out.len();
-        match piece {
-            Piece::Comment(text) => {
-                self.out.push_str(text);
-                if text.starts_with('#') && !text.ends_with('\n') {
-                    self.out.push('\n');
-                }
-                return Ok(());
-            }
-            Piece::ClassText(text) => {
-                self.out.push_str(text);
-                return Ok(());
-            }
-            Piece::ClassClose => {
-                self.out.push(']');
-                return Ok(());
-            }
-            Piece::Escape {
-                in_class: true,
-                letter,
-            } => {
-                self.push_escape(letter, true);
-                return Ok(());
-            }
-            Piece::Quantifier(text) => {
-                if self.after_interval && text != "?" {
-                    self.wrap_unit();
-                }
-                self.out.push_str(text);
-                self.after_interval = false;
-                return Ok(());
-            }
-            Piece::Interval { lower, upper } => {
-                if is_reversed(lower, upper) {
-                    return Err("upper is smaller than lower in repeat range".to_string());
-                }
-                if self.after_interval {
-                    self.wrap_unit();
-                }
-                self.push_interval(lower, upper);
-                self.after_interval = true;
-                return Ok(());
-            }
-            _ => self.after_interval = false,
+        let role = self.push_piece(piece)?;
+        if !matches!(role, Role::Inert) {
+            self.after_interval = matches!(role, Role::Interval);
         }
-        match piece {
-            Piece::Text("|") => {
-                self.out.push('|');
+        match role {
+            Role::Inert | Role::Interval => {}
+            Role::Boundary => self.unit_start = None,
+            Role::Unit => self.unit_start = Some(start),
+            Role::Opening => {
+                self.groups.push(OpenGroup {
+                    start,
+                    owed_closes: 0,
+                });
                 self.unit_start = None;
             }
-            Piece::Close => {
+            Role::Closing => {
                 let group = if self.groups.len() > 1 {
                     self.groups.pop()
                 } else {
@@ -171,6 +150,58 @@ impl<'n, 's> Rewriter<'n, 's> {
                 self.out.push_str(&")".repeat(owed + 1));
                 self.unit_start = group.map(|group| group.start);
             }
+        }
+        Ok(())
+    }
+
+    fn push_piece(&mut self, piece: Piece) -> Result<Role, String> {
+        let named = !self.names.is_empty();
+        Ok(match piece {
+            Piece::Comment(text) => {
+                self.out.push_str(text);
+                if text.starts_with('#') && !text.ends_with('\n') {
+                    self.out.push('\n');
+                }
+                Role::Inert
+            }
+            Piece::ClassText(text) => {
+                self.out.push_str(text);
+                Role::Inert
+            }
+            Piece::ClassClose => {
+                self.out.push(']');
+                Role::Inert
+            }
+            Piece::Escape {
+                letter,
+                in_class: true,
+            } => {
+                self.push_escape(letter, true);
+                Role::Inert
+            }
+            Piece::Quantifier(text) => {
+                if self.after_interval && text != "?" {
+                    self.wrap_unit();
+                }
+                self.out.push_str(text);
+                self.after_interval = false;
+                Role::Inert
+            }
+            Piece::Interval { lower, upper } => {
+                if is_reversed(lower, upper) {
+                    return Err("upper is smaller than lower in repeat range".to_string());
+                }
+                if self.after_interval {
+                    self.wrap_unit();
+                }
+                self.push_interval(lower, upper);
+                Role::Interval
+            }
+            Piece::Text("|") => {
+                self.out.push('|');
+                Role::Boundary
+            }
+            Piece::Close => Role::Closing,
             Piece::Options {
                 letters,
                 scoped: false,
@@ -179,33 +210,19 @@ impl<'n, 's> Rewriter<'n, 's> {
                 if let Some(group) = self.groups.last_mut() {
                     group.owed_closes += 1;
                 }
-                self.unit_start = None;
+                Role::Boundary
             }
-            Piece::Open(_)
-            | Piece::PlainGroup { .. }
-            | Piece::NamedGroup { .. }
-            | Piece::NumberedCondition(_)
-            | Piece::NamedCondition { .. }
-            | Piece::Options { scoped: true, .. } => {
-                self.groups.push(OpenGroup {
-                    start,
-                    owed_closes: 0,
-                });
-                self.push_opening(piece)?;
-                self.unit_start = None;
+            Piece::Options {
+                letters,
+                scoped: true,
+            } => {
+                push_options(letters, &mut self.out);
+                Role::Opening
             }
-            _ => {
-                self.push_unit(piece)?;
-                self.unit_start = Some(start);
+            Piece::Open(text) | Piece::NamedGroup { text, .. } => {
+                self.out.push_str(text);
+                Role::Opening
             }
-        }
-        Ok(())
-    }
-
-    fn push_opening(&mut self, piece: Piece) -> Result<(), String> {
-        let named = !self.names.is_empty();
-        match piece {
-            Piece::Open(text) | Piece::NamedGroup { text, .. } => self.out.push_str(text),
             // Beside a named group it captures nothing, so a negative look-behind
             // may hold it.
             Piece::PlainGroup {
@@ -215,13 +232,14 @@ impl<'n, 's> Rewriter<'n, 's> {
                     return Err("invalid pattern in look-behind".to_string());
                 }
                 self.out.push_str(if named { "(?:" } else { "(" });
+                Role::Opening
             }
-            Piece::Options { letters, .. } => push_options(letters, &mut self.out),
             Piece::NumberedCondition(text) => {
                 if named {
                     return Err(NUMBERED_REFERENCE.to_string());
                 }
                 self.out.push_str(text);
+                Role::Opening
             }
             // The engine has no condition by name, and MRI asks a shared name's
             // first group alone.
@@ -234,29 +252,35 @@ impl<'n, 's> Rewriter<'n, 's> {
                     }
                     None => self.out.push_str(text),
                 }
+                Role::Opening
             }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn push_unit(&mut self, piece: Piece) -> Result<(), String> {
-        let named = !self.names.is_empty();
-        match piece {
-            Piece::Text(text) | Piece::ClassOpen(text) => self.out.push_str(text),
-            Piece::LiteralBrace => self.out.push_str(r"\{"),
+            Piece::Text(text) | Piece::ClassOpen(text) => {
+                self.out.push_str(text);
+                Role::Unit
+            }
+            Piece::LiteralBrace => {
+                self.out.push_str(r"\{");
+                Role::Unit
+            }
             Piece::Escape {
                 letter: 'b' | 'B',
                 in_class: false,
             } if !cfg!(feature = "unicode") => {
                 return Err("a word boundary needs the Unicode build".to_string());
             }
-            Piece::Escape { letter, in_class } => self.push_escape(letter, in_class),
+            Piece::Escape {
+                letter,
+                in_class: false,
+            } => {
+                self.push_escape(letter, false);
+                Role::Unit
+            }
             Piece::NumberedReference(text) => {
                 if named {
                     return Err(NUMBERED_REFERENCE.to_string());
                 }
                 self.out.push_str(text);
+                Role::Unit
             }
             Piece::NamedReference { text, kind, name } => {
                 if named && is_group_number(name) {
@@ -269,11 +293,10 @@ impl<'n, 's> Rewriter<'n, 's> {
                     (_, Some(numbers)) => push_each_group(numbers, &mut self.out),
                     _ => self.out.push_str(text),
                 }
+                Role::Unit
             }
             Piece::Refused(reason) => return Err(reason.to_string()),
-            _ => {}
-        }
-        Ok(())
+        })
     }
 
     fn push_escape(&mut self, letter: char, in_class: bool) {
