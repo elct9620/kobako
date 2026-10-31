@@ -19,14 +19,9 @@ pub(crate) struct OpenFlags {
     pub(crate) fdflags: types::Fdflags,
 }
 
-/// The directory `fd` stands for, a path being walked from; anything else is
-/// `NOTDIR`, as Linux refuses a walk starting there.
+/// The directory `fd` stands for, a path being walked from.
 fn directory(table: &Descriptors, fd: u32) -> Answer<&vfs::Path> {
-    let file = &table.get(fd).ok_or(Errno::Badf)?.file;
-    match file.is_directory() {
-        true => Ok(file.path()),
-        false => Err(Errno::Notdir.into()),
-    }
+    Ok(table.get(fd).ok_or(Errno::Badf)?.file.path_init()?)
 }
 
 pub(crate) fn create_directory(

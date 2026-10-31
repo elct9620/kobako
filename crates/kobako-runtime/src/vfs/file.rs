@@ -311,6 +311,15 @@ impl File {
         &self.path
     }
 
+    /// Where a walk relative to it starts, as `path_init` refuses to start
+    /// one anywhere but at a directory.
+    pub fn path_init(&self) -> Result<&Path, FilesystemError> {
+        match self.is_directory() {
+            true => Ok(&self.path),
+            false => Err(FilesystemError::NotADirectory),
+        }
+    }
+
     /// Whether it is a directory, as `S_ISDIR(file_inode(file))`.
     pub fn is_directory(&self) -> bool {
         self.path

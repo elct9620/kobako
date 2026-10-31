@@ -1009,6 +1009,16 @@ impl File {
 }
 ```
 
+## `File::path_init`
+
+Where a walk relative to it starts, refusing anything but a directory.
+
+```rust
+impl File {
+    pub fn path_init(&self) -> Result<&Path, FilesystemError> {}
+}
+```
+
 ## `File::is_directory`
 
 Whether it is a directory.
