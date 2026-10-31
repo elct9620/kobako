@@ -1751,9 +1751,9 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind directory the runtime found, which the host then removed |
+| Given | a directory the runtime found, which its Filesystem or an Overlay's Layer then cannot open |
 | When | the directory is opened |
-| Then | the open answers ENOENT, as Linux's opens answer what `f_op->open` answered |
+| Then | the open answers what that open answered, as Linux's opens answer what `f_op->open` answered |
 
 ## `FS-167` A directory the host replaced is not walked to in its place
 

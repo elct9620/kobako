@@ -454,3 +454,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `stat` answers an `ino`, and a mount block replacing the file as it judges |
 | When | the guest reads that file |
 | Then | the read raises `Errno::ENOENT` |
+
+## `RF-035` A name whose kind changed is found afresh
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-027` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a file open in a directory of a Ruby Filesystem |
+| When | the directory's `stat` answers the same `ino` for a file, and the guest walks through its path |
+| Then | the walk answers that the path is no directory |
