@@ -1693,3 +1693,16 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind whose walk left a name kept, with nothing holding it |
 | When | the host moves that directory out of the Mount, and the guest opens a file through the name |
 | Then | the open answers ENOENT |
+
+## `FS-162` A time set on a special file below an Overlay opens nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-092` |
+| relates | `FS-147` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer holds a FIFO |
+| When | a time is set on the FIFO through the Overlay |
+| Then | the call answers EACCES, and the lower Layer opens nothing |
