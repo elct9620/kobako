@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use super::mount::{Access, Denial, VfsMount};
+use super::mount::{Access, VfsMount};
 use super::path::Path;
 use super::{Error, FileType, FilesystemError};
 
@@ -19,7 +19,7 @@ pub trait SecurityOperations: Send + Sync {
         _mnt: &Arc<VfsMount>,
         _path: &dyn Fn() -> String,
         _access: Access,
-    ) -> Result<(), Denial> {
+    ) -> Result<(), Error> {
         Ok(())
     }
 
@@ -69,7 +69,7 @@ impl Cred {
         mnt: &Arc<VfsMount>,
         path: &dyn Fn() -> String,
         access: Access,
-    ) -> Result<(), Denial> {
+    ) -> Result<(), Error> {
         self.security
             .iter()
             .try_for_each(|module| module.inode_permission(mnt, path, access))

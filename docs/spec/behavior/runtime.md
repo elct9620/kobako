@@ -2232,3 +2232,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem that makes any link it is asked to |
 | When | the guest makes one to an absolute path, then to a relative one |
 | Then | the first answers EPERM as wasi-testsuite requires, and the second is made |
+
+## `RT-203` A path past the limit is made where no Policy needs it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-199` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory that moved past `PATH_MAX` from the root, beneath no Policy |
+| When | it makes an entry there |
+| Then | the entry is made, as Linux sets no limit on where a directory stands |
+
+## `RT-204` A path a Policy cannot be handed is too long
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-203` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory that moved past `PATH_MAX` from the root, beneath a Policy |
+| When | it makes an entry there |
+| Then | the call answers ENAMETOOLONG, and the Policy is not asked about that path |

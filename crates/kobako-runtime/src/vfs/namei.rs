@@ -27,7 +27,7 @@ use super::super_block::SuperBlock;
 use super::{Error, FileType, FilesystemError, Metadata};
 use crate::locking::RwSemaphoreGuard;
 
-use super::{NAME_MAX, PATH_MAX};
+use super::NAME_MAX;
 
 /// The most links one walk follows, as Linux's.
 const MAXSYMLINKS: usize = 40;
@@ -54,8 +54,6 @@ pub(crate) struct Nameidata {
     /// walk runs, as Linux's `nameidata` holds what it found, so what the
     /// lookup recorded there is what the call acts on.
     last: Option<Arc<Dentry>>,
-    /// The path from the Mount's root, each name as the guest gave it.
-    pub(crate) judged: String,
     /// Whether the path ended in `/` or `/.`, which only a directory
     /// satisfies.
     pub(crate) names_directory: bool,
@@ -321,7 +319,6 @@ fn parts(path: &str, from_link: bool) -> VecDeque<Part> {
 /// it.
 struct Frame {
     dir: Arc<dyn InodeOperations>,
-    name: String,
     dentry: Arc<Dentry>,
     through_link: bool,
 }
@@ -344,7 +341,7 @@ impl Nameidata {
     fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), Error> {
         let parent = self.dentry().clone();
         let _held = parent.inode_lock_shared()?;
-        let (name, dentry) = self.lookup_slow(&part.name)?;
+        let (_, dentry) = self.lookup_slow(&part.name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
             FileType::Symlink if dot => Err(FilesystemError::FilesystemLoop.into()),
@@ -352,7 +349,6 @@ impl Nameidata {
             FileType::Directory => {
                 self.frames.push(Frame {
                     dir: inode.ops().clone(),
-                    name,
                     dentry,
                     through_link: part.from_link,
                 });
@@ -474,8 +470,7 @@ impl Nameidata {
 /// or a `..` above `start` itself is not the guest's to reach; a `..` or a
 /// final `.` after a component that is missing, no directory, or a link is
 /// `NotFound`, `NotADirectory`, or `FilesystemLoop`. A name past
-/// `NAME_MAX`, or a path the Policy could not be handed within `PATH_MAX`,
-/// is `InvalidFilename`. Where `follow` asks, a link at the end is followed
+/// `NAME_MAX` is `InvalidFilename`. Where `follow` asks, a link at the end is followed
 /// too; one pointing at nothing is `FilesystemLoop` to a call that
 /// `creates`, since what it would create could lie outside `start`.
 pub(crate) fn filename_lookup(
@@ -497,7 +492,6 @@ pub(crate) fn filename_lookup(
         cred: cred.clone(),
         frames: vec![Frame {
             dir: start.dir(),
-            name: String::new(),
             dentry: start.dentry().clone(),
             through_link: false,
         }],
@@ -505,7 +499,6 @@ pub(crate) fn filename_lookup(
         links: 0,
         name: String::new(),
         last: None,
-        judged: String::new(),
         names_directory: names_directory(path),
         found: None,
     };
@@ -549,19 +542,6 @@ pub(crate) fn filename_lookup(
     };
     if followed && creates && matches!(nd.found, Some(Err(FilesystemError::NotFound))) {
         return Err(FilesystemError::FilesystemLoop.into());
-    }
-    nd.judged = start
-        .dentry()
-        .names()
-        .iter()
-        .map(String::as_str)
-        .chain(nd.frames[1..].iter().map(|frame| frame.name.as_str()))
-        .chain(std::iter::once(nd.name.as_str()))
-        .filter(|name| !name.is_empty())
-        .collect::<Vec<_>>()
-        .join("/");
-    if nd.judged.len() >= PATH_MAX {
-        return Err(FilesystemError::InvalidFilename.into());
     }
     // A directory removed through the VFS holds no name any more, as
     // Linux's lookup in a dead directory finds nothing.
@@ -828,7 +808,7 @@ pub fn filename_renameat2(
     // leaves everything as it was. A rename moves a link rather than what
     // it points at, so each side is checked as it stands.
     let names_directory = source.names_directory || target.names_directory;
-    let onto_itself = target.judged == source.judged;
+    let onto_itself = Arc::ptr_eq(source.dentry(), target.dentry()) && source.name == target.name;
     source.names_directory = names_directory;
     source.check_directory()?;
     if !onto_itself {
@@ -839,9 +819,8 @@ pub fn filename_renameat2(
     }
     source.check(Access::ReadWrite)?;
     target.check(Access::ReadWrite)?;
-    // Each side was walked on its own, so a rename onto its own path is
-    // known by the path rather than by the directories each walk opened;
-    // it changes nothing once the source stands, as `rename(2)` answers.
+    // A rename onto its own name changes nothing once the source stands, as
+    // `rename(2)` answers.
     if onto_itself {
         source.kind()?;
         return Ok(());

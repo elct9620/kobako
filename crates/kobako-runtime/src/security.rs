@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::mount::{Mount, Policy};
 use crate::vfs::{
     Access, Cred, Denial, Error, FileType, FilesystemError, Lookup, Path, SecurityOperations,
-    VfsMount,
+    VfsMount, PATH_MAX,
 };
 
 /// What every Invocation holds to, whatever its Mounts allow.
@@ -56,17 +56,26 @@ impl MountPolicy {
 impl SecurityOperations for MountPolicy {
     /// The Policy judges the path as the Filesystem stores its names, so a
     /// host folding case or Unicode form cannot hand it one spelling of an
-    /// entry it refuses by another.
+    /// entry it refuses by another. One a Policy could not be handed within
+    /// `PATH_MAX` is refused as too long, as AppArmor's `aa_path_name` refuses
+    /// one past its buffer.
     fn inode_permission(
         &self,
         mnt: &Arc<VfsMount>,
         path: &dyn Fn() -> String,
         access: Access,
-    ) -> Result<(), Denial> {
-        if !self.guards(mnt) || self.policy.allows(&self.guest_path(&path()), access) {
+    ) -> Result<(), Error> {
+        if !self.guards(mnt) {
             return Ok(());
         }
-        Err(Denial::Refused)
+        let path = self.guest_path(&path());
+        if path.len() >= PATH_MAX {
+            return Err(FilesystemError::InvalidFilename.into());
+        }
+        match self.policy.allows(&path, access) {
+            true => Ok(()),
+            false => Err(Denial::Refused.into()),
+        }
     }
 
     /// A link leads to a path the Policy never judged, so the call is refused
@@ -167,6 +176,80 @@ pub fn prepare_creds<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cre
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::filesystem::Tmpfs;
+
+    /// A Policy allowing everything, counting how often it is asked.
+    #[derive(Default)]
+    struct Counts(std::sync::atomic::AtomicUsize);
+
+    impl Policy for Counts {
+        fn allows(&self, _path: &str, _access: Access) -> bool {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            true
+        }
+    }
+
+    /// What making an entry answers through a directory moved past
+    /// `PATH_MAX`, beneath a mount `prepare` finishes.
+    fn made_past_the_limit(prepare: impl FnOnce(Mount) -> Mount) -> Result<(), Error> {
+        let (deep, seed) = (vec!["a"; 2000].join("/"), "x");
+        let tmpfs: Tmpfs = [
+            (format!("c0/{deep}/file"), seed),
+            (format!("c1/{deep}/file"), seed),
+        ]
+        .into_iter()
+        .collect();
+        let mount = Mount::new(
+            "/data",
+            crate::filesystem::Filesystem::new(Arc::new(tmpfs)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let mount = prepare(mount);
+        let cred = prepare_creds([&mount]);
+        let root = Path::root(mount.mnt());
+        let mut how = crate::vfs::OpenHow::default();
+        how.directory = true;
+        let held = crate::vfs::do_file_open(&cred, &root, &format!("c0/{deep}"), &how)
+            .unwrap_or_else(|_| panic!("the directory must open"));
+        crate::vfs::filename_renameat2(
+            &Arc::default(),
+            &root,
+            "c0",
+            &root,
+            &format!("c1/{deep}/z"),
+        )
+        .expect("the move must land");
+        crate::vfs::filename_mkdirat(&cred, held.path(), "made")
+    }
+
+    // Linux's walk sets no limit on where a directory stands, so a walk
+    // without a Policy has no reason to.
+    // @behavior RT-203
+    #[test]
+    fn a_path_past_the_limit_is_made_where_no_policy_needs_it() {
+        assert_eq!(
+            made_past_the_limit(|mount| mount),
+            Ok(()),
+            "vfs::filename_mkdirat through a directory moved past PATH_MAX, beneath a Mount with \
+             no Policy, must make the entry"
+        );
+    }
+
+    // @behavior RT-204
+    #[test]
+    fn a_path_a_policy_cannot_be_handed_is_too_long() {
+        let policy = Arc::new(Counts::default());
+        let asked = policy.clone();
+        let made = made_past_the_limit(move |mount| mount.with_policy(policy));
+        let asked_past_the_limit = asked.0.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            (made, asked_past_the_limit),
+            (Err(FilesystemError::InvalidFilename.into()), 1),
+            "vfs::filename_mkdirat through a directory moved past PATH_MAX, beneath a Policy, \
+             must answer ENAMETOOLONG, the Policy asked only of the open before the move"
+        );
+    }
 
     // A Bind refuses these itself, so only asking the rule directly shows it
     // holds for a Filesystem that would open them.
