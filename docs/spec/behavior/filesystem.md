@@ -1742,3 +1742,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay directory the runtime found, not yet entered |
 | When | the lower Layer's directory is replaced behind the view, and the directory is listed |
 | Then | the listing shows the Layer's directory it was found in |
+
+## `FS-166` A directory that cannot open answers why
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-218` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind directory the runtime found, which the host then removed |
+| When | the directory is opened |
+| Then | the open answers ENOENT, as Linux's opens answer what `f_op->open` answered |
