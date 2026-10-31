@@ -66,7 +66,7 @@ impl RubyFilesystem {
                 } else {
                     own_dev
                 };
-                recorded(stat, metadata.with_identity(dev, stat.funcall("ino", ())?))
+                with_stat_record(stat, metadata.with_identity(dev, stat.funcall("ino", ())?))
             },
         )
     }
@@ -93,7 +93,7 @@ fn kind_of(stat: Value) -> Result<FileType, MagnusError> {
 }
 
 /// `metadata` with the times and the count of names `stat` records.
-fn recorded(stat: Value, metadata: Metadata) -> Result<Metadata, MagnusError> {
+fn with_stat_record(stat: Value, metadata: Metadata) -> Result<Metadata, MagnusError> {
     let metadata = metadata.with_times(
         time_of(stat, "atime")?,
         time_of(stat, "mtime")?,
@@ -321,7 +321,7 @@ impl InodeOperations for RubyFilesystem {
             |_, file| {
                 let metadata = Metadata::new(FileType::File, file.funcall("size", ())?);
                 if file.respond_to("stat", false)? {
-                    recorded(file.funcall("stat", ())?, metadata)
+                    with_stat_record(file.funcall("stat", ())?, metadata)
                 } else {
                     Ok(metadata)
                 }

@@ -58,7 +58,7 @@ enum Node {
 
 impl Node {
     /// Mark a file no directory holds any more, which a handle may outlive.
-    fn unnamed(&self) {
+    fn drop_name(&self) {
         if let Self::File(data) = self {
             lock(data).names = 0;
         }
@@ -109,7 +109,7 @@ impl State {
             lock(data).names = 1;
         }
         if let Some(replaced) = self.entries.insert(name.to_string(), node) {
-            replaced.unnamed();
+            replaced.drop_name();
         }
         self.times.touch();
     }
@@ -117,7 +117,7 @@ impl State {
     /// Take the entry `name` away, a change to the directory's content.
     fn remove(&mut self, name: &str) {
         if let Some(removed) = self.entries.remove(name) {
-            removed.unnamed();
+            removed.drop_name();
         }
         self.times.touch();
     }

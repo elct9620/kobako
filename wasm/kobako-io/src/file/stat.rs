@@ -94,13 +94,16 @@ mod raw {
     }
 
     unsafe extern "C" {
-        fn stat(path: *const c_char, buf: *mut CStat) -> c_int;
-        fn lstat(path: *const c_char, buf: *mut CStat) -> c_int;
-        fn fstat(fd: c_int, buf: *mut CStat) -> c_int;
+        #[link_name = "stat"]
+        fn c_stat(path: *const c_char, buf: *mut CStat) -> c_int;
+        #[link_name = "lstat"]
+        fn c_lstat(path: *const c_char, buf: *mut CStat) -> c_int;
+        #[link_name = "fstat"]
+        fn c_fstat(fd: c_int, buf: *mut CStat) -> c_int;
     }
 
     /// What `call` left in the buffer it was handed, or the failure it set.
-    fn asked(call: impl FnOnce(*mut CStat) -> c_int) -> io::Result<Stat> {
+    fn report_from(call: impl FnOnce(*mut CStat) -> c_int) -> io::Result<Stat> {
         let mut found = MaybeUninit::<CStat>::uninit();
         if call(found.as_mut_ptr()) != 0 {
             return Err(io::Error::last_os_error());
@@ -115,19 +118,19 @@ mod raw {
         })
     }
 
-    pub(super) fn following(path: &CStr) -> io::Result<Stat> {
+    pub(super) fn stat(path: &CStr) -> io::Result<Stat> {
         // SAFETY: `path` is NUL-terminated and `buf` is as large as `stat` writes.
-        asked(|buf| unsafe { stat(path.as_ptr(), buf) })
+        report_from(|buf| unsafe { c_stat(path.as_ptr(), buf) })
     }
 
-    pub(super) fn not_following(path: &CStr) -> io::Result<Stat> {
+    pub(super) fn lstat(path: &CStr) -> io::Result<Stat> {
         // SAFETY: `path` is NUL-terminated and `buf` is as large as `lstat` writes.
-        asked(|buf| unsafe { lstat(path.as_ptr(), buf) })
+        report_from(|buf| unsafe { c_lstat(path.as_ptr(), buf) })
     }
 
-    pub(super) fn of_descriptor(fd: i32) -> io::Result<Stat> {
+    pub(super) fn fstat(fd: i32) -> io::Result<Stat> {
         // SAFETY: `buf` is as large as `fstat` writes, and a bad `fd` only fails.
-        asked(|buf| unsafe { fstat(fd, buf) })
+        report_from(|buf| unsafe { c_fstat(fd, buf) })
     }
 }
 
@@ -144,7 +147,7 @@ mod raw {
 
     use super::Stat;
 
-    fn reported(metadata: fs::Metadata) -> Stat {
+    fn report_of(metadata: fs::Metadata) -> Stat {
         Stat {
             ino: metadata.ino(),
             nlink: metadata.nlink(),
@@ -153,20 +156,20 @@ mod raw {
         }
     }
 
-    fn named(path: &CStr) -> &Path {
+    fn as_path(path: &CStr) -> &Path {
         Path::new(OsStr::from_bytes(path.to_bytes()))
     }
 
-    pub(super) fn following(path: &CStr) -> io::Result<Stat> {
-        fs::metadata(named(path)).map(reported)
+    pub(super) fn stat(path: &CStr) -> io::Result<Stat> {
+        fs::metadata(as_path(path)).map(report_of)
     }
 
-    pub(super) fn not_following(path: &CStr) -> io::Result<Stat> {
-        fs::symlink_metadata(named(path)).map(reported)
+    pub(super) fn lstat(path: &CStr) -> io::Result<Stat> {
+        fs::symlink_metadata(as_path(path)).map(report_of)
     }
 
-    pub(super) fn of_descriptor(fd: i32) -> io::Result<Stat> {
-        crate::stream::with_file(fd, |file| file.metadata().map(reported))
+    pub(super) fn fstat(fd: i32) -> io::Result<Stat> {
+        crate::stream::with_file(fd, |file| file.metadata().map(report_of))
     }
 }
 
@@ -201,7 +204,7 @@ pub(super) fn init(mrb: &Mrb, file: RClass) -> Result<(), Error> {
 
 /// What `ask` answers for `path`, kept apart from a failure of the path
 /// itself, which every call raises.
-fn asked_of(
+fn ask_host(
     mrb: &Mrb,
     call: &str,
     path: Value,
@@ -215,23 +218,23 @@ fn asked_of(
     Ok((path, found))
 }
 
-/// As `asked_of`, the host's failure raising the `Errno` it names.
-fn required(
+/// As `ask_host`, the host's failure raising the `Errno` it names.
+fn report_at(
     mrb: &Mrb,
     call: &str,
     path: Value,
     ask: fn(&CStr) -> io::Result<Stat>,
 ) -> Result<Stat, Error> {
-    let (path, found) = asked_of(mrb, call, path, ask)?;
+    let (path, found) = ask_host(mrb, call, path, ask)?;
     found.map_err(|err| errno::from_io(mrb, &err, &path))
 }
 
-fn wrapped(mrb: &Mrb, stat: Stat) -> Value {
+fn report_value(mrb: &Mrb, stat: Stat) -> Value {
     mrb.wrap(stat).as_value()
 }
 
 fn stat_s_new(mrb: &Mrb, class: RClass, path: Value) -> Result<Value, Error> {
-    let stat = required(mrb, "File::Stat.new", path, raw::following)?;
+    let stat = report_at(mrb, "File::Stat.new", path, raw::stat)?;
     Ok(mrb.wrap_as(stat, class).as_value())
 }
 
@@ -293,9 +296,9 @@ fn file_stat(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         self_,
         "kobako File reaches only a file this guest opened",
     )?;
-    let stat = raw::of_descriptor(fd)
+    let stat = raw::fstat(fd)
         .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label(mrb, self_)))?;
-    Ok(wrapped(mrb, stat))
+    Ok(report_value(mrb, stat))
 }
 
 /// The entry the path it was opened by names now, as `File#lstat` asks by the
@@ -308,43 +311,43 @@ fn file_lstat(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     )?;
     let path = crate::stream::label(mrb, self_);
     let path = mrb.str_new(path.as_bytes()).as_value();
-    Ok(wrapped(
+    Ok(report_value(
         mrb,
-        required(mrb, "File#lstat", path, raw::not_following)?,
+        report_at(mrb, "File#lstat", path, raw::lstat)?,
     ))
 }
 
 fn file_s_stat(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
-    Ok(wrapped(
+    Ok(report_value(
         mrb,
-        required(mrb, "File.stat", path, raw::following)?,
+        report_at(mrb, "File.stat", path, raw::stat)?,
     ))
 }
 
 fn file_s_lstat(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
-    Ok(wrapped(
+    Ok(report_value(
         mrb,
-        required(mrb, "File.lstat", path, raw::not_following)?,
+        report_at(mrb, "File.lstat", path, raw::lstat)?,
     ))
 }
 
 /// Linux's CRuby reads a link as itself here, through `lstat`.
 fn file_s_ftype(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
-    let ftype = required(mrb, "File.ftype", path, raw::not_following)?.ftype();
+    let ftype = report_at(mrb, "File.ftype", path, raw::lstat)?.ftype();
     Ok(mrb.str_new(ftype.as_bytes()).as_value())
 }
 
 fn file_s_symlink_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
-    let (_, found) = asked_of(mrb, "File.symlink?", path, raw::not_following)?;
+    let (_, found) = ask_host(mrb, "File.symlink?", path, raw::lstat)?;
     Ok(found.is_ok_and(|stat| stat.is(S_IFLNK)))
 }
 
 fn file_s_size_p(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
-    let (_, found) = asked_of(mrb, "File.size?", path, raw::following)?;
+    let (_, found) = ask_host(mrb, "File.size?", path, raw::stat)?;
     Ok(found.map_or(qnil().as_value(), |stat| stat.nonzero_size(mrb)))
 }
 
 fn file_s_zero_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
-    let (_, found) = asked_of(mrb, "File.zero?", path, raw::following)?;
+    let (_, found) = ask_host(mrb, "File.zero?", path, raw::stat)?;
     Ok(found.is_ok_and(|stat| stat.size == 0))
 }
