@@ -952,11 +952,11 @@ pub trait SecurityOperations {
 
 ## `SecurityOperations::path_rename`
 
-Whether an entry beneath a mount may move.
+Whether what one Dentry names beneath a mount may move to another.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_rename(&self, _mnt: &Arc<VfsMount>, _is_dir: bool) -> Result<(), FilesystemError>;
+    fn path_rename(&self, _mnt: &Arc<VfsMount>, _old: &Arc<Dentry>, _new: &Arc<Dentry>) -> Result<(), FilesystemError>;
 }
 ```
 

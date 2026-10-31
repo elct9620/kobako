@@ -1231,7 +1231,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a Bind Mount holding a link to a directory |
-| When | the guest names a path taking `..` or a final `.` right after the link |
+| When | the guest opens or stats a path taking `..` or a final `.` right after the link |
 | Then | the call answers ELOOP |
 
 ## `RT-120` A Policy judges a path as its Filesystem stores the names
@@ -2424,3 +2424,39 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount whose Filesystem has no `open` for a file it holds |
 | When | the guest opens the file and reads it |
 | Then | the open succeeds and the read answers EINVAL, as Linux's opens with no `f_op->open` |
+
+## `RT-219` A change naming a dot through a link answers as Linux's
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-119`, `RT-161` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-write Bind Mount holding a directory and a link to it |
+| When | the guest makes a directory and removes a file at the link's path followed by `.` |
+| Then | making answers EEXIST and removing EISDIR, and the directory stays |
+
+## `RT-220` An exclusive create follows no link at the end
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-162` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount holding a link to nothing |
+| When | the guest opens the link's path to create it exclusively, asking to follow links |
+| Then | the open answers EEXIST and nothing is made |
+
+## `RT-221` A trailing slash on a link to a directory reads no link
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-208` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount holding a link to a directory |
+| When | the link is read at its path followed by `/` |
+| Then | the call answers EINVAL, as Linux's follows the link to the directory first |
