@@ -234,6 +234,19 @@ Beneath a mount, `File.open` and `IO.new` answer as CRuby does over a Linux dire
 | `IO.new` wraps stdout or stderr in a mode other than `"w"` | `ArgumentError` |
 | `disable_file` is set | no `File` constant |
 
+##### File Reports
+
+`File::Stat` answers as CRuby does on Linux, for what preview1 hands the guest. It leaves undefined what it could only answer wrongly, so a script fails rather than reading a wrong answer.
+
+| Part | Holds |
+|---|---|
+| ways to ask | `File.stat`, `File.lstat`, `File::Stat.new`, `File#stat`, `File#lstat` |
+| answers | `ino`, `nlink`, `size`, `size?`, `zero?`, `ftype`, `file?`, `directory?`, `symlink?`, `chardev?`, `socket?` |
+| class calls | `File.ftype`, `File.symlink?`, `File.size?`, `File.zero?`, `File.empty?` |
+| undefined | times and `<=>`, `dev`, `mode`, owners, permissions, `pipe?`, `blockdev?`, `File.identical?` |
+
+A FIFO's and a block device's `ftype` read `"unknown"`, as neither reaches the guest as a kind. A hermetic guest reads every `ino` as 0.
+
 #### Overlays
 
 An Overlay stacks Layers as Linux's overlayfs does. The lower Layers, topmost first, are never written. The upper must be a Tmpfs, as gVisor requires, so the host stays as it was.

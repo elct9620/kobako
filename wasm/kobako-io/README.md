@@ -9,7 +9,7 @@ A `beni::Gem` installing the Ruby IO and File surface.
 | What it installs | Detail |
 |---|---|
 | The IO surface | the `::IO` class, the `STDOUT` / `STDERR` constants, and the assignable `$stdout` / `$stderr` globals |
-| The File surface | `::File < IO` over the directories the host preopens, raising `NotImplementedError` where it preopens none |
+| The File surface | `::File < IO` and `File::Stat` over the directories the host preopens, raising `NotImplementedError` where it preopens none |
 | The errors | `IOError`, `EOFError`, `SystemCallError`, and the `Errno` classes a file operation raises |
 | The Kernel delegators | `print` / `puts` / `printf` / `p` / `putc` / `warn`, private, dispatching through those globals at call time |
 

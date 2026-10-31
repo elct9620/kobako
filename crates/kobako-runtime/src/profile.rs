@@ -19,7 +19,8 @@ use crate::vfs::Identity;
 /// entropy denied at the WASI boundary, no ambient filesystem /
 /// environment / network reachability, and no host import beyond the wire ABI's
 /// `__kobako_upcall`. `Permissive` differs only in the ambient
-/// authority it grants — live time and entropy at the WASI boundary. Ordering
+/// authority it grants — live time and entropy at the WASI boundary — and in
+/// the times and inode numbers it shows of an entry. Ordering
 /// follows strength (`Permissive < Hermetic`), so a floor check is a
 /// plain comparison.
 ///

@@ -42,12 +42,14 @@ feature that specifies it.
 ## Isolation Profiles
 
 Postures form the ladder `permissive < hermetic`; `Sandbox.new(profile:)` requests
-one and defaults to `:hermetic`. The rungs differ in one thing only.
+one and defaults to `:hermetic`. The rungs differ in what the guest reads of time, entropy, and a Mount's entries.
 
-| Profile | Clocks and entropy | Everything else |
-|---|---|---|
-| `hermetic` | frozen clock, constant entropy | no ambient filesystem, `ENV`, or socket |
-| `permissive` | live host time and entropy | same as `hermetic` |
+| Profile | Clocks and entropy | A Mount's entries | Everything else |
+|---|---|---|---|
+| `hermetic` | frozen clock, constant entropy | every time at the epoch, inode number 0 | no ambient filesystem, `ENV`, or socket |
+| `permissive` | live host time and entropy | real times, a keyed inode number | same as `hermetic` |
+
+A permissive guest's inode number is a hash of the entry's identity under a key the process draws once. It tells entries apart, and nothing outside the process can compute it from a host's numbers.
 
 `hermetic` keeps the guest deterministic except for values a Service injects.
 Requesting `:permissive` trades that reproducibility for real time and entropy;
