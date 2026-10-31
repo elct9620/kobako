@@ -4,9 +4,9 @@
 use std::sync::Arc;
 
 use super::dentry::Dentry;
+use super::inode::InodeOperations;
 use super::mount::VfsMount;
-use super::Error;
-use crate::filesystem::{InodeOperations, Metadata};
+use super::{Error, Metadata};
 
 /// A name beneath a mount, as an open file holds its `f_path`: the mount's
 /// root, or an entry opened beneath it. A call relative to one starts at a

@@ -7,8 +7,10 @@
 //! before the Filesystem is asked, so a Filesystem of a third party's
 //! checks neither.
 
+mod attr;
 mod cred;
 mod dentry;
+mod errno;
 mod file;
 mod filesystem;
 mod inode;
@@ -23,27 +25,29 @@ mod seqlock;
 mod stat;
 mod utimes;
 
-use crate::filesystem::FilesystemError;
-
 pub(crate) use namei::{
     d_get_link, d_getattr, d_lookup_inode, d_open, lookup_one, lookup_slow, start_renaming,
     vfs_create, vfs_link, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, vfs_whiteout, RenameFlag,
 };
 
+pub use attr::{Iattr, SetTime};
 pub use cred::{Cred, SecurityOperations};
-pub use dentry::Dentry;
-pub use file::{DirContext, DirEmit, FMode, File, PollMask, Whence};
+pub use dentry::{Dentry, DentryOperations};
+pub use errno::FilesystemError;
+pub use file::{
+    DirContext, DirEmit, DirEntry, FMode, File, FileOperations, Kiocb, PollMask, Whence,
+};
 pub use filesystem::Filesystem;
-pub use inode::{Identity, Inode};
+pub use inode::{Identity, Inode, InodeOperations, Lookup};
 pub use mount::{Access, Denial, VfsMount};
 pub use namei::{
     do_file_open, filename_linkat, filename_mkdirat, filename_renameat2, filename_rmdir,
     filename_symlinkat, filename_unlinkat,
 };
-pub use openat2::OpenHow;
+pub use openat2::{OpenHow, OpenOptions};
 pub use path::Path;
 pub use pipe::{create_pipe_files, PipeInodeInfo};
-pub use stat::{do_readlinkat, vfs_fstatat};
+pub use stat::{do_readlinkat, vfs_fstatat, FileType, Metadata};
 pub use utimes::{do_utimes, vfs_utimes};
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name

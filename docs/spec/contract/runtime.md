@@ -25,8 +25,10 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/security.rs`
 - `crates/kobako-runtime/src/snapshot.rs`
 - `crates/kobako-runtime/src/vfs.rs`
+- `crates/kobako-runtime/src/vfs/attr.rs`
 - `crates/kobako-runtime/src/vfs/cred.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
+- `crates/kobako-runtime/src/vfs/errno.rs`
 - `crates/kobako-runtime/src/vfs/mount.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-runtime/src/vfs/filesystem.rs`

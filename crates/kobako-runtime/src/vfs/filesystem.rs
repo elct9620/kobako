@@ -3,8 +3,7 @@
 use std::sync::Arc;
 
 use super::dentry::Dentries;
-use super::inode::Inode;
-use crate::filesystem::InodeOperations;
+use super::inode::{Inode, InodeOperations};
 use crate::locking::RwSemaphore;
 
 /// One Filesystem instance, with the directories of it a guest reaches.

@@ -15,10 +15,9 @@ use super::namei::{
     vfs_unlink, Nameidata,
 };
 use super::path::Path;
-use super::{Error, File, Filesystem};
-use crate::filesystem::{
-    DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations, Metadata,
-    OpenOptions,
+use super::{
+    DirEntry, Error, File, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
+    InodeOperations, Metadata, OpenOptions,
 };
 use crate::mount::{Access, Mount};
 

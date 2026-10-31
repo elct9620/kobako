@@ -7,15 +7,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use super::dentry::Dentry;
-use super::file::{FMode, File, PollMask};
-use super::inode::Inode;
+use super::file::{FMode, File, FileOperations, Kiocb, PollMask};
+use super::inode::{Inode, InodeOperations};
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
 use super::path::Path;
-use crate::filesystem::{
-    FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Metadata,
-};
-use crate::vfs::Filesystem;
+use super::{FileType, Filesystem, FilesystemError, Metadata};
 
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No guest
 /// path reaches it: a pipe is only ever open.

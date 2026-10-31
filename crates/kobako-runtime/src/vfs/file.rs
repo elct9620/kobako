@@ -10,15 +10,127 @@ use super::dentry::Dentry;
 use super::inode::Identity;
 use super::mount::VfsMount;
 use super::namei::d_getattr;
-use super::openat2::OpenHow;
+use super::openat2::{OpenHow, OpenOptions};
 use super::path::Path;
-use super::Error;
-use crate::filesystem::{
-    DirEntry, FileOperations, FileType, FilesystemError, Iattr, Kiocb, Metadata, OpenOptions,
-};
+use super::{Error, FileType, FilesystemError, Iattr, Metadata};
 
 /// The largest offset a file holds, where Linux's signed `loff_t` ends.
 const MAX_OFFSET: u64 = i64::MAX as u64;
+
+/// Where one read or write lands, and where the file left off once it did,
+/// as Linux's `struct kiocb`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Kiocb {
+    /// Where the call lands; the file moves it past what it took.
+    pub pos: u64,
+    /// Whether a write lands at the file's end as it stands then, as
+    /// `IOCB_APPEND` asks.
+    pub append: bool,
+}
+
+impl Kiocb {
+    /// A call landing at `pos`.
+    pub fn at(pos: u64) -> Self {
+        Self { pos, append: false }
+    }
+
+    /// This call, landing at the file's end as it stands when the write
+    /// lands.
+    pub fn appending(self) -> Self {
+        Self {
+            append: true,
+            ..self
+        }
+    }
+}
+
+/// One open file. The runtime keeps its position and hands each call where it
+/// lands.
+pub trait FileOperations: Send {
+    /// Read into `buf` from where `iocb` lands, moving it past what was read
+    /// unless the file has no positions. A file without it refuses as Linux's
+    /// `vfs_read` refuses one without `f_op->read_iter`.
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        Err(FilesystemError::InvalidInput)
+    }
+
+    /// Write `buf` where `iocb` lands, moving it past what was written unless
+    /// the file has no positions. A file without it refuses as Linux's
+    /// `vfs_write` refuses one without `f_op->write_iter`.
+    ///
+    /// A call landing at the end must keep another writer's from landing over
+    /// it, as `generic_file_write_iter` reads the end under the inode's lock,
+    /// so a file that cannot read its end and write there in one step answers
+    /// `Unsupported`.
+    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
+        Err(FilesystemError::InvalidInput)
+    }
+
+    /// The entries of this directory, which `dentry` names, without `.`
+    /// or `..`, as `iterate_shared` lists the file it is handed. A file
+    /// without it answers `NotADirectory`, as Linux's `iterate_dir` does.
+    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        Err(FilesystemError::NotADirectory)
+    }
+
+    /// Reserve `len` bytes from `offset`, as `f_op->fallocate` does. A file
+    /// without it refuses as Linux's `vfs_fallocate` refuses one without it.
+    fn fallocate(&mut self, _offset: u64, _len: u64) -> Result<(), FilesystemError> {
+        Err(FilesystemError::Unsupported)
+    }
+
+    /// What a call would find ready on this end, opened for `mode`, as
+    /// `f_op->poll` answers. A file without it is always ready, as Linux's
+    /// `vfs_poll` answers `DEFAULT_POLLMASK`.
+    fn poll(&self, _mode: FMode) -> PollMask {
+        PollMask::IN | PollMask::OUT
+    }
+
+    /// Make what was written durable. A file with nothing to flush answers
+    /// success itself, as tmpfs names `noop_fsync`; one without it refuses
+    /// as Linux's `vfs_fsync_range` refuses one without `f_op->fsync`.
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
+        Err(FilesystemError::InvalidInput)
+    }
+
+    /// Answer, as the guest closes the file, whether what it held was kept,
+    /// as `f_op->flush` answers `close(2)`. The default has nothing to flush.
+    /// What the file holds goes when it is dropped, as `->release` runs and
+    /// no caller reads its answer, so a file the guest never closes still
+    /// lets go of it.
+    fn flush(&mut self) -> Result<(), FilesystemError> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DirEntry {
+    pub name: String,
+    pub file_type: FileType,
+    /// The device and inode numbers naming the entry, as `Metadata` reports
+    /// them and `dir_emit` hands `d_ino`. An `ino` of zero reports none.
+    pub dev: u64,
+    pub ino: u64,
+}
+
+impl DirEntry {
+    /// The entry `name` in its directory, naming a `file_type`.
+    pub fn new(name: impl Into<String>, file_type: FileType) -> Self {
+        Self {
+            name: name.into(),
+            file_type,
+            dev: 0,
+            ino: 0,
+        }
+    }
+
+    /// This entry naming `dev` and `ino`, as a stat of it reports them.
+    pub fn with_identity(self, dev: u64, ino: u64) -> Self {
+        Self { dev, ino, ..self }
+    }
+}
 
 /// What an open file was opened for and what it can do, as Linux's `fmode_t`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -5,8 +5,144 @@ use std::any::Any;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use crate::filesystem::{FileType, FilesystemError, InodeOperations, Metadata};
+use super::dentry::{Dentry, DentryOperations};
+use super::file::FileOperations;
+use super::{FileType, FilesystemError, Iattr, Metadata, OpenOptions};
 use crate::locking::{RwSemaphore, RwSemaphoreGuard};
+
+/// What one name in a directory turned out to be, as `->lookup` answers.
+pub enum Lookup {
+    /// The entry standing at the name, for the runtime to record on the
+    /// dentry, as `d_splice_alias` records it.
+    Found(Inode),
+    /// Nothing stands at the name, as a negative dentry records.
+    Absent,
+    /// The entry the name reaches is stored under this other spelling, as
+    /// `d_add_ci` is handed the case-exact name, so a name a host reaches by
+    /// more than one spelling has one dentry, one lock, and one spelling a
+    /// Policy judges.
+    Spelled(String),
+}
+
+/// What one entry of a Filesystem answers: a directory for the names in it,
+/// a link for where it points, and any entry for itself, as Linux's
+/// `inode_operations` hang from each inode. An operation an entry does not
+/// have answers `None`, as a NULL in Linux's table, and the runtime answers
+/// for it as Linux's VFS does. One Filesystem may wrap another and answer by
+/// delegating, wrapping each entry its `lookup` finds, so it sees every call
+/// on the way through. A directory keeps its identity its own while it is
+/// open, as an open descriptor keeps a host's inode from being reused.
+///
+/// The runtime walks a guest's path one name at a time and follows a link
+/// itself, as the VFS above a filesystem does, so a link never leads a call
+/// out of the directory a descriptor opened. Every Invocation reaches the
+/// same Filesystem; one that should start afresh is handed in its place for
+/// that Invocation.
+pub trait InodeOperations: Any + Send + Sync {
+    /// What this entry, which `dentry` names, reports of itself, as
+    /// `getattr` is handed the path it answers for, even once its name is
+    /// gone and only an open file holds it, as `fstat` asks the same. A link
+    /// reports itself; the runtime keeps its size from the guest.
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
+
+    /// Apply `attr` to this entry, even once its name is gone and only an
+    /// open file holds it, as `ftruncate` and `utimensat` reach `->setattr`.
+    /// An entry without it refuses a size as invalid input and times as
+    /// unsupported.
+    fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    /// What stands at the name `dentry` carries in this directory. The
+    /// runtime asks once for a dentry naming nothing yet, and an entry
+    /// without it is no directory to walk through.
+    fn lookup(&self, _dentry: &Dentry) -> Option<Result<Lookup, FilesystemError>> {
+        None
+    }
+
+    /// What every dentry of this Filesystem answers through, asked of its
+    /// root once, as a driver's `fill_super` calls `set_default_d_op`. A
+    /// Filesystem changed only through the runtime need not have one.
+    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
+        None
+    }
+
+    /// Where this link, which `dentry` names, points, as `get_link` answers,
+    /// for the runtime to follow; a guest never reads it. Anything else
+    /// without it refuses as `readlinkat` does.
+    fn get_link(&self, _dentry: &Dentry) -> Option<Result<String, FilesystemError>> {
+        None
+    }
+
+    /// Open this entry, which `dentry` names, as `options` asks, truncating
+    /// a file where they say to, as `f_op->open` makes the open file. A
+    /// directory opens to be listed; without it, listing one answers
+    /// `NotADirectory`. The runtime refuses a link before it asks.
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        None
+    }
+
+    /// Make the file `dentry` names in this directory and open it as
+    /// `options` asks, as `->create` does. Without it the runtime answers
+    /// `PermissionDenied`, as Linux's VFS answers EACCES.
+    fn create(
+        &self,
+        _dentry: &Dentry,
+        _options: &OpenOptions,
+    ) -> Option<Result<Box<dyn FileOperations>, FilesystemError>> {
+        None
+    }
+
+    /// Make the directory `dentry` names in this one. Without it, and
+    /// without `rmdir`, `unlink`, or `rename`, the runtime answers
+    /// `NotPermitted`, as Linux's VFS answers EPERM.
+    fn mkdir(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    /// Give the entry `old` names another name, the one `dentry` carries in
+    /// this directory. Without it the runtime answers `NotPermitted`, as
+    /// Linux's `vfs_link` answers EPERM.
+    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    /// Make the link `dentry` names in this directory, pointing at `target`.
+    /// Without it the runtime answers `NotPermitted`, as Linux's
+    /// `vfs_symlink` answers EPERM.
+    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    /// Remove the empty directory `dentry` names in this one.
+    fn rmdir(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    /// Remove the file `dentry` names in this directory.
+    fn unlink(&self, _dentry: &Dentry) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+
+    /// Move the entry `from` names in this directory to `to` in `to_dir`,
+    /// refusing what rename(2) refuses at `to`. The runtime has already
+    /// checked what stands at `from` and never hands a move onto its own
+    /// name, as Linux's VFS does before `inode_operations.rename`. It hands
+    /// only a `to_dir` of the same Mount, so it is of this Filesystem's own
+    /// type, and one that is not answers `CrossesDevices`.
+    fn rename(
+        &self,
+        _from: &Dentry,
+        _to_dir: &dyn InodeOperations,
+        _to: &Dentry,
+    ) -> Option<Result<(), FilesystemError>> {
+        None
+    }
+}
 
 /// What a directory is, apart from where it stands: the device and inode
 /// numbers its Filesystem names it by, as Linux reads `i_ino` and `s_dev`.

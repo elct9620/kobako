@@ -8,11 +8,25 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
-use super::inode::Inode;
+use super::inode::{Inode, InodeOperations};
 use super::seqlock::SeqLock;
-use crate::filesystem::{DentryOperations, FilesystemError};
+use super::FilesystemError;
 use crate::hashtable::Hashtable;
 use crate::locking::RwSemaphoreGuard;
+
+/// What a Filesystem answers about a name rather than an entry, as Linux's
+/// `dentry_operations`: a name may stand for nothing, so no inode can answer
+/// for it.
+pub trait DentryOperations: Send + Sync {
+    /// Whether `dentry`, a name the runtime still holds in `dir`, names what
+    /// it recorded, as `d_revalidate` answers; `false` has the runtime drop
+    /// it and take the name afresh.
+    fn revalidate(
+        &self,
+        dir: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<bool, FilesystemError>;
+}
 
 /// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
 /// parents answers where the dentry stood at one instant.

@@ -18,16 +18,13 @@ use std::sync::Arc;
 
 use super::cred::Cred;
 use super::dentry::Dentry;
-use super::file::File;
+use super::file::{File, FileOperations};
 use super::filesystem::Filesystem;
-use super::inode::Inode;
+use super::inode::{Inode, InodeOperations, Lookup};
 use super::mount::{Access, VfsMount};
-use super::openat2::{build_open_flags, vfs_open, OpenHow};
+use super::openat2::{build_open_flags, vfs_open, OpenHow, OpenOptions};
 use super::path::Path;
-use super::Error;
-use crate::filesystem::{
-    FileOperations, FileType, FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions,
-};
+use super::{Error, FileType, FilesystemError, Metadata};
 use crate::locking::RwSemaphoreGuard;
 
 use super::{NAME_MAX, PATH_MAX};

@@ -10,8 +10,7 @@ use std::hash::{BuildHasher, RandomState};
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::filesystem::{FileType, Metadata};
-use crate::vfs::Identity;
+use crate::vfs::{FileType, Identity, Metadata};
 
 /// The ordered isolation ladder a runtime builds one rung of.
 ///

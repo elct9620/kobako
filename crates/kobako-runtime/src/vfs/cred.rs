@@ -6,8 +6,7 @@ use std::sync::Arc;
 
 use super::mount::{Access, Denial, VfsMount};
 use super::path::Path;
-use super::Error;
-use crate::filesystem::{FileType, FilesystemError};
+use super::{Error, FileType, FilesystemError};
 
 /// What a security module answers, as a hook in Linux's `lsm_hook_defs.h`,
 /// beside the one kobako adds at the start of a walk. A hook a module does

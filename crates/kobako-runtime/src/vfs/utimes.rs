@@ -8,8 +8,7 @@ use super::cred::Cred;
 use super::mount::Access;
 use super::namei::filename_lookup;
 use super::path::Path;
-use super::Error;
-use crate::filesystem::{FilesystemError, Iattr};
+use super::{Error, FilesystemError, Iattr};
 
 /// Set `times` on what `path` names, as Linux's `vfs_utimes` asks the mount,
 /// then the security hook, then `setattr` under the entry's lock. An entry
