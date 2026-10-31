@@ -161,13 +161,18 @@ impl OverlayFs {
 
     /// The dentry the one Layer `level` shows holds at `name`, as overlayfs
     /// leaves a directory one layer shows unmerged, so it asks nothing more
-    /// of that Layer; `None` where `level` spans more than one.
+    /// of that Layer, which shows nothing where it holds a whiteout, as
+    /// `ovl_lookup_single` stops at one in any layer; `None` where `level`
+    /// spans more than one.
     pub(in super::super) fn sole_real(
         &self,
         level: &Level,
         name: &str,
-    ) -> Option<Result<Arc<Dentry>, FilesystemError>> {
-        sole_layer(level).map(|(_, dir)| dir.real(name))
+    ) -> Option<Result<Option<Arc<Dentry>>, FilesystemError>> {
+        sole_layer(level).map(|(_, dir)| match dir.is_whiteout(name) {
+            true => Ok(None),
+            false => dir.real(name).map(Some),
+        })
     }
 
     /// `name` spelled as the topmost Layer showing it stores it, the

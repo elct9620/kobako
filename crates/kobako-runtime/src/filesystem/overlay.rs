@@ -112,8 +112,8 @@ impl Overlay {
             return Ok(Lookup::Spelled(stored));
         }
         if let Some(real) = self.fs.sole_real(&level, &name) {
-            let real = real?;
-            let Some(found) = real.inode() else {
+            let Some((real, found)) = real?.and_then(|real| Some((real.clone(), real.inode()?)))
+            else {
                 return Ok(Lookup::Absent);
             };
             let inode = found.with_ops(Arc::new(self.clone()));
@@ -2118,6 +2118,52 @@ mod tests {
             (Err(FilesystemError::ReadOnlyFilesystem.into()), 0),
             "vfs::vfs_utimes on a held lower file whose name another entry took must answer EROFS \
              and leave the lower Layer unasked"
+        );
+    }
+
+    // An earlier Overlay's upper, stacked as a lower Layer of another, holds a
+    // whiteout in a directory only that Layer shows, so only a walk reading
+    // such a directory for marks finds nothing there.
+    // @behavior FS-159
+    #[test]
+    fn a_whiteout_in_a_directory_one_layer_shows_names_nothing() {
+        let lower: Tmpfs = [("file", "x")].into_iter().collect();
+        let first_upper = Filesystem::new(Arc::new(Tmpfs::new()));
+        let first = kern_path(Arc::new(
+            Overlay::new(
+                vec![Filesystem::new(Arc::new(lower))],
+                Some(first_upper.clone()),
+            )
+            .expect("the Overlay must stack"),
+        ));
+        first.remove_file("file").expect("the file must be removed");
+        let second = at(Overlay::new(
+            vec![first_upper],
+            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+        )
+        .expect("the Overlay must stack"));
+        assert_eq!(
+            second.symlink_metadata("upper/file").err(),
+            Some(FilesystemError::NotFound),
+            "a stat through an Overlay of a whiteout in a directory one Layer shows must answer \
+             ENOENT, as the listing shows nothing there"
+        );
+    }
+
+    // A lower directory moved onto a full one answers why it cannot move, so
+    // only asking that first keeps what stands at the target from answering.
+    // @behavior FS-160
+    #[test]
+    fn a_lower_directory_answers_that_it_cannot_move_before_its_target_is_read() {
+        let lower: Tmpfs = [("dir/file", "x"), ("full/file", "x")]
+            .into_iter()
+            .collect();
+        let overlay = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
+        assert_eq!(
+            overlay.rename("dir", &overlay, "full"),
+            Err(FilesystemError::CrossesDevices),
+            "a rename through an Overlay of a lower Layer's directory onto one holding entries \
+             must answer EXDEV, as ovl_rename_start asks whether it can move first"
         );
     }
 

@@ -238,9 +238,6 @@ impl OverlayFs {
         dir: &ViewDir,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        if self.lookup(&dir.level(), name)?.is_some() {
-            return Err(FilesystemError::AlreadyExists);
-        }
         let upper = self.upper()?;
         let upper_dir = self.upper_dir(dir, upper)?;
         match upper_dir.is_whiteout(name) {
@@ -258,9 +255,6 @@ impl OverlayFs {
         let (index, found) = self
             .lookup(&level, name)?
             .ok_or(FilesystemError::NotFound)?;
-        if found.file_type != FileType::Directory {
-            return Err(FilesystemError::NotADirectory);
-        }
         if !self.is_empty(&level, name, (index, found))? {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
@@ -273,9 +267,6 @@ impl OverlayFs {
         dir: &ViewDir,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        if self.symlink_metadata(&dir.level(), name)?.file_type == FileType::Directory {
-            return Err(FilesystemError::IsADirectory);
-        }
         self.withdraw(dir, name)
     }
 
@@ -301,23 +292,25 @@ impl OverlayFs {
         let to_level = to.level();
         let replaced = self.lookup(&to_level, to_name)?;
         let is_dir = moving.file_type == FileType::Directory;
-        // Only a directory replaces a directory, and only an empty one.
-        match (is_dir, replaced) {
-            (false, Some((_, found))) if found.file_type == FileType::Directory => {
-                return Err(FilesystemError::IsADirectory)
+        let upper = self.upper()?;
+        let (holders, shadowed) = self.holders(&from_level, from_name)?;
+        // What cannot move answers first, as `ovl_rename_start` asks
+        // `ovl_can_move` before it looks at what would be replaced.
+        let holds_above = holders.first() == Some(&upper);
+        match moving.file_type {
+            FileType::Directory if holders != [upper] => {
+                return Err(FilesystemError::CrossesDevices)
             }
-            (true, Some((index, found)))
-                if found.file_type == FileType::Directory
-                    && !self.is_empty(&to_level, to_name, (index, found))? =>
-            {
-                return Err(FilesystemError::DirectoryNotEmpty)
-            }
-            (true, Some((_, found))) if found.file_type != FileType::Directory => {
-                return Err(FilesystemError::NotADirectory)
-            }
+            FileType::Directory | FileType::File => {}
+            _ if !holds_above => return Err(FilesystemError::CrossesDevices),
             _ => {}
         }
-        let upper = self.upper()?;
+        // Only an empty directory is replaced.
+        if let (true, Some((index, found))) = (is_dir, replaced) {
+            if !self.is_empty(&to_level, to_name, (index, found))? {
+                return Err(FilesystemError::DirectoryNotEmpty);
+            }
+        }
         let mut replaces_below = false;
         if is_dir {
             for (index, dir) in to_level.iter().enumerate() {
@@ -326,22 +319,13 @@ impl OverlayFs {
                 }
             }
         }
-        let (holders, shadowed) = self.holders(&from_level, from_name)?;
         let lower = holders.iter().copied().find(|&index| index != upper);
         let shown_below = self
             .whiteout_layer(lower.into_iter().chain(shadowed).min())?
             .is_some();
-        match moving.file_type {
-            FileType::Directory if holders != [upper] => {
-                return Err(FilesystemError::CrossesDevices)
-            }
-            FileType::File if holders.first() != Some(&upper) => {
-                let shown = *holders.first().ok_or(FilesystemError::NotFound)?;
-                self.copy_up_file(from, moved, shown, upper, false)?
-            }
-            FileType::Directory | FileType::File => {}
-            _ if holders.first() != Some(&upper) => return Err(FilesystemError::CrossesDevices),
-            _ => {}
+        if moving.file_type == FileType::File && !holds_above {
+            let shown = *holders.first().ok_or(FilesystemError::NotFound)?;
+            self.copy_up_file(from, moved, shown, upper, false)?;
         }
         let target_dir = self.upper_dir(to, upper)?;
         let replaces_dir =
