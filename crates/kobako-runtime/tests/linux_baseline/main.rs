@@ -441,7 +441,7 @@ fn holds(setup: Setup, runs: u64, longest: u64) {
 }
 
 /// Which of each entry's two times `after` shows moved since `before`.
-fn moved<T: PartialEq>(before: &Times<T>, after: &Times<T>) -> BTreeSet<String> {
+fn times_moved<T: PartialEq>(before: &Times<T>, after: &Times<T>) -> BTreeSet<String> {
     let mut moved = BTreeSet::new();
     for (path, (modified, changed)) in after {
         if let Some((was_modified, was_changed)) = before.get(path) {
@@ -475,8 +475,8 @@ fn moves_the_same_times(setup: Setup, runs: u64, longest: u64) {
             if kobako.run(call) != linux.run(call) {
                 break;
             }
-            let ours = moved(&kobako_before, &kobako.times());
-            let theirs = moved(&linux_before, &linux.times());
+            let ours = times_moved(&kobako_before, &kobako.times());
+            let theirs = times_moved(&linux_before, &linux.times());
             assert_eq!(
                 ours,
                 theirs,

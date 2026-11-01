@@ -23,7 +23,7 @@ fn answer<T>(result: Result<T, FilesystemError>, ok: impl FnOnce(T) -> String) -
     result.map_or_else(|error| errno(&error), ok)
 }
 
-fn done<T: Debug>(result: Result<T, FilesystemError>) -> String {
+fn ok_or_errno<T: Debug>(result: Result<T, FilesystemError>) -> String {
     answer(result, |_| "ok".to_string())
 }
 
@@ -133,20 +133,22 @@ impl Kobako {
             Call::Close(slot) => {
                 file!(*slot);
                 let file = self.slots[*slot].take().expect("the slot holds a file");
-                done(file.close())
+                ok_or_errno(file.close())
             }
             Call::Read(slot, len) => {
                 let mut buf = vec![0; *len];
                 answer(file!(*slot).read(&mut buf), |read| bytes(&buf[..read]))
             }
-            Call::Write(slot, len) => answer(file!(*slot).write(payload(*len)), wrote),
+            Call::Write(slot, len) => answer(file!(*slot).write(payload(*len)), bytes_written),
             Call::Pread(slot, len, pos) => {
                 let mut buf = vec![0; *len];
                 answer(file!(*slot).pread(&mut buf, *pos), |read| {
                     bytes(&buf[..read])
                 })
             }
-            Call::Pwrite(slot, len, pos) => answer(file!(*slot).pwrite(payload(*len), *pos), wrote),
+            Call::Pwrite(slot, len, pos) => {
+                answer(file!(*slot).pwrite(payload(*len), *pos), bytes_written)
+            }
             Call::Seek(slot, offset, whence) => {
                 let file = file!(*slot);
                 if file.is_directory() {
@@ -155,12 +157,12 @@ impl Kobako {
                 let whence = [Whence::Set, Whence::Cur, Whence::End][*whence as usize];
                 answer(file.llseek(*offset, whence), |pos| format!("ok:{pos}"))
             }
-            Call::Truncate(slot, len) => done(file!(*slot).truncate(*len)),
+            Call::Truncate(slot, len) => ok_or_errno(file!(*slot).truncate(*len)),
             Call::Fstat(slot) => {
                 let got = file!(*slot).getattr();
                 answer(got, |metadata| self.stat(metadata))
             }
-            Call::Fsync(slot) => done(file!(*slot).fsync()),
+            Call::Fsync(slot) => ok_or_errno(file!(*slot).fsync()),
             Call::Readdir(slot) => answer(entries(file!(*slot)), |names| {
                 let mut names: Vec<_> = names
                     .into_iter()
@@ -173,12 +175,16 @@ impl Kobako {
                 let got = vfs::vfs_fstatat(&self.cred, start!(*base), path, *follow);
                 answer(got, |metadata| self.stat(metadata))
             }
-            Call::Mkdir(base, path) => done(vfs::filename_mkdirat(&self.cred, start!(*base), path)),
-            Call::Rmdir(base, path) => done(vfs::filename_rmdir(&self.cred, start!(*base), path)),
-            Call::Unlink(base, path) => {
-                done(vfs::filename_unlinkat(&self.cred, start!(*base), path))
+            Call::Mkdir(base, path) => {
+                ok_or_errno(vfs::filename_mkdirat(&self.cred, start!(*base), path))
             }
-            Call::Rename(base, from, to) => done(vfs::filename_renameat2(
+            Call::Rmdir(base, path) => {
+                ok_or_errno(vfs::filename_rmdir(&self.cred, start!(*base), path))
+            }
+            Call::Unlink(base, path) => {
+                ok_or_errno(vfs::filename_unlinkat(&self.cred, start!(*base), path))
+            }
+            Call::Rename(base, from, to) => ok_or_errno(vfs::filename_renameat2(
                 &self.cred,
                 start!(*base),
                 from,
@@ -257,6 +263,6 @@ fn bytes(read: &[u8]) -> String {
     format!("ok:{:?}", String::from_utf8_lossy(read))
 }
 
-fn wrote(count: usize) -> String {
+fn bytes_written(count: usize) -> String {
     format!("ok:{count}")
 }

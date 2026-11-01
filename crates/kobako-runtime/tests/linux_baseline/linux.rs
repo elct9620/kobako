@@ -49,7 +49,7 @@ fn answer(result: i64, ok: impl FnOnce(i64) -> String) -> String {
     }
 }
 
-fn done(result: i64) -> String {
+fn ok_or_errno(result: i64) -> String {
     answer(result, |_| "ok".to_string())
 }
 
@@ -57,7 +57,7 @@ fn bytes(buf: &[u8], read: i64) -> String {
     format!("ok:{:?}", String::from_utf8_lossy(&buf[..read as usize]))
 }
 
-fn wrote(count: i64) -> String {
+fn bytes_written(count: i64) -> String {
     format!("ok:{count}")
 }
 
@@ -267,7 +267,7 @@ impl Linux {
                 Call::Close(slot) => {
                     let fd = fd!(*slot);
                     self.slots[*slot] = None;
-                    done(libc::close(fd).into())
+                    ok_or_errno(libc::close(fd).into())
                 }
                 Call::Read(slot, len) => {
                     let mut buf = vec![0u8; *len];
@@ -277,7 +277,7 @@ impl Linux {
                 Call::Write(slot, len) => {
                     let data = payload(*len);
                     let count = libc::write(fd!(*slot), data.as_ptr().cast(), data.len());
-                    answer(count as i64, wrote)
+                    answer(count as i64, bytes_written)
                 }
                 Call::Pread(slot, len, pos) => {
                     let mut buf = vec![0u8; *len];
@@ -288,7 +288,7 @@ impl Linux {
                     let data = payload(*len);
                     let count =
                         libc::pwrite(fd!(*slot), data.as_ptr().cast(), data.len(), *pos as i64);
-                    answer(count as i64, wrote)
+                    answer(count as i64, bytes_written)
                 }
                 Call::Seek(slot, offset, whence) => {
                     let fd = fd!(*slot);
@@ -298,12 +298,14 @@ impl Linux {
                     let whence = [libc::SEEK_SET, libc::SEEK_CUR, libc::SEEK_END][*whence as usize];
                     answer(libc::lseek(fd, *offset, whence), |pos| format!("ok:{pos}"))
                 }
-                Call::Truncate(slot, len) => done(libc::ftruncate(fd!(*slot), *len as i64).into()),
+                Call::Truncate(slot, len) => {
+                    ok_or_errno(libc::ftruncate(fd!(*slot), *len as i64).into())
+                }
                 Call::Fstat(slot) => match Self::fstat(fd!(*slot)) {
                     Some(stat) => self.stat(&stat),
                     None => errno(),
                 },
-                Call::Fsync(slot) => done(libc::fsync(fd!(*slot)).into()),
+                Call::Fsync(slot) => ok_or_errno(libc::fsync(fd!(*slot)).into()),
                 Call::Readdir(slot) => Self::readdir(fd!(*slot)),
                 Call::Stat { base, path, follow } => {
                     let mut stat: libc::stat = mem::zeroed();
@@ -319,16 +321,16 @@ impl Linux {
                     }
                 }
                 Call::Mkdir(base, path) => {
-                    done(libc::mkdirat(start!(*base), c_string(path).as_ptr(), 0o755).into())
+                    ok_or_errno(libc::mkdirat(start!(*base), c_string(path).as_ptr(), 0o755).into())
                 }
-                Call::Rmdir(base, path) => done(
+                Call::Rmdir(base, path) => ok_or_errno(
                     libc::unlinkat(start!(*base), c_string(path).as_ptr(), libc::AT_REMOVEDIR)
                         .into(),
                 ),
                 Call::Unlink(base, path) => {
-                    done(libc::unlinkat(start!(*base), c_string(path).as_ptr(), 0).into())
+                    ok_or_errno(libc::unlinkat(start!(*base), c_string(path).as_ptr(), 0).into())
                 }
-                Call::Rename(base, from, to) => done(
+                Call::Rename(base, from, to) => ok_or_errno(
                     libc::renameat(
                         start!(*base),
                         c_string(from).as_ptr(),
