@@ -355,3 +355,15 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | one Tmpfs shared by two Threads, with a mount's block that sleeps while asked about a change |
 | When | one Sandbox creates a file while the other, holding the GVL, looks in that directory |
 | Then | both finish |
+
+## `MT-030` A Sandbox interrupted while it waits on a directory leaves the directory to the next
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-029` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox holding the GVL that waits on a directory a mount's block holds |
+| When | the Host App interrupts its Thread |
+| Then | a later Sandbox changes that directory |

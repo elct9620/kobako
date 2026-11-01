@@ -49,6 +49,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/test_io_dispatch.rb`
 - `test/e2e/sandbox/test_deadline_host_time.rb`
 - `test/e2e/sandbox/test_first_run_interrupt.rb`
+- `test/e2e/sandbox/test_interrupted_run.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`
 - `test/e2e/test_canonical_boot.rb`
@@ -1806,3 +1807,27 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a process whose first Sandbox runs a guest loop for a while |
 | When | the process receives SIGINT during that run |
 | Then | the run raises `Interrupt` in the Host App |
+
+## `S-207` A Thread whose run was interrupted runs its next Sandbox as usual
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-206` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Thread whose Sandbox released the GVL and whose run a Timeout interrupted |
+| When | that Thread runs a Sandbox holding the GVL that calls a Service |
+| Then | the run answers what the Service returned |
+
+## `S-208` An interrupt delivered while a run waits reaches the Host App once the run ends
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-206`, `MT-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox waiting on a directory a mount's block holds |
+| When | a Timeout fires during the wait |
+| Then | the run raises `Timeout::Error` in the Host App |
