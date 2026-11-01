@@ -2580,3 +2580,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened beneath a Mount with a Policy |
 | When | the Filesystem reports no identity for it, and the guest stats the descriptor |
 | Then | the call succeeds |
+
+## `RT-234` A directory moved while a call starts from it stays reachable beneath a Policy
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-150` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest beneath a Policy, holding a directory another Mount of its Filesystem moves |
+| When | a call starts from the directory as the move lands |
+| Then | that call and each later one reach the directory where it went |

@@ -25,8 +25,8 @@ mod super_block;
 mod utimes;
 
 pub(crate) use namei::{
-    atomic_open, lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename,
-    vfs_rmdir, vfs_unlink,
+    atomic_open, lookup_one_qstr_excl, may_create_dentry, revalidate_path, start_renaming,
+    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
 };
 
 pub use attr::{Iattr, SetTime};
@@ -46,7 +46,7 @@ pub use openat2::{OpenHow, OpenOptions};
 pub use path::Path;
 pub use stat::{do_readlinkat, vfs_fstatat, FileType, Metadata};
 pub use super_block::SuperBlock;
-pub use utimes::{do_utimes, vfs_utimes};
+pub use utimes::{do_utimes, do_utimes_fd};
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.

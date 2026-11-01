@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use crate::mount::{Mount, Policy};
 use crate::vfs::{
-    Access, Cred, Dentry, FileType, FilesystemError, Path, SecurityOperations, VfsMount, PATH_MAX,
+    revalidate_path, Access, Cred, Dentry, FileType, FilesystemError, Path, SecurityOperations,
+    VfsMount, PATH_MAX,
 };
 
 /// What every Invocation holds to, whatever its Mounts allow.
@@ -106,12 +107,11 @@ impl SecurityOperations for MountPolicy {
     /// Refuse a call through a directory unless its dentry still names what
     /// the runtime opened there, so the Policy judges the path it stands at.
     /// A dentry dropped or removed is refused as Linux's AppArmor refuses an
-    /// unlinked one; one held is asked through `revalidate`, each name from the
-    /// root down, as gVisor's `revalidatePath` walks; and one whose identity the
-    /// runtime never learned cannot be told from another, so it is refused too.
-    /// Linux asks nothing of the dentry a walk starts from; this keeps a host or
-    /// another Filesystem instance moving a directory behind the runtime's back
-    /// from having a Policy judge a path it no longer stands at.
+    /// unlinked one, and one whose identity the runtime never learned cannot be
+    /// told from another, so it is refused too. Linux asks nothing of the dentry
+    /// a walk starts from; this keeps a host or another Filesystem instance
+    /// moving a directory behind the runtime's back from having a Policy judge a
+    /// path it no longer stands at.
     fn path_walk(&self, path: &Path) -> Result<(), FilesystemError> {
         if !self.guards(path.mnt()) {
             return Ok(());
@@ -120,29 +120,11 @@ impl SecurityOperations for MountPolicy {
         if dentry.parent().is_none() {
             return Ok(());
         }
-        let sb = path.mnt().sb();
-        let dentries = sb.dentries();
         let told_apart = dentry
             .inode()
             .is_some_and(|inode| inode.identity().is_some());
-        if dentries.unlinked(dentry) || !told_apart {
+        if path.mnt().sb().dentries().unlinked(dentry) || !told_apart || !revalidate_path(path)? {
             return Err(FilesystemError::NotFound);
-        }
-        let Some(ops) = dentry.ops() else {
-            return Ok(());
-        };
-        let mut chain = vec![dentry.clone()];
-        while let Some(above) = chain.last().and_then(|at| at.parent()) {
-            chain.push(above);
-        }
-        // Each name is asked in the directory above, already found to stand.
-        for pair in chain.windows(2).rev() {
-            let [name, above] = pair else { continue };
-            let inode = above.inode().ok_or(FilesystemError::NotFound)?;
-            if !ops.revalidate(inode.ops().as_ref(), name)? {
-                dentries.unhash(name);
-                return Err(FilesystemError::NotFound);
-            }
         }
         Ok(())
     }
@@ -167,7 +149,8 @@ pub fn prepare_creds<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cre
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filesystem::Tmpfs;
+    use crate::filesystem::wrap::{Hook, Wrap};
+    use crate::filesystem::{DentryOperations, Filesystem, InodeOperations, Tmpfs};
 
     /// A Policy allowing everything, counting how often it is asked.
     #[derive(Default)]
@@ -190,12 +173,8 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let mount = Mount::new(
-            "/data",
-            crate::filesystem::Filesystem::new(Arc::new(tmpfs)),
-            Access::ReadWrite,
-        )
-        .expect("/data is a guest path");
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
+            .expect("/data is a guest path");
         let mount = prepare(mount);
         let cred = prepare_creds([&mount]);
         let root = Path::root(mount.mnt());
@@ -242,6 +221,118 @@ mod tests {
             "vfs::filename_mkdirat through a directory moved past PATH_MAX, beneath a Policy, \
              must answer ENAMETOOLONG, the Policy asked only of the open before the move"
         );
+    }
+
+    /// Holds the first ask of `revalidate` about `d` once it reached the
+    /// Filesystem, so a move of `d` racing it either lands first or waits for
+    /// the answer.
+    struct PausesRevalidate(std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>);
+
+    impl Hook for PausesRevalidate {
+        fn revalidate(
+            &self,
+            ops: &dyn DentryOperations,
+            dir: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<bool, FilesystemError> {
+            let reached = match dentry.name() == "d" {
+                true => self.0.lock().expect("the sender").take(),
+                false => None,
+            };
+            if let Some(reached) = reached {
+                reached.send(()).expect("the test waits for the ask");
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            ops.revalidate(dir, dentry)
+        }
+    }
+
+    /// One Filesystem with a Mount under an allow-all Policy holding `p/d` open,
+    /// and a Mount with none to move it through.
+    fn held_beneath_a_policy(filesystem: Arc<Filesystem>) -> (Arc<Cred>, crate::vfs::File, Mount) {
+        let guarded = Mount::new("/guarded", filesystem.clone(), Access::ReadWrite)
+            .expect("/guarded is a guest path")
+            .with_policy(Arc::new(Counts::default()));
+        let plain =
+            Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
+        let cred = prepare_creds([&guarded]);
+        let how = crate::vfs::OpenHow {
+            directory: true,
+            ..Default::default()
+        };
+        let held = crate::vfs::do_file_open(&cred, &Path::root(guarded.mnt()), "p/d", &how)
+            .unwrap_or_else(|_| panic!("the directory must open"));
+        (cred, held, plain)
+    }
+
+    // The ask of `revalidate` and a move through the other Mount meet only if
+    // the walk holds no lock: then the Filesystem has moved the entry when it is
+    // asked, the runtime lets go of a dentry still in use, and the move finds
+    // nothing to carry along.
+    // @behavior RT-234
+    #[test]
+    fn a_directory_moved_while_a_call_starts_from_it_stays_reachable_beneath_a_policy() {
+        let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
+        let (reached, asked) = std::sync::mpsc::channel();
+        let hook = Arc::new(PausesRevalidate(std::sync::Mutex::new(None)));
+        let filesystem = Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook.clone())));
+        let (cred, held, plain) = held_beneath_a_policy(filesystem);
+        *hook.0.lock().expect("the sender") = Some(reached);
+        let start = held.path().clone();
+        let first = std::thread::scope(|scope| {
+            let first = scope.spawn(|| crate::vfs::vfs_fstatat(&cred, &start, "f", false));
+            asked.recv().expect("the call must ask revalidate");
+            let root = Path::root(plain.mnt());
+            crate::vfs::filename_renameat2(&prepare_creds([]), &root, "p/d", &root, "q/d")
+                .expect("the move must land");
+            first.join().expect("the call must answer")
+        });
+        assert!(
+            first.is_ok()
+                && crate::vfs::vfs_fstatat(&cred, held.path(), "f", false).is_ok()
+                && held.path().dentry().path_raw() == "q/d",
+            "vfs::vfs_fstatat through a directory moved by another Mount while revalidate is \
+             asked, beneath a Policy, must find its file both then and afterwards, at q/d"
+        );
+    }
+
+    mod stress {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        use super::*;
+
+        // Nothing refuses a directory that stands, so a single refusal while it
+        // moves between two names is a dentry the walk let go of.
+        // @behavior RT-234
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn a_directory_moving_while_calls_start_from_it_stays_reachable_beneath_a_policy() {
+            let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
+            let (cred, held, plain) = held_beneath_a_policy(Filesystem::new(Arc::new(tmpfs)));
+            let stop = AtomicBool::new(false);
+            let start = held.path().clone();
+            let refused = std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    let (root, cred) = (Path::root(plain.mnt()), prepare_creds([]));
+                    while !stop.load(Ordering::SeqCst) {
+                        for (from, to) in [("p/d", "q/d"), ("q/d", "p/d")] {
+                            crate::vfs::filename_renameat2(&cred, &root, from, &root, to)
+                                .expect("the move must land");
+                        }
+                    }
+                });
+                let refused = (0..200_000)
+                    .filter(|_| crate::vfs::vfs_fstatat(&cred, &start, "f", false).is_err())
+                    .count();
+                stop.store(true, Ordering::SeqCst);
+                refused
+            });
+            assert_eq!(
+                refused, 0,
+                "vfs::vfs_fstatat through a directory another Mount keeps moving, beneath a \
+                 Policy, must always find its file"
+            );
+        }
     }
 
     // A Bind refuses these itself, so only asking the rule directly shows it

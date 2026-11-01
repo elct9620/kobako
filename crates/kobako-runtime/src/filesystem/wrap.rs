@@ -3,7 +3,6 @@
 //! wrapped too, as a Filesystem wrapping another must.
 
 use std::any::Any;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 use super::{
@@ -14,6 +13,15 @@ use crate::vfs::Dentry;
 
 /// What a test changes of the Filesystem beneath it.
 pub(crate) trait Hook: Send + Sync + 'static {
+    fn revalidate(
+        &self,
+        ops: &dyn DentryOperations,
+        dir: &dyn InodeOperations,
+        dentry: &Dentry,
+    ) -> Result<bool, FilesystemError> {
+        ops.revalidate(dir, dentry)
+    }
+
     fn getattr(
         &self,
         inner: &dyn InodeOperations,
@@ -87,7 +95,7 @@ impl<H: Hook> Wrap<H> {
 /// `ops`, handed the directory a `Wrap<H>` wraps.
 struct WrapDentry<H> {
     ops: Arc<dyn DentryOperations>,
-    hook: PhantomData<H>,
+    hook: Arc<H>,
 }
 
 impl<H: Hook> DentryOperations for WrapDentry<H> {
@@ -99,7 +107,7 @@ impl<H: Hook> DentryOperations for WrapDentry<H> {
         let dir = (dir as &dyn Any)
             .downcast_ref::<Wrap<H>>()
             .map_or(dir, |wrap| wrap.inner.as_ref());
-        self.ops.revalidate(dir, dentry)
+        self.hook.revalidate(self.ops.as_ref(), dir, dentry)
     }
 }
 
@@ -125,9 +133,9 @@ impl<H: Hook> InodeOperations for Wrap<H> {
     fn fill_super(&self, sb: &mut Filesystem) {
         self.inner.fill_super(sb);
         if let Some(ops) = sb.d_op().cloned() {
-            sb.set_default_d_op(Arc::new(WrapDentry::<H> {
+            sb.set_default_d_op(Arc::new(WrapDentry {
                 ops,
-                hook: PhantomData,
+                hook: self.hook.clone(),
             }));
         }
     }

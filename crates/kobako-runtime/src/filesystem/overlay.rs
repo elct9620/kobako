@@ -2346,7 +2346,7 @@ mod tests {
             .unwrap_or_else(|_| panic!("the file must open"));
         vfs::filename_unlinkat(&cred, &root, "file").expect("the file must be removed");
         drop(vfs::do_file_open(&cred, &root, "file", &create));
-        let answer = vfs::vfs_utimes(
+        let answer = vfs::do_utimes_fd(
             &cred,
             held.path(),
             &Iattr::times(None, Some(crate::vfs::SetTime::Now)),
@@ -2354,7 +2354,7 @@ mod tests {
         assert_eq!(
             (answer, asked.load(Ordering::SeqCst)),
             (Err(FilesystemError::ReadOnlyFilesystem), 0),
-            "vfs::vfs_utimes on a held lower file whose name another entry took must answer EROFS \
+            "vfs::do_utimes_fd on a held lower file whose name another entry took must answer EROFS \
              and leave the lower Layer unasked"
         );
     }

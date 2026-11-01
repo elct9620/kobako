@@ -1543,13 +1543,13 @@ Refuse setting timestamps as unsupported once the path is known to stand.
 pub fn do_utimes(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool, times: &Iattr) -> Result<(), FilesystemError> {}
 ```
 
-## `vfs_utimes`
+## `do_utimes_fd`
 
-Set times on what a Path names, as Linux's `vfs_utimes` does for a path and a
-descriptor alike. An entry without `setattr` answers unsupported.
+Set times on what a descriptor's Path names, as Linux's `do_utimes_fd` does. An
+entry without `setattr` answers unsupported.
 
 ```rust
-pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {}
+pub fn do_utimes_fd(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {}
 ```
 
 ## `Iattr::times`

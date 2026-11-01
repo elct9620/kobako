@@ -65,8 +65,7 @@ impl Bind {
     /// fid: the one kept for it, or the names beneath the nearest directory
     /// kept, read from the dentries as `build_path_from_dentry` reads them.
     /// 9p holds the rename lock through a walk; one here compares what it found
-    /// with what the dentry recorded instead, as NFS compares a file handle,
-    /// and walks again from the root where the dentry moved meanwhile.
+    /// with what the dentry recorded instead, as NFS compares a file handle.
     fn fid_lookup(&self, dentry: &Dentry) -> Result<Arc<Dir>, FilesystemError> {
         if let Some(held) = self.find_fid(dentry) {
             return Ok(held);
@@ -89,13 +88,7 @@ impl Bind {
                     .dir_metadata()
                     .is_ok_and(|found| Identity::of(&to_metadata(found)) == recorded)
         };
-        let mut dir = walk::walk(&above, &names);
-        if !dir.as_ref().is_ok_and(stands) {
-            let path = dentry.path_raw();
-            let names: Vec<String> = path.split('/').map(String::from).collect();
-            dir = walk::walk(&self.root, &names);
-        }
-        let dir = dir?;
+        let dir = walk::walk(&above, &names)?;
         if !stands(&dir) {
             return Err(FilesystemError::NotFound);
         }

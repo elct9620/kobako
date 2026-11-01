@@ -10,12 +10,18 @@ use super::namei::filename_lookup;
 use super::path::Path;
 use super::{FilesystemError, Iattr};
 
+/// Set `times` on what the descriptor at `path` names, as Linux's `do_utimes_fd`.
+/// No walk asks where it stands, so the security hook does here.
+pub fn do_utimes_fd(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
+    cred.security_path_walk(path)?;
+    vfs_utimes(cred, path, times)
+}
+
 /// Set `times` on what `path` names, as Linux's `vfs_utimes` asks the mount,
 /// then the security hook, then `setattr` under the entry's lock. An entry
 /// without `setattr` keeps no time to set, as this VFS holds none on an inode.
-pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
+fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
     path.mnt().mnt_want_write()?;
-    cred.security_path_walk(path)?;
     let dentry = path.dentry();
     cred.security_path_perm(path.mnt(), &|| dentry.path_raw(), Access::ReadWrite)?;
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
@@ -149,11 +155,11 @@ mod tests {
         policy.0.lock().unwrap().clear();
         assert_eq!(
             (
-                vfs_utimes(&cred, file.path(), &times()),
+                do_utimes_fd(&cred, file.path(), &times()),
                 policy.0.lock().unwrap().clone()
             ),
             (Err(FilesystemError::NotFound), Vec::new()),
-            "vfs::vfs_utimes through a descriptor of a file whose name is gone, beneath a Policy, \
+            "vfs::do_utimes_fd through a descriptor of a file whose name is gone, beneath a Policy, \
              must answer ENOENT without asking the Policy about the path it stood at"
         );
     }

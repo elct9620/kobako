@@ -137,15 +137,50 @@ fn lookup_dcache(
     let Some(held) = dentries.lookup(parent, name) else {
         return Ok(None);
     };
-    let valid = match held.ops() {
-        Some(ops) => ops.revalidate(parent.inode_ops()?.as_ref(), &held)?,
+    Ok(d_revalidate(sb, parent, &held)?.then_some(held))
+}
+
+/// Whether `dentry` still names what stands at its name in `dir`, whose lock the
+/// caller holds, so no move lands between the question and the answer. One that
+/// does not is let go of, as `d_invalidate` unhashes it.
+fn d_revalidate(
+    sb: &SuperBlock,
+    dir: &Dentry,
+    dentry: &Arc<Dentry>,
+) -> Result<bool, FilesystemError> {
+    let valid = match dentry.ops() {
+        Some(ops) => ops.revalidate(dir.inode_ops()?.as_ref(), dentry)?,
         None => true,
     };
     if !valid {
-        dentries.unhash(&held);
-        return Ok(None);
+        sb.dentries().unhash(dentry);
     }
-    Ok(Some(held))
+    Ok(valid)
+}
+
+/// Whether each name from the root down to `path` still names what the runtime
+/// recorded, as gVisor's `revalidatePath` walks one. Linux asks only names a walk
+/// passes through, so this is kobako's own, for a security module to ask of where
+/// a call starts. A name moved while it was asked is asked again from the root,
+/// where it went.
+pub(crate) fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
+    'again: loop {
+        let mut chain = vec![path.dentry().clone()];
+        while let Some(above) = chain.last().and_then(|at| at.parent()) {
+            chain.push(above);
+        }
+        for pair in chain.windows(2).rev() {
+            let [name, above] = pair else { continue };
+            let _held = above.inode_lock_shared()?;
+            if !name.parent().is_some_and(|now| Arc::ptr_eq(&now, above)) {
+                continue 'again;
+            }
+            if !d_revalidate(path.mnt().sb(), above, name)? {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
+    }
 }
 
 /// `name` in `parent` as that directory stores it, and the dentry of that

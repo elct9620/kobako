@@ -233,7 +233,7 @@ pub(crate) fn filestat_set_times(
     let times = to_iattr(atim, mtim, flags)?;
     let file = &descriptor(table, fd)?.file;
     match times {
-        Some(times) => Ok(vfs::vfs_utimes(table.cred(), file.path(), &times)?),
+        Some(times) => Ok(vfs::do_utimes_fd(table.cred(), file.path(), &times)?),
         None => Ok(()),
     }
 }
