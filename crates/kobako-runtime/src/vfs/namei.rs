@@ -327,14 +327,18 @@ fn getname(path: &str) -> Result<(), FilesystemError> {
 }
 
 /// The walk of `path` beneath `start`, ready to begin, as Linux's
-/// `set_nameidata` and `path_init` make one. An empty path names nothing, and an
-/// absolute one is not the caller's to reach.
+/// `set_nameidata` and `path_init` make one. A path no call can take answers
+/// first, wherever it starts; an absolute one is not the caller's to reach, and
+/// a walk starts from nothing but a directory.
 fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata, FilesystemError> {
     getname(path)?;
-    cred.security_path_walk(start)?;
     if path.starts_with('/') {
         return Err(FilesystemError::Escape);
     }
+    if start.dentry().kind()? != FileType::Directory {
+        return Err(FilesystemError::NotADirectory);
+    }
+    cred.security_path_walk(start)?;
     Ok(Nameidata {
         mnt: start.mnt().clone(),
         cred: cred.clone(),

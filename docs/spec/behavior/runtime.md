@@ -2472,3 +2472,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem reporting no names for an entry a walk just found |
 | When | a call gives the entry another name |
 | Then | the call answers ENOENT and the Filesystem is asked to make nothing |
+
+## `RT-225` A call no walk can take answers before where it starts
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-185` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file open beneath a Mount |
+| When | the guest starts from it with flags no open can mean, an empty path, or an overlong path |
+| Then | the call answers EINVAL, ENOENT, or ENAMETOOLONG, not ENOTDIR |

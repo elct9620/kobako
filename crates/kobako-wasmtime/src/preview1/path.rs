@@ -19,9 +19,9 @@ pub(crate) struct OpenFlags {
     pub(crate) fdflags: types::Fdflags,
 }
 
-/// The directory `fd` stands for, a path being walked from.
+/// Where `fd` stands, for a path to be walked from.
 fn directory(table: &Descriptors, fd: u32) -> Answer<&vfs::Path> {
-    Ok(table.get(fd).ok_or(Errno::Badf)?.file.path_init()?)
+    Ok(table.get(fd).ok_or(Errno::Badf)?.file.path())
 }
 
 pub(crate) fn create_directory(

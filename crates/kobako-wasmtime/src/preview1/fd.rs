@@ -458,8 +458,8 @@ mod tests {
     };
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::memory::GuestMemory;
-    use crate::preview1::path::{create_directory, symlink};
-    use crate::preview1::types::Whence;
+    use crate::preview1::path::{create_directory, open as path_open, symlink, OpenFlags};
+    use crate::preview1::types::{self, Rights, Whence};
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
     use kobako_runtime::filesystem::{
         FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup, Metadata,
@@ -467,7 +467,7 @@ mod tests {
     };
     use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::profile::Profile;
-    use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path};
+    use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path, PATH_MAX};
     use wiggle::GuestPtr;
 
     /// A table holding only the three standard streams.
@@ -671,6 +671,40 @@ mod tests {
             Some(Errno::Notdir),
             "path_create_directory starting from a file through preview1 must answer ENOTDIR, as \
              Linux refuses a walk starting there"
+        );
+    }
+
+    // Linux reads the flags and the path before it looks at where a walk starts,
+    // so a Driver checking the start first would hide each of these.
+    // @behavior RT-225
+    #[test]
+    fn a_call_no_walk_can_take_answers_before_where_it_starts() {
+        let mut table = standard_streams();
+        let fd = table.push(open_file()).expect("a descriptor to start from");
+        let mut bytes = vec![b'a'; PATH_MAX];
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
+        let flags = OpenFlags {
+            dirflags: types::Lookupflags::empty(),
+            oflags: types::Oflags::CREAT | types::Oflags::DIRECTORY,
+            rights_base: Rights::FD_READ,
+            fdflags: Fdflags::empty(),
+        };
+        let path = |len| GuestPtr::new((0, len));
+        assert_eq!(
+            (
+                errno(path_open(&mut table, &mem, fd, path(1), &flags)),
+                errno(create_directory(&table, &mem, fd, path(0))),
+                errno(create_directory(&table, &mem, fd, path(PATH_MAX as u32))),
+            ),
+            (
+                Some(Errno::Inval),
+                Some(Errno::Noent),
+                Some(Errno::Nametoolong)
+            ),
+            "path_open with O_CREAT and O_DIRECTORY, and path_create_directory of an empty and of \
+             an overlong path, starting from a file through preview1 must answer EINVAL, ENOENT, \
+             and ENAMETOOLONG"
         );
     }
 
