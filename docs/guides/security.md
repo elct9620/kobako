@@ -389,7 +389,8 @@ what the guest may reach.
 Each path call first asks the directory's Filesystem whether the directory still
 stands where the runtime last saw it. The block then judges where it stands now.
 A `stat` or listing of the descriptor itself asks neither, as the block judges
-neither anywhere.
+neither anywhere. So after a host moves the directory out of the Mount, the
+guest still reads the names it holds then, and no content.
 
 | How it moved | A call through it |
 |---|---|
