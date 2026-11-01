@@ -2021,3 +2021,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind's file held open, whose name another host file took |
 | When | a caller sets the modified time through the descriptor |
 | Then | the held file takes the time, and the other stays as it was |
+
+## `FS-189` A directory the host lets no one read refuses an open to read
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-172`, `RT-235` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind holding a directory beneath its root that the host lets no one read |
+| When | a caller opens the directory to read |
+| Then | the open answers EACCES |

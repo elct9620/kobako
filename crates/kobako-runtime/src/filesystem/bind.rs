@@ -560,12 +560,17 @@ impl InodeOperations for Bind {
         sb.set_default_d_op(Arc::new(self.clone()));
     }
 
+    /// A Mount's root is the Host App's to hand over, read or not, so only a
+    /// directory beneath it answers whether it may be read.
     fn open(
         &self,
         dentry: &Dentry,
-        _options: &OpenOptions,
+        options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let fid = self.fid_lookup(dentry)?;
+        if options.read && dentry.parent().is_some() {
+            may_read_dir(&fid)?;
+        }
         OpenDirFid::set(dentry, &fid);
         Ok(Box::new(BindDir(fid)))
     }
@@ -634,20 +639,36 @@ impl FileOperations for BindDir {
     }
 }
 
-/// cap-std holds a directory for its path alone on Linux, which syncs nothing,
-/// so the same directory is opened to read.
+/// `dir` opened to read. cap-std holds a directory for its path alone on Linux,
+/// which reads and syncs nothing, so the host judges reading it only here.
 #[cfg(unix)]
-fn sync_dir(dir: &Dir) -> Result<(), FilesystemError> {
-    use rustix::fs::{fsync, openat, Mode, OFlags};
+fn open_to_read(dir: &Dir) -> Result<rustix::fd::OwnedFd, FilesystemError> {
+    use rustix::fs::{openat, Mode, OFlags};
 
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
-    openat(dir, ".", flags, Mode::empty())
-        .and_then(fsync)
-        .map_err(|err| to_error(io::Error::from(err)))
+    openat(dir, ".", flags, Mode::empty()).map_err(|err| to_error(io::Error::from(err)))
+}
+
+#[cfg(unix)]
+fn sync_dir(dir: &Dir) -> Result<(), FilesystemError> {
+    rustix::fs::fsync(open_to_read(dir)?).map_err(|err| to_error(io::Error::from(err)))
 }
 
 #[cfg(not(unix))]
 fn sync_dir(_dir: &Dir) -> Result<(), FilesystemError> {
+    Ok(())
+}
+
+/// Refuse to open `dir` to read unless the host lets it be read, as `may_open`
+/// asks `inode_permission`. A file holds it for what it was opened for, so a
+/// directory reached only for its path answers no such question.
+#[cfg(unix)]
+fn may_read_dir(dir: &Dir) -> Result<(), FilesystemError> {
+    open_to_read(dir).map(drop)
+}
+
+#[cfg(not(unix))]
+fn may_read_dir(_dir: &Dir) -> Result<(), FilesystemError> {
     Ok(())
 }
 
@@ -1775,6 +1796,46 @@ mod tests {
             Ok(()),
             "File::fsync of a Bind's root must succeed, as Linux syncs a directory"
         );
+    }
+
+    // Root reads anything, so a host letting this one be read has nothing to
+    // show. Linux reaches a directory for its path alone, so only asking to read
+    // it there makes the host answer; macOS answers on any open.
+    // @behavior FS-189
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_the_host_lets_no_one_read_refuses_an_open_to_read() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let host = HostDir::new("unreadable");
+        let dir = host.0.join("sealed");
+        fs::create_dir(&dir).expect("the host directory must be made");
+        let mode = |mode| fs::Permissions::from_mode(mode);
+        fs::set_permissions(&dir, mode(0o000)).expect("the host directory's mode must be set");
+        let enforced = fs::read_dir(&dir).is_err();
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(
+                Bind::new(&host.0).expect("the host directory must open"),
+            )),
+            crate::mount::Access::Read,
+        )
+        .expect("/data is a guest path");
+        let root = crate::vfs::Path::root(mount.mnt());
+        let how = crate::vfs::OpenHow {
+            read: true,
+            directory: true,
+            ..Default::default()
+        };
+        let answer = crate::vfs::do_file_open(&Arc::default(), &root, "sealed", &how).err();
+        fs::set_permissions(&dir, mode(0o755)).expect("the host directory's mode must be restored");
+        if enforced {
+            assert_eq!(
+                answer,
+                Some(FilesystemError::PermissionDenied),
+                "vfs::do_file_open to read a host directory no one may read must answer EACCES"
+            );
+        }
     }
 
     // macOS has no open for a directory's path alone. Root reads anything, so
