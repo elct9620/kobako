@@ -1027,7 +1027,7 @@ fn answer_once_moved_away(call: &str) -> i32 {
 }
 
 // A Policy judges no stat or listing, so nothing asks whether the descriptor's
-// dentry still stands; the descriptor keeps following what it opened.
+// dentry still stands; the descriptor answers as its Filesystem holds it.
 // @behavior RT-226
 #[test]
 fn a_descriptor_moved_beneath_a_policy_still_reports_itself() {
@@ -1216,6 +1216,22 @@ fn a_directory_without_an_identity_is_not_reached_again_beneath_a_policy() {
         (0, ERRNO_NOENT),
         "path_filestat_get through a directory descriptor beneath a Mount with a Policy, over a \
          Filesystem reporting no identity, through preview1 must answer ENOENT"
+    );
+}
+
+// @behavior RT-233
+#[test]
+fn a_directory_without_an_identity_still_reports_itself_beneath_a_policy() {
+    let mut guest = Guest::new(&[grant(
+        Wrap::new(file_and_directory(), Arc::new(NamesNoIdentity)),
+        Access::ReadWrite,
+        Some(Arc::new(AllowsAll)),
+    )]);
+    assert_eq!(
+        (guest.call_bare("open_dir"), guest.call_bare("fstat_dir")),
+        (0, 0),
+        "fd_filestat_get of a directory descriptor beneath a Mount with a Policy, over a \
+         Filesystem reporting no identity, through preview1 must succeed"
     );
 }
 

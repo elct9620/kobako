@@ -458,7 +458,10 @@ mod tests {
     };
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::memory::GuestMemory;
-    use crate::preview1::path::{create_directory, open as path_open, symlink, OpenFlags};
+    use crate::preview1::path::{
+        create_directory, filestat_set_times as path_set_times, open as path_open, symlink,
+        OpenFlags,
+    };
     use crate::preview1::types::{self, Rights, Whence};
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
     use kobako_runtime::filesystem::{
@@ -676,7 +679,7 @@ mod tests {
 
     // Linux reads the flags and the path before it looks at where a walk starts,
     // so a Driver checking the start first would hide each of these.
-    // @behavior RT-225
+    // @behavior RT-225 RT-230 RT-231 RT-232
     #[test]
     fn a_call_no_walk_can_take_answers_before_where_it_starts() {
         let mut table = standard_streams();
@@ -696,15 +699,24 @@ mod tests {
                 errno(path_open(&mut table, &mem, fd, path(1), &flags)),
                 errno(create_directory(&table, &mem, fd, path(0))),
                 errno(create_directory(&table, &mem, fd, path(PATH_MAX as u32))),
+                errno(path_set_times(
+                    &table,
+                    &mem,
+                    fd,
+                    types::Lookupflags::empty(),
+                    path(1),
+                    None
+                )),
             ),
             (
                 Some(Errno::Inval),
                 Some(Errno::Noent),
-                Some(Errno::Nametoolong)
+                Some(Errno::Nametoolong),
+                None
             ),
             "path_open with O_CREAT and O_DIRECTORY, and path_create_directory of an empty and of \
              an overlong path, starting from a file through preview1 must answer EINVAL, ENOENT, \
-             and ENAMETOOLONG"
+             and ENAMETOOLONG, and path_filestat_set_times setting no time must succeed"
         );
     }
 

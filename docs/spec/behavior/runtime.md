@@ -1593,7 +1593,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the directory moves away and another is made at its path |
 | Then | a lookup through the descriptor reaches the moved directory |
 
-## `RT-150` A directory moved while opened beneath a Policy is not reached
+## `RT-150` A directory moved while opened beneath a Policy walks no path
 
 | Attribute | Value |
 | --- | --- |
@@ -1919,6 +1919,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding its standard streams |
 | When | the guest syncs one, sizes one, and calls about the position of each |
 | Then | the first two answer EINVAL, and the calls about a position answer ESPIPE |
+
 ## `RT-178` A standard stream takes no offset
 
 | Attribute | Value |
@@ -1930,7 +1931,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding its standard input and output |
 | When | the guest reads at an offset from each, and writes at an offset to each |
 | Then | each call answers ESPIPE |
-
 ## `RT-179` A directory a move replaces makes nothing more
 
 | Attribute | Value |
@@ -2473,7 +2473,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a call gives the entry another name |
 | Then | the call answers ENOENT and the Filesystem is asked to make nothing |
 
-## `RT-225` A call no walk can take answers before where it starts
+## `RT-225` An open no flags can mean answers before where it starts
 
 | Attribute | Value |
 | --- | --- |
@@ -2482,8 +2482,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation holding a file open beneath a Mount |
-| When | the guest starts from it with flags no open can mean, an empty path, or an overlong path |
-| Then | the call answers EINVAL, ENOENT, or ENAMETOOLONG, not ENOTDIR |
+| When | the guest opens from it asking to create a directory |
+| Then | the call answers EINVAL |
 
 ## `RT-226` A descriptor moved beneath a Policy still reports itself
 
@@ -2532,3 +2532,51 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose make calls the runtime to walk through the same directory |
 | When | a directory is made through the runtime |
 | Then | the inner walk answers EDEADLK |
+
+## `RT-230` An empty path answers before where it starts
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-185` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file open beneath a Mount |
+| When | the guest makes a call on an empty path starting from it |
+| Then | the call answers ENOENT |
+
+## `RT-231` An overlong path answers before where it starts
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-185` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file open beneath a Mount |
+| When | the guest makes a call on a path past `PATH_MAX` starting from it |
+| Then | the call answers ENAMETOOLONG |
+
+## `RT-232` A path call setting no time checks no path
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-185` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file open beneath a Mount |
+| When | the guest sets no time on a path starting from it |
+| Then | the call succeeds, as `utimensat` returns first |
+
+## `RT-233` A directory without an identity still reports itself beneath a Policy
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-151`, `RT-226` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount with a Policy |
+| When | the Filesystem reports no identity for it, and the guest stats the descriptor |
+| Then | the call succeeds |

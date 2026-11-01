@@ -360,7 +360,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a link through a directory the guest opened | followed only within it; leading out raises `Errno::EACCES`, as a `..` leading out does |
 | a link loop without a block | `Errno::ELOOP` after 40 links, as Linux answers |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
-| an opened directory moved by the host or another guest | still reached through that descriptor, as Linux reaches it, unless a block refuses |
+| an opened directory moved by the host or another guest | still reached through that descriptor, as Linux; a block refuses a path call |
 | a link in an Overlay's lower Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
 | a `\` in a name a Ruby Filesystem receives | the Filesystem's to refuse, as Windows reads it as a separator |

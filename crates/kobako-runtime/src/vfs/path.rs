@@ -7,8 +7,7 @@ use super::dentry::Dentry;
 use super::mount::VfsMount;
 
 /// A name beneath a mount, as an open file holds its `f_path`: the mount's
-/// root, or an entry opened beneath it. A call relative to one starts at a
-/// directory.
+/// root, or an entry opened beneath it. A walk starts only from a directory.
 #[derive(Clone)]
 pub struct Path {
     mnt: Arc<VfsMount>,
