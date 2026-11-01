@@ -1831,7 +1831,8 @@ both live in the upper and never show, so no name is reserved
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FS-149` |
+| refines | `FS-034` |
+| relates | `FS-032` |
 
 | Step | Statement |
 | --- | --- |
@@ -1867,6 +1868,7 @@ both live in the upper and never show, so no name is reserved
 
 | Attribute | Value |
 | --- | --- |
+| refines | `FS-117` |
 | relates | `FS-073` |
 
 | Step | Statement |
