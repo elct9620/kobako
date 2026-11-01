@@ -42,14 +42,6 @@ impl OverlayPath {
         }
     }
 
-    /// This Layer's directory standing at `dentry`.
-    pub(super) fn with_dentry(&self, dentry: Arc<Dentry>) -> Self {
-        Self {
-            dentry,
-            filesystem: self.filesystem.clone(),
-        }
-    }
-
     /// Where this directory stands in its Layer.
     pub(super) fn dentry(&self) -> &Arc<Dentry> {
         &self.dentry
@@ -206,6 +198,13 @@ impl OverlayPath {
     pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.inode_lock_shared()?;
         self.lookup_real(name)?.getattr()
+    }
+
+    /// What kind of entry stands at `name`, as its lookup recorded it, a link
+    /// reported as itself.
+    pub(super) fn kind(&self, name: &str) -> Result<FileType, FilesystemError> {
+        let _held = self.inode_lock_shared()?;
+        self.lookup_real(name)?.kind()
     }
 
     /// `name` as this directory stores it.

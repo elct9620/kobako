@@ -226,14 +226,6 @@ impl InodeOperations for OverlayLink {
         let (real, _) = self.0.real_of(dentry).ok_or(FilesystemError::NotFound)?;
         real.get_link()
     }
-
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        Err(FilesystemError::FilesystemLoop)
-    }
 }
 
 /// A directory of the view, finding what a call is about through the dentry it

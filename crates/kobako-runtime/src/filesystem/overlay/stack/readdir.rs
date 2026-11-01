@@ -9,7 +9,7 @@ use crate::vfs::Dentry;
 
 impl OverlayFs {
     /// Each Layer's entries topmost first, a name a Layer above shows or
-    /// whites out taken once, down to the first directory marked opaque.
+    /// whites out taken once. A lookup left out what an opaque directory hides.
     pub(in super::super) fn dir_read_merged(
         &self,
         level: &Level,
@@ -25,9 +25,6 @@ impl OverlayFs {
                 if taken.insert(entry.name.clone()) && !whiteout {
                     entries.push(entry);
                 }
-            }
-            if dir.is_opaque() {
-                break;
             }
         }
         Ok(entries)

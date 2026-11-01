@@ -104,11 +104,10 @@ impl Bind {
         dentry: &Dentry,
         call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
-        let dir = match dentry.parent() {
-            Some(parent) => self.fid_lookup(&parent)?,
-            None => self.root.clone(),
-        };
-        call(&dir, to_host_name(&dentry.name())?)
+        let parent = dentry
+            .parent()
+            .expect("an entry the runtime names stands in a directory");
+        call(&*self.fid_lookup(&parent)?, to_host_name(&dentry.name())?)
     }
 
     /// What stands at the name `dentry` carries, spelled as the host spells
@@ -513,14 +512,6 @@ impl InodeOperations for BindLink {
                 .into_string()
                 .map_err(|_| FilesystemError::IllegalSequence)
         })
-    }
-
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        Err(FilesystemError::FilesystemLoop)
     }
 }
 

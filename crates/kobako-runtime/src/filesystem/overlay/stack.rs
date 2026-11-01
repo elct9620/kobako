@@ -24,7 +24,7 @@ use std::sync::Arc;
 use super::inode::{ovl_inode, OverlayInode};
 use super::path::OverlayPath;
 
-use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb, Metadata};
+use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb};
 use crate::vfs::Dentry;
 
 /// The directories of the upper Tmpfs holding the view's changes and the
@@ -57,52 +57,29 @@ impl ViewDir {
     }
 }
 
-/// What `dir` holds at `name`, a link reported as itself and a whiteout
-/// as nothing, as is a name too long for that Layer to hold, as
-/// `ovl_lookup_single` answers both ENOENT and ENAMETOOLONG by moving on.
-fn entry(dir: &OverlayPath, name: &str) -> Result<Option<Metadata>, FilesystemError> {
+/// What a Layer shows at a name, as `ovl_lookup_single` tells a whiteout from an
+/// entry.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shown {
+    /// Nothing, and a name too long for that Layer to hold is nothing either, as
+    /// `ovl_lookup_single` answers ENOENT and ENAMETOOLONG by moving on.
+    Nothing,
+    /// A whiteout, which hides the Layers below.
+    Whiteout,
+    /// An entry of this kind, a link reported as itself.
+    Entry(FileType),
+}
+
+/// What `dir` shows at `name`, read from what its lookup recorded, as
+/// `ovl_lookup_single` reads `d_is_dir`.
+fn entry(dir: &OverlayPath, name: &str) -> Result<Shown, FilesystemError> {
     if dir.is_whiteout(name) {
-        return Ok(None);
+        return Ok(Shown::Whiteout);
     }
-    match dir.symlink_metadata(name) {
-        Ok(metadata) => Ok(Some(metadata)),
-        Err(FilesystemError::NotFound | FilesystemError::InvalidFilename) => Ok(None),
+    match dir.kind(name) {
+        Ok(kind) => Ok(Shown::Entry(kind)),
+        Err(FilesystemError::NotFound | FilesystemError::InvalidFilename) => Ok(Shown::Nothing),
         Err(err) => Err(err),
-    }
-}
-
-/// Whether `dir` has an entry at `name`, a link pointing at nothing among
-/// them.
-fn holds(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
-    Ok(entry(dir, name)?.is_some())
-}
-
-/// `level` without the Layers below the topmost directory marked opaque,
-/// as overlayfs stops looking further down once it finds one.
-fn below_opaque_cut(mut level: Level) -> Level {
-    let mut cut = false;
-    for layer in &mut level {
-        if cut {
-            *layer = None;
-        } else if let Some(shown) = layer {
-            cut = shown.is_opaque();
-        }
-    }
-    level
-}
-
-/// The one Layer showing the directory `level`, if no other does. Nothing
-/// there merges or hides, so the Layer's own directory answers for each
-/// name beneath, opened as that Layer opens one, as overlayfs leaves a
-/// directory only one layer holds unmerged.
-fn sole_layer(level: &Level) -> Option<(usize, &OverlayPath)> {
-    let mut shown = level
-        .iter()
-        .enumerate()
-        .filter_map(|(index, dir)| Some((index, dir.as_ref()?)));
-    match (shown.next(), shown.next()) {
-        (Some(only), None) => Some(only),
-        _ => None,
     }
 }
 
@@ -239,13 +216,11 @@ impl OverlayFs {
 
     /// The directory of the view `dentry` names, its state found on the inode
     /// its lookup recorded; the root, which no lookup finds, stands for every
-    /// Layer's root merged down to the first marked opaque.
+    /// Layer's root.
     pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
         let inode = ovl_inode(dentry, || match dentry.parent() {
             Some(_) => Err(FilesystemError::NotADirectory),
-            None => Ok(below_opaque_cut(
-                self.roots.iter().cloned().map(Some).collect(),
-            )),
+            None => Ok(self.roots.iter().cloned().map(Some).collect()),
         })?;
         Ok(ViewDir {
             dentry: dentry.get(),

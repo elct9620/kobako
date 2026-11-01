@@ -58,12 +58,6 @@ impl FileOperations for OverlayFile {
         self.real_file()?.read_iter(iocb, buf)
     }
 
-    /// A file open to read takes no write, so the lower Layer's file
-    /// answers it.
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-        self.file.write_iter(iocb, buf)
-    }
-
     /// A file open to read flushes what it reads, as `ovl_fsync` syncs the
     /// real file.
     fn fsync(&mut self) -> Result<(), FilesystemError> {

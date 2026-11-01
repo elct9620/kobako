@@ -9,7 +9,7 @@ use super::super::file::ovl_file;
 use super::super::inode::ovl_inode_of;
 use super::super::path::OverlayPath;
 use super::{
-    cleanup, cleanup_whiteouts, entry, holds, layer_dir, Level, OverlayFs, ViewDir, UPPER,
+    cleanup, cleanup_whiteouts, entry, layer_dir, Level, OverlayFs, Shown, ViewDir, UPPER,
 };
 use crate::vfs::{Dentry, RenameFlag};
 
@@ -37,20 +37,20 @@ impl OverlayFs {
             let Some(dir) = dir else {
                 continue;
             };
-            let found = entry(dir, name)?;
-            let hidden = match &found {
-                Some(metadata) => {
+            let hides = match entry(dir, name)? {
+                Shown::Nothing => false,
+                Shown::Whiteout => return Ok((holders, None)),
+                Shown::Entry(FileType::Directory) => {
                     holders.push(index);
-                    metadata.file_type != FileType::Directory || dir.open_dir(name)?.is_opaque()
+                    dir.open_dir(name)?.is_opaque()
                 }
-                None => dir.is_whiteout(name),
+                Shown::Entry(_) => {
+                    holders.push(index);
+                    true
+                }
             };
-            if hidden {
-                let shadowed = match found {
-                    Some(_) => self.beneath(level, index, name)?,
-                    None => None,
-                };
-                return Ok((holders, shadowed));
+            if hides {
+                return Ok((holders, self.beneath(level, index, name)?));
             }
         }
         Ok((holders, None))
@@ -67,11 +67,10 @@ impl OverlayFs {
             let Some(dir) = dir else {
                 continue;
             };
-            if holds(dir, name)? {
-                return Ok(Some(index));
-            }
-            if dir.is_whiteout(name) {
-                return Ok(None);
+            match entry(dir, name)? {
+                Shown::Entry(_) => return Ok(Some(index)),
+                Shown::Whiteout => return Ok(None),
+                Shown::Nothing => {}
             }
         }
         Ok(None)
@@ -85,7 +84,7 @@ impl OverlayFs {
     fn cleanup_and_whiteout(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
         let (work, temp) = self.tempname()?;
         work.do_whiteout(&temp)?;
-        let is_dir = entry(dir, name)?.is_some_and(|found| found.file_type == FileType::Directory);
+        let is_dir = entry(dir, name)? == Shown::Entry(FileType::Directory);
         let flag = is_dir.then_some(RenameFlag::Exchange);
         if let Err(err) = work.do_rename(&temp, dir, name, flag) {
             let _ = work.do_unlink(&temp);
@@ -280,7 +279,10 @@ impl OverlayFs {
         let target_dir = self.upper_dir(to)?;
         // A directory holding only whiteouts is replaced by an empty one first,
         // as `ovl_rename_upper` calls `ovl_clear_empty` for a list not empty.
-        if replaces_dir && holds(&target_dir, to_name)? && holds_whiteouts(&target_dir, to_name)? {
+        if replaces_dir
+            && matches!(entry(&target_dir, to_name)?, Shown::Entry(_))
+            && holds_whiteouts(&target_dir, to_name)?
+        {
             self.clear_empty(&target_dir, to_name)?;
         }
         let source_dir = from.level()[UPPER]
@@ -294,10 +296,7 @@ impl OverlayFs {
             .enumerate()
             .any(|(index, dir)| index != UPPER && dir.is_some());
         if is_dir && into_merged {
-            let moving = source_dir.open_dir(from_name)?;
-            if !moving.is_opaque() {
-                moving.set_opaque()?;
-            }
+            source_dir.open_dir(from_name)?.set_opaque()?;
         }
         let onto_whiteout = target_dir.is_whiteout(to_name);
         let flag = match (shown_below, onto_whiteout) {

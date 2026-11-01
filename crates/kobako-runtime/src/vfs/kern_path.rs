@@ -52,6 +52,10 @@ impl KernPath {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let child = self.resolve(path)?.path()?;
+        // A link opens as itself nowhere, as `may_open` refuses one first.
+        if child.kind() == Ok(FileType::Symlink) {
+            return Err(FilesystemError::FilesystemLoop);
+        }
         let file = child.open(options)?;
         if options.truncate {
             child
