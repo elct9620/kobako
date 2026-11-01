@@ -3,3 +3,13 @@
 overlay Rename from=g kobako=EXDEV linux=ok  # a lower Layer's link is not copied up
 overlay Rename from=l kobako=EXDEV linux=ok  # a lower Layer's link is not copied up
 overlay Rename from=n kobako=EXDEV linux=ok  # a lower Layer's link is not copied up
+bind Utimes kobako=ENOTSUP linux=ok  # a link keeps its own times
+overlay Utimes kobako=ENOTSUP linux=ok  # a link keeps its own times
+policy Rename from=d kobako=EXDEV linux=ENOTDIR  # a Policy answers for one path, not a tree
+policy Rename from=d kobako=EXDEV linux=ok  # a Policy answers for one path, not a tree
+policy Rename from=n kobako=EXDEV linux=ENOTDIR  # a Policy answers for one path, not a tree
+policy Rename from=n kobako=EXDEV linux=ok  # a Policy answers for one path, not a tree
+policy Utimes kobako=EACCES linux=ok  # a Policy judges a time as a change, where Landlock leaves it
+another-user Open kobako=EACCES linux=ok  # a directory only readable or only searched: spelling a name and reading through it take more
+another-user Rename from=nor kobako=EACCES linux=ok  # spelling a name in a directory only searched takes reading it
+another-user Stat kobako=EACCES linux=reg  # spelling a name in a directory only searched takes reading it

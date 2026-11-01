@@ -4,8 +4,9 @@
 //!
 //! `linux-baseline-expected.txt` names the differences kobako keeps. A new one
 //! fails, and so does one no sequence reaches any more. `concurrent` holds calls
-//! racing on one instance. `rake crates:linux_baseline` runs this as root in a
-//! container, since overlayfs needs a mount.
+//! racing on one instance, and `permissions` what a Policy and another user are
+//! refused. `rake crates:linux_baseline` runs this as root in a container, since
+//! overlayfs needs a mount.
 
 #![cfg(target_os = "linux")]
 
@@ -13,6 +14,7 @@ mod calls;
 mod concurrent;
 mod kobako;
 mod linux;
+mod permissions;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -102,8 +104,18 @@ impl Setup {
         .map(str::to_string)
         .to_vec();
         paths.push("x/".repeat(2048));
+        paths.push("N".repeat(256));
+        paths.push(format!("d/{}", "N".repeat(256)));
+        paths.push("M".repeat(255));
+        paths.extend(
+            [
+                "d/f/", "d/f/.", "d/f/..", "a/..", "./a", "d//f", "d/./f", "./", "d/e/../f", "d/e/",
+            ]
+            .map(str::to_string),
+        );
         if self != Self::Tmpfs {
             paths.extend(["h1", "h2", "l", "l/", "n", "n/f", "n/", "g", "g/"].map(str::to_string));
+            paths.extend(["l/x", "n/..", "n/../a", "n/e", "g/x", "n/e/.."].map(str::to_string));
         }
         paths
     }
@@ -329,13 +341,12 @@ fn note(found: &mut BTreeMap<String, Difference>, class: String, calls: &[Call],
     }
 }
 
-/// Fail unless what `found` holds is what the expected file names for `setup`,
-/// and unless every kind of call this setup can answer ever succeeded.
-fn assert_holds(setup: Setup, found: &BTreeMap<String, Difference>, succeeded: &BTreeSet<String>) {
+/// Fail unless what `found` holds is what the expected file names for `name`.
+fn assert_named(name: &str, found: &BTreeMap<String, Difference>) {
     let expected: BTreeSet<String> = EXPECTED
         .lines()
         .filter_map(|line| line.split('#').next())
-        .filter_map(|line| line.trim().strip_prefix(setup.name()))
+        .filter_map(|line| line.trim().strip_prefix(name))
         .filter_map(|line| line.strip_prefix(' '))
         .map(|line| line.trim().to_string())
         .collect();
@@ -349,8 +360,7 @@ fn assert_holds(setup: Setup, found: &BTreeMap<String, Difference>, succeeded: &
                 .map(|call| format!("    {call:?}"))
                 .collect();
             format!(
-                "{} {class}\n  {}\n{}",
-                setup.name(),
+                "{name} {class}\n  {}\n{}",
                 difference.detail,
                 calls.join("\n")
             )
@@ -362,11 +372,16 @@ fn assert_holds(setup: Setup, found: &BTreeMap<String, Difference>, succeeded: &
         .collect();
     assert!(
         new.is_empty() && gone.is_empty(),
-        "{} must answer as Linux does, apart from what linux-baseline-expected.txt names.\nNew \
+        "{name} must answer as Linux does, apart from what linux-baseline-expected.txt names.\nNew \
          differences:\n{}\nNamed but not reached:\n{gone:?}",
-        setup.name(),
         new.join("\n")
     );
+}
+
+/// Fail unless what `found` holds is what the expected file names for `setup`,
+/// and unless every kind of call this setup can answer ever succeeded.
+fn assert_holds(setup: Setup, found: &BTreeMap<String, Difference>, succeeded: &BTreeSet<String>) {
+    assert_named(setup.name(), found);
     let mut owed = vec![
         "Open", "Close", "Read", "Pread", "Seek", "Fstat", "Fsync", "Readdir", "Stat",
     ];
@@ -560,13 +575,13 @@ fn a_read_only_bind_answers_as_a_read_only_mount() {
 #[test]
 #[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
 fn a_tmpfs_moves_the_times_a_tmpfs_of_linux_moves() {
-    moves_the_same_times(Setup::Tmpfs, 300, 6);
+    moves_the_same_times(Setup::Tmpfs, 600, 6);
 }
 
 #[test]
 #[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
 fn an_overlay_moves_the_times_overlayfs_moves() {
-    moves_the_same_times(Setup::Overlay, 300, 6);
+    moves_the_same_times(Setup::Overlay, 600, 6);
 }
 
 #[test]

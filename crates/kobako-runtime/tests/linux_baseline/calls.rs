@@ -4,6 +4,9 @@
 /// How many descriptors a sequence holds at once.
 pub const SLOTS: usize = 4;
 
+/// The modified time a call sets, seconds past the Unix epoch.
+pub const UTIME_SECONDS: i64 = 1;
+
 /// One call, made alike through the VFS and through Linux. A path call starts
 /// from the root, or from the descriptor `base` names.
 #[derive(Clone, Debug)]
@@ -16,10 +19,16 @@ pub enum Call {
     Pwrite(usize, usize, u64),
     Seek(usize, i64, u8),
     Truncate(usize, u64),
+    Fallocate(usize, u64, u64),
     Fstat(usize),
     Fsync(usize),
     Readdir(usize),
     Stat {
+        base: Option<usize>,
+        path: String,
+        follow: bool,
+    },
+    Utimes {
         base: Option<usize>,
         path: String,
         follow: bool,
@@ -58,6 +67,8 @@ impl Call {
             Self::Pwrite(..) => "Pwrite",
             Self::Seek(..) => "Seek",
             Self::Truncate(..) => "Truncate",
+            Self::Fallocate(..) => "Fallocate",
+            Self::Utimes { .. } => "Utimes",
             Self::Fstat(_) => "Fstat",
             Self::Fsync(_) => "Fsync",
             Self::Readdir(_) => "Readdir",
@@ -141,7 +152,13 @@ impl Rng {
             },
             74..=79 => Call::Mkdir(base, self.path(paths)),
             80..=85 => Call::Rmdir(base, self.path(paths)),
-            86..=91 => Call::Unlink(base, self.path(paths)),
+            86..=89 => Call::Unlink(base, self.path(paths)),
+            90 => Call::Fallocate(slot, self.below(10), self.below(5)),
+            91 => Call::Utimes {
+                base,
+                path: self.path(paths),
+                follow: self.chance(50),
+            },
             _ => Call::Rename(base, self.path(paths), self.path(paths)),
         }
     }

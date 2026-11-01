@@ -3,16 +3,16 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use kobako_runtime::filesystem::{Filesystem, FilesystemError};
-use kobako_runtime::mount::{Access, Mount};
+use kobako_runtime::filesystem::{Filesystem, FilesystemError, Iattr, SetTime};
+use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::security::prepare_creds;
 use kobako_runtime::vfs::{
     self, Cred, DirContext, DirEmit, File, FileType, OpenHow, VfsMount, Whence,
 };
 
-use crate::calls::{payload, Call, SLOTS};
+use crate::calls::{payload, Call, SLOTS, UTIME_SECONDS};
 use crate::{describe, Snapshot, Times};
 
 fn errno(error: &FilesystemError) -> String {
@@ -78,6 +78,23 @@ impl Kobako {
             root,
             slots: std::iter::repeat_with(|| None).take(SLOTS).collect(),
             merged,
+        }
+    }
+
+    /// The root of `filesystem` mounted to change, beneath `policy`.
+    pub fn with_policy(filesystem: Arc<Filesystem>, policy: Arc<dyn Policy>) -> Self {
+        let mount = Mount::new("/baseline", filesystem, Access::ReadWrite)
+            .expect("/baseline is a guest path")
+            .with_policy(policy);
+        let cred = prepare_creds([&mount]);
+        let root =
+            File::root(mount.mnt()).unwrap_or_else(|error| panic!("the root must open: {error:?}"));
+        Self {
+            cred,
+            mnt: mount.mnt().clone(),
+            root,
+            slots: std::iter::repeat_with(|| None).take(SLOTS).collect(),
+            merged: false,
         }
     }
 
@@ -175,6 +192,20 @@ impl Kobako {
                 answer(file.llseek(*offset, whence), |pos| format!("ok:{pos}"))
             }
             Call::Truncate(slot, len) => ok_or_errno(file!(*slot).truncate(*len)),
+            Call::Fallocate(slot, offset, len) => {
+                ok_or_errno(file!(*slot).fallocate(*offset, *len))
+            }
+            Call::Utimes { base, path, follow } => {
+                let time = UNIX_EPOCH + Duration::from_secs(UTIME_SECONDS as u64);
+                let times = Iattr::times(None, Some(SetTime::At(time)));
+                ok_or_errno(vfs::do_utimes(
+                    &self.cred,
+                    start!(*base),
+                    path,
+                    *follow,
+                    &times,
+                ))
+            }
             Call::Fstat(slot) => {
                 let got = file!(*slot).getattr();
                 answer(got, |metadata| self.stat(metadata))

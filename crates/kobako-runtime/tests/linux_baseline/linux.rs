@@ -8,7 +8,7 @@ use std::mem;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use crate::calls::{payload, Call, SLOTS};
+use crate::calls::{payload, Call, SLOTS, UTIME_SECONDS};
 use crate::{describe, Snapshot, Times};
 
 fn c_string(text: &str) -> CString {
@@ -305,6 +305,29 @@ impl Linux {
                 }
                 Call::Truncate(slot, len) => {
                     ok_or_errno(libc::ftruncate(fd!(*slot), *len as i64).into())
+                }
+                Call::Fallocate(slot, offset, len) => {
+                    ok_or_errno(libc::fallocate(fd!(*slot), 0, *offset as i64, *len as i64).into())
+                }
+                Call::Utimes { base, path, follow } => {
+                    let times = [
+                        libc::timespec {
+                            tv_sec: 0,
+                            tv_nsec: libc::UTIME_OMIT,
+                        },
+                        libc::timespec {
+                            tv_sec: UTIME_SECONDS,
+                            tv_nsec: 0,
+                        },
+                    ];
+                    let flags = match follow {
+                        true => 0,
+                        false => libc::AT_SYMLINK_NOFOLLOW,
+                    };
+                    let path = c_string(path);
+                    ok_or_errno(
+                        libc::utimensat(start!(*base), path.as_ptr(), times.as_ptr(), flags).into(),
+                    )
                 }
                 Call::Fstat(slot) => match Self::fstat(fd!(*slot)) {
                     Some(stat) => self.stat(&stat),
