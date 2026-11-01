@@ -6,6 +6,7 @@ use std::ops::BitOr;
 use std::sync::Arc;
 
 use super::attr::notify_change;
+use super::cred::{Cred, RdirCharge};
 use super::dentry::Dentry;
 use super::inode::Identity;
 use super::mount::VfsMount;
@@ -235,6 +236,14 @@ pub fn verify_dirent_name(name: &str) -> Result<(), FilesystemError> {
     Ok(())
 }
 
+/// What holding `entries` costs in host memory.
+fn rdir_bytes(entries: &[DirEntry]) -> usize {
+    entries
+        .iter()
+        .map(|entry| size_of::<DirEntry>() + entry.name.len())
+        .sum()
+}
+
 /// One open file or directory, as a descriptor refers to it.
 pub struct File {
     /// Where it was opened, as `f_path`; it follows the name wherever it
@@ -254,9 +263,16 @@ pub struct File {
     sync: bool,
     /// Where the next read or write lands, as `f_pos`.
     pos: u64,
-    /// The entries a listing began with, held until it reaches its end, so
-    /// each later step reads on without listing the directory again.
-    listing: Option<Vec<DirEntry>>,
+    /// What a listing under way goes on from, as 9p's `fid->rdir`.
+    rdir: Option<Rdir>,
+}
+
+/// The entries a listing began with, held until it reaches its end, so each later
+/// step reads on without listing the directory again, counted against who holds
+/// them.
+struct Rdir {
+    entries: Vec<DirEntry>,
+    charge: RdirCharge,
 }
 
 impl File {
@@ -270,7 +286,7 @@ impl File {
             nonblock: how.nonblock,
             sync: how.sync,
             pos: 0,
-            listing: None,
+            rdir: None,
         }
     }
 
@@ -557,10 +573,16 @@ impl File {
     /// that position past each, which each ABI keeps as it says a listing goes
     /// on. A listing from the start reads the directory; one going on
     /// reads the entries that listing began with, so a caller reading in small
-    /// steps costs one listing, not one per step. A removed directory answers
-    /// not found, as `iterate_dir` asks `IS_DEADDIR`.
-    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), FilesystemError> {
-        let listing = self.read_entries(ctx.pos)?;
+    /// steps costs one listing, not one per step. Those entries count against
+    /// `cred` until the listing ends, and past its limit a listing that must
+    /// stop answers out of memory, while one read whole holds nothing. A removed
+    /// directory answers not found, as `iterate_dir` asks `IS_DEADDIR`.
+    pub fn iterate_dir(
+        &mut self,
+        cred: &Cred,
+        ctx: &mut DirContext<'_>,
+    ) -> Result<(), FilesystemError> {
+        let (listing, charge) = self.read_entries(ctx.pos)?;
         let stopped = {
             let dots = match ctx.pos < 2 {
                 true => self.dot_identities(),
@@ -597,7 +619,14 @@ impl File {
             stopped
         };
         if stopped {
-            self.listing = Some(listing);
+            let charge = match charge {
+                Some(charge) => charge,
+                None => cred.account_rdir(rdir_bytes(&listing))?,
+            };
+            self.rdir = Some(Rdir {
+                entries: listing,
+                charge,
+            });
         }
         Ok(())
     }
@@ -622,23 +651,26 @@ impl File {
         (itself, parent)
     }
 
-    /// The entries of the directory for a listing at `pos`, under its lock shared
-    /// as `iterate_dir` holds it, so a removal through the VFS lands before or
-    /// after them.
-    fn read_entries(&mut self, pos: u64) -> Result<Vec<DirEntry>, FilesystemError> {
+    /// The entries of the directory for a listing at `pos`, and what they already
+    /// count for, under its lock shared as `iterate_dir` holds it, so a removal
+    /// through the VFS lands before or after them.
+    fn read_entries(
+        &mut self,
+        pos: u64,
+    ) -> Result<(Vec<DirEntry>, Option<RdirCharge>), FilesystemError> {
         let dentry = self.path.dentry().clone();
         let _held = dentry.inode_lock_shared()?;
         if dentry.is_deaddir() {
             return Err(FilesystemError::NotFound);
         }
-        if let Some(listing) = self.listing.take().filter(|_| pos != 0) {
-            return Ok(listing);
+        if let Some(rdir) = self.rdir.take().filter(|_| pos != 0) {
+            return Ok((rdir.entries, Some(rdir.charge)));
         }
         let entries = self.ops.iterate_shared(&dentry)?;
         entries
             .iter()
             .try_for_each(|entry| verify_dirent_name(&entry.name))?;
-        Ok(entries)
+        Ok((entries, None))
     }
 
     /// What its Filesystem lists, with nothing the VFS adds, for a test of
@@ -802,10 +834,13 @@ mod tests {
             .expect("/data is a guest path");
             let mut root = File::root(mount.mnt()).unwrap_or_else(|_| panic!("the root must open"));
             let mut names = Vec::new();
-            let answer = root.iterate_dir(&mut DirContext::new(2, &mut |emit| {
-                names.push(emit.name.to_string());
-                true
-            }));
+            let answer = root.iterate_dir(
+                &Cred::default(),
+                &mut DirContext::new(2, &mut |emit| {
+                    names.push(emit.name.to_string());
+                    true
+                }),
+            );
             (answer.is_ok(), names)
         };
         assert_eq!(
@@ -866,9 +901,48 @@ mod tests {
             seen.push((emit.name.to_string(), emit.next));
             seen.len() < room
         };
-        file.iterate_dir(&mut DirContext::new(pos, &mut actor))
+        file.iterate_dir(&Cred::default(), &mut DirContext::new(pos, &mut actor))
             .unwrap_or_else(|_| panic!("the directory must list"));
         seen
+    }
+
+    /// A listing of `file` from the start, its actor stopping after `room`
+    /// entries, charged to `cred`.
+    fn begin_listing(cred: &Cred, file: &mut File, room: usize) -> Result<(), FilesystemError> {
+        let mut seen = 0;
+        file.iterate_dir(
+            cred,
+            &mut DirContext::new(0, &mut |_| {
+                seen += 1;
+                seen < room
+            }),
+        )
+    }
+
+    // Every descriptor holds a listing of its own, so only counting them together
+    // keeps a guest from multiplying a directory by its open files.
+    // @behavior RT-237
+    #[test]
+    fn listings_held_between_calls_count_against_their_limit() {
+        let tmpfs: Arc<Tmpfs> = Arc::new([("a", "x"), ("b", "y")].into_iter().collect());
+        let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
+            .expect("/data is a guest path");
+        let open = || File::root(mount.mnt()).unwrap_or_else(|_| panic!("the root must open"));
+        let one_listing = 2 * size_of::<DirEntry>() + 2;
+        let cred = Cred::default().with_rdir_limit(Some(one_listing));
+        let (mut first, mut second, mut whole) = (open(), open(), open());
+        let held = begin_listing(&cred, &mut first, 1);
+        let refused = begin_listing(&cred, &mut second, 1);
+        let read_whole = begin_listing(&cred, &mut whole, usize::MAX);
+        drop(first);
+        let after_close = begin_listing(&cred, &mut second, 1);
+        assert_eq!(
+            (held, refused, read_whole, after_close),
+            (Ok(()), Err(FilesystemError::OutOfMemory), Ok(()), Ok(())),
+            "File::iterate_dir of a second listing stopped part way, past what Cred::with_rdir_limit \
+             allows, must answer ENOMEM, one read whole must hold nothing, and closing the \
+             first must give its bytes back"
+        );
     }
 
     /// Each entry of the root of `filesystem` with what a listing names it
@@ -885,10 +959,13 @@ mod tests {
         let start = Path::root(mount.mnt());
         let mut root = File::root(mount.mnt()).unwrap_or_else(|_| panic!("the root must open"));
         let mut listed = Vec::new();
-        root.iterate_dir(&mut DirContext::new(2, &mut |emit| {
-            listed.push((emit.name.to_string(), emit.identity));
-            true
-        }))
+        root.iterate_dir(
+            &Cred::default(),
+            &mut DirContext::new(2, &mut |emit| {
+                listed.push((emit.name.to_string(), emit.identity));
+                true
+            }),
+        )
         .unwrap_or_else(|_| panic!("the root must list"));
         listed
             .into_iter()

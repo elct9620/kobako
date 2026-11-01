@@ -52,7 +52,7 @@ fn entries(file: &mut File) -> Result<Vec<(String, FileType)>, FilesystemError> 
         names.push((emit.name.to_string(), emit.file_type));
         true
     };
-    file.iterate_dir(&mut DirContext::new(0, &mut actor))?;
+    file.iterate_dir(&Cred::default(), &mut DirContext::new(0, &mut actor))?;
     Ok(names)
 }
 

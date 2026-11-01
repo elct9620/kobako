@@ -51,10 +51,13 @@ fn host_entries<F: InodeOperations>(filesystem: &Arc<F>) -> Result<Vec<String>, 
     .expect("/data is a guest path");
     let mut root = vfs::File::root(mount.mnt())?;
     let mut names = Vec::new();
-    root.iterate_dir(&mut vfs::DirContext::new(2, &mut |emit| {
-        names.push(emit.name.to_string());
-        true
-    }))?;
+    root.iterate_dir(
+        &vfs::Cred::default(),
+        &mut vfs::DirContext::new(2, &mut |emit| {
+            names.push(emit.name.to_string());
+            true
+        }),
+    )?;
     Ok(names)
 }
 
@@ -68,6 +71,7 @@ const ERRNO_ISDIR: i32 = 31;
 #[cfg(unix)]
 const ERRNO_LOOP: i32 = 32;
 const ERRNO_NOENT: i32 = 44;
+const ERRNO_NOMEM: i32 = 48;
 const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_NOTEMPTY: i32 = 55;
 const ERRNO_NOTSUP: i32 = 58;
@@ -454,20 +458,30 @@ impl Guest {
 
     /// A guest holding at most `open_file_limit` descriptors at once.
     fn with_open_file_limit(open_file_limit: Option<usize>, grants: &[Grant]) -> Self {
-        Self::build(open_file_limit, Profile::Hermetic, grants)
+        Self::build(open_file_limit, None, Profile::Hermetic, grants)
+    }
+
+    /// A guest allotted `memory_limit` bytes.
+    fn with_memory_limit(memory_limit: usize, grants: &[Grant]) -> Self {
+        Self::build(None, Some(memory_limit), Profile::Hermetic, grants)
     }
 
     /// A guest on `profile`.
     fn for_posture(profile: Profile, grants: &[Grant]) -> Self {
-        Self::build(None, profile, grants)
+        Self::build(None, None, profile, grants)
     }
 
-    fn build(open_file_limit: Option<usize>, profile: Profile, grants: &[Grant]) -> Self {
+    fn build(
+        open_file_limit: Option<usize>,
+        memory_limit: Option<usize>,
+        profile: Profile,
+        grants: &[Grant],
+    ) -> Self {
         let engine = shared_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
             setup_timeout: None,
-            memory_limit: None,
+            memory_limit,
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit,
@@ -547,13 +561,16 @@ impl Guest {
     }
 
     /// The names a listing from `cookie` into `len` bytes holds whole.
-    fn list(&mut self, cookie: u64, len: i32) -> Vec<String> {
-        let errno = self
-            .instance
+    fn call_list(&mut self, cookie: u64, len: i32) -> i32 {
+        self.instance
             .get_typed_func::<(i64, i32), i32>(&mut self.store, "list")
             .expect("probe export must resolve")
             .call(&mut self.store, (cookie as i64, len))
-            .expect("probe call must not trap");
+            .expect("probe call must not trap")
+    }
+
+    fn list(&mut self, cookie: u64, len: i32) -> Vec<String> {
+        let errno = self.call_list(cookie, len);
         assert_eq!(errno, 0, "the listing must succeed");
         let memory = self
             .instance
@@ -833,6 +850,25 @@ fn a_listing_goes_on_over_the_entries_it_began_with() {
         guest.list(0, 4096),
         [".", "..", "a.txt", "b.txt"],
         "a listing from the start through fd_readdir must read the directory as it stands"
+    );
+}
+
+// The buffer takes only the dots, so the listing must hold the rest to go on;
+// the limit it is held against is the memory the guest was allotted.
+// @behavior RT-237
+#[test]
+fn a_listing_it_cannot_hold_within_a_guests_memory_answers_enomem() {
+    let answer = |memory_limit| {
+        let tmpfs = tmpfs_with("a.txt", "");
+        let mut guest =
+            Guest::with_memory_limit(memory_limit, &[grant(tmpfs, Access::ReadWrite, None)]);
+        guest.call_list(0, 51)
+    };
+    assert_eq!(
+        (answer(1), answer(1 << 20)),
+        (ERRNO_NOMEM, 0),
+        "fd_readdir stopped part way through preview1, with more to hold than the guest's \
+         memory_limit, must answer ENOMEM, and within it succeed"
     );
 }
 

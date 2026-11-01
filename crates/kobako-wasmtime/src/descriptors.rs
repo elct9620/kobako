@@ -80,6 +80,13 @@ impl Descriptors {
         })
     }
 
+    /// This table, its files holding at most `limit` bytes of listings between
+    /// calls, so a guest's host memory stays near what it was allotted.
+    pub(crate) fn with_rdir_limit(mut self, limit: Option<usize>) -> Self {
+        self.cred = self.cred.with_rdir_limit(limit);
+        self
+    }
+
     /// Who the guest's calls are made for.
     pub(crate) fn cred(&self) -> &Arc<Cred> {
         &self.cred

@@ -1295,7 +1295,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a Bind Mount with a Policy, holding links out of it and into a loop |
 | When | the guest opens a path through each link, then unlinks each link |
-| Then | an open through a link out of the Bind answers NOTCAPABLE, one into a loop ELOOP, and each unlink removes the link |
+| Then | an open out of the Bind answers NOTCAPABLE, one into a loop ELOOP, and each unlink removes the link |
 
 ## `RT-126` A lookup that fails fails the call beneath a Policy
 
@@ -2616,3 +2616,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a thread holding the lock of an entry |
 | When | the thread sets the entry's times |
 | Then | the call answers EDEADLK |
+
+## `RT-237` A listing that cannot be held within a guest's memory limit answers ENOMEM
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-107` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest with a memory limit, its descriptors holding listings up to that limit |
+| When | the guest stops another listing part way |
+| Then | the call answers ENOMEM, a listing read whole still succeeds, and closing a descriptor gives back what it held |

@@ -356,6 +356,7 @@ pub(crate) fn readdir(
     cookie: u64,
 ) -> Answer<types::Size> {
     let profile = table.profile();
+    let cred = table.cred().clone();
     let dir = file(table, fd)?;
     let mut used: u32 = 0;
     let mut failed = None;
@@ -367,7 +368,7 @@ pub(crate) fn readdir(
                 false
             }
         };
-    dir.iterate_dir(&mut DirContext::new(cookie, &mut actor))?;
+    dir.iterate_dir(&cred, &mut DirContext::new(cookie, &mut actor))?;
     match failed {
         Some(error) => Err(error),
         None => Ok(used),

@@ -43,6 +43,7 @@ impl Wasi {
             config.stdout_limit,
             config.stderr_limit,
             config.open_file_limit,
+            config.memory_limit,
             config.profile,
             grants.iter().filter_map(to_mount).collect(),
         )
@@ -57,6 +58,7 @@ impl Wasi {
             config.stdout_limit,
             config.stderr_limit,
             config.open_file_limit,
+            config.memory_limit,
             Profile::Hermetic,
             Vec::new(),
         )
@@ -67,7 +69,15 @@ impl Wasi {
     /// authority and no output: the probe takes the strongest posture and
     /// pipes sized to keep nothing.
     pub(crate) fn for_probe() -> Result<Self, Trap> {
-        Self::new(&[], Some(0), Some(0), None, Profile::Hermetic, Vec::new())
+        Self::new(
+            &[],
+            Some(0),
+            Some(0),
+            None,
+            None,
+            Profile::Hermetic,
+            Vec::new(),
+        )
     }
 
     /// An uncapped output channel has no ceiling on the host: a guest
@@ -78,6 +88,7 @@ impl Wasi {
         stdout_limit: Option<usize>,
         stderr_limit: Option<usize>,
         open_file_limit: Option<usize>,
+        memory_limit: Option<usize>,
         profile: Profile,
         mounts: Vec<Mount>,
     ) -> Result<Self, Trap> {
@@ -98,7 +109,8 @@ impl Wasi {
             open_file_limit,
             profile,
         )
-        .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?;
+        .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?
+        .with_rdir_limit(memory_limit);
 
         let mut builder = WasiCtxBuilder::new();
         // The profile decides the ambient authority granted: the

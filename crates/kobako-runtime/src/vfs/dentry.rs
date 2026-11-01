@@ -619,7 +619,7 @@ mod tests {
                 vfs::filename_mkdirat(&Arc::default(), &dir, "made"),
                 File::directory(dir.clone())
                     .expect("the directory must open")
-                    .iterate_dir(&mut vfs::DirContext::new(0, &mut |_| true)),
+                    .iterate_dir(&vfs::Cred::default(), &mut vfs::DirContext::new(0, &mut |_| true)),
                 kern_path(tmpfs.clone()).symlink_metadata("dir/made").err()
             ),
             (

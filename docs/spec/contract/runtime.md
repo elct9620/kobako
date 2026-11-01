@@ -924,6 +924,16 @@ impl Cred {
 }
 ```
 
+## `Cred::with_rdir_limit`
+
+This caller, whose files hold at most this many bytes of listings between calls.
+
+```rust
+impl Cred {
+    pub fn with_rdir_limit(&self, limit: Option<usize>) -> Arc<Self> {}
+}
+```
+
 ## `prepare_creds`
 
 The Cred an Invocation over these Mounts runs with: kobako's own rules, then each
@@ -1340,7 +1350,7 @@ first, until its actor stops. A removed directory answers not found.
 
 ```rust
 impl File {
-    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), FilesystemError> {}
+    pub fn iterate_dir(&mut self, cred: &Cred, ctx: &mut DirContext<'_>) -> Result<(), FilesystemError> {}
 }
 ```
 
