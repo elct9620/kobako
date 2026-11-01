@@ -64,6 +64,21 @@ mod tests {
         Arc::new([("file.txt", "x")].into_iter().collect())
     }
 
+    // A thread waiting on a lock it holds answers a deadlock, so only a change
+    // that takes the entry's lock answers one here.
+    // @behavior RT-236
+    #[test]
+    fn a_change_to_an_entry_holds_its_lock() {
+        let mount = mount_of(tmpfs(), MountAccess::ReadWrite);
+        let root = Path::root(mount.mnt());
+        let _held = root.dentry().inode_lock().expect("the lock must be free");
+        assert_eq!(
+            vfs_utimes(&Arc::default(), &root, &times()),
+            Err(FilesystemError::Deadlock),
+            "vfs::vfs_utimes on an entry whose lock its own thread holds must answer EDEADLK"
+        );
+    }
+
     // @behavior RT-186
     #[test]
     fn setting_times_asks_the_mount_then_the_entry() {

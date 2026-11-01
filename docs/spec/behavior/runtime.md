@@ -2604,3 +2604,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory the guest opened without the right to read or write |
 | When | the guest reads the descriptor |
 | Then | the call answers EBADF |
+
+## `RT-236` A change to an entry holds its lock
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-165`, `RT-186` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a thread holding the lock of an entry |
+| When | the thread sets the entry's times |
+| Then | the call answers EDEADLK |
