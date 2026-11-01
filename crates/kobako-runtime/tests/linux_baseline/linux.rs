@@ -61,6 +61,11 @@ fn wrote(count: i64) -> String {
     format!("ok:{count}")
 }
 
+/// A `st_nlink`, whose width differs between architectures.
+fn nlink(count: impl Into<u64>) -> u64 {
+    count.into()
+}
+
 fn kind_of(mode: u32) -> &'static str {
     match mode & libc::S_IFMT {
         libc::S_IFREG => "reg",
@@ -159,7 +164,7 @@ impl Linux {
         describe(
             kind_of(stat.st_mode),
             stat.st_size as u64,
-            stat.st_nlink as u64,
+            nlink(stat.st_nlink),
             self.merged,
         )
     }
@@ -364,8 +369,16 @@ impl Linux {
                 }
             }
         }
-        let mut out = BTreeMap::new();
-        walk(Path::new(&self.root_path), "", &mut out);
+        let root = Path::new(&self.root_path);
+        let metadata = fs::metadata(root).expect("the root stands");
+        let mut out = BTreeMap::from([(
+            ".".to_string(),
+            (
+                (metadata.mtime(), metadata.mtime_nsec()),
+                (metadata.ctime(), metadata.ctime_nsec()),
+            ),
+        )]);
+        walk(root, "", &mut out);
         out
     }
 }

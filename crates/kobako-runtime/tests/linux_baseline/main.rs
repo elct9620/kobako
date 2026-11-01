@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -38,14 +38,22 @@ const BASE: &str = "/dev/shm/kobako-linux-baseline";
 
 const EXPECTED: &str = include_str!("linux-baseline-expected.txt");
 
+/// What an Overlay leaves out, turned off whatever this kernel defaults to, so
+/// its answers are the ones kobako aligns with.
+const OVERLAY_FEATURES_OFF: &str = "redirect_dir=off,metacopy=off,index=off,xino=off";
+
+/// One setup runs at a time, as two sharing its directories would collide.
+static SERIAL: Mutex<()> = Mutex::new(());
+
 /// Longer than Linux's coarse clock ticks, so a change moves a time on both.
 const CLOCK_TICK: Duration = Duration::from_millis(12);
 
-/// What a stat shows, the same on both sides. A directory merged from Layers reports no size or count both sides could agree on, and a
-/// link's size is where it points, which a Filesystem may report its own way.
+/// What a stat shows, the same on both sides. A directory merged from Layers
+/// reports no size both sides could agree on, and a link's size is where it
+/// points, which a Filesystem may report its own way.
 pub fn describe(kind: &str, len: u64, nlink: u64, merged: bool) -> String {
     match (kind, merged) {
-        ("dir", true) => "dir".to_string(),
+        ("dir", true) => format!("dir nlink={nlink}"),
         ("lnk", _) => "lnk".to_string(),
         _ => format!("{kind} len={len} nlink={nlink}"),
     }
@@ -183,7 +191,7 @@ impl Setup {
             (
                 Overlay::new(vec![lower], Some(upper_tmpfs)),
                 format!(
-                    "lowerdir={},upperdir={upper},workdir={work}",
+                    "lowerdir={},upperdir={upper},workdir={work},{OVERLAY_FEATURES_OFF}",
                     self.dir("linux-lower")
                 ),
             )
@@ -294,8 +302,14 @@ fn class(call: &Call, kobako: &str, linux: &str) -> String {
         let answer = answer.split(':').next().unwrap_or(answer);
         answer.split(" len=").next().unwrap_or(answer).to_string()
     };
+    // What a move starts from decides what a difference waives: a link of a lower
+    // Layer is kept apart from any other entry refusing to move.
+    let subject = match call {
+        Call::Rename(_, from, _) => format!(" from={}", from.split('/').next().unwrap_or(from)),
+        _ => String::new(),
+    };
     format!(
-        "{} kobako={} linux={}",
+        "{}{subject} kobako={} linux={}",
         call.kind(),
         brief(kobako),
         brief(linux)
@@ -372,6 +386,7 @@ fn assert_holds(setup: Setup, found: &BTreeMap<String, Difference>, succeeded: &
 
 /// Hold `setup` to Linux over `runs` sequences of at most `longest` calls.
 fn holds(setup: Setup, runs: u64, longest: u64) {
+    let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
     assert!(
         on_tmpfs("/dev/shm"),
         "/dev/shm must be a tmpfs, whose answers a Tmpfs is held to; run this through `rake \
@@ -445,8 +460,10 @@ fn moved<T: PartialEq>(before: &Times<T>, after: &Times<T>) -> BTreeSet<String> 
 /// out the clock around each call. Where the two disagree on an answer, the
 /// run that holds answers reports it.
 fn moves_the_same_times(setup: Setup, runs: u64, longest: u64) {
+    let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
     setup.prepare();
     let paths = setup.paths();
+    let mut calls_moving_a_time = 0;
     for seed in 1..=runs {
         let mut rng = Rng::new(seed);
         let length = 1 + rng.below(longest);
@@ -467,10 +484,16 @@ fn moves_the_same_times(setup: Setup, runs: u64, longest: u64) {
                 setup.name(),
                 &sequence[..=at]
             );
+            calls_moving_a_time += usize::from(!ours.is_empty());
         }
         drop((kobako, linux));
         setup.finish();
     }
+    assert!(
+        calls_moving_a_time >= 40,
+        "{}: only {calls_moving_a_time} calls moved a time, too few for agreeing to show anything",
+        setup.name()
+    );
 }
 
 #[test]

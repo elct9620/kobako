@@ -178,7 +178,7 @@ namespace :crates do
        "-v", "kobako-linux-target:/target", "-v", "kobako-linux-cargo:/usr/local/cargo/registry",
        "-e", "CARGO_TARGET_DIR=/target", "-w", "/src/crates", "rust:1.98-slim",
        "cargo", "test", "-p", "kobako-runtime", "--release", "--test", "linux_baseline", "--",
-       "--ignored", "--test-threads=1"
+       "--ignored"
   end
 
   desc "Check each published host crate's build graph leaves out what its seam promises to"
