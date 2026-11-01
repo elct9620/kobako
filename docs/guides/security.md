@@ -388,9 +388,6 @@ what the guest may reach.
 
 Each path call first asks the directory's Filesystem whether the directory still
 stands where the runtime last saw it. The block then judges where it stands now.
-A `stat` or listing of the descriptor itself asks neither, as the block judges
-neither anywhere. So after a host moves the directory out of the Mount, the
-guest still reads the names it holds then, and no content.
 
 | How it moved | A call through it |
 |---|---|
@@ -405,3 +402,15 @@ call are two steps, so a swap between them is the host's race.
 On Windows a Bind reports no identity. It refuses a
 path holding a backslash there, so a block never judges one name while the host
 walks two.
+
+#### Descriptor Reads
+
+A `stat` or listing of the descriptor itself asks neither, as the block judges
+neither anywhere. This table shows what the guest still reads once a host moved
+the directory out of the Mount.
+
+| Through the descriptor | Answer |
+|---|---|
+| a `stat` of it | what it reports then |
+| a listing of it | the names it holds then, new ones included |
+| a path beneath it, content included | `Errno::ENOENT` |
