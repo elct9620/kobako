@@ -64,6 +64,17 @@ impl Node {
         }
     }
 
+    /// A name of it came or went, as `simple_rename_timestamp` and
+    /// `shmem_unlink` move an inode's `st_ctime`.
+    fn touch_changed(&self) {
+        let now = SystemTime::now();
+        match self {
+            Self::File(data) => lock(data).times.changed = now,
+            Self::Directory(dir) => dir.state().times.changed = now,
+            Self::Whiteout { .. } => {}
+        }
+    }
+
     fn file_type(&self) -> FileType {
         match self {
             Self::File(_) => FileType::File,
@@ -122,8 +133,10 @@ impl State {
         if let Node::File(data) = &node {
             lock(data).names = 1;
         }
+        node.touch_changed();
         if let Some(replaced) = self.hold(name, node) {
             replaced.drop_name();
+            replaced.touch_changed();
         }
         self.times.touch();
     }
@@ -131,6 +144,7 @@ impl State {
     /// Hold `node`, which keeps a name elsewhere, in place of what stands at
     /// `name`, which does too, a change to the directory's content.
     fn exchange(&mut self, name: &str, node: Node) {
+        node.touch_changed();
         self.hold(name, node);
         self.times.touch();
     }
@@ -140,17 +154,19 @@ impl State {
         if let Some(removed) = self.entries.remove(name) {
             self.subdirectories -= u64::from(matches!(removed, Node::Directory(_)));
             removed.drop_name();
+            removed.touch_changed();
         }
         self.times.touch();
     }
 }
 
-/// When an entry was made, and when its content last changed, as a tmpfs
-/// mounted `noatime` keeps them: reading touches nothing, and a change
-/// moves `st_mtime` and `st_ctime` together.
+/// An entry's three times, as a tmpfs mounted `noatime` keeps them: reading
+/// touches nothing, a change to its content moves `st_mtime` and `st_ctime`
+/// together, and a change to its names or attributes `st_ctime` alone.
 #[derive(Clone, Copy)]
 struct Times {
-    made: SystemTime,
+    accessed: SystemTime,
+    modified: SystemTime,
     changed: SystemTime,
 }
 
@@ -158,23 +174,29 @@ impl Times {
     fn now() -> Self {
         let now = SystemTime::now();
         Self {
-            made: now,
+            accessed: now,
+            modified: now,
             changed: now,
         }
     }
 
+    /// Its content changed.
     fn touch(&mut self) {
+        let now = SystemTime::now();
+        self.modified = now;
+        self.changed = now;
+    }
+
+    /// Set either time given, as `utimensat` does, which `shmem_setattr` counts
+    /// as a change to the entry.
+    fn set(&mut self, accessed: Option<SystemTime>, modified: Option<SystemTime>) {
+        self.accessed = accessed.unwrap_or(self.accessed);
+        self.modified = modified.unwrap_or(self.modified);
         self.changed = SystemTime::now();
     }
 
-    /// Set either time given, as `utimensat` does.
-    fn set(&mut self, accessed: Option<SystemTime>, modified: Option<SystemTime>) {
-        self.made = accessed.unwrap_or(self.made);
-        self.changed = modified.unwrap_or(self.changed);
-    }
-
     fn report(self, metadata: Metadata) -> Metadata {
-        metadata.with_times(Some(self.made), Some(self.changed), Some(self.changed))
+        metadata.with_times(Some(self.accessed), Some(self.modified), Some(self.changed))
     }
 }
 
@@ -1472,6 +1494,27 @@ mod tests {
             (Err(FilesystemError::InvalidInput), Ok(FileType::Directory)),
             "Tmpfs::rename of a directory into one opened beneath it must answer InvalidInput \
              and move nothing"
+        );
+    }
+
+    // The content stands as it was, so only `st_ctime` tells the name moved, as
+    // `simple_rename_timestamp` moves it alone. The wait passes the clock's
+    // resolution, so the two times cannot pass for one.
+    // @behavior FS-177
+    #[test]
+    fn a_moved_file_moves_only_its_changed_time() {
+        let tmpfs = at([("file", "x")].into_iter().collect());
+        let before = tmpfs.symlink_metadata("file").expect("the file must stand");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        tmpfs
+            .rename("file", &tmpfs, "moved")
+            .expect("the move must land");
+        let after = tmpfs
+            .symlink_metadata("moved")
+            .expect("the file must stand");
+        assert!(
+            after.changed > before.changed && after.modified == before.modified,
+            "Tmpfs::rename of a file must move its changed time and leave its modified time"
         );
     }
 

@@ -567,7 +567,8 @@ impl File {
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
     /// refuses anything but a file open to write, and reaches `->setattr`.
     pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        if self.is_directory() || !self.writable() || len > MAX_OFFSET {
+        let regular = self.path.dentry().kind() == Ok(FileType::File);
+        if !regular || !self.writable() || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
         }
         do_truncate(self.path.dentry(), &Iattr::size(len))
