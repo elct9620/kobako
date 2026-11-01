@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(unix)]
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
