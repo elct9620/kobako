@@ -238,10 +238,8 @@ pub fn verify_dirent_name(name: &str) -> Result<(), FilesystemError> {
 
 /// What holding `entries` costs in host memory.
 fn rdir_bytes(entries: &[DirEntry]) -> usize {
-    entries
-        .iter()
-        .map(|entry| size_of::<DirEntry>() + entry.name.len())
-        .sum()
+    let names: usize = entries.iter().map(|entry| entry.name.capacity()).sum();
+    size_of_val(entries) + names
 }
 
 /// One open file or directory, as a descriptor refers to it.
@@ -582,7 +580,7 @@ impl File {
         cred: &Cred,
         ctx: &mut DirContext<'_>,
     ) -> Result<(), FilesystemError> {
-        let (listing, charge) = self.read_entries(ctx.pos)?;
+        let (mut listing, charge) = self.read_entries(ctx.pos)?;
         let stopped = {
             let dots = match ctx.pos < 2 {
                 true => self.dot_identities(),
@@ -621,7 +619,10 @@ impl File {
         if stopped {
             let charge = match charge {
                 Some(charge) => charge,
-                None => cred.account_rdir(rdir_bytes(&listing))?,
+                None => {
+                    listing.shrink_to_fit();
+                    cred.account_rdir(rdir_bytes(&listing))?
+                }
             };
             self.rdir = Some(Rdir {
                 entries: listing,
