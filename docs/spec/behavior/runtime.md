@@ -1231,7 +1231,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a Bind Mount holding a link to a directory |
-| When | the guest opens or stats a path taking `..` or a final `.` after the link |
+| When | the guest opens or stats a path with `..` or a final `.` after it |
 | Then | the call answers what the link's target or the directory above it holds there |
 
 ## `RT-120` A Policy judges a path as its Filesystem stores the names
