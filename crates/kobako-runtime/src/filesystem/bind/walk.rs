@@ -53,40 +53,30 @@ mod kernel {
 
     use super::{to_error, FilesystemError};
 
-    /// How often a resolution `openat2` asks to retry is retried before
-    /// it fails, as a rename elsewhere can keep it from finishing.
-    const RETRIES: usize = 8;
-
     /// Whether this kernel has `openat2`, which arrived in Linux 5.6.
     static SUPPORTED: AtomicBool = AtomicBool::new(true);
 
+    /// A directory holds its path alone, as cap-std's own opens do, so one a
+    /// host lets a walk search but not read still opens. `names` hold no `..`,
+    /// the one thing `RESOLVE_BENEATH` asks a caller to retry.
     pub(super) fn walk(dir: &Dir, names: &[String]) -> Option<Result<Dir, FilesystemError>> {
         if !SUPPORTED.load(Ordering::Relaxed) {
             return None;
         }
-        let path = names.join("/");
-        let mut answer = Errno::AGAIN;
-        for _ in 0..RETRIES {
-            match openat2(
-                dir,
-                &path,
-                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-                Mode::empty(),
-                ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
-            ) {
-                Ok(fd) => return Some(Ok(Dir::from_std_file(File::from(fd)))),
-                Err(Errno::AGAIN) => continue,
-                Err(Errno::NOSYS) => {
-                    SUPPORTED.store(false, Ordering::Relaxed);
-                    return None;
-                }
-                Err(errno) => {
-                    answer = errno;
-                    break;
-                }
+        match openat2(
+            dir,
+            names.join("/"),
+            OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
+        ) {
+            Ok(fd) => Some(Ok(Dir::from_std_file(File::from(fd)))),
+            Err(Errno::NOSYS) => {
+                SUPPORTED.store(false, Ordering::Relaxed);
+                None
             }
+            Err(errno) => Some(Err(to_error(errno.raw_os_error()))),
         }
-        Some(Err(to_error(answer.raw_os_error())))
     }
 }
 

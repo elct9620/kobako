@@ -1604,6 +1604,39 @@ mod tests {
         );
     }
 
+    // macOS has no open for a directory's path alone. Root reads anything, so
+    // only a walk run as another user sees the difference.
+    // @behavior FS-172
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_directory_a_host_lets_be_searched_reports_itself() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let host = HostDir::new("search-only");
+        fs::create_dir(host.0.join("searched")).expect("the host directory must be made");
+        let mode = |mode| fs::Permissions::from_mode(mode);
+        fs::set_permissions(host.0.join("searched"), mode(0o111))
+            .expect("the host directory's mode must be set");
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(
+                Bind::new(&host.0).expect("the host directory must open"),
+            )),
+            crate::mount::Access::Read,
+        )
+        .expect("/data is a guest path");
+        let root = crate::vfs::Path::root(mount.mnt());
+        let found = crate::vfs::vfs_fstatat(&Arc::default(), &root, "searched", false);
+        fs::set_permissions(host.0.join("searched"), mode(0o755))
+            .expect("the host directory's mode must be restored");
+        assert_eq!(
+            found.map(|metadata| metadata.file_type),
+            Ok(FileType::Directory),
+            "vfs::vfs_fstatat of a host directory only searchable must report it, as Linux's stat \
+             needs no read permission on it"
+        );
+    }
+
     // Only Linux keeps a name that is not UTF-8; macOS refuses to make one.
     // @behavior FS-066
     #[cfg(target_os = "linux")]
