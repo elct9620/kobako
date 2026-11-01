@@ -533,7 +533,9 @@ impl File {
         self.rw_verify_area(self.pos, buf.len())?;
         let mut iocb = self.kiocb(self.pos);
         let written = self.ops.write_iter(&mut iocb, buf)?;
-        self.pos = iocb.pos;
+        if written > 0 {
+            self.pos = iocb.pos;
+        }
         self.generic_write_sync(written)
     }
 
@@ -709,6 +711,38 @@ mod tests {
             let found = Metadata::new(FileType::File, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
         }
+    }
+
+    // Linux's `generic_write_checks_count` returns before it reads the end for
+    // a write of nothing, and `new_sync_write` moves `f_pos` only past a positive
+    // answer, so a Filesystem moving `Kiocb::pos` regardless cannot move a file.
+    // @behavior RT-222
+    #[test]
+    fn a_write_of_nothing_leaves_an_appending_file_where_it_stands() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(Tmpfs::new())),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let how = OpenHow {
+            write: true,
+            create: true,
+            append: true,
+            ..OpenHow::default()
+        };
+        let Ok(mut file) = do_file_open(&Arc::default(), &Path::root(mount.mnt()), "log", &how)
+        else {
+            panic!("the file must be made");
+        };
+        file.write(b"hello").expect("the write must land");
+        file.llseek(0, Whence::Set).expect("the seek must land");
+        file.write(b"").expect("a write of nothing must answer");
+        assert_eq!(
+            file.llseek(0, Whence::Cur),
+            Ok(0),
+            "File::write of nothing to a file opened to append, positioned at 0, must leave it at 0"
+        );
     }
 
     // A built-in Filesystem always has `open`, so only one without it shows
