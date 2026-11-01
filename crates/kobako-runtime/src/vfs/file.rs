@@ -558,10 +558,7 @@ impl File {
     /// steps costs one listing, not one per step. A removed directory answers
     /// not found, as `iterate_dir` asks `IS_DEADDIR`.
     pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), FilesystemError> {
-        let listing = match self.listing.take() {
-            Some(listing) if ctx.pos != 0 && !self.path.dentry().is_deaddir() => listing,
-            _ => self.read_entries()?,
-        };
+        let listing = self.read_entries(ctx.pos)?;
         let stopped = {
             let dots = match ctx.pos < 2 {
                 true => self.dot_identities(),
@@ -623,13 +620,17 @@ impl File {
         (itself, parent)
     }
 
-    /// The entries of the directory, under its lock shared as `iterate_dir`
-    /// holds it, so a removal through the VFS lands before or after them.
-    fn read_entries(&mut self) -> Result<Vec<DirEntry>, FilesystemError> {
+    /// The entries of the directory for a listing at `pos`, under its lock shared
+    /// as `iterate_dir` holds it, so a removal through the VFS lands before or
+    /// after them.
+    fn read_entries(&mut self, pos: u64) -> Result<Vec<DirEntry>, FilesystemError> {
         let dentry = self.path.dentry().clone();
         let _held = dentry.inode_lock_shared()?;
         if dentry.is_deaddir() {
             return Err(FilesystemError::NotFound);
+        }
+        if let Some(listing) = self.listing.take().filter(|_| pos != 0) {
+            return Ok(listing);
         }
         let entries = self.ops.iterate_shared(&dentry)?;
         entries
@@ -679,6 +680,28 @@ mod tests {
             let found = Metadata::new(FileType::File, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
         }
+    }
+
+    // Only `O_PATH` opens a Linux directory for neither, and a read of that
+    // answers EBADF before anything asks what it is.
+    // @behavior RT-235
+    #[test]
+    fn a_directory_opened_for_neither_reading_nor_writing_refuses_a_read() {
+        let tmpfs: Tmpfs = [("d/f", "x")].into_iter().collect();
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::Read)
+            .expect("/data is a guest path");
+        let how = OpenHow {
+            directory: true,
+            ..OpenHow::default()
+        };
+        let Ok(mut dir) = do_file_open(&Arc::default(), &Path::root(mount.mnt()), "d", &how) else {
+            panic!("the directory must open");
+        };
+        assert_eq!(
+            dir.read(&mut [0; 1]),
+            Err(FilesystemError::BadDescriptor),
+            "File::read of a directory opened for neither reading nor writing must answer EBADF"
+        );
     }
 
     // Linux's `generic_write_checks_count` returns before it reads the end for

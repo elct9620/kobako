@@ -469,12 +469,6 @@ pub fn do_file_open(
     if let Some(kind) = existing {
         cred.security_file_open(kind)?;
     }
-    // A directory opens to read whatever else was asked, as Linux's `O_RDONLY`
-    // is the mode no other flag changes.
-    let how = OpenHow {
-        read: how.read || existing == Some(FileType::Directory),
-        ..*how
-    };
     let options = OpenOptions {
         read: how.read,
         write: how.write,
@@ -490,7 +484,7 @@ pub fn do_file_open(
     if how.truncate && existing == Some(FileType::File) {
         do_truncate(&child, &Iattr::open_truncate())?;
     }
-    Ok(File::new(start.with_dentry(child), f_op, &how))
+    Ok(File::new(start.with_dentry(child), f_op, how))
 }
 
 /// What stands at the path answers before any access is judged, as Linux's

@@ -2592,3 +2592,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest beneath a Policy, holding a directory another Mount of its Filesystem moves |
 | When | a call starts from the directory as the move lands |
 | Then | that call and each later one reach the directory where it went |
+
+## `RT-235` A directory opened for neither reading nor writing refuses a read
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-210` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory the guest opened without the right to read or write |
+| When | the guest reads the descriptor |
+| Then | the call answers EBADF |
