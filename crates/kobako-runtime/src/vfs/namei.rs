@@ -46,16 +46,14 @@ pub(crate) struct Nameidata {
     pub(crate) cred: Arc<Cred>,
     /// Each directory from the one the walk started from, which no `..`
     /// climbs above, down to the one it stands in.
-    frames: Vec<Frame>,
-    pending: VecDeque<Part>,
+    frames: Vec<Arc<Dentry>>,
+    pending: VecDeque<String>,
     links: usize,
     /// The last name, as Linux's `nd->last`, empty unless it is a `Norm` one.
     pub(crate) name: String,
     last_type: LastType,
     /// Whether a `/` follows the last name, as `nd->last.name[nd->last.len]`.
     trailing_slash: bool,
-    /// Whether a link's target named the last name.
-    last_from_link: bool,
     /// The dentry the walk looked `name` up on, kept for as long as the
     /// walk runs, as Linux's `nameidata` holds what it found, so what the
     /// lookup recorded there is what the call acts on.
@@ -63,20 +61,15 @@ pub(crate) struct Nameidata {
     /// Whether only a directory satisfies the path, as `LOOKUP_DIRECTORY`,
     /// which stays once a trailing `/` sets it, through any link it follows.
     lookup_directory: bool,
-    /// Whether the call acts on the last name rather than land on it, as
-    /// `LOOKUP_PARENT`, so a `.` or `..` there takes the walk nowhere.
-    lookup_parent: bool,
     /// What kind of entry stands at `name`, a link reported as itself, once
     /// asked.
     found: Option<Result<FileType, FilesystemError>>,
-    /// Whether a link at the end of the path led to `name`.
-    followed_link: bool,
 }
 
 impl Nameidata {
     /// The directory the walk stands in, which holds the last name.
     pub(crate) fn dentry(&self) -> &Arc<Dentry> {
-        &self.frames.last().expect("a walk stands somewhere").dentry
+        self.frames.last().expect("a walk stands somewhere")
     }
 
     /// The dentry of the last name in the directory the walk stands in, looked
@@ -245,47 +238,22 @@ pub(crate) fn lookup_slow(
     Ok((stored, dentry))
 }
 
-/// One name of a path still to walk, and whether a link's target named it.
-struct Part {
-    name: String,
-    from_link: bool,
-}
-
-fn parts(path: &str, from_link: bool) -> VecDeque<Part> {
-    path.split('/')
-        .map(|name| Part {
-            name: name.to_string(),
-            from_link,
-        })
-        .collect()
-}
-
-/// A directory the walk stands in, and whether a link led to it.
-struct Frame {
-    dentry: Arc<Dentry>,
-    through_link: bool,
+/// Each name of `path`, empty between two slashes and after a last one.
+fn parts(path: &str) -> VecDeque<String> {
+    path.split('/').map(str::to_string).collect()
 }
 
 impl Nameidata {
-    /// Step into the directory `part` names, or follow the link standing
-    /// there; `dot` is a `.` or `..` right after it, which no link takes.
-    fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), FilesystemError> {
+    /// Step into the directory `name` names, or follow the link standing there.
+    fn walk_component(&mut self, name: &str) -> Result<(), FilesystemError> {
         let parent = self.dentry().clone();
         let _held = parent.inode_lock_shared()?;
-        let (_, dentry) = self.lookup_slow(&part.name)?;
+        let (_, dentry) = self.lookup_slow(name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
-            FileType::Symlink => {
-                if dot {
-                    self.cred.security_path_step_out_of_link()?;
-                }
-                self.pick_link(&dentry)
-            }
+            FileType::Symlink => self.pick_link(&dentry),
             FileType::Directory => {
-                self.frames.push(Frame {
-                    dentry,
-                    through_link: part.from_link,
-                });
+                self.frames.push(dentry);
                 Ok(())
             }
             _ => Err(FilesystemError::NotADirectory),
@@ -307,7 +275,7 @@ impl Nameidata {
         if target.is_empty() {
             return Err(FilesystemError::NotFound);
         }
-        for part in parts(&target, true).into_iter().rev() {
+        for part in parts(&target).into_iter().rev() {
             self.pending.push_front(part);
         }
         Ok(())
@@ -315,14 +283,10 @@ impl Nameidata {
 
     /// Step out of the directory the walk stands in. Out of the one the
     /// walk started from, no `..` holds a capability, as `RESOLVE_BENEATH`
-    /// refuses a caller's and a link's alike; out of one a link led to, the
-    /// security hooks are asked.
-    fn follow_dotdot(&mut self, from_link: bool) -> Result<(), FilesystemError> {
+    /// refuses a caller's and a link's alike.
+    fn follow_dotdot(&mut self) -> Result<(), FilesystemError> {
         if self.frames.len() == 1 {
             return Err(FilesystemError::Escape);
-        }
-        if !from_link && self.frames.last().is_some_and(|frame| frame.through_link) {
-            self.cred.security_path_step_out_of_link()?;
         }
         self.frames.pop();
         Ok(())
@@ -333,9 +297,9 @@ impl Nameidata {
     fn link_path_walk(&mut self) -> Result<(), FilesystemError> {
         loop {
             let part = self.pending.pop_front().ok_or(FilesystemError::NotFound)?;
-            if part.name.is_empty() {
+            if part.is_empty() {
                 if self.pending.is_empty() {
-                    self.set_last("", part.from_link, true);
+                    self.set_last("", true);
                     return Ok(());
                 }
                 continue;
@@ -343,32 +307,23 @@ impl Nameidata {
             let slashes = self
                 .pending
                 .iter()
-                .take_while(|rest| rest.name.is_empty())
+                .take_while(|rest| rest.is_empty())
                 .count();
             self.pending.drain(..slashes);
             if self.pending.is_empty() {
-                self.set_last(&part.name, part.from_link, slashes > 0);
+                self.set_last(&part, slashes > 0);
                 return Ok(());
             }
-            match part.name.as_str() {
+            match part.as_str() {
                 "." => {}
-                ".." => self.follow_dotdot(part.from_link)?,
-                _ => {
-                    let lands = !self.lookup_parent
-                        || self
-                            .pending
-                            .iter()
-                            .skip(1)
-                            .any(|rest| !rest.name.is_empty());
-                    let dot = lands && matches!(self.pending[0].name.as_str(), "." | "..");
-                    self.walk_component(part, dot)?;
-                }
+                ".." => self.follow_dotdot()?,
+                name => self.walk_component(name)?,
             }
         }
     }
 
     /// Leave `name` as the last name of the walk, with what kind it is.
-    fn set_last(&mut self, name: &str, from_link: bool, trailing_slash: bool) {
+    fn set_last(&mut self, name: &str, trailing_slash: bool) {
         self.last_type = match name {
             "" | "." => LastType::Dot,
             ".." => LastType::DotDot,
@@ -378,7 +333,6 @@ impl Nameidata {
             LastType::Norm => name.to_string(),
             _ => String::new(),
         };
-        self.last_from_link = from_link;
         self.trailing_slash = trailing_slash;
     }
 
@@ -390,7 +344,7 @@ impl Nameidata {
         loop {
             match self.last_type {
                 LastType::Dot => return Ok(()),
-                LastType::DotDot => return self.follow_dotdot(self.last_from_link),
+                LastType::DotDot => return self.follow_dotdot(),
                 LastType::Norm => {}
             }
             if self.trailing_slash {
@@ -408,7 +362,6 @@ impl Nameidata {
             }
             self.pick_link(&child)?;
             drop(held);
-            self.followed_link = true;
             self.last = None;
             self.found = None;
             self.link_path_walk()?;
@@ -445,21 +398,15 @@ fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata
     Ok(Nameidata {
         mnt: start.mnt().clone(),
         cred: cred.clone(),
-        frames: vec![Frame {
-            dentry: start.dentry().clone(),
-            through_link: false,
-        }],
-        pending: parts(path, false),
+        frames: vec![start.dentry().clone()],
+        pending: parts(path),
         links: 0,
         name: String::new(),
         last_type: LastType::Dot,
         trailing_slash: false,
-        last_from_link: false,
         last: None,
         lookup_directory: false,
-        lookup_parent: false,
         found: None,
-        followed_link: false,
     })
 }
 
@@ -472,7 +419,6 @@ fn filename_parentat(
     path: &str,
 ) -> Result<Nameidata, FilesystemError> {
     let mut nd = set_nameidata(cred, start, path)?;
-    nd.lookup_parent = true;
     nd.link_path_walk()?;
     Ok(nd)
 }
@@ -528,9 +474,6 @@ pub fn do_file_open(
         Err(FilesystemError::NotFound) => None,
         Err(err) => return Err(err),
     };
-    if how.create && existing.is_none() {
-        cred.security_path_mknod(nd.followed_link)?;
-    }
     refuse_what_stands(existing, how)?;
     // Creating changes the Mount only where nothing stands yet, so the
     // Mount judges the open once, knowing what it does.

@@ -414,7 +414,6 @@ const ERRNO_BUSY: i32 = 10;
 const ERRNO_EXIST: i32 = 20;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_ISDIR: i32 = 31;
-const ERRNO_LOOP: i32 = 32;
 const ERRNO_NAMETOOLONG: i32 = 37;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOTDIR: i32 = 54;
@@ -496,16 +495,6 @@ fn predict(call: Call, path: &str, mut oracle: Observation) -> Observation {
             Call::Mkdir => return refused(ERRNO_EXIST),
             Call::Unlink => return refused(ERRNO_ISDIR),
             _ => {}
-        }
-    } else if steps_out_of_a_link(path) && !refused_first {
-        return refused(ERRNO_LOOP);
-    }
-    // A file made through a link at the end would tell where the link points,
-    // so kobako refuses it, where wasmtime-wasi makes it.
-    if let Call::Open { oflags, .. } = call {
-        if path == "g" && oflags & OFLAGS_CREAT != 0 && oflags & OFLAGS_EXCL == 0 && !refused_first
-        {
-            return refused(ERRNO_LOOP);
         }
     }
     if escapes(path) && oracle.errno == Some(ERRNO_PERM) {

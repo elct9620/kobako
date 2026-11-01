@@ -1949,12 +1949,12 @@ impl Hook for FailsLookingUpDir {
     }
 }
 
-// The Mount has no Policy and follows links, so only the step out of
-// the link can refuse these.
+// Each path lands on what the link's target or its parent holds, so only a
+// walk taking `.` and `..` from where the link led answers.
 // @behavior RT-119
 #[cfg(unix)]
 #[test]
-fn a_step_out_of_a_link_answers_eloop() {
+fn a_step_out_of_a_link_lands_where_it_leads() {
     assert_eq!(
         stat_link(
             "dot-link",
@@ -1964,9 +1964,10 @@ fn a_step_out_of_a_link_answers_eloop() {
         .into_iter()
         .map(|(errno, _)| errno)
         .collect::<Vec<_>>(),
-        [ERRNO_LOOP; 2],
+        [0; 2],
         "path_filestat_get of `file.txt/.` and `file.txt/../file.txt`, where `file.txt` is a \
-         host link to a directory, beneath a Bind Mount through preview1 must answer ELOOP"
+         host link to a directory, beneath a Bind Mount through preview1 must answer what they \
+         lead to, as Linux's walk does"
     );
 }
 
@@ -2902,21 +2903,20 @@ fn a_link_leading_out_of_an_opened_directory_escapes_it() {
     );
 }
 
-// The second `..` leaves `sub`, where `in` led, two names after the link,
-// and still stays within `dir`, so only refusing to step out of where a
-// link led answers ELOOP; Linux would land beside where `in` points.
+// The second `..` leaves `sub`, where `in` led, two names after the link, so
+// only a walk standing where the link led reaches `sub/y` from `dir`.
 // @behavior RT-153
 #[cfg(unix)]
 #[test]
-fn a_step_out_of_where_a_link_led_answers_eloop() {
+fn a_step_out_of_where_a_link_led_lands_beside_it() {
     let host = LinkedBeneath::new("led");
     let answers = |overlay| host.guest(overlay).call("open_beneath_dir", OUT_OF_IN);
     assert_eq!(
         (answers(false), answers(true)),
-        (ERRNO_LOOP, ERRNO_LOOP),
+        (0, 0),
         "an open through preview1 of `in/inner/../../sub/y`, where `in` is a link within a \
-         directory opened beneath a Bind Mount or an Overlay's Bind Layer, must answer \
-         ELOOP"
+         directory opened beneath a Bind Mount or an Overlay's Bind Layer, must reach the file \
+         beside where the link points, as Linux's walk does"
     );
 }
 
@@ -2998,25 +2998,24 @@ fn a_link_staying_within_an_opened_directory_is_followed() {
     );
 }
 
-// The link's target lies within `dir`, where Linux would create it, so only
-// the refusal to create through a link it cannot resolve answers ELOOP.
+// An Overlay's change lands in its upper, so only a Bind shows it on the host.
 // @behavior RT-142
 #[cfg(unix)]
 #[test]
-fn a_create_through_a_dangling_link_beneath_an_opened_directory_is_refused() {
-    let host = LinkedBeneath::new("dangle");
-    let answers = |overlay| {
+fn a_create_through_a_dangling_link_beneath_an_opened_directory_makes_its_target() {
+    let answers = |name, overlay| {
+        let host = LinkedBeneath::new(name);
         let errno = host
             .guest(overlay)
             .call("create_following_beneath_dir", NOWHERE);
         (errno, host.0.join("dir/missing").exists())
     };
     assert_eq!(
-        (answers(false), answers(true)),
-        ((ERRNO_LOOP, false), (ERRNO_LOOP, false)),
+        (answers("dangle", false), answers("dangle-overlay", true)),
+        ((0, true), (0, false)),
         "an open through preview1 creating a file through a link pointing at nothing beneath a \
-         directory opened beneath a Bind Mount, or an Overlay's Bind Layer, must answer \
-         ELOOP and create nothing"
+         directory opened beneath a Bind Mount must make the file where the link points, as \
+         Linux's open does, and beneath an Overlay's Bind Layer must leave that Layer as it was"
     );
 }
 
