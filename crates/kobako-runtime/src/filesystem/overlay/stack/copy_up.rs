@@ -8,7 +8,7 @@ use std::sync::Arc;
 use super::super::super::{FileType, FilesystemError, OpenOptions};
 use super::super::inode::ovl_inode_of;
 use super::super::path::OverlayPath;
-use super::{copy_whole, entry, holds, OverlayFs, ViewDir, UPPER};
+use super::{copy_whole, OverlayFs, ViewDir, UPPER};
 use crate::vfs::{Dentry, RenameFlag};
 
 impl OverlayFs {
@@ -36,7 +36,9 @@ impl OverlayFs {
 
     /// The directory `dir` in the upper, beneath `parent` there. It is made in
     /// the workdir with the lower one's times and moved into place, as
-    /// `ovl_copy_up_workdir` does.
+    /// `ovl_copy_up_workdir` does. Another call may have copied it up while this
+    /// one waited, as `ovl_already_copied_up_locked` checks; what else stands at
+    /// the name is no copy of this directory, and refuses the move.
     fn copy_up_dir(
         &self,
         dir: &ViewDir,
@@ -44,32 +46,28 @@ impl OverlayFs {
     ) -> Result<OverlayPath, FilesystemError> {
         let name = dir.dentry.name();
         let _held = dir.inode.lock.down_write()?;
-        let made = match entry(parent, &name)? {
-            Some(found) if found.file_type == FileType::Directory => parent.open_dir(&name)?,
-            Some(_) => return Err(FilesystemError::NotADirectory),
-            None => {
-                let lower = dir
-                    .level()
-                    .iter()
-                    .flatten()
-                    .next()
-                    .ok_or(FilesystemError::NotFound)?
-                    .metadata()?;
-                let (work, temp) = self.tempname()?;
-                work.do_mkdir(&temp)?;
-                let made = work.open_dir(&temp).and_then(|made| made.set_times(&lower));
-                let parent_times = parent.metadata()?;
-                let moved = made.and_then(|()| {
-                    work.do_rename(&temp, parent, &name, Some(RenameFlag::NoReplace))
-                });
-                if let Err(err) = moved {
-                    let _ = work.do_rmdir(&temp);
-                    return Err(err);
-                }
-                let _ = parent.set_times(&parent_times);
-                parent.open_dir(&name)?
-            }
-        };
+        let level = dir.level();
+        if let Some(held) = &level[UPPER] {
+            return Ok(held.clone());
+        }
+        let lower = level
+            .iter()
+            .flatten()
+            .next()
+            .ok_or(FilesystemError::NotFound)?
+            .metadata()?;
+        let (work, temp) = self.tempname()?;
+        work.do_mkdir(&temp)?;
+        let made = work.open_dir(&temp).and_then(|made| made.set_times(&lower));
+        let parent_times = parent.metadata()?;
+        let moved =
+            made.and_then(|()| work.do_rename(&temp, parent, &name, Some(RenameFlag::NoReplace)));
+        if let Err(err) = moved {
+            let _ = work.do_rmdir(&temp);
+            return Err(err);
+        }
+        let _ = parent.set_times(&parent_times);
+        let made = parent.open_dir(&name)?;
         dir.inode.inode_update(&made);
         Ok(made)
     }
@@ -110,9 +108,6 @@ impl OverlayFs {
         if self.is_in_upper(&real) {
             return Ok(());
         }
-        if holds(&target_dir, &name)? || target_dir.is_whiteout(&name) {
-            return Err(FilesystemError::ReadOnlyFilesystem);
-        }
         let lower = real.getattr()?;
         if lower.file_type != FileType::File {
             return Err(FilesystemError::PermissionDenied);
@@ -127,9 +122,9 @@ impl OverlayFs {
         }
         copy.set_times(lower.accessed, lower.modified);
         let parent_times = target_dir.metadata()?;
-        target_dir.do_link(&copy, &name)?;
+        let linked = target_dir.do_link(&copy, &name)?;
         let _ = target_dir.set_times(&parent_times);
-        inode.set_real(target_dir.real(&name)?);
+        inode.set_real(linked);
         Ok(())
     }
 }

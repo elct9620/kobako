@@ -2353,10 +2353,191 @@ mod tests {
         );
         assert_eq!(
             (answer, asked.load(Ordering::SeqCst)),
-            (Err(FilesystemError::ReadOnlyFilesystem), 0),
-            "vfs::do_utimes_fd on a held lower file whose name another entry took must answer EROFS \
-             and leave the lower Layer unasked"
+            (Err(FilesystemError::AlreadyExists), 0),
+            "vfs::do_utimes_fd on a held lower file whose name another entry took must answer \
+             EEXIST and leave the lower Layer unasked"
         );
+    }
+
+    // The held file's directory was removed and made again, and the upper
+    // directory it knows of is the removed one, so nothing lands in the new one.
+    // @behavior FS-179
+    #[test]
+    fn a_held_file_of_a_directory_made_again_stays_out_of_it() {
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{self, OpenHow, Path};
+        let lower: Tmpfs = [("d/f", "removed")].into_iter().collect();
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(lower))],
+            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+        )
+        .expect("the Overlay must stack");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let cred = Arc::default();
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let held = vfs::do_file_open(&cred, &root, "d/f", &read)
+            .unwrap_or_else(|_| panic!("the file must open"));
+        vfs::filename_unlinkat(&cred, &root, "d/f").expect("the file must be removed");
+        vfs::filename_rmdir(&cred, &root, "d").expect("the directory must be removed");
+        vfs::filename_mkdirat(&cred, &root, "d").expect("the directory must be made again");
+        let answer = vfs::do_utimes_fd(
+            &cred,
+            held.path(),
+            &Iattr::times(None, Some(crate::vfs::SetTime::Now)),
+        );
+        assert_eq!(
+            (
+                answer,
+                vfs::vfs_fstatat(&cred, &root, "d/f", false).map(|_| ())
+            ),
+            (
+                Err(FilesystemError::NotFound),
+                Err(FilesystemError::NotFound)
+            ),
+            "vfs::do_utimes_fd on a held lower file whose directory was removed and made again \
+             must answer ENOENT and leave the file out of the view"
+        );
+    }
+
+    /// Slows the first ask about the directory `e` once armed, so a second copy
+    /// up of it finds the first under way.
+    struct SlowsDirectory(AtomicBool);
+
+    impl Hook for SlowsDirectory {
+        fn getattr(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<Metadata, FilesystemError> {
+            if dentry.name() == "e" && self.0.swap(false, Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(100));
+            }
+            inner.getattr(dentry)
+        }
+    }
+
+    // The second copy up decided the directory was not up yet, and waited for the
+    // first. Without asking again under the lock, it would find the first's copy
+    // standing at the name and refuse.
+    // @behavior FS-181
+    #[test]
+    fn a_directory_two_files_copy_up_at_once_takes_both() {
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{self, OpenHow, Path};
+        let lower: Tmpfs = [("d/e/f", "1"), ("d/e/g", "2")].into_iter().collect();
+        let hook = Arc::new(SlowsDirectory(AtomicBool::new(false)));
+        let overlay = Overlay::new(
+            vec![Filesystem::new(Arc::new(Wrap::new(
+                Arc::new(lower),
+                hook.clone(),
+            )))],
+            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+        )
+        .expect("the Overlay must stack");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let cred = Arc::default();
+        let write = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        for name in ["d/e/f", "d/e/g"] {
+            vfs::vfs_fstatat(&cred, &root, name, false).expect("the file stands");
+        }
+        hook.0.store(true, Ordering::SeqCst);
+        let opened = thread::scope(|scope| {
+            let (first, second) = (
+                scope.spawn(|| vfs::do_file_open(&cred, &root, "d/e/f", &write).map(drop)),
+                scope.spawn(|| vfs::do_file_open(&cred, &root, "d/e/g", &write).map(drop)),
+            );
+            (
+                first.join().expect("the first open answers"),
+                second.join().expect("the second open answers"),
+            )
+        });
+        assert_eq!(
+            opened,
+            (Ok(()), Ok(())),
+            "vfs::do_file_open to write two files of one lower directory at once must copy the \
+             directory up once and open both"
+        );
+    }
+
+    mod stress {
+        use super::*;
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{self, OpenHow, Path};
+
+        /// What a removal and an open to write answer racing over one lower file,
+        /// with what the descriptor the open made reports of itself.
+        fn race_removal_with_a_write() -> (
+            Result<(), FilesystemError>,
+            Option<Result<FileType, FilesystemError>>,
+        ) {
+            let lower: Tmpfs = [("d/f", "lower")].into_iter().collect();
+            let overlay = Overlay::new(
+                vec![Filesystem::new(Arc::new(lower))],
+                Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+            )
+            .expect("the Overlay must stack");
+            let mount = Mount::new(
+                "/data",
+                Filesystem::new(Arc::new(overlay)),
+                Access::ReadWrite,
+            )
+            .expect("/data is a guest path");
+            let root = Path::root(mount.mnt());
+            let cred = Arc::default();
+            let write = OpenHow {
+                write: true,
+                ..OpenHow::default()
+            };
+            let barrier = std::sync::Barrier::new(2);
+            std::thread::scope(|scope| {
+                let opening = scope.spawn(|| {
+                    barrier.wait();
+                    vfs::do_file_open(&cred, &root, "d/f", &write)
+                        .ok()
+                        .map(|file| file.getattr().map(|metadata| metadata.file_type))
+                });
+                barrier.wait();
+                let removed = vfs::filename_unlinkat(&cred, &root, "d/f");
+                (removed, opening.join().expect("the open must answer"))
+            })
+        }
+
+        // A copy up reading its name back after its lock went found the whiteout
+        // the removal left there.
+        // @behavior FS-180
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn a_file_copied_up_as_its_name_is_removed_stays_a_file() {
+            for _ in 0..50_000 {
+                let (_, opened) = race_removal_with_a_write();
+                if let Some(kind) = opened {
+                    assert_eq!(
+                        kind,
+                        Ok(FileType::File),
+                        "File::getattr of a file opened to write through an Overlay as it is \
+                         removed must report a file"
+                    );
+                }
+            }
+        }
     }
 
     /// A lower Layer whose one entry, `pipe`, is a FIFO, counting each open.

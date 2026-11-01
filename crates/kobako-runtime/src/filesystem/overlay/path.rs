@@ -143,10 +143,20 @@ impl OverlayPath {
         self.upper()?.tmpfile()
     }
 
-    pub(super) fn do_link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
+    /// Name `file` here, answering the dentry of what was linked, as
+    /// `ovl_do_link` leaves it on the dentry it was handed, so nothing landing at
+    /// the name afterwards is taken for it.
+    pub(super) fn do_link(
+        &self,
+        file: &TmpfsFile,
+        name: &str,
+    ) -> Result<Arc<Dentry>, FilesystemError> {
         let _held = self.inode_lock()?;
-        may_create_dentry(&self.dentry, &*self.lookup_real(name)?)?;
-        self.upper()?.link(file, name)
+        let dentry = self.lookup_real(name)?;
+        may_create_dentry(&self.dentry, &dentry)?;
+        self.upper()?.link(file, name)?;
+        dentry.lookup_inode(&self.dentry)?;
+        Ok(dentry)
     }
 
     pub(super) fn set_times(&self, metadata: &Metadata) -> Result<(), FilesystemError> {

@@ -1656,7 +1656,7 @@ both live in the upper and never show, so no name is reserved
 | --- | --- |
 | Given | a held file of a lower Layer, removed through an Overlay, whose name another file took |
 | When | a time is set through the held file |
-| Then | the call answers EROFS, and the lower Layer is not asked |
+| Then | the call answers EEXIST, and the lower Layer is not asked |
 
 ## `FS-159` A whiteout in a directory one Layer shows names nothing
 
@@ -1901,3 +1901,39 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs directory held open that was removed or replaced by a move |
 | When | the directory is stated |
 | Then | it counts no name |
+
+## `FS-179` A held file of a directory made again stays out of it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-158` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a held file of a lower Layer, whose directory was removed through an Overlay and made again |
+| When | a time is set through the held file |
+| Then | the call answers ENOENT, and the view shows no file at that name |
+
+## `FS-180` A file copied up as its name is removed stays a file
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-162` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file of a lower Layer |
+| When | a Thread opens it to write through an Overlay as another removes it |
+| Then | a descriptor the open makes reports a file |
+
+## `FS-181` A directory two files copy up at once takes both
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-162` |
+
+| Step | Statement |
+| --- | --- |
+| Given | two files of one directory only a lower Layer holds |
+| When | two Threads open them to write through an Overlay at once |
+| Then | both opens succeed |
