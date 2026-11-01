@@ -34,11 +34,6 @@ pub trait SecurityOperations: Send + Sync {
         Ok(())
     }
 
-    /// Whether a walk beneath `mnt` may follow a link.
-    fn inode_follow_link(&self, _mnt: &Arc<VfsMount>) -> Result<(), FilesystemError> {
-        Ok(())
-    }
-
     /// Whether what `old` names beneath `mnt` may move to `new`, as
     /// `security_path_rename` is handed both dentries.
     fn path_rename(
@@ -91,15 +86,6 @@ impl Cred {
         self.security
             .iter()
             .try_for_each(|module| module.inode_readlink())
-    }
-
-    pub(crate) fn security_inode_follow_link(
-        &self,
-        mnt: &Arc<VfsMount>,
-    ) -> Result<(), FilesystemError> {
-        self.security
-            .iter()
-            .try_for_each(|module| module.inode_follow_link(mnt))
     }
 
     pub(crate) fn security_path_rename(

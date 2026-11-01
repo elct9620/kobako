@@ -1003,7 +1003,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest opens the link following no link, then again with a trailing slash |
 | Then | the first answers ELOOP, and the second opens the directory |
 
-## `RT-101` A path through a link beneath a Mount with a Policy answers ELOOP
+## `RT-101` A Policy judges a path through a link where the link leads
 
 | Attribute | Value |
 | --- | --- |
@@ -1012,9 +1012,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Bind Mount with a Policy, holding a link to a directory |
-| When | the guest opens or removes a path through the link, or opens the link following it |
-| Then | each call answers ELOOP and changes nothing |
+| Given | a Bind Mount with a Policy, holding a link to a directory |
+| When | the guest opens or removes a path through the link |
+| Then | the Policy judges the path in that directory, and a refused path answers EACCES and changes nothing |
 
 ## `RT-102` A path ending in a dot is neither removed nor moved
 
@@ -1285,7 +1285,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest unlinks or renames the link, named with a trailing slash |
 | Then | each answers ENOTDIR, and the link stays |
 
-## `RT-125` A link out of a Bind or into a loop answers ELOOP beneath a Policy
+## `RT-125` A Policy leaves what a link out of a Bind or into a loop answers
 
 | Attribute | Value |
 | --- | --- |
@@ -1295,9 +1295,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a Bind Mount with a Policy, holding links out of it and into a loop |
 | When | the guest opens a path through each link, then unlinks each link |
-| Then | each open answers ELOOP, and each unlink removes the link |
+| Then | an open through a link out of the Bind answers NOTCAPABLE, one into a loop ELOOP, and each unlink removes the link |
 
-## `RT-126` A link check that fails fails the call beneath a Policy
+## `RT-126` A lookup that fails fails the call beneath a Policy
 
 | Attribute | Value |
 | --- | --- |

@@ -307,7 +307,7 @@ foresee. The block judges paths, so nothing may reach a path it never judged:
 | Beneath a Mount with a block | The guest sees |
 |---|---|
 | a rename of a directory | `Errno::EXDEV`, and it copies entry by entry |
-| a path through a host link | `Errno::ELOOP` |
+| a path through a host link | judged where the link leads, never by the link's own path |
 | a link another writer swaps in after the block judges | never followed; the call reaches the directory it walked to |
 | another case or Unicode form of a name | the block judges the spelling the host stores |
 
@@ -355,10 +355,10 @@ Some risks stay with the host, because kobako cannot see them.
 | a hard link or mount point inside a Bind | the guest reaches what it leads to |
 | a Bind's host disk | kobako caps no space there; the host directory's own quota does |
 | a device swapped into a Bind as the guest opens a file | opened once before its refusal |
-| a link in a Bind without a block | followed within the Bind; its target is never read |
+| a link in a Bind | followed within the Bind; its target is never read |
 | where such a link leads | told by what the guest finds there |
 | a link through a directory the guest opened | followed only within it; leading out raises `Errno::EACCES`, as a `..` leading out does |
-| a link loop without a block | `Errno::ELOOP` after 40 links, as Linux answers |
+| a link loop | `Errno::ELOOP` after 40 links, as Linux answers |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
 | an opened directory moved by the host or another guest | still reached through that descriptor, as Linux; a block refuses a path call |
 | a link in an Overlay's lower Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |

@@ -972,16 +972,6 @@ pub trait SecurityOperations {
 }
 ```
 
-## `SecurityOperations::inode_follow_link`
-
-Whether a walk beneath a mount may follow a link.
-
-```rust
-pub trait SecurityOperations {
-    fn inode_follow_link(&self, _mnt: &Arc<VfsMount>) -> Result<(), FilesystemError>;
-}
-```
-
 ## `SecurityOperations::path_rename`
 
 Whether what one Dentry names beneath a mount may move to another.

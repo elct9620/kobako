@@ -78,15 +78,6 @@ impl SecurityOperations for MountPolicy {
         }
     }
 
-    /// A link leads to a path the Policy never judged, so the call is refused
-    /// as one past too many links.
-    fn inode_follow_link(&self, mnt: &Arc<VfsMount>) -> Result<(), FilesystemError> {
-        match self.guards(mnt) {
-            true => Err(FilesystemError::FilesystemLoop),
-            false => Ok(()),
-        }
-    }
-
     /// Everything beneath a directory would take paths the Policy never
     /// judged, so its move is refused as one across devices and the guest
     /// copies entry by entry instead, as Landlock refuses such a move. A move

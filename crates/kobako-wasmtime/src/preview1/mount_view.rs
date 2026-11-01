@@ -1889,27 +1889,32 @@ fn directory_with_key(target: &std::path::Path) {
     std::fs::write(target.join("key"), "secret").expect("the host file must be written");
 }
 
-// The Policy allows everything, so only the link on the way can refuse
-// these; the same calls beneath a Mount without a Policy go through.
+// The link itself is allowed; only judging where it leads refuses the key, so
+// a walk that took the link's own path for the answer would hand it over.
 // @behavior RT-101
 #[cfg(unix)]
 #[test]
-fn a_path_through_a_link_beneath_a_mount_with_a_policy_answers_eloop() {
-    let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+fn a_path_through_a_link_beneath_a_mount_with_a_policy_is_judged_where_it_leads() {
+    let refuses_key: Arc<dyn Policy> = Arc::new(Refuses("/data/target/key"));
     let (host, mut guest) = mount_link_under(
-        "policy-link",
+        "policy-link-refused",
         directory_with_key,
         Access::ReadWrite,
-        Some(policy),
+        Some(refuses_key),
     );
     let refused = [
         guest.call("read_file", THROUGH_FILE),
         guest.call("unlink_path", THROUGH_FILE),
-        guest.call("open_following", FILE),
     ];
     let kept = host.join("target/key").exists();
     let _ = std::fs::remove_dir_all(&host);
-    let (host, mut guest) = mount_link_under("plain-link", directory_with_key, Access::Read, None);
+    let allows: Arc<dyn Policy> = Arc::new(AllowsAll);
+    let (host, mut guest) = mount_link_under(
+        "policy-link-allowed",
+        directory_with_key,
+        Access::ReadWrite,
+        Some(allows),
+    );
     let followed = [
         guest.call("read_file", THROUGH_FILE),
         guest.call("open_following", FILE),
@@ -1917,21 +1922,20 @@ fn a_path_through_a_link_beneath_a_mount_with_a_policy_answers_eloop() {
     let _ = std::fs::remove_dir_all(&host);
     assert_eq!(
         (refused, kept, followed),
-        ([ERRNO_LOOP; 3], true, [0, 0]),
-        "path_open and path_unlink_file through a host link, or path_open following one at the \
-         end, beneath a Mount with a Policy through preview1 must answer ELOOP and change \
-         nothing, while a Mount without a Policy follows the link"
+        ([ERRNO_ACCES; 2], true, [0, 0]),
+        "path_open and path_unlink_file through a host link beneath a Mount with a Policy \
+         through preview1 must answer what the Policy says of where the link leads, EACCES \
+         for a refused path, changing nothing, and follow it to an allowed one"
     );
 }
 
-// cap-std refuses to follow a link out of the host directory, and the
-// host refuses a loop, so each open is refused whichever answers first;
-// only ELOOP says the link is why. An unlink acts on the link itself,
-// which no Policy-free walk past it is needed for.
+// A Policy changes nothing of where a link may lead: one out of the Bind escapes
+// it and one into itself loops, as beneath a Mount without a Policy, and an unlink
+// acts on the link itself.
 // @behavior RT-125
 #[cfg(unix)]
 #[test]
-fn a_link_out_of_a_directory_or_into_a_loop_answers_eloop_beneath_a_policy() {
+fn a_link_out_of_a_directory_or_into_a_loop_answers_as_without_a_policy() {
     let outside = std::env::temp_dir().join(format!("kobako-outside-{}", std::process::id()));
     directory_with_key(&outside);
     let targets = [
@@ -1968,18 +1972,25 @@ fn a_link_out_of_a_directory_or_into_a_loop_answers_eloop_beneath_a_policy() {
     let _ = std::fs::remove_dir_all(&outside);
     assert_eq!(
         (answers, kept),
-        (vec![([ERRNO_LOOP, 0], true); 3], true),
+        (
+            vec![
+                ([ERRNO_NOTCAPABLE, 0], true),
+                ([ERRNO_NOTCAPABLE, 0], true),
+                ([ERRNO_LOOP, 0], true),
+            ],
+            true
+        ),
         "path_open through a host link out of a Bind, by an absolute or a relative target, \
-         or into a loop, beneath a Mount with a Policy through preview1 must answer ELOOP, and \
-         path_unlink_file of each link must remove it"
+         beneath a Mount with a Policy through preview1 must answer NOTCAPABLE, into a loop \
+         ELOOP, and path_unlink_file of each link must remove it"
     );
 }
 
-// The Filesystem fails only the lookup of `dir`, which the open needs
-// no answer from but the walk for links on its way does.
+// The Filesystem fails only the lookup of `dir`, which the open needs no answer
+// from but the walk on its way does.
 // @behavior RT-126
 #[test]
-fn a_link_check_that_fails_fails_the_call_beneath_a_policy() {
+fn a_lookup_that_fails_fails_the_call_beneath_a_policy() {
     let tmpfs: Tmpfs = [("dir/file.txt", "granted")].into_iter().collect();
     let failing = Wrap::new(Arc::new(tmpfs), Arc::new(FailsLookingUpDir));
     let policy: Arc<dyn Policy> = Arc::new(AllowsAll);

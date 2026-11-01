@@ -251,7 +251,6 @@ impl Nameidata {
     /// Walk on through where the link `dentry` names points, before
     /// whatever is left of the path.
     fn pick_link(&mut self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.cred.security_inode_follow_link(&self.mnt)?;
         self.links += 1;
         if self.links > MAXSYMLINKS {
             return Err(FilesystemError::FilesystemLoop);
