@@ -18,7 +18,7 @@ use kobako_runtime::filesystem::{
     DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
     InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
 };
-use kobako_runtime::vfs::{Dentry, Identity, Inode, NAME_MAX};
+use kobako_runtime::vfs::{verify_dirent_name, Dentry, Identity, Inode, NAME_MAX};
 
 use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
@@ -71,9 +71,8 @@ impl RubyFilesystem {
     }
 }
 
-/// What a stat says its entry is. A `File::Stat` of a special file says so
-/// through `ftype`, so it is judged as what it is rather than opened; a stat
-/// reports no link, as a Ruby Filesystem holds none.
+/// What a stat says its entry is. A `File::Stat` of a special file or a link
+/// says so through `ftype`, so it is judged as what it is rather than opened.
 fn kind_of(stat: Value) -> Result<FileType, MagnusError> {
     if stat.funcall::<_, _, bool>("directory?", ())? {
         return Ok(FileType::Directory);
@@ -83,6 +82,7 @@ fn kind_of(stat: Value) -> Result<FileType, MagnusError> {
     }
     let ftype: String = stat.funcall("ftype", ())?;
     Ok(match ftype.as_str() {
+        "link" => FileType::Symlink,
         "fifo" => FileType::Fifo,
         "socket" => FileType::Socket,
         "blockSpecial" => FileType::BlockDevice,
@@ -270,6 +270,10 @@ impl RubyFilesystem {
         Ok(Box::new(file))
     }
 
+    /// The entries of the directory. No name a directory cannot hold is asked
+    /// about, as it could name a path the object would answer for, and a name
+    /// gone by the time it is asked about is one the listing no longer holds, as
+    /// any listing is a moment that may have passed.
     fn entries_at(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         let at = dentry.path_raw();
         let names: Vec<String> = ask(
@@ -278,13 +282,31 @@ impl RubyFilesystem {
             FilesystemError::Unsupported,
             |_, fs| fs.funcall("children", (at.as_str(),)),
         )?;
-        names
-            .into_iter()
-            .map(|name| {
-                let stat = self.stat(join(&at, &name))?;
-                Ok(DirEntry::new(name, stat.file_type).with_identity(stat.dev, stat.ino))
-            })
-            .collect()
+        names.iter().try_for_each(|name| verify_dirent_name(name))?;
+        let mut entries = Vec::with_capacity(names.len());
+        for name in names {
+            match self.stat(join(&at, &name)) {
+                Ok(stat) => entries
+                    .push(DirEntry::new(name, stat.file_type).with_identity(stat.dev, stat.ino)),
+                Err(FilesystemError::NotFound) => {}
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(entries)
+    }
+}
+
+/// A link a stat reports. A Ruby object answers no `readlink`, so no walk goes
+/// on through one, as a path past too many links stops.
+struct RubyLink(RubyFilesystem);
+
+impl InodeOperations for RubyLink {
+    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        self.0.stat(dentry.path_raw())
+    }
+
+    fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
+        Err(FilesystemError::FilesystemLoop)
     }
 }
 
@@ -347,8 +369,7 @@ impl InodeOperations for RubyRegular {
 }
 
 /// A directory of a Ruby Filesystem, asked by the path a dentry stands at, the
-/// path a Policy judges. A Ruby object answers `stat` alone, so it holds no
-/// links to follow.
+/// path a Policy judges.
 impl InodeOperations for RubyFilesystem {
     fn fill_super(&self, sb: &mut Filesystem) {
         sb.set_default_d_op(Arc::new(*self));
@@ -368,6 +389,7 @@ impl InodeOperations for RubyFilesystem {
             Ok(found) => {
                 let ops: Arc<dyn InodeOperations> = match found.file_type {
                     FileType::Directory => Arc::new(*self),
+                    FileType::Symlink => Arc::new(RubyLink(*self)),
                     _ => Arc::new(RubyRegular(*self)),
                 };
                 Ok(Lookup::Found(Inode::new(&found, ops)))

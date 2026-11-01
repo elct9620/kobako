@@ -33,6 +33,22 @@ class TestE2ERubyFilesystemStatAnswers < Minitest::Test
     end
   end
 
+  # A +File.lstat+ backend reports a host's link, whose size is the length of
+  # where it points.
+  # @behavior RF-039
+  def test_a_link_a_stat_reports_shows_as_a_link
+    filesystem = OneFileFilesystem.new(KindStat.new(directory: false, size: 14, ino: 42, ftype: "link"))
+    seen = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem).eval(<<~RUBY).value
+      stat = File.lstat("/data/f")
+      read = begin; File.read("/data/f"); rescue Errno::ELOOP; "loop"; end
+      [stat.symlink?, stat.size, read]
+    RUBY
+
+    assert_equal [true, 0, "loop"], seen,
+                 "File.lstat of what a Ruby Filesystem's stat calls a link must report a link of no size, and " \
+                 "File.read of it must raise Errno::ELOOP"
+  end
+
   def on_device(dev)
     Data.define(:directory, :size, :ino) do
       define_method(:directory?) { directory }

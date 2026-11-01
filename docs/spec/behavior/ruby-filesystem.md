@@ -478,3 +478,39 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a guest holding a Mount of a Ruby Filesystem |
 | When | the guest syncs the directory |
 | Then | the sync succeeds |
+
+## `RF-037` A listed name gone by its `stat` leaves the listing
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `children` names a file its `stat` no longer finds |
+| When | the guest lists the directory |
+| Then | the listing succeeds and holds the rest |
+
+## `RF-038` A name no directory can hold is not asked about
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-212` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `children` names a path holding a `/` |
+| When | the guest lists the directory |
+| Then | the call answers EIO, and the object's `stat` is not asked about that path |
+
+## `RF-039` A link a `stat` reports shows as a link
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-021`, `RT-173` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `stat` answers the `ftype` of a link with a size |
+| When | the guest stats it without following, and reads it |
+| Then | the stat reports a link of no size, and the read raises `Errno::ELOOP` |

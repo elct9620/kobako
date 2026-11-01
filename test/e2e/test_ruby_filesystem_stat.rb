@@ -140,4 +140,46 @@ class TestE2ERubyFilesystemStat < Minitest::Test
                  "path_filestat_get of a Ruby Filesystem's stat answering no nlink and no time must read one name " \
                  "and time zero"
   end
+
+  # The file +f+, a listing naming +names+ too, and the paths asked about.
+  class ListsNames < OneFileFilesystem
+    attr_reader :asked
+
+    def initialize(names)
+      super(Stat.new(directory: false, size: 5, ino: 42), StringIO.new(+"hello"))
+      @names = names
+      @asked = []
+    end
+
+    def children(_path) = @names
+
+    def stat(path)
+      @asked << path
+      super
+    end
+  end
+
+  # Preview1's code for an I/O error, as a guest reads it.
+  EIO = 29
+
+  # @behavior RF-037
+  def test_a_listed_name_gone_by_its_stat_leaves_the_listing
+    seen = fields(ListsNames.new(%w[f gone]), profile: :permissive)
+
+    assert_equal 0, seen.errnos[3],
+                 "fd_readdir of a Ruby Filesystem listing a name its stat no longer finds must succeed"
+    refute_equal 0, seen.listed, "fd_readdir of a Ruby Filesystem must still list the file its stat finds"
+  end
+
+  # The object may resolve what it is asked, so a listed path it was asked about
+  # would tell the guest whether that path exists for the object.
+  # @behavior RF-038
+  def test_a_name_no_directory_can_hold_is_not_asked_about
+    filesystem = ListsNames.new(["f", "../../etc/passwd"])
+    seen = fields(filesystem, profile: :permissive)
+
+    assert_equal EIO, seen.errnos[3], "fd_readdir of a Ruby Filesystem listing a path must answer EIO"
+    refute_includes filesystem.asked, "../../etc/passwd",
+                    "fd_readdir of a Ruby Filesystem listing a path must not ask its stat about that path"
+  end
 end

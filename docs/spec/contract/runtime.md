@@ -1543,6 +1543,15 @@ Refuse setting timestamps as unsupported once the path is known to stand.
 pub fn do_utimes(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool, times: &Iattr) -> Result<(), FilesystemError> {}
 ```
 
+## `verify_dirent_name`
+
+Refuse a name no directory can hold, as Linux's `verify_dirent_name` does. A
+Filesystem that asks about each name before it lists them calls this first.
+
+```rust
+pub fn verify_dirent_name(name: &str) -> Result<(), FilesystemError> {}
+```
+
 ## `do_utimes_fd`
 
 Set times on what a descriptor's Path names, as Linux's `do_utimes_fd` does. An

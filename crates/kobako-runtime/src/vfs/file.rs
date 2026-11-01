@@ -223,8 +223,9 @@ impl<'a> DirContext<'a> {
 
 /// Refuse a name no directory can hold, as Linux's `verify_dirent_name` refuses
 /// what a Filesystem hands it, so whoever walks a listing is never handed a
-/// path where it was promised one name.
-fn verify_dirent_name(name: &str) -> Result<(), FilesystemError> {
+/// path where it was promised one name. A Filesystem that asks about each name
+/// before it lists them asks this first.
+pub fn verify_dirent_name(name: &str) -> Result<(), FilesystemError> {
     if name.is_empty() || name.len() >= PATH_MAX || name.contains('/') {
         return Err(FilesystemError::Other(
             "a Filesystem listed a name no directory can hold".to_string(),
