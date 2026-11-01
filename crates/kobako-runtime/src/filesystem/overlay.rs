@@ -1287,6 +1287,37 @@ mod tests {
         );
     }
 
+    // Bind reports the same identity for both names, so without the view keeping
+    // them apart the VFS would answer the move as having nothing to do.
+    // @behavior FS-170
+    #[cfg(unix)]
+    #[test]
+    fn a_lower_layers_hard_link_moves_onto_the_other_as_two_entries() {
+        let host = LinkTree::new("hard-link");
+        std::fs::write(host.0.join("a"), "one").expect("the host file must be written");
+        std::fs::hard_link(host.0.join("a"), host.0.join("b")).expect("the host link must be made");
+        let overlay = at(over(Arc::new(host.bind()), Arc::new(Tmpfs::new())));
+        write(&overlay, "a", b"two").expect("the file must copy up and be written");
+        overlay
+            .rename("a", &overlay, "b")
+            .expect("the move must land");
+        assert_eq!(
+            (
+                overlay.symlink_metadata("a").map(drop),
+                read(&overlay, "b"),
+                std::fs::read(host.0.join("b")).expect("the host file must be read"),
+            ),
+            (
+                Err(FilesystemError::NotFound),
+                b"two".to_vec(),
+                b"one".to_vec()
+            ),
+            "a hard link in a lower Layer written and moved onto its other name through an \
+             Overlay must leave only the new name, holding what was written, and the lower Layer \
+             as it was"
+        );
+    }
+
     // overlayfs's super block is read-only with no upper, so `mnt_want_write`
     // answers before anything looks at what stands at the name.
     // @behavior FS-169

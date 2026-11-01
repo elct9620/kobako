@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, InodeOperations, Metadata};
 use super::super::inode::{ovl_inode_init, OverlayInode};
-use super::{entry, layer_dir, shows_below, sole_layer, Level, OverlayFs};
-use crate::vfs::Inode;
+use super::{entry, layer_dir, shows_below, sole_layer, Level, OverlayFs, UPPER};
+use crate::vfs::{Dentry, Inode};
 
 impl OverlayFs {
     /// The topmost Layer holding an entry at `name` in the directory
@@ -141,14 +141,17 @@ impl OverlayFs {
             let Some(found) = real.inode() else {
                 return Ok(None);
             };
-            let inode = found.with_ops(ops_of(found.kind()));
-            let kept = match found.kind() {
+            let ops = ops_of(found.kind());
+            let (inode, kept) = match found.kind() {
                 FileType::Directory => {
                     let mut only = vec![None; level.len()];
                     only[index] = Some(dir.with_dentry(real));
-                    OverlayInode::new(only, None)
+                    (found.with_ops(ops), OverlayInode::new(only, None))
                 }
-                _ => OverlayInode::new(Vec::new(), Some(real)),
+                _ => (
+                    self.file_inode(index, &real, ops)?,
+                    OverlayInode::new(Vec::new(), Some(real)),
+                ),
             };
             ovl_inode_init(&inode, kept);
             return Ok(Some(inode));
@@ -158,7 +161,7 @@ impl OverlayFs {
         };
         if found.file_type != FileType::Directory {
             let real = layer_dir(&level[index])?.real(name)?;
-            let inode = Inode::new(&found, ops_of(found.file_type));
+            let inode = self.file_inode(index, &real, ops_of(found.file_type))?;
             ovl_inode_init(&inode, OverlayInode::new(Vec::new(), Some(real)));
             return Ok(Some(inode));
         }
@@ -166,6 +169,24 @@ impl OverlayFs {
         let inode = Inode::new(&self.dir_metadata(&merged)?, ops_of(FileType::Directory));
         ovl_inode_init(&inode, OverlayInode::new(merged, None));
         Ok(Some(inode))
+    }
+
+    /// The inode of the entry `real` in the Layer at `index`, answered for by
+    /// `ops`. A hard link in a lower Layer keeps no identity beneath an upper,
+    /// as `ovl_hash_bylower` shares no inode for one a copy up would break, so
+    /// its names stay two entries of the view. With no upper nothing copies up.
+    fn file_inode(
+        &self,
+        index: usize,
+        real: &Dentry,
+        ops: Arc<dyn InodeOperations>,
+    ) -> Result<Inode, FilesystemError> {
+        let found = real.inode().ok_or(FilesystemError::NotFound)?;
+        let breaks = self.has_upper() && index != UPPER && real.getattr()?.nlink > 1;
+        Ok(match breaks {
+            true => Inode::new(&Metadata::new(found.kind(), 0), ops),
+            false => found.with_ops(ops),
+        })
     }
 
     /// `name` spelled as the topmost Layer showing it stores it, the
