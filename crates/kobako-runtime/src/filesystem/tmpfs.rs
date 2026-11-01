@@ -67,15 +67,6 @@ impl Node {
         }
     }
 
-    /// A directory holds this entry under a name, a moved one again.
-    fn add_name(&self) {
-        match self {
-            Self::File(data) => lock(data).names = 1,
-            Self::Directory(dir) => dir.state().removed = false,
-            Self::Whiteout { .. } => {}
-        }
-    }
-
     /// A name of it came or went, as `simple_rename_timestamp` and
     /// `shmem_unlink` move an inode's `st_ctime`.
     fn touch_changed(&self) {
@@ -144,7 +135,6 @@ impl State {
 
     /// Hold `node` under `name`, a change to the directory's content.
     fn insert(&mut self, name: &str, node: Node) {
-        node.add_name();
         node.touch_changed();
         if let Some(replaced) = self.hold(name, node) {
             replaced.drop_name();
@@ -161,14 +151,22 @@ impl State {
         self.times.touch();
     }
 
-    /// Take the entry `name` away, a change to the directory's content.
+    /// Take the entry `name` away, to stand elsewhere, a change to the
+    /// directory's content.
+    fn take(&mut self, name: &str) {
+        self.entries.remove(name).inspect(|taken| {
+            self.subdirectories -= u64::from(matches!(taken, Node::Directory(_)));
+        });
+        self.times.touch();
+    }
+
+    /// Take the entry `name` away for good, a change to the directory's content.
     fn remove(&mut self, name: &str) {
-        if let Some(removed) = self.entries.remove(name) {
-            self.subdirectories -= u64::from(matches!(removed, Node::Directory(_)));
+        if let Some(removed) = self.entries.get(name).cloned() {
             removed.drop_name();
             removed.touch_changed();
         }
-        self.times.touch();
+        self.take(name);
     }
 }
 

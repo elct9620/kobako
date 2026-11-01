@@ -76,8 +76,8 @@ impl Tmpfs {
             _ => None,
         };
         match left {
-            Some(left) => from_dir.state().insert(from, left),
-            None => from_dir.state().remove(from),
+            Some(left) => from_dir.state().exchange(from, left),
+            None => from_dir.state().take(from),
         }
         to_dir.state().insert(to, moving);
         Ok(())
