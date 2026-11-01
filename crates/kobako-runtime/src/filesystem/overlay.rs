@@ -116,24 +116,6 @@ impl Overlay {
             .lookup(&level, &name, |kind| self.ops_of(kind))?
             .map_or(Lookup::Absent, Lookup::Found))
     }
-
-    fn rename_to(
-        &self,
-        from: &Dentry,
-        to_dir: &dyn InodeOperations,
-        to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        (to_dir as &dyn Any)
-            .downcast_ref::<Self>()
-            .filter(|target| target.fs.is(&self.fs))
-            .ok_or(FilesystemError::CrossesDevices)?;
-        self.fs.rename(
-            &self.fs.parent(from)?,
-            from,
-            &self.fs.parent(to)?,
-            &to.name(),
-        )
-    }
 }
 
 /// A name stays valid while every Layer's dentry for it does, as
@@ -319,14 +301,19 @@ impl InodeOperations for Overlay {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn InodeOperations,
+        _to_dir: &dyn InodeOperations,
         to: &Dentry,
         flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
         if flag.is_some() {
             return Err(FilesystemError::InvalidInput);
         }
-        self.rename_to(from, to_dir, to)
+        self.fs.rename(
+            &self.fs.parent(from)?,
+            from,
+            &self.fs.parent(to)?,
+            &to.name(),
+        )
     }
 }
 

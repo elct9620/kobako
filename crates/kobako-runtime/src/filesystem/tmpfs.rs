@@ -540,48 +540,6 @@ impl Tmpfs {
             Node::Whiteout { .. } => Metadata::new(FileType::CharDevice, 0),
         }
     }
-
-    fn rmdir_at(&self, name: &str) -> Result<(), FilesystemError> {
-        let mut state = self.dir.state();
-        let removed = match state.entries.get(name) {
-            Some(Node::File(_) | Node::Whiteout { .. }) => {
-                return Err(FilesystemError::NotADirectory)
-            }
-            Some(Node::Directory(removed)) => removed.clone(),
-            None => return Err(FilesystemError::NotFound),
-        };
-        if !removed.state().entries.is_empty() {
-            return Err(FilesystemError::DirectoryNotEmpty);
-        }
-        state.remove(name);
-        self.tree.space.inodes.give(1);
-        Ok(())
-    }
-
-    fn unlink_at(&self, name: &str) -> Result<(), FilesystemError> {
-        let mut state = self.dir.state();
-        match state.entries.get(name) {
-            Some(Node::File(_) | Node::Whiteout { .. }) => {
-                state.remove(name);
-                Ok(())
-            }
-            Some(Node::Directory(_)) => Err(FilesystemError::IsADirectory),
-            None => Err(FilesystemError::NotFound),
-        }
-    }
-
-    fn mkdir_at(&self, name: &str) -> Result<(), FilesystemError> {
-        self.tree.space.inodes.take(1)?;
-        let made = Node::Directory(self.new_directory());
-        self.dir.state().insert(name, made);
-        Ok(())
-    }
-
-    fn create_at(&self, name: &str) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let data = Content::create(&self.tree)?;
-        self.dir.state().insert(name, Node::File(data.clone()));
-        Ok(Box::new(TmpfsFile { data }))
-    }
 }
 
 /// A directory of a Tmpfs answers for the names in it. A file answers
@@ -622,7 +580,11 @@ impl InodeOperations for Tmpfs {
         dentry: &Dentry,
         _options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.create_at(&dentry.name())
+        let data = Content::create(&self.tree)?;
+        self.dir
+            .state()
+            .insert(&dentry.name(), Node::File(data.clone()));
+        Ok(Box::new(TmpfsFile { data }))
     }
 
     fn open(
@@ -637,15 +599,31 @@ impl InodeOperations for Tmpfs {
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.mkdir_at(&dentry.name())
+        self.tree.space.inodes.take(1)?;
+        let made = Node::Directory(self.new_directory());
+        self.dir.state().insert(&dentry.name(), made);
+        Ok(())
     }
 
+    /// The VFS found a directory at the name, as `shmem_rmdir` leaves it to,
+    /// so only whether it holds anything is left to answer.
     fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.rmdir_at(&dentry.name())
+        let name = dentry.name();
+        let mut state = self.dir.state();
+        if let Some(Node::Directory(removed)) = state.entries.get(&name) {
+            if !removed.state().entries.is_empty() {
+                return Err(FilesystemError::DirectoryNotEmpty);
+            }
+        }
+        state.remove(&name);
+        self.tree.space.inodes.give(1);
+        Ok(())
     }
 
+    /// The VFS found no directory at the name, as `shmem_unlink` leaves it to.
     fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.unlink_at(&dentry.name())
+        self.dir.state().remove(&dentry.name());
+        Ok(())
     }
 
     fn rename(
@@ -1483,15 +1461,27 @@ mod tests {
     // @behavior FS-109
     #[test]
     fn a_rename_into_a_directory_of_another_tmpfs_crosses_devices() {
-        let tmpfs = at([("file", "x")].into_iter().collect());
-        let other = at(Tmpfs::new());
+        let mount = |tmpfs: Tmpfs| {
+            crate::mount::Mount::new(
+                "/data",
+                Filesystem::new(Arc::new(tmpfs)),
+                crate::mount::Access::ReadWrite,
+            )
+            .expect("/data is a guest path")
+        };
+        let (from, to) = (
+            mount([("file", "x")].into_iter().collect()),
+            mount(Tmpfs::new()),
+        );
+        let root = |mount: &crate::mount::Mount| crate::vfs::Path::root(mount.mnt());
+        let cred = Arc::default();
         assert_eq!(
             (
-                tmpfs.rename("file", &other, "file"),
-                read_all(&tmpfs, "file")
+                crate::vfs::filename_renameat2(&cred, &root(&from), "file", &root(&to), "file"),
+                crate::vfs::vfs_fstatat(&cred, &root(&from), "file", false).map(|found| found.len),
             ),
-            (Err(FilesystemError::CrossesDevices), b"x".to_vec()),
-            "Tmpfs::rename into a directory of another Tmpfs must answer CrossesDevices and \
+            (Err(FilesystemError::CrossesDevices), Ok(1)),
+            "vfs::filename_renameat2 into a directory of another Tmpfs must answer EXDEV and \
              leave the file"
         );
     }

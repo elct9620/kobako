@@ -11,7 +11,6 @@
 use magnus::value::{Opaque, ReprValue};
 use magnus::{prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, Value};
 
-use std::any::Any;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -287,24 +286,6 @@ impl RubyFilesystem {
             })
             .collect()
     }
-
-    fn rename_to(
-        &self,
-        from: &Dentry,
-        to_dir: &dyn InodeOperations,
-        to: &Dentry,
-    ) -> Result<(), FilesystemError> {
-        (to_dir as &dyn Any)
-            .downcast_ref::<Self>()
-            .filter(|target| target.dev == self.dev)
-            .ok_or(FilesystemError::CrossesDevices)?;
-        change(
-            self.object,
-            "rename",
-            (from.path_raw(), to.path_raw()),
-            FilesystemError::ReadOnlyFilesystem,
-        )
-    }
 }
 
 /// Any entry of a Ruby Filesystem but a directory.
@@ -447,14 +428,19 @@ impl InodeOperations for RubyFilesystem {
     fn rename(
         &self,
         from: &Dentry,
-        to_dir: &dyn InodeOperations,
+        _to_dir: &dyn InodeOperations,
         to: &Dentry,
         flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
         if flag.is_some() {
             return Err(FilesystemError::InvalidInput);
         }
-        self.rename_to(from, to_dir, to)
+        change(
+            self.object,
+            "rename",
+            (from.path_raw(), to.path_raw()),
+            FilesystemError::ReadOnlyFilesystem,
+        )
     }
 }
 

@@ -57,9 +57,6 @@ impl Tmpfs {
         to: &str,
         flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
-        if !Arc::ptr_eq(&target.tree, &self.tree) {
-            return Err(FilesystemError::CrossesDevices);
-        }
         let (from_dir, to_dir) = (&self.dir, &target.dir);
         let moving = from_dir.get(from)?;
         let replaced = to_dir.get(to).ok();

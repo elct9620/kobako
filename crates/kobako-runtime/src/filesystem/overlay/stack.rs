@@ -240,11 +240,6 @@ impl OverlayFs {
         })
     }
 
-    /// Whether `other` is this view, reached through another directory.
-    pub(super) fn is(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.temp, &other.temp)
-    }
-
     /// Whether changes have an upper to land in, as `ovl_upper_mnt` answers.
     pub(super) fn has_upper(&self) -> bool {
         self.work.is_some()

@@ -132,10 +132,10 @@ pub trait InodeOperations: Any + Send + Sync {
     /// refusing what rename(2) refuses at `to`. The runtime has already
     /// checked what stands at `from` and never hands a move onto its own
     /// name, as Linux's VFS does before `inode_operations.rename`. It hands
-    /// only a `to_dir` of the same Mount, so it is of this Filesystem's own
-    /// type, and one that is not answers `CrossesDevices`. One that takes no
-    /// `flag` refuses any as invalid input, as Linux's filesystems refuse a
-    /// `renameat2` flag they do not know.
+    /// only a `to_dir` of the same Mount, so no two instances meet here, as
+    /// `filename_renameat2` answers EXDEV first. One that takes no `flag`
+    /// refuses any as invalid input, as Linux's filesystems refuse a `renameat2`
+    /// flag they do not know.
     fn rename(
         &self,
         _from: &Dentry,
