@@ -105,7 +105,6 @@ impl Nameidata {
     /// What the walk ended on reports of itself, a link reported as itself, as
     /// `vfs_getattr` asks the entry the walk found.
     pub(crate) fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        let _held = self.dentry().inode_lock_shared()?;
         self.path()?.getattr()
     }
 
@@ -190,9 +189,10 @@ fn parts(path: &str) -> VecDeque<String> {
 impl Nameidata {
     /// Step into the directory `name` names, or follow the link standing there.
     fn walk_component(&mut self, name: &str) -> Result<(), FilesystemError> {
-        let parent = self.dentry().clone();
-        let _held = parent.inode_lock_shared()?;
-        let (_, dentry) = self.lookup_slow(name)?;
+        let (_, dentry) = {
+            let _held = self.dentry().inode_lock_shared()?;
+            self.lookup_slow(name)?
+        };
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
             FileType::Symlink => self.pick_link(&dentry),
@@ -308,8 +308,8 @@ impl Nameidata {
             if !follow || child.kind() != Ok(FileType::Symlink) {
                 return Ok(creating.then_some(held));
             }
-            self.pick_link(&child)?;
             drop(held);
+            self.pick_link(&child)?;
             self.link_path_walk()?;
         }
     }
@@ -402,13 +402,14 @@ pub fn do_file_open(
     let mut nd = set_nameidata(cred, start, path)?;
     nd.lookup_directory = how.directory;
     nd.link_path_walk()?;
-    // A create holds the directory's lock until the file is open, as Linux's
-    // `lookup_open` does, so nothing made or removed in between changes what
-    // the open decided.
-    let _held = nd.lookup_last(follow, how.create)?;
+    let held = nd.lookup_last(follow, how.create)?;
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     let existing = nd.path()?.inode().map(|inode| inode.kind());
+    // A file being made is open before the directory's lock goes, as Linux's
+    // `lookup_open` holds it, so nothing made or removed in between changes what
+    // the open decided. What already stood opens without it, as `do_open` does.
+    let _held = held.filter(|_| existing.is_none());
     refuse_what_stands(existing, nd.lookup_directory, how)?;
     // Creating changes the Mount only where nothing stands yet, so the
     // Mount judges the open once, knowing what it does.
