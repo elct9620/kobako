@@ -1826,3 +1826,27 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs with no inode left, and a directory open that was removed |
 | When | a directory is made, while it is open and once it closes |
 | Then | the first answers ENOSPC and the second succeeds |
+
+## `FS-174` A name too long for a lower Layer lands in the upper
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer answers ENAMETOOLONG for a name |
+| When | a directory is made at the name |
+| Then | the directory stands in the upper |
+
+## `FS-175` A rename onto an empty upper directory builds no replacement
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose upper has no inode left, holding two empty directories |
+| When | one is renamed onto the other |
+| Then | the rename lands |
+
+## `FS-176` A merged directory reports its topmost Layer under the lower's identity
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory an Overlay's upper and lower Layer both show |
+| When | the directory is stated through the Overlay |
+| Then | it reports the lower's identity, one name, and the upper directory's size |
