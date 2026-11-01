@@ -1788,7 +1788,7 @@ both live in the upper and never show, so no name is reserved
 | Step | Statement |
 | --- | --- |
 | Given | an Overlay of two lower Layers and no upper, on a Mount allowing writes |
-| When | a call moves a file onto its own name, removes a missing name, or removes a directory holding an entry |
+| When | a call renames a file onto itself or removes any name |
 | Then | each call answers EROFS |
 
 ## `FS-170` A lower Layer's hard links are two entries beneath an upper
@@ -1823,7 +1823,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind on Linux holding a directory the host lets the process search but not read |
+| Given | a Bind on Linux holding a directory the process may only search |
 | When | the directory's path is stated |
 | Then | the stat reports a directory |
 
