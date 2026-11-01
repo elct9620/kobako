@@ -354,12 +354,14 @@ Some risks stay with the host, because kobako cannot see them.
 | a link swapped in between kobako's check and its open, without a block | the host's race, never leading beyond the Bind |
 | a hard link or mount point inside a Bind | the guest reaches what it leads to |
 | a Bind's host disk | kobako caps no space there; the host directory's own quota does |
+| a Bind's directories stacked past `PATH_MAX` by moves | the host's own tools may refuse or slow on them |
+| a time a guest sets on a Bind's entry | it stands on the host; a hermetic guest still reads the epoch |
 | a device swapped into a Bind as the guest opens a file | opened once before its refusal |
 | a link in a Bind | followed within the Bind; its target is never read |
 | where such a link leads | told by what the guest finds there |
 | a link through a directory the guest opened | followed only within it; leading out raises `Errno::EACCES`, as a `..` leading out does |
 | a link loop | `Errno::ELOOP` after 40 links, as Linux answers |
-| a directory the guest lists in steps | its entries held in host memory until the listing ends; past `memory_limit` across its descriptors, `Errno::ENOMEM` |
+| a directory the guest lists in steps | entries held until the listing ends; past `memory_limit`, `Errno::ENOMEM` |
 | an opened directory moved by the host or another guest | still reached through that descriptor, as Linux; a block refuses a path call |
 | a link in an Overlay's lower Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
 | a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
@@ -369,6 +371,7 @@ Some risks stay with the host, because kobako cannot see them.
 | one Overlay's upper shared by another, or mounted on its own | undefined, as overlayfs leaves it; no crash or deadlock |
 | one Tmpfs handed to two Filesystem instances in the Rust SDK | undefined under concurrent moves, as each instance has its own locks |
 | one Filesystem mounted in invocations that run at once | a change in one directory or file waits for the other, past `timeout:` |
+| a call beneath a block while another Mount keeps moving its directories | it asks again from the root, past `timeout:` |
 | a name Windows reads as another on a Bind | refused as `Errno::EINVAL`: a stream, a device, a wildcard, or a trailing dot or space |
 
 ### Opened Directories
