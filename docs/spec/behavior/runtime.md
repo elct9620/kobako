@@ -2460,3 +2460,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file opened to append, holding bytes, positioned at its start |
 | When | a call writes nothing to it |
 | Then | its position stays at its start |
+
+## `RT-223` A change asks a Filesystem once for the name it makes
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-216` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem counting its lookups, holding no entry at a name |
+| When | a call makes a directory or a file at the name, or moves a file onto it |
+| Then | the Filesystem is asked about that name once |
