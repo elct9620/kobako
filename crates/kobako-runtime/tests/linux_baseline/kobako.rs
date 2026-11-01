@@ -8,7 +8,9 @@ use std::time::SystemTime;
 use kobako_runtime::filesystem::{Filesystem, FilesystemError};
 use kobako_runtime::mount::{Access, Mount};
 use kobako_runtime::security::prepare_creds;
-use kobako_runtime::vfs::{self, Cred, DirContext, DirEmit, File, FileType, OpenHow, Whence};
+use kobako_runtime::vfs::{
+    self, Cred, DirContext, DirEmit, File, FileType, OpenHow, VfsMount, Whence,
+};
 
 use crate::calls::{payload, Call, SLOTS};
 use crate::{describe, Snapshot, Times};
@@ -56,6 +58,7 @@ fn entries(file: &mut File) -> Result<Vec<(String, FileType)>, FilesystemError> 
 
 pub struct Kobako {
     cred: Arc<Cred>,
+    mnt: Arc<VfsMount>,
     root: File,
     slots: Vec<Option<File>>,
     merged: bool,
@@ -71,9 +74,23 @@ impl Kobako {
             File::root(mount.mnt()).unwrap_or_else(|error| panic!("the root must open: {error:?}"));
         Self {
             cred,
+            mnt: mount.mnt().clone(),
             root,
             slots: std::iter::repeat_with(|| None).take(SLOTS).collect(),
             merged,
+        }
+    }
+
+    /// Another caller of the same mount, with descriptors of its own.
+    pub fn another(&self) -> Self {
+        let root =
+            File::root(&self.mnt).unwrap_or_else(|error| panic!("the root must open: {error:?}"));
+        Self {
+            cred: self.cred.clone(),
+            mnt: self.mnt.clone(),
+            root,
+            slots: std::iter::repeat_with(|| None).take(SLOTS).collect(),
+            merged: self.merged,
         }
     }
 

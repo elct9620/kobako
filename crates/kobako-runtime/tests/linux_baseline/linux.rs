@@ -141,6 +141,11 @@ impl Linux {
         }
     }
 
+    /// Another caller of the same directory, with descriptors of its own.
+    pub fn another(&self) -> Self {
+        Self::new(&self.root_path, self.merged)
+    }
+
     fn start(&self, base: Option<usize>) -> Result<i32, String> {
         match base {
             None => Ok(self.root),

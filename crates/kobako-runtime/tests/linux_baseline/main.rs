@@ -3,12 +3,14 @@
 //! overlayfs, or directory, and each answer and the tree left behind must agree.
 //!
 //! `linux-baseline-expected.txt` names the differences kobako keeps. A new one
-//! fails, and so does one no sequence reaches any more. `rake crates:linux_baseline`
-//! runs this as root in a container, since overlayfs needs a mount.
+//! fails, and so does one no sequence reaches any more. `concurrent` holds calls
+//! racing on one instance. `rake crates:linux_baseline` runs this as root in a
+//! container, since overlayfs needs a mount.
 
 #![cfg(target_os = "linux")]
 
 mod calls;
+mod concurrent;
 mod kobako;
 mod linux;
 
@@ -496,6 +498,35 @@ fn moves_the_same_times(setup: Setup, runs: u64, longest: u64) {
     );
 }
 
+/// Hold `setup` to Linux over `rounds` of racing sequences of at most `longest`
+/// calls each.
+fn holds_racing(setup: Setup, rounds: u64, longest: u64) {
+    let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+    setup.prepare();
+    let mut found = concurrent::Found::default();
+    for seed in 1..=rounds {
+        let (kobako, linux) = setup.start(false);
+        let kobako: Vec<Kobako> = (0..concurrent::THREADS).map(|_| kobako.another()).collect();
+        let linux: Vec<Linux> = (0..concurrent::THREADS).map(|_| linux.another()).collect();
+        drop(concurrent::round(seed, longest, kobako, linux, &mut found));
+        setup.finish();
+    }
+    assert!(
+        found.broken_by_linux.is_empty(),
+        "{}: Linux itself broke a rule racing calls are held to, so the rule is wrong: {:#?}",
+        setup.name(),
+        found.broken_by_linux
+    );
+    let answers: Vec<_> = found.kobako.difference(&found.linux).collect();
+    assert!(
+        answers.is_empty() && found.broken_by_kobako.is_empty(),
+        "{} racing on one instance must answer only what Linux answers and leave what any \
+         interleaving leaves.\nAnswers Linux never gave: {answers:#?}\nBroken at rest: {:#?}",
+        setup.name(),
+        found.broken_by_kobako
+    );
+}
+
 #[test]
 #[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
 fn a_tmpfs_answers_as_a_tmpfs_of_linux() {
@@ -536,4 +567,22 @@ fn a_tmpfs_moves_the_times_a_tmpfs_of_linux_moves() {
 #[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
 fn an_overlay_moves_the_times_overlayfs_moves() {
     moves_the_same_times(Setup::Overlay, 300, 6);
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn calls_racing_on_a_tmpfs_answer_as_linux() {
+    holds_racing(Setup::Tmpfs, 30_000, 40);
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn calls_racing_on_an_overlay_answer_as_overlayfs() {
+    holds_racing(Setup::Overlay, 30_000, 40);
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn calls_racing_on_a_bind_answer_as_linux() {
+    holds_racing(Setup::Bind, 30_000, 40);
 }
