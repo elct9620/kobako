@@ -21,7 +21,7 @@ use super::{
     DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
     InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
 };
-use crate::vfs::{notify_change, Dentry, Inode};
+use crate::vfs::{notify_change, Dentry, Inode, NAME_MAX};
 use inode::OverlayInode;
 use path::OverlayPath;
 use stack::OverlayFs;
@@ -239,10 +239,14 @@ impl InodeOperations for Overlay {
     }
 
     /// The entry as a Layer spells it, as `ovl_lookup` hands
-    /// `d_splice_alias` the inode it made.
+    /// `d_splice_alias` the inode it made, a name no Layer could hold refused
+    /// before any is asked, as it compares `namelen`.
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         let level = self.fs.parent(dentry)?.level();
         let name = dentry.name();
+        if name.len() > NAME_MAX {
+            return Err(FilesystemError::InvalidFilename);
+        }
         let stored = self.fs.case_exact_name(&level, &name)?;
         if stored != name {
             return Ok(Lookup::Spelled(stored));
@@ -350,6 +354,30 @@ mod tests {
     /// The Filesystem `filesystem` holds, reached through the VFS.
     fn on<F: InodeOperations>(filesystem: &Arc<F>) -> KernPath {
         kern_path(filesystem.clone())
+    }
+
+    // Only the upper could refuse the name once the directory was copied up, so
+    // the directory standing nowhere in the upper is what shows no change began.
+    // @behavior FS-183
+    #[test]
+    fn a_name_past_name_max_answers_too_long_and_copies_nothing_up() {
+        let upper = Arc::new(Tmpfs::new());
+        let (view, _lower) = overlay_on(upper.clone());
+        let long = format!("dir/{}", "n".repeat(NAME_MAX + 1));
+        assert_eq!(
+            (
+                view.symlink_metadata(&long).err(),
+                view.create_dir(&long).err(),
+                on(&upper).symlink_metadata("upper/dir").err(),
+            ),
+            (
+                Some(FilesystemError::InvalidFilename),
+                Some(FilesystemError::InvalidFilename),
+                Some(FilesystemError::NotFound),
+            ),
+            "a stat and a make of a name past NAME_MAX in a lower directory, through an Overlay, \
+             must answer ENAMETOOLONG and leave that directory uncopied"
+        );
     }
 
     // @behavior FS-140

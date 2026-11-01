@@ -1949,3 +1949,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a file of a lower Layer |
 | When | a Thread removes it through an Overlay as another opens it to write |
 | Then | the removal succeeds |
+
+## `FS-183` An Overlay answers a name past `NAME_MAX` before it copies anything up
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-154` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer holds a directory |
+| When | a caller looks up or makes a name past `NAME_MAX` in that directory |
+| Then | each call answers ENAMETOOLONG, and the directory is not copied up |
