@@ -15,10 +15,11 @@
 #   * `rake crates:testsuite` — fetches wasi-testsuite at a pinned commit and
 #                               holds preview1 to it. Not in the release gate,
 #                               which reaches no network.
-#   * `rake crates:linux_baseline` — holds the VFS and the built-in Filesystems
-#                               to a real Linux, as root in a container since
-#                               overlayfs needs a mount. Not in the release
-#                               gate, which needs neither.
+#   * `rake crates:linux_baseline` — compares what the VFS and the built-in
+#                               Filesystems answer with a real Linux, as root in
+#                               a container since overlayfs needs a mount.
+#                               Evidence for a change, not the baseline, so not
+#                               in the release gate.
 #   * `rake coverage:crates`  — the same suite under `cargo llvm-cov`. Lives
 #                               in the `coverage:` namespace with the other
 #                               line-coverage reports, but here beside the

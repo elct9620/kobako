@@ -1,5 +1,6 @@
-# The differences from Linux kobako keeps, one per line: the setup, then the
-# class a failure of tests/linux_baseline names, with why after a `#`.
+# The differences from Linux known so far, one per line: the setup, then the
+# class a failure of tests/linux_baseline names, with what causes it after a `#`.
+# A line records a difference and settles nothing about it.
 overlay Rename from=g kobako=EXDEV linux=ok  # a lower Layer's link is not copied up
 overlay Rename from=l kobako=EXDEV linux=ok  # a lower Layer's link is not copied up
 overlay Rename from=n kobako=EXDEV linux=ok  # a lower Layer's link is not copied up

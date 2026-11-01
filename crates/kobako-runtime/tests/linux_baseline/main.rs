@@ -1,9 +1,12 @@
-//! Holds the VFS and the built-in Filesystems to the Linux they align with: one
-//! seeded sequence of calls goes through kobako and through a real tmpfs,
-//! overlayfs, or directory, and each answer and the tree left behind must agree.
+//! Compares the VFS and the built-in Filesystems with a real Linux: one seeded
+//! sequence of calls goes through kobako and through a real tmpfs, overlayfs, or
+//! directory, and each answer and the tree left behind are compared. This is
+//! evidence for a change: the VFS's baseline is Linux VFS's shape, and a
+//! Filesystem's is the specification.
 //!
-//! `linux-baseline-expected.txt` names the differences kobako keeps. A new one
-//! fails, and so does one no sequence reaches any more. `concurrent` holds calls
+//! `linux-baseline-expected.txt` names the differences known so far, which a line
+//! there does not settle. A new one fails, and so does one no sequence reaches any
+//! more. `concurrent` holds calls
 //! racing on one instance, and `permissions` what a Policy and another user are
 //! refused. `rake crates:linux_baseline` runs this as root in a container, since
 //! overlayfs needs a mount.

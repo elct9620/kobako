@@ -72,6 +72,7 @@ The feature set has converged, so the ideal change keeps behavior identical with
 | polishing | same behavior, less code, no surface change |
 | pruning | lock external interfaces first, then prune behind them |
 | changing | change the code; no feature flags or back-compat shims |
+| finding something | work it if it points to a Linux VFS shape or scenario; else report it |
 
 No speculative interfaces, parallel hierarchies, or defensive layers. Existing tests pin the behavior a pruning step must keep.
 
@@ -133,6 +134,8 @@ A Ruby tier uses only the tiers to its right. These rules govern how a change cr
 |---|---|
 | wrapper changes go to `beni` upstream | kobako takes them by a dependency bump |
 | a low-level gap is fixed in that layer | a workaround above leaves it for every other caller |
+| `vfs` aligns fully to Linux VFS | the design is early, and a departure is hard to undo |
+| `filesystem` conforms to the specification | its security baseline; the implementation is ours, nothing else judges it |
 
 ## Build and commands
 
@@ -196,7 +199,7 @@ Each row names an entry point and only what reading it will not tell you.
 | guest capabilities | `wasm/kobako-{io,regexp,json}/src/` | pure-Rust `beni::Gem`, no mrblib |
 | ABI surface | `wasm/kobako-core/src/guest.rs` | bodies in `wasm/kobako-mruby/src/flows.rs`; host side in `crates/kobako-runtime/src/endpoint.rs` |
 | preview1 | `crates/kobako-wasmtime/src/preview1.rs` | wiggle generates it from `witx/`; `rake crates:testsuite` holds it to wasi-testsuite |
-| Linux alignment | `crates/kobako-runtime/tests/linux_baseline/` | `rake crates:linux_baseline` holds the VFS to a real Linux; run it before reading for a gap |
+| Linux alignment | `crates/kobako-runtime/tests/linux_baseline/` | `rake crates:linux_baseline` compares answers with Linux: evidence, not a baseline |
 | security | `docs/guides/security.md` | the host is the boundary |
 | customization | `docs/guides/customization.md` | grades are commitments |
 | parity | `docs/parity.md` | behavior aligns; APIs stay idiomatic |
