@@ -256,9 +256,6 @@ impl Dentry {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         match self.inode() {
-            Some(inode) if inode.kind() == FileType::Directory => {
-                Err(FilesystemError::IsADirectory)
-            }
             Some(inode) => inode.ops().open(self, options),
             None => Err(FilesystemError::NotFound),
         }

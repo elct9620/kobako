@@ -1,11 +1,7 @@
-//! What an open asks for and what it reaches, as Linux's `openat2` takes
-//! an `open_how` and `vfs_open` holds what the walk opened.
+//! What an open asks for, as Linux's `openat2` takes an `open_how`.
 
 use super::attr::Iattr;
 use super::dentry::Dentry;
-use super::file::File;
-use super::namei::Nameidata;
-use super::path::Path;
 use super::FilesystemError;
 
 /// How `InodeOperations::open` opens a file.
@@ -59,14 +55,4 @@ pub(crate) fn do_truncate(dentry: &Dentry, attr: &Iattr) -> Result<(), Filesyste
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
     let _held = dentry.inode_lock()?;
     inode.ops().setattr(dentry, attr)
-}
-
-/// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds
-/// what it opened, so the descriptor follows it wherever it moves.
-pub(crate) fn vfs_open(
-    start: &Path,
-    nd: Nameidata,
-    how: &OpenHow,
-) -> Result<File, FilesystemError> {
-    Ok(File::directory(start.with_dentry(nd.path()?), nd.cred.clone())?.with_flags(how))
 }

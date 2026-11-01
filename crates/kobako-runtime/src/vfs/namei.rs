@@ -18,7 +18,7 @@ use super::dentry::Dentry;
 use super::file::{File, FileOperations};
 use super::inode::{Inode, RenameFlag};
 use super::mount::{Access, VfsMount};
-use super::openat2::{build_open_flags, do_truncate, vfs_open, OpenHow, OpenOptions};
+use super::openat2::{build_open_flags, do_truncate, OpenHow, OpenOptions};
 use super::path::Path;
 use super::super_block::SuperBlock;
 use super::{FileType, FilesystemError, Iattr, Metadata};
@@ -107,19 +107,6 @@ impl Nameidata {
     pub(crate) fn getattr(&self) -> Result<Metadata, FilesystemError> {
         let _held = self.dentry().inode_lock_shared()?;
         self.path()?.getattr()
-    }
-
-    /// Refuse the name as `NotADirectory` when it must be a directory and
-    /// something else stands there, as `LOOKUP_DIRECTORY` asks `d_can_lookup`.
-    fn check_directory(&self) -> Result<(), FilesystemError> {
-        if self.lookup_directory {
-            match self.kind() {
-                Ok(FileType::Directory) | Err(FilesystemError::NotFound) => {}
-                Ok(_) => return Err(FilesystemError::NotADirectory),
-                Err(err) => return Err(err),
-            }
-        }
-        Ok(())
     }
 
     /// The path from the Mount's root, read from the dentry the walk stands
@@ -374,7 +361,8 @@ pub(crate) fn filename_parentat(
 
 /// `path` beneath `start`, walked to what it names, as Linux's `filename_lookup`.
 /// Where `follow` asks, or a trailing `/` does, a link at the end is followed
-/// too. Nothing standing at the last name answers ENOENT, as a walk does.
+/// too. Nothing standing at the last name answers ENOENT, as a walk does, and
+/// anything but a directory where `LOOKUP_DIRECTORY` asks for one ENOTDIR.
 pub(crate) fn filename_lookup(
     cred: &Arc<Cred>,
     start: &Path,
@@ -384,8 +372,10 @@ pub(crate) fn filename_lookup(
     let mut nd = set_nameidata(cred, start, path)?;
     nd.link_path_walk()?;
     nd.lookup_last(follow, false)?;
-    nd.kind()?;
-    nd.check_directory()?;
+    let kind = nd.kind()?;
+    if nd.lookup_directory && kind != FileType::Directory {
+        return Err(FilesystemError::NotADirectory);
+    }
     Ok(nd)
 }
 
@@ -401,6 +391,7 @@ pub fn do_file_open(
 ) -> Result<File, FilesystemError> {
     let follow = build_open_flags(how)?;
     let mut nd = set_nameidata(cred, start, path)?;
+    nd.lookup_directory = how.directory;
     nd.link_path_walk()?;
     nd.lookup_last(follow, how.create)?;
     // A create finds what stands at the name under the directory's lock it
@@ -418,13 +409,8 @@ pub fn do_file_open(
     };
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
-    nd.check_directory()?;
-    let existing = match nd.kind() {
-        Ok(kind) => Some(kind),
-        Err(FilesystemError::NotFound) => None,
-        Err(err) => return Err(err),
-    };
-    refuse_what_stands(existing, how)?;
+    let existing = nd.path()?.inode().map(|inode| inode.kind());
+    refuse_what_stands(existing, nd.lookup_directory, how)?;
     // Creating changes the Mount only where nothing stands yet, so the
     // Mount judges the open once, knowing what it does.
     let changes = how.write || how.truncate || (how.create && existing.is_none());
@@ -436,38 +422,48 @@ pub fn do_file_open(
     if let Some(kind) = existing {
         cred.security_file_open(kind)?;
     }
-    match existing {
-        Some(FileType::Directory) => vfs_open(start, nd, how),
-        Some(_) | None => {
-            let options = OpenOptions {
-                read: how.read,
-                write: how.write,
-                truncate: how.truncate,
-            };
-            let child = nd.path()?;
-            let f_op = match existing {
-                None => atomic_open(nd.dentry(), &child, &options)?,
-                Some(_) => child.open(&options)?,
-            };
-            // Only what stood is emptied, as Linux's `do_open` calls
-            // `handle_truncate` for a regular file it did not make.
-            if how.truncate && existing == Some(FileType::File) {
-                do_truncate(&child, &Iattr::open_truncate())?;
-            }
-            Ok(File::new(start.with_dentry(child), cred.clone(), f_op, how))
-        }
+    // A directory opens to read whatever else was asked, as Linux's `O_RDONLY`
+    // is the mode no other flag changes.
+    let how = OpenHow {
+        read: how.read || existing == Some(FileType::Directory),
+        ..*how
+    };
+    let options = OpenOptions {
+        read: how.read,
+        write: how.write,
+        truncate: how.truncate,
+    };
+    let child = nd.path()?;
+    let f_op = match existing {
+        None => atomic_open(nd.dentry(), &child, &options)?,
+        Some(_) => child.open(&options)?,
+    };
+    // Only what stood is emptied, as Linux's `do_open` calls
+    // `handle_truncate` for a regular file it did not make.
+    if how.truncate && existing == Some(FileType::File) {
+        do_truncate(&child, &Iattr::open_truncate())?;
     }
+    Ok(File::new(
+        start.with_dentry(child),
+        cred.clone(),
+        f_op,
+        &how,
+    ))
 }
 
 /// What stands at the path answers before any access is judged, as Linux's
 /// `do_open` answers it on a read-only mount.
-fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), FilesystemError> {
+fn refuse_what_stands(
+    existing: Option<FileType>,
+    lookup_directory: bool,
+    how: &OpenHow,
+) -> Result<(), FilesystemError> {
     let refusal = match existing {
         None if !how.create => Some(FilesystemError::NotFound),
         Some(_) if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
         Some(FileType::Directory) if how.create => Some(FilesystemError::IsADirectory),
         Some(FileType::Directory) | None => None,
-        Some(_) if how.directory => Some(FilesystemError::NotADirectory),
+        Some(_) if lookup_directory => Some(FilesystemError::NotADirectory),
         Some(_) => None,
     };
     match refusal {

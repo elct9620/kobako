@@ -296,15 +296,6 @@ impl File {
         Ok(Self::new(path, cred, ops, &how))
     }
 
-    /// This directory keeping the flags it was opened with, as `f_flags` does
-    /// whatever the file is.
-    pub(super) fn with_flags(mut self, how: &OpenHow) -> Self {
-        self.append = how.append;
-        self.nonblock = how.nonblock;
-        self.sync = how.sync;
-        self
-    }
-
     /// This file with no position, as `stream_open` makes a pipe's ends.
     pub(crate) fn stream_open(&mut self) {
         let access = self.mode.0 & (FMode::READ.0 | FMode::WRITE.0);
