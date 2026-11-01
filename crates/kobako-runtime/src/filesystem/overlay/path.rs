@@ -47,16 +47,6 @@ impl OverlayPath {
         &self.dentry
     }
 
-    /// Whether the dentry this Layer holds for `name`, if it holds one, still
-    /// names what it recorded, as `ovl_revalidate_real` asks the real dentry.
-    pub(super) fn revalidate_real(&self, name: &str) -> Result<bool, FilesystemError> {
-        let held = self.filesystem.dentries().lookup(&self.dentry, name);
-        match held.as_ref().and_then(|held| Some((held, held.ops()?))) {
-            Some((held, ops)) => ops.revalidate(self.dentry.inode_ops()?.as_ref(), held),
-            None => Ok(true),
-        }
-    }
-
     /// Whether what this Layer holds at `name`, if it holds a dentry there, is
     /// `real`, as `ovl_matches_upper` compares what stands in the upper.
     pub(super) fn matches_real(&self, name: &str, real: &Arc<Dentry>) -> bool {

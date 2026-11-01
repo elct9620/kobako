@@ -110,32 +110,6 @@ impl Bind {
         call(&*self.fid_lookup(&parent)?, to_host_name(&dentry.name())?)
     }
 
-    /// What stands at the name `dentry` carries, spelled as the host spells
-    /// it, as a lookup hands `d_splice_alias` the inode it found, so
-    /// `revalidate` can tell a dentry the host replaced behind the
-    /// runtime's back. That costs one host stat a name.
-    fn lookup_at(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-        self.at(dentry, |dir, name| {
-            let stored = lookup::lookup(dir, name)?;
-            if stored != name {
-                return Ok(Lookup::Spelled(stored));
-            }
-            match dir.symlink_metadata(name).map_err(to_error) {
-                Ok(found) => {
-                    let found = to_metadata(found);
-                    let ops: Arc<dyn InodeOperations> = match found.file_type {
-                        FileType::Directory => Arc::new(self.clone()),
-                        FileType::Symlink => Arc::new(BindLink(self.clone())),
-                        _ => Arc::new(BindRegular(self.clone())),
-                    };
-                    Ok(Lookup::Found(Inode::new(&found, ops)))
-                }
-                Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
-                Err(err) => Err(err),
-            }
-        })
-    }
-
     /// Open the file `dentry` names and keep its descriptor on the inode, so
     /// the entry answers from it however its name changes, as 9p's
     /// `v9fs_open_fid_add` keeps an open fid. What this made is recorded
@@ -369,7 +343,7 @@ struct OpenFids(Mutex<Vec<(Weak<std::fs::File>, bool)>>);
 
 /// A descriptor open on the file `dentry` records, one open to write where
 /// `writable` asks, as 9p's `v9fs_fid_find_inode` finds one.
-fn open_fid(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::File>> {
+fn find_fid_inode(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::File>> {
     let inode = dentry.inode()?;
     let fids = inode.private().get()?.clone().downcast::<OpenFids>().ok()?;
     let fids = fids.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -468,7 +442,7 @@ impl InodeOperations for BindRegular {
     /// A file open anywhere answers from the descriptor that holds it, even
     /// once its name is gone.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        match open_fid(dentry, false) {
+        match find_fid_inode(dentry, false) {
             Some(file) => Ok(to_metadata(
                 cap_std::fs::Metadata::from_file(&file).map_err(to_error)?,
             )),
@@ -480,7 +454,7 @@ impl InodeOperations for BindRegular {
         let Some(len) = attr.size else {
             return Err(FilesystemError::Unsupported);
         };
-        match open_fid(dentry, true) {
+        match find_fid_inode(dentry, true) {
             Some(file) => file.set_len(len).map_err(to_error),
             None => Err(FilesystemError::InvalidInput),
         }
@@ -524,8 +498,30 @@ impl InodeOperations for Bind {
         ))
     }
 
+    /// What stands at the name `dentry` carries, spelled as the host spells
+    /// it, as a lookup hands `d_splice_alias` the inode it found, so
+    /// `revalidate` can tell a dentry the host replaced behind the
+    /// runtime's back. That costs one host stat a name.
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-        self.lookup_at(dentry)
+        self.at(dentry, |dir, name| {
+            let stored = lookup::lookup(dir, name)?;
+            if stored != name {
+                return Ok(Lookup::Spelled(stored));
+            }
+            match dir.symlink_metadata(name).map_err(to_error) {
+                Ok(found) => {
+                    let found = to_metadata(found);
+                    let ops: Arc<dyn InodeOperations> = match found.file_type {
+                        FileType::Directory => Arc::new(self.clone()),
+                        FileType::Symlink => Arc::new(BindLink(self.clone())),
+                        _ => Arc::new(BindRegular(self.clone())),
+                    };
+                    Ok(Lookup::Found(Inode::new(&found, ops)))
+                }
+                Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+                Err(err) => Err(err),
+            }
+        })
     }
 
     fn fill_super(&self, sb: &mut Filesystem) {

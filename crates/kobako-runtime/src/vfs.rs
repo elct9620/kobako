@@ -29,6 +29,7 @@ pub(crate) use namei::{
     vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
 };
 
+pub(crate) use attr::notify_change;
 pub use attr::{Iattr, SetTime};
 pub use cred::{Cred, SecurityOperations};
 pub use dentry::{Dentry, DentryOperations};

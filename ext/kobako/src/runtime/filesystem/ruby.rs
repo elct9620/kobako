@@ -228,7 +228,7 @@ fn join(dir: &str, name: &str) -> String {
 impl RubyFilesystem {
     /// Open the file `dentry` names and keep it on the inode, so the entry
     /// answers from it however its name changes, as 9p keeps an open fid.
-    /// What this made is recorded first, as `->create` calls `d_instantiate`.
+    /// What this made is recorded first, as `->atomic_open` calls `d_instantiate`.
     fn open_at(
         &self,
         dentry: &Dentry,
@@ -318,7 +318,7 @@ impl InodeOperations for RubyRegular {
     /// asks an open fid: its `size`, and its `stat` where it has one. It stays
     /// the entry its lookup recorded; anything else is asked by its path.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        let Some(file) = open_file(dentry) else {
+        let Some(file) = find_open_file(dentry) else {
             return self.0.stat(dentry.path_raw());
         };
         let metadata = ask(
@@ -350,7 +350,7 @@ impl InodeOperations for RubyRegular {
         if attr.open {
             return Ok(());
         }
-        let file = open_file(dentry).ok_or(FilesystemError::InvalidInput)?;
+        let file = find_open_file(dentry).ok_or(FilesystemError::InvalidInput)?;
         change(
             file.get(),
             "truncate",
@@ -495,7 +495,7 @@ struct RubyFile {
 struct OpenRubyFile(Mutex<Weak<PinnedValue>>);
 
 /// The file open on `dentry`, while one is.
-fn open_file(dentry: &Dentry) -> Option<Arc<PinnedValue>> {
+fn find_open_file(dentry: &Dentry) -> Option<Arc<PinnedValue>> {
     let inode = dentry.inode()?;
     let open = inode
         .private()
@@ -517,7 +517,7 @@ impl DentryOperations for RubyFilesystem {
         _dir: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
-        let Some(inode) = dentry.inode().filter(|_| open_file(dentry).is_none()) else {
+        let Some(inode) = dentry.inode().filter(|_| find_open_file(dentry).is_none()) else {
             return Ok(dentry.inode().is_none());
         };
         match self.stat(dentry.path_raw()) {

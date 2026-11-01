@@ -6,7 +6,7 @@
 
 use super::super::super::{FileOperations, FileType, FilesystemError, OpenOptions};
 use super::super::file::ovl_file;
-use super::super::inode::ovl_inode_of;
+use super::super::inode::OverlayInode;
 use super::super::path::OverlayPath;
 use super::{
     cleanup, cleanup_whiteouts, entry, layer_dir, Level, OverlayFs, Shown, ViewDir, UPPER,
@@ -173,7 +173,7 @@ impl OverlayFs {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let inode = child.inode().ok_or(FilesystemError::NotFound)?;
-        let kept = ovl_inode_of(&inode).ok_or(FilesystemError::IsADirectory)?;
+        let kept = OverlayInode::of(&inode).ok_or(FilesystemError::IsADirectory)?;
         let real = kept.real().ok_or(FilesystemError::IsADirectory)?;
         if self.is_in_upper(&real) {
             return real.open(options);

@@ -45,6 +45,11 @@ impl OverlayInode {
         }
     }
 
+    /// What `inode` keeps, where it keeps any.
+    pub(super) fn of(inode: &Inode) -> Option<Arc<Self>> {
+        Some(downcast(inode.private().get()?.clone()))
+    }
+
     pub(super) fn level(&self) -> Level {
         lock(&self.level).clone()
     }
@@ -71,7 +76,7 @@ impl OverlayInode {
 /// The state the entry `dentry` records keeps, made from the level `init`
 /// finds where it keeps none yet, as overlayfs's `ovl_get_inode` finds or
 /// makes one. A dentry recording nothing names no entry to keep it for.
-pub(super) fn ovl_inode(
+pub(super) fn ovl_get_inode(
     dentry: &Dentry,
     init: impl FnOnce() -> Result<Level, FilesystemError>,
 ) -> Result<Arc<OverlayInode>, FilesystemError> {
@@ -88,11 +93,6 @@ pub(super) fn ovl_inode(
 /// have the entry stand for another.
 pub(super) fn ovl_inode_init(inode: &Inode, kept: OverlayInode) {
     inode.private().get_or_init(|| Arc::new(kept));
-}
-
-/// The state `inode` keeps, where it keeps any.
-pub(super) fn ovl_inode_of(inode: &Inode) -> Option<Arc<OverlayInode>> {
-    Some(downcast(inode.private().get()?.clone()))
 }
 
 fn downcast(kept: Arc<dyn Any + Send + Sync>) -> Arc<OverlayInode> {

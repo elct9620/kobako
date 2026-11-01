@@ -21,8 +21,8 @@ use super::{
     DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
     InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
 };
-use crate::vfs::{Dentry, Inode};
-use inode::ovl_inode_of;
+use crate::vfs::{notify_change, Dentry, Inode};
+use inode::OverlayInode;
 use path::OverlayPath;
 use stack::OverlayFs;
 
@@ -95,49 +95,45 @@ impl Overlay {
     }
 }
 
-impl Overlay {
-    /// The Layer's dentry the entry `dentry` answers through, and the inode
-    /// the view recorded, as `ovl_getattr` asks the real path.
-    fn real_of(&self, dentry: &Dentry) -> Option<(Arc<Dentry>, Arc<Inode>)> {
-        let inode = dentry.inode()?;
-        let real = ovl_inode_of(&inode)?.real()?;
-        Some((real, inode))
-    }
+/// The Layer's dentry the entry `dentry` answers through, and the inode the view
+/// recorded, as `ovl_getattr` asks the real path.
+fn real_of(dentry: &Dentry) -> Option<(Arc<Dentry>, Arc<Inode>)> {
+    let inode = dentry.inode()?;
+    let real = OverlayInode::of(&inode)?.real()?;
+    Some((real, inode))
+}
 
-    fn lookup_at(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-        let level = self.fs.parent(dentry)?.level();
-        let name = dentry.name();
-        let stored = self.fs.case_exact_name(&level, &name)?;
-        if stored != name {
-            return Ok(Lookup::Spelled(stored));
-        }
-        Ok(self
-            .fs
-            .lookup(&level, &name, |kind| self.ops_of(kind))?
-            .map_or(Lookup::Absent, Lookup::Found))
+/// Whether `real`, a Layer's dentry, still names what it recorded, as
+/// `ovl_revalidate_real` asks it.
+fn ovl_revalidate_real(real: &Dentry) -> Result<bool, FilesystemError> {
+    match (real.ops(), real.parent()) {
+        (Some(ops), Some(parent)) => ops.revalidate(parent.inode_ops()?.as_ref(), real),
+        _ => Ok(true),
     }
 }
 
-/// A name stays valid while every Layer's dentry for it does, as
+/// A name stays valid while each Layer's dentry its entry keeps does, as
 /// `ovl_dentry_revalidate` asks each real dentry, and while a directory still
 /// stands for what each Layer holds there, as `ovl_clear_empty` drops a dentry
-/// whose upper no longer matches. Layers hold such a dentry only for what the
-/// view keeps open.
+/// whose upper no longer matches.
 impl DentryOperations for Overlay {
     fn revalidate(
         &self,
         _dir: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
-        let name = dentry.name();
-        let above = self.fs.parent(dentry)?.level();
-        for layer in above.iter().flatten() {
-            if !layer.revalidate_real(&name)? {
+        let Some(kept) = dentry.inode().as_deref().and_then(OverlayInode::of) else {
+            return Ok(true);
+        };
+        let shown = kept.level();
+        let reals = shown.iter().flatten().map(|layer| layer.dentry().clone());
+        for real in reals.chain(kept.real()) {
+            if !ovl_revalidate_real(&real)? {
                 return Ok(false);
             }
         }
-        let kept = dentry.inode().as_deref().and_then(ovl_inode_of);
-        let shown = kept.map_or_else(Vec::new, |kept| kept.level());
+        let name = dentry.name();
+        let above = self.fs.parent(dentry)?.level();
         Ok(above.iter().zip(&shown).all(|pair| match pair {
             (Some(layer), Some(shown)) => layer.matches_real(&name, shown.dentry()),
             _ => true,
@@ -147,7 +143,7 @@ impl DentryOperations for Overlay {
     /// A name goes once nothing holds it where any Layer behind it would let
     /// its own go, since its `revalidate` answers only as those Layers do.
     fn delete(&self, dentry: &Dentry) -> bool {
-        let Some(kept) = dentry.inode().as_deref().and_then(ovl_inode_of) else {
+        let Some(kept) = dentry.inode().as_deref().and_then(OverlayInode::of) else {
             return true;
         };
         let real = kept.real().is_some_and(|real| real.goes_when_unused());
@@ -179,7 +175,7 @@ impl Overlay {
     /// What the Layer the entry's name is found in reports, under the identity
     /// the view recorded.
     fn real_getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        let (real, inode) = self.real_of(dentry).ok_or(FilesystemError::NotFound)?;
+        let (real, inode) = real_of(dentry).ok_or(FilesystemError::NotFound)?;
         let found = real.getattr()?;
         Ok(match inode.identity() {
             Some(identity) => identity.onto(found),
@@ -200,10 +196,8 @@ impl InodeOperations for OverlayRegular {
         overlay
             .fs
             .copy_up_file(&overlay.fs.parent(dentry)?, dentry, false)?;
-        let (real, _) = overlay.real_of(dentry).ok_or(FilesystemError::NotFound)?;
-        let _held = real.inode_lock()?;
-        let found = real.inode().ok_or(FilesystemError::NotFound)?;
-        found.ops().setattr(&real, attr)
+        let (real, _) = real_of(dentry).ok_or(FilesystemError::NotFound)?;
+        notify_change(&real, attr)
     }
 
     fn open(
@@ -223,7 +217,7 @@ impl InodeOperations for OverlayLink {
 
     /// Where the link points, as `ovl_get_link` asks the real dentry.
     fn get_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        let (real, _) = self.0.real_of(dentry).ok_or(FilesystemError::NotFound)?;
+        let (real, _) = real_of(dentry).ok_or(FilesystemError::NotFound)?;
         real.get_link()
     }
 }
@@ -247,7 +241,16 @@ impl InodeOperations for Overlay {
     /// The entry as a Layer spells it, as `ovl_lookup` hands
     /// `d_splice_alias` the inode it made.
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-        self.lookup_at(dentry)
+        let level = self.fs.parent(dentry)?.level();
+        let name = dentry.name();
+        let stored = self.fs.case_exact_name(&level, &name)?;
+        if stored != name {
+            return Ok(Lookup::Spelled(stored));
+        }
+        Ok(self
+            .fs
+            .lookup(&level, &name, |kind| self.ops_of(kind))?
+            .map_or(Lookup::Absent, Lookup::Found))
     }
 
     fn open(

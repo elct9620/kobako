@@ -6,10 +6,10 @@ use super::dentry::{Dentries, DentryOperations};
 use super::inode::{Inode, InodeOperations};
 use crate::locking::RwSemaphore;
 
-/// One Filesystem instance, with the directories of it a walk reaches, as a
-/// Host App names it through `filesystem::Filesystem`. Every Mount of the same
-/// instance shares them, as a bind mount shares its super block, so a directory
-/// moved or removed beneath one Mount is moved or removed beneath every other.
+/// One Filesystem instance, with the directories of it a walk reaches. Every
+/// mount of the same instance shares them, as a bind mount shares its super
+/// block, so a directory moved or removed beneath one is moved or removed
+/// beneath every other.
 pub struct SuperBlock {
     root: Arc<dyn InodeOperations>,
     dentries: Dentries,

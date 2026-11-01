@@ -10,8 +10,8 @@ use super::path::Path;
 use super::{FileType, FilesystemError};
 
 /// What a security module answers, as a hook in Linux's `lsm_hook_defs.h`,
-/// beside the one kobako adds at the start of a walk. A hook a module does
-/// not have allows the call, and a module can only refuse.
+/// beside one added at the start of a walk. A hook a module does not have allows
+/// the call, and a module can only refuse.
 pub trait SecurityOperations: Send + Sync {
     /// Whether the path `path` names beneath `mnt` may be reached with
     /// `access`, as AppArmor's `aa_path_perm` judges a whole path once.
@@ -50,15 +50,15 @@ pub trait SecurityOperations: Send + Sync {
         Ok(())
     }
 
-    /// Whether a call may start from `path`, kobako's own hook, as Linux asks
-    /// nothing of the dentry a walk starts from.
+    /// Whether a call may start from `path`, a hook Linux does not have, as it
+    /// asks nothing of the dentry a walk starts from.
     fn path_walk(&self, _path: &Path) -> Result<(), FilesystemError> {
         Ok(())
     }
 }
 
-/// Who a call is made for: one per Invocation, holding the security modules
-/// registered for it, as `cred->security` holds a Landlock domain.
+/// Who a call is made for, holding the security modules registered for it, as
+/// `cred->security` holds a Landlock domain.
 #[derive(Default)]
 pub struct Cred {
     security: Vec<Arc<dyn SecurityOperations>>,

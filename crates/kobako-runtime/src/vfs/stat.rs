@@ -36,8 +36,7 @@ pub struct Metadata {
     pub len: u64,
     /// The device and inode numbers naming what the path holds, as
     /// `st_dev` and `st_ino` do. An `ino` of zero reports none, so such a
-    /// directory cannot be told from one made in its place, and beneath a
-    /// Policy no path is walked through a descriptor of it.
+    /// directory cannot be told from one made in its place.
     pub dev: u64,
     pub ino: u64,
     /// How many names the entry has, as `st_nlink` counts; one where the

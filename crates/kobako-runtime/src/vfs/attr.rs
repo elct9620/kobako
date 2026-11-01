@@ -3,6 +3,17 @@
 
 use std::time::SystemTime;
 
+use super::dentry::Dentry;
+use super::FilesystemError;
+
+/// Apply `attr` to what `dentry` names under its lock, as Linux's `notify_change`
+/// reaches `->setattr`.
+pub(crate) fn notify_change(dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+    let _held = dentry.inode_lock()?;
+    inode.ops().setattr(dentry, attr)
+}
+
 /// What a change sets of an entry, as Linux's `struct iattr`; a field left
 /// `None` is one `ia_valid` does not name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

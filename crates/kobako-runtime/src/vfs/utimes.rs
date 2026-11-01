@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use super::attr::notify_change;
 use super::cred::Cred;
 use super::mount::Access;
 use super::namei::filename_lookup;
@@ -24,9 +25,7 @@ fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Filesy
     path.mnt().mnt_want_write()?;
     let dentry = path.dentry();
     cred.security_path_perm(path.mnt(), &|| dentry.path_raw(), Access::ReadWrite)?;
-    let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-    let _held = dentry.inode_lock()?;
-    inode.ops().setattr(dentry, times)
+    notify_change(dentry, times)
 }
 
 /// Set `times` on what `path` beneath `start` names, a link at its end

@@ -1,14 +1,15 @@
 //! An open file, as Linux's `struct file`: where it was opened, what answers
-//! for it, and what each descriptor of it shares, so any ABI a Driver encodes
-//! holds the same open file.
+//! for it, and what each descriptor of it shares, so any ABI above holds the
+//! same open file.
 
 use std::ops::BitOr;
 use std::sync::Arc;
 
+use super::attr::notify_change;
 use super::dentry::Dentry;
 use super::inode::Identity;
 use super::mount::VfsMount;
-use super::openat2::{do_truncate, OpenHow, OpenOptions};
+use super::openat2::{OpenHow, OpenOptions};
 use super::path::Path;
 use super::{FileType, FilesystemError, Iattr, Metadata, PATH_MAX};
 
@@ -548,12 +549,13 @@ impl File {
         if !regular || !self.writable() || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
         }
-        do_truncate(self.path.dentry(), &Iattr::size(len))
+        notify_change(self.path.dentry(), &Iattr::size(len))
     }
 
-    /// Hand `ctx` the entries of the directory from its position, `.` and `..`
-    /// first as `dir_emit_dots` emits them, until its actor stops, moving it
-    /// past each. A listing from the start reads the directory; one going on
+    /// Hand `ctx` the entries of the directory from `ctx`'s position, `.` and
+    /// `..` first as `dir_emit_dots` emits them, until its actor stops, moving
+    /// that position past each, which each ABI keeps as it says a listing goes
+    /// on. A listing from the start reads the directory; one going on
     /// reads the entries that listing began with, so a caller reading in small
     /// steps costs one listing, not one per step. A removed directory answers
     /// not found, as `iterate_dir` asks `IS_DEADDIR`.

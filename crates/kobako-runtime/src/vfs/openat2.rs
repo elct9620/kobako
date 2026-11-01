@@ -1,7 +1,5 @@
 //! What an open asks for, as Linux's `openat2` takes an `open_how`.
 
-use super::attr::Iattr;
-use super::dentry::Dentry;
 use super::FilesystemError;
 
 /// How `InodeOperations::open` opens a file.
@@ -47,12 +45,4 @@ pub(crate) fn build_open_flags(how: &OpenHow) -> Result<bool, FilesystemError> {
         true => Err(FilesystemError::InvalidInput),
         false => Ok(how.follow && !(how.create && how.exclusive)),
     }
-}
-
-/// Truncate or extend what `dentry` names as `attr` asks, under its lock, as
-/// Linux's `do_truncate` reaches `->setattr`. An entry without it refuses.
-pub(crate) fn do_truncate(dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
-    let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-    let _held = dentry.inode_lock()?;
-    inode.ops().setattr(dentry, attr)
 }

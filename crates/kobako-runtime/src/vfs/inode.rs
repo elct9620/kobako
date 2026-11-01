@@ -21,7 +21,7 @@ pub enum Lookup {
     /// The entry the name reaches is stored under this other spelling, as
     /// `d_add_ci` is handed the case-exact name, so a name a host reaches by
     /// more than one spelling has one dentry, one lock, and one spelling a
-    /// Policy judges.
+    /// security hook judges.
     Spelled(String),
 }
 
@@ -36,9 +36,7 @@ pub enum Lookup {
 ///
 /// The VFS walks a path one name at a time and follows a link
 /// itself, as the VFS above a filesystem does, so a link never leads a call
-/// out of the directory a descriptor opened. Every Invocation reaches the
-/// same Filesystem; one that should start afresh is handed in its place for
-/// that Invocation.
+/// out of the directory a descriptor opened.
 pub trait InodeOperations: Any + Send + Sync {
     /// What this entry, which `dentry` names, reports of itself, as
     /// `getattr` is handed the path it answers for, even once its name is
@@ -132,7 +130,7 @@ pub trait InodeOperations: Any + Send + Sync {
     /// refusing what rename(2) refuses at `to`. The runtime has already
     /// checked what stands at `from` and never hands a move onto its own
     /// name, as Linux's VFS does before `inode_operations.rename`. It hands
-    /// only a `to_dir` of the same Mount, so no two instances meet here, as
+    /// only a `to_dir` of the same mount, so no two instances meet here, as
     /// `filename_renameat2` answers EXDEV first. One that takes no `flag`
     /// refuses any as invalid input, as Linux's filesystems refuse a `renameat2`
     /// flag they do not know.
@@ -165,7 +163,7 @@ struct EmptyFops;
 
 impl FileOperations for EmptyFops {}
 
-/// What a directory is, apart from where it stands: the device and inode
+/// What an entry is, apart from where it stands: the device and inode
 /// numbers its Filesystem names it by, as Linux reads `i_ino` and `s_dev`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Identity {

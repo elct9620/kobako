@@ -21,7 +21,7 @@ mod readdir;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::inode::{ovl_inode, OverlayInode};
+use super::inode::{ovl_get_inode, OverlayInode};
 use super::path::OverlayPath;
 
 use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb};
@@ -218,7 +218,7 @@ impl OverlayFs {
     /// its lookup recorded; the root, which no lookup finds, stands for every
     /// Layer's root.
     pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
-        let inode = ovl_inode(dentry, || match dentry.parent() {
+        let inode = ovl_get_inode(dentry, || match dentry.parent() {
             Some(_) => Err(FilesystemError::NotADirectory),
             None => Ok(self.roots.iter().cloned().map(Some).collect()),
         })?;

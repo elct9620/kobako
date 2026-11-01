@@ -13,12 +13,13 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use super::attr::notify_change;
 use super::cred::Cred;
 use super::dentry::Dentry;
 use super::file::{File, FileOperations};
 use super::inode::{Inode, RenameFlag};
 use super::mount::{Access, VfsMount};
-use super::openat2::{build_open_flags, do_truncate, OpenHow, OpenOptions};
+use super::openat2::{build_open_flags, OpenHow, OpenOptions};
 use super::path::Path;
 use super::super_block::SuperBlock;
 use super::{FileType, FilesystemError, Iattr, Metadata};
@@ -97,7 +98,7 @@ impl Nameidata {
         self.path()?.getattr()
     }
 
-    /// The path from the Mount's root, read from the dentry the walk stands
+    /// The path from the mount's root, read from the dentry the walk stands
     /// in as Linux's `d_path` reads one: each name spelled as the directory
     /// holding it stores it, the last name kept as given where nothing
     /// holds it.
@@ -160,9 +161,9 @@ fn d_revalidate(
 
 /// Whether each name from the root down to `path` still names what the runtime
 /// recorded, as gVisor's `revalidatePath` walks one. Linux asks only names a walk
-/// passes through, so this is kobako's own, for a security module to ask of where
-/// a call starts. A name moved while it was asked is asked again from the root,
-/// where it went.
+/// passes through, so this has no counterpart there; a security module asks it of
+/// where a call starts. A name moved while it was asked is asked again from the
+/// root, where it went.
 pub(crate) fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
     'again: loop {
         let mut chain = vec![path.dentry().clone()];
@@ -458,8 +459,8 @@ pub fn do_file_open(
     // the open decided. What already stood opens without it, as `do_open` does.
     let _held = held.filter(|_| existing.is_none());
     refuse_what_stands(existing, nd.lookup_directory, how)?;
-    // Creating changes the Mount only where nothing stands yet, so the
-    // Mount judges the open once, knowing what it does.
+    // Creating changes the mount only where nothing stands yet, so the hook
+    // judges the open once, knowing what it does.
     let changes = how.write || how.truncate || (how.create && existing.is_none());
     nd.check(if changes {
         Access::ReadWrite
@@ -482,7 +483,7 @@ pub fn do_file_open(
     // Only what stood is emptied, as Linux's `do_open` calls
     // `handle_truncate` for a regular file it did not make.
     if how.truncate && existing == Some(FileType::File) {
-        do_truncate(&child, &Iattr::open_truncate())?;
+        notify_change(&child, &Iattr::open_truncate())?;
     }
     Ok(File::new(start.with_dentry(child), f_op, how))
 }
@@ -644,9 +645,9 @@ pub fn filename_unlinkat(
 }
 
 /// Move `from_path` beneath `from` to `to_path` beneath `to`. A rename
-/// stays within one Mount; across two it crosses devices, as across two
-/// mounted devices. A directory moves only beneath a Mount that allows it,
-/// as Linux's `security_path_rename` asks before the move.
+/// stays within one mount; across two it crosses devices, as across two
+/// mounted devices. A security hook may refuse the move of a directory, as
+/// Linux's `security_path_rename` asks before the move.
 pub fn filename_renameat2(
     cred: &Arc<Cred>,
     from: &Path,

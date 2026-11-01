@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, OpenOptions};
-use super::super::inode::ovl_inode_of;
+use super::super::inode::OverlayInode;
 use super::super::path::OverlayPath;
 use super::{copy_whole, OverlayFs, ViewDir, UPPER};
 use crate::vfs::{Dentry, RenameFlag};
@@ -99,7 +99,7 @@ impl OverlayFs {
         let inode = child
             .inode()
             .as_deref()
-            .and_then(ovl_inode_of)
+            .and_then(OverlayInode::of)
             .ok_or(FilesystemError::NotFound)?;
         let _held = inode.lock.down_write()?;
         let real = inode.real().ok_or(FilesystemError::NotFound)?;
