@@ -1818,3 +1818,11 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind on Linux holding a directory the host lets the process search but not read |
 | When | the directory's path is stated |
 | Then | the stat reports a directory |
+
+## `FS-173` A removed directory something holds keeps its inode
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs with no inode left, and a directory open that was removed |
+| When | a directory is made, while it is open and once it closes |
+| Then | the first answers ENOSPC and the second succeeds |
