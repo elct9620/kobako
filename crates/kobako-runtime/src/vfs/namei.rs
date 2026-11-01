@@ -39,8 +39,8 @@ enum LastType {
 
 /// A path walked beneath a directory, as Linux's `nameidata` carries
 /// one walk from where it starts to the call it ends in: the directories
-/// it stands in, the names still to walk, and the last name, empty for
-/// the directory itself, left for the call to act on.
+/// it stands in, the names still to walk, the last name left for the call to
+/// act on, and what the walk ended on once it looked.
 pub(crate) struct Nameidata {
     pub(crate) mnt: Arc<VfsMount>,
     pub(crate) cred: Arc<Cred>,
@@ -54,16 +54,13 @@ pub(crate) struct Nameidata {
     last_type: LastType,
     /// Whether a `/` follows the last name, as `nd->last.name[nd->last.len]`.
     trailing_slash: bool,
-    /// The dentry the walk looked `name` up on, kept for as long as the
-    /// walk runs, as Linux's `nameidata` holds what it found, so what the
-    /// lookup recorded there is what the call acts on.
-    last: Option<Arc<Dentry>>,
+    /// The dentry the walk ended on, as `nd->path` holds it, naming nothing
+    /// where nothing stands at the last name, so what the lookup recorded there
+    /// is what the call acts on.
+    path: Option<Arc<Dentry>>,
     /// Whether only a directory satisfies the path, as `LOOKUP_DIRECTORY`,
     /// which stays once a trailing `/` sets it, through any link it follows.
     lookup_directory: bool,
-    /// What kind of entry stands at `name`, a link reported as itself, once
-    /// asked.
-    found: Option<Result<FileType, FilesystemError>>,
 }
 
 impl Nameidata {
@@ -72,21 +69,11 @@ impl Nameidata {
         self.frames.last().expect("a walk stands somewhere")
     }
 
-    /// The dentry of the last name in the directory the walk stands in, looked
-    /// up afresh, as a change looks its name up again once it holds the
-    /// directory's lock.
-    pub(crate) fn child(&self) -> Result<Arc<Dentry>, FilesystemError> {
-        lookup_one(self.mnt.sb(), self.dentry(), &self.name)
-    }
-
     /// The dentry the walk ended on, as Linux's `do_open` and `vfs_getattr`
     /// act on what the walk found without looking it up again, so a change
     /// made since cannot lead the call anywhere but where the walk stands.
-    pub(crate) fn last_dentry(&self) -> Result<Arc<Dentry>, FilesystemError> {
-        match &self.last {
-            Some(dentry) => Ok(dentry.clone()),
-            None => self.child(),
-        }
+    pub(crate) fn path(&self) -> Result<Arc<Dentry>, FilesystemError> {
+        self.path.clone().ok_or(FilesystemError::NotFound)
     }
 
     /// `name` as the directory the walk stands in stores it, and the dentry of
@@ -105,56 +92,26 @@ impl Nameidata {
     fn lookup_last_locked(&mut self) -> Result<Arc<Dentry>, FilesystemError> {
         let (stored, child) = self.lookup_slow(&self.name)?;
         self.name = stored;
-        self.found = Some(child.kind());
-        self.last = Some(child.clone());
+        self.path = Some(child.clone());
         Ok(child)
     }
 
-    /// What kind of entry stands at the name, a link reported as itself,
-    /// read from the dentry as Linux's `d_is_*` do; the directory itself for
-    /// the empty name.
-    pub(crate) fn kind(&mut self) -> Result<FileType, FilesystemError> {
-        if self.found.is_none() {
-            let parent = self.dentry().clone();
-            self.found = Some(parent.inode_lock_shared().and_then(|_held| {
-                let child = self.last_dentry()?;
-                self.look_up(&child)
-            }));
-        }
-        self.found.clone().expect("found was just asked")
+    /// What kind of entry the walk ended on, a link reported as itself, read
+    /// from the dentry as Linux's `d_is_*` do.
+    pub(crate) fn kind(&self) -> Result<FileType, FilesystemError> {
+        self.path()?.kind()
     }
 
-    /// What kind of entry stands at the name, whose dentry is `child`, a
-    /// link reported as itself; the directory itself for the empty name. A
-    /// dentry naming nothing is looked up again, as the caller may have just
-    /// taken the lock a change was holding.
-    fn look_up(&self, child: &Dentry) -> Result<FileType, FilesystemError> {
-        match self.name.as_str() {
-            "" => Ok(self.dentry().getattr()?.file_type),
-            _ => {
-                child.lookup_inode(self.dentry())?;
-                child.kind()
-            }
-        }
-    }
-
-    /// What stands at the name reports of itself, a link reported as itself,
-    /// as `vfs_getattr` asks the entry the walk found.
-    pub(crate) fn getattr(&mut self) -> Result<Metadata, FilesystemError> {
-        if self.name.is_empty() {
-            let parent = self.dentry().clone();
-            let _held = parent.inode_lock_shared()?;
-            return parent.getattr();
-        }
-        self.kind()?;
-        let parent = self.dentry().clone();
-        let _held = parent.inode_lock_shared()?;
-        self.last_dentry()?.getattr()
+    /// What the walk ended on reports of itself, a link reported as itself, as
+    /// `vfs_getattr` asks the entry the walk found.
+    pub(crate) fn getattr(&self) -> Result<Metadata, FilesystemError> {
+        let _held = self.dentry().inode_lock_shared()?;
+        self.path()?.getattr()
     }
 
     /// Refuse the name as `NotADirectory` when it must be a directory and
     /// something else stands there, as `LOOKUP_DIRECTORY` asks `d_can_lookup`.
-    fn check_directory(&mut self) -> Result<(), FilesystemError> {
+    fn check_directory(&self) -> Result<(), FilesystemError> {
         if self.lookup_directory {
             match self.kind() {
                 Ok(FileType::Directory) | Err(FilesystemError::NotFound) => {}
@@ -297,13 +254,6 @@ impl Nameidata {
     fn link_path_walk(&mut self) -> Result<(), FilesystemError> {
         loop {
             let part = self.pending.pop_front().ok_or(FilesystemError::NotFound)?;
-            if part.is_empty() {
-                if self.pending.is_empty() {
-                    self.set_last("", true);
-                    return Ok(());
-                }
-                continue;
-            }
             let slashes = self
                 .pending
                 .iter()
@@ -325,7 +275,7 @@ impl Nameidata {
     /// Leave `name` as the last name of the walk, with what kind it is.
     fn set_last(&mut self, name: &str, trailing_slash: bool) {
         self.last_type = match name {
-            "" | "." => LastType::Dot,
+            "." => LastType::Dot,
             ".." => LastType::DotDot,
             _ => LastType::Norm,
         };
@@ -342,10 +292,12 @@ impl Nameidata {
     /// `creating` would make, as `lookup_fast_for_open` refuses it.
     fn lookup_last(&mut self, mut follow: bool, creating: bool) -> Result<(), FilesystemError> {
         loop {
-            match self.last_type {
-                LastType::Dot => return Ok(()),
-                LastType::DotDot => return self.follow_dotdot(),
-                LastType::Norm => {}
+            if self.last_type != LastType::Norm {
+                if self.last_type == LastType::DotDot {
+                    self.follow_dotdot()?;
+                }
+                self.path = Some(self.dentry().clone());
+                return Ok(());
             }
             if self.trailing_slash {
                 if creating {
@@ -362,8 +314,6 @@ impl Nameidata {
             }
             self.pick_link(&child)?;
             drop(held);
-            self.last = None;
-            self.found = None;
             self.link_path_walk()?;
         }
     }
@@ -404,16 +354,15 @@ fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata
         name: String::new(),
         last_type: LastType::Dot,
         trailing_slash: false,
-        last: None,
+        path: None,
         lookup_directory: false,
-        found: None,
     })
 }
 
 /// `path` beneath `start`, walked to the directory holding its last name, which
 /// is left unlooked up for the call to act on, as Linux's `filename_parentat`.
 /// A `..` above `start` is not the caller's to reach.
-fn filename_parentat(
+pub(crate) fn filename_parentat(
     cred: &Arc<Cred>,
     start: &Path,
     path: &str,
@@ -425,7 +374,7 @@ fn filename_parentat(
 
 /// `path` beneath `start`, walked to what it names, as Linux's `filename_lookup`.
 /// Where `follow` asks, or a trailing `/` does, a link at the end is followed
-/// too. Nothing standing at the last name is for the call to answer.
+/// too. Nothing standing at the last name answers ENOENT, as a walk does.
 pub(crate) fn filename_lookup(
     cred: &Arc<Cred>,
     start: &Path,
@@ -435,6 +384,7 @@ pub(crate) fn filename_lookup(
     let mut nd = set_nameidata(cred, start, path)?;
     nd.link_path_walk()?;
     nd.lookup_last(follow, false)?;
+    nd.kind()?;
     nd.check_directory()?;
     Ok(nd)
 }
@@ -494,7 +444,7 @@ pub fn do_file_open(
                 write: how.write,
                 truncate: how.truncate,
             };
-            let child = nd.last_dentry()?;
+            let child = nd.path()?;
             let f_op = match existing {
                 None => atomic_open(nd.dentry(), &child, &options)?,
                 Some(_) => child.open(&options)?,
@@ -552,12 +502,8 @@ pub fn filename_linkat(
     new_path: &str,
     follow: bool,
 ) -> Result<(), FilesystemError> {
-    let mut old = filename_lookup(cred, old_start, old_path, follow)?;
-    old.kind()?;
-    let target = match old.name.is_empty() {
-        true => old.dentry().clone(),
-        false => old.last_dentry()?,
-    };
+    let old = filename_lookup(cred, old_start, old_path, follow)?;
+    let target = old.path()?;
     let mut new = filename_parentat(cred, new_start, new_path)?;
     let (_held, child) = filename_create(&mut new, false)?;
     if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
@@ -895,9 +841,7 @@ pub(crate) fn vfs_unlink(
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
     may_delete_dentry(dir, kind_at(dir, victim)?, false)?;
-    // A name the directory stores under another spelling records nothing
-    // here to hold.
-    let _victim = victim.inode().map(|target| target.lock()).transpose()?;
+    let _victim = victim.inode_lock()?;
     dir.inode_ops()?.unlink(victim)?;
     sb.dentries().unhash(victim);
     Ok(())

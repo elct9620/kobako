@@ -8,9 +8,10 @@
 
 use std::sync::Arc;
 
+use super::dentry::Dentry;
 use super::namei::{
-    atomic_open, filename_lookup, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata,
-    RenameData,
+    atomic_open, filename_lookup, filename_parentat, lookup_one, lookup_slow, vfs_mkdir,
+    vfs_rename, vfs_rmdir, vfs_unlink, Nameidata, RenameData,
 };
 use super::path::Path;
 use super::{
@@ -37,12 +38,20 @@ impl KernPath {
         filename_lookup(&Arc::default(), &self.0, path, false)
     }
 
+    /// The directory holding the last name of `path`, and that name's dentry,
+    /// whether or not anything stands there.
+    fn parent(&self, path: &str) -> Result<(Nameidata, Arc<Dentry>), FilesystemError> {
+        let nd = filename_parentat(&Arc::default(), &self.0, path)?;
+        let child = lookup_one(nd.mnt.sb(), nd.dentry(), &nd.name)?;
+        Ok((nd, child))
+    }
+
     pub(crate) fn open(
         &self,
         path: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let child = self.resolve(path)?.child()?;
+        let child = self.resolve(path)?.path()?;
         let file = child.open(options)?;
         if options.truncate {
             child
@@ -72,15 +81,13 @@ impl KernPath {
         path: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let nd = self.resolve(path)?;
-        let child = nd.child()?;
+        let (nd, child) = self.parent(path)?;
         atomic_open(nd.dentry(), &child, options)
     }
 
     /// Truncate or extend the file at `path`, as `->setattr` is asked.
     pub(crate) fn truncate(&self, path: &str, len: u64) -> Result<(), FilesystemError> {
-        let nd = self.resolve(path)?;
-        let child = nd.child()?;
+        let child = self.resolve(path)?.path()?;
         child
             .inode()
             .ok_or(FilesystemError::NotFound)?
@@ -89,8 +96,7 @@ impl KernPath {
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
-        let nd = self.resolve(path)?;
-        let dentry = nd.child()?;
+        let dentry = self.resolve(path)?.path()?;
         match dentry.kind()? {
             FileType::Symlink => Err(FilesystemError::FilesystemLoop),
             FileType::Directory => {
@@ -112,18 +118,17 @@ impl KernPath {
         if path.is_empty() {
             return self.metadata();
         }
-        let mut nd = self.resolve(path)?;
-        nd.getattr()
+        self.resolve(path)?.getattr()
     }
 
     pub(crate) fn lookup(&self, path: &str) -> Result<String, FilesystemError> {
-        Ok(self.resolve(path)?.name)
+        let nd = filename_parentat(&Arc::default(), &self.0, path)?;
+        Ok(lookup_slow(nd.mnt.sb(), nd.dentry(), &nd.name)?.0)
     }
 
     #[cfg(unix)]
     pub(crate) fn read_link(&self, path: &str) -> Result<String, FilesystemError> {
-        let nd = self.resolve(path)?;
-        nd.child()?.get_link()
+        self.resolve(path)?.path()?.get_link()
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
@@ -131,20 +136,17 @@ impl KernPath {
     }
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let nd = self.resolve(path)?;
-        let child = nd.child()?;
+        let (nd, child) = self.parent(path)?;
         vfs_mkdir(nd.dentry(), &child)
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
-        let nd = self.resolve(path)?;
-        let child = nd.child()?;
+        let (nd, child) = self.parent(path)?;
         vfs_rmdir(nd.mnt.sb(), nd.dentry(), &child)
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
-        let nd = self.resolve(path)?;
-        let child = nd.child()?;
+        let (nd, child) = self.parent(path)?;
         vfs_unlink(nd.mnt.sb(), nd.dentry(), &child)
     }
 
@@ -157,8 +159,7 @@ impl KernPath {
         to_dir: &Self,
         to: &str,
     ) -> Result<(), FilesystemError> {
-        let (source, target) = (self.resolve(from)?, to_dir.resolve(to)?);
-        let (old, new) = (source.child()?, target.child()?);
+        let ((source, old), (target, new)) = (self.parent(from)?, to_dir.parent(to)?);
         if target.dentry().is_subdir(&old) {
             return Err(FilesystemError::InvalidInput);
         }

@@ -111,8 +111,7 @@ pub fn vfs_fstatat(
     path: &str,
     follow: bool,
 ) -> Result<Metadata, FilesystemError> {
-    let mut nd = filename_lookup(cred, start, path, follow)?;
-    nd.getattr()
+    filename_lookup(cred, start, path, follow)?.getattr()
 }
 
 /// Where the link at `path` beneath `start` points, as Linux's `do_readlinkat`
@@ -122,10 +121,10 @@ pub fn do_readlinkat(
     start: &Path,
     path: &str,
 ) -> Result<String, FilesystemError> {
-    let mut nd = filename_lookup(cred, start, path, false)?;
+    let nd = filename_lookup(cred, start, path, false)?;
     if nd.kind()? != FileType::Symlink {
         return Err(FilesystemError::InvalidInput);
     }
     cred.security_inode_readlink()?;
-    nd.last_dentry()?.get_link()
+    nd.path()?.get_link()
 }

@@ -68,12 +68,5 @@ pub(crate) fn vfs_open(
     nd: Nameidata,
     how: &OpenHow,
 ) -> Result<File, FilesystemError> {
-    let dentry = match nd.name.as_str() {
-        "" => nd.dentry().clone(),
-        _ => {
-            let _held = nd.dentry().inode_lock_shared()?;
-            nd.last_dentry()?
-        }
-    };
-    Ok(File::directory(start.with_dentry(dentry), nd.cred.clone())?.with_flags(how))
+    Ok(File::directory(start.with_dentry(nd.path()?), nd.cred.clone())?.with_flags(how))
 }

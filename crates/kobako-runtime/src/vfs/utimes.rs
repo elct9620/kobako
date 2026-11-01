@@ -32,17 +32,8 @@ pub fn do_utimes(
     follow: bool,
     times: &Iattr,
 ) -> Result<(), FilesystemError> {
-    let mut nd = filename_lookup(cred, start, path, follow)?;
-    let dentry = match nd.name.is_empty() {
-        true => nd.dentry().clone(),
-        false => {
-            nd.kind()?;
-            let parent = nd.dentry().clone();
-            let _held = parent.inode_lock_shared()?;
-            nd.last_dentry()?
-        }
-    };
-    vfs_utimes(cred, &start.with_dentry(dentry), times)
+    let nd = filename_lookup(cred, start, path, follow)?;
+    vfs_utimes(cred, &start.with_dentry(nd.path()?), times)
 }
 
 #[cfg(test)]
