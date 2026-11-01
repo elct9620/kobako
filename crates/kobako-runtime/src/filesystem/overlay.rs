@@ -2520,6 +2520,23 @@ mod tests {
             })
         }
 
+        // A removal deciding how to hide the name before the copy up landed asked
+        // the rename to find nothing there.
+        // @behavior FS-182
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn a_file_removed_as_it_is_copied_up_goes() {
+            for _ in 0..50_000 {
+                let (removed, _) = race_removal_with_a_write();
+                assert_eq!(
+                    removed,
+                    Ok(()),
+                    "vfs::filename_unlinkat of a file another Thread opens to write through an \
+                     Overlay must remove it"
+                );
+            }
+        }
+
         // A copy up reading its name back after its lock went found the whiteout
         // the removal left there.
         // @behavior FS-180

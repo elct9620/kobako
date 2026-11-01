@@ -78,25 +78,20 @@ impl OverlayFs {
     }
 
     /// Hide `name` in `dir` with a whiteout made in the workdir first, then
-    /// exchanged with what the upper holds there or moved in where it
-    /// holds nothing, as overlayfs's `ovl_cleanup_and_whiteout` does.
-    fn cleanup_and_whiteout(
-        &self,
-        dir: &OverlayPath,
-        name: &str,
-        holds: bool,
-    ) -> Result<(), FilesystemError> {
+    /// moved over what the upper holds there as this call finds it, so a copy up
+    /// landing meanwhile is hidden too, as overlayfs's `ovl_cleanup_and_whiteout`
+    /// does: only a directory, which no rename replaces while it holds anything,
+    /// is exchanged out to be cleaned up.
+    fn cleanup_and_whiteout(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
         let (work, temp) = self.tempname()?;
         work.do_whiteout(&temp)?;
-        let flag = match holds {
-            true => RenameFlag::Exchange,
-            false => RenameFlag::NoReplace,
-        };
-        if let Err(err) = work.do_rename(&temp, dir, name, Some(flag)) {
+        let is_dir = entry(dir, name)?.is_some_and(|found| found.file_type == FileType::Directory);
+        let flag = is_dir.then_some(RenameFlag::Exchange);
+        if let Err(err) = work.do_rename(&temp, dir, name, flag) {
             let _ = work.do_unlink(&temp);
             return Err(err);
         }
-        if holds {
+        if is_dir {
             let _ = cleanup(work, &temp);
         }
         Ok(())
@@ -163,7 +158,7 @@ impl OverlayFs {
             self.clear_empty(layer_dir(&level[UPPER])?, name)?;
         }
         match (shown_below, upper_holds) {
-            (true, _) => self.cleanup_and_whiteout(&self.upper_dir(dir)?, name, upper_holds),
+            (true, _) => self.cleanup_and_whiteout(&self.upper_dir(dir)?, name),
             (false, true) => cleanup(layer_dir(&level[UPPER])?, name),
             (false, false) => Err(FilesystemError::NotFound),
         }

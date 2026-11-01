@@ -1937,3 +1937,15 @@ both live in the upper and never show, so no name is reserved
 | Given | two files of one directory only a lower Layer holds |
 | When | two Threads open them to write through an Overlay at once |
 | Then | both opens succeed |
+
+## `FS-182` A file removed as it is copied up goes
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-180` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file of a lower Layer |
+| When | a Thread removes it through an Overlay as another opens it to write |
+| Then | the removal succeeds |
