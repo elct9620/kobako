@@ -1224,7 +1224,7 @@ both live in the upper and never show, so no name is reserved
 | When | the directory is moved through the Overlay, then written into through the one opened |
 | Then | the file lands where the directory moved |
 
-## `FS-122` An Overlay walks a directory one Layer shows without looking it up
+## `FS-122` An Overlay walks a directory one Layer shows without its stat
 
 | Attribute | Value |
 | --- | --- |
@@ -1232,7 +1232,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | an Overlay whose lower Layer alone holds `top/dir/file`, yet answers no lookup of `dir` |
+| Given | an Overlay whose lower Layer alone holds `top/dir/file`, yet answers no stat of `dir` |
 | When | `top/dir/file` is read through the Overlay |
 | Then | it reads the file's content |
 
@@ -1910,7 +1910,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a held file of a lower Layer, whose directory was removed through an Overlay and made again |
+| Given | a held file of a lower Layer, whose directory an Overlay removed and made again |
 | When | a time is set through the held file |
 | Then | the call answers ENOENT, and the view shows no file at that name |
 

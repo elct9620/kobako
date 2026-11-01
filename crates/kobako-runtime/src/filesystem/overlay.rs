@@ -2047,20 +2047,18 @@ mod tests {
         );
     }
 
-    /// A Tmpfs answering a lookup of `dir` at any depth with an I/O
-    /// failure, though it opens `dir` as any other directory.
-    struct LooksUpNoDir;
+    /// A Tmpfs answering a stat of `dir` at any depth with an I/O failure,
+    /// though it opens `dir` as any other directory.
+    struct StatsNoDir;
 
-    impl Hook for LooksUpNoDir {
+    impl Hook for StatsNoDir {
         fn getattr(
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
         ) -> Result<Metadata, FilesystemError> {
             if dentry.name() == "dir" {
-                return Err(FilesystemError::Other(
-                    "dir cannot be looked up".to_string(),
-                ));
+                return Err(FilesystemError::Other("dir has no stat".to_string()));
             }
             inner.getattr(dentry)
         }
@@ -2812,20 +2810,21 @@ mod tests {
     }
 
     // A directory only one Layer shows has nothing to merge or hide, so the
-    // walk opens it as that Layer does, as overlayfs leaves it unmerged.
+    // walk keeps what that Layer's lookup recorded, as overlayfs leaves it
+    // unmerged and reads `d_is_dir` rather than ask for a stat.
     // @behavior FS-122
     #[test]
-    fn a_directory_one_layer_shows_is_walked_without_a_lookup() {
+    fn a_directory_one_layer_shows_is_walked_without_its_stat() {
         let only: Arc<dyn InodeOperations> = tmpfs_with("top/dir/file", "only");
         let overlay = at(over(
-            Arc::new(Wrap::new(only, Arc::new(LooksUpNoDir))),
+            Arc::new(Wrap::new(only, Arc::new(StatsNoDir))),
             Arc::new(Tmpfs::new()),
         ));
         assert_eq!(
             read(&overlay, "top/dir/file"),
             b"only",
             "a file read through Overlay::open beneath a directory only the lower Layer shows, \
-             that Layer answering no lookup of the directory, must read its content"
+             that Layer answering no stat of the directory, must read its content"
         );
     }
 
