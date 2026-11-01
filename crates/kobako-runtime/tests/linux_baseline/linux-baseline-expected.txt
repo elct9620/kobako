@@ -1,0 +1,3 @@
+# The differences from Linux kobako keeps, one per line: the setup, then the
+# class a failure of tests/linux_baseline names, with why after a `#`.
+overlay Rename kobako=EXDEV linux=ok  # a lower Layer's link is not copied up

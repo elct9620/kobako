@@ -15,6 +15,10 @@
 #   * `rake crates:testsuite` — fetches wasi-testsuite at a pinned commit and
 #                               holds preview1 to it. Not in the release gate,
 #                               which reaches no network.
+#   * `rake crates:linux_baseline` — holds the VFS and the built-in Filesystems
+#                               to a real Linux, as root in a container since
+#                               overlayfs needs a mount. Not in the release
+#                               gate, which needs neither.
 #   * `rake coverage:crates`  — the same suite under `cargo llvm-cov`. Lives
 #                               in the `coverage:` namespace with the other
 #                               line-coverage reports, but here beside the
@@ -162,6 +166,19 @@ namespace :crates do
     fetch_wasi_testsuite
     sh "cargo", "test", "--manifest-path", CRATES_MANIFEST, "-p", "kobako-wasmtime", "--release", "--lib", "--",
        "--ignored", "testsuite::"
+  end
+
+  desc "Hold the VFS and the built-in Filesystems to a real Linux in a container (not in release gate)"
+  task :linux_baseline do
+    unless system("docker --version > /dev/null")
+      abort "docker not on PATH; install Docker to run crates:linux_baseline"
+    end
+    root = File.expand_path("..", __dir__)
+    sh "docker", "run", "--rm", "--privileged", "-v", "#{root}:/src",
+       "-v", "kobako-linux-target:/target", "-v", "kobako-linux-cargo:/usr/local/cargo/registry",
+       "-e", "CARGO_TARGET_DIR=/target", "-w", "/src/crates", "rust:1.98-slim",
+       "cargo", "test", "-p", "kobako-runtime", "--release", "--test", "linux_baseline", "--",
+       "--ignored", "--test-threads=1"
   end
 
   desc "Check each published host crate's build graph leaves out what its seam promises to"

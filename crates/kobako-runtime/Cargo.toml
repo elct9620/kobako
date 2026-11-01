@@ -55,3 +55,7 @@ rustix = { version = "1.1.4", features = ["fs", "system"] }
 # beneath another with O_NOFOLLOW_ANY; rustix has neither.
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2.191"
+
+# libc makes the syscalls tests/linux_baseline holds the VFS to.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2.191"

@@ -1,0 +1,516 @@
+//! Holds the VFS and the built-in Filesystems to the Linux they align with: one
+//! seeded sequence of calls goes through kobako and through a real tmpfs,
+//! overlayfs, or directory, and each answer and the tree left behind must agree.
+//!
+//! `linux-baseline-expected.txt` names the differences kobako keeps. A new one
+//! fails, and so does one no sequence reaches any more. `rake crates:linux_baseline`
+//! runs this as root in a container, since overlayfs needs a mount.
+
+#![cfg(target_os = "linux")]
+
+mod calls;
+mod kobako;
+mod linux;
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::os::unix::fs::symlink;
+use std::path::Path;
+use std::sync::Arc;
+use std::thread::sleep;
+use std::time::Duration;
+
+use kobako_runtime::filesystem::{Bind, Filesystem, Overlay, Tmpfs};
+use kobako_runtime::mount::Access;
+
+use calls::{Call, Rng};
+use kobako::Kobako;
+use linux::{mount, on_tmpfs, snapshot_into, umount, Linux};
+
+/// Every entry beneath a root, and what it shows.
+pub type Snapshot = BTreeMap<String, String>;
+
+/// When each entry beneath a root was last modified and changed.
+pub type Times<T> = BTreeMap<String, (T, T)>;
+
+/// Where each setup keeps its directories, a tmpfs in every container.
+const BASE: &str = "/dev/shm/kobako-linux-baseline";
+
+const EXPECTED: &str = include_str!("linux-baseline-expected.txt");
+
+/// Longer than Linux's coarse clock ticks, so a change moves a time on both.
+const CLOCK_TICK: Duration = Duration::from_millis(12);
+
+/// What a stat shows, the same on both sides. A directory merged from Layers reports no size or count both sides could agree on, and a
+/// link's size is where it points, which a Filesystem may report its own way.
+pub fn describe(kind: &str, len: u64, nlink: u64, merged: bool) -> String {
+    match (kind, merged) {
+        ("dir", true) => "dir".to_string(),
+        ("lnk", _) => "lnk".to_string(),
+        _ => format!("{kind} len={len} nlink={nlink}"),
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Setup {
+    Tmpfs,
+    Overlay,
+    OverlayNoUpper,
+    Bind,
+    ReadOnlyBind,
+}
+
+impl Setup {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Tmpfs => "tmpfs",
+            Self::Overlay => "overlay",
+            Self::OverlayNoUpper => "overlay-no-upper",
+            Self::Bind => "bind",
+            Self::ReadOnlyBind => "read-only-bind",
+        }
+    }
+
+    fn dir(self, name: &str) -> String {
+        format!("{BASE}/{}/{name}", self.name())
+    }
+
+    fn merged(self) -> bool {
+        matches!(self, Self::Overlay | Self::OverlayNoUpper)
+    }
+
+    fn changes(self) -> bool {
+        matches!(self, Self::Tmpfs | Self::Overlay | Self::Bind)
+    }
+
+    /// What a sequence walks. A Tmpfs holds no links.
+    fn paths(self) -> Vec<String> {
+        let mut paths: Vec<String> = [
+            "", "a", "b", "c", "d", "e", "m", "d/f", "d/g", "d/e", "d/e/h", "m/s", "m/x", "a/",
+            "b/", "d/", "d/.", "d/..", "d/../a", ".", "a/b", "b/c", "d/e/..",
+        ]
+        .map(str::to_string)
+        .to_vec();
+        paths.push("x/".repeat(2048));
+        if self != Self::Tmpfs {
+            paths.extend(["h1", "h2", "l", "l/", "n", "n/f", "n/", "g", "g/"].map(str::to_string));
+        }
+        paths
+    }
+
+    /// Lay out what a run starts from. What only one side keeps beneath the
+    /// other's view is laid out once, as nothing a run does reaches a lower Layer.
+    fn prepare(self) {
+        let _ = fs::remove_dir_all(format!("{BASE}/{}", self.name()));
+        fs::create_dir_all(format!("{BASE}/{}", self.name())).expect("the setup's directory");
+        if self.merged() {
+            seed_directory(&self.dir("kobako-lower"));
+            seed_directory(&self.dir("linux-lower"));
+        }
+        if self == Self::OverlayNoUpper {
+            for side in ["kobako-second", "linux-second"] {
+                let dir = self.dir(side);
+                fs::create_dir_all(format!("{dir}/m/y")).expect("the Layer's directory");
+                fs::create_dir_all(format!("{dir}/z")).expect("the Layer's directory");
+                fs::write(format!("{dir}/m/x"), "hidden").expect("the Layer's file");
+                fs::write(format!("{dir}/b"), "low").expect("the Layer's file");
+            }
+        }
+    }
+
+    fn start(self, settle: bool) -> (Kobako, Linux) {
+        match self {
+            Self::Tmpfs => {
+                let filesystem = Filesystem::new(Arc::new(Tmpfs::new()));
+                let mut kobako = Kobako::new(filesystem, Access::ReadWrite, false);
+                let root = self.dir("linux");
+                let _ = fs::remove_dir_all(&root);
+                fs::create_dir_all(&root).expect("the tmpfs directory");
+                let mut linux = Linux::new(&root, false);
+                for call in tmpfs_seed() {
+                    if settle {
+                        sleep(CLOCK_TICK);
+                    }
+                    kobako.run(&call);
+                    linux.run(&call);
+                }
+                (kobako, linux)
+            }
+            Self::Bind | Self::ReadOnlyBind => {
+                let (kobako_dir, linux_dir) = (self.dir("kobako"), self.dir("linux"));
+                let linux_root = self.dir("linux-mount");
+                if self == Self::ReadOnlyBind {
+                    umount(&linux_root);
+                }
+                seed_directory(&kobako_dir);
+                seed_directory(&linux_dir);
+                let filesystem = Filesystem::new(Arc::new(bind(&kobako_dir)));
+                let access = match self {
+                    Self::ReadOnlyBind => Access::Read,
+                    _ => Access::ReadWrite,
+                };
+                let kobako = Kobako::new(filesystem, access, false);
+                if self == Self::Bind {
+                    return (kobako, Linux::new(&linux_dir, false));
+                }
+                fs::create_dir_all(&linux_root).expect("the mount point");
+                mount(&linux_dir, &linux_root, None, libc::MS_BIND, None);
+                mount(
+                    &linux_dir,
+                    &linux_root,
+                    None,
+                    libc::MS_BIND | libc::MS_REMOUNT | libc::MS_RDONLY,
+                    None,
+                );
+                (kobako, Linux::new(&linux_root, false))
+            }
+            Self::Overlay | Self::OverlayNoUpper => self.start_overlay(),
+        }
+    }
+
+    fn start_overlay(self) -> (Kobako, Linux) {
+        let root = self.dir("linux-merged");
+        umount(&root);
+        fs::create_dir_all(&root).expect("the mount point");
+        let lower = Filesystem::new(Arc::new(bind(&self.dir("kobako-lower"))));
+        let (overlay, data) = if self == Self::Overlay {
+            let (upper, work) = (self.dir("linux-upper"), self.dir("linux-work"));
+            for dir in [&upper, &work] {
+                let _ = fs::remove_dir_all(dir);
+                fs::create_dir_all(dir).expect("the overlayfs directory");
+            }
+            let upper_tmpfs = Filesystem::new(Arc::new(Tmpfs::new()));
+            (
+                Overlay::new(vec![lower], Some(upper_tmpfs)),
+                format!(
+                    "lowerdir={},upperdir={upper},workdir={work}",
+                    self.dir("linux-lower")
+                ),
+            )
+        } else {
+            let second = Filesystem::new(Arc::new(bind(&self.dir("kobako-second"))));
+            (
+                Overlay::new(vec![lower, second], None),
+                format!(
+                    "lowerdir={}:{}",
+                    self.dir("linux-lower"),
+                    self.dir("linux-second")
+                ),
+            )
+        };
+        let overlay = overlay.unwrap_or_else(|error| panic!("the Overlay must stack: {error:?}"));
+        mount("overlay", &root, Some("overlay"), 0, Some(&data));
+        let filesystem = Filesystem::new(Arc::new(overlay));
+        (
+            Kobako::new(filesystem, Access::ReadWrite, true),
+            Linux::new(&root, true),
+        )
+    }
+
+    /// Let go of what a finished run left mounted, and hold a lower Layer to
+    /// what it started as, as neither side's run may reach one.
+    fn finish(self) {
+        match self {
+            Self::Overlay | Self::OverlayNoUpper => {
+                umount(&self.dir("linux-merged"));
+                let snapshot = |side: &str| {
+                    let mut out = Snapshot::new();
+                    snapshot_into(Path::new(&self.dir(side)), "", false, &mut out);
+                    out
+                };
+                assert_eq!(
+                    snapshot("kobako-lower"),
+                    snapshot("linux-lower"),
+                    "a sequence through an Overlay must leave its lower Layer as overlayfs leaves \
+                     its own"
+                );
+            }
+            Self::ReadOnlyBind => umount(&self.dir("linux-mount")),
+            _ => {}
+        }
+    }
+}
+
+fn bind(dir: &str) -> Bind {
+    Bind::new(dir).unwrap_or_else(|error| panic!("{dir} must bind: {error}"))
+}
+
+/// A directory holding what a walk meets: files, hard links, directories, and
+/// links to a file, to a directory, and to nothing.
+fn seed_directory(dir: &str) {
+    let _ = fs::remove_dir_all(dir);
+    for sub in ["d/e", "m/s"] {
+        fs::create_dir_all(format!("{dir}/{sub}")).expect("the seeded directory");
+    }
+    for (file, content) in [
+        ("a", "hello"),
+        ("d/f", "inner"),
+        ("m/x", "x"),
+        ("h1", "hard"),
+    ] {
+        fs::write(format!("{dir}/{file}"), content).expect("the seeded file");
+    }
+    fs::hard_link(format!("{dir}/h1"), format!("{dir}/h2")).expect("the seeded hard link");
+    for (target, name) in [("a", "l"), ("d", "n"), ("nowhere", "g")] {
+        symlink(target, format!("{dir}/{name}")).expect("the seeded link");
+    }
+}
+
+/// The same tree on a Tmpfs, which takes no seeded directory of the host's.
+fn tmpfs_seed() -> Vec<Call> {
+    let file = |path: &str, slot| {
+        Call::Open(calls::Open {
+            path: path.to_string(),
+            read: true,
+            write: true,
+            create: true,
+            slot,
+            ..calls::Open::default()
+        })
+    };
+    let mkdir = |path: &str| Call::Mkdir(None, path.to_string());
+    vec![
+        file("a", 0),
+        Call::Write(0, 4),
+        Call::Close(0),
+        mkdir("d"),
+        mkdir("d/e"),
+        file("d/f", 0),
+        Call::Write(0, 2),
+        Call::Close(0),
+        mkdir("m"),
+        mkdir("m/s"),
+    ]
+}
+
+/// A way one setup differs, by the shortest sequence that reaches it.
+struct Difference {
+    calls: Vec<Call>,
+    detail: String,
+}
+
+fn class(call: &Call, kobako: &str, linux: &str) -> String {
+    let brief = |answer: &str| {
+        let answer = answer.split(':').next().unwrap_or(answer);
+        answer.split(" len=").next().unwrap_or(answer).to_string()
+    };
+    format!(
+        "{} kobako={} linux={}",
+        call.kind(),
+        brief(kobako),
+        brief(linux)
+    )
+}
+
+fn note(found: &mut BTreeMap<String, Difference>, class: String, calls: &[Call], detail: String) {
+    let difference = found.entry(class).or_insert_with(|| Difference {
+        calls: calls.to_vec(),
+        detail: detail.clone(),
+    });
+    if calls.len() < difference.calls.len() {
+        difference.calls = calls.to_vec();
+        difference.detail = detail;
+    }
+}
+
+/// Fail unless what `found` holds is what the expected file names for `setup`,
+/// and unless every kind of call this setup can answer ever succeeded.
+fn assert_holds(setup: Setup, found: &BTreeMap<String, Difference>, succeeded: &BTreeSet<String>) {
+    let expected: BTreeSet<String> = EXPECTED
+        .lines()
+        .filter_map(|line| line.split('#').next())
+        .filter_map(|line| line.trim().strip_prefix(setup.name()))
+        .filter_map(|line| line.strip_prefix(' '))
+        .map(|line| line.trim().to_string())
+        .collect();
+    let new: Vec<String> = found
+        .iter()
+        .filter(|(class, _)| !expected.contains(*class))
+        .map(|(class, difference)| {
+            let calls: Vec<String> = difference
+                .calls
+                .iter()
+                .map(|call| format!("    {call:?}"))
+                .collect();
+            format!(
+                "{} {class}\n  {}\n{}",
+                setup.name(),
+                difference.detail,
+                calls.join("\n")
+            )
+        })
+        .collect();
+    let gone: Vec<&String> = expected
+        .iter()
+        .filter(|class| !found.contains_key(*class))
+        .collect();
+    assert!(
+        new.is_empty() && gone.is_empty(),
+        "{} must answer as Linux does, apart from what linux-baseline-expected.txt names.\nNew \
+         differences:\n{}\nNamed but not reached:\n{gone:?}",
+        setup.name(),
+        new.join("\n")
+    );
+    let mut owed = vec![
+        "Open", "Close", "Read", "Pread", "Seek", "Fstat", "Fsync", "Readdir", "Stat",
+    ];
+    if setup.changes() {
+        owed.extend([
+            "Write", "Pwrite", "Truncate", "Mkdir", "Rmdir", "Unlink", "Rename",
+        ]);
+    }
+    let missing: Vec<_> = owed
+        .into_iter()
+        .filter(|kind| !succeeded.contains(*kind))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "{}: no sequence ever made {missing:?} succeed, so agreeing on them shows nothing",
+        setup.name()
+    );
+}
+
+/// Hold `setup` to Linux over `runs` sequences of at most `longest` calls.
+fn holds(setup: Setup, runs: u64, longest: u64) {
+    assert!(
+        on_tmpfs("/dev/shm"),
+        "/dev/shm must be a tmpfs, whose answers a Tmpfs is held to; run this through `rake \
+         crates:linux_baseline`"
+    );
+    setup.prepare();
+    let paths = setup.paths();
+    let mut found = BTreeMap::new();
+    let mut succeeded = BTreeSet::new();
+    for seed in 1..=runs {
+        let mut rng = Rng::new(seed);
+        let length = 1 + rng.below(longest);
+        let sequence: Vec<Call> = (0..length).map(|_| rng.call(&paths)).collect();
+        let (mut kobako, mut linux) = setup.start(false);
+        let mut agreed = true;
+        for (at, call) in sequence.iter().enumerate() {
+            let (theirs, ours) = (linux.run(call), kobako.run(call));
+            if ours != theirs {
+                let detail = format!("kobako={ours} linux={theirs}");
+                note(
+                    &mut found,
+                    class(call, &ours, &theirs),
+                    &sequence[..=at],
+                    detail,
+                );
+                agreed = false;
+                break;
+            }
+            if ours.starts_with("ok") || ours.contains("len=") || ours == "dir" {
+                succeeded.insert(call.kind().to_string());
+            }
+        }
+        if agreed {
+            let (ours, theirs) = (kobako.snapshot(), linux.snapshot());
+            if let Some(path) = ours
+                .keys()
+                .chain(theirs.keys())
+                .find(|path| ours.get(*path) != theirs.get(*path))
+            {
+                let detail = format!(
+                    "{path}: kobako={:?} linux={:?}",
+                    ours.get(path),
+                    theirs.get(path)
+                );
+                note(&mut found, "Tree".to_string(), &sequence, detail);
+            }
+        }
+        drop((kobako, linux));
+        setup.finish();
+    }
+    assert_holds(setup, &found, &succeeded);
+}
+
+/// Which of each entry's two times `after` shows moved since `before`.
+fn moved<T: PartialEq>(before: &Times<T>, after: &Times<T>) -> BTreeSet<String> {
+    let mut moved = BTreeSet::new();
+    for (path, (modified, changed)) in after {
+        if let Some((was_modified, was_changed)) = before.get(path) {
+            if modified != was_modified {
+                moved.insert(format!("{path} modified"));
+            }
+            if changed != was_changed {
+                moved.insert(format!("{path} changed"));
+            }
+        }
+    }
+    moved
+}
+
+/// Hold `setup` to which times each call moves, over `runs` sequences, waiting
+/// out the clock around each call. Where the two disagree on an answer, the
+/// run that holds answers reports it.
+fn moves_the_same_times(setup: Setup, runs: u64, longest: u64) {
+    setup.prepare();
+    let paths = setup.paths();
+    for seed in 1..=runs {
+        let mut rng = Rng::new(seed);
+        let length = 1 + rng.below(longest);
+        let sequence: Vec<Call> = (0..length).map(|_| rng.call(&paths)).collect();
+        let (mut kobako, mut linux) = setup.start(true);
+        for (at, call) in sequence.iter().enumerate() {
+            let (kobako_before, linux_before) = (kobako.times(), linux.times());
+            sleep(CLOCK_TICK);
+            if kobako.run(call) != linux.run(call) {
+                break;
+            }
+            let ours = moved(&kobako_before, &kobako.times());
+            let theirs = moved(&linux_before, &linux.times());
+            assert_eq!(
+                ours,
+                theirs,
+                "{} through vfs must move the times Linux moves, after {:#?}",
+                setup.name(),
+                &sequence[..=at]
+            );
+        }
+        drop((kobako, linux));
+        setup.finish();
+    }
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn a_tmpfs_answers_as_a_tmpfs_of_linux() {
+    holds(Setup::Tmpfs, 40_000, 30);
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn an_overlay_answers_as_overlayfs() {
+    holds(Setup::Overlay, 8_000, 30);
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn an_overlay_without_an_upper_answers_as_overlayfs() {
+    holds(Setup::OverlayNoUpper, 8_000, 20);
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn a_bind_answers_as_the_directory_it_binds() {
+    holds(Setup::Bind, 15_000, 30);
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn a_read_only_bind_answers_as_a_read_only_mount() {
+    holds(Setup::ReadOnlyBind, 6_000, 15);
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn a_tmpfs_moves_the_times_a_tmpfs_of_linux_moves() {
+    moves_the_same_times(Setup::Tmpfs, 300, 6);
+}
+
+#[test]
+#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
+fn an_overlay_moves_the_times_overlayfs_moves() {
+    moves_the_same_times(Setup::Overlay, 300, 6);
+}
