@@ -238,14 +238,16 @@ fn is_windows_alias(name: &str) -> bool {
         || DEVICES.contains(&stem.to_uppercase().as_str())
 }
 
-/// The FilesystemError a host failure names. cap-std's own refusal of a
-/// path leading out of the directory carries no OS code, and answers as
-/// not permitted, as wasmtime-wasi reads it. A link loop stays unnamed
-/// until std's `FilesystemLoop` is stable.
+/// The FilesystemError a host failure names. cap-std's own refusal of a path
+/// leading out of the directory carries no OS code. A Bind hands it one name and
+/// no `..`, so that refusal only says a move carried the name out of the
+/// directory as it was opened, as `complete_walk` answers EXDEV, and nothing
+/// stands at it now. A link loop stays unnamed until std's `FilesystemLoop` is
+/// stable.
 fn to_error(err: io::Error) -> FilesystemError {
     match err.kind() {
         io::ErrorKind::PermissionDenied if err.raw_os_error().is_none() => {
-            FilesystemError::NotPermitted
+            FilesystemError::NotFound
         }
         io::ErrorKind::NotFound => FilesystemError::NotFound,
         io::ErrorKind::AlreadyExists => FilesystemError::AlreadyExists,
@@ -734,16 +736,11 @@ impl FileOperations for BindFile {
         self.file.sync_all().map_err(to_error)
     }
 
-    /// Reserve the room on the host, as 9p's `v9fs_file_fallocate` asks its
-    /// server. macOS has no call that grows a file without also shortening one
-    /// already past the room, so a file reaching it there has nothing to do.
-    #[cfg(unix)]
+    /// Reserve the room on the host, as `v9fs_file_fallocate` asks its server. Only
+    /// Linux grows a file in one step without shortening one a peer just grew, so
+    /// elsewhere this refuses, as an append that cannot land in one step does.
+    #[cfg(target_os = "linux")]
     fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
-        if cfg!(target_vendor = "apple")
-            && self.file.metadata().map_err(to_error)?.len() >= offset + len
-        {
-            return Ok(());
-        }
         let flags = rustix::fs::FallocateFlags::empty();
         rustix::fs::fallocate(&*self.file, flags, offset, len)
             .map_err(|err| to_error(io::Error::from(err)))
@@ -1795,6 +1792,49 @@ mod tests {
             root.fsync(),
             Ok(()),
             "File::fsync of a Bind's root must succeed, as Linux syncs a directory"
+        );
+    }
+
+    // A rename moves a name out from under `openat2` only within a race, which
+    // the Linux baseline meets at times and no test can stage, so the answer the
+    // refusal reaches is held here.
+    // @behavior FS-191
+    #[test]
+    fn a_name_carried_out_as_it_is_opened_answers_not_found() {
+        let refused = io::Error::new(io::ErrorKind::PermissionDenied, "a path led outside");
+        assert_eq!(
+            to_error(refused),
+            FilesystemError::NotFound,
+            "cap-std's refusal of a single name leading out of a Bind's directory must answer \
+             ENOENT, as a move carried it away"
+        );
+    }
+
+    // Eviction leaves a walk to reach a directory from one far above it, so only
+    // a path past what the host takes in one call shows it goes on by name.
+    // @behavior FS-190
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_past_the_hosts_path_limit_is_reached() {
+        let host = HostDir::new("past-path-max");
+        let top = Dir::open_ambient_dir(&host.0, ambient_authority()).expect("the host directory");
+        let names = vec!["n".repeat(200); 30];
+        let deepest = names
+            .iter()
+            .fold(top.try_clone().expect("a second handle"), |at, name| {
+                at.create_dir(name)
+                    .expect("the host directory must be made");
+                at.open_dir(name).expect("the host directory must open")
+            });
+        deepest
+            .write("key", "x")
+            .expect("the host file must be written");
+        let reached = walk::walk(&top, &names).map(|dir| dir.exists("key"));
+        assert_eq!(
+            reached.ok(),
+            Some(true),
+            "a Bind's walk to a directory 6000 bytes beneath the one it holds must reach it, past \
+             what the host takes in one call"
         );
     }
 

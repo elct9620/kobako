@@ -9,12 +9,14 @@ use cap_std::fs::Dir;
 use super::{open_dir_nofollow, FilesystemError};
 
 /// The directory `names` reach beneath `dir`, a link on the way refused as
-/// a loop, walked in one call as 9p's `Twalk` walks several names.
+/// a loop, walked in one call as 9p's `Twalk` walks several names. A path past
+/// what the host takes in one call is no name it refuses, so it goes name by
+/// name, where only a name too long for the host is refused.
 pub(super) fn walk(dir: &Dir, names: &[String]) -> Result<Dir, FilesystemError> {
-    if let Some(opened) = kernel::walk(dir, names) {
-        return opened;
+    match kernel::walk(dir, names) {
+        None | Some(Err(FilesystemError::InvalidFilename)) => by_name(dir, names),
+        Some(opened) => opened,
     }
-    by_name(dir, names)
 }
 
 /// Each name opened in turn, the way every host can.
@@ -26,8 +28,9 @@ fn by_name(dir: &Dir, names: &[String]) -> Result<Dir, FilesystemError> {
         })
 }
 
-/// What the host's errno names, a link on the way being a loop and a path
-/// leading out of `dir` not permitted.
+/// What the host's errno names, a link on the way being a loop. `names` hold no
+/// `..`, so a path leading out of `dir` is one a move carried out as it was
+/// walked, as `complete_walk` answers EXDEV, and nothing stands there now.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn to_error(errno: i32) -> FilesystemError {
     const LOOP: i32 = rustix::io::Errno::LOOP.raw_os_error();
@@ -37,7 +40,7 @@ fn to_error(errno: i32) -> FilesystemError {
     const LEADS_OUT: i32 = libc::ENOTCAPABLE;
     match errno {
         LOOP => FilesystemError::FilesystemLoop,
-        LEADS_OUT => FilesystemError::NotPermitted,
+        LEADS_OUT => FilesystemError::NotFound,
         _ => super::to_error(std::io::Error::from_raw_os_error(errno)),
     }
 }

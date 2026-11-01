@@ -986,7 +986,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a read-write Mount of a Tmpfs or a Bind, holding a file |
+| Given | a read-write Mount of a Tmpfs, or of a Bind on Linux, holding a file |
 | When | the guest opens the file to write and asks to allocate room in it |
 | Then | a shorter file grows with zeros to where the room ends, and a longer one stays as it was |
 
@@ -1943,6 +1943,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding an empty directory, one thread moving another directory onto it |
 | When | another thread makes an entry through the held directory |
 | Then | the make waits for the move and answers ENOENT, and the move succeeds |
+
 ## `RT-180` An open file answers for itself whichever Driver asks
 
 | Attribute | Value |
@@ -1955,7 +1956,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file opened beneath a Mount, with no Driver in front of it |
 | When | a caller reads or writes it against its mode, or past the largest offset |
 | Then | the first answers EBADF and the second EINVAL, and the Filesystem is not asked |
-
 ## `RT-181` An allocation refuses in Linux's order
 
 | Attribute | Value |
@@ -2640,3 +2640,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a read-write Mount of a Tmpfs |
 | When | the guest asks to allocate more room than that Tmpfs may hold |
 | Then | the allocation answers ENOSPC |
+
+## `RT-239` A Bind answers ENOTSUP to an allocation where its host cannot grow in one step
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-099` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-write Bind Mount on a host other than Linux, holding a file |
+| When | the guest opens the file to write and asks to allocate room in it |
+| Then | the allocation answers ENOTSUP, and the file holds what it held |

@@ -75,6 +75,7 @@ const ERRNO_NOMEM: i32 = 48;
 const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_NOTEMPTY: i32 = 55;
 const ERRNO_NOSPC: i32 = 51;
+const ERRNO_NOTSUP: i32 = 58;
 const ERRNO_ROFS: i32 = 69;
 const ERRNO_XDEV: i32 = 75;
 const ERRNO_NOTCAPABLE: i32 = 76;
@@ -1882,9 +1883,9 @@ fn a_name_no_filesystem_makes_is_answered_by_what_stands() {
     );
 }
 
-// Windows gives a Bind no call to reserve room.
+// Only Linux grows a file in one step, so a Bind elsewhere refuses and leaves it.
 // @behavior RT-099
-#[cfg(unix)]
+// @behavior RT-239
 #[test]
 fn an_allocation_grows_a_file_to_where_its_room_ends_and_shortens_none() {
     // What a file holds from where the room might start, and how long it is.
@@ -1911,21 +1912,25 @@ fn an_allocation_grows_a_file_to_where_its_room_ends_and_shortens_none() {
         let _ = std::fs::remove_dir_all(&dir);
         (answer, Some(len), held)
     };
+    let bind_answers = match cfg!(target_os = "linux") {
+        true => [(0, Some(100), Some(0)), (0, Some(200), Some(b'x'))],
+        false => [
+            (ERRNO_NOTSUP, Some(7), None),
+            (ERRNO_NOTSUP, Some(200), Some(b'x')),
+        ],
+    };
     assert_eq!(
-        [
-            through_tmpfs("granted"),
-            through_tmpfs(&long),
-            through_bind("granted"),
-            through_bind(&long),
-        ],
-        [
-            (0, Some(100), Some(0)),
-            (0, Some(200), Some(b'x')),
-            (0, Some(100), Some(0)),
-            (0, Some(200), Some(b'x')),
-        ],
-        "fd_allocate of 100 bytes from the start through preview1, over a Tmpfs and a Bind, must \
-         grow a shorter file with zeros and leave a longer one as it was"
+        (
+            [through_tmpfs("granted"), through_tmpfs(&long)],
+            [through_bind("granted"), through_bind(&long)],
+        ),
+        (
+            [(0, Some(100), Some(0)), (0, Some(200), Some(b'x'))],
+            bind_answers,
+        ),
+        "fd_allocate of 100 bytes from the start through preview1, over a Tmpfs and a Bind on \
+         Linux, must grow a shorter file with zeros and leave a longer one as it was, and over a \
+         Bind elsewhere answer ENOTSUP and leave both"
     );
 }
 

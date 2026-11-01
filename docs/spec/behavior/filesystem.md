@@ -2033,3 +2033,27 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind holding a directory beneath its root that the host lets no one read |
 | When | a caller opens the directory to read |
 | Then | the open answers EACCES |
+
+## `FS-190` A Bind reaches a directory past what the host takes in one call
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-151` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind holding a directory farther beneath a held one than the host's path limit |
+| When | a walk reaches that directory, none between them held |
+| Then | the walk reaches it, and a Layer asked about a name there answers what stands |
+
+## `FS-191` A name a move carries out as it is opened answers ENOENT
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-190` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind opening a name in a directory while a move carries that name out of it |
+| When | the host refuses the open as leading out of the directory |
+| Then | the call answers ENOENT, as nothing stands at the name |
