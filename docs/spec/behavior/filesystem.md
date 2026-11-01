@@ -2044,7 +2044,7 @@ both live in the upper and never show, so no name is reserved
 | --- | --- |
 | Given | a Bind holding a directory farther beneath a held one than the host's path limit |
 | When | a walk reaches that directory, none between them held |
-| Then | the walk reaches it, and a Layer asked about a name there answers what stands |
+| Then | the walk reaches it |
 
 ## `FS-191` A name a move carries out as it is opened answers ENOENT
 

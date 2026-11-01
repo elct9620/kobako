@@ -7,8 +7,7 @@
 //! in on the way leads the walk elsewhere. A link is followed only where
 //! the walk itself reads where it points, within the directory the walk
 //! started from, as `openat2`'s `RESOLVE_BENEATH` keeps a resolution: one
-//! leading out of it, or to an absolute path, escapes it. What else a link may
-//! do is for the security hooks to answer.
+//! leading out of it, or to an absolute path, escapes it.
 
 use std::collections::VecDeque;
 use std::sync::Arc;

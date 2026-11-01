@@ -97,7 +97,7 @@ A question answers true or false, and each language marks it its own way.
 |---|---|---|
 | Ruby | ends in `?` | `failed?`, `malformed?` |
 | Rust | `is_` or `has_` | `is_mounted`, `is_at_end` |
-| Rust | a verb in the third person | `allows`, `follows_links` |
+| Rust | a verb in the third person | `allows`, `matches_exactly` |
 | Rust | a recorded state | `stdout_truncated`, `abandoned` |
 
 The third-person form follows the standard library's `contains` and `starts_with`.
