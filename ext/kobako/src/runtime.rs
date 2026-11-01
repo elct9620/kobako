@@ -335,6 +335,7 @@ impl Runtime {
         let ruby = Ruby::get().expect("Ruby thread");
         let preamble = to_preamble(&ruby, preamble)?;
         let bytecodes = gvl::region(self.release_gvl, || self.driver.compile(&preamble));
+        escape::resume()?;
         Ok(bytecodes.map(|bytecodes| {
             ruby.ary_from_iter(
                 bytecodes

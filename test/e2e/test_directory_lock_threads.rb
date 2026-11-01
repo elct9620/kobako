@@ -71,6 +71,45 @@ class TestE2EDirectoryLockThreads < Minitest::Test
     print [maker.value, looker.value].inspect
   RUBY
 
+  # One Sandbox holding a directory while its mount's block sleeps, one
+  # waiting on that directory whom a Timeout interrupts, and a third changing
+  # it once the first is done.
+  INTERRUPTED_CHILD = <<~RUBY
+    require "kobako"
+    require "timeout"
+    asking = Queue.new
+    tmpfs = Kobako::Filesystem::Tmpfs.new
+    sandbox = lambda do |&block|
+      Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM")).mount("/data", tmpfs, access: :read_write, &block)
+    end
+    holder = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
+    holder.mount("/data", tmpfs, access: :read_write) do |_path, access|
+      if access == :read_write
+        asking << true
+        sleep 0.5
+      end
+      true
+    end
+    first = Thread.new { holder.eval('File.write("/data/a", "1"); true').value }
+    asking.pop
+    waiter = Thread.new do
+      Timeout.timeout(0.1) { sandbox.call.eval('File.write("/data/b", "2"); :not_interrupted').value }
+    rescue Timeout::Error
+      :timed_out
+    end
+    print [first.value, waiter.value, sandbox.call.eval('File.write("/data/c", "3"); true').value].inspect
+  RUBY
+
+  # Ruby checks for an interrupt as a thread comes back from waiting without
+  # the GVL, which must not skip what released the lock.
+  # @behavior MT-030
+  def test_a_sandbox_interrupted_while_it_waits_on_a_directory_leaves_the_directory_to_the_next
+    assert_equal "[true, :timed_out, true]",
+                 run_ruby(INTERRUPTED_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+                 "a Timeout around a Sandbox#eval waiting on a directory another Thread holds must raise " \
+                 "Timeout::Error, and a later Sandbox#eval must change that directory"
+  end
+
   # A block needs the GVL to answer, so only the directory's lock giving up
   # the GVL lets it finish while the looking Sandbox waits.
   # @behavior MT-029

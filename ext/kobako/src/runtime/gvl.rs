@@ -6,10 +6,14 @@
 //! callback, which is ordinary Ruby and must hold the lock. A thread-local flag
 //! stops a nested dispatch from re-acquiring a second time, and both directions
 //! run their closure through a `catch_unwind` trampoline because a panic must
-//! never cross the C frame of `rb_thread_call_without_gvl` /
+//! never cross the C frame of `rb_thread_call_without_gvl2` /
 //! `rb_thread_call_with_gvl` (undefined behaviour). The flag is per-thread,
 //! matching the one-thread-one-Sandbox contract, and is restored through a drop
 //! guard so an unwinding panic cannot leave it corrupt for the next invocation.
+//!
+//! A release never raises where it returns, as `rb_thread_call_without_gvl`
+//! would, since that jumps over every Rust frame of the run and what they hold:
+//! a lock's guard, this flag. An interrupt waits for the run to end instead.
 
 use std::cell::Cell;
 use std::os::raw::c_void;
@@ -17,6 +21,8 @@ use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::ptr;
 
 use kobako_runtime::sched::Blocking;
+
+use super::escape;
 
 thread_local! {
     // True while this thread sits inside a region whose GVL we released and
@@ -33,7 +39,7 @@ where
     }
     let _guard = ReleasedGuard::set(true);
     call_via(f, |func, data| unsafe {
-        rb_sys::rb_thread_call_without_gvl(Some(func), data, None, ptr::null_mut())
+        rb_sys::rb_thread_call_without_gvl2(Some(func), data, None, ptr::null_mut())
     })
 }
 
@@ -108,7 +114,7 @@ where
 
 fn call_via<F, R>(
     f: F,
-    invoke: impl FnOnce(unsafe extern "C" fn(*mut c_void) -> *mut c_void, *mut c_void) -> *mut c_void,
+    mut invoke: impl FnMut(unsafe extern "C" fn(*mut c_void) -> *mut c_void, *mut c_void) -> *mut c_void,
 ) -> R
 where
     F: FnOnce() -> R,
@@ -117,9 +123,14 @@ where
         f: Some(f),
         result: None,
     };
-    invoke(trampoline::<F, R>, ptr::addr_of_mut!(ctx).cast::<c_void>());
-    match ctx.result.take().expect("gvl trampoline stores a result") {
-        Ok(value) => value,
-        Err(payload) => resume_unwind(payload),
+    loop {
+        invoke(trampoline::<F, R>, ptr::addr_of_mut!(ctx).cast::<c_void>());
+        match ctx.result.take() {
+            Some(Ok(value)) => return value,
+            Some(Err(payload)) => resume_unwind(payload),
+            // `rb_thread_call_without_gvl2` runs nothing while an interrupt
+            // is pending, so that one is taken off the thread first.
+            None => escape::hold_interrupts(),
+        }
     }
 }
