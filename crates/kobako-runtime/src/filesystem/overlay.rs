@@ -1087,12 +1087,12 @@ mod tests {
     // @behavior FS-165
     #[test]
     fn a_directory_found_stands_for_the_layers_it_was_found_in() {
-        use crate::vfs::lookup_slow;
+        use crate::vfs::lookup_one_qstr_excl;
         let lower = Arc::new([("dir/old", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower.clone(), Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone());
         let root = filesystem.dentries().root();
-        let dir = lookup_slow(&filesystem, &root, "dir")
+        let dir = lookup_one_qstr_excl(&filesystem, &root, "dir")
             .expect("the directory must be found")
             .1;
         let layer = on(&lower);
@@ -1128,15 +1128,15 @@ mod tests {
     // @behavior FS-164
     #[test]
     fn a_directory_emptied_for_its_removal_stays_empty_should_the_removal_fail() {
-        use crate::vfs::{lookup_slow, vfs_unlink};
+        use crate::vfs::{lookup_one_qstr_excl, vfs_unlink};
         let lower = Arc::new([("dir/file", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower, Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone());
         let root = filesystem.dentries().root();
-        let dir = lookup_slow(&filesystem, &root, "dir")
+        let dir = lookup_one_qstr_excl(&filesystem, &root, "dir")
             .expect("the directory must be found")
             .1;
-        let file = lookup_slow(&filesystem, &dir, "file")
+        let file = lookup_one_qstr_excl(&filesystem, &dir, "file")
             .expect("the file must be found")
             .1;
         vfs_unlink(&filesystem, &dir, &file).expect("the file must be removed");
@@ -1147,7 +1147,7 @@ mod tests {
             .fs
             .clear_empty(&upper_root, "dir")
             .expect("the directory must be exchanged");
-        let walked = lookup_slow(&filesystem, &root, "dir")
+        let walked = lookup_one_qstr_excl(&filesystem, &root, "dir")
             .expect("the directory must be found again")
             .1;
         let names = overlay.fs.dir_read_merged(

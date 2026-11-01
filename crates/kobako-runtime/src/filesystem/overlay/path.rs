@@ -4,7 +4,7 @@
 //! VFS helpers overlayfs calls do: shared while a name is looked up, as
 //! `lookup_one_unlocked`, and exclusive while one is made, removed, or
 //! moved, as `start_creating`, `start_removing`, and `start_renaming`. A
-//! name is found through the VFS's `lookup_slow`, and an entry made,
+//! name is found through the VFS's `lookup_one_qstr_excl`, and an entry made,
 //! removed, or moved through its `vfs_mkdir`, `atomic_open`, `vfs_rmdir`,
 //! `vfs_unlink`, and `vfs_rename`, as overlayfs's are, so the VFS checks
 //! what stands there and the Layer's dentries follow each change.
@@ -18,8 +18,8 @@ use super::super::{
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    atomic_open, lookup_slow, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename, vfs_rmdir,
-    vfs_unlink, Dentry, RenameFlag,
+    atomic_open, lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename,
+    vfs_rmdir, vfs_unlink, Dentry, RenameFlag,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -75,7 +75,7 @@ impl OverlayPath {
     /// The dentry of `name` as this directory stores it, what stands there
     /// recorded on it. The caller holds this directory's lock.
     fn lookup_real(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        Ok(lookup_slow(&self.filesystem, &self.dentry, name)?.1)
+        Ok(lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)?.1)
     }
 
     fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
@@ -201,7 +201,7 @@ impl OverlayPath {
     /// `name` as this directory stores it.
     pub(super) fn lookup(&self, name: &str) -> Result<String, FilesystemError> {
         let _held = self.inode_lock_shared()?;
-        Ok(lookup_slow(&self.filesystem, &self.dentry, name)?.0)
+        Ok(lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)?.0)
     }
 
     /// This directory opened, kept open for whoever holds it, as overlayfs's

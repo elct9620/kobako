@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::namei::{
-    atomic_open, filename_lookup, filename_parentat, lookup_slow, vfs_mkdir, vfs_rename, vfs_rmdir,
-    vfs_unlink, Nameidata, RenameData,
+    atomic_open, filename_lookup, filename_parentat, lookup_one_qstr_excl, vfs_mkdir, vfs_rename,
+    vfs_rmdir, vfs_unlink, Nameidata, RenameData,
 };
 use super::path::Path;
 use super::{
@@ -42,7 +42,7 @@ impl KernPath {
     /// whether or not anything stands there.
     fn parent(&self, path: &str) -> Result<(Nameidata, Arc<Dentry>), FilesystemError> {
         let nd = filename_parentat(&Arc::default(), &self.0, path)?;
-        let child = lookup_slow(nd.mnt.sb(), nd.dentry(), &nd.name)?.1;
+        let child = lookup_one_qstr_excl(nd.mnt.sb(), nd.dentry(), &nd.name)?.1;
         Ok((nd, child))
     }
 
@@ -123,7 +123,7 @@ impl KernPath {
 
     pub(crate) fn lookup(&self, path: &str) -> Result<String, FilesystemError> {
         let nd = filename_parentat(&Arc::default(), &self.0, path)?;
-        Ok(lookup_slow(nd.mnt.sb(), nd.dentry(), &nd.name)?.0)
+        Ok(lookup_one_qstr_excl(nd.mnt.sb(), nd.dentry(), &nd.name)?.0)
     }
 
     #[cfg(unix)]

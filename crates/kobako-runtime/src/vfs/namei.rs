@@ -79,7 +79,7 @@ impl Nameidata {
     /// Find the last name afresh and keep what stands there, as a call looks
     /// its name up once it holds the directory's lock.
     fn lookup_last_locked(&mut self) -> Result<Arc<Dentry>, FilesystemError> {
-        let (stored, child) = lookup_slow(self.mnt.sb(), self.dentry(), &self.name)?;
+        let (stored, child) = lookup_one_qstr_excl(self.mnt.sb(), self.dentry(), &self.name)?;
         self.name = stored;
         self.path = Some(child.clone());
         Ok(child)
@@ -125,54 +125,71 @@ impl Nameidata {
     }
 }
 
-/// The dentry of `name` in `parent`, as Linux's `lookup_one` finds one: a dentry
-/// already held is asked whether it still names what stands there, as
-/// `lookup_fast` asks `d_revalidate`, and let go of for a new one where it does
-/// not.
-pub(crate) fn lookup_one(
+/// The dentry held for `name` in `parent`, as Linux's `lookup_dcache` finds one:
+/// it is asked whether it still names what stands there, as `d_revalidate`
+/// answers, and let go of where it does not.
+fn lookup_dcache(
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
-) -> Result<Arc<Dentry>, FilesystemError> {
+) -> Result<Option<Arc<Dentry>>, FilesystemError> {
     let dentries = sb.dentries();
-    if let Some(held) = dentries.lookup(parent, name) {
-        let valid = match held.ops() {
-            Some(ops) => ops.revalidate(parent.inode_ops()?.as_ref(), &held)?,
-            None => true,
-        };
-        if valid {
-            return Ok(held);
-        }
+    let Some(held) = dentries.lookup(parent, name) else {
+        return Ok(None);
+    };
+    let valid = match held.ops() {
+        Some(ops) => ops.revalidate(parent.inode_ops()?.as_ref(), &held)?,
+        None => true,
+    };
+    if !valid {
         dentries.unhash(&held);
+        return Ok(None);
     }
-    Ok(dentries.child(parent, name))
+    Ok(Some(held))
 }
 
 /// `name` in `parent` as that directory stores it, and the dentry of that
-/// spelling with what stands there recorded on it, as Linux's `lookup_slow` asks
-/// `->lookup` and a case-insensitive filesystem answers through `d_add_ci`:
-/// every spelling reaching one entry shares its dentry, and so its lock. The
-/// caller holds that directory's lock. A directory removed through the VFS is
-/// asked about no name, as `lookup_one_qstr_excl` refuses a dead one.
-pub(crate) fn lookup_slow(
+/// spelling with what stands there recorded on it, as Linux's
+/// `lookup_one_qstr_excl` asks `->lookup` and a case-insensitive filesystem
+/// answers through `d_add_ci`: every spelling reaching one entry shares its
+/// dentry, and so its lock. The caller holds that directory's lock. A directory
+/// removed through the VFS is asked about no name, as Linux refuses a dead one.
+pub(crate) fn lookup_one_qstr_excl(
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<(String, Arc<Dentry>), FilesystemError> {
-    let given = lookup_one(sb, parent, name)?;
+    let dentry_of = |name: &str| -> Result<Arc<Dentry>, FilesystemError> {
+        match lookup_dcache(sb, parent, name)? {
+            Some(held) => Ok(held),
+            None => Ok(sb.dentries().child(parent, name)),
+        }
+    };
+    let given = dentry_of(name)?;
     if given.inode().is_none() && parent.is_deaddir() {
         return Err(FilesystemError::NotFound);
     }
     let (stored, dentry) = match given.lookup_inode(parent)? {
         None => (name.to_string(), given),
         Some(stored) => {
-            let dentry = lookup_one(sb, parent, &stored)?;
+            let dentry = dentry_of(&stored)?;
             dentry.lookup_inode(parent)?;
             (stored, dentry)
         }
     };
     sb.dentries().retain(&dentry);
     Ok((stored, dentry))
+}
+
+/// The dentry of `name` in `parent` for a walk passing through, holding that
+/// directory's lock shared only to find it, as Linux's `lookup_slow` does.
+fn lookup_slow(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<Arc<Dentry>, FilesystemError> {
+    let _held = parent.inode_lock_shared()?;
+    Ok(lookup_one_qstr_excl(sb, parent, name)?.1)
 }
 
 /// Each name of `path`, empty between two slashes and after a last one.
@@ -183,10 +200,7 @@ fn parts(path: &str) -> VecDeque<String> {
 impl Nameidata {
     /// Step into the directory `name` names, or follow the link standing there.
     fn walk_component(&mut self, name: &str) -> Result<(), FilesystemError> {
-        let (_, dentry) = {
-            let _held = self.dentry().inode_lock_shared()?;
-            lookup_slow(self.mnt.sb(), self.dentry(), name)?
-        };
+        let dentry = lookup_slow(self.mnt.sb(), self.dentry(), name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
             FileType::Symlink => self.pick_link(&dentry),
@@ -692,9 +706,9 @@ pub(crate) fn start_renaming(
     flag: Option<RenameFlag>,
 ) -> Result<RenameData, FilesystemError> {
     let _held = lock_rename(sb, old_dir, new_dir)?;
-    let old_dentry = lookup_slow(sb, old_dir, old_name)?.1;
+    let old_dentry = lookup_one_qstr_excl(sb, old_dir, old_name)?.1;
     old_dentry.kind()?;
-    let new_dentry = lookup_slow(sb, new_dir, new_name)?.1;
+    let new_dentry = lookup_one_qstr_excl(sb, new_dir, new_name)?.1;
     match (flag, new_dentry.inode().is_some()) {
         (Some(RenameFlag::Exchange), false) => return Err(FilesystemError::NotFound),
         (Some(RenameFlag::NoReplace), true) => return Err(FilesystemError::AlreadyExists),
