@@ -76,21 +76,10 @@ impl Nameidata {
         self.path.clone().ok_or(FilesystemError::NotFound)
     }
 
-    /// `name` as the directory the walk stands in stores it, and the dentry of
-    /// that spelling, what stands there recorded on it. The caller holds that
-    /// directory's lock. A directory removed through the VFS holds no name any
-    /// more, as Linux's lookup in a dead directory finds nothing.
-    fn lookup_slow(&self, name: &str) -> Result<(String, Arc<Dentry>), FilesystemError> {
-        if self.dentry().is_deaddir() {
-            return Err(FilesystemError::NotFound);
-        }
-        lookup_slow(self.mnt.sb(), self.dentry(), name)
-    }
-
     /// Find the last name afresh and keep what stands there, as a call looks
     /// its name up once it holds the directory's lock.
     fn lookup_last_locked(&mut self) -> Result<Arc<Dentry>, FilesystemError> {
-        let (stored, child) = self.lookup_slow(&self.name)?;
+        let (stored, child) = lookup_slow(self.mnt.sb(), self.dentry(), &self.name)?;
         self.name = stored;
         self.path = Some(child.clone());
         Ok(child)
@@ -162,13 +151,18 @@ pub(crate) fn lookup_one(
 /// `name` in `parent` as that directory stores it, and the dentry of that
 /// spelling with what stands there recorded on it, as Linux's `lookup_slow` asks
 /// `->lookup` and a case-insensitive filesystem answers through `d_add_ci`:
-/// every spelling reaching one entry shares its dentry, and so its lock.
+/// every spelling reaching one entry shares its dentry, and so its lock. The
+/// caller holds that directory's lock. A directory removed through the VFS is
+/// asked about no name, as `lookup_one_qstr_excl` refuses a dead one.
 pub(crate) fn lookup_slow(
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<(String, Arc<Dentry>), FilesystemError> {
     let given = lookup_one(sb, parent, name)?;
+    if given.inode().is_none() && parent.is_deaddir() {
+        return Err(FilesystemError::NotFound);
+    }
     let (stored, dentry) = match given.lookup_inode(parent)? {
         None => (name.to_string(), given),
         Some(stored) => {
@@ -191,7 +185,7 @@ impl Nameidata {
     fn walk_component(&mut self, name: &str) -> Result<(), FilesystemError> {
         let (_, dentry) = {
             let _held = self.dentry().inode_lock_shared()?;
-            self.lookup_slow(name)?
+            lookup_slow(self.mnt.sb(), self.dentry(), name)?
         };
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
@@ -687,10 +681,11 @@ pub(crate) struct RenameData {
 
 /// Hold both directories of a move and find its names beneath them, as
 /// Linux's `start_renaming` does through `lock_rename`, so no other move
-/// changes what either name stands for before the call acts on it. A move
-/// whose source stands above its target directory is refused, and one whose
-/// target stands above its source directory, which only an exchange may not
-/// empty.
+/// changes what either name stands for before the call acts on it. Nothing at
+/// the source, and at the target what `flag` will not take, is refused as the
+/// flags `__start_renaming` looks each name up with refuse it. So is a move
+/// whose source stands above its target directory, and one whose target stands
+/// above its source directory, which only an exchange may not empty.
 pub(crate) fn start_renaming(
     sb: &SuperBlock,
     (old_dir, old_name): (&Arc<Dentry>, &str),
@@ -699,7 +694,13 @@ pub(crate) fn start_renaming(
 ) -> Result<RenameData, FilesystemError> {
     let _held = lock_rename(sb, old_dir, new_dir)?;
     let old_dentry = lookup_slow(sb, old_dir, old_name)?.1;
+    old_dentry.kind()?;
     let new_dentry = lookup_slow(sb, new_dir, new_name)?.1;
+    match (flag, new_dentry.inode().is_some()) {
+        (Some(RenameFlag::Exchange), false) => return Err(FilesystemError::NotFound),
+        (Some(RenameFlag::NoReplace), true) => return Err(FilesystemError::AlreadyExists),
+        _ => {}
+    }
     if new_dir.is_subdir(&old_dentry) {
         return Err(FilesystemError::InvalidInput);
     }
@@ -763,10 +764,8 @@ fn lock_two_nondirectories(
 /// `vfs_rename` does once `start_renaming` holds both directories: what moves
 /// held as `lock_moved` says, and its dentry following it. What stands on each
 /// side is checked first, as `vfs_rename` asks `may_delete_dentry` and
-/// `may_create_dentry`, and a `NoReplace` move onto a name taken is refused, as
-/// the exclusive lookup before it refuses one. A directory replaced at the new
-/// name is gone for whoever holds it, and an exchange swaps the two names'
-/// dentries, as `d_exchange` does.
+/// `may_create_dentry`. A directory replaced at the new name is gone for whoever
+/// holds it, and an exchange swaps the two names' dentries, as `d_exchange` does.
 pub(crate) fn vfs_rename(sb: &SuperBlock, rd: &RenameData) -> Result<(), FilesystemError> {
     let (old_dir, old) = (&rd.old_parent, &rd.old_dentry);
     let (new_dir, new) = (&rd.new_parent, &rd.new_dentry);
@@ -779,10 +778,7 @@ pub(crate) fn vfs_rename(sb: &SuperBlock, rd: &RenameData) -> Result<(), Filesys
     let is_dir = moving == Some(FileType::Directory);
     may_delete_dentry(old_dir, moving, is_dir)?;
     match (target, flag) {
-        (None, Some(RenameFlag::Exchange)) => return Err(FilesystemError::NotFound),
-        (None, _) if new_dir.is_deaddir() => return Err(FilesystemError::NotFound),
-        (None, _) => {}
-        (Some(_), Some(RenameFlag::NoReplace)) => return Err(FilesystemError::AlreadyExists),
+        (None, _) => may_create_dentry(new_dir, new)?,
         (target, Some(RenameFlag::Exchange)) => {
             may_delete_dentry(new_dir, target, target == Some(FileType::Directory))?
         }
@@ -866,11 +862,16 @@ pub(crate) fn atomic_open(
 }
 
 /// Give what `old` names another name, `child` in `dir`, as Linux's `vfs_link`
-/// does once its caller holds `dir`, refusing a directory.
+/// does once its caller holds `dir`: a directory is refused, and what `old`
+/// names is held, so a removal landing first leaves no name to give another.
 fn vfs_link(old: &Dentry, dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
     may_create_dentry(dir, child)?;
-    if old.kind() == Ok(FileType::Directory) {
+    if old.kind()? == FileType::Directory {
         return Err(FilesystemError::NotPermitted);
+    }
+    let _held = old.inode_lock()?;
+    if old.getattr()?.nlink == 0 {
+        return Err(FilesystemError::NotFound);
     }
     dir.inode_ops()?.link(old, child)
 }
@@ -926,8 +927,8 @@ mod tests {
 
     use crate::filesystem::wrap::{self, Wrap};
     use crate::filesystem::{
-        DentryOperations, DirEntry, FileOperations, Filesystem, FilesystemError, InodeOperations,
-        Lookup, Metadata, OpenOptions, Tmpfs,
+        DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError,
+        InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Access, Mount, Policy};
     use crate::sched::testing::count_waits;
@@ -949,6 +950,61 @@ mod tests {
             self.0.fetch_add(1, Ordering::SeqCst);
             inner.lookup(dentry)
         }
+    }
+
+    /// A root holding `file` under `names` names, and nothing else, making a
+    /// link without being asked for what it makes.
+    #[derive(Clone)]
+    struct LinksFile {
+        names: u64,
+        linked: Arc<AtomicUsize>,
+    }
+
+    impl InodeOperations for LinksFile {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(match dentry.parent() {
+                Some(_) => Metadata::new(FileType::File, 0).with_nlink(self.names),
+                None => Metadata::new(FileType::Directory, 0),
+            })
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            if dentry.name() != "file" {
+                return Ok(Lookup::Absent);
+            }
+            let file = Metadata::new(FileType::File, 0);
+            Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
+        }
+
+        fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.linked.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    // A removal landing just before the link leaves the entry with no name, so
+    // only the count, read holding what is linked, tells the link not to bring it
+    // back, as Linux's `vfs_link` reads `i_nlink`.
+    // @behavior RT-224
+    #[test]
+    fn a_link_to_what_has_no_name_left_answers_enoent() {
+        let answers = |names| {
+            let linked = Arc::new(AtomicUsize::new(0));
+            let filesystem = Filesystem::new(Arc::new(LinksFile {
+                names,
+                linked: linked.clone(),
+            }));
+            let root = root_of(filesystem);
+            let answer =
+                vfs::filename_linkat(&Arc::default(), &root, "file", &root, "other", false);
+            (answer, linked.load(Ordering::SeqCst))
+        };
+        assert_eq!(
+            (answers(0), answers(1)),
+            ((Err(FilesystemError::NotFound), 0), (Ok(()), 1)),
+            "vfs::filename_linkat of an entry reporting no names must answer ENOENT and ask for no \
+             link, and of one reporting a name must make it"
+        );
     }
 
     // A name found negative stays negative for the call holding the directory,
@@ -1753,7 +1809,7 @@ mod tests {
         .expect("/data is a guest path");
         let root = Path::root(mount.mnt());
         let cred = Arc::default();
-        let error = |error| Err(error);
+        let error = Err;
         assert_eq!(
             [
                 vfs::filename_mkdirat(&cred, &root, "a\0b"),

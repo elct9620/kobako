@@ -1760,7 +1760,7 @@ fn a_name_no_filesystem_makes_is_answered_by_what_stands() {
     let cred = Arc::default();
     let link = |old, new| vfs::filename_linkat(&cred, &root, old, &root, new, false);
     let symlink = |new| vfs::filename_symlinkat(&cred, "target", &root, new);
-    let refused = |error| Err(error);
+    let refused = Err;
     assert_eq!(
         (
             link("missing", "new"),
