@@ -104,10 +104,10 @@ impl Bind {
         dentry: &Dentry,
         call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
-        let parent = dentry
-            .parent()
+        let (parent, name) = dentry
+            .parent_and_name()
             .expect("an entry the runtime names stands in a directory");
-        call(&*self.fid_lookup(&parent)?, to_host_name(&dentry.name())?)
+        call(&*self.fid_lookup(&parent)?, to_host_name(&name)?)
     }
 
     /// Open the file `dentry` names and keep its descriptor on the inode, so

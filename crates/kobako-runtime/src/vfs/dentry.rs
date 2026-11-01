@@ -101,6 +101,14 @@ impl Dentry {
         self.state().parent.clone()
     }
 
+    /// The directory above and the name there, read together, `None` for the
+    /// root, so a move landing meanwhile cannot pair one's parent with the
+    /// other's name, as 9p holds `rename_sem` to read both.
+    pub(crate) fn parent_and_name(&self) -> Option<(Arc<Dentry>, String)> {
+        let state = self.state();
+        Some((state.parent.clone()?, state.name.clone()))
+    }
+
     /// This dentry, kept for as long as the caller holds it, as Linux's
     /// `dget` does.
     pub(crate) fn get(&self) -> Arc<Dentry> {
