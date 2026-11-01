@@ -25,8 +25,8 @@ mod super_block;
 mod utimes;
 
 pub(crate) use namei::{
-    atomic_open, lookup_one, lookup_slow, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename,
-    vfs_rmdir, vfs_unlink,
+    atomic_open, lookup_slow, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename, vfs_rmdir,
+    vfs_unlink,
 };
 
 pub use attr::{Iattr, SetTime};

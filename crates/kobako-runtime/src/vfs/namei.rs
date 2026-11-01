@@ -275,16 +275,22 @@ impl Nameidata {
 
     /// Find what the last name stands for, as Linux's `lookup_last` does: a
     /// trailing `/` follows a link there and asks for a directory, and a link
-    /// followed leaves another last name to find. A trailing `/` refuses a file
-    /// `creating` would make, as `lookup_fast_for_open` refuses it.
-    fn lookup_last(&mut self, mut follow: bool, creating: bool) -> Result<(), FilesystemError> {
+    /// followed leaves another last name to find. A call `creating` finds the
+    /// name under the directory's lock it makes one under, and is handed it
+    /// back, as `lookup_open` looks a name up once with the lock held; a trailing
+    /// `/` refuses what it would make, as `lookup_fast_for_open` refuses it.
+    fn lookup_last(
+        &mut self,
+        mut follow: bool,
+        creating: bool,
+    ) -> Result<Option<RwSemaphoreGuard>, FilesystemError> {
         loop {
             if self.last_type != LastType::Norm {
                 if self.last_type == LastType::DotDot {
                     self.follow_dotdot()?;
                 }
                 self.path = Some(self.dentry().clone());
-                return Ok(());
+                return Ok(None);
             }
             if self.trailing_slash {
                 if creating {
@@ -294,10 +300,13 @@ impl Nameidata {
                 self.lookup_directory = true;
             }
             let parent = self.dentry().clone();
-            let held = parent.inode_lock_shared()?;
+            let held = match creating {
+                true => parent.inode_lock()?,
+                false => parent.inode_lock_shared()?,
+            };
             let child = self.lookup_last_locked()?;
             if !follow || child.kind() != Ok(FileType::Symlink) {
-                return Ok(());
+                return Ok(creating.then_some(held));
             }
             self.pick_link(&child)?;
             drop(held);
@@ -393,20 +402,10 @@ pub fn do_file_open(
     let mut nd = set_nameidata(cred, start, path)?;
     nd.lookup_directory = how.directory;
     nd.link_path_walk()?;
-    nd.lookup_last(follow, how.create)?;
-    // A create finds what stands at the name under the directory's lock it
-    // creates under, and holds it until the file is open, as Linux's
-    // `lookup_open` does, so nothing made or removed in between changes
-    // what the open decided.
-    let parent = nd.dentry().clone();
-    let _held = match how.create && nd.last_type == LastType::Norm {
-        true => {
-            let held = parent.inode_lock()?;
-            nd.lookup_last_locked()?;
-            Some(held)
-        }
-        false => None,
-    };
+    // A create holds the directory's lock until the file is open, as Linux's
+    // `lookup_open` does, so nothing made or removed in between changes what
+    // the open decided.
+    let _held = nd.lookup_last(follow, how.create)?;
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     let existing = nd.path()?.inode().map(|inode| inode.kind());
@@ -771,8 +770,8 @@ pub(crate) fn vfs_rename(sb: &SuperBlock, rd: &RenameData) -> Result<(), Filesys
     let (old_dir, old) = (&rd.old_parent, &rd.old_dentry);
     let (new_dir, new) = (&rd.new_parent, &rd.new_dentry);
     let flag = rd.flag;
-    let moving = kind_at(old_dir, old)?;
-    let target = kind_at(new_dir, new)?;
+    let moving = old.kind().ok();
+    let target = new.kind().ok();
     if Arc::ptr_eq(old, new) || old.names_the_entry_of(new) {
         return Ok(());
     }
@@ -819,7 +818,7 @@ pub(crate) fn vfs_rmdir(
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    may_delete_dentry(dir, kind_at(dir, victim)?, true)?;
+    may_delete_dentry(dir, victim.kind().ok(), true)?;
     let _victim = victim.inode_lock()?;
     dir.inode_ops()?.rmdir(victim)?;
     victim.mark_dead();
@@ -836,7 +835,7 @@ pub(crate) fn vfs_unlink(
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    may_delete_dentry(dir, kind_at(dir, victim)?, false)?;
+    may_delete_dentry(dir, victim.kind().ok(), false)?;
     let _victim = victim.inode_lock()?;
     dir.inode_ops()?.unlink(victim)?;
     sb.dentries().unhash(victim);
@@ -882,18 +881,10 @@ fn vfs_symlink(dir: &Dentry, child: &Dentry, target: &str) -> Result<(), Filesys
     dir.inode_ops()?.symlink(child, target)
 }
 
-/// What stands at `dentry` in `dir`, a link reported as itself, or `None` where
-/// nothing does, as a dentry is negative. It reads the kind the dentry records,
-/// as Linux's `d_is_*` do.
-fn kind_at(dir: &Dentry, dentry: &Dentry) -> Result<Option<FileType>, FilesystemError> {
-    dentry.lookup_inode(dir)?;
-    Ok(dentry.inode().map(|recorded| recorded.kind()))
-}
-
-/// Refuse to make an entry at `child` in `dir` where one stands, or once `dir`
-/// was removed, as Linux's `may_create_dentry` refuses.
+/// Refuse to make an entry at `child` in `dir` where its lookup found one, or
+/// once `dir` was removed, as Linux's `may_create_dentry` reads `d_inode`.
 pub(crate) fn may_create_dentry(dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
-    if kind_at(dir, child)?.is_some() {
+    if child.inode().is_some() {
         return Err(FilesystemError::AlreadyExists);
     }
     if dir.is_deaddir() {
@@ -943,6 +934,61 @@ mod tests {
     use crate::vfs::{self, Dentry, Inode, OpenHow, Path, RenameFlag};
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
+
+    /// A test's Filesystem counting what it is asked to look up.
+    #[derive(Default)]
+    struct CountsAsks(AtomicUsize);
+
+    impl wrap::Hook for CountsAsks {
+        fn lookup(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<Lookup, FilesystemError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            inner.lookup(dentry)
+        }
+    }
+
+    // A name found negative stays negative for the call holding the directory,
+    // so asking the Filesystem again could only cost it, as a Filesystem written
+    // in Ruby pays for each ask.
+    // @behavior RT-223
+    #[test]
+    fn a_change_asks_a_filesystem_once_for_the_name_it_makes() {
+        let counts = Arc::new(CountsAsks::default());
+        let filesystem =
+            Filesystem::new(Arc::new(Wrap::new(Arc::new(Tmpfs::new()), counts.clone())));
+        let root = root_of(filesystem);
+        let cred = Arc::default();
+        let how = OpenHow {
+            write: true,
+            create: true,
+            ..OpenHow::default()
+        };
+        let asked = |call: &dyn Fn()| {
+            counts.0.store(0, Ordering::SeqCst);
+            call();
+            counts.0.load(Ordering::SeqCst)
+        };
+        let made_dir = asked(&|| vfs::filename_mkdirat(&cred, &root, "dir").expect("mkdir"));
+        let made_file = asked(&|| {
+            assert!(
+                vfs::do_file_open(&cred, &root, "file", &how).is_ok(),
+                "the file must be made"
+            );
+        });
+        vfs::vfs_fstatat(&cred, &root, "file", false).expect("the file must stand");
+        let moved = asked(&|| {
+            vfs::filename_renameat2(&cred, &root, "file", &root, "moved").expect("the move")
+        });
+        assert_eq!(
+            (made_dir, made_file, moved),
+            (1, 1, 1),
+            "vfs::filename_mkdirat and vfs::do_file_open of a new name, and vfs::filename_renameat2 \
+             of a held file onto one, must each look the new name up once"
+        );
+    }
 
     /// A Tmpfs root a test steps into: after it removes a directory, in
     /// place of making one, as it moves an entry, and, once `stale` is set,

@@ -4,7 +4,7 @@
 //! VFS helpers overlayfs calls do: shared while a name is looked up, as
 //! `lookup_one_unlocked`, and exclusive while one is made, removed, or
 //! moved, as `start_creating`, `start_removing`, and `start_renaming`. A
-//! name is found through the VFS's `lookup_one`, and an entry made,
+//! name is found through the VFS's `lookup_slow`, and an entry made,
 //! removed, or moved through its `vfs_mkdir`, `atomic_open`, `vfs_rmdir`,
 //! `vfs_unlink`, and `vfs_rename`, as overlayfs's are, so the VFS checks
 //! what stands there and the Layer's dentries follow each change.
@@ -18,8 +18,8 @@ use super::super::{
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    atomic_open, lookup_one, lookup_slow, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename,
-    vfs_rmdir, vfs_unlink, Dentry, RenameFlag,
+    atomic_open, lookup_slow, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename, vfs_rmdir,
+    vfs_unlink, Dentry, RenameFlag,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -53,11 +53,6 @@ impl OverlayPath {
     /// Where this directory stands in its Layer.
     pub(super) fn dentry(&self) -> &Arc<Dentry> {
         &self.dentry
-    }
-
-    /// The dentry of `name` in this directory.
-    fn child(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        lookup_one(&self.filesystem, &self.dentry, name)
     }
 
     /// Whether the dentry this Layer holds for `name`, if it holds one, still
@@ -127,7 +122,7 @@ impl OverlayPath {
 
     pub(super) fn do_whiteout(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        may_create_dentry(&self.dentry, &*self.child(name)?)?;
+        may_create_dentry(&self.dentry, &*self.lookup_real(name)?)?;
         self.upper()?.whiteout(name)
     }
 
@@ -155,7 +150,7 @@ impl OverlayPath {
 
     pub(super) fn do_link(&self, file: &TmpfsFile, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        may_create_dentry(&self.dentry, &*self.child(name)?)?;
+        may_create_dentry(&self.dentry, &*self.lookup_real(name)?)?;
         self.upper()?.link(file, name)
     }
 
@@ -180,7 +175,7 @@ impl OverlayPath {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let _held = self.inode_lock()?;
-        atomic_open(&self.dentry, &*self.child(name)?, options)
+        atomic_open(&self.dentry, &*self.lookup_real(name)?, options)
     }
 
     /// The directory standing at `name`, a link there refused as a loop, as
@@ -238,16 +233,16 @@ impl OverlayPath {
 
     pub(super) fn do_mkdir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_mkdir(&self.dentry, &*self.child(name)?)
+        vfs_mkdir(&self.dentry, &*self.lookup_real(name)?)
     }
 
     pub(super) fn do_rmdir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_rmdir(&self.filesystem, &self.dentry, &self.child(name)?)
+        vfs_rmdir(&self.filesystem, &self.dentry, &self.lookup_real(name)?)
     }
 
     pub(super) fn do_unlink(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_unlink(&self.filesystem, &self.dentry, &self.child(name)?)
+        vfs_unlink(&self.filesystem, &self.dentry, &self.lookup_real(name)?)
     }
 }

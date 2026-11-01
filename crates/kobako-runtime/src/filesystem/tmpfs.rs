@@ -584,6 +584,9 @@ impl InodeOperations for Tmpfs {
         self.dir
             .state()
             .insert(&dentry.name(), Node::File(data.clone()));
+        let made = lock(&data).metadata();
+        let ops = Arc::new(TmpfsRegular { data: data.clone() });
+        dentry.add(Some(Inode::new(&made, ops)));
         Ok(Box::new(TmpfsFile { data }))
     }
 
