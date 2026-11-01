@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::dentry::Dentry;
 use super::mount::{Access, VfsMount};
 use super::path::Path;
-use super::{Error, FileType, FilesystemError};
+use super::{FileType, FilesystemError};
 
 /// What a security module answers, as a hook in Linux's `lsm_hook_defs.h`,
 /// beside the one kobako adds at the start of a walk. A hook a module does
@@ -20,7 +20,7 @@ pub trait SecurityOperations: Send + Sync {
         _mnt: &Arc<VfsMount>,
         _path: &dyn Fn() -> String,
         _access: Access,
-    ) -> Result<(), Error> {
+    ) -> Result<(), FilesystemError> {
         Ok(())
     }
 
@@ -52,7 +52,7 @@ pub trait SecurityOperations: Send + Sync {
 
     /// Whether a call may start from `path`, kobako's own hook, as Linux asks
     /// nothing of the dentry a walk starts from.
-    fn path_walk(&self, _path: &Path) -> Result<(), Error> {
+    fn path_walk(&self, _path: &Path) -> Result<(), FilesystemError> {
         Ok(())
     }
 
@@ -87,7 +87,7 @@ impl Cred {
         mnt: &Arc<VfsMount>,
         path: &dyn Fn() -> String,
         access: Access,
-    ) -> Result<(), Error> {
+    ) -> Result<(), FilesystemError> {
         self.security
             .iter()
             .try_for_each(|module| module.path_perm(mnt, path, access))
@@ -125,7 +125,7 @@ impl Cred {
             .try_for_each(|module| module.path_rename(mnt, old, new))
     }
 
-    pub(crate) fn security_path_walk(&self, path: &Path) -> Result<(), Error> {
+    pub(crate) fn security_path_walk(&self, path: &Path) -> Result<(), FilesystemError> {
         self.security
             .iter()
             .try_for_each(|module| module.path_walk(path))

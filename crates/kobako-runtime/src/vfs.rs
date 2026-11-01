@@ -37,7 +37,7 @@ pub use file::{
     DirContext, DirEmit, DirEntry, FMode, File, FileOperations, Kiocb, PollMask, Whence,
 };
 pub use inode::{Identity, Inode, InodeOperations, Lookup, RenameFlag};
-pub use mount::{Access, Denial, VfsMount};
+pub use mount::{Access, VfsMount};
 pub use namei::{
     do_file_open, filename_linkat, filename_mkdirat, filename_renameat2, filename_rmdir,
     filename_symlinkat, filename_unlinkat,
@@ -52,28 +52,3 @@ pub use utimes::{do_utimes, vfs_utimes};
 /// within it.
 pub const PATH_MAX: usize = 4096;
 pub const NAME_MAX: usize = 255;
-
-/// Why a call on a path failed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Error {
-    /// What the Filesystem, or the path itself, answered.
-    Filesystem(FilesystemError),
-    /// The Mount refused it.
-    Denied(Denial),
-    /// The path is absolute, climbs above the directory it is resolved
-    /// beneath, or holds a link that does either, escaping it as `openat2`'s
-    /// `RESOLVE_BENEATH` refuses.
-    Escape,
-}
-
-impl From<FilesystemError> for Error {
-    fn from(error: FilesystemError) -> Self {
-        Self::Filesystem(error)
-    }
-}
-
-impl From<Denial> for Error {
-    fn from(denial: Denial) -> Self {
-        Self::Denied(denial)
-    }
-}

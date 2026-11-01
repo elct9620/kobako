@@ -620,8 +620,8 @@ mod tests {
                 kern_path(tmpfs.clone()).symlink_metadata("dir/made").err()
             ),
             (
-                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
-                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+                Err(FilesystemError::NotFound),
+                Err(FilesystemError::NotFound),
                 Some(FilesystemError::NotFound)
             ),
             "vfs::filename_mkdirat and File::iterate_dir through a directory vfs::filename_rmdir removed, over \
@@ -643,7 +643,7 @@ mod tests {
             .expect("another directory must be made");
         assert_eq!(
             vfs::filename_mkdirat(&Arc::default(), &dir, "made"),
-            Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+            Err(FilesystemError::NotFound),
             "vfs::filename_mkdirat through a directory opened beneath one Mount, once vfs::filename_rmdir \
              removed it beneath another Mount of the same Filesystem, must answer NotFound"
         );

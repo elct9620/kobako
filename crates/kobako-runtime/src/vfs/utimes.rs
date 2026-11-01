@@ -8,19 +8,19 @@ use super::cred::Cred;
 use super::mount::Access;
 use super::namei::filename_lookup;
 use super::path::Path;
-use super::{Error, FilesystemError, Iattr};
+use super::{FilesystemError, Iattr};
 
 /// Set `times` on what `path` names, as Linux's `vfs_utimes` asks the mount,
 /// then the security hook, then `setattr` under the entry's lock. An entry
 /// without `setattr` keeps no time to set, as this VFS holds none on an inode.
-pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Error> {
+pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
     path.mnt().mnt_want_write()?;
     cred.security_path_walk(path)?;
     let dentry = path.dentry();
     cred.security_path_perm(path.mnt(), &|| dentry.path_raw(), Access::ReadWrite)?;
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
     let _held = dentry.inode_lock()?;
-    Ok(inode.ops().setattr(dentry, times)?)
+    inode.ops().setattr(dentry, times)
 }
 
 /// Set `times` on what `path` beneath `start` names, a link at its end
@@ -31,7 +31,7 @@ pub fn do_utimes(
     path: &str,
     follow: bool,
     times: &Iattr,
-) -> Result<(), Error> {
+) -> Result<(), FilesystemError> {
     let mut nd = filename_lookup(cred, start, path, follow)?;
     let dentry = match nd.name.is_empty() {
         true => nd.dentry().clone(),
@@ -54,7 +54,7 @@ mod tests {
     use crate::filesystem::{FileType, Filesystem, InodeOperations, Metadata, SetTime, Tmpfs};
     use crate::mount::{Access as MountAccess, Mount, Policy};
     use crate::security::prepare_creds;
-    use crate::vfs::{Denial, Dentry};
+    use crate::vfs::Dentry;
 
     fn times() -> Iattr {
         Iattr::times(Some(SetTime::Now), Some(SetTime::At(UNIX_EPOCH)))
@@ -88,9 +88,9 @@ mod tests {
                 set(MountAccess::ReadWrite, "file.txt"),
             ),
             (
-                Err(Error::Filesystem(FilesystemError::NotFound)),
-                Err(Error::Denied(Denial::ReadOnly)),
-                Err(Error::Filesystem(FilesystemError::Unsupported)),
+                Err(FilesystemError::NotFound),
+                Err(FilesystemError::ReadOnlyFilesystem),
+                Err(FilesystemError::Unsupported),
             ),
             "vfs::do_utimes must answer what is not there ENOENT, a read-only Mount EROFS, and \
              a Tmpfs entry, which keeps no time of the guest's choosing, ENOTSUP"
@@ -161,10 +161,7 @@ mod tests {
                 vfs_utimes(&cred, file.path(), &times()),
                 policy.0.lock().unwrap().clone()
             ),
-            (
-                Err(Error::Filesystem(FilesystemError::NotFound)),
-                Vec::new()
-            ),
+            (Err(FilesystemError::NotFound), Vec::new()),
             "vfs::vfs_utimes through a descriptor of a file whose name is gone, beneath a Policy, \
              must answer ENOENT without asking the Policy about the path it stood at"
         );
@@ -191,7 +188,7 @@ mod tests {
                 vfs_utimes(&prepare_creds([&mount]), &Path::root(mount.mnt()), &times()),
                 *filesystem.0.lock().unwrap(),
             ),
-            (Err(Error::Denied(Denial::Refused)), None),
+            (Err(FilesystemError::PermissionDenied), None),
             "vfs::vfs_utimes beneath a Policy refusing the path must answer EACCES and leave the \
              Filesystem unasked"
         );

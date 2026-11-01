@@ -11,7 +11,7 @@ use super::inode::Identity;
 use super::mount::VfsMount;
 use super::openat2::{do_truncate, OpenHow, OpenOptions};
 use super::path::Path;
-use super::{Error, FileType, FilesystemError, Iattr, Metadata, PATH_MAX};
+use super::{FileType, FilesystemError, Iattr, Metadata, PATH_MAX};
 
 /// The largest offset a file holds, where Linux's signed `loff_t` ends.
 const MAX_OFFSET: u64 = i64::MAX as u64;
@@ -378,9 +378,9 @@ impl File {
 
     /// Move its position, answering where it now stands, as `vfs_llseek` and
     /// `generic_file_llseek_size` do.
-    pub fn llseek(&mut self, offset: i64, whence: Whence) -> Result<u64, Error> {
+    pub fn llseek(&mut self, offset: i64, whence: Whence) -> Result<u64, FilesystemError> {
         if !self.mode.contains(FMode::LSEEK) {
-            return Err(FilesystemError::NotSeekable.into());
+            return Err(FilesystemError::NotSeekable);
         }
         let base = match whence {
             Whence::Set => 0,
@@ -563,13 +563,13 @@ impl File {
     }
 
     /// What it reports of itself, as `vfs_getattr` answers.
-    pub fn getattr(&self) -> Result<Metadata, Error> {
+    pub fn getattr(&self) -> Result<Metadata, FilesystemError> {
         match self.is_directory() {
             true => {
                 self.cred.security_path_walk(&self.path)?;
                 self.path.metadata()
             }
-            false => Ok(self.path.dentry().getattr()?),
+            false => self.path.dentry().getattr(),
         }
     }
 
@@ -588,7 +588,7 @@ impl File {
     /// reads the entries that listing began with, so a caller reading in small
     /// steps costs one listing, not one per step. A removed directory answers
     /// not found, as `iterate_dir` asks `IS_DEADDIR`.
-    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), Error> {
+    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), FilesystemError> {
         let listing = match self.listing.take() {
             Some(listing) if ctx.pos != 0 && !self.path.dentry().is_deaddir() => listing,
             _ => self.read_entries()?,
@@ -656,12 +656,12 @@ impl File {
 
     /// The entries of the directory, under its lock shared as `iterate_dir`
     /// holds it, so a removal through the VFS lands before or after them.
-    fn read_entries(&mut self) -> Result<Vec<DirEntry>, Error> {
+    fn read_entries(&mut self) -> Result<Vec<DirEntry>, FilesystemError> {
         self.cred.security_path_walk(&self.path)?;
         let dentry = self.path.dentry().clone();
         let _held = dentry.inode_lock_shared()?;
         if dentry.is_deaddir() {
-            return Err(FilesystemError::NotFound.into());
+            return Err(FilesystemError::NotFound);
         }
         let entries = self.ops.iterate_shared(&dentry)?;
         entries

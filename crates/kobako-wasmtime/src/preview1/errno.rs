@@ -2,8 +2,6 @@
 //! the guest reads, or a trap that ends the invocation.
 
 use kobako_runtime::filesystem::FilesystemError;
-use kobako_runtime::mount::Denial;
-use kobako_runtime::vfs;
 use wiggle::GuestError;
 
 use super::types;
@@ -64,39 +62,20 @@ impl From<GuestError> for types::Error {
     }
 }
 
-/// The code a Filesystem's failure reaches the guest as: the one its
-/// POSIX name stands for, or `IO` for a failure without one.
+/// The code a call's failure reaches the guest as: the one its POSIX name
+/// stands for, or `IO` for a failure without one. A path escaping its
+/// descriptor is `NOTCAPABLE`, as preview1 names a capability the guest does
+/// not hold, where Linux answers EXDEV.
 impl From<FilesystemError> for types::Error {
     fn from(error: FilesystemError) -> Self {
-        error
-            .posix_name()
-            .and_then(from_posix_name)
-            .unwrap_or(Errno::Io)
-            .into()
-    }
-}
-
-/// A change beneath a read-only Mount is `ROFS`; a Policy's refusal is
-/// `ACCES`.
-impl From<Denial> for types::Error {
-    fn from(denial: Denial) -> Self {
-        match denial {
-            Denial::ReadOnly => Errno::Rofs,
-            Denial::Refused => Errno::Acces,
+        match error {
+            FilesystemError::Escape => Errno::Notcapable,
+            error => error
+                .posix_name()
+                .and_then(from_posix_name)
+                .unwrap_or(Errno::Io),
         }
         .into()
-    }
-}
-
-/// A path escaping its descriptor is `NOTCAPABLE`, as preview1 names a
-/// capability the guest does not hold.
-impl From<vfs::Error> for types::Error {
-    fn from(error: vfs::Error) -> Self {
-        match error {
-            vfs::Error::Filesystem(error) => error.into(),
-            vfs::Error::Denied(denial) => denial.into(),
-            vfs::Error::Escape => Errno::Notcapable.into(),
-        }
     }
 }
 
@@ -119,6 +98,7 @@ mod tests {
             (FilesystemError::StorageFull, 51),
             (FilesystemError::FileTooLarge, 22),
             (FilesystemError::CrossesDevices, 75),
+            (FilesystemError::Escape, 76),
             (FilesystemError::Deadlock, 16),
             (FilesystemError::FilesystemLoop, 32),
             (FilesystemError::NotPermitted, 63),

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::mount::VfsMount;
-use super::{Error, Metadata};
+use super::{FilesystemError, Metadata};
 
 /// A name beneath a mount, as an open file holds its `f_path`: the mount's
 /// root, or an entry opened beneath it. A call relative to one starts at a
@@ -44,7 +44,7 @@ impl Path {
     }
 
     /// What the directory reports of itself.
-    pub fn metadata(&self) -> Result<Metadata, Error> {
-        Ok(self.dentry.getattr()?)
+    pub fn metadata(&self) -> Result<Metadata, FilesystemError> {
+        self.dentry.getattr()
     }
 }

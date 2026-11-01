@@ -14,8 +14,8 @@ use super::namei::{
 };
 use super::path::Path;
 use super::{
-    DirEntry, Error, File, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Metadata, OpenOptions, SuperBlock,
+    DirEntry, File, FileOperations, FileType, FilesystemError, Iattr, InodeOperations, Metadata,
+    OpenOptions, SuperBlock,
 };
 use crate::mount::{Access, Mount};
 
@@ -30,19 +30,11 @@ pub(crate) fn kern_path(filesystem: Arc<dyn InodeOperations>) -> KernPath {
     KernPath(Path::root(mount.mnt()))
 }
 
-fn to_filesystem_error(error: Error) -> FilesystemError {
-    match error {
-        Error::Filesystem(error) => error,
-        Error::Escape => FilesystemError::NotPermitted,
-        Error::Denied(denial) => panic!("a read-write Mount refused a call: {denial:?}"),
-    }
-}
-
 impl KernPath {
     /// `path` resolved beneath this directory, a link at its end left as
     /// it stands.
     fn resolve(&self, path: &str) -> Result<Nameidata, FilesystemError> {
-        filename_lookup(&Arc::default(), &self.0, path, false).map_err(to_filesystem_error)
+        filename_lookup(&Arc::default(), &self.0, path, false)
     }
 
     pub(crate) fn open(
@@ -111,7 +103,7 @@ impl KernPath {
 
     /// What the directory reports of itself.
     pub(crate) fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.0.metadata().map_err(to_filesystem_error)
+        self.0.metadata()
     }
 
     /// What `path` names, a link reported as itself; the directory itself

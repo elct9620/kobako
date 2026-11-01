@@ -6,7 +6,6 @@ use super::dentry::Dentry;
 use super::file::File;
 use super::namei::Nameidata;
 use super::path::Path;
-use super::Error;
 use super::FilesystemError;
 
 /// How `InodeOperations::open` opens a file.
@@ -64,7 +63,11 @@ pub(crate) fn do_truncate(dentry: &Dentry, attr: &Iattr) -> Result<(), Filesyste
 
 /// The directory `nd` ends at, opened now, as Linux's `vfs_open` holds
 /// what it opened, so the descriptor follows it wherever it moves.
-pub(crate) fn vfs_open(start: &Path, nd: Nameidata, how: &OpenHow) -> Result<File, Error> {
+pub(crate) fn vfs_open(
+    start: &Path,
+    nd: Nameidata,
+    how: &OpenHow,
+) -> Result<File, FilesystemError> {
     let dentry = match nd.name.as_str() {
         "" => nd.dentry().clone(),
         _ => {

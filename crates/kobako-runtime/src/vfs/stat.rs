@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use super::cred::Cred;
 use super::namei::filename_lookup;
 use super::path::Path;
-use super::{Error, FilesystemError};
+use super::FilesystemError;
 
 /// What a path names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,18 +110,22 @@ pub fn vfs_fstatat(
     start: &Path,
     path: &str,
     follow: bool,
-) -> Result<Metadata, Error> {
+) -> Result<Metadata, FilesystemError> {
     let mut nd = filename_lookup(cred, start, path, follow)?;
-    Ok(nd.getattr()?)
+    nd.getattr()
 }
 
 /// Where the link at `path` beneath `start` points, as Linux's `do_readlinkat`
 /// asks the security hook only of a link, and answers anything else invalid.
-pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<String, Error> {
+pub fn do_readlinkat(
+    cred: &Arc<Cred>,
+    start: &Path,
+    path: &str,
+) -> Result<String, FilesystemError> {
     let mut nd = filename_lookup(cred, start, path, false)?;
     if nd.kind()? != FileType::Symlink {
-        return Err(FilesystemError::InvalidInput.into());
+        return Err(FilesystemError::InvalidInput);
     }
     cred.security_inode_readlink()?;
-    Ok(nd.last_dentry()?.get_link()?)
+    nd.last_dentry()?.get_link()
 }

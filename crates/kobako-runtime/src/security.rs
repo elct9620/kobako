@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use crate::mount::{Mount, Policy};
 use crate::vfs::{
-    Access, Cred, Denial, Dentry, Error, FileType, FilesystemError, Path, SecurityOperations,
-    VfsMount, PATH_MAX,
+    Access, Cred, Dentry, FileType, FilesystemError, Path, SecurityOperations, VfsMount, PATH_MAX,
 };
 
 /// What every Invocation holds to, whatever its Mounts allow.
@@ -78,17 +77,17 @@ impl SecurityOperations for MountPolicy {
         mnt: &Arc<VfsMount>,
         path: &dyn Fn() -> String,
         access: Access,
-    ) -> Result<(), Error> {
+    ) -> Result<(), FilesystemError> {
         if !self.guards(mnt) {
             return Ok(());
         }
         let path = self.guest_path(&path());
         if path.len() >= PATH_MAX {
-            return Err(FilesystemError::InvalidFilename.into());
+            return Err(FilesystemError::InvalidFilename);
         }
         match self.policy.allows(&path, access) {
             true => Ok(()),
-            false => Err(Denial::Refused.into()),
+            false => Err(FilesystemError::PermissionDenied),
         }
     }
 
@@ -127,7 +126,7 @@ impl SecurityOperations for MountPolicy {
     /// Linux asks nothing of the dentry a walk starts from; this keeps a host or
     /// another Filesystem instance moving a directory behind the runtime's back
     /// from having a Policy judge a path it no longer stands at.
-    fn path_walk(&self, path: &Path) -> Result<(), Error> {
+    fn path_walk(&self, path: &Path) -> Result<(), FilesystemError> {
         if !self.guards(path.mnt()) {
             return Ok(());
         }
@@ -141,7 +140,7 @@ impl SecurityOperations for MountPolicy {
             .inode()
             .is_some_and(|inode| inode.identity().is_some());
         if dentries.unlinked(dentry) || !told_apart {
-            return Err(FilesystemError::NotFound.into());
+            return Err(FilesystemError::NotFound);
         }
         let Some(ops) = dentry.ops() else {
             return Ok(());
@@ -156,7 +155,7 @@ impl SecurityOperations for MountPolicy {
             let inode = above.inode().ok_or(FilesystemError::NotFound)?;
             if !ops.revalidate(inode.ops().as_ref(), name)? {
                 dentries.unhash(name);
-                return Err(FilesystemError::NotFound.into());
+                return Err(FilesystemError::NotFound);
             }
         }
         Ok(())
@@ -197,7 +196,7 @@ mod tests {
 
     /// What making an entry answers through a directory moved past
     /// `PATH_MAX`, beneath a mount `prepare` finishes.
-    fn made_past_the_limit(prepare: impl FnOnce(Mount) -> Mount) -> Result<(), Error> {
+    fn made_past_the_limit(prepare: impl FnOnce(Mount) -> Mount) -> Result<(), FilesystemError> {
         let (deep, seed) = (vec!["a"; 2000].join("/"), "x");
         let tmpfs: Tmpfs = [
             (format!("c0/{deep}/file"), seed),
@@ -253,7 +252,7 @@ mod tests {
         let asked_past_the_limit = asked.0.load(std::sync::atomic::Ordering::SeqCst);
         assert_eq!(
             (made, asked_past_the_limit),
-            (Err(FilesystemError::InvalidFilename.into()), 1),
+            (Err(FilesystemError::InvalidFilename), 1),
             "vfs::filename_mkdirat through a directory moved past PATH_MAX, beneath a Policy, \
              must answer ENAMETOOLONG, the Policy asked only of the open before the move"
         );
@@ -295,7 +294,7 @@ mod tests {
         let linuxs = answers(&Arc::default());
         let made = host.join("dir/made").exists();
         let _ = std::fs::remove_dir_all(&host);
-        let looped = || Err(FilesystemError::FilesystemLoop.into());
+        let looped = || Err(FilesystemError::FilesystemLoop);
         assert_eq!(
             (refused, linuxs, made),
             (

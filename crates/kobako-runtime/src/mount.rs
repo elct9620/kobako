@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::filesystem::Filesystem;
 use crate::vfs::VfsMount;
 
-pub use crate::vfs::{Access, Denial};
+pub use crate::vfs::Access;
 
 /// The Host App's decision for one path a guest opens or changes, made after
 /// a Mount's access allows it, so it can only refuse more.

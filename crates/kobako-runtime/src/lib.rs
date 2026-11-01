@@ -39,7 +39,7 @@ pub use filesystem::{
     InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Overlay, SeedError, Tmpfs,
 };
 pub use grant::{Grant, GrantKind};
-pub use mount::{Access, Denial, Mount, MountPathError, Policy};
+pub use mount::{Access, Mount, MountPathError, Policy};
 pub use profile::Profile;
 pub use runtime::{Entry, Runtime};
 pub use sched::Blocking;

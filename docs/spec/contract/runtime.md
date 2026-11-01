@@ -840,14 +840,6 @@ impl Mount {
 }
 ```
 
-## `Denial`
-
-Why a call was refused: a change beneath a read-only mount, or a security hook.
-
-```rust
-pub enum Denial {}
-```
-
 ## `Path`
 
 A directory beneath a Mount, as a directory descriptor holds one.
@@ -956,7 +948,7 @@ Whether a path beneath a mount may be reached with an access.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_perm(&self, _mnt: &Arc<VfsMount>, _path: &dyn Fn() -> String, _access: Access) -> Result<(), Error>;
+    fn path_perm(&self, _mnt: &Arc<VfsMount>, _path: &dyn Fn() -> String, _access: Access) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -1006,7 +998,7 @@ Whether a call may start from a Path.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_walk(&self, _path: &Path) -> Result<(), Error>;
+    fn path_walk(&self, _path: &Path) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -1016,7 +1008,7 @@ What the directory reports of itself.
 
 ```rust
 impl Path {
-    pub fn metadata(&self) -> Result<Metadata, Error> {}
+    pub fn metadata(&self) -> Result<Metadata, FilesystemError> {}
 }
 ```
 
@@ -1147,7 +1139,7 @@ Move its position and answer where it stands, as `vfs_llseek` does.
 
 ```rust
 impl File {
-    pub fn llseek(&mut self, offset: i64, whence: Whence) -> Result<u64, Error> {}
+    pub fn llseek(&mut self, offset: i64, whence: Whence) -> Result<u64, FilesystemError> {}
 }
 ```
 
@@ -1308,7 +1300,7 @@ What it reports of itself.
 
 ```rust
 impl File {
-    pub fn getattr(&self) -> Result<Metadata, Error> {}
+    pub fn getattr(&self) -> Result<Metadata, FilesystemError> {}
 }
 ```
 
@@ -1378,7 +1370,7 @@ first, until its actor stops. A removed directory answers not found.
 
 ```rust
 impl File {
-    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), Error> {}
+    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), FilesystemError> {}
 }
 ```
 
@@ -1471,7 +1463,7 @@ Open a path beneath a directory, as Linux's `do_file_open` serves `openat`.
 It hands no descriptor out, so a caller holding a table reserves one first.
 
 ```rust
-pub fn do_file_open(cred: &Arc<Cred>, start: &Path, path: &str, how: &OpenHow) -> Result<File, Error> {}
+pub fn do_file_open(cred: &Arc<Cred>, start: &Path, path: &str, how: &OpenHow) -> Result<File, FilesystemError> {}
 ```
 
 ## `filename_linkat`
@@ -1480,7 +1472,7 @@ Give what a path names another name, as Linux's `filename_linkat` serves
 `linkat`.
 
 ```rust
-pub fn filename_linkat(cred: &Arc<Cred>, old_start: &Path, old_path: &str, new_start: &Path, new_path: &str, follow: bool) -> Result<(), Error> {}
+pub fn filename_linkat(cred: &Arc<Cred>, old_start: &Path, old_path: &str, new_start: &Path, new_path: &str, follow: bool) -> Result<(), FilesystemError> {}
 ```
 
 ## `filename_symlinkat`
@@ -1488,7 +1480,7 @@ pub fn filename_linkat(cred: &Arc<Cred>, old_start: &Path, old_path: &str, new_s
 Make a link at a path, as Linux's `filename_symlinkat` serves `symlinkat`.
 
 ```rust
-pub fn filename_symlinkat(cred: &Arc<Cred>, target: &str, start: &Path, path: &str) -> Result<(), Error> {}
+pub fn filename_symlinkat(cred: &Arc<Cred>, target: &str, start: &Path, path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `InodeOperations::link`
@@ -1518,7 +1510,7 @@ Make a directory at a path beneath a directory, as Linux's `filename_mkdirat`
 serves `mkdirat`.
 
 ```rust
-pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {}
+pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `filename_rmdir`
@@ -1526,7 +1518,7 @@ pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<()
 Remove the empty directory at a path beneath a directory.
 
 ```rust
-pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {}
+pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `filename_unlinkat`
@@ -1534,7 +1526,7 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
 Remove the file at a path beneath a directory.
 
 ```rust
-pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {}
+pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `filename_renameat2`
@@ -1542,7 +1534,7 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(
 Move an entry within one Mount.
 
 ```rust
-pub fn filename_renameat2(cred: &Arc<Cred>, from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), Error> {}
+pub fn filename_renameat2(cred: &Arc<Cred>, from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `vfs_fstatat`
@@ -1551,7 +1543,7 @@ What a path names, a link at its end followed where asked and reported as
 itself otherwise.
 
 ```rust
-pub fn vfs_fstatat(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool) -> Result<Metadata, Error> {}
+pub fn vfs_fstatat(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool) -> Result<Metadata, FilesystemError> {}
 ```
 
 ## `do_readlinkat`
@@ -1560,7 +1552,7 @@ Where a link points, asked of the security hooks first. kobako's own rules refus
 it as unsupported.
 
 ```rust
-pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<String, Error> {}
+pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<String, FilesystemError> {}
 ```
 
 ## `do_utimes`
@@ -1568,7 +1560,7 @@ pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Strin
 Refuse setting timestamps as unsupported once the path is known to stand.
 
 ```rust
-pub fn do_utimes(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool, times: &Iattr) -> Result<(), Error> {}
+pub fn do_utimes(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool, times: &Iattr) -> Result<(), FilesystemError> {}
 ```
 
 ## `vfs_utimes`
@@ -1577,7 +1569,7 @@ Set times on what a Path names, as Linux's `vfs_utimes` does for a path and a
 descriptor alike. An entry without `setattr` answers unsupported.
 
 ```rust
-pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Error> {}
+pub fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {}
 ```
 
 ## `Iattr::times`

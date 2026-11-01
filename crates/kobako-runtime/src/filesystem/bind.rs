@@ -810,10 +810,7 @@ mod tests {
         fs::rename(host.0.join("m/x"), host.0.join("outside/x")).expect("the host must move it");
         assert_eq!(
             (before, open()),
-            (
-                None,
-                Some(vfs::Error::Filesystem(FilesystemError::NotFound))
-            ),
+            (None, Some(FilesystemError::NotFound)),
             "vfs::do_file_open through a name kept since the last walk, once the host moved it \
              out of the Mount, must answer ENOENT"
         );
@@ -876,7 +873,7 @@ mod tests {
         );
         assert_eq!(
             opened.err(),
-            Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
+            Some(FilesystemError::NotFound),
             "vfs::do_file_open of a file another writer replaced after the Policy judged it must \
              answer ENOENT rather than open what stands there now"
         );
@@ -1012,7 +1009,7 @@ mod tests {
         };
         assert_eq!(
             vfs::do_file_open(&cred, &root, "a/d/secret", &read).err(),
-            Some(vfs::Error::Filesystem(FilesystemError::NotFound)),
+            Some(FilesystemError::NotFound),
             "vfs::do_file_open beneath a Bind Mount with a Policy, through a directory the host moved \
              beneath a refused path while a descriptor beneath it was held, must answer NotFound"
         );

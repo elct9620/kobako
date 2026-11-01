@@ -4,21 +4,13 @@
 use std::sync::Arc;
 
 use super::super_block::SuperBlock;
+use super::FilesystemError;
 
 /// What a call may do beneath a mount, as Linux's `MAY_READ` and `MAY_WRITE`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     Read,
     ReadWrite,
-}
-
-/// Why a call was refused before it reached the Filesystem.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Denial {
-    /// A change beneath a mount allowing only reads.
-    ReadOnly,
-    /// A security hook said no.
-    Refused,
 }
 
 /// A Filesystem instance as the VFS walks it, as `vfsmount` holds its super
@@ -53,9 +45,9 @@ impl VfsMount {
 
     /// Refuse a change beneath it where it allows only reads, as
     /// `mnt_want_write` does before any security hook is asked.
-    pub(crate) fn mnt_want_write(&self) -> Result<(), Denial> {
+    pub(crate) fn mnt_want_write(&self) -> Result<(), FilesystemError> {
         match self.is_readonly() {
-            true => Err(Denial::ReadOnly),
+            true => Err(FilesystemError::ReadOnlyFilesystem),
             false => Ok(()),
         }
     }

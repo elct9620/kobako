@@ -42,7 +42,7 @@ fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
 }
 
 /// The names `filesystem`'s root holds, as the host lists them.
-fn host_entries<F: InodeOperations>(filesystem: &Arc<F>) -> Result<Vec<String>, vfs::Error> {
+fn host_entries<F: InodeOperations>(filesystem: &Arc<F>) -> Result<Vec<String>, FilesystemError> {
     let mount = Mount::new(
         "/data",
         Filesystem::new(filesystem.clone()),
@@ -1760,7 +1760,7 @@ fn a_name_no_filesystem_makes_is_answered_by_what_stands() {
     let cred = Arc::default();
     let link = |old, new| vfs::filename_linkat(&cred, &root, old, &root, new, false);
     let symlink = |new| vfs::filename_symlinkat(&cred, "target", &root, new);
-    let refused = |error| Err(vfs::Error::Filesystem(error));
+    let refused = |error| Err(error);
     assert_eq!(
         (
             link("missing", "new"),
@@ -2192,10 +2192,7 @@ fn an_exclusive_create_follows_no_link_at_the_end() {
     let answer = vfs::do_file_open(&Arc::default(), &bind_root(&host.0), "gone", &how);
     assert_eq!(
         (answer.err(), host.0.join("nowhere").exists()),
-        (
-            Some(vfs::Error::Filesystem(FilesystemError::AlreadyExists)),
-            false
-        ),
+        (Some(FilesystemError::AlreadyExists), false),
         "vfs::do_file_open with create and exclusive of a link to nothing, asking to follow it, \
          must answer EEXIST, as Linux's O_EXCL does, and make nothing"
     );
@@ -2210,7 +2207,7 @@ fn a_trailing_slash_on_a_link_to_a_directory_reads_no_link() {
     let host = LinkedHost::new("readlink-slash");
     assert_eq!(
         vfs::do_readlinkat(&Arc::default(), &bind_root(&host.0), "dir/").err(),
-        Some(vfs::Error::Filesystem(FilesystemError::InvalidInput)),
+        Some(FilesystemError::InvalidInput),
         "vfs::do_readlinkat of dir/, dir a host link to a directory beneath a Bind Mount, must \
          answer EINVAL, as Linux's does"
     );

@@ -22,6 +22,11 @@ pub enum FilesystemError {
     FileTooLarge,
     /// A move that cannot happen in one step, as between two devices.
     CrossesDevices,
+    /// A path that is absolute, climbs above the directory it is resolved
+    /// beneath, or holds a link that does either, as `openat2`'s
+    /// `RESOLVE_BENEATH` refuses one. Linux names it EXDEV as well, and an ABI
+    /// may have a code of its own for it.
+    Escape,
     /// A call that would wait on a lock its own thread holds.
     Deadlock,
     /// A symbolic link where the call asked to follow none.
@@ -46,9 +51,9 @@ pub enum FilesystemError {
     Other(String),
 }
 
-/// Each failure under the POSIX error name it stands for. `ENOTSUP` comes
-/// before `EOPNOTSUPP`, a name some hosts give the same error, so
-/// `Unsupported` answers to the first.
+/// Each failure a Filesystem can name under the POSIX error name it stands for.
+/// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
+/// so `Unsupported` answers to the first.
 const POSIX_NAMES: [(&str, FilesystemError); 26] = [
     ("ENOENT", FilesystemError::NotFound),
     ("EEXIST", FilesystemError::AlreadyExists),
@@ -86,8 +91,11 @@ impl From<Deadlock> for FilesystemError {
 
 impl FilesystemError {
     /// The POSIX error name this failure stands for, as `ENOENT`. `Other`
-    /// has none.
+    /// has none, and `Escape` shares `CrossesDevices`'s.
     pub fn posix_name(&self) -> Option<&'static str> {
+        if *self == Self::Escape {
+            return Some("EXDEV");
+        }
         POSIX_NAMES
             .iter()
             .find(|(_, error)| error == self)

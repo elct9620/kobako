@@ -21,7 +21,7 @@ use super::mount::{Access, VfsMount};
 use super::openat2::{build_open_flags, do_truncate, vfs_open, OpenHow, OpenOptions};
 use super::path::Path;
 use super::super_block::SuperBlock;
-use super::{Error, FileType, FilesystemError, Iattr, Metadata};
+use super::{FileType, FilesystemError, Iattr, Metadata};
 use crate::locking::RwSemaphoreGuard;
 
 use super::PATH_MAX;
@@ -161,12 +161,12 @@ impl Nameidata {
 
     /// Refuse the name as `NotADirectory` when it must be a directory and
     /// something else stands there, as `LOOKUP_DIRECTORY` asks `d_can_lookup`.
-    fn check_directory(&mut self) -> Result<(), Error> {
+    fn check_directory(&mut self) -> Result<(), FilesystemError> {
         if self.lookup_directory {
             match self.kind() {
                 Ok(FileType::Directory) | Err(FilesystemError::NotFound) => {}
-                Ok(_) => return Err(FilesystemError::NotADirectory.into()),
-                Err(err) => return Err(err.into()),
+                Ok(_) => return Err(FilesystemError::NotADirectory),
+                Err(err) => return Err(err),
             }
         }
         Ok(())
@@ -185,7 +185,7 @@ impl Nameidata {
 
     /// Whether the path may be reached with `access`, as an open asks: a change
     /// asks the mount first, then the security hook.
-    fn check(&self, access: Access) -> Result<(), Error> {
+    fn check(&self, access: Access) -> Result<(), FilesystemError> {
         if access == Access::ReadWrite {
             self.mnt.mnt_want_write()?;
         }
@@ -194,7 +194,7 @@ impl Nameidata {
 
     /// Whether a security hook lets the path be reached with `access`, as
     /// Linux's `security_path_*` asks once its call holds the name.
-    fn security_path_perm(&self, access: Access) -> Result<(), Error> {
+    fn security_path_perm(&self, access: Access) -> Result<(), FilesystemError> {
         self.cred
             .security_path_perm(&self.mnt, &|| self.dentry_path(), access)
     }
@@ -269,7 +269,7 @@ struct Frame {
 impl Nameidata {
     /// Step into the directory `part` names, or follow the link standing
     /// there; `dot` is a `.` or `..` right after it, which no link takes.
-    fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), Error> {
+    fn walk_component(&mut self, part: Part, dot: bool) -> Result<(), FilesystemError> {
         let parent = self.dentry().clone();
         let _held = parent.inode_lock_shared()?;
         let (_, dentry) = self.lookup_slow(&part.name)?;
@@ -288,24 +288,24 @@ impl Nameidata {
                 });
                 Ok(())
             }
-            _ => Err(FilesystemError::NotADirectory.into()),
+            _ => Err(FilesystemError::NotADirectory),
         }
     }
 
     /// Walk on through where the link `dentry` names points, before
     /// whatever is left of the path.
-    fn pick_link(&mut self, dentry: &Dentry) -> Result<(), Error> {
+    fn pick_link(&mut self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.cred.security_inode_follow_link(&self.mnt)?;
         self.links += 1;
         if self.links > MAXSYMLINKS {
-            return Err(FilesystemError::FilesystemLoop.into());
+            return Err(FilesystemError::FilesystemLoop);
         }
         let target = dentry.get_link()?;
         if target.starts_with('/') {
-            return Err(Error::Escape);
+            return Err(FilesystemError::Escape);
         }
         if target.is_empty() {
-            return Err(FilesystemError::NotFound.into());
+            return Err(FilesystemError::NotFound);
         }
         for part in parts(&target, true).into_iter().rev() {
             self.pending.push_front(part);
@@ -317,9 +317,9 @@ impl Nameidata {
     /// walk started from, no `..` holds a capability, as `RESOLVE_BENEATH`
     /// refuses a caller's and a link's alike; out of one a link led to, the
     /// security hooks are asked.
-    fn follow_dotdot(&mut self, from_link: bool) -> Result<(), Error> {
+    fn follow_dotdot(&mut self, from_link: bool) -> Result<(), FilesystemError> {
         if self.frames.len() == 1 {
-            return Err(Error::Escape);
+            return Err(FilesystemError::Escape);
         }
         if !from_link && self.frames.last().is_some_and(|frame| frame.through_link) {
             self.cred.security_path_step_out_of_link()?;
@@ -330,7 +330,7 @@ impl Nameidata {
 
     /// Walk every name but the last, which is left for the call to act on, as
     /// Linux's `link_path_walk` leaves `nd->last` and `nd->last_type`.
-    fn link_path_walk(&mut self) -> Result<(), Error> {
+    fn link_path_walk(&mut self) -> Result<(), FilesystemError> {
         loop {
             let part = self.pending.pop_front().ok_or(FilesystemError::NotFound)?;
             if part.name.is_empty() {
@@ -386,7 +386,7 @@ impl Nameidata {
     /// trailing `/` follows a link there and asks for a directory, and a link
     /// followed leaves another last name to find. A trailing `/` refuses a file
     /// `creating` would make, as `lookup_fast_for_open` refuses it.
-    fn lookup_last(&mut self, mut follow: bool, creating: bool) -> Result<(), Error> {
+    fn lookup_last(&mut self, mut follow: bool, creating: bool) -> Result<(), FilesystemError> {
         loop {
             match self.last_type {
                 LastType::Dot => return Ok(()),
@@ -395,7 +395,7 @@ impl Nameidata {
             }
             if self.trailing_slash {
                 if creating {
-                    return Err(FilesystemError::IsADirectory.into());
+                    return Err(FilesystemError::IsADirectory);
                 }
                 follow = true;
                 self.lookup_directory = true;
@@ -436,11 +436,11 @@ fn getname(path: &str) -> Result<(), FilesystemError> {
 /// The walk of `path` beneath `start`, ready to begin, as Linux's
 /// `set_nameidata` and `path_init` make one. An empty path names nothing, and an
 /// absolute one is not the caller's to reach.
-fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata, Error> {
+fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata, FilesystemError> {
     getname(path)?;
     cred.security_path_walk(start)?;
     if path.starts_with('/') {
-        return Err(Error::Escape);
+        return Err(FilesystemError::Escape);
     }
     Ok(Nameidata {
         mnt: start.mnt().clone(),
@@ -466,7 +466,11 @@ fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata
 /// `path` beneath `start`, walked to the directory holding its last name, which
 /// is left unlooked up for the call to act on, as Linux's `filename_parentat`.
 /// A `..` above `start` is not the caller's to reach.
-fn filename_parentat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata, Error> {
+fn filename_parentat(
+    cred: &Arc<Cred>,
+    start: &Path,
+    path: &str,
+) -> Result<Nameidata, FilesystemError> {
     let mut nd = set_nameidata(cred, start, path)?;
     nd.lookup_parent = true;
     nd.link_path_walk()?;
@@ -481,7 +485,7 @@ pub(crate) fn filename_lookup(
     start: &Path,
     path: &str,
     follow: bool,
-) -> Result<Nameidata, Error> {
+) -> Result<Nameidata, FilesystemError> {
     let mut nd = set_nameidata(cred, start, path)?;
     nd.link_path_walk()?;
     nd.lookup_last(follow, false)?;
@@ -498,7 +502,7 @@ pub fn do_file_open(
     start: &Path,
     path: &str,
     how: &OpenHow,
-) -> Result<File, Error> {
+) -> Result<File, FilesystemError> {
     let follow = build_open_flags(how)?;
     let mut nd = set_nameidata(cred, start, path)?;
     nd.link_path_walk()?;
@@ -522,7 +526,7 @@ pub fn do_file_open(
     let existing = match nd.kind() {
         Ok(kind) => Some(kind),
         Err(FilesystemError::NotFound) => None,
-        Err(err) => return Err(err.into()),
+        Err(err) => return Err(err),
     };
     if how.create && existing.is_none() {
         cred.security_path_mknod(nd.followed_link)?;
@@ -564,7 +568,7 @@ pub fn do_file_open(
 
 /// What stands at the path answers before any access is judged, as Linux's
 /// `do_open` answers it on a read-only mount.
-fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
+fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), FilesystemError> {
     let refusal = match existing {
         None if !how.create => Some(FilesystemError::NotFound),
         Some(_) if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
@@ -574,7 +578,7 @@ fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), E
         Some(_) => None,
     };
     match refusal {
-        Some(error) => Err(error.into()),
+        Some(error) => Err(error),
         None => may_open(existing, how),
     }
 }
@@ -582,11 +586,11 @@ fn refuse_what_stands(existing: Option<FileType>, how: &OpenHow) -> Result<(), E
 /// Refuse to open what stands at the path as Linux's `may_open` does: a
 /// link, which the walk would have followed if asked, and a directory for
 /// writing.
-fn may_open(existing: Option<FileType>, how: &OpenHow) -> Result<(), Error> {
+fn may_open(existing: Option<FileType>, how: &OpenHow) -> Result<(), FilesystemError> {
     match existing {
-        Some(FileType::Symlink) => Err(FilesystemError::FilesystemLoop.into()),
+        Some(FileType::Symlink) => Err(FilesystemError::FilesystemLoop),
         Some(FileType::Directory) if how.write || how.truncate => {
-            Err(FilesystemError::IsADirectory.into())
+            Err(FilesystemError::IsADirectory)
         }
         _ => Ok(()),
     }
@@ -604,7 +608,7 @@ pub fn filename_linkat(
     new_start: &Path,
     new_path: &str,
     follow: bool,
-) -> Result<(), Error> {
+) -> Result<(), FilesystemError> {
     let mut old = filename_lookup(cred, old_start, old_path, follow)?;
     old.kind()?;
     let target = match old.name.is_empty() {
@@ -614,11 +618,11 @@ pub fn filename_linkat(
     let mut new = filename_parentat(cred, new_start, new_path)?;
     let (_held, child) = filename_create(&mut new, false)?;
     if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
-        return Err(FilesystemError::CrossesDevices.into());
+        return Err(FilesystemError::CrossesDevices);
     }
     old.security_path_perm(Access::ReadWrite)?;
     new.security_path_perm(Access::ReadWrite)?;
-    Ok(vfs_link(&target, new.dentry(), &child)?)
+    vfs_link(&target, new.dentry(), &child)
 }
 
 /// Make the link `path` beneath `start` names, pointing at `target`, as
@@ -628,12 +632,12 @@ pub fn filename_symlinkat(
     target: &str,
     start: &Path,
     path: &str,
-) -> Result<(), Error> {
+) -> Result<(), FilesystemError> {
     getname(target)?;
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, false)?;
     nd.security_path_perm(Access::ReadWrite)?;
-    Ok(vfs_symlink(nd.dentry(), &child, target)?)
+    vfs_symlink(nd.dentry(), &child, target)
 }
 
 /// Hold the directory a name is made in and take the name's dentry, as
@@ -644,16 +648,16 @@ pub fn filename_symlinkat(
 fn filename_create(
     nd: &mut Nameidata,
     want_dir: bool,
-) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error> {
+) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
     if nd.last_type != LastType::Norm {
-        return Err(FilesystemError::AlreadyExists.into());
+        return Err(FilesystemError::AlreadyExists);
     }
     let write = nd.mnt.mnt_want_write();
     let held = nd.dentry().inode_lock()?;
     let child = nd.lookup_last_locked()?;
     may_create_dentry(nd.dentry(), &child)?;
     if nd.trailing_slash && !want_dir {
-        return Err(FilesystemError::NotFound.into());
+        return Err(FilesystemError::NotFound);
     }
     write?;
     Ok((held, child))
@@ -661,46 +665,50 @@ fn filename_create(
 
 /// Hold the directory a name is removed from and take the name's dentry, as
 /// Linux's `start_dirop` does before any security hook is asked.
-fn start_dirop(nd: &mut Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Error> {
+fn start_dirop(nd: &mut Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
     let held = nd.dentry().inode_lock()?;
     let child = nd.lookup_last_locked()?;
     match child.inode() {
         Some(_) => Ok((held, child)),
-        None => Err(FilesystemError::NotFound.into()),
+        None => Err(FilesystemError::NotFound),
     }
 }
 
 /// Make the directory `path` beneath `start`. A trailing `/` asks for the
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
-pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
+pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, true)?;
     nd.security_path_perm(Access::ReadWrite)?;
-    Ok(vfs_mkdir(nd.dentry(), &child)?)
+    vfs_mkdir(nd.dentry(), &child)
 }
 
 /// Remove the empty directory `path` beneath `start`, as Linux's
 /// `filename_rmdir` does.
-pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
+pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {
     let mut nd = filename_parentat(cred, start, path)?;
     match nd.last_type {
         LastType::Norm => {}
-        LastType::Dot => return Err(FilesystemError::InvalidInput.into()),
-        LastType::DotDot => return Err(FilesystemError::DirectoryNotEmpty.into()),
+        LastType::Dot => return Err(FilesystemError::InvalidInput),
+        LastType::DotDot => return Err(FilesystemError::DirectoryNotEmpty),
     }
     nd.mnt.mnt_want_write()?;
     let (_held, child) = start_dirop(&mut nd)?;
     nd.security_path_perm(Access::ReadWrite)?;
-    Ok(vfs_rmdir(nd.mnt.sb(), nd.dentry(), &child)?)
+    vfs_rmdir(nd.mnt.sb(), nd.dentry(), &child)
 }
 
 /// Remove the file `path` beneath `start`, as Linux's `filename_unlinkat` does.
 /// It follows no link at the end, so a trailing `/` is answered by the name
 /// itself once it is found: no file removes as a directory.
-pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), Error> {
+pub fn filename_unlinkat(
+    cred: &Arc<Cred>,
+    start: &Path,
+    path: &str,
+) -> Result<(), FilesystemError> {
     let mut nd = filename_parentat(cred, start, path)?;
     if nd.last_type != LastType::Norm {
-        return Err(FilesystemError::IsADirectory.into());
+        return Err(FilesystemError::IsADirectory);
     }
     nd.mnt.mnt_want_write()?;
     let (_held, child) = start_dirop(&mut nd)?;
@@ -708,11 +716,10 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(
         return Err(match child.kind() {
             Ok(FileType::Directory) => FilesystemError::IsADirectory,
             _ => FilesystemError::NotADirectory,
-        }
-        .into());
+        });
     }
     nd.security_path_perm(Access::ReadWrite)?;
-    Ok(vfs_unlink(nd.mnt.sb(), nd.dentry(), &child)?)
+    vfs_unlink(nd.mnt.sb(), nd.dentry(), &child)
 }
 
 /// Move `from_path` beneath `from` to `to_path` beneath `to`. A rename
@@ -725,14 +732,14 @@ pub fn filename_renameat2(
     from_path: &str,
     to: &Path,
     to_path: &str,
-) -> Result<(), Error> {
+) -> Result<(), FilesystemError> {
     let mut source = filename_parentat(cred, from, from_path)?;
     let mut target = filename_parentat(cred, to, to_path)?;
     if !Arc::ptr_eq(from.mnt(), to.mnt()) {
-        return Err(FilesystemError::CrossesDevices.into());
+        return Err(FilesystemError::CrossesDevices);
     }
     if source.last_type != LastType::Norm || target.last_type != LastType::Norm {
-        return Err(FilesystemError::ResourceBusy.into());
+        return Err(FilesystemError::ResourceBusy);
     }
     from.mnt().mnt_want_write()?;
     let sb = from.mnt().sb();
@@ -748,12 +755,12 @@ pub fn filename_renameat2(
     // refused, as `filename_renameat2` refuses it.
     let is_dir = rd.old_dentry.kind()? == FileType::Directory;
     if !is_dir && (source.trailing_slash || target.trailing_slash) {
-        return Err(FilesystemError::NotADirectory.into());
+        return Err(FilesystemError::NotADirectory);
     }
     source.security_path_perm(Access::ReadWrite)?;
     target.security_path_perm(Access::ReadWrite)?;
     cred.security_path_rename(from.mnt(), &rd.old_dentry, &rd.new_dentry)?;
-    Ok(vfs_rename(sb, &rd)?)
+    vfs_rename(sb, &rd)
 }
 
 /// Hold both directories a move between them changes exclusive, as Linux's
@@ -1261,7 +1268,10 @@ mod tests {
     // it shows the VFS is what holds this line for every third party.
     /// What each call answers beneath a mount `prepare` finishes, over a
     /// Tmpfs holding the directory `dir`.
-    fn answers(prepare: impl Fn(Mount) -> Mount, access: Access) -> [Result<(), vfs::Error>; 3] {
+    fn answers(
+        prepare: impl Fn(Mount) -> Mount,
+        access: Access,
+    ) -> [Result<(), FilesystemError>; 3] {
         let tmpfs: Tmpfs = [("dir/file", "x")].into_iter().collect();
         let mount = prepare(
             Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), access)
@@ -1292,9 +1302,9 @@ mod tests {
         assert_eq!(
             answers(|mount| mount, Access::Read),
             [
-                Err(vfs::Error::Filesystem(FilesystemError::AlreadyExists)),
-                Err(vfs::Error::Denied(vfs::Denial::ReadOnly)),
-                Err(vfs::Error::Denied(vfs::Denial::ReadOnly)),
+                Err(FilesystemError::AlreadyExists),
+                Err(FilesystemError::ReadOnlyFilesystem),
+                Err(FilesystemError::ReadOnlyFilesystem),
             ],
             "vfs::filename_mkdirat of what stands beneath a read-only Mount must answer EEXIST, \
              and vfs::filename_rmdir and filename_unlinkat of what does not EROFS"
@@ -1310,9 +1320,9 @@ mod tests {
                 Access::ReadWrite
             ),
             [
-                Err(vfs::Error::Filesystem(FilesystemError::AlreadyExists)),
-                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
-                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+                Err(FilesystemError::AlreadyExists),
+                Err(FilesystemError::NotFound),
+                Err(FilesystemError::NotFound),
             ],
             "vfs::filename_mkdirat of what stands, and vfs::filename_rmdir and filename_unlinkat \
              of what does not, beneath a Policy refusing everything, must answer as \
@@ -1336,7 +1346,7 @@ mod tests {
                 &Path::root(second.mnt()),
                 "moved"
             ),
-            Err(vfs::Error::Filesystem(FilesystemError::CrossesDevices)),
+            Err(FilesystemError::CrossesDevices),
             "vfs::filename_renameat2 of `.` to another Mount must answer EXDEV, as \
              filename_renameat2 answers a move across mounts first"
         );
@@ -1410,9 +1420,9 @@ mod tests {
                 vfs::do_readlinkat(&cred, &links, "link"),
             ),
             (
-                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
-                Err(vfs::Error::Filesystem(FilesystemError::InvalidInput)),
-                Err(vfs::Error::Filesystem(FilesystemError::Unsupported)),
+                Err(FilesystemError::NotFound),
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::Unsupported),
             ),
             "vfs::do_readlinkat must answer ENOENT for what does not stand, EINVAL for what is no \
              link, and only a link what the security hook answers"
@@ -1427,10 +1437,7 @@ mod tests {
         let answer = vfs::do_file_open(&Arc::default(), &root, "link", &OpenHow::default());
         assert_eq!(
             (answer.err(), asked.load(Ordering::SeqCst)),
-            (
-                Some(vfs::Error::Filesystem(FilesystemError::FilesystemLoop)),
-                0
-            ),
+            (Some(FilesystemError::FilesystemLoop), 0),
             "vfs::do_file_open of a link following none, over a Filesystem that would open it, \
              must answer ELOOP and leave the Filesystem unasked"
         );
@@ -1471,7 +1478,7 @@ mod tests {
         };
         assert_eq!(
             vfs::do_file_open(&crate::security::prepare_creds([]), &root, "w", &how).err(),
-            Some(vfs::Error::Filesystem(FilesystemError::PermissionDenied)),
+            Some(FilesystemError::PermissionDenied),
             "a character device through vfs::do_file_open must answer PermissionDenied"
         );
     }
@@ -1625,7 +1632,7 @@ mod tests {
                 hooked.renames.load(Ordering::SeqCst)
             ),
             (
-                Err(vfs::Error::Filesystem(FilesystemError::InvalidInput)),
+                Err(FilesystemError::InvalidInput),
                 0
             ),
             "vfs::filename_renameat2 of a directory into a directory beneath it must answer InvalidInput \
@@ -1645,7 +1652,7 @@ mod tests {
                     root.get().expect("the root is set"),
                     "other",
                 ) {
-                    Err(vfs::Error::Filesystem(err)) => Err(err),
+                    Err(err) => Err(err),
                     _ => Ok(()),
                 }
             })),
@@ -1655,7 +1662,7 @@ mod tests {
         root.set(path.clone()).ok();
         assert_eq!(
             vfs::filename_mkdirat(&Arc::default(), &path, "made"),
-            Err(vfs::Error::Filesystem(FilesystemError::Deadlock)),
+            Err(FilesystemError::Deadlock),
             "vfs::filename_mkdirat called by a Filesystem's own create_dir on the directory the outer \
              vfs::filename_mkdirat holds must answer Deadlock"
         );
@@ -1701,10 +1708,7 @@ mod tests {
         let moved = mover.join().expect("the mover must not panic");
         assert_eq!(
             (made, moved),
-            (
-                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
-                Ok(())
-            ),
+            (Err(FilesystemError::NotFound), Ok(())),
             "vfs::filename_mkdirat through a directory vfs::filename_renameat2 is replacing must \
              wait for the move, answer NotFound, and leave the move to succeed"
         );
@@ -1799,7 +1803,7 @@ mod tests {
             (moved, removed, counts.load(Ordering::SeqCst) > 0),
             (
                 Ok(()),
-                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
+                Err(FilesystemError::NotFound),
                 true
             ),
             "vfs::filename_unlinkat of `DIR/F` while vfs::filename_renameat2 moves `dir/f`, over a Filesystem \
@@ -1819,7 +1823,7 @@ mod tests {
         .expect("/data is a guest path");
         let root = Path::root(mount.mnt());
         let cred = Arc::default();
-        let error = |error| Err(vfs::Error::Filesystem(error));
+        let error = |error| Err(error);
         assert_eq!(
             [
                 vfs::filename_mkdirat(&cred, &root, "a\0b"),
@@ -2075,12 +2079,7 @@ mod tests {
         let stands = |path| vfs::vfs_fstatat(&cred, &root, path, false).is_ok();
         assert_eq!(
             (renamed, moved, stands("a/moved"), stands("b/y")),
-            (
-                Ok(()),
-                Err(vfs::Error::Filesystem(FilesystemError::NotFound)),
-                true,
-                false
-            ),
+            (Ok(()), Err(FilesystemError::NotFound), true, false),
             "vfs::filename_renameat2 of `a/x` that waited while another writer renamed it must \
              answer ENOENT and leave `a/moved`, which the Policy refuses, where it stands"
         );

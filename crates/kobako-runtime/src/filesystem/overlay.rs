@@ -765,11 +765,7 @@ mod tests {
                 asked.load(Ordering::SeqCst),
                 kern_path(upper).symlink_metadata("upper/file").is_ok()
             ),
-            (
-                Err(crate::vfs::Error::Filesystem(FilesystemError::Unsupported)),
-                0,
-                true
-            ),
+            (Err(FilesystemError::Unsupported), 0, true),
             "vfs::do_utimes through an Overlay on a file of its lower Layer must copy the file \
              up, answer what the upper answers, and never ask the lower Layer"
         );
@@ -1278,10 +1274,7 @@ mod tests {
         let written = crate::vfs::do_file_open(&Arc::default(), &root, "dir/file", &how);
         assert_eq!(
             (written.err(), mount.mnt().is_readonly()),
-            (
-                Some(crate::vfs::Error::Denied(crate::mount::Denial::ReadOnly)),
-                true
-            ),
+            (Some(FilesystemError::ReadOnlyFilesystem), true),
             "a file opened to write through an Overlay with no upper on a read-write Mount must \
              be refused as read-only"
         );
@@ -1326,7 +1319,7 @@ mod tests {
         use crate::vfs::{filename_renameat2, filename_rmdir, filename_unlinkat};
         let (_mount, root) = mounted_with_no_upper();
         let cred = Arc::default();
-        let read_only = || Err(crate::vfs::Error::Denied(crate::mount::Denial::ReadOnly));
+        let read_only = || Err(FilesystemError::ReadOnlyFilesystem);
         assert_eq!(
             (
                 filename_renameat2(&cred, &root, "dir/file", &root, "dir/file"),
@@ -1565,7 +1558,7 @@ mod tests {
     // @behavior FS-038
     #[test]
     fn a_change_through_an_overlay_from_inside_one_answers_a_deadlock() {
-        type Answers = (bool, Result<(), crate::vfs::Error>);
+        type Answers = (bool, Result<(), FilesystemError>);
 
         struct Reenters {
             overlay: Mutex<Option<crate::vfs::Path>>,
@@ -1611,10 +1604,7 @@ mod tests {
         let answers = layer.answer.lock().unwrap().take();
         assert_eq!(
             answers,
-            Some((
-                true,
-                Err(crate::vfs::Error::Filesystem(FilesystemError::Deadlock))
-            )),
+            Some((true, Err(FilesystemError::Deadlock))),
             "a read through an Overlay made from inside one of its own reads on the same thread \
              must answer, and a change must answer Deadlock rather than wait forever"
         );
@@ -2297,7 +2287,7 @@ mod tests {
         );
         assert_eq!(
             (answer, asked.load(Ordering::SeqCst)),
-            (Err(FilesystemError::ReadOnlyFilesystem.into()), 0),
+            (Err(FilesystemError::ReadOnlyFilesystem), 0),
             "vfs::vfs_utimes on a held lower file whose name another entry took must answer EROFS \
              and leave the lower Layer unasked"
         );
@@ -2362,7 +2352,7 @@ mod tests {
         );
         assert_eq!(
             (answer, opened.load(Ordering::SeqCst)),
-            (Err(FilesystemError::PermissionDenied.into()), 0),
+            (Err(FilesystemError::PermissionDenied), 0),
             "vfs::do_utimes on a FIFO a lower Layer holds through an Overlay must answer EACCES \
              and open nothing"
         );
@@ -2620,7 +2610,7 @@ mod tests {
         );
         assert_eq!(
             answer.err(),
-            Some(vfs::Error::Filesystem(FilesystemError::PermissionDenied)),
+            Some(FilesystemError::PermissionDenied),
             "vfs::do_file_open of an Overlay's directory whose Layer refuses its open must answer \
              what the Layer answered"
         );
