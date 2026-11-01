@@ -207,33 +207,32 @@ impl Bind {
             Err(err) => Err(err),
         }
     }
+}
 
-    fn entries_of(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        let dir = self.fid_lookup(dentry)?;
-        #[cfg(unix)]
-        let dev = {
-            use cap_std::fs::MetadataExt;
-            dir.dir_metadata().map_err(to_error)?.dev()
-        };
-        dir.entries()
-            .map_err(to_error)?
-            .map(|entry| {
-                let entry = entry.map_err(to_error)?;
-                let name = entry
-                    .file_name()
-                    .into_string()
-                    .map_err(|_| FilesystemError::IllegalSequence)?;
-                let listed =
-                    DirEntry::new(name, to_file_type(entry.file_type().map_err(to_error)?));
-                #[cfg(unix)]
-                let listed = {
-                    use std::os::unix::fs::DirEntryExt;
-                    listed.with_identity(dev, entry.ino())
-                };
-                Ok(listed)
-            })
-            .collect()
-    }
+/// The names `dir` holds, each with the kind and the identity a listing gives.
+fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, FilesystemError> {
+    #[cfg(unix)]
+    let dev = {
+        use cap_std::fs::MetadataExt;
+        dir.dir_metadata().map_err(to_error)?.dev()
+    };
+    dir.entries()
+        .map_err(to_error)?
+        .map(|entry| {
+            let entry = entry.map_err(to_error)?;
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| FilesystemError::IllegalSequence)?;
+            let listed = DirEntry::new(name, to_file_type(entry.file_type().map_err(to_error)?));
+            #[cfg(unix)]
+            let listed = {
+                use std::os::unix::fs::DirEntryExt;
+                listed.with_identity(dev, entry.ino())
+            };
+            Ok(listed)
+        })
+        .collect()
 }
 
 /// The directory `name` in `dir`, a link there refused as a loop, as
@@ -556,7 +555,7 @@ impl InodeOperations for Bind {
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let fid = self.fid_lookup(dentry)?;
         OpenDirFid::set(dentry, &fid);
-        Ok(Box::new(BindDir(self.clone(), fid)))
+        Ok(Box::new(BindDir(fid)))
     }
 
     fn atomic_open(
@@ -606,20 +605,20 @@ impl InodeOperations for Bind {
     }
 }
 
-/// A host directory, open: it reaches the descriptor kept on the dentry it is
-/// handed, so it follows the directory wherever it moves. It also keeps the
-/// descriptor it opened with, for a sync, which is handed no dentry.
-struct BindDir(Bind, Arc<Dir>);
+/// A host directory, open on the descriptor it holds, as 9p's `v9fs_dir_readdir`
+/// reads the fid in `private_data`, so it follows the directory wherever it
+/// moves.
+struct BindDir(Arc<Dir>);
 
 impl FileOperations for BindDir {
-    fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.entries_of(dentry)
+    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+        entries_of(&self.0)
     }
 
     /// Make the host directory's names durable. Windows syncs no directory, so
     /// there the host answers for them itself.
     fn fsync(&mut self) -> Result<(), FilesystemError> {
-        sync_dir(&self.1)
+        sync_dir(&self.0)
     }
 }
 

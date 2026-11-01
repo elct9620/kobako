@@ -80,9 +80,6 @@ impl Tmpfs {
             None => from_dir.state().remove(from),
         }
         to_dir.state().insert(to, moving);
-        if let Some(Node::Directory(_)) = replaced {
-            self.tree.space.inodes.give(1);
-        }
         Ok(())
     }
 }

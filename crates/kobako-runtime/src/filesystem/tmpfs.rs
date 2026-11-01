@@ -91,11 +91,17 @@ impl Node {
 /// names it holds stay bounded by its inodes however its directories move.
 struct Dir {
     ino: u64,
+    /// What it counts against for as long as anything holds it, as tmpfs frees
+    /// an inode when the last reference to it goes.
+    space: Arc<Space>,
     state: Mutex<State>,
 }
 
 struct State {
     entries: BTreeMap<String, Node>,
+    /// How many of `entries` are directories, as `inc_nlink` keeps a
+    /// directory's count, so no stat reads every entry.
+    subdirectories: u64,
     /// The directory's extended attributes, as tmpfs keeps the `trusted.*`
     /// ones an Overlay marks a directory opaque with.
     xattrs: BTreeMap<String, Vec<u8>>,
@@ -103,12 +109,20 @@ struct State {
 }
 
 impl State {
+    /// Hold `node` under `name`, answering what stood there.
+    fn hold(&mut self, name: &str, node: Node) -> Option<Node> {
+        self.subdirectories += u64::from(matches!(node, Node::Directory(_)));
+        let replaced = self.entries.insert(name.to_string(), node);
+        self.subdirectories -= u64::from(matches!(replaced, Some(Node::Directory(_))));
+        replaced
+    }
+
     /// Hold `node` under `name`, a change to the directory's content.
     fn insert(&mut self, name: &str, node: Node) {
         if let Node::File(data) = &node {
             lock(data).names = 1;
         }
-        if let Some(replaced) = self.entries.insert(name.to_string(), node) {
+        if let Some(replaced) = self.hold(name, node) {
             replaced.drop_name();
         }
         self.times.touch();
@@ -117,13 +131,14 @@ impl State {
     /// Hold `node`, which keeps a name elsewhere, in place of what stands at
     /// `name`, which does too, a change to the directory's content.
     fn exchange(&mut self, name: &str, node: Node) {
-        self.entries.insert(name.to_string(), node);
+        self.hold(name, node);
         self.times.touch();
     }
 
     /// Take the entry `name` away, a change to the directory's content.
     fn remove(&mut self, name: &str) {
         if let Some(removed) = self.entries.remove(name) {
+            self.subdirectories -= u64::from(matches!(removed, Node::Directory(_)));
             removed.drop_name();
         }
         self.times.touch();
@@ -164,11 +179,13 @@ impl Times {
 }
 
 impl Dir {
-    fn new(ino: u64) -> Arc<Self> {
+    fn new(ino: u64, space: Arc<Space>) -> Arc<Self> {
         Arc::new(Self {
             ino,
+            space,
             state: Mutex::new(State {
                 entries: BTreeMap::new(),
+                subdirectories: 0,
                 xattrs: BTreeMap::new(),
                 times: Times::now(),
             }),
@@ -181,16 +198,11 @@ impl Dir {
     /// two, as a tmpfs sizes a directory.
     fn metadata(&self, dev: u64) -> Metadata {
         let state = self.state();
-        let subdirectories = state
-            .entries
-            .values()
-            .filter(|node| matches!(node, Node::Directory(_)))
-            .count() as u64;
         let len = (2 + state.entries.len() as u64) * BOGO_DIRENT_SIZE;
         state.times.report(
             Metadata::new(FileType::Directory, len)
                 .with_identity(dev, self.ino)
-                .with_nlink(2 + subdirectories),
+                .with_nlink(2 + state.subdirectories),
         )
     }
 
@@ -236,6 +248,7 @@ impl Drop for Dir {
                 dir.take_directories(&mut nested);
             }
         }
+        self.space.inodes.give(1);
     }
 }
 
@@ -381,20 +394,24 @@ impl Tmpfs {
             inodes: Budget::new(inodes_for(Some(Self::DEFAULT_SIZE))),
         };
         space.inodes.add(1);
+        let space = Arc::new(space);
         Self {
             tree: Arc::new(Tree {
-                space: Arc::new(space),
+                space: space.clone(),
                 inodes_follow_limit: AtomicBool::new(true),
                 dev: Metadata::unique_device(),
                 next_ino: AtomicU64::new(2),
             }),
-            dir: Dir::new(1),
+            dir: Dir::new(1, space),
         }
     }
 
     /// A directory with an inode number no directory of this Tmpfs had.
     fn new_directory(&self) -> Arc<Dir> {
-        Dir::new(self.tree.next_ino.fetch_add(1, Ordering::Relaxed))
+        Dir::new(
+            self.tree.next_ino.fetch_add(1, Ordering::Relaxed),
+            self.tree.space.clone(),
+        )
     }
 
     /// This Tmpfs with its files holding at most `size` bytes together,
@@ -486,15 +503,13 @@ impl Tmpfs {
             }
             let mut dir = tmpfs.dir.clone();
             for above in ancestors(&path) {
-                let next = dir
-                    .state()
-                    .entries
-                    .entry(name(above).to_string())
-                    .or_insert_with(|| {
-                        tmpfs.tree.space.inodes.add(1);
-                        Node::Directory(tmpfs.new_directory())
-                    })
-                    .clone();
+                let standing = dir.state().entries.get(name(above)).cloned();
+                let next = standing.unwrap_or_else(|| {
+                    tmpfs.tree.space.inodes.add(1);
+                    let made = Node::Directory(tmpfs.new_directory());
+                    dir.state().hold(name(above), made.clone());
+                    made
+                });
                 dir = match next {
                     Node::Directory(inner) => inner,
                     Node::File(_) | Node::Whiteout { .. } => {
@@ -619,7 +634,6 @@ impl InodeOperations for Tmpfs {
             }
         }
         state.remove(&name);
-        self.tree.space.inodes.give(1);
         Ok(())
     }
 
@@ -1458,6 +1472,41 @@ mod tests {
             (Err(FilesystemError::InvalidInput), Ok(FileType::Directory)),
             "Tmpfs::rename of a directory into one opened beneath it must answer InvalidInput \
              and move nothing"
+        );
+    }
+
+    // tmpfs frees an inode when the last reference goes, so a directory removed
+    // while it is open still counts, and only its close lets another be made.
+    // @behavior FS-173
+    #[test]
+    fn a_removed_directory_something_holds_keeps_its_inode() {
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(Tmpfs::new().with_nr_inodes(Some(2)))),
+            crate::mount::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = crate::vfs::Path::root(mount.mnt());
+        let cred = Arc::default();
+        crate::vfs::filename_mkdirat(&cred, &root, "held").expect("the directory must be made");
+        let how = crate::vfs::OpenHow {
+            read: true,
+            ..Default::default()
+        };
+        let Ok(open) = crate::vfs::do_file_open(&cred, &root, "held", &how) else {
+            panic!("the directory must open");
+        };
+        crate::vfs::filename_rmdir(&cred, &root, "held").expect("the directory must be removed");
+        let while_open = crate::vfs::filename_mkdirat(&cred, &root, "next");
+        drop(open);
+        assert_eq!(
+            (
+                while_open,
+                crate::vfs::filename_mkdirat(&cred, &root, "next")
+            ),
+            (Err(FilesystemError::StorageFull), Ok(())),
+            "vfs::filename_mkdirat in a Tmpfs out of inodes must answer ENOSPC while a removed \
+             directory stays open, and succeed once it closes"
         );
     }
 

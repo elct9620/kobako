@@ -3,7 +3,6 @@
 //! and writes a Channel through them, so none brings its own, and a pipe's two
 //! ends are open files like any other.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::vfs::{
@@ -15,9 +14,6 @@ use crate::vfs::{
 /// reaches it: a pipe is only ever open.
 static PIPE_MNT: LazyLock<Path> =
     LazyLock::new(|| Path::root(&VfsMount::kern_mount(SuperBlock::new(Arc::new(PipeFs)))));
-
-/// Each pipe's name on pipefs, which no call ever reads.
-static PIPE_NAME: AtomicU64 = AtomicU64::new(0);
 
 /// A pipe reports what it is and no length, as `get_pipe_inode` makes one.
 struct PipeFs;
@@ -113,9 +109,7 @@ impl FileOperations for AnonPipe {
 /// The read and the write end of `pipe`, as Linux's `create_pipe_files` opens
 /// both on one inode. Neither takes a position.
 pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
-    let name = PIPE_NAME.fetch_add(1, Ordering::Relaxed).to_string();
-    let dentries = PIPE_MNT.mnt().sb().dentries();
-    let dentry = dentries.child(PIPE_MNT.dentry(), &name);
+    let dentry = PIPE_MNT.mnt().sb().dentries().alloc_pseudo();
     let found = Metadata::new(FileType::Fifo, 0);
     dentry.add(Some(Inode::new(&found, Arc::new(PipeFs))));
     let end = |how: OpenHow| {

@@ -366,6 +366,12 @@ impl Dentries {
         self.root.clone()
     }
 
+    /// A dentry no walk reaches, standing beneath the root under no name, as
+    /// `d_alloc_pseudo` makes one for what is only ever open.
+    pub(crate) fn alloc_pseudo(&self) -> Arc<Dentry> {
+        Dentry::new(Some(self.root.clone()), "", self.ops.clone())
+    }
+
     /// The directory `name` in `parent`, as `d_lookup` finds it, or a new
     /// dentry for it, as `d_alloc` makes one.
     pub(crate) fn child(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
