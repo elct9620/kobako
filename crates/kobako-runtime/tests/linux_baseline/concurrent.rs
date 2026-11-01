@@ -90,7 +90,7 @@ impl Event {
 /// only `ok`, a stat only the kind it found, and what an open asked is kept where
 /// it decides the answer.
 fn class(event: &Event) -> String {
-    let answer = event.answer.split([':', ' ']).next().unwrap_or("");
+    let answer = first_word(&event.answer);
     let asked = match &event.call {
         Call::Open(open) => format!(" create={} exclusive={}", open.create, open.exclusive),
         _ => String::new(),
@@ -120,12 +120,47 @@ fn sequence(seed: u64, thread: usize, longest: u64) -> Vec<Call> {
         .collect()
 }
 
-/// Race `sequences` over one side, one thread each, answering what each call did
-/// and the thread's side to look at afterwards.
-fn race<S: Side>(sides: Vec<S>, sequences: &[Vec<Call>]) -> (Vec<S>, Vec<Event>) {
+/// The kind each descriptor reported when it opened, so a thread can tell one that
+/// came to report another.
+#[derive(Default)]
+struct HeldKinds {
+    kinds: [Option<String>; SLOTS],
+    changed: BTreeSet<String>,
+}
+
+impl HeldKinds {
+    /// Keep what `call`, answered `answer`, says of the descriptors, asking `side`
+    /// what one just opened is.
+    fn note<S: Side>(&mut self, side: &mut S, call: &Call, answer: &str) {
+        match call {
+            Call::Open(open) if answer.starts_with("ok") => {
+                let kind = side.run(&Call::Fstat(open.slot));
+                self.kinds[open.slot] = Some(first_word(&kind).to_string());
+            }
+            Call::Close(slot) => self.kinds[*slot] = None,
+            Call::Fstat(slot) => {
+                if let Some(kind) = &self.kinds[*slot] {
+                    if kind != first_word(answer) {
+                        self.changed
+                            .insert(format!("a {kind} descriptor came to report {answer}"));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn first_word(answer: &str) -> &str {
+    answer.split([':', ' ']).next().unwrap_or("")
+}
+
+/// Race `sequences` over one side, one thread each, answering what each call did,
+/// the thread's side to look at afterwards, and what a held descriptor changed to.
+fn race<S: Side>(sides: Vec<S>, sequences: &[Vec<Call>]) -> (Vec<S>, Vec<Event>, BTreeSet<String>) {
     let clock = AtomicU64::new(0);
     let start = Barrier::new(sides.len());
-    let (mut left, mut events) = (Vec::new(), Vec::new());
+    let (mut left, mut events, mut changed) = (Vec::new(), Vec::new(), BTreeSet::new());
     thread::scope(|scope| {
         let threads: Vec<_> = sides
             .into_iter()
@@ -135,27 +170,36 @@ fn race<S: Side>(sides: Vec<S>, sequences: &[Vec<Call>]) -> (Vec<S>, Vec<Event>)
                 scope.spawn(move || {
                     start.wait();
                     let mut events = Vec::with_capacity(calls.len());
+                    let mut held = HeldKinds::default();
                     for call in calls {
                         let began = clock.fetch_add(1, Ordering::SeqCst);
                         let answer = side.run(call);
+                        let ended = clock.fetch_add(1, Ordering::SeqCst);
+                        held.note(&mut side, call, &answer);
                         events.push(Event {
                             call: call.clone(),
                             answer,
                             began,
-                            ended: clock.fetch_add(1, Ordering::SeqCst),
+                            ended,
                         });
                     }
-                    (side, events)
+                    for slot in 0..SLOTS {
+                        let call = Call::Fstat(slot);
+                        let answer = side.run(&call);
+                        held.note(&mut side, &call, &answer);
+                    }
+                    (side, events, held.changed)
                 })
             })
             .collect();
         for thread in threads {
-            let (side, done) = thread.join().expect("a racing thread must not panic");
+            let (side, done, held) = thread.join().expect("a racing thread must not panic");
             left.push(side);
             events.extend(done);
+            changed.extend(held);
         }
     });
-    (left, events)
+    (left, events, changed)
 }
 
 /// What no interleaving allows of what stands once every call returned: an entry
@@ -216,12 +260,14 @@ pub fn round(
     let sequences: Vec<Vec<Call>> = (0..kobako.len())
         .map(|thread| sequence(seed, thread, longest))
         .collect();
-    let (mut kobako, ours) = race(kobako, &sequences);
+    let (mut kobako, ours, changed) = race(kobako, &sequences);
+    found.broken_by_kobako.extend(changed);
     found
         .broken_by_kobako
         .extend(broken_rules(&mut kobako, &ours));
     found.kobako.extend(ours.iter().map(class));
-    let (mut linux, theirs) = race(linux, &sequences);
+    let (mut linux, theirs, changed) = race(linux, &sequences);
+    found.broken_by_linux.extend(changed);
     found
         .broken_by_linux
         .extend(broken_rules(&mut linux, &theirs));
