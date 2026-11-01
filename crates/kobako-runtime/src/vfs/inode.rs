@@ -5,8 +5,9 @@ use std::any::Any;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use super::dentry::{Dentry, DentryOperations};
+use super::dentry::Dentry;
 use super::file::FileOperations;
+use super::super_block::SuperBlock;
 use super::{FileType, FilesystemError, Iattr, Metadata, OpenOptions};
 use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
@@ -63,12 +64,11 @@ pub trait InodeOperations: Any + Send + Sync {
         Err(FilesystemError::NotADirectory)
     }
 
-    /// What every dentry of this Filesystem answers through, asked of its
-    /// root once, as a driver's `fill_super` calls `set_default_d_op`. A
-    /// Filesystem changed only through the runtime need not have one.
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        None
-    }
+    /// Set up the instance this root answers for, asked once before any walk,
+    /// as a driver's `fill_super` fills in its `super_block`: what every
+    /// dentry answers through, for a Filesystem changed outside the runtime,
+    /// and whether nothing beneath it changes.
+    fn fill_super(&self, _sb: &mut SuperBlock) {}
 
     /// Where this link, which `dentry` names, points, as `get_link` answers,
     /// for the VFS to follow. Anything else refuses as `readlinkat` does.

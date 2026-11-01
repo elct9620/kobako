@@ -22,8 +22,8 @@ use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
+    DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
+    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 use fid::{FidCache, OpenDirFid};
@@ -545,8 +545,8 @@ impl InodeOperations for Bind {
         self.lookup_at(dentry)
     }
 
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        Some(Arc::new(self.clone()))
+    fn fill_super(&self, sb: &mut Filesystem) {
+        sb.set_default_d_op(Arc::new(self.clone()));
     }
 
     fn open(

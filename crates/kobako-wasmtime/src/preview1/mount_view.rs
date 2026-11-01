@@ -12,8 +12,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
-    DentryOperations, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup,
-    Metadata, OpenOptions, Overlay, RenameFlag, Tmpfs,
+    FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata,
+    OpenOptions, Overlay, RenameFlag, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
@@ -1082,9 +1082,7 @@ impl Hook for ReusesInodes {
         })
     }
 
-    fn dentry_ops(&self, _inner: &dyn InodeOperations) -> Option<Arc<dyn DentryOperations>> {
-        None
-    }
+    fn fill_super(&self, _inner: &dyn InodeOperations, _sb: &mut Filesystem) {}
 
     /// The call removing it holds what it looked up, so `dir` is open
     /// beyond that only where a descriptor holds it too.

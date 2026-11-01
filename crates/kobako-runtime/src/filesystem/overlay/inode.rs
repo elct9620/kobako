@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::super::FilesystemError;
 use super::path::OverlayPath;
-use super::stack::Level;
+use super::stack::{Level, UPPER};
 use crate::locking::RwSemaphore;
 use crate::vfs::{Dentry, Inode};
 
@@ -49,11 +49,11 @@ impl OverlayInode {
         lock(&self.level).clone()
     }
 
-    /// Layer `into` now holds `dir` as this directory, made or found there
-    /// by a copy up, as overlayfs's `ovl_inode_update` records the upper
-    /// dentry, so every handle of it asks that Layer too.
-    pub(super) fn inode_update(&self, into: usize, dir: &OverlayPath) {
-        lock(&self.level)[into] = Some(dir.clone());
+    /// The upper now holds `dir` as this directory, made or found there by a
+    /// copy up, as overlayfs's `ovl_inode_update` records the upper dentry, so
+    /// every handle of it asks the upper too.
+    pub(super) fn inode_update(&self, dir: &OverlayPath) {
+        lock(&self.level)[UPPER] = Some(dir.clone());
     }
 
     /// The Layer's dentry this file answers through.

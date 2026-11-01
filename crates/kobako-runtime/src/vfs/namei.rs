@@ -1091,8 +1091,8 @@ mod tests {
             self.tmpfs.lookup(dentry)
         }
 
-        fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-            Some(Arc::new(HookedDentry(self.stale.clone())))
+        fn fill_super(&self, sb: &mut Filesystem) {
+            sb.set_default_d_op(Arc::new(HookedDentry(self.stale.clone())));
         }
 
         fn atomic_open(
@@ -1877,8 +1877,8 @@ mod tests {
             Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
         }
 
-        fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-            Some(Arc::new(self.clone()))
+        fn fill_super(&self, sb: &mut Filesystem) {
+            sb.set_default_d_op(Arc::new(self.clone()));
         }
     }
 

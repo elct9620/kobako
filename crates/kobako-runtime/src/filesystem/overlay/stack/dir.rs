@@ -8,7 +8,9 @@ use super::super::super::{FileOperations, FileType, FilesystemError, OpenOptions
 use super::super::file::ovl_file;
 use super::super::inode::ovl_inode_of;
 use super::super::path::OverlayPath;
-use super::{cleanup, cleanup_whiteouts, entry, holds, layer_dir, Level, OverlayFs, ViewDir};
+use super::{
+    cleanup, cleanup_whiteouts, entry, holds, layer_dir, Level, OverlayFs, ViewDir, UPPER,
+};
 use crate::vfs::{Dentry, RenameFlag};
 
 /// Whether the directory `name` in `dir` holds a whiteout, which
@@ -73,19 +75,6 @@ impl OverlayFs {
             }
         }
         Ok(None)
-    }
-
-    /// The Layer a whiteout over the Layer at `shown` lands in, or `None`
-    /// when nothing below needs one; refused as read-only without an
-    /// upper above it.
-    fn whiteout_layer(&self, shown: Option<usize>) -> Result<Option<usize>, FilesystemError> {
-        match shown {
-            Some(shown) => match self.upper()? {
-                upper if upper < shown => Ok(Some(upper)),
-                _ => Err(FilesystemError::ReadOnlyFilesystem),
-            },
-            None => Ok(None),
-        }
     }
 
     /// Hide `name` in `dir` with a whiteout made in the workdir first, then
@@ -170,23 +159,19 @@ impl OverlayFs {
     fn do_remove(&self, dir: &ViewDir, name: &str, is_dir: bool) -> Result<(), FilesystemError> {
         let level = dir.level();
         let (holders, shadowed) = self.holders(&level, name)?;
-        let lower = holders.iter().copied().find(|&index| !self.is_upper(index));
-        let upper_holds = holders.first().is_some_and(|&index| self.is_upper(index));
-        let whiteout_into = self.whiteout_layer(lower.into_iter().chain(shadowed).min())?;
+        let shown_below = holders.iter().any(|&index| index != UPPER) || shadowed.is_some();
+        let upper_holds = holders.first() == Some(&UPPER);
         // A directory the upper holds with whiteouts in it is first
         // replaced by an empty one, as overlayfs's `ovl_clear_empty` does,
         // so it removes as an empty directory, and anything another writer
         // made in it meanwhile refuses the removal.
-        if is_dir && upper_holds && holds_whiteouts(layer_dir(&level[0])?, name)? {
-            self.clear_empty(layer_dir(&level[0])?, name)?;
+        if is_dir && upper_holds && holds_whiteouts(layer_dir(&level[UPPER])?, name)? {
+            self.clear_empty(layer_dir(&level[UPPER])?, name)?;
         }
-        match whiteout_into {
-            Some(upper) => {
-                let upper_dir = self.upper_dir(dir, upper)?;
-                self.cleanup_and_whiteout(&upper_dir, name, upper_holds)
-            }
-            None if upper_holds => cleanup(layer_dir(&level[0])?, name),
-            None => Err(FilesystemError::NotFound),
+        match (shown_below, upper_holds) {
+            (true, _) => self.cleanup_and_whiteout(&self.upper_dir(dir)?, name, upper_holds),
+            (false, true) => cleanup(layer_dir(&level[UPPER])?, name),
+            (false, false) => Err(FilesystemError::NotFound),
         }
     }
 
@@ -222,7 +207,7 @@ impl OverlayFs {
         name: &str,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let upper_dir = self.upper_dir(dir, self.upper()?)?;
+        let upper_dir = self.upper_dir(dir)?;
         if !upper_dir.is_whiteout(name) {
             return upper_dir.atomic_open(name, options);
         }
@@ -234,8 +219,7 @@ impl OverlayFs {
     /// A directory made where a whiteout hid one is marked opaque, so the
     /// lower Layers' entries never show in it.
     pub(in super::super) fn mkdir(&self, dir: &ViewDir, name: &str) -> Result<(), FilesystemError> {
-        let upper = self.upper()?;
-        let upper_dir = self.upper_dir(dir, upper)?;
+        let upper_dir = self.upper_dir(dir)?;
         match upper_dir.is_whiteout(name) {
             true => self.exchange_in_opaque_dir(&upper_dir, name),
             false => upper_dir.do_mkdir(name),
@@ -284,13 +268,12 @@ impl OverlayFs {
         let to_level = to.level();
         let replaced = self.lookup_layer(&to_level, to_name)?;
         let is_dir = moving.file_type == FileType::Directory;
-        let upper = self.upper()?;
         let (holders, shadowed) = self.holders(&from_level, from_name)?;
         // What cannot move answers first, as `ovl_rename_start` asks
         // `ovl_can_move` before it looks at what would be replaced.
-        let holds_above = holders.first() == Some(&upper);
+        let holds_above = holders.first() == Some(&UPPER);
         match moving.file_type {
-            FileType::Directory if holders != [upper] => {
+            FileType::Directory if holders != [UPPER] => {
                 return Err(FilesystemError::CrossesDevices)
             }
             FileType::Directory | FileType::File => {}
@@ -303,20 +286,17 @@ impl OverlayFs {
                 return Err(FilesystemError::DirectoryNotEmpty);
             }
         }
-        let lower = holders.iter().copied().find(|&index| index != upper);
-        let shown_below = self
-            .whiteout_layer(lower.into_iter().chain(shadowed).min())?
-            .is_some();
+        let shown_below = holders.iter().any(|&index| index != UPPER) || shadowed.is_some();
         if moving.file_type == FileType::File && !holds_above {
             self.copy_up_file(from, moved, false)?;
         }
-        let target_dir = self.upper_dir(to, upper)?;
+        let target_dir = self.upper_dir(to)?;
         let replaces_dir =
             matches!(replaced, Some((_, found)) if found.file_type == FileType::Directory);
         if replaces_dir && holds(&target_dir, to_name)? {
             self.clear_empty(&target_dir, to_name)?;
         }
-        let source_dir = from.level()[upper]
+        let source_dir = from.level()[UPPER]
             .clone()
             .ok_or(FilesystemError::NotFound)?;
         // Nothing below shows a directory the upper alone holds, so a mark left
@@ -325,7 +305,7 @@ impl OverlayFs {
         let into_merged = to_level
             .iter()
             .enumerate()
-            .any(|(index, dir)| index != upper && dir.is_some());
+            .any(|(index, dir)| index != UPPER && dir.is_some());
         if is_dir && into_merged {
             let moving = source_dir.open_dir(from_name)?;
             if !moving.is_opaque() {

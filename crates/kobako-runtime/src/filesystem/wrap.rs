@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use super::{
-    DentryOperations, FileOperations, FilesystemError, Iattr, InodeOperations, Lookup, Metadata,
-    OpenOptions, RenameFlag,
+    DentryOperations, FileOperations, Filesystem, FilesystemError, Iattr, InodeOperations, Lookup,
+    Metadata, OpenOptions, RenameFlag,
 };
 use crate::vfs::Dentry;
 
@@ -122,12 +122,14 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         self.inner.setattr(dentry, attr)
     }
 
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        let ops = self.inner.dentry_ops()?;
-        Some(Arc::new(WrapDentry::<H> {
-            ops,
-            hook: PhantomData,
-        }))
+    fn fill_super(&self, sb: &mut Filesystem) {
+        self.inner.fill_super(sb);
+        if let Some(ops) = sb.d_op().cloned() {
+            sb.set_default_d_op(Arc::new(WrapDentry::<H> {
+                ops,
+                hook: PhantomData,
+            }));
+        }
     }
 
     fn open(

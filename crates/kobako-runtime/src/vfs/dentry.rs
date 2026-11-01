@@ -336,6 +336,11 @@ impl Dentries {
         }
     }
 
+    /// What every dentry of this table answers through.
+    pub(super) fn ops(&self) -> Option<&Arc<dyn DentryOperations>> {
+        self.ops.as_ref()
+    }
+
     fn lru(&self) -> MutexGuard<'_, LruCache<usize, Arc<Dentry>>> {
         self.lru.lock().unwrap_or_else(PoisonError::into_inner)
     }

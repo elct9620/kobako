@@ -9,8 +9,8 @@ use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
+    DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
+    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
 };
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
 use whiteout::Whiteout;
@@ -613,8 +613,8 @@ impl InodeOperations for Tmpfs {
         Ok(Lookup::Found(Inode::new(&metadata, ops)))
     }
 
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        Some(Arc::new(TmpfsDentry))
+    fn fill_super(&self, sb: &mut Filesystem) {
+        sb.set_default_d_op(Arc::new(TmpfsDentry));
     }
 
     fn atomic_open(

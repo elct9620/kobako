@@ -257,8 +257,12 @@ impl InodeOperations for OverlayLink {
 /// A directory of the view, finding what a call is about through the dentry it
 /// is handed, as `ovl_dir_inode_operations` answers for one.
 impl InodeOperations for Overlay {
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        Some(Arc::new(self.clone()))
+    /// With no upper nothing can change, as `ovl_fill_super` sets `SB_RDONLY`.
+    fn fill_super(&self, sb: &mut Filesystem) {
+        sb.set_default_d_op(Arc::new(self.clone()));
+        if !self.fs.has_upper() {
+            sb.set_rdonly();
+        }
     }
 
     /// It reports its merged Layers.
@@ -1249,17 +1253,58 @@ mod tests {
         );
     }
 
+    /// An Overlay of two lower Layers and no upper on a Mount allowing writes,
+    /// and the root of that Mount.
+    fn mounted_with_no_upper() -> (crate::mount::Mount, crate::vfs::Path) {
+        let overlay = lowers(tmpfs_with("dir/file", "lower"), Arc::new(Tmpfs::new()));
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)),
+            crate::mount::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = crate::vfs::Path::root(mount.mnt());
+        (mount, root)
+    }
+
     // @behavior FS-021
     #[test]
     fn an_overlay_with_no_upper_refuses_every_change_as_read_only() {
-        let overlay = at(lowers(
-            tmpfs_with("dir/file", "lower"),
-            Arc::new(Tmpfs::new()),
-        ));
+        let (mount, root) = mounted_with_no_upper();
+        let how = crate::vfs::OpenHow {
+            write: true,
+            ..Default::default()
+        };
+        let written = crate::vfs::do_file_open(&Arc::default(), &root, "dir/file", &how);
         assert_eq!(
-            write(&overlay, "dir/file", b"x"),
-            Err(FilesystemError::ReadOnlyFilesystem),
-            "a file written through an Overlay with no upper must be refused as read-only"
+            (written.err(), mount.mnt().is_readonly()),
+            (
+                Some(crate::vfs::Error::Denied(crate::mount::Denial::ReadOnly)),
+                true
+            ),
+            "a file opened to write through an Overlay with no upper on a read-write Mount must \
+             be refused as read-only"
+        );
+    }
+
+    // overlayfs's super block is read-only with no upper, so `mnt_want_write`
+    // answers before anything looks at what stands at the name.
+    // @behavior FS-169
+    #[test]
+    fn an_overlay_with_no_upper_refuses_a_change_before_what_stands_answers() {
+        use crate::vfs::{filename_renameat2, filename_rmdir, filename_unlinkat};
+        let (_mount, root) = mounted_with_no_upper();
+        let cred = Arc::default();
+        let read_only = || Err(crate::vfs::Error::Denied(crate::mount::Denial::ReadOnly));
+        assert_eq!(
+            (
+                filename_renameat2(&cred, &root, "dir/file", &root, "dir/file"),
+                filename_unlinkat(&cred, &root, "missing"),
+                filename_rmdir(&cred, &root, "dir"),
+            ),
+            (read_only(), read_only(), read_only()),
+            "a move onto its own name, a removal of nothing, and a removal of a directory holding \
+             an entry through an Overlay with no upper must each answer EROFS"
         );
     }
 

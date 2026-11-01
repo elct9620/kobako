@@ -8,23 +8,19 @@ use std::sync::Arc;
 use super::super::super::{FileType, FilesystemError, OpenOptions};
 use super::super::inode::ovl_inode_of;
 use super::super::path::OverlayPath;
-use super::{copy_whole, entry, holds, OverlayFs, ViewDir};
+use super::{copy_whole, entry, holds, OverlayFs, ViewDir, UPPER};
 use crate::vfs::{Dentry, RenameFlag};
 
 impl OverlayFs {
-    /// The directory `dir` in Layer `into`, made there along with each
-    /// directory above it that so far shows only from another Layer, as
-    /// overlayfs's `ovl_copy_up_flags` climbs the dentry's parents in a loop
-    /// to copy up the topmost first, however deep the Layer's tree is.
-    pub(super) fn upper_dir(
-        &self,
-        dir: &ViewDir,
-        into: usize,
-    ) -> Result<OverlayPath, FilesystemError> {
+    /// The directory `dir` in the upper, made there along with each directory
+    /// above it that so far shows only from another Layer, as overlayfs's
+    /// `ovl_copy_up_flags` climbs the dentry's parents in a loop to copy up the
+    /// topmost first, however deep the Layer's tree is.
+    pub(super) fn upper_dir(&self, dir: &ViewDir) -> Result<OverlayPath, FilesystemError> {
         let mut unmade = Vec::new();
         let mut at = dir.clone();
         let mut made = loop {
-            if let Some(held) = at.level()[into].clone() {
+            if let Some(held) = at.level()[UPPER].clone() {
                 break held;
             }
             let above = at.dentry.parent().ok_or(FilesystemError::CrossesDevices)?;
@@ -33,19 +29,18 @@ impl OverlayFs {
             at = next;
         };
         while let Some(dir) = unmade.pop() {
-            made = self.copy_up_dir(&dir, &made, into)?;
+            made = self.copy_up_dir(&dir, &made)?;
         }
         Ok(made)
     }
 
-    /// The directory `dir` in Layer `into`, beneath `parent` there. It is made
-    /// in the workdir with the lower one's times and moved into place, as
+    /// The directory `dir` in the upper, beneath `parent` there. It is made in
+    /// the workdir with the lower one's times and moved into place, as
     /// `ovl_copy_up_workdir` does.
     fn copy_up_dir(
         &self,
         dir: &ViewDir,
         parent: &OverlayPath,
-        into: usize,
     ) -> Result<OverlayPath, FilesystemError> {
         let name = dir.dentry.name();
         let _held = dir.inode.lock.down_write()?;
@@ -75,7 +70,7 @@ impl OverlayFs {
                 parent.open_dir(&name)?
             }
         };
-        dir.inode.inode_update(into, &made);
+        dir.inode.inode_update(&made);
         Ok(made)
     }
 
@@ -102,7 +97,7 @@ impl OverlayFs {
         truncate: bool,
     ) -> Result<(), FilesystemError> {
         let name = child.name();
-        let target_dir = self.upper_dir(dir, self.upper()?)?;
+        let target_dir = self.upper_dir(dir)?;
         let inode = child
             .inode()
             .as_deref()

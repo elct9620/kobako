@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
+    DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
+    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
 };
 use kobako_runtime::vfs::{Dentry, Identity, Inode, NAME_MAX};
 
@@ -369,8 +369,8 @@ impl InodeOperations for RubyRegular {
 /// path a Policy judges. A Ruby object answers `stat` alone, so it holds no
 /// links to follow.
 impl InodeOperations for RubyFilesystem {
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        Some(Arc::new(*self))
+    fn fill_super(&self, sb: &mut Filesystem) {
+        sb.set_default_d_op(Arc::new(*self));
     }
 
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {

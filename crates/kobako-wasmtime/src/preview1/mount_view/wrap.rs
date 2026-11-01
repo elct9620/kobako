@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    DentryOperations, FileOperations, FilesystemError, InodeOperations, Lookup, Metadata,
-    OpenOptions, RenameFlag,
+    DentryOperations, FileOperations, Filesystem, FilesystemError, InodeOperations, Lookup,
+    Metadata, OpenOptions, RenameFlag,
 };
 use kobako_runtime::vfs::Dentry;
 
@@ -30,8 +30,8 @@ pub(super) trait Hook: Send + Sync + 'static {
         inner.lookup(dentry)
     }
 
-    fn dentry_ops(&self, inner: &dyn InodeOperations) -> Option<Arc<dyn DentryOperations>> {
-        inner.dentry_ops()
+    fn fill_super(&self, inner: &dyn InodeOperations, sb: &mut Filesystem) {
+        inner.fill_super(sb);
     }
 
     fn open(
@@ -130,12 +130,14 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         })
     }
 
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>> {
-        let ops = self.hook.dentry_ops(self.inner.as_ref())?;
-        Some(Arc::new(WrapDentry::<H> {
-            ops,
-            hook: PhantomData,
-        }))
+    fn fill_super(&self, sb: &mut Filesystem) {
+        self.hook.fill_super(self.inner.as_ref(), sb);
+        if let Some(ops) = sb.d_op().cloned() {
+            sb.set_default_d_op(Arc::new(WrapDentry::<H> {
+                ops,
+                hook: PhantomData,
+            }));
+        }
     }
 
     fn open(

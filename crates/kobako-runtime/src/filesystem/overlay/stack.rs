@@ -34,6 +34,11 @@ use crate::vfs::Dentry;
 const UPPERDIR: &str = "upper";
 const WORKDIR: &str = "work";
 
+/// Where the upper stands among the Layers, topmost first. Every change lands
+/// there; an Overlay without one is read-only at its super block, so no change
+/// reaches it, as `ovl_fill_super` leaves overlayfs's.
+pub(super) const UPPER: usize = 0;
+
 /// Each Layer's directory at one directory of the view, topmost first;
 /// `None` where that Layer holds no directory the view merges there.
 pub(super) type Level = Vec<Option<OverlayPath>>;
@@ -240,8 +245,9 @@ impl OverlayFs {
         Arc::ptr_eq(&self.temp, &other.temp)
     }
 
-    fn is_upper(&self, index: usize) -> bool {
-        self.work.is_some() && index == 0
+    /// Whether changes have an upper to land in, as `ovl_upper_mnt` answers.
+    pub(super) fn has_upper(&self) -> bool {
+        self.work.is_some()
     }
 
     /// The directory of the view `dentry` names, its state found on the inode
@@ -266,15 +272,6 @@ impl OverlayFs {
             .parent()
             .expect("an entry the runtime names stands in a directory");
         self.dir(&parent)
-    }
-
-    /// The upper, where every change lands; without one every change is
-    /// refused as read-only.
-    fn upper(&self) -> Result<usize, FilesystemError> {
-        match self.work {
-            Some(_) => Ok(0),
-            None => Err(FilesystemError::ReadOnlyFilesystem),
-        }
     }
 
     /// The workdir and a name in it no change has taken, as overlayfs's
