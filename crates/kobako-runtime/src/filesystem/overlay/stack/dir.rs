@@ -9,7 +9,8 @@ use super::super::file::ovl_file;
 use super::super::inode::OverlayInode;
 use super::super::path::OverlayPath;
 use super::{
-    cleanup, cleanup_whiteouts, entry, layer_dir, Level, OverlayFs, Shown, ViewDir, UPPER,
+    cleanup, cleanup_whiteouts, entry, layer_dir, ovl_lower_positive, Level, OverlayFs, Shown,
+    ViewDir, UPPER,
 };
 use crate::vfs::{Dentry, RenameFlag};
 
@@ -23,59 +24,16 @@ fn holds_whiteouts(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemErro
         .any(|entry| inner.is_whiteout(&entry.name)))
 }
 
+/// Whether the upper holds an entry at `name` in `level`, as
+/// `ovl_dentry_upper` answers for a dentry.
+fn upper_shows(level: &Level, name: &str) -> Result<bool, FilesystemError> {
+    match &level[UPPER] {
+        Some(upper) => Ok(matches!(entry(upper, name)?, Shown::Entry(_))),
+        None => Ok(false),
+    }
+}
+
 impl OverlayFs {
-    /// Every Layer still showing `name` in `level`, topmost first, and the
-    /// topmost Layer below them whose entry there a file or link above
-    /// shadows.
-    fn holders(
-        &self,
-        level: &Level,
-        name: &str,
-    ) -> Result<(Vec<usize>, Option<usize>), FilesystemError> {
-        let mut holders = Vec::new();
-        for (index, dir) in level.iter().enumerate() {
-            let Some(dir) = dir else {
-                continue;
-            };
-            let hides = match entry(dir, name)? {
-                Shown::Nothing => false,
-                Shown::Whiteout => return Ok((holders, None)),
-                Shown::Entry(FileType::Directory) => {
-                    holders.push(index);
-                    dir.open_dir(name)?.is_opaque()
-                }
-                Shown::Entry(_) => {
-                    holders.push(index);
-                    true
-                }
-            };
-            if hides {
-                return Ok((holders, self.beneath(level, index, name)?));
-            }
-        }
-        Ok((holders, None))
-    }
-
-    /// The topmost Layer below `above` holding `name` in sight.
-    fn beneath(
-        &self,
-        level: &Level,
-        above: usize,
-        name: &str,
-    ) -> Result<Option<usize>, FilesystemError> {
-        for (index, dir) in level.iter().enumerate().skip(above + 1) {
-            let Some(dir) = dir else {
-                continue;
-            };
-            match entry(dir, name)? {
-                Shown::Entry(_) => return Ok(Some(index)),
-                Shown::Whiteout => return Ok(None),
-                Shown::Nothing => {}
-            }
-        }
-        Ok(None)
-    }
-
     /// Hide `name` in `dir` with a whiteout made in the workdir first, then
     /// moved over what the upper holds there as this call finds it, so a copy up
     /// landing meanwhile is hidden too, as overlayfs's `ovl_cleanup_and_whiteout`
@@ -84,7 +42,7 @@ impl OverlayFs {
     fn cleanup_and_whiteout(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
         let (work, temp) = self.tempname()?;
         work.do_whiteout(&temp)?;
-        let is_dir = entry(dir, name)? == Shown::Entry(FileType::Directory);
+        let is_dir = entry(dir, name)?.is_directory();
         let flag = is_dir.then_some(RenameFlag::Exchange);
         if let Err(err) = work.do_rename(&temp, dir, name, flag) {
             let _ = work.do_unlink(&temp);
@@ -147,9 +105,8 @@ impl OverlayFs {
     /// upper's entry, as overlayfs's `ovl_do_remove` chooses.
     fn do_remove(&self, dir: &ViewDir, name: &str, is_dir: bool) -> Result<(), FilesystemError> {
         let level = dir.level();
-        let (holders, shadowed) = self.holders(&level, name)?;
-        let shown_below = holders.iter().any(|&index| index != UPPER) || shadowed.is_some();
-        let upper_holds = holders.first() == Some(&UPPER);
+        let shown_below = ovl_lower_positive(&level, name);
+        let upper_holds = upper_shows(&level, name)?;
         // A directory the upper holds with whiteouts in it is first
         // replaced by an empty one, as overlayfs's `ovl_clear_empty` does,
         // so it removes as an empty directory.
@@ -234,6 +191,21 @@ impl OverlayFs {
         self.do_remove(dir, name, false)
     }
 
+    /// Whether what `moved` names, of kind `moving`, can move at all, as
+    /// `ovl_can_move` reads the dentry's entry: a directory only when the upper
+    /// alone holds it, a file always, once copied up, and anything else only from
+    /// the upper.
+    fn can_move(&self, moved: &Dentry, moving: FileType) -> Result<bool, FilesystemError> {
+        if moving == FileType::Directory {
+            let level = self.dir(moved)?.level();
+            let lower = level.iter().skip(UPPER + 1).flatten().next().is_some();
+            return Ok(level[UPPER].is_some() && !lower);
+        }
+        let inode = moved.inode().ok_or(FilesystemError::NotFound)?;
+        let real = OverlayInode::of(&inode).and_then(|kept| kept.real());
+        Ok(moving == FileType::File || real.is_some_and(|real| self.is_in_upper(&real)))
+    }
+
     /// A directory moves only when the upper alone holds it; moving one
     /// out of a lower Layer would mean copying up everything beneath it,
     /// so it is refused as crossing devices, as overlayfs refuses it
@@ -255,25 +227,18 @@ impl OverlayFs {
         let moving = moved.kind()?;
         let to_level = to.level();
         let is_dir = moving == FileType::Directory;
-        let (holders, shadowed) = self.holders(&from_level, from_name)?;
         // What cannot move answers first, as `ovl_rename_start` asks
         // `ovl_can_move` before it looks at what would be replaced.
-        let holds_above = holders.first() == Some(&UPPER);
-        match moving {
-            FileType::Directory if holders != [UPPER] => {
-                return Err(FilesystemError::CrossesDevices)
-            }
-            FileType::Directory | FileType::File => {}
-            _ if !holds_above => return Err(FilesystemError::CrossesDevices),
-            _ => {}
+        if !self.can_move(moved, moving)? {
+            return Err(FilesystemError::CrossesDevices);
         }
         // Only an empty directory is replaced.
         let replaces_dir = target.kind() == Ok(FileType::Directory);
         if replaces_dir && !self.check_empty_dir(target)? {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        let shown_below = holders.iter().any(|&index| index != UPPER) || shadowed.is_some();
-        if moving == FileType::File && !holds_above {
+        let shown_below = ovl_lower_positive(&from_level, from_name);
+        if moving == FileType::File {
             self.copy_up_file(from, moved, false)?;
         }
         let target_dir = self.upper_dir(to)?;

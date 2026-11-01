@@ -59,28 +59,67 @@ impl ViewDir {
 
 /// What a Layer shows at a name, as `ovl_lookup_single` tells a whiteout from an
 /// entry.
-#[derive(Clone, Copy, PartialEq, Eq)]
 enum Shown {
     /// Nothing, and a name too long for that Layer to hold is nothing either, as
     /// `ovl_lookup_single` answers ENOENT and ENAMETOOLONG by moving on.
     Nothing,
     /// A whiteout, which hides the Layers below.
     Whiteout,
-    /// An entry of this kind, a link reported as itself.
-    Entry(FileType),
+    /// An entry, a link reported as itself.
+    Entry(LayerEntry),
 }
 
-/// What `dir` shows at `name`, read from what its lookup recorded, as
-/// `ovl_lookup_single` reads `d_is_dir`.
+/// An entry a Layer holds: its name as the Layer stores it, and its dentry there.
+pub(super) struct LayerEntry {
+    stored: String,
+    dentry: Arc<Dentry>,
+}
+
+impl LayerEntry {
+    /// The name as the Layer stores it.
+    pub(super) fn stored(&self) -> &str {
+        &self.stored
+    }
+
+    /// What kind of entry it is, as its lookup recorded it.
+    fn kind(&self) -> Result<FileType, FilesystemError> {
+        self.dentry.kind()
+    }
+}
+
+impl Shown {
+    fn is_directory(&self) -> bool {
+        matches!(self, Self::Entry(found) if found.kind() == Ok(FileType::Directory))
+    }
+}
+
+/// What `dir` shows at `name`, read from one lookup, as `ovl_lookup_single` reads
+/// `d_is_dir` from the dentry it found.
 fn entry(dir: &OverlayPath, name: &str) -> Result<Shown, FilesystemError> {
     if dir.is_whiteout(name) {
         return Ok(Shown::Whiteout);
     }
-    match dir.kind(name) {
-        Ok(kind) => Ok(Shown::Entry(kind)),
-        Err(FilesystemError::NotFound | FilesystemError::InvalidFilename) => Ok(Shown::Nothing),
+    match dir.lookup_single(name) {
+        Ok(Some((stored, dentry))) => Ok(Shown::Entry(LayerEntry { stored, dentry })),
+        Ok(None) | Err(FilesystemError::NotFound | FilesystemError::InvalidFilename) => {
+            Ok(Shown::Nothing)
+        }
         Err(err) => Err(err),
     }
+}
+
+/// Whether a Layer below the upper shows `name` in `level`, as
+/// `ovl_lower_positive` finds out whether a removal must leave a whiteout. A Layer
+/// that cannot answer is taken to hold something, so nothing below shows through.
+fn ovl_lower_positive(level: &Level, name: &str) -> bool {
+    for dir in level.iter().skip(UPPER + 1).flatten() {
+        match entry(dir, name) {
+            Ok(Shown::Nothing) => {}
+            Ok(Shown::Whiteout) => return false,
+            Ok(Shown::Entry(_)) | Err(_) => return true,
+        }
+    }
+    false
 }
 
 fn copy_whole(

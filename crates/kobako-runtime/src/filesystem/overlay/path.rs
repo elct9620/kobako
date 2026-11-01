@@ -148,10 +148,23 @@ impl OverlayPath {
         Ok(())
     }
 
-    /// The dentry of the entry standing at `name`.
-    pub(super) fn real(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
+    /// `name` as this directory stores it and the dentry standing there, `None`
+    /// where nothing does, as `ovl_lookup_single` asks a layer once for a name.
+    pub(super) fn lookup_single(
+        &self,
+        name: &str,
+    ) -> Result<Option<(String, Arc<Dentry>)>, FilesystemError> {
         let _held = self.inode_lock_shared()?;
-        self.lookup_real(name)
+        let (stored, dentry) = lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)?;
+        Ok(dentry.inode().is_some().then_some((stored, dentry)))
+    }
+
+    /// The directory `dentry` names beneath this one.
+    pub(super) fn beneath(&self, dentry: Arc<Dentry>) -> Self {
+        Self {
+            dentry,
+            filesystem: self.filesystem.clone(),
+        }
     }
 
     /// Make the file `name` and open it, holding the directory, as
@@ -188,19 +201,6 @@ impl OverlayPath {
     pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
         let _held = self.inode_lock_shared()?;
         self.lookup_real(name)?.getattr()
-    }
-
-    /// What kind of entry stands at `name`, as its lookup recorded it, a link
-    /// reported as itself.
-    pub(super) fn kind(&self, name: &str) -> Result<FileType, FilesystemError> {
-        let _held = self.inode_lock_shared()?;
-        self.lookup_real(name)?.kind()
-    }
-
-    /// `name` as this directory stores it.
-    pub(super) fn lookup(&self, name: &str) -> Result<String, FilesystemError> {
-        let _held = self.inode_lock_shared()?;
-        Ok(lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)?.0)
     }
 
     /// This directory opened, kept open for whoever holds it, as overlayfs's

@@ -247,14 +247,16 @@ impl InodeOperations for Overlay {
         if name.len() > NAME_MAX {
             return Err(FilesystemError::InvalidFilename);
         }
-        let stored = self.fs.case_exact_name(&level, &name)?;
-        if stored != name {
-            return Ok(Lookup::Spelled(stored));
+        let Some(found) = self.fs.lookup_layer(&level, &name)? else {
+            return Ok(Lookup::Absent);
+        };
+        if found.1.stored() != name {
+            return Ok(Lookup::Spelled(found.1.stored().to_string()));
         }
-        Ok(self
+        let inode = self
             .fs
-            .lookup(&level, &name, |kind| self.ops_of(kind))?
-            .map_or(Lookup::Absent, Lookup::Found))
+            .lookup(&level, &name, found, |kind| self.ops_of(kind))?;
+        Ok(Lookup::Found(inode))
     }
 
     fn open(
@@ -354,6 +356,49 @@ mod tests {
     /// The Filesystem `filesystem` holds, reached through the VFS.
     fn on<F: InodeOperations>(filesystem: &Arc<F>) -> KernPath {
         kern_path(filesystem.clone())
+    }
+
+    #[derive(Default)]
+    struct CountsLookups(AtomicUsize);
+
+    impl Hook for CountsLookups {
+        fn lookup(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<Lookup, FilesystemError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            inner.lookup(dentry)
+        }
+    }
+
+    // A Filesystem written in Ruby pays for each ask and keeps no dentry, so a
+    // name found absent, which no Filesystem keeps, shows how often a Layer is
+    // asked by itself.
+    // @behavior FS-184
+    #[test]
+    fn a_lookup_asks_each_layer_once_for_a_name() {
+        let lower: Tmpfs = [("file", "x")].into_iter().collect();
+        let counts = Arc::new(CountsLookups::default());
+        let view = at(Overlay::new(
+            vec![Filesystem::new(Arc::new(Wrap::new(
+                Arc::new(lower),
+                counts.clone(),
+            )))],
+            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+        )
+        .expect("the Overlay must stack"));
+        let asks = |path: &str| {
+            counts.0.store(0, Ordering::SeqCst);
+            let _ = view.symlink_metadata(path);
+            counts.0.load(Ordering::SeqCst)
+        };
+        assert_eq!(
+            (asks("missing"), asks("file")),
+            (1, 1),
+            "a stat through an Overlay of a name its lower Layer lacks, and of one it holds, \
+             must ask that Layer once"
+        );
     }
 
     // Only the upper could refuse the name once the directory was copied up, so

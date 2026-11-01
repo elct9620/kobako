@@ -5,23 +5,23 @@ use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, InodeOperations, Metadata};
 use super::super::inode::{ovl_inode_init, OverlayInode};
-use super::{entry, layer_dir, Level, OverlayFs, Shown, UPPER};
+use super::{entry, layer_dir, LayerEntry, Level, OverlayFs, Shown, UPPER};
 use crate::vfs::{Dentry, Inode};
 
 impl OverlayFs {
-    /// The topmost Layer holding an entry at `name` in the directory
-    /// `level`, and that entry's kind.
-    fn lookup_layer(
+    /// The topmost Layer holding an entry at `name` in the directory `level`, and
+    /// that entry, each Layer asked once, as `ovl_lookup_layers` walks them.
+    pub(in super::super) fn lookup_layer(
         &self,
         level: &Level,
         name: &str,
-    ) -> Result<Option<(usize, FileType)>, FilesystemError> {
+    ) -> Result<Option<(usize, LayerEntry)>, FilesystemError> {
         for (index, dir) in level.iter().enumerate() {
             let Some(dir) = dir else {
                 continue;
             };
             match entry(dir, name)? {
-                Shown::Entry(kind) => return Ok(Some((index, kind))),
+                Shown::Entry(found) => return Ok(Some((index, found))),
                 Shown::Whiteout => break,
                 Shown::Nothing => {}
             }
@@ -29,24 +29,30 @@ impl OverlayFs {
         Ok(None)
     }
 
-    /// The directory `name` in `level`, from the topmost Layer at `top` showing
-    /// it: each Layer's own directory there, merged downward until a Layer holds
-    /// something else there, hides it, or marks its directory opaque, as
+    /// The directory `name` in `level`, from the directory `top` a Layer at `at`
+    /// showed: each Layer's own directory there, merged downward until a Layer
+    /// holds something else there, hides it, or marks its directory opaque, as
     /// overlayfs merges only directories.
     fn lookup_layers(
         &self,
         level: &Level,
         name: &str,
-        top: usize,
+        (at, top): (usize, LayerEntry),
     ) -> Result<Level, FilesystemError> {
         let mut merged = vec![None; level.len()];
-        for (index, dir) in level.iter().enumerate().skip(top) {
+        let top = layer_dir(&level[at])?.beneath(top.dentry);
+        let opaque = top.is_opaque();
+        merged[at] = Some(top);
+        if opaque {
+            return Ok(merged);
+        }
+        for (index, dir) in level.iter().enumerate().skip(at + 1) {
             let Some(dir) = dir else {
                 continue;
             };
             match entry(dir, name)? {
-                Shown::Entry(FileType::Directory) => {
-                    let inner = dir.open_dir(name)?;
+                Shown::Entry(found) if found.kind() == Ok(FileType::Directory) => {
+                    let inner = dir.beneath(found.dentry);
                     let opaque = inner.is_opaque();
                     merged[index] = Some(inner);
                     if opaque {
@@ -79,28 +85,26 @@ impl OverlayFs {
         })
     }
 
-    /// The inode of what the view shows at `name`, answered for by `ops_of` of
-    /// its kind, keeping what the lookup found, as `ovl_lookup` fills
-    /// `ovl_inode_params` for `ovl_get_inode` under the directory's lock. A
+    /// The inode of `found`, what the Layer at `index` shows at `name`, answered
+    /// for by `ops_of` of its kind, keeping what the lookup found, as `ovl_lookup`
+    /// fills `ovl_inode_params` for `ovl_get_inode` under the directory's lock. A
     /// directory one Layer shows stays unmerged, so it keeps what that Layer's
     /// lookup recorded and nothing more is asked of the Layer.
     pub(in super::super) fn lookup(
         &self,
         level: &Level,
         name: &str,
+        (index, found): (usize, LayerEntry),
         ops_of: impl Fn(FileType) -> Arc<dyn InodeOperations>,
-    ) -> Result<Option<Inode>, FilesystemError> {
-        let Some((index, kind)) = self.lookup_layer(level, name)? else {
-            return Ok(None);
-        };
+    ) -> Result<Inode, FilesystemError> {
+        let kind = found.kind()?;
         let ops = ops_of(kind);
         if kind != FileType::Directory {
-            let real = layer_dir(&level[index])?.real(name)?;
-            let inode = self.file_inode(index, &real, ops)?;
-            ovl_inode_init(&inode, OverlayInode::new(Vec::new(), Some(real)));
-            return Ok(Some(inode));
+            let inode = self.file_inode(index, &found.dentry, ops)?;
+            ovl_inode_init(&inode, OverlayInode::new(Vec::new(), Some(found.dentry)));
+            return Ok(inode);
         }
-        let merged = self.lookup_layers(level, name, index)?;
+        let merged = self.lookup_layers(level, name, (index, found))?;
         let inode = match merged.iter().flatten().count() {
             1 => {
                 let real = layer_dir(&merged[index])?.dentry();
@@ -110,7 +114,7 @@ impl OverlayFs {
             _ => Inode::new(&self.dir_metadata(&merged)?, ops),
         };
         ovl_inode_init(&inode, OverlayInode::new(merged, None));
-        Ok(Some(inode))
+        Ok(inode)
     }
 
     /// The inode of the entry `real` in the Layer at `index`, answered for by
@@ -129,22 +133,5 @@ impl OverlayFs {
             true => Inode::new(&Metadata::new(found.kind(), 0), ops),
             false => found.with_ops(ops),
         })
-    }
-
-    /// `name` spelled as the topmost Layer showing it stores it, the
-    /// case-exact name `d_add_ci` takes; a name no Layer shows keeps its
-    /// spelling.
-    pub(in super::super) fn case_exact_name(
-        &self,
-        level: &Level,
-        name: &str,
-    ) -> Result<String, FilesystemError> {
-        match self.lookup_layer(level, name)? {
-            Some((index, _)) => level[index]
-                .as_ref()
-                .ok_or(FilesystemError::NotFound)?
-                .lookup(name),
-            None => Ok(name.to_string()),
-        }
     }
 }

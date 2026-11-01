@@ -1961,3 +1961,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay whose lower Layer holds a directory |
 | When | a caller looks up or makes a name past `NAME_MAX` in that directory |
 | Then | each call answers ENAMETOOLONG, and the directory is not copied up |
+
+## `FS-184` An Overlay asks each Layer once for a name
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-223` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay over a lower Layer |
+| When | a caller looks up a name, whether or not that Layer holds it |
+| Then | that Layer is asked about the name once |
