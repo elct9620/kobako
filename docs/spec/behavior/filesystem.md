@@ -1888,3 +1888,16 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs holding a file |
 | When | the file is renamed |
 | Then | its changed time moves and its modified time stays |
+
+## `FS-178` A removed directory something holds counts no name
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-116` |
+| relates | `FS-173` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs directory held open that was removed or replaced by a move |
+| When | the directory is stated |
+| Then | it counts no name |

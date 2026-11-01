@@ -57,10 +57,22 @@ enum Node {
 }
 
 impl Node {
-    /// Mark a file no directory holds any more, which a handle may outlive.
+    /// Mark an entry no directory holds any more, which a handle may outlive, as
+    /// `shmem_unlink` and `shmem_rmdir` drop its last links.
     fn drop_name(&self) {
-        if let Self::File(data) = self {
-            lock(data).names = 0;
+        match self {
+            Self::File(data) => lock(data).names = 0,
+            Self::Directory(dir) => dir.state().removed = true,
+            Self::Whiteout { .. } => {}
+        }
+    }
+
+    /// A directory holds this entry under a name, a moved one again.
+    fn add_name(&self) {
+        match self {
+            Self::File(data) => lock(data).names = 1,
+            Self::Directory(dir) => dir.state().removed = false,
+            Self::Whiteout { .. } => {}
         }
     }
 
@@ -113,6 +125,8 @@ struct State {
     /// How many of `entries` are directories, as `inc_nlink` keeps a
     /// directory's count, so no stat reads every entry.
     subdirectories: u64,
+    /// Whether no directory holds it any more, so it counts no name.
+    removed: bool,
     /// The directory's extended attributes, as tmpfs keeps the `trusted.*`
     /// ones an Overlay marks a directory opaque with.
     xattrs: BTreeMap<String, Vec<u8>>,
@@ -130,9 +144,7 @@ impl State {
 
     /// Hold `node` under `name`, a change to the directory's content.
     fn insert(&mut self, name: &str, node: Node) {
-        if let Node::File(data) = &node {
-            lock(data).names = 1;
-        }
+        node.add_name();
         node.touch_changed();
         if let Some(replaced) = self.hold(name, node) {
             replaced.drop_name();
@@ -208,6 +220,7 @@ impl Dir {
             state: Mutex::new(State {
                 entries: BTreeMap::new(),
                 subdirectories: 0,
+                removed: false,
                 xattrs: BTreeMap::new(),
                 times: Times::now(),
             }),
@@ -217,14 +230,18 @@ impl Dir {
     /// What the directory reports: two names and one more for each
     /// directory it holds, as a tmpfs counts `.` and each `..` beneath it,
     /// and a size of `BOGO_DIRENT_SIZE` for each of its entries and those
-    /// two, as a tmpfs sizes a directory.
+    /// two, as a tmpfs sizes a directory. One removed counts no name.
     fn metadata(&self, dev: u64) -> Metadata {
         let state = self.state();
         let len = (2 + state.entries.len() as u64) * BOGO_DIRENT_SIZE;
+        let nlink = match state.removed {
+            true => 0,
+            false => 2 + state.subdirectories,
+        };
         state.times.report(
             Metadata::new(FileType::Directory, len)
                 .with_identity(dev, self.ino)
-                .with_nlink(2 + state.subdirectories),
+                .with_nlink(nlink),
         )
     }
 
@@ -1635,6 +1652,31 @@ mod tests {
             (4, 1),
             "Tmpfs::metadata of a directory holding a file and two directories must count four \
              names, and of the file one"
+        );
+    }
+
+    // A Tmpfs is the one Filesystem answering this itself, so only its own count
+    // can leave a removed directory reporting names it no longer has.
+    // @behavior FS-178
+    #[test]
+    fn a_removed_directory_something_holds_counts_no_name() {
+        let tmpfs = at(Tmpfs::new());
+        for path in ["gone", "replaced", "moved", "other"] {
+            tmpfs.create_dir(path).expect("a directory must be made");
+        }
+        let held = |path| tmpfs.open_dir(path).expect("the directory must open");
+        let (gone, replaced, moved) = (held("gone"), held("replaced"), held("moved"));
+        tmpfs.remove_dir("gone").expect("the directory must go");
+        tmpfs
+            .rename("other", &tmpfs, "replaced")
+            .expect("the move must replace the directory");
+        tmpfs.rename("moved", &tmpfs, "there").expect("the move must land");
+        let nlink = |dir: &KernPath| dir.metadata().expect("the directory must answer").nlink;
+        assert_eq!(
+            (nlink(&gone), nlink(&replaced), nlink(&moved)),
+            (0, 0, 2),
+            "Tmpfs::metadata of a held directory removed, or replaced by a move, must count no \
+             name, and of one that moved must count its two"
         );
     }
 
