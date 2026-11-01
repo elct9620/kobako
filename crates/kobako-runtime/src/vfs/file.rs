@@ -1173,12 +1173,19 @@ mod tests {
     // @behavior RT-181
     #[test]
     fn an_allocation_refuses_in_linuxs_order() {
+        struct NoOperations;
+        impl FileOperations for NoOperations {}
         let (_, mut pipe) = create_pipe_files(&PipeInodeInfo::new(1));
+        let how = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        let path = open(false, true).path().clone();
         assert_eq!(
             (
                 open(true, false).fallocate(0, 0),
                 open(true, false).fallocate(0, 1),
-                open(false, true).fallocate(0, 1),
+                File::new(path, Box::new(NoOperations), &how).fallocate(0, 1),
                 pipe.fallocate(0, 1),
             ),
             (

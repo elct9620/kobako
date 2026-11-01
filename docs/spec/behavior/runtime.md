@@ -978,7 +978,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest stats the link with a trailing slash, following no link |
 | Then | the stat answers a directory |
 
-## `RT-099` An allocation for a file beneath a Mount is unsupported
+## `RT-099` An allocation grows a file to where its room ends and shortens none
 
 | Attribute | Value |
 | --- | --- |
@@ -986,9 +986,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a read-write Mount holding a file |
+| Given | a read-write Mount of a Tmpfs or a Bind, holding a file |
 | When | the guest opens the file to write and asks to allocate room in it |
-| Then | the allocation answers NOTSUP, and the file holds what it held |
+| Then | a shorter file grows with zeros to where the room ends, and a longer one stays as it was |
 
 ## `RT-100` An open following no link refuses a link to a directory
 
@@ -1931,6 +1931,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding its standard input and output |
 | When | the guest reads at an offset from each, and writes at an offset to each |
 | Then | each call answers ESPIPE |
+
 ## `RT-179` A directory a move replaces makes nothing more
 
 | Attribute | Value |
@@ -1942,7 +1943,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding an empty directory, one thread moving another directory onto it |
 | When | another thread makes an entry through the held directory |
 | Then | the make waits for the move and answers ENOENT, and the move succeeds |
-
 ## `RT-180` An open file answers for itself whichever Driver asks
 
 | Attribute | Value |
@@ -2628,3 +2628,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest with a memory limit, its descriptors holding listings up to that limit |
 | When | the guest stops another listing part way |
 | Then | the call answers ENOMEM, a listing read whole still succeeds, and closing a descriptor gives back what it held |
+
+## `RT-238` An allocation past a Tmpfs's size answers ENOSPC
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-099` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-write Mount of a Tmpfs |
+| When | the guest asks to allocate more room than that Tmpfs may hold |
+| Then | the allocation answers ENOSPC |

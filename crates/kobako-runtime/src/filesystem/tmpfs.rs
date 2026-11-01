@@ -837,6 +837,19 @@ impl FileOperations for TmpfsFile {
     fn fsync(&mut self) -> Result<(), FilesystemError> {
         Ok(())
     }
+
+    /// Grow the file to where the room ends, as `shmem_fallocate` moves `i_size`
+    /// past it. A Tmpfs holds every byte up to its end, so the room is taken from
+    /// its size or refused as out of space.
+    fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
+        let end = usize::try_from(offset + len).map_err(|_| FilesystemError::StorageFull)?;
+        let mut data = lock(&self.data);
+        if data.bytes.len() < end {
+            return data.resize(end);
+        }
+        data.times.touch();
+        Ok(())
+    }
 }
 
 #[cfg(test)]

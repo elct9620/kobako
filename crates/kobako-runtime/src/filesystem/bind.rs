@@ -680,6 +680,21 @@ impl FileOperations for BindFile {
     fn fsync(&mut self) -> Result<(), FilesystemError> {
         self.file.sync_all().map_err(to_error)
     }
+
+    /// Reserve the room on the host, as 9p's `v9fs_file_fallocate` asks its
+    /// server. macOS has no call that grows a file without also shortening one
+    /// already past the room, so a file reaching it there has nothing to do.
+    #[cfg(unix)]
+    fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
+        if cfg!(target_vendor = "apple")
+            && self.file.metadata().map_err(to_error)?.len() >= offset + len
+        {
+            return Ok(());
+        }
+        let flags = rustix::fs::FallocateFlags::empty();
+        rustix::fs::fallocate(&*self.file, flags, offset, len)
+            .map_err(|err| to_error(io::Error::from(err)))
+    }
 }
 
 #[cfg(test)]

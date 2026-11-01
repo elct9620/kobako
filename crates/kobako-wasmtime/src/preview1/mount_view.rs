@@ -74,7 +74,7 @@ const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOMEM: i32 = 48;
 const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_NOTEMPTY: i32 = 55;
-const ERRNO_NOTSUP: i32 = 58;
+const ERRNO_NOSPC: i32 = 51;
 const ERRNO_ROFS: i32 = 69;
 const ERRNO_XDEV: i32 = 75;
 const ERRNO_NOTCAPABLE: i32 = 76;
@@ -1884,15 +1884,64 @@ fn a_name_no_filesystem_makes_is_answered_by_what_stands() {
 
 // @behavior RT-099
 #[test]
-fn an_allocation_for_a_file_beneath_a_mount_is_unsupported() {
-    let tmpfs = tmpfs_with("file.txt", "granted");
-    let answer =
-        Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]).call("allocate_file", FILE);
+fn an_allocation_grows_a_file_to_where_its_room_ends_and_shortens_none() {
+    // What a file holds from where the room might start, and how long it is.
+    let read = |bytes: Vec<u8>| (bytes.len(), bytes.get(7).copied());
+    let long = "x".repeat(200);
+    let through_tmpfs = |seed: &str| {
+        let tmpfs = tmpfs_with("file.txt", seed);
+        let answer = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)])
+            .call("allocate_file", FILE);
+        let len = vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "file.txt", false)
+            .map(|metadata| metadata.len);
+        let held = contents(&host(&tmpfs), "file.txt").map(|head| head[7]);
+        (answer, len.ok().map(|len| len as usize), held)
+    };
+    let through_bind = |seed: &str| {
+        let dir = std::env::temp_dir().join(format!("kobako-allocate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the host directory must be created");
+        std::fs::write(dir.join("file.txt"), seed).expect("the host file must be written");
+        let bind = Bind::new(&dir).expect("the host directory must open");
+        let answer = Guest::new(&[grant(Arc::new(bind), Access::ReadWrite, None)])
+            .call("allocate_file", FILE);
+        let (len, held) = read(std::fs::read(dir.join("file.txt")).expect("the file stands"));
+        let _ = std::fs::remove_dir_all(&dir);
+        (answer, Some(len), held)
+    };
     assert_eq!(
-        (answer, contents(&host(&tmpfs), "file.txt")),
-        (ERRNO_NOTSUP, Some(b"granted".to_vec())),
-        "fd_allocate of a file beneath a read-write Mount through preview1 must answer ENOTSUP \
-         as wasmtime-wasi does, leaving the file as it was"
+        [
+            through_tmpfs("granted"),
+            through_tmpfs(&long),
+            through_bind("granted"),
+            through_bind(&long),
+        ],
+        [
+            (0, Some(100), Some(0)),
+            (0, Some(200), Some(b'x')),
+            (0, Some(100), Some(0)),
+            (0, Some(200), Some(b'x')),
+        ],
+        "fd_allocate of 100 bytes from the start through preview1, over a Tmpfs and a Bind, must \
+         grow a shorter file with zeros and leave a longer one as it was"
+    );
+}
+
+// Linux counts room reserved in `i_blocks` against the tmpfs's size, and a
+// Tmpfs holds every byte up to a file's end, so its budget refuses the growth.
+// @behavior RT-238
+#[test]
+fn an_allocation_past_a_tmpfs_size_answers_enospc() {
+    let tmpfs: Tmpfs = [("file.txt", "x")].into_iter().collect();
+    let answer = Guest::new(&[grant(
+        Arc::new(tmpfs.with_size(Some(50))),
+        Access::ReadWrite,
+        None,
+    )])
+    .call("allocate_file", FILE);
+    assert_eq!(
+        answer, ERRNO_NOSPC,
+        "fd_allocate of 100 bytes in a Tmpfs of 50 through preview1 must answer ENOSPC"
     );
 }
 
