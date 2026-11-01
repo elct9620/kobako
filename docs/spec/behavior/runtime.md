@@ -2472,3 +2472,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem counting its lookups, holding no entry at a name |
 | When | a call makes a directory or a file at the name, or moves a file onto it |
 | Then | the Filesystem is asked about that name once |
+
+## `RT-224` A link to what has no name left answers ENOENT
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem reporting no names for an entry a walk just found |
+| When | a call gives the entry another name |
+| Then | the call answers ENOENT and the Filesystem is asked to make nothing |
