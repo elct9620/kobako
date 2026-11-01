@@ -103,8 +103,9 @@ impl SecurityOperations for MountPolicy {
     }
 
     /// Everything beneath a directory would take paths the Policy never
-    /// judged, so its move is refused as one across devices and the guest
-    /// copies entry by entry instead, as Landlock refuses such a move. A move
+    /// judged, and a Policy answers for one path, not a tree, so its move is
+    /// refused as one across devices and the guest copies entry by entry instead,
+    /// as Landlock answers a move it cannot show keeps each right beneath. A move
     /// onto its own name takes no new path.
     fn path_rename(
         &self,

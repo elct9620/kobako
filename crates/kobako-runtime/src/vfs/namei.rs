@@ -109,15 +109,6 @@ impl Nameidata {
         names.join("/")
     }
 
-    /// Whether the path may be reached with `access`, as an open asks: a change
-    /// asks the mount first, then the security hook.
-    fn check(&self, access: Access) -> Result<(), FilesystemError> {
-        if access == Access::ReadWrite {
-            self.mnt.mnt_want_write()?;
-        }
-        self.security_path_perm(access)
-    }
-
     /// Whether a security hook lets the path be reached with `access`, as
     /// Linux's `security_path_*` asks once its call holds the name.
     fn security_path_perm(&self, access: Access) -> Result<(), FilesystemError> {
@@ -434,12 +425,14 @@ pub fn do_file_open(
     let _held = held.filter(|_| existing.is_none());
     refuse_what_stands(existing, nd.lookup_directory, how)?;
     // Creating changes the mount only where nothing stands yet, so the hook
-    // judges the open once, knowing what it does.
+    // judges the open once, knowing what it does. A change asks the mount first.
     let changes = how.write || how.truncate || (how.create && existing.is_none());
-    nd.check(if changes {
-        Access::ReadWrite
-    } else {
-        Access::Read
+    if changes {
+        nd.mnt.mnt_want_write()?;
+    }
+    nd.security_path_perm(match changes {
+        true => Access::ReadWrite,
+        false => Access::Read,
     })?;
     if let Some(kind) = existing {
         cred.security_file_open(kind)?;
@@ -663,8 +656,7 @@ pub fn filename_renameat2(
 /// `lock_rename` does: the Filesystem's rename lock first where they
 /// differ, so no other such move changes which stands beneath the other,
 /// then the one above the other before it, as a removal holds the
-/// directory above the one it removes first, and otherwise in a fixed
-/// order.
+/// directory above the one it removes first, as `lock_two_directories`.
 fn lock_rename(
     sb: &SuperBlock,
     old_dir: &Arc<Dentry>,
@@ -674,11 +666,9 @@ fn lock_rename(
         return Ok(vec![old_dir.inode_lock()?]);
     }
     let rename = sb.rename_mutex().down_write()?;
-    let old_first = new_dir.is_subdir(old_dir)
-        || (!old_dir.is_subdir(new_dir) && Arc::as_ptr(old_dir) < Arc::as_ptr(new_dir));
-    let (first, second) = match old_first {
-        true => (old_dir, new_dir),
-        false => (new_dir, old_dir),
+    let (first, second) = match old_dir.is_subdir(new_dir) {
+        true => (new_dir, old_dir),
+        false => (old_dir, new_dir),
     };
     let first = first.inode_lock()?;
     Ok(vec![rename, first, second.inode_lock()?])

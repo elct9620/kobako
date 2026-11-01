@@ -32,7 +32,7 @@ pub enum FileType {
 #[non_exhaustive]
 pub struct Metadata {
     pub file_type: FileType,
-    /// The length in bytes; zero for a directory.
+    /// The length in bytes, of a directory what its Filesystem reports.
     pub len: u64,
     /// The device and inode numbers naming what the path holds, as
     /// `st_dev` and `st_ino` do. An `ino` of zero reports none, so such a
