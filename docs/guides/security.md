@@ -342,7 +342,7 @@ kobako defends a Mount against the guest and against another Sandbox's guest wri
 | a guest of another Mount of the same Filesystem | only that Mount's block judges it; a block guards its own Mount's paths |
 | the host, or a change to a Layer outside its Overlay | no crash or deadlock; the rest is the host's |
 
-A Filesystem keeps names a walk found, so one guest's walks can speed up another's. A permissive guest sharing that Filesystem may tell by timing which names were reached lately; a hermetic one has no clock.
+A Filesystem keeps names a walk found, so one guest's walks can speed up another's. The bundled Guest Binaries import no clock, so no script can time that. A third-party guest on `permissive`, or a script a Service hands a clock, may tell which names were reached lately.
 
 ### Host Side
 
@@ -355,7 +355,8 @@ Some risks stay with the host, because kobako cannot see them.
 | a hard link or mount point inside a Bind | the guest reaches what it leads to |
 | a Bind's host disk | kobako caps no space there; the host directory's own quota does |
 | a device swapped into a Bind as the guest opens a file | opened once before its refusal |
-| a link in a Bind without a block | the guest reaches its target, never beyond the Bind, and never reads where it points; it can tell where it leads by what it finds there |
+| a link in a Bind without a block | followed within the Bind; its target is never read |
+| where such a link leads | told by what the guest finds there |
 | a link through a directory the guest opened | followed only within it; leading out raises `Errno::EACCES`, as a `..` leading out does |
 | a link loop without a block | `Errno::ELOOP` after 40 links, as Linux answers |
 | a directory the guest lists in steps | its entries held in host memory until the listing ends, once per descriptor |
