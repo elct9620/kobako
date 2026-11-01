@@ -466,3 +466,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a guest holding a file open in a directory of a Ruby Filesystem |
 | When | the directory's `stat` answers the same `ino` for a file, and the guest walks through its path |
 | Then | the walk answers that the path is no directory |
+
+## `RF-036` A Ruby directory syncs
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-021`, `FS-171` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a Mount of a Ruby Filesystem |
+| When | the guest syncs the directory |
+| Then | the sync succeeds |

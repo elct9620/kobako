@@ -1802,3 +1802,11 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay over a Bind holding one file at two names, under an upper |
 | When | one name is written and then moved onto the other |
 | Then | only the new name stands, holding what was written |
+
+## `FS-171` A Bind's root syncs
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind of a host directory |
+| When | its root is synced |
+| Then | the sync succeeds |

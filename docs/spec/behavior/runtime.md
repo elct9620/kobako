@@ -2460,3 +2460,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount holding a link to a directory |
 | When | the link is read at its path followed by `/` |
 | Then | the call answers EINVAL, as Linux's follows the link to the directory first |
+
+## `RT-222` A write of nothing leaves a file where it stands
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-180` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file opened to append, holding bytes, positioned at its start |
+| When | a call writes nothing to it |
+| Then | its position stays at its start |
