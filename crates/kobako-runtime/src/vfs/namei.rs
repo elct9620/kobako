@@ -1667,6 +1667,32 @@ mod tests {
         );
     }
 
+    // Nothing stands at `passing`, so a walk taking no lock would answer ENOENT;
+    // only holding the directory while it finds the name meets the outer make.
+    // @behavior RT-229
+    #[test]
+    fn a_walk_passing_through_a_directory_holds_it_to_find_a_name() {
+        let root = Arc::new(OnceLock::<Path>::new());
+        let hooked = HookedTmpfs {
+            making: Some(Box::new({
+                let root = root.clone();
+                move || {
+                    let start = root.get().expect("the root is set");
+                    vfs::vfs_fstatat(&Arc::default(), start, "passing/through", false).map(|_| ())
+                }
+            })),
+            ..HookedTmpfs::default()
+        };
+        let path = root_of(Filesystem::new(Arc::new(hooked)));
+        root.set(path.clone()).ok();
+        assert_eq!(
+            vfs::filename_mkdirat(&Arc::default(), &path, "made"),
+            Err(FilesystemError::Deadlock),
+            "vfs::vfs_fstatat walking through the directory an outer vfs::filename_mkdirat holds \
+             must answer Deadlock, as it holds that directory to find the name"
+        );
+    }
+
     // The make starts from a descriptor already standing in `b`, so only the
     // move holding `b` itself, not the directory above it, keeps the make out.
     // Landing there would leave `b` not empty and refuse the move.

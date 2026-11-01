@@ -1907,6 +1907,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a file whose Filesystem has no operation to sync it |
 | When | the guest syncs the file |
 | Then | the call answers EINVAL |
+
 ## `RT-177` A standard stream answers as a pipe does
 
 | Attribute | Value |
@@ -1918,7 +1919,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding its standard streams |
 | When | the guest syncs one, sizes one, and calls about the position of each |
 | Then | the first two answer EINVAL, and the calls about a position answer ESPIPE |
-
 ## `RT-178` A standard stream takes no offset
 
 | Attribute | Value |
@@ -2520,3 +2520,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory another thread keeps moving through the runtime |
 | When | the runtime asks whether it was removed |
 | Then | the answer is no |
+
+## `RT-229` A walk passing through a directory holds it to find a name
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-165` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose make calls the runtime to walk through the same directory |
+| When | a directory is made through the runtime |
+| Then | the inner walk answers EDEADLK |
