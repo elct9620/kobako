@@ -169,6 +169,14 @@ Hand-written text-format module that syncs a file of a Mount and answers the err
 |---|---|
 | any | opens `note.txt` beneath the first preopen, syncs it, and answers the errno as an Integer |
 
+## `minimal_fsync_dir.wat`
+
+Hand-written text-format module that syncs a Mount's directory and answers the errno, for the same reason as `minimal_fsync.wat`.
+
+| Downcall | What it does |
+|---|---|
+| any | syncs the first preopen and answers the errno as an Integer |
+
 ## `minimal_moved_directory.wat`
 
 Hand-written text-format module that looks up through a directory it holds open after the directory moved. The real Guest Binary holds no directory open, so no script can. Every downcall runs these steps beneath the first preopen.

@@ -9,6 +9,7 @@ class TestE2ERubyFilesystemSync < Minitest::Test
   include GuestGuard
 
   FIXTURE = TestPaths.fixture("minimal_fsync.wat")
+  DIRECTORY_FIXTURE = TestPaths.fixture("minimal_fsync_dir.wat")
 
   Stat = Data.define(:directory, :size, :ino) do
     def directory? = directory
@@ -48,5 +49,14 @@ class TestE2ERubyFilesystemSync < Minitest::Test
     assert_equal [58, 0], synced,
                  "fd_sync of a Ruby file whose fsync raises Errno::ENOTSUP must answer ENOTSUP, and of " \
                  "one lacking fsync must succeed"
+  end
+
+  # @behavior RF-036
+  def test_a_ruby_directory_syncs
+    require_fixture!(DIRECTORY_FIXTURE)
+    synced = Kobako::Sandbox.new(wasm_path: DIRECTORY_FIXTURE).mount("/data",
+                                                                     NoteFilesystem.new(NoteFile)).eval("").value
+
+    assert_equal 0, synced, "fd_sync of a Ruby Filesystem's directory must succeed, as FUSE's answers"
   end
 end

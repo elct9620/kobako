@@ -466,6 +466,12 @@ impl FileOperations for RubyDir {
     fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
         self.0.entries_at(dentry)
     }
+
+    /// The object has nothing of a directory's own to flush, as FUSE's
+    /// `fuse_dir_fsync` answers for a server without `fsyncdir`.
+    fn fsync(&mut self) -> Result<(), FilesystemError> {
+        Ok(())
+    }
 }
 
 /// One file the Ruby object opened, which only the guest's descriptor

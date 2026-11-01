@@ -623,9 +623,16 @@ impl FileOperations for BindDir {
     }
 }
 
+/// cap-std holds a directory for its path alone on Linux, which syncs nothing,
+/// so the same directory is opened to read.
 #[cfg(unix)]
 fn sync_dir(dir: &Dir) -> Result<(), FilesystemError> {
-    rustix::fs::fsync(dir).map_err(|err| to_error(io::Error::from(err)))
+    use rustix::fs::{fsync, openat, Mode, OFlags};
+
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    openat(dir, ".", flags, Mode::empty())
+        .and_then(fsync)
+        .map_err(|err| to_error(io::Error::from(err)))
 }
 
 #[cfg(not(unix))]
@@ -1570,6 +1577,30 @@ mod tests {
             FilesystemError::FileTooLarge,
             "a host EFBIG through Bind's error mapping must fail as FileTooLarge, \
              not as an unnamed failure"
+        );
+    }
+
+    // A Bind's root is the directory cap-std opened for its path alone on Linux,
+    // so a sync of the descriptor it holds would answer EBADF only there.
+    // @behavior FS-171
+    #[test]
+    fn a_binds_root_syncs() {
+        let host = HostDir::new("sync-root");
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(
+                Bind::new(&host.0).expect("the host directory must open"),
+            )),
+            crate::mount::Access::Read,
+        )
+        .expect("/data is a guest path");
+        let Ok(mut root) = crate::vfs::File::root(mount.mnt(), Arc::default()) else {
+            panic!("the root must open");
+        };
+        assert_eq!(
+            root.fsync(),
+            Ok(()),
+            "File::fsync of a Bind's root must succeed, as Linux syncs a directory"
         );
     }
 
