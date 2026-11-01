@@ -109,7 +109,7 @@ impl KernPath {
 
     /// What the directory reports of itself.
     pub(crate) fn metadata(&self) -> Result<Metadata, FilesystemError> {
-        self.0.metadata()
+        self.0.dentry().getattr()
     }
 
     /// What `path` names, a link reported as itself; the directory itself
@@ -132,7 +132,7 @@ impl KernPath {
     }
 
     pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
-        File::directory(self.0.clone(), Arc::default())?.iterate_shared()
+        File::directory(self.0.clone())?.iterate_shared()
     }
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {

@@ -441,12 +441,7 @@ pub fn do_file_open(
     if how.truncate && existing == Some(FileType::File) {
         do_truncate(&child, &Iattr::open_truncate())?;
     }
-    Ok(File::new(
-        start.with_dentry(child),
-        cred.clone(),
-        f_op,
-        &how,
-    ))
+    Ok(File::new(start.with_dentry(child), f_op, &how))
 }
 
 /// What stands at the path answers before any access is judged, as Linux's

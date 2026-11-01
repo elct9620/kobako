@@ -1883,6 +1883,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Mount whose Filesystem holds an entry that is neither a file, a directory, nor a link |
 | When | the guest opens the entry |
 | Then | the open answers EACCES |
+
 ## `RT-175` The runtime answers for an operation a Filesystem lacks
 
 | Attribute | Value |
@@ -1906,7 +1907,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a file whose Filesystem has no operation to sync it |
 | When | the guest syncs the file |
 | Then | the call answers EINVAL |
-
 ## `RT-177` A standard stream answers as a pipe does
 
 | Attribute | Value |
@@ -2484,3 +2484,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation holding a file open beneath a Mount |
 | When | the guest starts from it with flags no open can mean, an empty path, or an overlong path |
 | Then | the call answers EINVAL, ENOENT, or ENAMETOOLONG, not ENOTDIR |
+
+## `RT-226` A descriptor moved beneath a Policy still reports itself
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-150` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount with a Policy |
+| When | the directory moves away outside the runtime, and the guest stats the descriptor |
+| Then | the call succeeds, as a Policy judges no stat |
+
+## `RT-227` A descriptor moved beneath a Policy still lists itself
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-150` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount with a Policy |
+| When | the directory moves away outside the runtime, and the guest lists the descriptor |
+| Then | the call succeeds, as a Policy judges no listing |

@@ -1670,7 +1670,9 @@ mod tests {
         tmpfs
             .rename("other", &tmpfs, "replaced")
             .expect("the move must replace the directory");
-        tmpfs.rename("moved", &tmpfs, "there").expect("the move must land");
+        tmpfs
+            .rename("moved", &tmpfs, "there")
+            .expect("the move must land");
         let nlink = |dir: &KernPath| dir.metadata().expect("the directory must answer").nlink;
         assert_eq!(
             (nlink(&gone), nlink(&replaced), nlink(&moved)),

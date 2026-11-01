@@ -1590,7 +1590,7 @@ mod tests {
             crate::mount::Access::Read,
         )
         .expect("/data is a guest path");
-        let Ok(mut root) = crate::vfs::File::root(mount.mnt(), Arc::default()) else {
+        let Ok(mut root) = crate::vfs::File::root(mount.mnt()) else {
             panic!("the root must open");
         };
         assert_eq!(

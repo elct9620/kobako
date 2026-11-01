@@ -67,8 +67,8 @@ impl Kobako {
     pub fn new(filesystem: Arc<Filesystem>, access: Access, merged: bool) -> Self {
         let mount = Mount::new("/baseline", filesystem, access).expect("/baseline is a guest path");
         let cred = prepare_creds([&mount]);
-        let root = File::root(mount.mnt(), cred.clone())
-            .unwrap_or_else(|error| panic!("the root must open: {error:?}"));
+        let root =
+            File::root(mount.mnt()).unwrap_or_else(|error| panic!("the root must open: {error:?}"));
         Self {
             cred,
             root,

@@ -1002,16 +1002,6 @@ pub trait SecurityOperations {
 }
 ```
 
-## `Path::metadata`
-
-What the directory reports of itself.
-
-```rust
-impl Path {
-    pub fn metadata(&self) -> Result<Metadata, FilesystemError> {}
-}
-```
-
 ## `File`
 
 One open file or directory, as Linux's `struct file`. It holds where it was
@@ -1023,11 +1013,11 @@ pub struct File {}
 
 ## `File::root`
 
-The root of a mounted Filesystem opened as a directory for a Cred.
+The root of a mounted Filesystem opened as a directory.
 
 ```rust
 impl File {
-    pub fn root(mnt: &Arc<VfsMount>, cred: Arc<Cred>) -> Result<Self, FilesystemError> {}
+    pub fn root(mnt: &Arc<VfsMount>) -> Result<Self, FilesystemError> {}
 }
 ```
 

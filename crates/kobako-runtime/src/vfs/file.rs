@@ -5,7 +5,6 @@
 use std::ops::BitOr;
 use std::sync::Arc;
 
-use super::cred::Cred;
 use super::dentry::Dentry;
 use super::inode::Identity;
 use super::mount::VfsMount;
@@ -239,8 +238,6 @@ pub struct File {
     /// Where it was opened, as `f_path`; it follows the name wherever it
     /// moves.
     path: Path,
-    /// Who opened it, as `f_cred`.
-    cred: Arc<Cred>,
     /// What answers for it, as `f_op`.
     ops: Box<dyn FileOperations>,
     /// What it was opened for, as `f_mode`.
@@ -261,16 +258,10 @@ pub struct File {
 }
 
 impl File {
-    /// The file `ops` answers for, opened at `path` for `cred` as `how` asks.
-    pub(crate) fn new(
-        path: Path,
-        cred: Arc<Cred>,
-        ops: Box<dyn FileOperations>,
-        how: &OpenHow,
-    ) -> Self {
+    /// The file `ops` answers for, opened at `path` as `how` asks.
+    pub(crate) fn new(path: Path, ops: Box<dyn FileOperations>, how: &OpenHow) -> Self {
         Self {
             path,
-            cred,
             ops,
             mode: FMode::of(how),
             append: how.append,
@@ -283,7 +274,7 @@ impl File {
 
     /// The directory at `path`, opened to be listed, as `dentry_open` calls
     /// `f_op->open`.
-    pub(super) fn directory(path: Path, cred: Arc<Cred>) -> Result<Self, FilesystemError> {
+    pub(super) fn directory(path: Path) -> Result<Self, FilesystemError> {
         let options = OpenOptions {
             read: true,
             ..OpenOptions::default()
@@ -293,7 +284,7 @@ impl File {
             read: true,
             ..OpenHow::default()
         };
-        Ok(Self::new(path, cred, ops, &how))
+        Ok(Self::new(path, ops, &how))
     }
 
     /// This file with no position, as `stream_open` makes a pipe's ends.
@@ -302,9 +293,9 @@ impl File {
         self.mode = FMode(access | FMode::STREAM.0);
     }
 
-    /// The root of `mnt` opened as a directory for `cred`.
-    pub fn root(mnt: &Arc<VfsMount>, cred: Arc<Cred>) -> Result<Self, FilesystemError> {
-        Self::directory(Path::root(mnt), cred)
+    /// The root of `mnt` opened as a directory.
+    pub fn root(mnt: &Arc<VfsMount>) -> Result<Self, FilesystemError> {
+        Self::directory(Path::root(mnt))
     }
 
     /// Where it was opened; a call relative to it starts here.
@@ -546,13 +537,7 @@ impl File {
 
     /// What it reports of itself, as `vfs_getattr` answers.
     pub fn getattr(&self) -> Result<Metadata, FilesystemError> {
-        match self.is_directory() {
-            true => {
-                self.cred.security_path_walk(&self.path)?;
-                self.path.metadata()
-            }
-            false => self.path.dentry().getattr(),
-        }
+        self.path.dentry().getattr()
     }
 
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
@@ -640,7 +625,6 @@ impl File {
     /// The entries of the directory, under its lock shared as `iterate_dir`
     /// holds it, so a removal through the VFS lands before or after them.
     fn read_entries(&mut self) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.cred.security_path_walk(&self.path)?;
         let dentry = self.path.dentry().clone();
         let _held = dentry.inode_lock_shared()?;
         if dentry.is_deaddir() {
@@ -790,8 +774,7 @@ mod tests {
                 Access::Read,
             )
             .expect("/data is a guest path");
-            let mut root = File::root(mount.mnt(), Arc::default())
-                .unwrap_or_else(|_| panic!("the root must open"));
+            let mut root = File::root(mount.mnt()).unwrap_or_else(|_| panic!("the root must open"));
             let mut names = Vec::new();
             let answer = root.iterate_dir(&mut DirContext::new(2, &mut |emit| {
                 names.push(emit.name.to_string());
@@ -874,8 +857,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let start = Path::root(mount.mnt());
-        let mut root = File::root(mount.mnt(), Arc::default())
-            .unwrap_or_else(|_| panic!("the root must open"));
+        let mut root = File::root(mount.mnt()).unwrap_or_else(|_| panic!("the root must open"));
         let mut listed = Vec::new();
         root.iterate_dir(&mut DirContext::new(2, &mut |emit| {
             listed.push((emit.name.to_string(), emit.identity));
@@ -944,8 +926,7 @@ mod tests {
         let tmpfs: Arc<Tmpfs> = Arc::new([("a", "x"), ("b", "y")].into_iter().collect());
         let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
             .expect("/data is a guest path");
-        let mut root = File::root(mount.mnt(), Arc::default())
-            .unwrap_or_else(|_| panic!("the root must open"));
+        let mut root = File::root(mount.mnt()).unwrap_or_else(|_| panic!("the root must open"));
         let entry = |name: &str, next| (name.to_string(), next);
         assert_eq!(
             (list(&mut root, 0, 3), list(&mut root, 2, 9)),
@@ -1058,8 +1039,7 @@ mod tests {
         let tmpfs: Arc<Tmpfs> = Arc::new([("a", "x")].into_iter().collect());
         let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
             .expect("/data is a guest path");
-        let mut dir = File::root(mount.mnt(), Arc::default())
-            .unwrap_or_else(|_| panic!("the root must open"));
+        let mut dir = File::root(mount.mnt()).unwrap_or_else(|_| panic!("the root must open"));
         let mut buf = [0; 2];
         assert_eq!(
             (

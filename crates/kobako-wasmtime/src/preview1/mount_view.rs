@@ -49,7 +49,7 @@ fn host_entries<F: InodeOperations>(filesystem: &Arc<F>) -> Result<Vec<String>, 
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
-    let mut root = vfs::File::root(mount.mnt(), Arc::default())?;
+    let mut root = vfs::File::root(mount.mnt())?;
     let mut names = Vec::new();
     root.iterate_dir(&mut vfs::DirContext::new(2, &mut |emit| {
         names.push(emit.name.to_string());
@@ -378,6 +378,12 @@ const PROBE_WAT: &str = r#"
   (func $open_dir (export "open_dir") (result i32)
     (call $open (i32.const 3) (i32.const 0) (i32.const 930) (i32.const 3)
       (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
+  ;; Stat the directory opened into 128 itself.
+  (func (export "fstat_dir") (result i32)
+    (call $fstat (i32.load (i32.const 128)) (i32.const 384)))
+  ;; List the directory opened into 128 from its start.
+  (func (export "list_dir") (result i32)
+    (call $readdir (i32.load (i32.const 128)) (i32.const 2048) (i32.const 256) (i64.const 0) (i32.const 136)))
   ;; Stat `inner` beneath the directory opened into 128.
   (func (export "stat_inner") (result i32)
     (call $stat (i32.load (i32.const 128)) (i32.const 0) (i32.const 960) (i32.const 5) (i32.const 384)))
@@ -1003,6 +1009,44 @@ fn a_directory_moved_while_opened_beneath_a_policy_is_not_reached() {
         ERRNO_NOENT,
         "path_filestat_get through a directory descriptor beneath a Mount with a Policy through \
          preview1 must answer ENOENT once the directory moved away"
+    );
+}
+
+/// What `call` answers through the directory a guest holds beneath a Policy,
+/// once the directory moved away outside the runtime.
+fn answer_once_moved_away(call: &str) -> i32 {
+    let tmpfs = file_and_directory();
+    let mut guest = Guest::new(&[grant(
+        tmpfs.clone(),
+        Access::ReadWrite,
+        Some(Arc::new(AllowsAll)),
+    )]);
+    assert_eq!(guest.call_bare("open_dir"), 0, "dir must open");
+    move_and_replace(&host(&tmpfs));
+    guest.call_bare(call)
+}
+
+// A Policy judges no stat or listing, so nothing asks whether the descriptor's
+// dentry still stands; the descriptor keeps following what it opened.
+// @behavior RT-226
+#[test]
+fn a_descriptor_moved_beneath_a_policy_still_reports_itself() {
+    assert_eq!(
+        answer_once_moved_away("fstat_dir"),
+        0,
+        "fd_filestat_get of a directory descriptor beneath a Mount with a Policy through preview1 \
+         must succeed once the directory moved away"
+    );
+}
+
+// @behavior RT-227
+#[test]
+fn a_descriptor_moved_beneath_a_policy_still_lists_itself() {
+    assert_eq!(
+        answer_once_moved_away("list_dir"),
+        0,
+        "fd_readdir of a directory descriptor beneath a Mount with a Policy through preview1 must \
+         succeed once the directory moved away"
     );
 }
 

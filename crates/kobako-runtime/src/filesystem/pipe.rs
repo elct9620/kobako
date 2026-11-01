@@ -115,7 +115,6 @@ pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
     let end = |how: OpenHow| {
         let mut file = File::new(
             PIPE_MNT.with_dentry(dentry.clone()),
-            Arc::default(),
             Box::new(AnonPipe(pipe.clone())),
             &how,
         );

@@ -66,7 +66,7 @@ impl Descriptors {
             used.insert(
                 fd,
                 Descriptor {
-                    file: File::root(mount.mnt(), cred.clone())?,
+                    file: File::root(mount.mnt())?,
                     preopen: Some(mount.at().to_string()),
                 },
             );
