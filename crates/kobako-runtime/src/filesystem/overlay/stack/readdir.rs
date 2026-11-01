@@ -3,8 +3,9 @@
 
 use std::collections::HashSet;
 
-use super::super::super::{DirEntry, FileType, FilesystemError, Metadata};
+use super::super::super::{DirEntry, FileType, FilesystemError};
 use super::{Level, OverlayFs};
+use crate::vfs::Dentry;
 
 impl OverlayFs {
     /// Each Layer's entries topmost first, a name a Layer above shows or
@@ -32,15 +33,10 @@ impl OverlayFs {
         Ok(entries)
     }
 
-    /// Whether the directory `name` in `level` shows no entry.
-    pub(super) fn is_empty(
-        &self,
-        level: &Level,
-        name: &str,
-        found: (usize, Metadata),
-    ) -> Result<bool, FilesystemError> {
-        Ok(self
-            .dir_read_merged(&self.lookup_layers(level, name, found)?)?
-            .is_empty())
+    /// Whether the directory `dentry` names shows no entry, as
+    /// `ovl_check_empty_dir` reads what its `ovl_entry` holds.
+    pub(super) fn check_empty_dir(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
+        let level = self.dir(dentry)?.level();
+        Ok(self.dir_read_merged(&level)?.is_empty())
     }
 }

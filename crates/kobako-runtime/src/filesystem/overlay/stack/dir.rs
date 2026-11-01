@@ -136,11 +136,6 @@ impl OverlayFs {
         dir: &OverlayPath,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        let inner = dir.open_dir(name)?;
-        let cleared = inner.entries()?;
-        if cleared.iter().any(|entry| !inner.is_whiteout(&entry.name)) {
-            return Err(FilesystemError::DirectoryNotEmpty);
-        }
         self.exchange_in_opaque_dir(dir, name)
     }
 
@@ -192,7 +187,7 @@ impl OverlayFs {
         }
         if !(options.write || options.truncate) {
             let file = real.open(options)?;
-            return Ok(ovl_file(file, real, child, kept));
+            return Ok(ovl_file(file, real, kept));
         }
         self.copy_up_file(dir, child, options.truncate)?;
         kept.real()
@@ -226,15 +221,15 @@ impl OverlayFs {
         }
     }
 
-    pub(in super::super) fn rmdir(&self, dir: &ViewDir, name: &str) -> Result<(), FilesystemError> {
-        let level = dir.level();
-        let (index, found) = self
-            .lookup_layer(&level, name)?
-            .ok_or(FilesystemError::NotFound)?;
-        if !self.is_empty(&level, name, (index, found))? {
+    pub(in super::super) fn rmdir(
+        &self,
+        dir: &ViewDir,
+        dentry: &Dentry,
+    ) -> Result<(), FilesystemError> {
+        if !self.check_empty_dir(dentry)? {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.do_remove(dir, name, true)
+        self.do_remove(dir, &dentry.name(), true)
     }
 
     /// A link is removed as itself, wherever it points.
@@ -260,19 +255,18 @@ impl OverlayFs {
         from: &ViewDir,
         moved: &Dentry,
         to: &ViewDir,
-        to_name: &str,
+        target: &Dentry,
     ) -> Result<(), FilesystemError> {
-        let from_name = &moved.name();
+        let (from_name, to_name) = (&moved.name(), &target.name());
         let from_level = from.level();
-        let moving = self.symlink_metadata(&from_level, from_name)?;
+        let moving = moved.kind()?;
         let to_level = to.level();
-        let replaced = self.lookup_layer(&to_level, to_name)?;
-        let is_dir = moving.file_type == FileType::Directory;
+        let is_dir = moving == FileType::Directory;
         let (holders, shadowed) = self.holders(&from_level, from_name)?;
         // What cannot move answers first, as `ovl_rename_start` asks
         // `ovl_can_move` before it looks at what would be replaced.
         let holds_above = holders.first() == Some(&UPPER);
-        match moving.file_type {
+        match moving {
             FileType::Directory if holders != [UPPER] => {
                 return Err(FilesystemError::CrossesDevices)
             }
@@ -281,19 +275,18 @@ impl OverlayFs {
             _ => {}
         }
         // Only an empty directory is replaced.
-        if let (true, Some((index, found))) = (is_dir, replaced) {
-            if !self.is_empty(&to_level, to_name, (index, found))? {
-                return Err(FilesystemError::DirectoryNotEmpty);
-            }
+        let replaces_dir = target.kind() == Ok(FileType::Directory);
+        if replaces_dir && !self.check_empty_dir(target)? {
+            return Err(FilesystemError::DirectoryNotEmpty);
         }
         let shown_below = holders.iter().any(|&index| index != UPPER) || shadowed.is_some();
-        if moving.file_type == FileType::File && !holds_above {
+        if moving == FileType::File && !holds_above {
             self.copy_up_file(from, moved, false)?;
         }
         let target_dir = self.upper_dir(to)?;
-        let replaces_dir =
-            matches!(replaced, Some((_, found)) if found.file_type == FileType::Directory);
-        if replaces_dir && holds(&target_dir, to_name)? {
+        // A directory holding only whiteouts is replaced by an empty one first,
+        // as `ovl_rename_upper` calls `ovl_clear_empty` for a list not empty.
+        if replaces_dir && holds(&target_dir, to_name)? && holds_whiteouts(&target_dir, to_name)? {
             self.clear_empty(&target_dir, to_name)?;
         }
         let source_dir = from.level()[UPPER]

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, InodeOperations, Metadata};
 use super::super::inode::{ovl_inode_init, OverlayInode};
-use super::{entry, layer_dir, shows_below, sole_layer, Level, OverlayFs, UPPER};
+use super::{entry, layer_dir, sole_layer, Level, OverlayFs, UPPER};
 use crate::vfs::{Dentry, Inode};
 
 impl OverlayFs {
@@ -23,7 +23,7 @@ impl OverlayFs {
             if let Some(found) = entry(dir, name)? {
                 return Ok(Some((index, found)));
             }
-            if shows_below(level, index) && dir.is_whiteout(name) {
+            if dir.is_whiteout(name) {
                 break;
             }
         }
@@ -45,7 +45,6 @@ impl OverlayFs {
             let Some(dir) = dir else {
                 continue;
             };
-            let below = shows_below(level, index);
             let standing = if index == found.0 {
                 Some(found.1)
             } else {
@@ -54,7 +53,7 @@ impl OverlayFs {
             match standing {
                 Some(metadata) if metadata.file_type == FileType::Directory => {
                     let inner = dir.open_dir(name)?;
-                    let opaque = below && inner.is_opaque();
+                    let opaque = inner.is_opaque();
                     merged[index] = Some(inner);
                     if opaque {
                         break;
@@ -63,62 +62,30 @@ impl OverlayFs {
                 Some(_) => break,
                 None => {}
             }
-            if below && dir.is_whiteout(name) {
+            if dir.is_whiteout(name) {
                 break;
             }
         }
         Ok(merged)
     }
 
-    /// What the view reports for the directory `level`, as overlayfs
-    /// reports a merged directory: the identity of the lowest Layer showing
-    /// it, so copying it up into the upper leaves the identity as it
-    /// was, the times of the topmost, and one name where more than one
-    /// Layer shows it.
+    /// What the view reports for the directory `level`, as `ovl_getattr`
+    /// reports a merged one: what its topmost Layer reports, under the identity
+    /// of the topmost lower Layer showing it, as `ovl_path_lower` finds it, so
+    /// copying it up leaves the identity as it was, and one name.
     pub(in super::super) fn dir_metadata(
         &self,
         level: &Level,
     ) -> Result<Metadata, FilesystemError> {
         let mut shown = level.iter().flatten();
         let topmost = shown.next().ok_or(FilesystemError::NotFound)?.metadata()?;
-        let lowest = match shown.last() {
-            Some(lowest) => lowest.metadata()?.with_nlink(1),
+        Ok(match shown.next() {
+            Some(lower) => {
+                let lower = lower.metadata()?;
+                topmost.with_identity(lower.dev, lower.ino).with_nlink(1)
+            }
             None => topmost,
-        };
-        Ok(Metadata {
-            accessed: topmost.accessed,
-            modified: topmost.modified,
-            changed: topmost.changed,
-            ..lowest
         })
-    }
-
-    /// `found` at `name` in the Layer at `index`, as the view reports it: a
-    /// directory takes the identity of the lowest Layer showing it.
-    fn merge_identity(
-        &self,
-        level: &Level,
-        name: &str,
-        index: usize,
-        found: Metadata,
-    ) -> Result<Metadata, FilesystemError> {
-        if found.file_type != FileType::Directory {
-            return Ok(found);
-        }
-        self.dir_metadata(&self.lookup_layers(level, name, (index, found))?)
-    }
-
-    /// What the Layer showing `name` holds there, a link it holds
-    /// reported as one even where it points at nothing.
-    pub(in super::super) fn symlink_metadata(
-        &self,
-        level: &Level,
-        name: &str,
-    ) -> Result<Metadata, FilesystemError> {
-        let (index, found) = self
-            .lookup_layer(level, name)?
-            .ok_or(FilesystemError::NotFound)?;
-        self.merge_identity(level, name, index, found)
     }
 
     /// The inode of what the view shows at `name`, answered for by `ops_of` of

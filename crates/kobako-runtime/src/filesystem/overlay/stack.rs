@@ -4,11 +4,9 @@
 //! as overlayfs splits them: finding a name in `namei`, copying up in
 //! `copy_up`, listing in `readdir`, and changing a directory in `dir`.
 //!
-//! A path is walked one name at a time from each Layer's root, as
-//! overlayfs looks a name up in each Layer's directory, following no link
-//! a Layer holds unless the caller asks, so every Layer is asked about a
-//! single name in a directory already held. A Layer's directory merges
-//! into the view only beneath a directory it also holds.
+//! Every Layer is asked about a single name in a directory already held, as
+//! overlayfs looks a name up in each layer's directory. A Layer's directory
+//! merges into the view only beneath a directory it also holds.
 //!
 //! The upper Tmpfs holds the view's changes in `upper` and builds each one
 //! in `work` first, as overlayfs's upperdir and workdir share one mount.
@@ -60,14 +58,15 @@ impl ViewDir {
 }
 
 /// What `dir` holds at `name`, a link reported as itself and a whiteout
-/// as nothing.
+/// as nothing, as is a name too long for that Layer to hold, as
+/// `ovl_lookup_single` answers both ENOENT and ENAMETOOLONG by moving on.
 fn entry(dir: &OverlayPath, name: &str) -> Result<Option<Metadata>, FilesystemError> {
     if dir.is_whiteout(name) {
         return Ok(None);
     }
     match dir.symlink_metadata(name) {
         Ok(metadata) => Ok(Some(metadata)),
-        Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(None),
+        Err(FilesystemError::NotFound | FilesystemError::InvalidFilename) => Ok(None),
         Err(err) => Err(err),
     }
 }
@@ -82,21 +81,14 @@ fn holds(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
 /// as overlayfs stops looking further down once it finds one.
 fn below_opaque_cut(mut level: Level) -> Level {
     let mut cut = false;
-    for index in 0..level.len() {
+    for layer in &mut level {
         if cut {
-            level[index] = None;
-        } else if let Some(shown) = &level[index] {
-            cut = shows_below(&level, index) && shown.is_opaque();
+            *layer = None;
+        } else if let Some(shown) = layer {
+            cut = shown.is_opaque();
         }
     }
     level
-}
-
-/// Whether a Layer below `index` shows a directory in `level`, without
-/// which a mark at `index` hides nothing, as overlayfs reads no opaque
-/// mark in its last layer.
-fn shows_below(level: &Level, index: usize) -> bool {
-    level[index + 1..].iter().any(Option::is_some)
 }
 
 /// The one Layer showing the directory `level`, if no other does. Nothing

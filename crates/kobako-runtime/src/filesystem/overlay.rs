@@ -289,7 +289,7 @@ impl InodeOperations for Overlay {
     }
 
     fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.rmdir(&self.fs.parent(dentry)?, &dentry.name())
+        self.fs.rmdir(&self.fs.parent(dentry)?, dentry)
     }
 
     fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -308,12 +308,8 @@ impl InodeOperations for Overlay {
         if flag.is_some() {
             return Err(FilesystemError::InvalidInput);
         }
-        self.fs.rename(
-            &self.fs.parent(from)?,
-            from,
-            &self.fs.parent(to)?,
-            &to.name(),
-        )
+        self.fs
+            .rename(&self.fs.parent(from)?, from, &self.fs.parent(to)?, to)
     }
 }
 
@@ -1264,6 +1260,89 @@ mod tests {
             (Some(FilesystemError::ReadOnlyFilesystem), true),
             "a file opened to write through an Overlay with no upper on a read-write Mount must \
              be refused as read-only"
+        );
+    }
+
+    /// A Layer holding a name past what it can hold, as a Layer on a host with
+    /// a shorter limit answers one.
+    struct RefusesLongName;
+
+    impl crate::filesystem::wrap::Hook for RefusesLongName {
+        fn lookup(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<Lookup, FilesystemError> {
+            match dentry.name().as_str() {
+                "long" => Err(FilesystemError::InvalidFilename),
+                _ => inner.lookup(dentry),
+            }
+        }
+    }
+
+    // `ovl_lookup_single` moves on from ENAMETOOLONG, so a name one Layer cannot
+    // hold is only absent there, and the upper takes it.
+    // @behavior FS-174
+    #[test]
+    fn a_name_too_long_for_a_lower_layer_lands_in_the_upper() {
+        let lower =
+            crate::filesystem::wrap::Wrap::new(Arc::new(Tmpfs::new()), Arc::new(RefusesLongName));
+        let upper = Arc::new(Tmpfs::new());
+        let overlay = at(over(Arc::new(lower), upper.clone()));
+        assert_eq!(
+            (
+                overlay.create_dir("long"),
+                on(&upper)
+                    .symlink_metadata("upper/long")
+                    .map(|found| found.file_type)
+            ),
+            (Ok(()), Ok(FileType::Directory)),
+            "a directory made through an Overlay at a name a lower Layer answers ENAMETOOLONG for \
+             must land in the upper"
+        );
+    }
+
+    // Replacing the target needs an inode only where it holds whiteouts to clear
+    // away, so with none left only a rename leaving an empty one alone lands.
+    // @behavior FS-175
+    #[test]
+    fn a_rename_onto_an_empty_upper_directory_builds_no_replacement() {
+        let upper = Arc::new(Tmpfs::new().with_nr_inodes(Some(5)));
+        let lower: Tmpfs = [("base", "x")].into_iter().collect();
+        let overlay = at(over(Arc::new(lower), upper));
+        overlay.create_dir("from").expect("the source must be made");
+        overlay.create_dir("to").expect("the target must be made");
+        assert_eq!(
+            overlay.rename("from", &overlay, "to"),
+            Ok(()),
+            "a rename through an Overlay of an upper directory onto an empty upper directory, with \
+             no inode left in the upper, must land, as ovl_rename_upper clears only what holds \
+             whiteouts"
+        );
+    }
+
+    // overlayfs's `ovl_path_lower` is the topmost lower layer, and its stat of a
+    // merged directory is the real one's, so a Layer's entries change the size.
+    // @behavior FS-176
+    #[test]
+    fn a_merged_directory_reports_its_topmost_layer_under_the_lowers_identity() {
+        let lower: Arc<Tmpfs> = Arc::new([("dir/a", "x"), ("dir/b", "x")].into_iter().collect());
+        let upper = Arc::new(Tmpfs::new());
+        let overlay = at(over(lower.clone(), upper));
+        overlay
+            .create_dir("dir/made")
+            .expect("the directory must be made");
+        let found = overlay
+            .symlink_metadata("dir")
+            .expect("the directory must stand");
+        let below = on(&lower)
+            .symlink_metadata("dir")
+            .expect("the directory must stand");
+        assert_eq!(
+            (found.ino, found.dev, found.nlink, found.len),
+            (below.ino, below.dev, 1, 3 * 20),
+            "a directory two Layers show, stated through an Overlay, must report the lower \
+             Layer's identity, one name, and the size of the upper's directory holding one entry"
         );
     }
 

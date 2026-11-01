@@ -8,18 +8,16 @@ use super::super::{FileOperations, FilesystemError, Kiocb, OpenOptions};
 use super::inode::OverlayInode;
 use crate::vfs::Dentry;
 
-/// `file`, opened on `real` for the entry `dentry` names and `inode` keeps, as
-/// `ovl_open` hands out a file over the real one.
+/// `file`, opened on `real` for the entry `inode` keeps, as `ovl_open` hands out
+/// a file over the real one.
 pub(super) fn ovl_file(
     file: Box<dyn FileOperations>,
     real: Arc<Dentry>,
-    dentry: &Dentry,
     inode: Arc<OverlayInode>,
 ) -> Box<dyn FileOperations> {
     Box::new(OverlayFile {
         file,
         real,
-        _dentry: dentry.get(),
         inode,
         upper: None,
     })
@@ -30,10 +28,6 @@ struct OverlayFile {
     file: Box<dyn FileOperations>,
     /// The Layer's dentry `file` was opened on.
     real: Arc<Dentry>,
-    /// The entry's dentry, held while the file is open, as a `struct file`
-    /// holds its `f_path`, so a copy up of the entry finds the state this file
-    /// reads.
-    _dentry: Arc<Dentry>,
     /// The entry this file reads, which says where its data is now.
     inode: Arc<OverlayInode>,
     /// The upper's file, once a copy up made one and a call found it.
@@ -44,21 +38,18 @@ impl OverlayFile {
     /// The file holding the data now, as `ovl_real_file_path` finds it.
     fn real_file(&mut self) -> Result<&mut dyn FileOperations, FilesystemError> {
         if self.upper.is_none() {
-            match self.inode.real() {
-                Some(real) if !Arc::ptr_eq(&real, &self.real) => {
-                    let read = OpenOptions {
-                        read: true,
-                        ..OpenOptions::default()
-                    };
-                    self.upper = Some(real.open(&read)?);
-                }
-                _ => return Ok(self.file.as_mut()),
+            if let Some(real) = self.inode.real().filter(|r| !Arc::ptr_eq(r, &self.real)) {
+                let read = OpenOptions {
+                    read: true,
+                    ..OpenOptions::default()
+                };
+                self.upper = Some(real.open(&read)?);
             }
         }
-        match &mut self.upper {
-            Some(upper) => Ok(upper.as_mut()),
-            None => Ok(self.file.as_mut()),
-        }
+        Ok(match &mut self.upper {
+            Some(upper) => upper.as_mut(),
+            None => self.file.as_mut(),
+        })
     }
 }
 

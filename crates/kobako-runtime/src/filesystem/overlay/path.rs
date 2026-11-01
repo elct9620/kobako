@@ -97,15 +97,10 @@ impl OverlayPath {
         self.tmpfs().ok_or(FilesystemError::ReadOnlyFilesystem)
     }
 
-    /// Whether a whiteout stands at `name`; a Layer that is no Tmpfs
-    /// holds none, and one whose directory cannot be held is read as
-    /// holding one, so nothing below shows through it.
+    /// Whether a whiteout stands at `name`, as `ovl_is_whiteout` reads the
+    /// entry; a Layer that is no Tmpfs holds none.
     pub(super) fn is_whiteout(&self, name: &str) -> bool {
-        self.tmpfs()
-            .is_some_and(|tmpfs| match self.inode_lock_shared() {
-                Ok(_held) => tmpfs.is_whiteout(name),
-                Err(_) => true,
-            })
+        self.tmpfs().is_some_and(|tmpfs| tmpfs.is_whiteout(name))
     }
 
     /// Whether this directory hides the Layers below it.
