@@ -16,7 +16,10 @@ impl OverlayFs {
     /// above it that so far shows only from another Layer, as overlayfs's
     /// `ovl_copy_up_flags` climbs the dentry's parents in a loop to copy up the
     /// topmost first, however deep the Layer's tree is.
-    pub(super) fn upper_dir(&self, dir: &ViewDir) -> Result<OverlayPath, FilesystemError> {
+    pub(in super::super) fn upper_dir(
+        &self,
+        dir: &ViewDir,
+    ) -> Result<OverlayPath, FilesystemError> {
         let mut unmade = Vec::new();
         let mut at = dir.clone();
         let mut made = loop {

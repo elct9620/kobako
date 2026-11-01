@@ -238,6 +238,13 @@ impl InodeOperations for Overlay {
         self.fs.dir_metadata(&self.fs.dir(dentry)?.level())
     }
 
+    /// Copied up first, as `ovl_setattr` does for any entry, so a lower Layer
+    /// stays as it was.
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+        let upper = self.fs.upper_dir(&self.fs.dir(dentry)?)?;
+        notify_change(upper.dentry(), attr)
+    }
+
     /// The entry as a Layer spells it, as `ovl_lookup` hands
     /// `d_splice_alias` the inode it made, a name no Layer could hold refused
     /// before any is asked, as it compares `namelen`.
@@ -785,8 +792,7 @@ mod tests {
         }
     }
 
-    // Every built-in Filesystem refuses a time, so only one keeping it shows
-    // the call stopped at the upper.
+    // A lower Layer that would keep the time shows the call stopped at the upper.
     // @behavior FS-147
     #[test]
     fn a_time_set_through_an_overlay_leaves_its_lower_layer_as_it_was() {
@@ -816,9 +822,9 @@ mod tests {
                 asked.load(Ordering::SeqCst),
                 kern_path(upper).symlink_metadata("upper/file").is_ok()
             ),
-            (Err(FilesystemError::Unsupported), 0, true),
+            (Ok(()), 0, true),
             "vfs::do_utimes through an Overlay on a file of its lower Layer must copy the file \
-             up, answer what the upper answers, and never ask the lower Layer"
+             up, set the time there, and never ask the lower Layer"
         );
     }
 

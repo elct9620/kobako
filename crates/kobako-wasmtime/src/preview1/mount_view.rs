@@ -1882,7 +1882,9 @@ fn a_name_no_filesystem_makes_is_answered_by_what_stands() {
     );
 }
 
+// Windows gives a Bind no call to reserve room.
 // @behavior RT-099
+#[cfg(unix)]
 #[test]
 fn an_allocation_grows_a_file_to_where_its_room_ends_and_shortens_none() {
     // What a file holds from where the room might start, and how long it is.

@@ -17,13 +17,13 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
-use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
+use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt, SystemTimeSpec};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::{
     DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
+    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag, SetTime,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 use fid::{FidCache, OpenDirFid};
@@ -336,6 +336,14 @@ fn unix_time(seconds: i64, nanoseconds: i64) -> Option<std::time::SystemTime> {
     std::time::UNIX_EPOCH.checked_add(std::time::Duration::new(seconds, nanoseconds))
 }
 
+/// `time` as the host takes it, so a time of now is the host's own.
+fn to_host_time(time: Option<SetTime>) -> Option<SystemTimeSpec> {
+    time.map(|time| match time {
+        SetTime::Now => SystemTimeSpec::SymbolicNow,
+        SetTime::At(at) => SystemTimeSpec::Absolute(cap_std::time::SystemTime::from_std(at)),
+    })
+}
+
 /// The descriptors open on one file, and which were opened to write, as 9p
 /// keeps open fids on `i_private`.
 #[derive(Default)]
@@ -451,13 +459,28 @@ impl InodeOperations for BindRegular {
     }
 
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
-        let Some(len) = attr.size else {
-            return Err(FilesystemError::Unsupported);
-        };
-        match find_fid_inode(dentry, true) {
-            Some(file) => file.set_len(len).map_err(to_error),
-            None => Err(FilesystemError::InvalidInput),
+        if let Some(len) = attr.size {
+            return match find_fid_inode(dentry, true) {
+                Some(file) => file.set_len(len).map_err(to_error),
+                None => Err(FilesystemError::InvalidInput),
+            };
         }
+        // A file open anywhere takes them through what holds it, whatever stands
+        // at its name by now.
+        if let Some(file) = find_fid_inode(dentry, false) {
+            let mut times = std::fs::FileTimes::new();
+            if let Some(atime) = attr.atime {
+                times = times.set_accessed(atime.to_system_time());
+            }
+            if let Some(mtime) = attr.mtime {
+                times = times.set_modified(mtime.to_system_time());
+            }
+            return file.set_times(times).map_err(to_error);
+        }
+        let (atime, mtime) = (to_host_time(attr.atime), to_host_time(attr.mtime));
+        self.0.at(dentry, |dir, name| {
+            dir.set_symlink_times(name, atime, mtime).map_err(to_error)
+        })
     }
 
     fn open(
@@ -496,6 +519,15 @@ impl InodeOperations for Bind {
         Ok(to_metadata(
             self.fid_lookup(dentry)?.dir_metadata().map_err(to_error)?,
         ))
+    }
+
+    /// A directory takes the times through the descriptor that holds it, as it
+    /// answers for itself.
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+        let (atime, mtime) = (to_host_time(attr.atime), to_host_time(attr.mtime));
+        self.fid_lookup(dentry)?
+            .set_times(".", atime, mtime)
+            .map_err(to_error)
     }
 
     /// What stands at the name `dentry` carries, spelled as the host spells
@@ -704,6 +736,156 @@ mod tests {
 
     use super::*;
     use crate::vfs::kern_path::{kern_path, KernPath};
+
+    /// A Bind reports times only where the host names them.
+    #[cfg(unix)]
+    mod set_times {
+        use super::*;
+        use crate::filesystem::{Overlay, Tmpfs};
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{
+            do_file_open, do_utimes, do_utimes_fd, vfs_fstatat, OpenHow, Path as VfsPath,
+        };
+
+        /// One second past the Unix epoch, which no clock is at.
+        fn moment() -> std::time::SystemTime {
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(1)
+        }
+
+        fn set_modified() -> Iattr {
+            Iattr::times(None, Some(SetTime::At(moment())))
+        }
+
+        /// The root of `filesystem` mounted to change.
+        fn root_of(filesystem: Arc<dyn InodeOperations>) -> VfsPath {
+            let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
+                .expect("/data is a guest path");
+            VfsPath::root(mount.mnt())
+        }
+
+        /// An Overlay of `lower` beneath an empty upper.
+        fn overlay_of(lower: Bind) -> Arc<Overlay> {
+            Arc::new(
+                Overlay::new(
+                    vec![Filesystem::new(Arc::new(lower))],
+                    Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+                )
+                .unwrap_or_else(|_| panic!("the Overlay must stack")),
+            )
+        }
+
+        /// What a stat of `path` beneath `root` reports as its modified time, once
+        /// it was set.
+        fn modified_after_setting(root: &VfsPath, path: &str) -> Option<std::time::SystemTime> {
+            do_utimes(&Arc::default(), root, path, false, &set_modified())
+                .expect("the time must be set");
+            vfs_fstatat(&Arc::default(), root, path, false)
+                .ok()
+                .and_then(|metadata| metadata.modified)
+        }
+
+        /// When the host last changed what `path` holds.
+        fn host_modified(path: &std::path::Path) -> Option<std::time::SystemTime> {
+            fs::metadata(path).and_then(|found| found.modified()).ok()
+        }
+
+        /// A host directory holding `dir/file.txt`.
+        fn host_with_a_file(name: &str) -> HostDir {
+            let host = HostDir::new(name);
+            fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
+            fs::write(host.0.join("dir/file.txt"), "x").expect("the host file must be written");
+            host
+        }
+
+        fn bind_of(host: &HostDir) -> Bind {
+            Bind::new(&host.0).expect("the host directory must open")
+        }
+
+        // @behavior FS-185
+        #[test]
+        fn a_built_in_filesystem_keeps_the_times_a_caller_sets() {
+            let host = host_with_a_file("set-times");
+            let tmpfs: Tmpfs = [("dir/file.txt", "x")].into_iter().collect();
+            let roots = [
+                root_of(Arc::new(tmpfs)),
+                root_of(Arc::new(bind_of(&host))),
+                root_of(overlay_of(bind_of(&host))),
+            ];
+            let answers = roots.map(|root| {
+                (
+                    modified_after_setting(&root, "dir/file.txt"),
+                    modified_after_setting(&root, "dir"),
+                )
+            });
+            let set = Some(moment());
+            assert_eq!(
+                (answers, host_modified(&host.0.join("dir/file.txt"))),
+                ([(set, set); 3], set),
+                "vfs::do_utimes on a file and a directory of a Tmpfs, a Bind, and an Overlay must \
+             keep the time, a Bind's on the host"
+            );
+        }
+
+        // @behavior FS-186
+        #[test]
+        fn a_directory_time_set_through_an_overlay_leaves_its_lower_layer() {
+            let host = host_with_a_file("overlay-dir-time");
+            let before = host_modified(&host.0.join("dir"));
+            let seen = modified_after_setting(&root_of(overlay_of(bind_of(&host))), "dir");
+            assert_eq!(
+            (seen, host_modified(&host.0.join("dir")) == before),
+            (Some(moment()), true),
+            "vfs::do_utimes on a directory through an Overlay must show the time and leave the \
+             lower Layer's directory as it was"
+        );
+        }
+
+        // A guest sees nothing of a link but that it is one, so its times are no more
+        // its to set than where it points is to read.
+        // @behavior FS-187
+        #[test]
+        fn a_link_keeps_its_own_times() {
+            let host = host_with_a_file("link-time");
+            std::os::unix::fs::symlink("dir", host.0.join("link")).expect("the link must be made");
+            assert_eq!(
+                do_utimes(
+                    &Arc::default(),
+                    &root_of(Arc::new(bind_of(&host))),
+                    "link",
+                    false,
+                    &set_modified(),
+                ),
+                Err(FilesystemError::Unsupported),
+                "vfs::do_utimes following no link of a Bind's link must answer ENOTSUP"
+            );
+        }
+
+        // Another file takes the name, so a time reaching it by name would be seen.
+        // @behavior FS-188
+        #[test]
+        fn a_time_set_through_a_descriptor_reaches_the_file_it_holds() {
+            let host = host_with_a_file("held-time");
+            let root = root_of(Arc::new(bind_of(&host)));
+            let how = OpenHow {
+                read: true,
+                ..OpenHow::default()
+            };
+            let held = do_file_open(&Arc::default(), &root, "dir/file.txt", &how)
+                .unwrap_or_else(|_| panic!("the file must open"));
+            let file = host.0.join("dir/file.txt");
+            fs::remove_file(&file).expect("the host removes the file");
+            fs::write(&file, "y").expect("the host makes another");
+            let other_before = host_modified(&file);
+            let answer = do_utimes_fd(&Arc::default(), held.path(), &set_modified());
+            let held_time = held.getattr().ok().and_then(|metadata| metadata.modified);
+            assert_eq!(
+            (answer, held_time, host_modified(&file) == other_before),
+            (Ok(()), Some(moment()), true),
+            "vfs::do_utimes_fd through a Bind's descriptor must set the file it holds, and leave \
+             what took its name"
+        );
+        }
+    }
 
     /// The host directory at `path` as a Bind, reached through the
     /// VFS.

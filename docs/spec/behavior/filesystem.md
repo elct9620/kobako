@@ -1973,3 +1973,51 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay over a lower Layer |
 | When | a caller looks up a name, whether or not that Layer holds it |
 | Then | that Layer is asked about the name once |
+
+## `FS-185` A built-in Filesystem keeps the times a caller sets
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-186` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file and a directory of a Tmpfs, a Bind, and an Overlay |
+| When | a caller sets the modified time of each |
+| Then | a stat reports that time, and a Bind's host entry holds it |
+
+## `FS-186` A directory time set through an Overlay leaves its lower Layer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-147` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer alone holds a directory |
+| When | a caller sets the directory's modified time |
+| Then | a stat reports that time, and the lower Layer's directory stays as it was |
+
+## `FS-187` A link keeps its own times
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-185` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind holding a link |
+| When | a caller sets the link's times, following no link |
+| Then | the call answers ENOTSUP |
+
+## `FS-188` A time set through a descriptor reaches the file it holds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-185` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind's file held open, whose name another host file took |
+| When | a caller sets the modified time through the descriptor |
+| Then | the held file takes the time, and the other stays as it was |

@@ -101,10 +101,30 @@ mod tests {
             (
                 Err(FilesystemError::NotFound),
                 Err(FilesystemError::ReadOnlyFilesystem),
-                Err(FilesystemError::Unsupported),
+                Ok(()),
             ),
             "vfs::do_utimes must answer what is not there ENOENT, a read-only Mount EROFS, and \
-             a Tmpfs entry, which keeps no time of the guest's choosing, ENOTSUP"
+             hand a Tmpfs entry the times"
+        );
+    }
+
+    /// A directory answering every call but `setattr` by default.
+    struct NoSetattr;
+
+    impl InodeOperations for NoSetattr {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::Directory, 0))
+        }
+    }
+
+    // @behavior RT-186
+    #[test]
+    fn an_entry_without_setattr_answers_enotsup() {
+        let mount = mount_of(Arc::new(NoSetattr), MountAccess::ReadWrite);
+        assert_eq!(
+            vfs_utimes(&Arc::default(), &Path::root(mount.mnt()), &times()),
+            Err(FilesystemError::Unsupported),
+            "vfs::vfs_utimes on an entry without setattr must answer ENOTSUP"
         );
     }
 

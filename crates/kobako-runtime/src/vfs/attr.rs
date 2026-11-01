@@ -66,3 +66,13 @@ pub enum SetTime {
     Now,
     At(SystemTime),
 }
+
+impl SetTime {
+    /// The time this names as of now, as `setattr_copy` reads `ia_atime`.
+    pub fn to_system_time(self) -> SystemTime {
+        match self {
+            Self::Now => SystemTime::now(),
+            Self::At(time) => time,
+        }
+    }
+}

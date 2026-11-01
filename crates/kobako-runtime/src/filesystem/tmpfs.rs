@@ -10,7 +10,7 @@ use std::time::SystemTime;
 use super::path::{ancestors, name, normalize_seed};
 use super::{
     DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
+    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag, SetTime,
 };
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
 use whiteout::Whiteout;
@@ -203,6 +203,17 @@ impl Times {
         self.accessed = accessed.unwrap_or(self.accessed);
         self.modified = modified.unwrap_or(self.modified);
         self.changed = SystemTime::now();
+    }
+
+    /// Set the times `attr` names, if it names any, as `shmem_setattr` takes them
+    /// from `setattr_copy`.
+    fn apply(&mut self, attr: &Iattr) {
+        if attr.atime.is_some() || attr.mtime.is_some() {
+            self.set(
+                attr.atime.map(SetTime::to_system_time),
+                attr.mtime.map(SetTime::to_system_time),
+            );
+        }
     }
 
     fn report(self, metadata: Metadata) -> Metadata {
@@ -602,6 +613,11 @@ impl InodeOperations for Tmpfs {
         Ok(self.dir.metadata(self.tree.dev))
     }
 
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+        self.dir.state().times.apply(attr);
+        Ok(())
+    }
+
     /// A Tmpfs matches names byte for byte and holds no links, and refuses a
     /// name past `NAME_MAX`, as `simple_lookup` does.
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
@@ -755,11 +771,13 @@ impl InodeOperations for TmpfsRegular {
     }
 
     fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
-        let Some(len) = attr.size else {
-            return Err(FilesystemError::Unsupported);
-        };
-        let len = usize::try_from(len).map_err(|_| FilesystemError::InvalidInput)?;
-        lock(&self.data).resize(len)
+        let mut data = lock(&self.data);
+        if let Some(len) = attr.size {
+            let len = usize::try_from(len).map_err(|_| FilesystemError::InvalidInput)?;
+            data.resize(len)?;
+        }
+        data.times.apply(attr);
+        Ok(())
     }
 
     fn open(
