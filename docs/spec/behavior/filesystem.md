@@ -1790,3 +1790,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay of two lower Layers and no upper, on a Mount allowing writes |
 | When | a call moves a file onto its own name, removes a missing name, or removes a directory holding an entry |
 | Then | each call answers EROFS |
+
+## `FS-170` A lower Layer's hard links are two entries beneath an upper
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-162` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay over a Bind holding one file at two names, under an upper |
+| When | one name is written and then moved onto the other |
+| Then | only the new name stands, holding what was written |
