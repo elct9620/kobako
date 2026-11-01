@@ -1805,6 +1805,10 @@ both live in the upper and never show, so no name is reserved
 
 ## `FS-171` A Bind's root syncs
 
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-036` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Bind of a host directory |
@@ -1812,6 +1816,10 @@ both live in the upper and never show, so no name is reserved
 | Then | the sync succeeds |
 
 ## `FS-172` A directory a host lets be searched reports itself
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-151` |
 
 | Step | Statement |
 | --- | --- |
@@ -1821,6 +1829,10 @@ both live in the upper and never show, so no name is reserved
 
 ## `FS-173` A removed directory something holds keeps its inode
 
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-149` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Tmpfs with no inode left, and a directory open that was removed |
@@ -1828,6 +1840,10 @@ both live in the upper and never show, so no name is reserved
 | Then | the first answers ENOSPC and the second succeeds |
 
 ## `FS-174` A name too long for a lower Layer lands in the upper
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-165` |
 
 | Step | Statement |
 | --- | --- |
@@ -1837,6 +1853,10 @@ both live in the upper and never show, so no name is reserved
 
 ## `FS-175` A rename onto an empty upper directory builds no replacement
 
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-164` |
+
 | Step | Statement |
 | --- | --- |
 | Given | an Overlay whose upper has no inode left, holding two empty directories |
@@ -1845,6 +1865,10 @@ both live in the upper and never show, so no name is reserved
 
 ## `FS-176` A merged directory reports its topmost Layer under the lower's identity
 
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-073` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a directory an Overlay's upper and lower Layer both show |
@@ -1852,6 +1876,10 @@ both live in the upper and never show, so no name is reserved
 | Then | it reports the lower's identity, one name, and the upper directory's size |
 
 ## `FS-177` A moved file moves only its changed time
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-168` |
 
 | Step | Statement |
 | --- | --- |

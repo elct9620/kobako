@@ -2905,7 +2905,7 @@ fn a_link_leading_out_of_an_opened_directory_escapes_it() {
 
 // The second `..` leaves `sub`, where `in` led, two names after the link, so
 // only a walk standing where the link led reaches `sub/y` from `dir`.
-// @behavior RT-153
+// @behavior RT-119
 #[cfg(unix)]
 #[test]
 fn a_step_out_of_where_a_link_led_lands_beside_it() {

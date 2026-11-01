@@ -1231,7 +1231,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a Bind Mount holding a link to a directory |
-| When | the guest opens or stats a path taking `..` or a final `.` right after the link |
+| When | the guest opens or stats a path taking `..` or a final `.` after the link |
 | Then | the call answers what the link's target or the directory above it holds there |
 
 ## `RT-120` A Policy judges a path as its Filesystem stores the names
@@ -1628,18 +1628,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation with room for two descriptors, handed an Overlay whose two Layers hold a directory |
 | When | the guest opens the directory, then two files |
 | Then | the directory and the first file open, and the second answers EMFILE |
-
-## `RT-153` A step out of where a link led lands beside it
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-119` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a directory opened beneath a Mount, holding a link to a directory within it |
-| When | the guest names a path stepping out with `..` after passing through the link |
-| Then | the call reaches what stands beside where the link points |
 
 ## `RT-154` A link loop answers ELOOP
 
@@ -2474,6 +2462,10 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Then | the Filesystem is asked about that name once |
 
 ## `RT-224` A link to what has no name left answers ENOENT
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-188` |
 
 | Step | Statement |
 | --- | --- |
