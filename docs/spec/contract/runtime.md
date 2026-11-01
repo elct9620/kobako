@@ -612,6 +612,46 @@ impl SuperBlock {
 }
 ```
 
+## `SuperBlock::set_default_d_op`
+
+What every Dentry of the instance answers through, set from `InodeOperations::fill_super`.
+
+```rust
+impl SuperBlock {
+    pub fn set_default_d_op(&mut self, ops: Arc<dyn DentryOperations>) {}
+}
+```
+
+## `SuperBlock::d_op`
+
+What every Dentry of the instance answers through.
+
+```rust
+impl SuperBlock {
+    pub fn d_op(&self) -> Option<&Arc<dyn DentryOperations>> {}
+}
+```
+
+## `SuperBlock::set_rdonly`
+
+Refuses every change beneath the instance, set from `InodeOperations::fill_super`.
+
+```rust
+impl SuperBlock {
+    pub fn set_rdonly(&mut self) {}
+}
+```
+
+## `SuperBlock::rdonly`
+
+Whether nothing beneath the instance changes, however it is mounted.
+
+```rust
+impl SuperBlock {
+    pub fn rdonly(&self) -> bool {}
+}
+```
+
 ## `SuperBlock::root`
 
 The Filesystem's root directory.
@@ -1635,14 +1675,14 @@ pub trait InodeOperations {
 }
 ```
 
-## `InodeOperations::dentry_ops`
+## `InodeOperations::fill_super`
 
-What the runtime asks of a Filesystem's root once, to give every Dentry of it.
-A Filesystem without one keeps every name valid.
+What the runtime asks of a Filesystem's root once, to set up its instance.
+A Filesystem without one keeps every name valid and allows every change.
 
 ```rust
 pub trait InodeOperations {
-    fn dentry_ops(&self) -> Option<Arc<dyn DentryOperations>>;
+    fn fill_super(&self, _sb: &mut SuperBlock);
 }
 ```
 

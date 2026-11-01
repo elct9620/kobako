@@ -1778,3 +1778,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs holding two files |
 | When | a rename exchanges them |
 | Then | each stands at the other's name and reports one name |
+
+## `FS-169` An Overlay with no upper refuses a change before what stands answers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-021` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay of two lower Layers and no upper, on a Mount allowing writes |
+| When | a call moves a file onto its own name, removes a missing name, or removes a directory holding an entry |
+| Then | each call answers EROFS |
