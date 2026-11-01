@@ -1221,7 +1221,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the directory moves away and back to its path |
 | Then | a call through the descriptor reaches the directory |
 
-## `RT-119` A step out of a link answers ELOOP
+## `RT-119` A step out of a link lands where it leads
 
 | Attribute | Value |
 | --- | --- |
@@ -1232,7 +1232,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation handed a Bind Mount holding a link to a directory |
 | When | the guest opens or stats a path taking `..` or a final `.` right after the link |
-| Then | the call answers ELOOP |
+| Then | the call answers what the link's target or the directory above it holds there |
 
 ## `RT-120` A Policy judges a path as its Filesystem stores the names
 
@@ -1492,7 +1492,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it opens a path through that directory whose links stay within it |
 | Then | it reaches the file the links lead to |
 
-## `RT-142` A create through a dangling link beneath an opened directory is refused
+## `RT-142` A create through a dangling link beneath an opened directory makes its target
 
 | Attribute | Value |
 | --- | --- |
@@ -1503,7 +1503,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a guest holding a directory it opened, which holds a link pointing at nothing |
 | When | it opens the link's path to create a file, following the link |
-| Then | the open answers ELOOP and creates nothing |
+| Then | the file stands where the link points |
 
 ## `RT-143` A link leading out of a Mount escapes it
 
@@ -1629,7 +1629,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest opens the directory, then two files |
 | Then | the directory and the first file open, and the second answers EMFILE |
 
-## `RT-153` A step out of where a link led answers ELOOP
+## `RT-153` A step out of where a link led lands beside it
 
 | Attribute | Value |
 | --- | --- |
@@ -1639,7 +1639,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a directory opened beneath a Mount, holding a link to a directory within it |
 | When | the guest names a path stepping out with `..` after passing through the link |
-| Then | the call answers ELOOP |
+| Then | the call reaches what stands beside where the link points |
 
 ## `RT-154` A link loop answers ELOOP
 
@@ -2364,18 +2364,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a call on a path or a link target holding a NUL, empty, or past `PATH_MAX` |
 | When | it reaches the VFS, whichever Driver brought it |
 | Then | it answers EINVAL, ENOENT, or ENAMETOOLONG, and the Filesystem is not asked |
-
-## `RT-214` A link answers as Linux's where no security module refuses
-
-| Attribute | Value |
-| --- | --- |
-| relates | `RT-119`, `RT-142` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind holding a link to a directory and a link to nothing, both beneath it |
-| When | a call steps out of the first, and creates through the second, under no security module |
-| Then | each resolves as Linux's, and under kobako's own module each answers ELOOP |
 
 ## `RT-215` An open empties what stood through `setattr` once it is open
 
