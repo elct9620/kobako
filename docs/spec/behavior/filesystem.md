@@ -1810,3 +1810,11 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind of a host directory |
 | When | its root is synced |
 | Then | the sync succeeds |
+
+## `FS-172` A directory a host lets be searched reports itself
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind on Linux holding a directory the host lets the process search but not read |
+| When | the directory's path is stated |
+| Then | the stat reports a directory |
