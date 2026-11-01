@@ -158,8 +158,7 @@ impl OverlayFs {
         let upper_holds = holders.first() == Some(&UPPER);
         // A directory the upper holds with whiteouts in it is first
         // replaced by an empty one, as overlayfs's `ovl_clear_empty` does,
-        // so it removes as an empty directory, and anything another writer
-        // made in it meanwhile refuses the removal.
+        // so it removes as an empty directory.
         if is_dir && upper_holds && holds_whiteouts(layer_dir(&level[UPPER])?, name)? {
             self.clear_empty(layer_dir(&level[UPPER])?, name)?;
         }
