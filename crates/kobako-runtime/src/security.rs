@@ -7,9 +7,33 @@ use std::sync::Arc;
 
 use crate::mount::{Mount, Policy};
 use crate::vfs::{
-    revalidate_path, Access, Cred, Dentry, FileType, FilesystemError, Path, SecurityOperations,
+    d_revalidate, Access, Cred, Dentry, FileType, FilesystemError, Path, SecurityOperations,
     VfsMount, PATH_MAX,
 };
+
+/// Whether each name from the root down to `path` still names what the runtime
+/// recorded, as gVisor's `revalidatePath` walks one. Linux asks only names a walk
+/// passes through, so a Policy asks this of where a call starts. A name moved
+/// while it was asked is asked again from the root, where it went.
+fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
+    'again: loop {
+        let mut chain = vec![path.dentry().clone()];
+        while let Some(above) = chain.last().and_then(|at| at.parent()) {
+            chain.push(above);
+        }
+        for pair in chain.windows(2).rev() {
+            let [name, above] = pair else { continue };
+            let _held = above.inode_lock_shared()?;
+            if !name.parent().is_some_and(|now| Arc::ptr_eq(&now, above)) {
+                continue 'again;
+            }
+            if !d_revalidate(path.mnt().sb(), above, name)? {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
+    }
+}
 
 /// What every Invocation holds to, whatever its Mounts allow.
 struct KobakoSecurity;

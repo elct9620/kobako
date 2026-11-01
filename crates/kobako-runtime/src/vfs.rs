@@ -25,8 +25,8 @@ mod super_block;
 mod utimes;
 
 pub(crate) use namei::{
-    atomic_open, lookup_one_qstr_excl, may_create_dentry, revalidate_path, start_renaming,
-    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
+    atomic_open, d_revalidate, lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_mkdir,
+    vfs_rename, vfs_rmdir, vfs_unlink,
 };
 
 pub(crate) use attr::notify_change;
