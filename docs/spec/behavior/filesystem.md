@@ -1850,3 +1850,11 @@ both live in the upper and never show, so no name is reserved
 | Given | a directory an Overlay's upper and lower Layer both show |
 | When | the directory is stated through the Overlay |
 | Then | it reports the lower's identity, one name, and the upper directory's size |
+
+## `FS-177` A moved file moves only its changed time
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs holding a file |
+| When | the file is renamed |
+| Then | its changed time moves and its modified time stays |
