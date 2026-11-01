@@ -217,7 +217,7 @@ impl Dentry {
 
     /// Ask the directory `dir` what stands here where nothing is recorded yet,
     /// and record it, as Linux's `lookup_fast` keeps a dentry that names
-    /// something and `lookup_slow` asks `->lookup` for one that does not. A
+    /// something and `lookup_one_qstr_excl` asks `->lookup` for one that does not. A
     /// directory holding the entry under another spelling answers that
     /// spelling, for the caller to take that dentry instead.
     pub(crate) fn lookup_inode(&self, dir: &Dentry) -> Result<Option<String>, FilesystemError> {
@@ -388,11 +388,11 @@ impl Dentries {
     /// Whether `dentry` was taken out of the table, as Linux's
     /// `d_unlinked` answers for one no longer reached by its name.
     pub(crate) fn unlinked(&self, dentry: &Arc<Dentry>) -> bool {
+        let table = self.hashtable();
         let Some(parent) = dentry.parent() else {
             return false;
         };
-        !self
-            .hashtable()
+        !table
             .get(&key(&parent, &dentry.name()))
             .is_some_and(|held| Arc::ptr_eq(&held, dentry))
     }
@@ -736,6 +736,36 @@ mod tests {
                 torn, 0,
                 "Dentry::path_raw while Dentries::move_dentry moves the directories above it must \
                  answer only a path the dentry stood at"
+            );
+        }
+
+        // Each move keeps the dentry in the table, so only a read of its parent
+        // before the move and its name after it finds nothing at that key.
+        // @behavior RT-228
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn a_directory_moving_through_the_vfs_is_never_taken_for_unlinked() {
+            let dentries = Arc::new(Dentries::new(None));
+            let root = dentries.root();
+            let (x, y) = (dentries.child(&root, "x"), dentries.child(&root, "y"));
+            let moved = dentries.child(&x, "a");
+            let stop = Arc::new(AtomicBool::new(false));
+            let moving = {
+                let (dentries, stop) = (dentries.clone(), stop.clone());
+                thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        dentries.move_dentry(&x, "a", &y, "b");
+                        dentries.move_dentry(&y, "b", &x, "a");
+                    }
+                })
+            };
+            let unlinked = (0..5_000_000).filter(|_| dentries.unlinked(&moved)).count();
+            stop.store(true, Ordering::SeqCst);
+            moving.join().expect("the moves must not panic");
+            assert_eq!(
+                unlinked, 0,
+                "Dentries::unlinked while Dentries::move_dentry moves the dentry must answer that \
+                 it still stands"
             );
         }
     }

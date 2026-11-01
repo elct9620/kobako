@@ -2508,3 +2508,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened beneath a Mount with a Policy |
 | When | the directory moves away outside the runtime, and the guest lists the descriptor |
 | Then | the call succeeds, as a Policy judges no listing |
+
+## `RT-228` A directory moving through the runtime is never taken for removed
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-170` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory another thread keeps moving through the runtime |
+| When | the runtime asks whether it was removed |
+| Then | the answer is no |
