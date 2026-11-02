@@ -1174,6 +1174,16 @@ impl File {
 }
 ```
 
+## `File::kind`
+
+What kind of entry it is, none once nothing stands at its dentry.
+
+```rust
+impl File {
+    pub fn kind(&self) -> Option<FileType> {}
+}
+```
+
 ## `File::readable`
 
 Whether it was opened to read.
