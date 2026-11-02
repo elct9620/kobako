@@ -167,20 +167,20 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
     fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
     fs_flags.set(Fdflags::DSYNC, file.dsync() || file.sync());
     fs_flags.set(Fdflags::SYNC, file.sync());
-    let (fs_filetype, fs_rights_base, fs_rights_inheriting) = if file.is_stream() {
+    let (fs_rights_base, fs_rights_inheriting) = if file.is_stream() {
         let mut rights = Rights::empty();
         rights.set(Rights::FD_READ, file.readable());
         rights.set(Rights::FD_WRITE, file.writable());
-        (Filetype::Unknown, rights, rights)
+        (rights, rights)
     } else if descriptor.preopen.is_some() {
-        (Filetype::Directory, preopen_rights(), preopen_inheriting())
+        (preopen_rights(), preopen_inheriting())
     } else if file.is_directory() {
         let rights = Rights::all()
             - Rights::FD_WRITE
             - Rights::FD_SEEK
             - Rights::FD_FILESTAT_SET_SIZE
             - Rights::PATH_FILESTAT_SET_SIZE;
-        (Filetype::Directory, rights, rights)
+        (rights, rights)
     } else {
         let mut rights = Rights::all();
         if !file.readable() {
@@ -189,10 +189,10 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
         if !file.writable() {
             rights -= Rights::FD_WRITE;
         }
-        (Filetype::RegularFile, rights, rights)
+        (rights, rights)
     };
     Ok(types::Fdstat {
-        fs_filetype,
+        fs_filetype: file.kind().map_or(Filetype::Unknown, to_filetype),
         fs_flags,
         fs_rights_base,
         fs_rights_inheriting,
@@ -545,12 +545,12 @@ mod tests {
         }
     }
 
-    /// A directory holding at every name a file whose open answers what
-    /// its function makes.
-    struct Holds(fn() -> Box<dyn FileOperations>);
+    /// A directory holding at every name an entry of the kind it names, whose
+    /// open answers what its function makes.
+    struct Holds(FileType, fn() -> Box<dyn FileOperations>);
 
     /// A directory holding a file its Filesystem refuses to close.
-    const HOLDS_REFUSES_CLOSE: Holds = Holds(|| Box::new(RefusesClose));
+    const HOLDS_REFUSES_CLOSE: Holds = Holds(FileType::File, || Box::new(RefusesClose));
 
     impl kobako_runtime::filesystem::FileSystemType for Holds {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
@@ -564,8 +564,11 @@ mod tests {
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Metadata::new(FileType::File, 0);
-            Ok(Lookup::Found(Inode::new(&found, Arc::new(Self(self.0)))))
+            let found = Metadata::new(self.0, 0);
+            Ok(Lookup::Found(Inode::new(
+                &found,
+                Arc::new(Self(self.0, self.1)),
+            )))
         }
 
         fn open(
@@ -573,7 +576,7 @@ mod tests {
             _dentry: &Dentry,
             _options: &OpenOptions,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            Ok((self.0)())
+            Ok((self.1)())
         }
     }
 
@@ -647,7 +650,7 @@ mod tests {
         how.read = true;
         how.write = true;
         let fd = table
-            .push(open_held(Holds(|| Box::new(Stream)), &how))
+            .push(open_held(Holds(FileType::File, || Box::new(Stream)), &how))
             .expect("a descriptor to set");
         assert!(
             fdstat_set_flags(&mut table, fd, Fdflags::APPEND | Fdflags::NONBLOCK).is_ok(),
@@ -663,6 +666,28 @@ mod tests {
             (Fdflags::APPEND | Fdflags::NONBLOCK, true),
             "fd_fdstat_get on a stream open to read and write, set to append and not to block, \
              must report both flags and both rights, as Linux's F_GETFL reports a pipe's"
+        );
+    }
+
+    // @behavior RT-276
+    #[test]
+    fn a_descriptor_reports_the_kind_its_file_is() {
+        let mut table = standard_streams();
+        let mut how = OpenHow::default();
+        how.read = true;
+        let fd = table
+            .push(open_held(
+                Holds(FileType::CharDevice, || Box::new(RefusesClose)),
+                &how,
+            ))
+            .expect("a descriptor to ask about");
+        assert_eq!(
+            fdstat_get(&table, fd)
+                .unwrap_or_else(|_| panic!("the device must report"))
+                .fs_filetype,
+            types::Filetype::CharacterDevice,
+            "fd_fdstat_get on a character device a Filesystem opens like any file must report \
+             a character device, as fd_filestat_get does"
         );
     }
 
