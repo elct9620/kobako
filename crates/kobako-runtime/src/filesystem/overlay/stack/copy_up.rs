@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, OpenOptions};
 use super::super::inode::OverlayFileInode;
-use super::super::path::OverlayPath;
+use super::super::path::{timestamps, OverlayPath};
 use super::{copy_whole, OverlayFs, ViewDir, UPPER};
 use crate::vfs::{Dentry, RenameFlag};
 
@@ -64,7 +64,9 @@ impl OverlayFs {
             .metadata()?;
         let (work, temp) = self.tempname()?;
         work.do_mkdir(&temp)?;
-        let made = work.open_dir(&temp).and_then(|made| made.set_times(&lower));
+        let made = work
+            .open_dir(&temp)
+            .and_then(|made| made.set_timestamps(&lower));
         let parent_times = parent.metadata()?;
         let moved =
             made.and_then(|()| work.do_rename(&temp, parent, &name, Some(RenameFlag::NoReplace)));
@@ -72,7 +74,7 @@ impl OverlayFs {
             let _ = work.do_rmdir(&temp);
             return Err(err);
         }
-        let _ = parent.set_times(&parent_times);
+        let _ = parent.set_timestamps(&parent_times);
         let made = parent.open_dir(&name)?;
         dir.inode.inode_update(&made);
         Ok(made)
@@ -126,10 +128,10 @@ impl OverlayFs {
             })?;
             copy_whole(source.as_mut(), &mut copy)?;
         }
-        copy.set_times(lower.accessed, lower.modified);
+        copy.setattr(&timestamps(&lower));
         let parent_times = target_dir.metadata()?;
         let linked = target_dir.do_link(&copy, &name)?;
-        let _ = target_dir.set_times(&parent_times);
+        let _ = target_dir.set_timestamps(&parent_times);
         inode.set_real(linked);
         Ok(())
     }

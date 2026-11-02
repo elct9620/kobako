@@ -3140,6 +3140,74 @@ mod tests {
         );
     }
 
+    /// A directory holding a file at every name, keeping each change `setattr`
+    /// is handed.
+    #[derive(Clone, Default)]
+    struct KeepsChanges(Arc<Mutex<Vec<crate::filesystem::Iattr>>>);
+
+    impl FileSystemType for KeepsChanges {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for KeepsChanges {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(match dentry.parent() {
+                Some(_) => Metadata::new(FileType::File, 0),
+                None => Metadata::new(FileType::Directory, 0),
+            })
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let file = Metadata::new(FileType::File, 0);
+            Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
+        }
+
+        fn setattr(
+            &self,
+            _dentry: &Dentry,
+            attr: &crate::filesystem::Iattr,
+        ) -> Result<(), FilesystemError> {
+            self.0.lock().expect("never poisoned").push(*attr);
+            Ok(())
+        }
+    }
+
+    // @behavior RT-281
+    #[test]
+    fn a_truncate_asks_setattr_to_move_the_modification_time_too() {
+        use crate::filesystem::SetTime;
+        let changes = KeepsChanges::default();
+        let root =
+            root_of(Filesystem::new(Arc::new(changes.clone())).expect("the instance must stand"));
+        let cred = Arc::default();
+        let write = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        let mut file = vfs::do_file_open(&cred, &root, "file", &write).expect("the file must open");
+        file.truncate(3).expect("the truncate must land");
+        let truncate = OpenHow {
+            truncate: true,
+            ..write
+        };
+        vfs::do_file_open(&cred, &root, "file", &truncate).expect("the file must open");
+        let named = changes
+            .0
+            .lock()
+            .expect("never poisoned")
+            .iter()
+            .map(|attr| (attr.size, attr.mtime))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            named,
+            [(Some(3), Some(SetTime::Now)), (Some(0), Some(SetTime::Now))],
+            "File::truncate and vfs::do_file_open with O_TRUNC must hand setattr the size and a \
+             modification time of now, as do_truncate names ATTR_MTIME"
+        );
+    }
+
     /// A directory holding `f`, of `kind`, which refuses whatever `refuses` asks
     /// of `f` and of what it makes, and records whether it made anything.
     #[derive(Clone)]

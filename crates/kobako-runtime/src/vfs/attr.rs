@@ -38,12 +38,14 @@ pub struct Iattr {
 }
 
 impl Iattr {
-    /// A change truncating or extending a file to `len`.
+    /// A change truncating or extending a file to `len`, moving its modification
+    /// time to the moment it lands, as Linux's `do_truncate` names `ATTR_MTIME`
+    /// with `ATTR_SIZE`.
     pub fn size(len: u64) -> Self {
         Self {
             size: Some(len),
             atime: None,
-            mtime: None,
+            mtime: Some(SetTime::Now),
             open: false,
             ctime: None,
         }

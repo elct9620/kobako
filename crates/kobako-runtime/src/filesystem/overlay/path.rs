@@ -14,14 +14,23 @@ use std::sync::Arc;
 
 use super::super::tmpfs::TmpfsFile;
 use super::super::{
-    DirEntry, FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup,
-    Metadata, OpenOptions, Tmpfs,
+    DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr, InodeOperations,
+    Lookup, Metadata, OpenOptions, SetTime, Tmpfs,
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    __start_renaming, lookup_one_qstr_excl, may_create_dentry, vfs_create, vfs_mkdir, vfs_rename,
-    vfs_rmdir, vfs_unlink, Cred, Dentry, DirContext, DirEmit, RenameFlag,
+    __start_renaming, lookup_one_qstr_excl, may_create_dentry, notify_change, vfs_create,
+    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Cred, Dentry, DirContext, DirEmit, RenameFlag,
 };
+
+/// The change setting what `stat` reports of its times, as
+/// `ovl_set_timestamps` sets `ATTR_ATIME_SET` and `ATTR_MTIME_SET`.
+pub(super) fn timestamps(stat: &Metadata) -> Iattr {
+    Iattr::times(
+        stat.accessed.map(SetTime::At),
+        stat.modified.map(SetTime::At),
+    )
+}
 
 /// The attribute marking a directory opaque, and its value, as
 /// overlayfs's `OVL_XATTR_OPAQUE`.
@@ -161,11 +170,10 @@ impl OverlayPath {
         Ok(dentry)
     }
 
-    pub(super) fn set_times(&self, metadata: &Metadata) -> Result<(), FilesystemError> {
-        let _held = self.inode_lock()?;
-        self.upper()?
-            .set_times(metadata.accessed, metadata.modified);
-        Ok(())
+    /// Set this directory's times to those `stat` reports, as
+    /// `ovl_set_timestamps` hands `notify_change` the upper dentry.
+    pub(super) fn set_timestamps(&self, stat: &Metadata) -> Result<(), FilesystemError> {
+        notify_change(&self.dentry, &timestamps(stat))
     }
 
     /// `name` as this directory stores it and the dentry standing there, `None`
