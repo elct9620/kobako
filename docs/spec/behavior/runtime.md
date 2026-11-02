@@ -3039,3 +3039,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose open marks the file it opens as a stream |
 | When | the guest seeks the file, and reads it at an offset |
 | Then | each call answers ESPIPE, as Linux's `stream_open` takes the position away |
+
+## `RT-274` An allocation on a device answers ENODEV
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-099` |
+| relates | `RT-270` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a character device open to write, whose Filesystem opens it like any file |
+| When | a caller allocates for it |
+| Then | the call answers ENODEV, as Linux's `vfs_fallocate` allocates only for a regular file or a block device |
