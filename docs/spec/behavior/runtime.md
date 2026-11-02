@@ -3189,3 +3189,28 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding its standard output, a pipe's write end |
 | When | it waits for that descriptor to be ready to read, and to write |
 | Then | the first answers EBADF rather than a wait no event ends, and the second is ready |
+
+## `RT-286` A call naming two paths answers for its first before its second
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-258` |
+| relates | `RT-207` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding its standard output, which is no directory |
+| When | it moves a name from that descriptor to a path past `PATH_MAX`, or to a descriptor number naming nothing |
+| Then | each call answers ENOTDIR for the first path, as Linux's `filename_renameat2` walks it before taking the second |
+
+## `RT-287` An absolute path answers before the descriptor it names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-258` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding nothing at a descriptor number |
+| When | the guest makes a directory at an absolute path from that number |
+| Then | the call answers ENOTCAPABLE, as Linux's `path_init` looks at no descriptor for an absolute path |

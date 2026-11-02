@@ -870,6 +870,26 @@ A directory beneath a Mount, as a directory descriptor holds one.
 pub struct Path {}
 ```
 
+## `Start`
+
+Where a walk starts, found once the call has taken its name, as Linux's
+`path_init` takes a descriptor. A `Path` is one, and so is a function finding
+one.
+
+```rust
+pub trait Start {}
+```
+
+## `Start::path_init`
+
+The directory the walk starts from.
+
+```rust
+pub trait Start {
+    fn path_init(&self) -> Result<Path, FilesystemError>;
+}
+```
+
 ## `Path::root`
 
 The root of a mounted Filesystem, where each of its descriptors starts.
@@ -1634,7 +1654,7 @@ Open a path beneath a directory, as Linux's `do_file_open` serves `openat`.
 It hands no descriptor out, so a caller holding a table reserves one first.
 
 ```rust
-pub fn do_file_open(cred: &Arc<Cred>, start: &Path, path: &str, how: &OpenHow) -> Result<File, FilesystemError> {}
+pub fn do_file_open(cred: &Arc<Cred>, start: &impl Start, path: &str, how: &OpenHow) -> Result<File, FilesystemError> {}
 ```
 
 ## `filename_linkat`
@@ -1643,7 +1663,7 @@ Give what a path names another name, as Linux's `filename_linkat` serves
 `linkat`.
 
 ```rust
-pub fn filename_linkat(cred: &Arc<Cred>, old_start: &Path, old_path: &str, new_start: &Path, new_path: &str, follow: bool) -> Result<(), FilesystemError> {}
+pub fn filename_linkat(cred: &Arc<Cred>, old_start: &impl Start, old_path: &str, new_start: &impl Start, new_path: &str, follow: bool) -> Result<(), FilesystemError> {}
 ```
 
 ## `filename_symlinkat`
@@ -1651,7 +1671,7 @@ pub fn filename_linkat(cred: &Arc<Cred>, old_start: &Path, old_path: &str, new_s
 Make a link at a path, as Linux's `filename_symlinkat` serves `symlinkat`.
 
 ```rust
-pub fn filename_symlinkat(cred: &Arc<Cred>, target: &str, start: &Path, path: &str) -> Result<(), FilesystemError> {}
+pub fn filename_symlinkat(cred: &Arc<Cred>, target: &str, start: &impl Start, path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `InodeOperations::link`
@@ -1681,7 +1701,7 @@ Make a directory at a path beneath a directory, as Linux's `filename_mkdirat`
 serves `mkdirat`.
 
 ```rust
-pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {}
+pub fn filename_mkdirat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `filename_rmdir`
@@ -1689,7 +1709,7 @@ pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<()
 Remove the empty directory at a path beneath a directory.
 
 ```rust
-pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {}
+pub fn filename_rmdir(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `filename_unlinkat`
@@ -1697,7 +1717,7 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
 Remove the file at a path beneath a directory.
 
 ```rust
-pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {}
+pub fn filename_unlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `filename_renameat2`
@@ -1705,7 +1725,7 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(
 Move an entry within one Mount.
 
 ```rust
-pub fn filename_renameat2(cred: &Arc<Cred>, from: &Path, from_path: &str, to: &Path, to_path: &str) -> Result<(), FilesystemError> {}
+pub fn filename_renameat2(cred: &Arc<Cred>, from: &impl Start, from_path: &str, to: &impl Start, to_path: &str) -> Result<(), FilesystemError> {}
 ```
 
 ## `vfs_fstatat`
@@ -1714,7 +1734,7 @@ What a path names, a link at its end followed where asked and reported as
 itself otherwise.
 
 ```rust
-pub fn vfs_fstatat(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool) -> Result<Metadata, FilesystemError> {}
+pub fn vfs_fstatat(cred: &Arc<Cred>, start: &impl Start, path: &str, follow: bool) -> Result<Metadata, FilesystemError> {}
 ```
 
 ## `do_readlinkat`
@@ -1723,7 +1743,7 @@ Where a link points, asked of the security hooks first. kobako's own rules refus
 it as unsupported.
 
 ```rust
-pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<String, FilesystemError> {}
+pub fn do_readlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result<String, FilesystemError> {}
 ```
 
 ## `do_utimes`
@@ -1731,7 +1751,7 @@ pub fn do_readlinkat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Strin
 Refuse setting timestamps as unsupported once the path is known to stand.
 
 ```rust
-pub fn do_utimes(cred: &Arc<Cred>, start: &Path, path: &str, follow: bool, times: &Iattr) -> Result<(), FilesystemError> {}
+pub fn do_utimes(cred: &Arc<Cred>, start: &impl Start, path: &str, follow: bool, times: &Iattr) -> Result<(), FilesystemError> {}
 ```
 
 ## `verify_dirent_name`
