@@ -2137,3 +2137,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay, and a security module recording the directories it is asked to let change |
 | When | a call makes a name through the Overlay |
 | Then | the module is asked of the view's directory, and of no directory of a Layer |
+
+## `FS-199` Times set to now read the one moment the change lands
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-185` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs file |
+| When | a caller sets both its times to now |
+| Then | a stat reports both, and its changed time, as one moment |
