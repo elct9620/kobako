@@ -6,11 +6,14 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use crate::mount::{Mount, Policy};
+use crate::mount::{Access, Mount, Policy};
 use crate::vfs::{
-    d_revalidate, Access, Cred, Dentry, FileType, FilesystemError, Path, SecurityOperations,
-    SecurityPath, VfsMount, PATH_MAX,
+    d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, FilesystemError, OpenHow, Path,
+    SecurityOperations, SecurityPath, VfsMount, PATH_MAX,
 };
+
+/// What a Mount's Policy allowed a file as it opened, kept on the open file.
+struct Allowed(Access);
 
 /// How many times `revalidate_path` asks from the root before a move landing in
 /// every pass answers EAGAIN, as a scoped walk's `..` answers a move it met.
@@ -53,10 +56,11 @@ impl SecurityOperations for KobakoSecurity {
         &self,
         _path: SecurityPath<'_>,
         kind: FileType,
-        _access: Access,
-    ) -> Result<(), FilesystemError> {
+        _mode: FMode,
+        _how: &OpenHow,
+    ) -> Result<FileSecurity, FilesystemError> {
         match kind {
-            FileType::File | FileType::Directory => Ok(()),
+            FileType::File | FileType::Directory => Ok(None),
             _ => Err(FilesystemError::PermissionDenied),
         }
     }
@@ -140,13 +144,41 @@ impl SecurityOperations for MountPolicy {
         self.path_perm(new, Access::ReadWrite)
     }
 
+    /// Asked once for each open, for what the open may change, and kept on the
+    /// file, as Landlock keeps the rights it allowed. A file the open made was
+    /// judged as a change already, through `path_mknod`.
     fn file_open(
         &self,
         path: SecurityPath<'_>,
         _kind: FileType,
-        access: Access,
-    ) -> Result<(), FilesystemError> {
-        self.path_perm(path, access)
+        mode: FMode,
+        how: &OpenHow,
+    ) -> Result<FileSecurity, FilesystemError> {
+        if !self.guards(path.mnt) {
+            return Ok(None);
+        }
+        let created = mode.contains(FMode::CREATED);
+        let access = match created || mode.contains(FMode::WRITE) || how.truncate {
+            true => Access::ReadWrite,
+            false => Access::Read,
+        };
+        if !created {
+            self.path_perm(path, access)?;
+        }
+        Ok(Some(Arc::new(Allowed(access))))
+    }
+
+    /// A truncate follows what the Policy allowed as the file opened, wherever
+    /// the file stands now, as Landlock's `hook_file_truncate` reads the file's
+    /// rights.
+    fn file_truncate(&self, kept: &FileSecurity) -> Result<(), FilesystemError> {
+        match kept
+            .as_deref()
+            .and_then(|kept| kept.downcast_ref::<Allowed>())
+        {
+            Some(Allowed(Access::Read)) => Err(FilesystemError::PermissionDenied),
+            _ => Ok(()),
+        }
     }
 
     fn inode_setattr(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
@@ -296,6 +328,50 @@ mod tests {
             self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             true
         }
+    }
+
+    /// A Policy refusing every change beneath `/guarded/q`.
+    struct RefusesChangesInQ;
+
+    impl Policy for RefusesChangesInQ {
+        fn allows(&self, path: &str, access: Access) -> bool {
+            access == Access::Read || !path.starts_with("/guarded/q/")
+        }
+    }
+
+    // The Policy refuses a change where the file stands by the truncate, so only
+    // a decision kept from the open lets it through, as Landlock keeps the
+    // truncate right it allowed on the file.
+    // @behavior RT-272
+    #[test]
+    fn a_truncate_follows_what_the_policy_allowed_as_the_file_opened() {
+        let filesystem = Filesystem::new(Arc::new(
+            [("p/f", "x"), ("q/keep", "x")]
+                .into_iter()
+                .collect::<Tmpfs>(),
+        ))
+        .expect("the instance must stand");
+        let guarded = Mount::new("/guarded", filesystem.clone(), Access::ReadWrite)
+            .expect("/guarded is a guest path")
+            .with_policy(Arc::new(RefusesChangesInQ));
+        let plain =
+            Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
+        let cred = prepare_creds([&guarded]);
+        let write = OpenHow {
+            write: true,
+            ..Default::default()
+        };
+        let mut held = crate::vfs::do_file_open(&cred, &Path::root(guarded.mnt()), "p/f", &write)
+            .unwrap_or_else(|_| panic!("the file must open"));
+        let root = Path::root(plain.mnt());
+        crate::vfs::filename_renameat2(&prepare_creds([]), &root, "p/f", &root, "q/f")
+            .expect("the move must land");
+        assert_eq!(
+            held.truncate(0),
+            Ok(()),
+            "File::truncate of a file opened to write beneath a Policy, moved since to where the \
+             Policy refuses changes, must follow what the Policy allowed as it opened"
+        );
     }
 
     /// What making an entry answers through a directory moved past
@@ -575,7 +651,9 @@ mod tests {
                 mnt: mount.mnt(),
                 name: &String::new,
             };
-            KobakoSecurity.file_open(path, kind, Access::Read).is_ok()
+            KobakoSecurity
+                .file_open(path, kind, FMode::READ, &OpenHow::default())
+                .is_ok()
         };
         assert_eq!(
             [

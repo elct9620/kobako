@@ -6,13 +6,6 @@ use std::sync::Arc;
 use super::super_block::SuperBlock;
 use super::FilesystemError;
 
-/// What a call may do beneath a mount, as Linux's `MAY_READ` and `MAY_WRITE`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Access {
-    Read,
-    ReadWrite,
-}
-
 /// A Filesystem instance as the VFS walks it, as `vfsmount` holds its super
 /// block and `mnt_flags`.
 pub struct VfsMount {

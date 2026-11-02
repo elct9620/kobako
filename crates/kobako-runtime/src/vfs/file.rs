@@ -6,7 +6,7 @@ use std::ops::BitOr;
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::Cred;
+use super::cred::{Cred, FileSecurity};
 use super::dentry::Dentry;
 use super::inode::Identity;
 use super::mount::VfsMount;
@@ -215,8 +215,11 @@ impl FMode {
     pub const PWRITE: Self = Self(1 << 4);
     /// Reads and writes what comes next, with no position, as `FMODE_STREAM`.
     pub const STREAM: Self = Self(1 << 5);
+    /// Made by the open that opened it, as `FMODE_CREATED`.
+    pub const CREATED: Self = Self(1 << 6);
 
-    fn of(how: &OpenHow) -> Self {
+    /// What an open of `how` is for, as `do_dentry_open` sets `f_mode`.
+    pub(crate) fn of(how: &OpenHow) -> Self {
         let mut mode = Self::LSEEK.0 | Self::PREAD.0 | Self::PWRITE.0;
         if how.read {
             mode |= Self::READ.0;
@@ -225,6 +228,11 @@ impl FMode {
             mode |= Self::WRITE.0;
         }
         Self(mode)
+    }
+
+    /// This mode with `mode` added.
+    pub(crate) fn with(self, mode: Self) -> Self {
+        Self(self.0 | mode.0)
     }
 
     /// Whether this holds all of `mode`.
@@ -431,6 +439,9 @@ pub struct File {
     pos: u64,
     /// Who opened it, as `f_cred`.
     cred: Arc<Cred>,
+    /// What each of `cred`'s security modules kept on it as it opened, as
+    /// `f_security`.
+    security: Vec<FileSecurity>,
 }
 
 impl File {
@@ -451,7 +462,13 @@ impl File {
             sync: how.sync,
             pos: 0,
             cred: cred.clone(),
+            security: Vec::new(),
         }
+    }
+
+    /// This file holding what its security modules kept on it as it opened.
+    pub(crate) fn with_security(self, security: Vec<FileSecurity>) -> Self {
+        Self { security, ..self }
     }
 
     /// The directory at `path`, opened to be listed for `cred`, as `dentry_open`
@@ -728,7 +745,7 @@ impl File {
         if !regular || !self.writable() || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
         }
-        self.cred.security_file_truncate(self.path.dentry())?;
+        self.cred.security_file_truncate(&self.security)?;
         notify_change(self.path.dentry(), &Iattr::size(len))
     }
 

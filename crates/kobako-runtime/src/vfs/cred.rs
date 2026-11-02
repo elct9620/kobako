@@ -2,12 +2,19 @@
 //! module answers, as `security_*` call each registered LSM. The VFS asks them
 //! where Linux does and knows nothing of what they decide.
 
+use std::any::Any;
 use std::sync::Arc;
 
 use super::dentry::Dentry;
+use super::file::FMode;
 use super::inode::Mask;
-use super::mount::{Access, VfsMount};
+use super::mount::VfsMount;
+use super::openat2::OpenHow;
 use super::{FileType, FilesystemError};
+
+/// What one security module keeps on an open file, as Linux's `f_security`
+/// blob holds each module's part; `None` where it keeps nothing.
+pub type FileSecurity = Option<Arc<dyn Any + Send + Sync>>;
 
 /// A path a security hook is asked about: the mount it stands on, and its name
 /// from that mount's root, built only for a module that reads it, as `struct path`
@@ -72,20 +79,25 @@ pub trait SecurityOperations: Send + Sync {
         Ok(())
     }
 
-    /// Whether a file of `kind` at `path` may be opened with `access`, as
-    /// `security_file_open` is asked once `may_open` allowed it.
+    /// Whether a file of `kind` at `path` may be opened for `mode` as `how` asks,
+    /// as `security_file_open` reads `f_mode` and `f_flags` once `may_open`
+    /// allowed it, a file the open just made included, which `FMode::CREATED`
+    /// marks. What the module keeps on the open file answers its later hooks, as
+    /// Landlock keeps what it allowed in the file's security blob.
     fn file_open(
         &self,
         _path: SecurityPath<'_>,
         _kind: FileType,
-        _access: Access,
-    ) -> Result<(), FilesystemError> {
-        Ok(())
+        _mode: FMode,
+        _how: &OpenHow,
+    ) -> Result<FileSecurity, FilesystemError> {
+        Ok(None)
     }
 
-    /// Whether what `dentry` names may be truncated through an open file, as
-    /// `security_file_truncate`.
-    fn file_truncate(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
+    /// Whether the open file may be truncated, judged from what this module kept
+    /// on it as it opened, as Landlock's `hook_file_truncate` reads the file's
+    /// blob.
+    fn file_truncate(&self, _kept: &FileSecurity) -> Result<(), FilesystemError> {
         Ok(())
     }
 
@@ -194,17 +206,31 @@ impl Cred {
         self.call_int_hook(|module| module.path_rename(old, new, dentries))
     }
 
+    /// Ask each module about the open, keeping what each keeps on the file in
+    /// the order the modules stand, as `security_file_open` fills `f_security`.
     pub(crate) fn security_file_open(
         &self,
         path: SecurityPath<'_>,
         kind: FileType,
-        access: Access,
-    ) -> Result<(), FilesystemError> {
-        self.call_int_hook(|module| module.file_open(path, kind, access))
+        mode: FMode,
+        how: &OpenHow,
+    ) -> Result<Vec<FileSecurity>, FilesystemError> {
+        self.security
+            .iter()
+            .map(|module| module.file_open(path, kind, mode, how))
+            .collect()
     }
 
-    pub(crate) fn security_file_truncate(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.call_int_hook(|module| module.file_truncate(dentry))
+    /// Ask each module whether the file may be truncated, handing each what it
+    /// kept on the file as it opened.
+    pub(crate) fn security_file_truncate(
+        &self,
+        kept: &[FileSecurity],
+    ) -> Result<(), FilesystemError> {
+        self.security
+            .iter()
+            .zip(kept.iter().chain(std::iter::repeat(&None)))
+            .try_for_each(|(module, kept)| module.file_truncate(kept))
     }
 
     pub(crate) fn security_inode_setattr(

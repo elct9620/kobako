@@ -13,11 +13,11 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::{Cred, SecurityPath};
+use super::cred::{Cred, FileSecurity, SecurityPath};
 use super::dentry::{Dentry, RENAME_LOCK};
-use super::file::{File, FileOperations};
+use super::file::{FMode, File, FileOperations};
 use super::inode::{Inode, Mask, RenameFlag};
-use super::mount::{Access, VfsMount};
+use super::mount::VfsMount;
 use super::openat2::{build_open_flags, OpenHow, OpenOptions};
 use super::path::Path;
 use super::super_block::SuperBlock;
@@ -499,17 +499,19 @@ pub fn do_file_open(
     };
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
-    let f_op = match child.inode().map(|inode| inode.kind()) {
+    let (f_op, security) = match child.inode().map(|inode| inode.kind()) {
         // A file is made and opened before the directory's lock goes, so nothing
         // made or removed in between changes what the open decided. What it made
         // is opened as `do_open` opens a file `FMODE_CREATED` marks: it asks for
-        // nothing but the open, and is never walked again. The security modules
-        // judged the make, so a Policy is asked once for the open.
+        // nothing but the open, and is never walked again.
         None if how.create => {
             let _held = held;
             let f_op = lookup_open(&nd, &child, &options)?;
             may_open(cred, &child, FileType::File, Mask::OPEN)?;
-            f_op
+            let mode = FMode::of(how).with(FMode::CREATED);
+            let security =
+                nd.on_path(|path| cred.security_file_open(path, FileType::File, mode, how))?;
+            (f_op, security)
         }
         None => {
             nd.complete_walk()?;
@@ -521,7 +523,7 @@ pub fn do_file_open(
             do_open(&nd, &child, kind, how, &options)?
         }
     };
-    Ok(File::new(start.with_dentry(child), f_op, how, cred))
+    Ok(File::new(start.with_dentry(child), f_op, how, cred).with_security(security))
 }
 
 /// Make the file an open names where nothing stands and open it, as Linux's
@@ -548,7 +550,7 @@ fn do_open(
     kind: FileType,
     how: &OpenHow,
     options: &OpenOptions,
-) -> Result<Box<dyn FileOperations>, FilesystemError> {
+) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
     let refusal = match kind {
         _ if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
         FileType::Directory if how.create => Some(FilesystemError::IsADirectory),
@@ -567,17 +569,14 @@ fn do_open(
     if how.write && !kind.is_special() {
         nd.mnt.mnt_want_write()?;
     }
-    let access = match how.write || how.truncate {
-        true => Access::ReadWrite,
-        false => Access::Read,
-    };
-    nd.on_path(|path| nd.cred.security_file_open(path, kind, access))?;
+    let security =
+        nd.on_path(|path| nd.cred.security_file_open(path, kind, FMode::of(how), how))?;
     let f_op = child.open(options)?;
     if truncate {
-        nd.cred.security_file_truncate(child)?;
+        nd.cred.security_file_truncate(&security)?;
         notify_change(child, &Iattr::open_truncate())?;
     }
-    Ok(f_op)
+    Ok((f_op, security))
 }
 
 /// Refuse to open what stands at the path as Linux's `may_open` does: a
@@ -1346,13 +1345,14 @@ mod tests {
             &self,
             _path: vfs::SecurityPath<'_>,
             _kind: FileType,
-            _access: Access,
-        ) -> Result<(), FilesystemError> {
+            _mode: vfs::FMode,
+            _how: &OpenHow,
+        ) -> Result<vfs::FileSecurity, FilesystemError> {
             self.record("file_open");
-            Ok(())
+            Ok(None)
         }
 
-        fn file_truncate(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
+        fn file_truncate(&self, _kept: &vfs::FileSecurity) -> Result<(), FilesystemError> {
             self.record("file_truncate");
             Ok(())
         }
@@ -1394,12 +1394,14 @@ mod tests {
                 "path_rmdir",
                 "path_mknod",
                 "file_open",
+                "file_open",
                 "file_truncate",
                 "file_truncate",
                 "path_rename",
                 "path_unlink",
             ],
-            "each call through the VFS must reach the security hook Linux names for it"
+            "each call through the VFS must reach the security hook Linux names for it, the \
+             open of a file the call just made included, as do_dentry_open asks security_file_open"
         );
     }
 

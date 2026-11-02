@@ -31,7 +31,7 @@ pub(crate) use namei::{
 
 pub(crate) use attr::notify_change;
 pub use attr::{Iattr, SetTime};
-pub use cred::{Cred, SecurityOperations, SecurityPath};
+pub use cred::{Cred, FileSecurity, SecurityOperations, SecurityPath};
 pub use dentry::{Dentry, DentryOperations};
 pub use errno::FilesystemError;
 pub use file::{
@@ -40,7 +40,7 @@ pub use file::{
     PollMask, Whence,
 };
 pub use inode::{Identity, Inode, InodeOperations, Lookup, Mask, RenameFlag};
-pub use mount::{Access, VfsMount};
+pub use mount::VfsMount;
 pub use namei::{
     do_file_open, filename_linkat, filename_mkdirat, filename_renameat2, filename_rmdir,
     filename_symlinkat, filename_unlinkat, getname,

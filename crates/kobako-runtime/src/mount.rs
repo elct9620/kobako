@@ -9,7 +9,13 @@ use std::sync::Arc;
 use crate::filesystem::Filesystem;
 use crate::vfs::VfsMount;
 
-pub use crate::vfs::Access;
+/// What a Mount allows a guest beneath it, and what a Policy is asked to allow
+/// for one path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    Read,
+    ReadWrite,
+}
 
 /// The Host App's decision for one path a guest opens or changes, made after
 /// a Mount's access allows it, so it can only refuse more.
