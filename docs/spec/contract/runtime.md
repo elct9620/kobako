@@ -2041,7 +2041,8 @@ pub struct Iattr {}
 
 ## `Iattr::size`
 
-A change truncating or extending a file, extending with zeros.
+A change truncating or extending a file, extending with zeros, which moves its
+modification time to the moment it lands.
 
 ```rust
 impl Iattr {

@@ -3127,3 +3127,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file whose Filesystem answers no `FileOperations::llseek` |
 | When | a call seeks it |
 | Then | the call answers ESPIPE, as Linux clears `FMODE_LSEEK` for a file without `->llseek` |
+
+## `RT-281` A truncate asks `setattr` to move the modification time too
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-215` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem holding a file |
+| When | a caller truncates the open file, and opens it with `O_TRUNC` |
+| Then | each `setattr` names the new size and a modification time of now, as Linux's `do_truncate` names `ATTR_MTIME` |
