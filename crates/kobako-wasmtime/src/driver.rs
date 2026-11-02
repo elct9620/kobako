@@ -98,7 +98,12 @@ impl Driver {
         Results: wasmtime::WasmResults,
     {
         self.arm_memory_cap(store, exports);
-        let result = export.call(store.as_context_mut(), params);
+        // A wait for a lock the call meets ends at the same deadline the guest's
+        // code does, so another Sandbox holding it cannot keep this one past it.
+        let deadline = store.data().deadline();
+        let result = kobako_runtime::sched::run_task(deadline, || {
+            export.call(store.as_context_mut(), params)
+        });
         disarm_caps(store);
         result
     }
