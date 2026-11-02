@@ -915,7 +915,8 @@ impl FileOperations for TmpfsFile {
         };
         let written = write(&mut data, buf, start)?;
         iocb.pos = (start + written) as u64;
-        Ok(written)
+        drop(data);
+        crate::vfs::generic_write_sync(self, iocb, written)
     }
 
     /// Nothing outlives the Tmpfs, so there is nothing to flush, as shmem's

@@ -31,12 +31,23 @@ pub struct Kiocb {
     /// Whether a write lands at the file's end as it stands then, as
     /// `IOCB_APPEND` asks.
     pub append: bool,
+    /// Whether what a write needs read back is durable before it answers, as
+    /// `IOCB_DSYNC` asks.
+    pub dsync: bool,
+    /// Whether everything a write changed is durable before it answers, as
+    /// `IOCB_SYNC` asks along with `IOCB_DSYNC`.
+    pub sync: bool,
 }
 
 impl Kiocb {
     /// A call landing at `pos`.
     pub fn at(pos: u64) -> Self {
-        Self { pos, append: false }
+        Self {
+            pos,
+            append: false,
+            dsync: false,
+            sync: false,
+        }
     }
 
     /// This call, landing at the file's end as it stands when the write
@@ -47,6 +58,20 @@ impl Kiocb {
             ..self
         }
     }
+}
+
+/// Make what `written` bytes changed durable through `file` where `iocb` asks, as
+/// Linux's `generic_write_sync` is called by a Filesystem's `write_iter` once a
+/// write landed: data alone unless `IOCB_SYNC` asks for everything.
+pub fn generic_write_sync<F: FileOperations + ?Sized>(
+    file: &mut F,
+    iocb: &Kiocb,
+    written: usize,
+) -> Result<usize, FilesystemError> {
+    if iocb.dsync && written > 0 {
+        file.fsync(!iocb.sync)?;
+    }
+    Ok(written)
 }
 
 /// One open file. The runtime keeps its position and hands each call where it
@@ -572,12 +597,18 @@ impl File {
         self.mode.contains(FMode::STREAM)
     }
 
-    /// A call landing at `pos`, at the end where it was opened to append, as
-    /// `init_sync_kiocb` takes `IOCB_APPEND` from `f_flags`.
+    /// A call landing at `pos`, at the end where it was opened to append, and
+    /// asking the sync it was opened for, as `init_sync_kiocb` takes
+    /// `IOCB_APPEND`, `IOCB_DSYNC`, and `IOCB_SYNC` from `f_flags`.
     fn kiocb(&self, pos: u64) -> Kiocb {
+        let iocb = Kiocb {
+            dsync: self.dsync || self.sync,
+            sync: self.sync,
+            ..Kiocb::at(pos)
+        };
         match self.append {
-            true => Kiocb::at(pos).with_append(),
-            false => Kiocb::at(pos),
+            true => iocb.with_append(),
+            false => iocb,
         }
     }
 
@@ -667,16 +698,6 @@ impl File {
         if written > 0 {
             self.pos = iocb.pos;
         }
-        self.generic_write_sync(written)
-    }
-
-    /// Make `written` bytes durable where it was opened to, as
-    /// `generic_write_sync` does once a write has landed: data alone unless
-    /// `O_SYNC` asks for everything.
-    fn generic_write_sync(&mut self, written: usize) -> Result<usize, FilesystemError> {
-        if (self.dsync || self.sync) && written > 0 {
-            self.ops.fsync(!self.sync)?;
-        }
         Ok(written)
     }
 
@@ -685,10 +706,8 @@ impl File {
     pub fn pwrite(&mut self, buf: &[u8], pos: u64) -> Result<usize, FilesystemError> {
         self.may_pwrite(pos)?;
         self.rw_verify_area(pos, buf.len())?;
-        let written = self
-            .ops
-            .write_iter(&mut self.kiocb(pos), &buf[..buf.len().min(MAX_RW_COUNT)])?;
-        self.generic_write_sync(written)
+        self.ops
+            .write_iter(&mut self.kiocb(pos), &buf[..buf.len().min(MAX_RW_COUNT)])
     }
 
     /// Make what was written durable, as `vfs_fsync` does, and `vfs_fsync_range`
@@ -1204,8 +1223,8 @@ mod tests {
     struct CountsSyncs(Arc<AtomicUsize>);
 
     impl FileOperations for CountsSyncs {
-        fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-            Ok(buf.len())
+        fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+            generic_write_sync(self, iocb, buf.len())
         }
 
         fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
@@ -1231,9 +1250,9 @@ mod tests {
             Ok(0)
         }
 
-        fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
             self.taken.store(buf.len(), Ordering::SeqCst);
-            Ok(buf.len())
+            generic_write_sync(self, iocb, buf.len())
         }
 
         fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {

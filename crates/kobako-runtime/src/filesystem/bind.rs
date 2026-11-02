@@ -752,14 +752,17 @@ impl FileOperations for BindFile {
     }
 
     fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-        if iocb.append {
-            return self.append(iocb, buf);
-        }
-        let mut file = &*self.file;
-        file.seek(SeekFrom::Start(iocb.pos)).map_err(to_error)?;
-        let written = file.write(buf).map_err(to_error)?;
-        iocb.pos += written as u64;
-        Ok(written)
+        let written = match iocb.append {
+            true => self.append(iocb, buf)?,
+            false => {
+                let mut file = &*self.file;
+                file.seek(SeekFrom::Start(iocb.pos)).map_err(to_error)?;
+                let written = file.write(buf).map_err(to_error)?;
+                iocb.pos += written as u64;
+                written
+            }
+        };
+        crate::vfs::generic_write_sync(self, iocb, written)
     }
 
     fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {
