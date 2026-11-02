@@ -2122,6 +2122,46 @@ mod tests {
         );
     }
 
+    // Linux walks a directory it may only search, so a stat through one
+    // succeeds there; the Bind reads the directory to learn the name's
+    // spelling, which the mode refuses. Root reads anything, so only another
+    // user sees the refusal.
+    // @behavior FS-202
+    #[cfg(unix)]
+    #[test]
+    fn a_name_beneath_a_directory_the_host_lets_only_be_searched_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let host = HostDir::new("search-only-name");
+        fs::create_dir(host.0.join("searched")).expect("the host directory must be made");
+        fs::write(host.0.join("searched/x"), "x").expect("the host file must be written");
+        let mode = |mode| fs::Permissions::from_mode(mode);
+        fs::set_permissions(host.0.join("searched"), mode(0o111))
+            .expect("the host directory's mode must be set");
+        let enforced = fs::read_dir(host.0.join("searched")).is_err();
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(
+                Bind::new(&host.0).expect("the host directory must open"),
+            ))
+            .expect("the instance must stand"),
+            crate::mount::Access::Read,
+        )
+        .expect("/data is a guest path");
+        let root = crate::vfs::Path::root(mount.mnt());
+        let found = crate::vfs::vfs_fstatat(&Arc::default(), &root, "searched/x", false);
+        fs::set_permissions(host.0.join("searched"), mode(0o755))
+            .expect("the host directory's mode must be restored");
+        if enforced {
+            assert_eq!(
+                found.err(),
+                Some(FilesystemError::PermissionDenied),
+                "vfs::vfs_fstatat of a file beneath a host directory only searchable must \
+                 answer EACCES, as the Bind reads the directory to spell the name"
+            );
+        }
+    }
+
     // Only Linux keeps a name that is not UTF-8; macOS refuses to make one.
     // @behavior FS-066
     #[cfg(target_os = "linux")]

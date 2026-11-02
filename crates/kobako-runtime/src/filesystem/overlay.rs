@@ -1432,6 +1432,28 @@ mod tests {
         );
     }
 
+    // The lower Layer is a Tmpfs seen through a wrapper, so it reports the
+    // device a whiteout is, yet is no Tmpfs whose marks the Overlay reads.
+    // @behavior FS-203
+    #[test]
+    fn an_overlay_reads_a_whiteout_only_from_a_tmpfs() {
+        let tmpfs = Tmpfs::new();
+        tmpfs.whiteout("device").expect("the device must be made");
+        let lower = Wrap::new(Arc::new(tmpfs), Arc::new(CountsLookups::default()));
+        let overlay = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
+        assert_eq!(
+            (
+                names(&overlay, ""),
+                overlay
+                    .symlink_metadata("device")
+                    .map(|found| found.file_type)
+            ),
+            (vec!["device".to_string()], Ok(FileType::CharDevice)),
+            "a character device in a lower Layer that is no Tmpfs, listed and stated through an \
+             Overlay, must be listed and found rather than read as a whiteout"
+        );
+    }
+
     // A whiteout is a device rather than a name, so no name is the
     // Overlay's to reserve.
     // @behavior FS-020
