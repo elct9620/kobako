@@ -21,8 +21,8 @@ use kobako_runtime::filesystem::{
     RenameFlag,
 };
 use kobako_runtime::vfs::{
-    generic_read_dir, generic_write_sync, verify_dirent_name, Dentry, DirContext, Identity, Inode,
-    NAME_MAX,
+    generic_file_llseek, generic_read_dir, generic_write_sync, verify_dirent_name, Dentry,
+    DirContext, Identity, Inode, Whence, NAME_MAX,
 };
 
 use crate::runtime::pinned_value::PinnedValue;
@@ -481,6 +481,16 @@ impl InodeOperations for RubyFilesystem {
 struct RubyDir(RubyFilesystem, Rdir);
 
 impl FileOperations for RubyDir {
+    fn llseek(
+        &mut self,
+        dentry: &Dentry,
+        pos: u64,
+        offset: i64,
+        whence: Whence,
+    ) -> Result<u64, FilesystemError> {
+        generic_file_llseek(dentry, pos, offset, whence)
+    }
+
     fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
         generic_read_dir()
     }
@@ -616,6 +626,16 @@ impl RubyFile {
 }
 
 impl FileOperations for RubyFile {
+    fn llseek(
+        &mut self,
+        dentry: &Dentry,
+        pos: u64,
+        offset: i64,
+        whence: Whence,
+    ) -> Result<u64, FilesystemError> {
+        generic_file_llseek(dentry, pos, offset, whence)
+    }
+
     fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let pos = iocb.pos;
         let read = ask(
