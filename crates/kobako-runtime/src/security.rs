@@ -12,12 +12,18 @@ use crate::vfs::{
     SecurityPath, VfsMount, PATH_MAX,
 };
 
+/// How many times `revalidate_path` asks from the root before a move landing in
+/// every pass answers EAGAIN, as a scoped walk's `..` answers a move it met.
+const MAX_PASSES: usize = 4;
+
 /// Whether each name from the root down to `path` still names what the runtime
 /// recorded, as gVisor's `revalidatePath` walks one. Linux asks only names a walk
 /// passes through, so a `WalkGuard` asks this of where a call starts. A name moved
-/// while it was asked is asked again from the root, where it went.
+/// while it was asked is asked again from the root, where it went, at most
+/// `MAX_PASSES` times in all, so moves landing without pause cannot hold the
+/// caller.
 fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
-    'again: loop {
+    'again: for _ in 0..MAX_PASSES {
         let mut chain = vec![path.dentry().clone()];
         while let Some(above) = chain.last().and_then(|at| at.parent()) {
             chain.push(above);
@@ -34,6 +40,7 @@ fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
         }
         return Ok(true);
     }
+    Err(FilesystemError::WouldBlock)
 }
 
 /// What every Invocation holds to, whatever its Mounts allow.
@@ -431,6 +438,79 @@ mod tests {
                 && held.path().dentry().path_raw() == "q/d",
             "WalkGuard::check of a directory moved by another Mount while revalidate is asked, \
              beneath a Policy, must let a call through both then and afterwards, at q/d"
+        );
+    }
+
+    /// Moves `d` between `p` and `q` through `plain` each time the guarding thread
+    /// asks either whether it still stands, so every pass from the root meets a
+    /// move, until it has moved `MOVES` times.
+    struct MovesEachPass {
+        guarding: std::sync::OnceLock<std::thread::ThreadId>,
+        plain: std::sync::OnceLock<Path>,
+        moved: std::sync::atomic::AtomicUsize,
+    }
+
+    impl MovesEachPass {
+        const MOVES: usize = 100;
+    }
+
+    impl Hook for MovesEachPass {
+        fn revalidate(
+            &self,
+            ops: &dyn crate::vfs::DentryOperations,
+            dir: &dyn crate::filesystem::InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<bool, FilesystemError> {
+            use std::sync::atomic::Ordering;
+            let guarding = self.guarding.get() == Some(&std::thread::current().id());
+            let from = dentry.name();
+            if guarding
+                && (from == "p" || from == "q")
+                && self.moved.load(Ordering::SeqCst) < Self::MOVES
+            {
+                let to = if from == "p" { "q" } else { "p" };
+                let root = self.plain.get().expect("the plain Mount stands").clone();
+                std::thread::spawn(move || {
+                    crate::vfs::filename_renameat2(
+                        &prepare_creds([]),
+                        &root,
+                        &format!("{from}/d"),
+                        &root,
+                        &format!("{to}/d"),
+                    )
+                })
+                .join()
+                .expect("the move must not panic")
+                .expect("the move must land");
+                self.moved.fetch_add(1, Ordering::SeqCst);
+            }
+            ops.revalidate(dir, dentry)
+        }
+    }
+
+    // Each pass from the root meets a move another Mount makes, so only a bound on
+    // the passes lets the call answer while the moves go on.
+    // @behavior RT-266
+    #[test]
+    fn a_start_moved_in_every_pass_answers_eagain_beneath_a_policy() {
+        use std::sync::atomic::Ordering;
+
+        let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
+        let hook = Arc::new(MovesEachPass {
+            guarding: std::sync::OnceLock::new(),
+            plain: std::sync::OnceLock::new(),
+            moved: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let filesystem = Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook.clone())))
+            .expect("the instance must stand");
+        let (_cred, held, plain, guard) = held_beneath_a_policy(filesystem);
+        hook.plain.set(Path::root(plain.mnt())).ok();
+        hook.guarding.set(std::thread::current().id()).ok();
+        assert_eq!(
+            (guard.check(held.path()), hook.moved.load(Ordering::SeqCst)),
+            (Err(FilesystemError::WouldBlock), MAX_PASSES),
+            "WalkGuard::check of a directory another Mount moves in every pass, beneath a \
+             Policy, must answer EAGAIN once its passes are used up"
         );
     }
 
