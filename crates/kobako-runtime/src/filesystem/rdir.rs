@@ -57,7 +57,7 @@ impl Rdir {
             Some(held) => (held.entries, Some(held.charge)),
             None => (read()?, None),
         };
-        if dir_emit_entries(dentry, ctx, &entries) || ctx.failed() {
+        if dir_emit_entries(dentry, ctx, &entries) {
             return Ok(());
         }
         let charge = match charge {

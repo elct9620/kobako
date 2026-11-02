@@ -976,7 +976,10 @@ mod tests {
                 seen.push((emit.name.to_string(), emit.next));
                 seen.len() < room
             };
-            dir.iterate_dir(&mut DirContext::new(pos, &mut actor))
+            let pos: u64 = pos;
+            dir.llseek(pos as i64, crate::vfs::Whence::Set)
+                .expect("the directory seeks");
+            dir.iterate_dir(&mut DirContext::new(0, &mut actor))
                 .expect("the directory lists");
             seen
         };
