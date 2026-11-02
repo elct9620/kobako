@@ -20,7 +20,7 @@ use std::os::raw::c_void;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::ptr;
 
-use kobako_runtime::sched::Blocking;
+use kobako_runtime::sched::{Blocking, Task};
 
 use super::escape;
 
@@ -38,9 +38,20 @@ where
         return f();
     }
     let _guard = ReleasedGuard::set(true);
+    // An interrupt the thread receives meanwhile stops each wait for a lock the
+    // run meets; the interrupt itself still waits for the run to end.
+    let task = Task::current();
+    let task_ptr = ptr::addr_of!(task).cast_mut().cast::<c_void>();
     call_via(f, |func, data| unsafe {
-        rb_sys::rb_thread_call_without_gvl2(Some(func), data, None, ptr::null_mut())
+        rb_sys::rb_thread_call_without_gvl2(Some(func), data, Some(interrupt_task), task_ptr)
     })
+}
+
+/// Have the thread's run stop waiting for locks, called by Ruby without the GVL
+/// as the region's unblocking function.
+unsafe extern "C" fn interrupt_task(task: *mut c_void) {
+    let task = unsafe { &*task.cast::<Task>() };
+    task.interrupt();
 }
 
 /// Whether this thread holds the GVL: outside any released region, or
