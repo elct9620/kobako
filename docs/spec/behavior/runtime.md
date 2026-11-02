@@ -2917,3 +2917,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem answering `permission` |
 | When | a call moves a directory into another directory |
 | Then | the directory itself is asked whether it may change, as Linux's `vfs_rename` asks of its `..` |
+
+## `RT-264` Walks reaching one name at once ask its Filesystem once
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-229` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose lookup of a name is under way for one walk |
+| When | another walk reaches the same name |
+| Then | it waits for that lookup's answer, and the Filesystem is asked once, as Linux's `d_alloc_parallel` has it wait |
