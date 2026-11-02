@@ -526,6 +526,8 @@ mod tests {
     /// A directory holding that one file at every name.
     struct HoldsRefusesClose;
 
+    impl kobako_runtime::filesystem::FileSystemType for HoldsRefusesClose {}
+
     impl InodeOperations for HoldsRefusesClose {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             Ok(Metadata::new(FileType::Directory, 0))
@@ -723,6 +725,8 @@ mod tests {
 
     /// A directory that would make any link it is asked to.
     struct MakesLinks;
+
+    impl kobako_runtime::filesystem::FileSystemType for MakesLinks {}
 
     impl InodeOperations for MakesLinks {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {

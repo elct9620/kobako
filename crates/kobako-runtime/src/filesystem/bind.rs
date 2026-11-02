@@ -22,8 +22,9 @@ use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag, SetTime,
+    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
+    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
+    SetTime,
 };
 use crate::vfs::{Dentry, Identity, Inode};
 use fid::{FidCache, OpenDirFid};
@@ -427,6 +428,18 @@ fn open_in(
 /// entry stands at the path it stands for, as NFS compares the handle a
 /// fresh lookup finds. One recording none has nothing to compare, so nothing
 /// keeps it once its holder lets go.
+impl FileSystemType for Bind {
+    /// Its root reports the host directory it holds, as 9p's `fill_super` asks of
+    /// the attached fid. A host that cannot answer leaves it no identity.
+    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
+        sb.set_default_d_op(Arc::new(self.clone()));
+        match self.root.dir_metadata() {
+            Ok(metadata) => to_metadata(metadata),
+            Err(_) => Metadata::new(FileType::Directory, 0),
+        }
+    }
+}
+
 impl DentryOperations for Bind {
     fn revalidate(
         &self,
@@ -565,10 +578,6 @@ impl InodeOperations for Bind {
                 Err(err) => Err(err),
             }
         })
-    }
-
-    fn fill_super(&self, sb: &mut Filesystem) {
-        sb.set_default_d_op(Arc::new(self.clone()));
     }
 
     /// A Mount's root is the Host App's to hand over, read or not, so only a
@@ -784,7 +793,7 @@ mod tests {
         }
 
         /// The root of `filesystem` mounted to change.
-        fn root_of(filesystem: Arc<dyn InodeOperations>) -> VfsPath {
+        fn root_of(filesystem: Arc<dyn FileSystemType>) -> VfsPath {
             let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
                 .expect("/data is a guest path");
             VfsPath::root(mount.mnt())
@@ -1288,7 +1297,7 @@ mod tests {
             Some(Filesystem::new(Arc::new(Tmpfs::new()))),
         )
         .expect("the Overlay must stack");
-        let root = |filesystem: Arc<dyn InodeOperations>| {
+        let root = |filesystem: Arc<dyn FileSystemType>| {
             let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
                 .expect("/data is a guest path");
             crate::vfs::Path::root(mount.mnt())

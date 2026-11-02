@@ -11,8 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
-    FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata,
-    OpenOptions, Overlay, RenameFlag, Tmpfs,
+    FileOperations, FileSystemType, FileType, FilesystemError, InodeOperations, Kiocb, Lookup,
+    Metadata, OpenOptions, Overlay, RenameFlag, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
@@ -30,7 +30,7 @@ use wrap::{Hook, Wrap};
 
 /// The root of `filesystem` as the host reaches it through the VFS, a
 /// writer of its own beside the guest.
-fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
+fn host<F: FileSystemType>(filesystem: &Arc<F>) -> Path {
     let mount = Mount::new(
         "/data",
         Filesystem::new(filesystem.clone()),
@@ -41,7 +41,7 @@ fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
 }
 
 /// The names `filesystem`'s root holds, as the host lists them.
-fn host_entries<F: InodeOperations>(filesystem: &Arc<F>) -> Result<Vec<String>, FilesystemError> {
+fn host_entries<F: FileSystemType>(filesystem: &Arc<F>) -> Result<Vec<String>, FilesystemError> {
     let mount = Mount::new(
         "/data",
         Filesystem::new(filesystem.clone()),
@@ -433,7 +433,7 @@ fn build_options(set: impl FnOnce(&mut OpenOptions)) -> OpenOptions {
 }
 
 fn grant(
-    filesystem: Arc<dyn InodeOperations>,
+    filesystem: Arc<dyn FileSystemType>,
     access: Access,
     policy: Option<Arc<dyn Policy>>,
 ) -> Grant {
@@ -1162,7 +1162,9 @@ impl Hook for ReusesInodes {
         })
     }
 
-    fn fill_super(&self, _inner: &dyn InodeOperations, _sb: &mut Filesystem) {}
+    fn fill_super(&self, _fs: &dyn FileSystemType, _sb: &mut Filesystem) -> Metadata {
+        Metadata::new(FileType::Directory, 0)
+    }
 
     /// The call removing it holds what it looked up, so `dir` is open
     /// beyond that only where a descriptor holds it too.
@@ -2606,6 +2608,8 @@ const ERRNO_PERM: i32 = 63;
 /// Linux's `inode_operations`.
 struct ChangesNothing(Arc<dyn InodeOperations>);
 
+impl FileSystemType for ChangesNothing {}
+
 impl InodeOperations for ChangesNothing {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         self.0.getattr(dentry)
@@ -3013,7 +3017,7 @@ impl LinkedBeneath {
     /// Overlay's lower Bind Layer beneath an empty upper.
     fn guest(&self, overlay: bool) -> Guest {
         let directory = Arc::new(Bind::new(&self.0).expect("the host directory must open"));
-        let filesystem: Arc<dyn InodeOperations> = if overlay {
+        let filesystem: Arc<dyn FileSystemType> = if overlay {
             Arc::new(
                 Overlay::new(
                     vec![Filesystem::new(directory)],

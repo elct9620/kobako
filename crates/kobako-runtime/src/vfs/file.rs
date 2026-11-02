@@ -703,6 +703,8 @@ mod tests {
     /// A directory holding a file at every name, neither with `open`.
     struct OpensNothing;
 
+    impl crate::vfs::FileSystemType for OpensNothing {}
+
     impl InodeOperations for OpensNothing {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             Ok(match dentry.parent() {
@@ -806,6 +808,8 @@ mod tests {
             Ok(vec![DirEntry::new(self.0, FileType::File)])
         }
     }
+
+    impl crate::vfs::FileSystemType for Lists {}
 
     impl InodeOperations for Lists {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -948,7 +952,7 @@ mod tests {
 
     /// Each entry of the root of `filesystem` with what a listing names it
     /// and what a stat of it names it.
-    fn identities<F: InodeOperations>(
+    fn identities<F: crate::vfs::FileSystemType>(
         filesystem: F,
     ) -> Vec<(String, Option<Identity>, Option<Identity>)> {
         let mount = Mount::new(
@@ -1058,6 +1062,8 @@ mod tests {
     }
 
     struct HoldsCountsSyncs(Arc<AtomicUsize>);
+
+    impl crate::vfs::FileSystemType for HoldsCountsSyncs {}
 
     impl InodeOperations for HoldsCountsSyncs {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {

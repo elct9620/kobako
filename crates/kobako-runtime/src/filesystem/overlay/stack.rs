@@ -25,7 +25,7 @@ use super::inode::{ovl_get_inode, OverlayInode};
 use super::path::OverlayPath;
 
 use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb};
-use crate::vfs::Dentry;
+use crate::vfs::{Dentry, Identity};
 
 /// The directories of the upper Tmpfs holding the view's changes and the
 /// changes being built, as overlayfs's `upperdir` and `workdir`.
@@ -251,6 +251,11 @@ impl OverlayFs {
     /// Whether changes have an upper to land in, as `ovl_upper_mnt` answers.
     pub(super) fn has_upper(&self) -> bool {
         self.work.is_some()
+    }
+
+    /// What the topmost Layer's root recorded it stands for.
+    pub(super) fn root_identity(&self) -> Option<Identity> {
+        self.roots.first()?.dentry().inode()?.identity()
     }
 
     /// The directory of the view `dentry` names, its state found on the inode

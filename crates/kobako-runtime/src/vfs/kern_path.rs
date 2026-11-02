@@ -15,7 +15,7 @@ use super::namei::{
 };
 use super::path::Path;
 use super::{
-    DirEntry, File, FileOperations, FileType, FilesystemError, Iattr, InodeOperations, Metadata,
+    DirEntry, File, FileOperations, FileSystemType, FileType, FilesystemError, Iattr, Metadata,
     OpenOptions, SuperBlock,
 };
 use crate::mount::{Access, Mount};
@@ -25,7 +25,7 @@ use crate::mount::{Access, Mount};
 pub(crate) struct KernPath(Path);
 
 /// The root of `filesystem`, mounted read-write.
-pub(crate) fn kern_path(filesystem: Arc<dyn InodeOperations>) -> KernPath {
+pub(crate) fn kern_path(filesystem: Arc<dyn FileSystemType>) -> KernPath {
     let mount = Mount::new("/data", SuperBlock::new(filesystem), Access::ReadWrite)
         .expect("/data is a guest path");
     KernPath(Path::root(mount.mnt()))

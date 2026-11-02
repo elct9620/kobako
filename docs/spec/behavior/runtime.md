@@ -2728,3 +2728,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem handing the same inode for two names |
 | When | a call opens each name |
 | Then | both dentries record that one inode |
+
+## `RT-247` A Filesystem's root stands for what `fill_super` reports
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose `fill_super` reports a root with an identity, and one with nothing to set up |
+| When | each is made into an instance |
+| Then | the first root records that identity, and the second none |

@@ -499,6 +499,8 @@ mod tests {
         root: KernPath,
     }
 
+    impl crate::vfs::FileSystemType for ByPath {}
+
     impl InodeOperations for ByPath {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             self.root.symlink_metadata(&dentry.path_raw())

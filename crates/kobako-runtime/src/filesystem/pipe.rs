@@ -6,8 +6,8 @@
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::vfs::{
-    Dentry, FMode, File, FileOperations, FileType, FilesystemError, Inode, InodeOperations, Kiocb,
-    Metadata, OpenHow, Path, PollMask, SuperBlock, VfsMount,
+    Dentry, FMode, File, FileOperations, FileSystemType, FileType, FilesystemError, Inode,
+    InodeOperations, Kiocb, Metadata, OpenHow, Path, PollMask, SuperBlock, VfsMount,
 };
 
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No path
@@ -17,6 +17,8 @@ static PIPE_MNT: LazyLock<Path> =
 
 /// A pipe reports what it is and no length, as `get_pipe_inode` makes one.
 struct PipeFs;
+
+impl FileSystemType for PipeFs {}
 
 impl InodeOperations for PipeFs {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {

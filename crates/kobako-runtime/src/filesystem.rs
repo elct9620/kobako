@@ -18,6 +18,7 @@ pub use pipe::{create_pipe_files, PipeInodeInfo};
 pub use tmpfs::{SeedError, Tmpfs};
 
 pub use crate::vfs::{
-    DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr, InodeOperations,
-    Kiocb, Lookup, Mask, Metadata, OpenOptions, RenameFlag, SetTime, SuperBlock as Filesystem,
+    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, FilesystemError, Iattr,
+    InodeOperations, Kiocb, Lookup, Mask, Metadata, OpenOptions, RenameFlag, SetTime,
+    SuperBlock as Filesystem,
 };

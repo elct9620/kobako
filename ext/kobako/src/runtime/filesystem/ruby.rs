@@ -15,8 +15,8 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{
-    DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
+    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
+    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
 };
 use kobako_runtime::vfs::{verify_dirent_name, Dentry, Identity, Inode, NAME_MAX};
 
@@ -368,13 +368,18 @@ impl InodeOperations for RubyRegular {
     }
 }
 
+/// Its root reports no identity without asking the Ruby object, as FUSE makes its
+/// root from fixed attributes rather than ask the server.
+impl FileSystemType for RubyFilesystem {
+    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
+        sb.set_default_d_op(Arc::new(*self));
+        Metadata::new(FileType::Directory, 0)
+    }
+}
+
 /// A directory of a Ruby Filesystem, asked by the path a dentry stands at, the
 /// path a Policy judges.
 impl InodeOperations for RubyFilesystem {
-    fn fill_super(&self, sb: &mut Filesystem) {
-        sb.set_default_d_op(Arc::new(*self));
-    }
-
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         self.stat(dentry.path_raw())
     }

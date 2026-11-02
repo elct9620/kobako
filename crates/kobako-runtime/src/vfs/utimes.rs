@@ -47,7 +47,9 @@ mod tests {
     use std::time::UNIX_EPOCH;
 
     use super::*;
-    use crate::filesystem::{FileType, Filesystem, InodeOperations, Metadata, SetTime, Tmpfs};
+    use crate::filesystem::{
+        FileSystemType, FileType, Filesystem, InodeOperations, Metadata, SetTime, Tmpfs,
+    };
     use crate::mount::{Access as MountAccess, Mount, Policy};
     use crate::security::prepare_creds;
     use crate::vfs::Dentry;
@@ -56,7 +58,7 @@ mod tests {
         Iattr::times(Some(SetTime::Now), Some(SetTime::At(UNIX_EPOCH)))
     }
 
-    fn mount_of(filesystem: Arc<dyn InodeOperations>, access: MountAccess) -> Mount {
+    fn mount_of(filesystem: Arc<dyn FileSystemType>, access: MountAccess) -> Mount {
         Mount::new("/data", Filesystem::new(filesystem), access).expect("/data is a guest path")
     }
 
@@ -111,6 +113,8 @@ mod tests {
     /// A directory answering every call but `setattr` by default.
     struct NoSetattr;
 
+    impl FileSystemType for NoSetattr {}
+
     impl InodeOperations for NoSetattr {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             Ok(Metadata::new(FileType::Directory, 0))
@@ -131,6 +135,8 @@ mod tests {
     /// A Filesystem keeping what it was last asked to set.
     #[derive(Default)]
     struct KeepsTimes(Mutex<Option<Iattr>>);
+
+    impl FileSystemType for KeepsTimes {}
 
     impl InodeOperations for KeepsTimes {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {

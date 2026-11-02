@@ -55,7 +55,7 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 | The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest | replaceable · methods append-only |
 | Wasm engine | `impl Runtime`, handed to `Sandbox::with_runtime` | Rust host SDK | replaceable |
 | Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a host frontend of your own | replaceable |
-| Filesystem | `impl InodeOperations` + `FileOperations`, behind a Mount | Rust host SDK | replaceable · methods append-only |
+| Filesystem | `impl FileSystemType` + `InodeOperations` + `FileOperations`, behind a Mount | Rust host SDK | replaceable · methods append-only |
 | Lock wait | `impl Blocking`, handed once to `sched::register_blocking` | a host frontend of your own | replaceable · methods append-only |
 
 The types those seams carry, by grade:

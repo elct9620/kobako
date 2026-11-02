@@ -604,17 +604,17 @@ pub struct SuperBlock {}
 
 ## `SuperBlock::new`
 
-The instance a Filesystem's root answers for.
+The instance a Filesystem makes, set up as its `fill_super` asks.
 
 ```rust
 impl SuperBlock {
-    pub fn new(root: Arc<dyn InodeOperations>) -> Arc<Self> {}
+    pub fn new(fs: Arc<dyn FileSystemType>) -> Arc<Self> {}
 }
 ```
 
 ## `SuperBlock::set_default_d_op`
 
-What every Dentry of the instance answers through, set from `InodeOperations::fill_super`.
+What every Dentry of the instance answers through, set from `FileSystemType::fill_super`.
 
 ```rust
 impl SuperBlock {
@@ -634,7 +634,7 @@ impl SuperBlock {
 
 ## `SuperBlock::set_rdonly`
 
-Refuses every change beneath the instance, set from `InodeOperations::fill_super`.
+Refuses every change beneath the instance, set from `FileSystemType::fill_super`.
 
 ```rust
 impl SuperBlock {
@@ -645,7 +645,7 @@ impl SuperBlock {
 ## `SuperBlock::set_dontcache`
 
 Keeps no Dentry of the instance once nothing holds it, set from
-`InodeOperations::fill_super`.
+`FileSystemType::fill_super`.
 
 ```rust
 impl SuperBlock {
@@ -1696,14 +1696,23 @@ impl Mask {
 }
 ```
 
-## `InodeOperations::fill_super`
+## `FileSystemType`
 
-What the runtime asks of a Filesystem's root once, to set up its instance.
-A Filesystem without one keeps every name valid and allows every change.
+What makes an instance of a Filesystem, and answers for that instance's root.
 
 ```rust
-pub trait InodeOperations {
-    fn fill_super(&self, _sb: &mut SuperBlock);
+pub trait FileSystemType: InodeOperations {}
+```
+
+## `FileSystemType::fill_super`
+
+What the runtime asks once to set up an instance, answering what its root reports.
+A Filesystem without one keeps every name valid, allows every change, and gives its
+root no identity.
+
+```rust
+pub trait FileSystemType {
+    fn fill_super(&self, _sb: &mut SuperBlock) -> Metadata;
 }
 ```
 

@@ -8,7 +8,6 @@ use std::sync::{Arc, OnceLock};
 
 use super::dentry::Dentry;
 use super::file::FileOperations;
-use super::super_block::SuperBlock;
 use super::{FileType, FilesystemError, Iattr, Metadata, OpenOptions};
 use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
@@ -73,12 +72,6 @@ pub trait InodeOperations: Any + Send + Sync {
     fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         Err(FilesystemError::NotADirectory)
     }
-
-    /// Set up the instance this root answers for, asked once before any walk,
-    /// as a driver's `fill_super` fills in its `super_block`: what every
-    /// dentry answers through, for a Filesystem changed outside the runtime,
-    /// and whether nothing beneath it changes.
-    fn fill_super(&self, _sb: &mut SuperBlock) {}
 
     /// Where this link, which `dentry` names, points, as `get_link` answers,
     /// for the VFS to follow. Anything else refuses as `readlinkat` does.
@@ -271,11 +264,6 @@ impl Inode {
     /// wraps each entry that one's lookup finds.
     pub fn with_ops(&self, ops: Arc<dyn InodeOperations>) -> Arc<Self> {
         Self::of_kind(self.kind, self.identity, ops)
-    }
-
-    /// The root of a Filesystem, which a lookup never finds.
-    pub(super) fn root(ops: Arc<dyn InodeOperations>) -> Arc<Self> {
-        Self::of_kind(FileType::Directory, None, ops)
     }
 
     fn of_kind(

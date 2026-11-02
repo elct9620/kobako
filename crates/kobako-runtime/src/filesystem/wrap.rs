@@ -6,8 +6,8 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::{
-    DentryOperations, FileOperations, Filesystem, FilesystemError, Iattr, InodeOperations, Lookup,
-    Mask, Metadata, OpenOptions, RenameFlag,
+    DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, Iattr,
+    InodeOperations, Lookup, Mask, Metadata, OpenOptions, RenameFlag,
 };
 use crate::vfs::Dentry;
 
@@ -92,12 +92,44 @@ pub(crate) trait Hook: Send + Sync + 'static {
 /// `inner`, with `hook` stepping in.
 pub(crate) struct Wrap<H> {
     inner: Arc<dyn InodeOperations>,
+    /// What makes the instance, on the root alone.
+    fs: Option<Arc<dyn FileSystemType>>,
     hook: Arc<H>,
 }
 
 impl<H: Hook> Wrap<H> {
-    pub(crate) fn new(inner: Arc<dyn InodeOperations>, hook: Arc<H>) -> Self {
-        Self { inner, hook }
+    /// A Filesystem over the one `fs` makes.
+    pub(crate) fn new(fs: Arc<dyn FileSystemType>, hook: Arc<H>) -> Self {
+        Self {
+            inner: fs.clone(),
+            fs: Some(fs),
+            hook,
+        }
+    }
+
+    /// An entry beneath the root, which sets up no instance.
+    fn entry(inner: Arc<dyn InodeOperations>, hook: Arc<H>) -> Self {
+        Self {
+            inner,
+            fs: None,
+            hook,
+        }
+    }
+}
+
+impl<H: Hook> FileSystemType for Wrap<H> {
+    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
+        let root = match &self.fs {
+            Some(fs) => fs.fill_super(sb),
+            None => Metadata::new(FileType::Directory, 0),
+        };
+        if let Some(ops) = sb.d_op().cloned() {
+            sb.set_default_d_op(Arc::new(WrapDentry {
+                ops,
+                hook: self.hook.clone(),
+            }));
+        }
+        root
     }
 }
 
@@ -133,7 +165,7 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         Ok(match self.hook.lookup(self.inner.as_ref(), dentry)? {
             Lookup::Found(inode) => {
                 let ops = inode.ops().clone();
-                Lookup::Found(inode.with_ops(Arc::new(Self::new(ops, self.hook.clone()))))
+                Lookup::Found(inode.with_ops(Arc::new(Self::entry(ops, self.hook.clone()))))
             }
             other => other,
         })
@@ -145,16 +177,6 @@ impl<H: Hook> InodeOperations for Wrap<H> {
 
     fn get_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
         self.inner.get_link(dentry)
-    }
-
-    fn fill_super(&self, sb: &mut Filesystem) {
-        self.inner.fill_super(sb);
-        if let Some(ops) = sb.d_op().cloned() {
-            sb.set_default_d_op(Arc::new(WrapDentry {
-                ops,
-                hook: self.hook.clone(),
-            }));
-        }
     }
 
     fn open(

@@ -4,7 +4,21 @@ use std::sync::Arc;
 
 use super::dentry::{Dentries, DentryOperations};
 use super::inode::{Inode, InodeOperations};
+use super::stat::{FileType, Metadata};
 use crate::locking::RwSemaphore;
+
+/// What makes an instance of a Filesystem, as Linux's `file_system_type`, whose
+/// value is also what answers for that instance's root.
+pub trait FileSystemType: InodeOperations {
+    /// Set up the instance, asked once before any walk, and answer what its root
+    /// reports, as a driver's `fill_super` fills in its `super_block` and makes
+    /// `s_root`: what every dentry answers through, for a Filesystem changed
+    /// outside the runtime, and whether nothing beneath it changes. A Filesystem
+    /// with nothing to set up reports a root with no identity.
+    fn fill_super(&self, _sb: &mut SuperBlock) -> Metadata {
+        Metadata::new(FileType::Directory, 0)
+    }
+}
 
 /// One Filesystem instance, with the directories of it a walk reaches. Every
 /// mount of the same instance shares them, as a bind mount shares its super
@@ -26,8 +40,9 @@ pub struct SuperBlock {
 }
 
 impl SuperBlock {
-    /// The instance `root` answers for, set up as its `fill_super` asks.
-    pub fn new(root: Arc<dyn InodeOperations>) -> Arc<Self> {
+    /// The instance `fs` makes, set up as its `fill_super` asks.
+    pub fn new(fs: Arc<dyn FileSystemType>) -> Arc<Self> {
+        let root: Arc<dyn InodeOperations> = fs.clone();
         let mut sb = Self {
             root: root.clone(),
             dentries: Dentries::new(None),
@@ -35,8 +50,8 @@ impl SuperBlock {
             rdonly: false,
             dontcache: false,
         };
-        root.fill_super(&mut sb);
-        sb.dentries.root().add(Some(Inode::root(root)));
+        let metadata = fs.fill_super(&mut sb);
+        sb.dentries.root().add(Some(Inode::new(&metadata, root)));
         Arc::new(sb)
     }
 

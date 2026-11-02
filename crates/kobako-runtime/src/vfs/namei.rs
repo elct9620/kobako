@@ -1031,8 +1031,8 @@ mod tests {
 
     use crate::filesystem::wrap::{self, Wrap};
     use crate::filesystem::{
-        DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError,
-        InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
+        DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
+        FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Access, Mount, Policy};
     use crate::sched::testing::count_waits;
@@ -1063,6 +1063,8 @@ mod tests {
         names: u64,
         linked: Arc<AtomicUsize>,
     }
+
+    impl FileSystemType for LinksFile {}
 
     impl InodeOperations for LinksFile {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1127,13 +1129,16 @@ mod tests {
         }
     }
 
+    impl FileSystemType for AskedOfAbsent {
+        fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
+            sb.set_default_d_op(Arc::new(self.clone()));
+            Metadata::new(FileType::Directory, 0)
+        }
+    }
+
     impl InodeOperations for AskedOfAbsent {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             Ok(Metadata::new(FileType::Directory, 0))
-        }
-
-        fn fill_super(&self, sb: &mut Filesystem) {
-            sb.set_default_d_op(Arc::new(self.clone()));
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
@@ -1184,9 +1189,47 @@ mod tests {
         );
     }
 
+    /// A Filesystem whose `fill_super` names its root.
+    struct NamesItsRoot;
+
+    impl FileSystemType for NamesItsRoot {
+        fn fill_super(&self, _sb: &mut Filesystem) -> Metadata {
+            Metadata::new(FileType::Directory, 0).with_identity(7, 11)
+        }
+    }
+
+    impl InodeOperations for NamesItsRoot {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::Directory, 0))
+        }
+    }
+
+    // @behavior RT-247
+    #[test]
+    fn a_root_stands_for_what_fill_super_reports() {
+        let identity = |fs: Arc<dyn FileSystemType>| {
+            let mount = Mount::new("/data", Filesystem::new(fs), Access::Read)
+                .expect("/data is a guest path");
+            let inode = Path::root(mount.mnt()).dentry().inode();
+            inode.and_then(|inode| inode.identity())
+        };
+        let reported = Metadata::new(FileType::Directory, 0).with_identity(7, 11);
+        assert_eq!(
+            (
+                identity(Arc::new(NamesItsRoot)),
+                identity(Arc::new(CreatesOnly::default()))
+            ),
+            (vfs::Identity::of(&reported), None),
+            "Filesystem::new must record on the root what fill_super reports, and no identity \
+             for a Filesystem with nothing to set up, as fill_super makes s_root"
+        );
+    }
+
     /// A Filesystem handing one inode for every name.
     #[derive(Clone)]
     struct SharesInode(Arc<OnceLock<Arc<Inode>>>);
+
+    impl FileSystemType for SharesInode {}
 
     impl InodeOperations for SharesInode {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1237,6 +1280,8 @@ mod tests {
     struct NoOperations;
 
     impl FileOperations for NoOperations {}
+
+    impl FileSystemType for CreatesOnly {}
 
     impl InodeOperations for CreatesOnly {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1596,6 +1641,13 @@ mod tests {
         }
     }
 
+    impl FileSystemType for HookedTmpfs {
+        fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
+            sb.set_default_d_op(Arc::new(HookedDentry(self.stale.clone())));
+            Metadata::new(FileType::Directory, 0)
+        }
+    }
+
     impl InodeOperations for HookedTmpfs {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             self.tmpfs.getattr(dentry)
@@ -1603,10 +1655,6 @@ mod tests {
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             self.tmpfs.lookup(dentry)
-        }
-
-        fn fill_super(&self, sb: &mut Filesystem) {
-            sb.set_default_d_op(Arc::new(HookedDentry(self.stale.clone())));
         }
 
         fn atomic_open(
@@ -1685,6 +1733,8 @@ mod tests {
         }
     }
 
+    impl FileSystemType for FoldsToUpper {}
+
     impl InodeOperations for FoldsToUpper {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             self.root.symlink_metadata(&folded(dentry))
@@ -1747,6 +1797,8 @@ mod tests {
     /// A directory where every name is a link that would open if asked,
     /// counting how often it was.
     struct OpensItsLinks(Arc<AtomicUsize>);
+
+    impl FileSystemType for OpensItsLinks {}
 
     impl InodeOperations for OpensItsLinks {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1862,6 +1914,8 @@ mod tests {
     /// A directory where every name is one entry, as hard links are, counting
     /// each move it is asked for.
     struct OneEntry(Arc<AtomicUsize>);
+
+    impl FileSystemType for OneEntry {}
 
     impl InodeOperations for OneEntry {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -2413,9 +2467,12 @@ mod tests {
             let file = Metadata::new(crate::filesystem::FileType::File, 0);
             Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
         }
+    }
 
-        fn fill_super(&self, sb: &mut Filesystem) {
+    impl FileSystemType for CountsLookups {
+        fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
             sb.set_default_d_op(Arc::new(self.clone()));
+            Metadata::new(FileType::Directory, 0)
         }
     }
 
@@ -2452,6 +2509,8 @@ mod tests {
     /// A file answering no call but those it records.
     struct RecordedFile;
     impl FileOperations for RecordedFile {}
+
+    impl FileSystemType for RecordsCalls {}
 
     impl InodeOperations for RecordsCalls {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {

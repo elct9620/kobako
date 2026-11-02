@@ -244,6 +244,8 @@ impl FileOperations for NoteFile {
 }
 
 /// The directory holding `note.txt`.
+impl kobako_runtime::filesystem::FileSystemType for OneNote {}
+
 impl InodeOperations for OneNote {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         Ok(Metadata::new(FileType::Directory, 0))

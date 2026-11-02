@@ -9,8 +9,9 @@ use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag, SetTime,
+    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
+    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
+    SetTime,
 };
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
 use whiteout::Whiteout;
@@ -624,6 +625,14 @@ impl Tmpfs {
     }
 }
 
+impl FileSystemType for Tmpfs {
+    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
+        sb.set_default_d_op(Arc::new(TmpfsDentry));
+        sb.set_dontcache();
+        self.dir.metadata(self.tree.dev)
+    }
+}
+
 /// A directory of a Tmpfs answers for the names in it. A file answers
 /// through `TmpfsRegular`, and a whiteout, a character device 0:0 with no
 /// driver to open it, through `TmpfsWhiteout`.
@@ -650,11 +659,6 @@ impl InodeOperations for Tmpfs {
             Err(err) => return Err(err),
         };
         Ok(Lookup::Found(self.inode_of(node)))
-    }
-
-    fn fill_super(&self, sb: &mut Filesystem) {
-        sb.set_default_d_op(Arc::new(TmpfsDentry));
-        sb.set_dontcache();
     }
 
     fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

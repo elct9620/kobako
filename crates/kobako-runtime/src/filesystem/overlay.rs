@@ -18,8 +18,8 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
+    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
+    FilesystemError, Iattr, InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
 };
 use crate::vfs::{notify_change, Dentry, Inode, NAME_MAX};
 use inode::OverlayInode;
@@ -225,17 +225,27 @@ impl InodeOperations for OverlayLink {
     }
 }
 
-/// A directory of the view, finding what a call is about through the dentry it
-/// is handed, as `ovl_dir_inode_operations` answers for one.
-impl InodeOperations for Overlay {
+impl FileSystemType for Overlay {
     /// With no upper nothing can change, as `ovl_fill_super` sets `SB_RDONLY`.
-    fn fill_super(&self, sb: &mut Filesystem) {
+    /// Its root takes the identity its topmost Layer's root recorded, as
+    /// `ovl_get_root` reads a real root's `i_ino`, so making the view asks no
+    /// Layer anything.
+    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
         sb.set_default_d_op(Arc::new(self.clone()));
         if !self.fs.has_upper() {
             sb.set_rdonly();
         }
+        let root = Metadata::new(FileType::Directory, 0);
+        match self.fs.root_identity() {
+            Some(identity) => identity.onto(root),
+            None => root,
+        }
     }
+}
 
+/// A directory of the view, finding what a call is about through the dentry it
+/// is handed, as `ovl_dir_inode_operations` answers for one.
+impl InodeOperations for Overlay {
     /// It reports its merged Layers.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         self.fs.dir_metadata(&self.fs.dir(dentry)?.level())
@@ -361,12 +371,12 @@ mod tests {
     use crate::vfs::kern_path::{kern_path, KernPath};
 
     /// `filesystem` reached through the VFS.
-    fn at(filesystem: impl InodeOperations) -> KernPath {
+    fn at(filesystem: impl FileSystemType) -> KernPath {
         kern_path(Arc::new(filesystem))
     }
 
     /// The Filesystem `filesystem` holds, reached through the VFS.
-    fn on<F: InodeOperations>(filesystem: &Arc<F>) -> KernPath {
+    fn on<F: FileSystemType>(filesystem: &Arc<F>) -> KernPath {
         kern_path(filesystem.clone())
     }
 
@@ -533,13 +543,13 @@ mod tests {
     }
 
     /// `upper` over the one lower Layer `lower`.
-    fn over(lower: Arc<dyn InodeOperations>, upper: Arc<Tmpfs>) -> Overlay {
+    fn over(lower: Arc<dyn FileSystemType>, upper: Arc<Tmpfs>) -> Overlay {
         Overlay::new(vec![Filesystem::new(lower)], Some(Filesystem::new(upper)))
             .expect("an upper over a lower Layer must make a view")
     }
 
     /// The lower Layers `top` over `bottom`, with no upper.
-    fn lowers(top: Arc<dyn InodeOperations>, bottom: Arc<dyn InodeOperations>) -> Overlay {
+    fn lowers(top: Arc<dyn FileSystemType>, bottom: Arc<dyn FileSystemType>) -> Overlay {
         Overlay::new(vec![Filesystem::new(top), Filesystem::new(bottom)], None)
             .expect("two lower Layers must make a view")
     }
@@ -754,6 +764,8 @@ mod tests {
     /// A lower Layer whose one file, `file`, would keep any time it is asked
     /// to, recording that it was.
     struct KeepsTimes(Arc<AtomicUsize>);
+
+    impl FileSystemType for KeepsTimes {}
 
     impl InodeOperations for KeepsTimes {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1479,8 +1491,8 @@ mod tests {
 
     /// Why `Overlay::new` refuses `lower` under `upper`, or `None`.
     fn refusal(
-        lower: Vec<Arc<dyn InodeOperations>>,
-        upper: Option<Arc<dyn InodeOperations>>,
+        lower: Vec<Arc<dyn FileSystemType>>,
+        upper: Option<Arc<dyn FileSystemType>>,
     ) -> Option<FilesystemError> {
         Overlay::new(
             lower.into_iter().map(Filesystem::new).collect(),
@@ -1538,10 +1550,9 @@ mod tests {
     // @behavior FS-126
     #[test]
     fn an_overlay_stacks_at_most_two_deep() {
-        let first: Arc<dyn InodeOperations> =
+        let first: Arc<dyn FileSystemType> =
             Arc::new(lowers(Arc::new(Tmpfs::new()), Arc::new(Tmpfs::new())));
-        let second: Arc<dyn InodeOperations> =
-            Arc::new(over(first.clone(), Arc::new(Tmpfs::new())));
+        let second: Arc<dyn FileSystemType> = Arc::new(over(first.clone(), Arc::new(Tmpfs::new())));
         assert_eq!(
             (
                 refusal(vec![first], Some(Arc::new(Tmpfs::new()))),
@@ -1556,9 +1567,9 @@ mod tests {
     // @behavior FS-127
     #[test]
     fn an_overlay_takes_at_most_five_hundred_lower_layers() {
-        let layers = |count: usize| -> Vec<Arc<dyn InodeOperations>> {
+        let layers = |count: usize| -> Vec<Arc<dyn FileSystemType>> {
             (0..count)
-                .map(|_| Arc::new(Tmpfs::new()) as Arc<dyn InodeOperations>)
+                .map(|_| Arc::new(Tmpfs::new()) as Arc<dyn FileSystemType>)
                 .collect()
         };
         assert_eq!(
@@ -2199,6 +2210,8 @@ mod tests {
         }
     }
 
+    impl FileSystemType for FoldsCase {}
+
     impl InodeOperations for FoldsCase {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             self.root.symlink_metadata(&folded(dentry))
@@ -2637,6 +2650,8 @@ mod tests {
     /// A lower Layer whose one entry, `pipe`, is a FIFO, counting each open.
     struct HoldsFifo(Arc<AtomicUsize>);
 
+    impl FileSystemType for HoldsFifo {}
+
     impl InodeOperations for HoldsFifo {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             Ok(match dentry.name().as_str() {
@@ -2830,7 +2845,7 @@ mod tests {
     // @behavior FS-119
     #[test]
     fn a_copy_up_through_one_overlay_directory_is_seen_through_another() {
-        let lower: Arc<dyn InodeOperations> = tmpfs_with("dir/a.txt", "a");
+        let lower: Arc<dyn FileSystemType> = tmpfs_with("dir/a.txt", "a");
         let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         let first = overlay.open_dir("dir").expect("dir must open");
         let second = overlay.open_dir("dir").expect("dir must open again");
@@ -2899,7 +2914,7 @@ mod tests {
     // @behavior FS-122
     #[test]
     fn a_directory_one_layer_shows_is_walked_without_its_stat() {
-        let only: Arc<dyn InodeOperations> = tmpfs_with("top/dir/file", "only");
+        let only: Arc<dyn FileSystemType> = tmpfs_with("top/dir/file", "only");
         let overlay = at(over(
             Arc::new(Wrap::new(only, Arc::new(StatsNoDir))),
             Arc::new(Tmpfs::new()),
@@ -2933,7 +2948,7 @@ mod tests {
     fn a_directory_a_layer_cannot_open_answers_why() {
         use crate::mount::{Access, Mount};
         use crate::vfs::{self, OpenHow};
-        let lower: Arc<dyn InodeOperations> = tmpfs_with("top/file", "lower");
+        let lower: Arc<dyn FileSystemType> = tmpfs_with("top/file", "lower");
         let overlay = over(
             Arc::new(Wrap::new(lower, Arc::new(RefusesOpen))),
             Arc::new(Tmpfs::new()),
@@ -3097,7 +3112,7 @@ mod tests {
     // @behavior FS-072
     #[test]
     fn an_overlay_keeps_a_directorys_identity_when_a_write_copies_it_up() {
-        let lower: Arc<dyn InodeOperations> =
+        let lower: Arc<dyn FileSystemType> =
             Arc::new([("dir/a.txt", "a")].into_iter().collect::<Tmpfs>());
         let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         let identity = |overlay: &KernPath| {

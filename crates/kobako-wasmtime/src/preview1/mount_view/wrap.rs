@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    DentryOperations, FileOperations, Filesystem, FilesystemError, InodeOperations, Lookup,
-    Metadata, OpenOptions, RenameFlag,
+    DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
+    InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag,
 };
 use kobako_runtime::vfs::Dentry;
 
@@ -30,8 +30,8 @@ pub(super) trait Hook: Send + Sync + 'static {
         inner.lookup(dentry)
     }
 
-    fn fill_super(&self, inner: &dyn InodeOperations, sb: &mut Filesystem) {
-        inner.fill_super(sb);
+    fn fill_super(&self, fs: &dyn FileSystemType, sb: &mut Filesystem) -> Metadata {
+        fs.fill_super(sb)
     }
 
     fn open(
@@ -79,12 +79,44 @@ pub(super) trait Hook: Send + Sync + 'static {
 /// `inner`, with `hook` stepping in.
 pub(super) struct Wrap<H> {
     inner: Arc<dyn InodeOperations>,
+    /// What makes the instance, on the root alone.
+    fs: Option<Arc<dyn FileSystemType>>,
     hook: Arc<H>,
 }
 
 impl<H: Hook> Wrap<H> {
-    pub(super) fn new(inner: Arc<dyn InodeOperations>, hook: Arc<H>) -> Arc<Self> {
-        Arc::new(Self { inner, hook })
+    /// A Filesystem over the one `fs` makes.
+    pub(super) fn new(fs: Arc<dyn FileSystemType>, hook: Arc<H>) -> Arc<Self> {
+        Arc::new(Self {
+            inner: fs.clone(),
+            fs: Some(fs),
+            hook,
+        })
+    }
+
+    /// An entry beneath the root, which sets up no instance.
+    fn entry(inner: Arc<dyn InodeOperations>, hook: Arc<H>) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            fs: None,
+            hook,
+        })
+    }
+}
+
+impl<H: Hook> FileSystemType for Wrap<H> {
+    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
+        let root = match &self.fs {
+            Some(fs) => self.hook.fill_super(fs.as_ref(), sb),
+            None => Metadata::new(FileType::Directory, 0),
+        };
+        if let Some(ops) = sb.d_op().cloned() {
+            sb.set_default_d_op(Arc::new(WrapDentry::<H> {
+                ops,
+                hook: PhantomData,
+            }));
+        }
+        root
     }
 }
 
@@ -123,21 +155,11 @@ impl<H: Hook> InodeOperations for Wrap<H> {
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         Ok(match self.hook.lookup(self.inner.as_ref(), dentry)? {
             Lookup::Found(inode) => {
-                let wrapped = Self::new(inode.ops().clone(), self.hook.clone());
+                let wrapped = Self::entry(inode.ops().clone(), self.hook.clone());
                 Lookup::Found(inode.with_ops(wrapped))
             }
             other => other,
         })
-    }
-
-    fn fill_super(&self, sb: &mut Filesystem) {
-        self.hook.fill_super(self.inner.as_ref(), sb);
-        if let Some(ops) = sb.d_op().cloned() {
-            sb.set_default_d_op(Arc::new(WrapDentry::<H> {
-                ops,
-                hook: PhantomData,
-            }));
-        }
     }
 
     fn open(

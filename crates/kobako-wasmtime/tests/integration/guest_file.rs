@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Kiocb, Lookup,
-    Metadata, OpenOptions, Tmpfs,
+    FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, InodeOperations, Kiocb,
+    Lookup, Metadata, OpenOptions, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
@@ -43,7 +43,7 @@ fn run(source: &str, grants: &[Grant], flags: Vec<Flag>) -> Option<Result<String
     })
 }
 
-fn mount(filesystem: Arc<dyn InodeOperations>, access: Access) -> Grant {
+fn mount(filesystem: Arc<dyn FileSystemType>, access: Access) -> Grant {
     Grant::Mount(
         Mount::new("/data", Filesystem::new(filesystem), access).expect("/data is a guest path"),
     )
@@ -54,13 +54,13 @@ fn note_tmpfs() -> Arc<Tmpfs> {
 }
 
 /// The root of `filesystem` as the host reaches it through the VFS.
-fn host<F: InodeOperations>(filesystem: &Arc<F>) -> Path {
+fn host<F: FileSystemType>(filesystem: &Arc<F>) -> Path {
     let mount = Mount::new("/data", Filesystem::new(filesystem.clone()), Access::Read)
         .expect("/data is a guest path");
     Path::root(mount.mnt())
 }
 
-fn contents<F: InodeOperations>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
+fn contents<F: FileSystemType>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
     let Ok(mut file) = vfs::do_file_open(&Arc::default(), &host(filesystem), path, &how) else {
@@ -564,6 +564,13 @@ impl<W> WrapsFiles<W> {
     }
 }
 
+impl<W, F> FileSystemType for WrapsFiles<W>
+where
+    W: Fn(Box<dyn FileOperations>) -> F + Send + Sync + 'static,
+    F: FileOperations + 'static,
+{
+}
+
 impl<W, F> InodeOperations for WrapsFiles<W>
 where
     W: Fn(Box<dyn FileOperations>) -> F + Send + Sync + 'static,
@@ -896,6 +903,8 @@ fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {
 /// An open file reporting a length it does not hold, so a script meets a
 /// file of several GiB without the test allocating one.
 struct ReportsLen(Arc<dyn InodeOperations>, u64);
+
+impl FileSystemType for ReportsLen {}
 
 impl InodeOperations for ReportsLen {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
