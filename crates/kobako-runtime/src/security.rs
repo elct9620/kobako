@@ -15,35 +15,27 @@ use crate::vfs::{
 /// What a Mount's Policy allowed a file as it opened, kept on the open file.
 struct Allowed(Access);
 
-/// How many times `revalidate_path` asks from the root before a move landing in
-/// every pass answers EAGAIN, as a scoped walk's `..` answers a move it met.
-const MAX_PASSES: usize = 4;
-
 /// Whether each name from the root down to `path` still names what the runtime
 /// recorded, as gVisor's `revalidatePath` walks one. Linux asks only names a walk
 /// passes through, so a `WalkGuard` asks this of where a call starts. A name moved
-/// while it was asked is asked again from the root, where it went, at most
-/// `MAX_PASSES` times in all, so moves landing without pause cannot hold the
-/// caller.
+/// while it was asked answers EAGAIN, as a scoped walk's `..` answers a move it
+/// met, and the caller makes the call again.
 fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
-    'again: for _ in 0..MAX_PASSES {
-        let mut chain = vec![path.dentry().clone()];
-        while let Some(above) = chain.last().and_then(|at| at.parent()) {
-            chain.push(above);
-        }
-        for pair in chain.windows(2).rev() {
-            let [name, above] = pair else { continue };
-            let _held = above.inode_lock_shared()?;
-            if !name.parent().is_some_and(|now| Arc::ptr_eq(&now, above)) {
-                continue 'again;
-            }
-            if !d_revalidate(path.mnt().sb(), above, name)? {
-                return Ok(false);
-            }
-        }
-        return Ok(true);
+    let mut chain = vec![path.dentry().clone()];
+    while let Some(above) = chain.last().and_then(|at| at.parent()) {
+        chain.push(above);
     }
-    Err(FilesystemError::WouldBlock)
+    for pair in chain.windows(2).rev() {
+        let [name, above] = pair else { continue };
+        let _held = above.inode_lock_shared()?;
+        if !name.parent().is_some_and(|now| Arc::ptr_eq(&now, above)) {
+            return Err(FilesystemError::WouldBlock);
+        }
+        if !d_revalidate(path.mnt().sb(), above, name)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// What every Invocation holds to, whatever its Mounts allow.
@@ -564,11 +556,12 @@ mod tests {
         }
     }
 
-    // Each pass from the root meets a move another Mount makes, so only a bound on
-    // the passes lets the call answer while the moves go on.
+    // Each pass from the root meets a move another Mount makes, so a guard asking
+    // again would make the call wait while the moves go on; one pass answers,
+    // and the caller makes the call again, as a scoped walk's `..` does.
     // @behavior RT-266
     #[test]
-    fn a_start_moved_in_every_pass_answers_eagain_beneath_a_policy() {
+    fn a_start_moved_while_it_is_asked_answers_eagain_beneath_a_policy() {
         use std::sync::atomic::Ordering;
 
         let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
@@ -584,9 +577,9 @@ mod tests {
         hook.guarding.set(std::thread::current().id()).ok();
         assert_eq!(
             (guard.check(held.path()), hook.moved.load(Ordering::SeqCst)),
-            (Err(FilesystemError::WouldBlock), MAX_PASSES),
-            "WalkGuard::check of a directory another Mount moves in every pass, beneath a \
-             Policy, must answer EAGAIN once its passes are used up"
+            (Err(FilesystemError::WouldBlock), 1),
+            "WalkGuard::check of a directory another Mount moves while it is asked, beneath a \
+             Policy, must answer EAGAIN from the pass that met the move"
         );
     }
 
@@ -596,7 +589,9 @@ mod tests {
         use super::*;
 
         // Nothing refuses a directory that stands, so a single refusal while it
-        // moves between two names is a dentry the walk let go of.
+        // moves between two names is a dentry the walk let go of. A move met
+        // while the guard asks answers EAGAIN for the caller to ask again, which
+        // refuses nothing.
         // @behavior RT-234
         #[test]
         #[ignore = "a stress witness; run by rake crates:stress"]
@@ -617,11 +612,12 @@ mod tests {
                         }
                     }
                 });
+                let call = || {
+                    guard.check(&start)?;
+                    crate::vfs::vfs_fstatat(&cred, &start, "f", false)
+                };
                 let refused = (0..200_000)
-                    .filter(|_| {
-                        guard.check(&start).is_err()
-                            || crate::vfs::vfs_fstatat(&cred, &start, "f", false).is_err()
-                    })
+                    .filter(|_| call().is_err_and(|error| error != FilesystemError::WouldBlock))
                     .count();
                 stop.store(true, Ordering::SeqCst);
                 refused
