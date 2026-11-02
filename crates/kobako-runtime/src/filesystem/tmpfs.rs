@@ -1942,4 +1942,53 @@ mod tests {
              old path through Tmpfs::create_dir must have another"
         );
     }
+
+    mod stress {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        use super::*;
+
+        // A move leaves its old directory before it reaches the new one, so only
+        // a stat landing between the two shows a move counted as a removal.
+        // @behavior FS-201
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn a_moved_file_keeps_its_names_through_the_move() {
+            let mount = crate::mount::Mount::new(
+                "/data",
+                Filesystem::new(Arc::new([("a", "x")].into_iter().collect::<Tmpfs>()))
+                    .expect("the instance must stand"),
+                crate::mount::Access::ReadWrite,
+            )
+            .expect("/data is a guest path");
+            let root = crate::vfs::Path::root(mount.mnt());
+            let how = crate::vfs::OpenHow {
+                read: true,
+                ..Default::default()
+            };
+            let held = crate::vfs::do_file_open(&Arc::default(), &root, "a", &how)
+                .unwrap_or_else(|_| panic!("the file must open"));
+            let stop = AtomicBool::new(false);
+            let nameless = std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    while !stop.load(Ordering::SeqCst) {
+                        for (from, to) in [("a", "b"), ("b", "a")] {
+                            crate::vfs::filename_renameat2(&Arc::default(), &root, from, &root, to)
+                                .unwrap_or_else(|_| panic!("the move must land"));
+                        }
+                    }
+                });
+                let nameless = (0..200_000)
+                    .filter(|_| held.getattr().is_ok_and(|found| found.nlink == 0))
+                    .count();
+                stop.store(true, Ordering::SeqCst);
+                nameless
+            });
+            assert_eq!(
+                nameless, 0,
+                "File::getattr of a Tmpfs file another thread keeps moving must never report it \
+                 with no name"
+            );
+        }
+    }
 }
