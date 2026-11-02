@@ -370,7 +370,7 @@ Some risks stay with the host, because kobako cannot see them.
 | a directory a Bind holds open on Windows | the host cannot move or remove it until the Bind is collected |
 | one Overlay's upper shared by another, or mounted on its own | undefined, as overlayfs leaves it; no crash or deadlock |
 | one Tmpfs handed to two Filesystem instances in the Rust SDK | undefined under concurrent moves, as each instance has its own locks |
-| one Filesystem mounted in invocations that run at once | a change in one directory or file waits for the other until `timeout:` or an interrupt |
+| one Filesystem mounted in invocations that run at once | a change to one entry waits for the other, until `timeout:` or an interrupt |
 | a call beneath a block while another Mount keeps moving its directories | it asks again from the root a few times, then raises `Errno::EAGAIN` |
 | a name Windows reads as another on a Bind | refused as `Errno::EINVAL`: a stream, a device, a wildcard, or a trailing dot or space |
 
