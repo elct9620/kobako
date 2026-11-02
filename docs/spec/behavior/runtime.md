@@ -3102,3 +3102,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened beneath a Mount's root |
 | When | a move carries a walk through it out from under it, to a last name nothing stands at |
 | Then | the call answers ENOENT, as Linux's `step_into` refuses that name before `complete_walk` |
+
+## `RT-279` A read-only Filesystem refuses a write before its permission is asked
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-242` |
+| relates | `RT-205` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem made read-only, whose `permission` refuses every write |
+| When | a caller opens one of its files to write |
+| Then | the call answers EROFS, as Linux's `sb_permission` answers before `->permission` |
