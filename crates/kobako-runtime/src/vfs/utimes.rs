@@ -11,9 +11,7 @@ use super::path::Path;
 use super::{FilesystemError, Iattr};
 
 /// Set `times` on what the descriptor at `path` names, as Linux's `do_utimes_fd`.
-/// No walk asks where it stands, so the security hook does here.
 pub fn do_utimes_fd(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
-    cred.security_path_walk(path)?;
     vfs_utimes(cred, path, times)
 }
 
@@ -197,11 +195,11 @@ mod tests {
         policy.0.lock().unwrap().clear();
         assert_eq!(
             (
-                do_utimes_fd(&cred, file.path(), &times()),
+                crate::security::WalkGuard::new([&mount]).check(file.path()),
                 policy.0.lock().unwrap().clone()
             ),
             (Err(FilesystemError::NotFound), Vec::new()),
-            "vfs::do_utimes_fd through a descriptor of a file whose name is gone, beneath a Policy, \
+            "WalkGuard::check of a descriptor of a file whose name is gone, beneath a Policy, \
              must answer ENOENT without asking the Policy about the path it stood at"
         );
     }

@@ -414,7 +414,6 @@ fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata
     if start.dentry().kind()? != FileType::Directory {
         return Err(FilesystemError::NotADirectory);
     }
-    cred.security_path_walk(start)?;
     Ok(Nameidata {
         mnt: start.mnt().clone(),
         cred: cred.clone(),

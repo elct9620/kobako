@@ -19,9 +19,14 @@ pub(crate) struct OpenFlags {
     pub(crate) fdflags: types::Fdflags,
 }
 
-/// Where `fd` stands, for a path to be walked from.
+/// Where `fd` stands, for a path to be walked from, once the guard answered for a
+/// directory there. What is no directory the walk itself refuses.
 fn walk_start(table: &Descriptors, fd: u32) -> Answer<&vfs::Path> {
-    Ok(table.get(fd).ok_or(Errno::Badf)?.file.path())
+    let file = &table.get(fd).ok_or(Errno::Badf)?.file;
+    if file.is_directory() {
+        table.walk_guard().check(file.path())?;
+    }
+    Ok(file.path())
 }
 
 pub(crate) fn create_directory(

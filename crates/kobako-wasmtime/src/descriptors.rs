@@ -12,7 +12,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::security::prepare_creds_within;
+use kobako_runtime::security::{prepare_creds_within, WalkGuard};
 use kobako_runtime::vfs::{Cred, File};
 
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
@@ -38,6 +38,8 @@ pub(crate) struct Descriptors {
     limit: Option<usize>,
     /// Who the guest's calls are made for, as a task holds its `cred`.
     cred: Arc<Cred>,
+    /// What a descriptor's call asks before it starts.
+    walk_guard: WalkGuard,
     /// The isolation the guest runs under, which decides what it sees of
     /// the times a Filesystem reports.
     profile: Profile,
@@ -63,6 +65,7 @@ impl Descriptors {
             (2, Descriptor::of(stderr)),
         ]);
         let cred = prepare_creds_within(&mounts, memory_limit);
+        let walk_guard = WalkGuard::new(&mounts);
         for (fd, mount) in (3..).zip(&mounts) {
             used.insert(
                 fd,
@@ -77,6 +80,7 @@ impl Descriptors {
             free: BTreeSet::new(),
             limit,
             cred,
+            walk_guard,
             profile,
         })
     }
@@ -84,6 +88,12 @@ impl Descriptors {
     /// Who the guest's calls are made for.
     pub(crate) fn cred(&self) -> &Arc<Cred> {
         &self.cred
+    }
+
+    /// What every call through a descriptor asks first, so a Policy judges the
+    /// path it stands at.
+    pub(crate) fn walk_guard(&self) -> &WalkGuard {
+        &self.walk_guard
     }
 
     /// The isolation the guest runs under.

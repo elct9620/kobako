@@ -14,7 +14,7 @@ use crate::vfs::{
 
 /// Whether each name from the root down to `path` still names what the runtime
 /// recorded, as gVisor's `revalidatePath` walks one. Linux asks only names a walk
-/// passes through, so a Policy asks this of where a call starts. A name moved
+/// passes through, so a `WalkGuard` asks this of where a call starts. A name moved
 /// while it was asked is asked again from the root, where it went.
 fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
     'again: loop {
@@ -166,17 +166,37 @@ impl SecurityOperations for MountPolicy {
             false => Ok(()),
         }
     }
+}
 
-    /// Refuse a call through a directory unless its dentry still names what
-    /// the runtime opened there, so the Policy judges the path it stands at.
-    /// A dentry dropped or removed is refused as Linux's AppArmor refuses an
-    /// unlinked one, and one whose identity the runtime never learned cannot be
-    /// told from another, so it is refused too. Linux asks nothing of the dentry
-    /// a walk starts from; this keeps a host or another Filesystem instance
-    /// moving a directory behind the runtime's back from having a Policy judge a
-    /// path it no longer stands at.
-    fn path_walk(&self, path: &Path) -> Result<(), FilesystemError> {
-        if !self.guards(path.mnt()) {
+/// What keeps a Policy judging the path a descriptor stands at, kobako's own
+/// guarantee: Linux asks nothing of the dentry a walk starts from, so nothing in
+/// its VFS can ask this, and a Driver asks it wherever a descriptor becomes where
+/// a call starts.
+pub struct WalkGuard {
+    /// The mounts a Policy judges; no other holds anything to keep true.
+    guarded: Vec<Arc<VfsMount>>,
+}
+
+impl WalkGuard {
+    /// What keeps each Policy over `mounts` judging the path it means to.
+    pub fn new<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Self {
+        let guarded = mounts
+            .into_iter()
+            .filter(|mount| mount.policy().is_some())
+            .map(|mount| mount.mnt().clone())
+            .collect();
+        Self { guarded }
+    }
+
+    /// Refuse a call through a descriptor unless its dentry still names what the
+    /// runtime opened there, so the Policy judges the path it stands at. A dentry
+    /// dropped or removed is refused as Linux's AppArmor refuses an unlinked one,
+    /// and one whose identity the runtime never learned cannot be told from another,
+    /// so it is refused too. This keeps a host or another Filesystem instance moving
+    /// a directory behind the runtime's back from having a Policy judge a path it no
+    /// longer stands at.
+    pub fn check(&self, path: &Path) -> Result<(), FilesystemError> {
+        if !self.guarded.iter().any(|mnt| Arc::ptr_eq(mnt, path.mnt())) {
             return Ok(());
         }
         let dentry = path.dentry();
@@ -357,7 +377,9 @@ mod tests {
 
     /// One Filesystem with a Mount under an allow-all Policy holding `p/d` open,
     /// and a Mount with none to move it through.
-    fn held_beneath_a_policy(filesystem: Arc<Filesystem>) -> (Arc<Cred>, crate::vfs::File, Mount) {
+    fn held_beneath_a_policy(
+        filesystem: Arc<Filesystem>,
+    ) -> (Arc<Cred>, crate::vfs::File, Mount, WalkGuard) {
         let guarded = Mount::new("/guarded", filesystem.clone(), Access::ReadWrite)
             .expect("/guarded is a guest path")
             .with_policy(Arc::new(Counts::default()));
@@ -370,7 +392,7 @@ mod tests {
         };
         let held = crate::vfs::do_file_open(&cred, &Path::root(guarded.mnt()), "p/d", &how)
             .unwrap_or_else(|_| panic!("the directory must open"));
-        (cred, held, plain)
+        (cred, held, plain, WalkGuard::new([&guarded]))
     }
 
     // The ask of `revalidate` and a move through the other Mount meet only if
@@ -384,11 +406,11 @@ mod tests {
         let (reached, asked) = std::sync::mpsc::channel();
         let hook = Arc::new(PausesRevalidate(std::sync::Mutex::new(None)));
         let filesystem = Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook.clone())));
-        let (cred, held, plain) = held_beneath_a_policy(filesystem);
+        let (cred, held, plain, guard) = held_beneath_a_policy(filesystem);
         *hook.0.lock().expect("the sender") = Some(reached);
         let start = held.path().clone();
         let first = std::thread::scope(|scope| {
-            let first = scope.spawn(|| crate::vfs::vfs_fstatat(&cred, &start, "f", false));
+            let first = scope.spawn(|| guard.check(&start));
             asked.recv().expect("the call must ask revalidate");
             let root = Path::root(plain.mnt());
             crate::vfs::filename_renameat2(&prepare_creds([]), &root, "p/d", &root, "q/d")
@@ -397,10 +419,11 @@ mod tests {
         });
         assert!(
             first.is_ok()
+                && guard.check(held.path()).is_ok()
                 && crate::vfs::vfs_fstatat(&cred, held.path(), "f", false).is_ok()
                 && held.path().dentry().path_raw() == "q/d",
-            "vfs::vfs_fstatat through a directory moved by another Mount while revalidate is \
-             asked, beneath a Policy, must find its file both then and afterwards, at q/d"
+            "WalkGuard::check of a directory moved by another Mount while revalidate is asked, \
+             beneath a Policy, must let a call through both then and afterwards, at q/d"
         );
     }
 
@@ -416,7 +439,8 @@ mod tests {
         #[ignore = "a stress witness; run by rake crates:stress"]
         fn a_directory_moving_while_calls_start_from_it_stays_reachable_beneath_a_policy() {
             let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
-            let (cred, held, plain) = held_beneath_a_policy(Filesystem::new(Arc::new(tmpfs)));
+            let (cred, held, plain, guard) =
+                held_beneath_a_policy(Filesystem::new(Arc::new(tmpfs)));
             let stop = AtomicBool::new(false);
             let start = held.path().clone();
             let refused = std::thread::scope(|scope| {
@@ -430,7 +454,10 @@ mod tests {
                     }
                 });
                 let refused = (0..200_000)
-                    .filter(|_| crate::vfs::vfs_fstatat(&cred, &start, "f", false).is_err())
+                    .filter(|_| {
+                        guard.check(&start).is_err()
+                            || crate::vfs::vfs_fstatat(&cred, &start, "f", false).is_err()
+                    })
                     .count();
                 stop.store(true, Ordering::SeqCst);
                 refused

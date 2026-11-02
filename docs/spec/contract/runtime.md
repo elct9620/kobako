@@ -1083,13 +1083,33 @@ pub trait SecurityOperations {
 }
 ```
 
-## `SecurityOperations::path_walk`
+## `WalkGuard`
 
-Whether a call may start from a Path.
+What keeps a Policy judging the path a descriptor stands at. A Driver asks it
+wherever a descriptor becomes where a call starts.
 
 ```rust
-pub trait SecurityOperations {
-    fn path_walk(&self, _path: &Path) -> Result<(), FilesystemError>;
+pub struct WalkGuard {}
+```
+
+## `WalkGuard::new`
+
+What keeps each Policy over some Mounts judging the path it means to.
+
+```rust
+impl WalkGuard {
+    pub fn new<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Self {}
+}
+```
+
+## `WalkGuard::check`
+
+Refuse a call through a descriptor unless its dentry still names what the runtime
+opened there.
+
+```rust
+impl WalkGuard {
+    pub fn check(&self, path: &Path) -> Result<(), FilesystemError> {}
 }
 ```
 

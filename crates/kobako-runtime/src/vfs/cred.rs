@@ -7,7 +7,6 @@ use std::sync::Arc;
 use super::dentry::Dentry;
 use super::inode::Mask;
 use super::mount::{Access, VfsMount};
-use super::path::Path;
 use super::{FileType, FilesystemError};
 
 /// A path a security hook is asked about: the mount it stands on, and its name
@@ -19,9 +18,8 @@ pub struct SecurityPath<'a> {
     pub name: &'a dyn Fn() -> String,
 }
 
-/// What a security module answers, as a hook in Linux's `lsm_hook_defs.h`,
-/// beside one added at the start of a walk. A hook a module does not have allows
-/// the call, and a module can only refuse.
+/// What a security module answers, as a hook in Linux's `lsm_hook_defs.h`. A hook
+/// a module does not have allows the call, and a module can only refuse.
 pub trait SecurityOperations: Send + Sync {
     /// Whether a call may do what `mask` asks of what `dentry` names, as
     /// `security_inode_permission` is asked once the entry itself allowed it.
@@ -98,12 +96,6 @@ pub trait SecurityOperations: Send + Sync {
 
     /// Whether where a link points may be read.
     fn inode_readlink(&self) -> Result<(), FilesystemError> {
-        Ok(())
-    }
-
-    /// Whether a call may start from `path`, a hook Linux does not have, as it
-    /// asks nothing of the dentry a walk starts from.
-    fn path_walk(&self, _path: &Path) -> Result<(), FilesystemError> {
         Ok(())
     }
 
@@ -224,10 +216,6 @@ impl Cred {
 
     pub(crate) fn security_inode_readlink(&self) -> Result<(), FilesystemError> {
         self.call_int_hook(|module| module.inode_readlink())
-    }
-
-    pub(crate) fn security_path_walk(&self, path: &Path) -> Result<(), FilesystemError> {
-        self.call_int_hook(|module| module.path_walk(path))
     }
 
     pub(crate) fn security_vm_enough_memory(&self, bytes: usize) -> Result<(), FilesystemError> {

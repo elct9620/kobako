@@ -233,7 +233,10 @@ pub(crate) fn filestat_set_times(
     let times = to_iattr(atim, mtim, flags)?;
     let file = &descriptor(table, fd)?.file;
     match times {
-        Some(times) => Ok(vfs::do_utimes_fd(table.cred(), file.path(), &times)?),
+        Some(times) => {
+            table.walk_guard().check(file.path())?;
+            Ok(vfs::do_utimes_fd(table.cred(), file.path(), &times)?)
+        }
         None => Ok(()),
     }
 }
@@ -626,6 +629,60 @@ mod tests {
             (Some(Errno::Badf), Some(Errno::Badf)),
             "fd_tell and fd_seek on a directory through preview1 must answer EBADF, as \
              wasi-testsuite requires"
+        );
+    }
+
+    /// Allows every path, counting each it is asked about.
+    #[derive(Default)]
+    struct CountsAsks(std::sync::atomic::AtomicUsize);
+
+    impl kobako_runtime::mount::Policy for CountsAsks {
+        fn allows(&self, _path: &str, _access: Access) -> bool {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            true
+        }
+    }
+
+    // The guard sits in the Driver rather than the VFS, so only this call shows
+    // that setting a descriptor's times asks it.
+    // @behavior RT-201
+    #[test]
+    fn setting_a_descriptors_times_asks_whether_it_still_stands() {
+        use std::sync::atomic::Ordering;
+        let policy = Arc::new(CountsAsks::default());
+        let tmpfs: kobako_runtime::filesystem::Tmpfs = [("f", "x")].into_iter().collect();
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
+            .expect("/data is a guest path")
+            .with_policy(policy.clone());
+        let root = Path::root(mount.mnt());
+        let mut table = Descriptors::new(
+            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            vec![mount],
+            None,
+            None,
+            Profile::Hermetic,
+        )
+        .unwrap_or_else(|_| panic!("the table must make"));
+        let cred = table.cred().clone();
+        let mut read = OpenHow::default();
+        read.read = true;
+        let opened = vfs::do_file_open(&cred, &root, "f", &read)
+            .unwrap_or_else(|_| panic!("the file must open"));
+        let fd = table
+            .push(Descriptor::of(opened))
+            .unwrap_or_else(|| panic!("the table must have room"));
+        vfs::filename_unlinkat(&cred, &root, "f").unwrap_or_else(|_| panic!("the name must go"));
+        policy.0.store(0, Ordering::SeqCst);
+        assert_eq!(
+            (
+                errno(filestat_set_times(&table, fd, 0, 0, Fstflags::ATIM_NOW)),
+                policy.0.load(Ordering::SeqCst)
+            ),
+            (Some(Errno::Noent), 0),
+            "fd_filestat_set_times through a descriptor of a file whose name is gone, beneath a \
+             Policy, must answer ENOENT without asking the Policy about the path it stood at"
         );
     }
 
