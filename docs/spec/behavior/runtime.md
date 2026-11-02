@@ -3139,3 +3139,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem holding a file |
 | When | a caller truncates the open file, and opens it with `O_TRUNC` |
 | Then | each `setattr` names the new size and a modification time of now, as Linux's `do_truncate` names `ATTR_MTIME` |
+
+## `RT-282` A Filesystem asking about the name its lookup answers is asked within it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-264` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose lookup of a name asks the runtime about that same name |
+| When | a walk reaches the name |
+| Then | the Filesystem is asked again within its own lookup, and the walk answers rather than waiting on itself |
