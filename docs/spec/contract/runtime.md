@@ -2322,6 +2322,17 @@ pub trait FileOperations {
 }
 ```
 
+## `FileOperations::is_stream`
+
+Whether the file reads and writes what comes next, with no position. The
+default takes a position.
+
+```rust
+pub trait FileOperations {
+    fn is_stream(&self) -> bool;
+}
+```
+
 ## `OpenOptions`
 
 How a file is opened: for reading, writing, or truncating.

@@ -3027,3 +3027,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | the file moved since to where the Policy refuses changes |
 | When | the guest truncates the file through its descriptor |
 | Then | the truncate lands, as Landlock keeps on the file what it allowed at the open |
+
+## `RT-273` A file its Filesystem opens as a stream takes no position
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-178` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose open marks the file it opens as a stream |
+| When | the guest seeks the file, and reads it at an offset |
+| Then | each call answers ESPIPE, as Linux's `stream_open` takes the position away |
