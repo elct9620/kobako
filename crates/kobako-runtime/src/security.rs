@@ -429,7 +429,7 @@ mod tests {
             let root = Path::root(plain.mnt());
             crate::vfs::filename_renameat2(&prepare_creds([]), &root, "p/d", &root, "q/d")
                 .expect("the move must land");
-            first.join().expect("the call must answer")
+            crate::sched::testing::join_scoped("the call", first)
         });
         assert!(
             first.is_ok()

@@ -157,6 +157,29 @@ pub(crate) mod testing {
         }
     }
 
+    /// What the thread `handle` runs answers, failing the test with `what` past
+    /// `MAX_WAIT`, so a thread stuck on a lock fails rather than hangs.
+    pub(crate) fn join<T>(what: &str, handle: std::thread::JoinHandle<T>) -> T {
+        wait_until(what, || handle.is_finished());
+        handle
+            .join()
+            .unwrap_or_else(|_| panic!("{what} must not panic"))
+    }
+
+    /// What the scoped thread `handle` runs answers, as `join` waits for one.
+    pub(crate) fn join_scoped<T>(what: &str, handle: std::thread::ScopedJoinHandle<'_, T>) -> T {
+        wait_until(what, || handle.is_finished());
+        handle
+            .join()
+            .unwrap_or_else(|_| panic!("{what} must not panic"))
+    }
+
+    /// What `run` answers, each wait for a lock in it ending past `MAX_WAIT`, so a
+    /// test thread waiting on a lock itself fails rather than hangs.
+    pub(crate) fn bounded<T>(run: impl FnOnce() -> T) -> T {
+        super::run_task(Some(Instant::now() + MAX_WAIT), run)
+    }
+
     use super::{Blocking, BLOCKING};
 
     thread_local! {

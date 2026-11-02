@@ -1671,7 +1671,7 @@ mod tests {
             ]);
         });
         assert_eq!(
-            answered.recv_timeout(std::time::Duration::from_secs(5)),
+            answered.recv_timeout(crate::sched::testing::MAX_WAIT),
             Ok([
                 Some(FilesystemError::PermissionDenied),
                 Some(FilesystemError::PermissionDenied)

@@ -734,8 +734,8 @@ mod tests {
         thread::sleep(std::time::Duration::from_millis(50));
         let waited = !reader.is_finished();
         release.send(()).ok();
-        writer.join().expect("the write must not panic");
-        let begun = reader.join().expect("the read must not panic");
+        crate::sched::testing::join("the write", writer);
+        let begun = crate::sched::testing::join("the read", reader);
         assert_eq!(
             (waited, begun, lock.read_seqretry(begun)),
             (true, 2, false),

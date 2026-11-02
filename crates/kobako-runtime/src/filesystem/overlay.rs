@@ -1796,14 +1796,13 @@ mod tests {
         let root = crate::vfs::Path::root(mount.mnt());
         *interleave.overlay.lock().unwrap() = Some(root.clone());
         let removed = crate::vfs::filename_rmdir(&Arc::default(), &root, "dir").is_ok();
-        interleave
+        let other = interleave
             .other
             .lock()
             .unwrap()
             .take()
-            .expect("the other call must have started")
-            .join()
-            .expect("the other call must not panic");
+            .expect("the other call must have started");
+        crate::sched::testing::join("the other call", other);
         assert_eq!(
             (
                 removed,
@@ -2176,10 +2175,12 @@ mod tests {
             }
             let _ = done.send(());
         });
-        let returned = finished.recv_timeout(Duration::from_secs(10)).is_ok();
+        let returned = finished
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .is_ok();
         moved.store(true, Ordering::SeqCst);
         if returned {
-            removing.join().expect("the removal must not panic");
+            crate::sched::testing::join("the removal", removing);
         }
         assert!(
             returned,
@@ -2489,9 +2490,7 @@ mod tests {
             let opened = inner.open(dentry, options);
             let run = self.0.lock().expect("never poisoned").take();
             if let Some(run) = run {
-                thread::spawn(run)
-                    .join()
-                    .expect("the writer must not panic");
+                crate::sched::testing::join("the writer", thread::spawn(run));
             }
             opened
         }
@@ -2675,8 +2674,8 @@ mod tests {
                 scope.spawn(|| vfs::do_file_open(&cred, &root, "d/e/g", &write).map(drop)),
             );
             (
-                first.join().expect("the first open answers"),
-                second.join().expect("the second open answers"),
+                crate::sched::testing::join_scoped("the first open", first),
+                crate::sched::testing::join_scoped("the second open", second),
             )
         });
         assert_eq!(
@@ -2716,17 +2715,23 @@ mod tests {
                 write: true,
                 ..OpenHow::default()
             };
-            let barrier = std::sync::Barrier::new(2);
+            let ready = std::sync::atomic::AtomicBool::new(false);
             std::thread::scope(|scope| {
                 let opening = scope.spawn(|| {
-                    barrier.wait();
+                    crate::sched::testing::wait_until("the removal starting", || {
+                        ready.load(Ordering::SeqCst)
+                    });
                     vfs::do_file_open(&cred, &root, "d/f", &write)
                         .ok()
                         .map(|file| file.getattr().map(|metadata| metadata.file_type))
                 });
-                barrier.wait();
-                let removed = vfs::filename_unlinkat(&cred, &root, "d/f");
-                (removed, opening.join().expect("the open must answer"))
+                ready.store(true, Ordering::SeqCst);
+                let removed =
+                    crate::sched::testing::bounded(|| vfs::filename_unlinkat(&cred, &root, "d/f"));
+                (
+                    removed,
+                    crate::sched::testing::join_scoped("the open", opening),
+                )
             })
         }
 
@@ -3231,10 +3236,10 @@ mod tests {
         crate::sched::testing::wait_until("the first copy up opening its lower file", || {
             sleeps.opening.load(Ordering::SeqCst)
         });
-        let waited = write_over(&second, "note", b"later");
+        let waited = crate::sched::testing::bounded(|| write_over(&second, "note", b"later"));
         assert_eq!(
             (
-                copying.join().expect("the first copy up must not panic"),
+                crate::sched::testing::join("the first copy up", copying),
                 waited,
                 counts.load(Ordering::SeqCst) > 0
             ),

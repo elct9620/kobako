@@ -1288,8 +1288,8 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
         let before = order.lock().expect("never poisoned").clone();
         drop(held);
-        writer.join().expect("the writer finishes");
-        reader.join().expect("the reader finishes");
+        crate::sched::testing::join("the writer", writer);
+        crate::sched::testing::join("the reader", reader);
         assert_eq!(
             (again, before, order.lock().expect("never poisoned").clone()),
             (Ok(()), Vec::new(), vec!["writer", "reader"]),
@@ -2505,10 +2505,7 @@ mod tests {
             .expect("another directory must be made in its place");
         let dir = open_dir(&root, "d");
         made.send(()).ok();
-        remover
-            .join()
-            .expect("the remover must not panic")
-            .expect("the removal must succeed");
+        crate::sched::testing::join("the remover", remover).expect("the removal must succeed");
         assert_eq!(
             vfs::filename_mkdirat(&Arc::default(), &dir, "inner"),
             Ok(()),
@@ -2581,11 +2578,8 @@ mod tests {
             removed.send(()).ok();
             answer
         });
-        let opened = opener.join().expect("the open must not panic");
-        remover
-            .join()
-            .expect("the removal must not panic")
-            .expect("the removal must land");
+        let opened = crate::sched::testing::join("the open", opener);
+        crate::sched::testing::join("the removal", remover).expect("the removal must land");
         assert_eq!(
             opened,
             Ok(()),
@@ -2710,8 +2704,10 @@ mod tests {
         renaming
             .recv_timeout(crate::sched::testing::MAX_WAIT)
             .expect("the move must reach the Filesystem");
-        let made = vfs::filename_mkdirat(&Arc::default(), &replaced, "made");
-        let moved = mover.join().expect("the mover must not panic");
+        let made = crate::sched::testing::bounded(|| {
+            vfs::filename_mkdirat(&Arc::default(), &replaced, "made")
+        });
+        let moved = crate::sched::testing::join("the mover", mover);
         assert_eq!(
             (made, moved),
             (Err(FilesystemError::NotFound), Ok(())),
@@ -2753,11 +2749,9 @@ mod tests {
         removing
             .recv_timeout(crate::sched::testing::MAX_WAIT)
             .expect("the removal must reach the Filesystem");
-        let made = vfs::filename_mkdirat(&Arc::default(), &root, "e");
-        remover
-            .join()
-            .expect("the remover must not panic")
-            .expect("the removal must succeed");
+        let made =
+            crate::sched::testing::bounded(|| vfs::filename_mkdirat(&Arc::default(), &root, "e"));
+        crate::sched::testing::join("the remover", remover).expect("the removal must succeed");
         assert_eq!(
             (made, counts.load(Ordering::SeqCst)),
             (Ok(()), 1),
@@ -2802,9 +2796,11 @@ mod tests {
         };
         // Bounded, so a move that never reaches the Filesystem fails the
         // assertion rather than hanging the test.
-        reaching.recv_timeout(Duration::from_secs(5)).ok();
-        let removed = vfs::filename_unlinkat(&Arc::default(), &root, "DIR/F");
-        let moved = mover.join().expect("the mover must not panic");
+        reaching.recv_timeout(crate::sched::testing::MAX_WAIT).ok();
+        let removed = crate::sched::testing::bounded(|| {
+            vfs::filename_unlinkat(&Arc::default(), &root, "DIR/F")
+        });
+        let moved = crate::sched::testing::join("the mover", mover);
         assert_eq!(
             (moved, removed, counts.load(Ordering::SeqCst) > 0),
             (
@@ -3260,8 +3256,8 @@ mod tests {
         go_on.send(()).ok();
         go_on.send(()).ok();
         let answers = (
-            first.join().expect("the first walk must not panic"),
-            second.join().expect("the second walk must not panic"),
+            crate::sched::testing::join("the first walk", first),
+            crate::sched::testing::join("the second walk", second),
         );
         assert_eq!(
             (answers, holds.asked.load(Ordering::SeqCst)),
@@ -3405,7 +3401,7 @@ mod tests {
             vfs::vfs_fstatat(&Arc::default(), &root, "x", false).err()
         });
         go_on.send(()).ok();
-        first.join().expect("the first walk must not panic");
+        crate::sched::testing::join("the first walk", first);
         assert_eq!(
             second,
             Some(FilesystemError::Interrupted),
@@ -3434,7 +3430,9 @@ mod tests {
                 let reached = self.reached.lock().expect("never poisoned");
                 reached.send(()).expect("the test waits to hear");
                 let go_on = self.go_on.lock().expect("never poisoned");
-                go_on.recv().expect("the test says when to go on");
+                go_on
+                    .recv_timeout(crate::sched::testing::MAX_WAIT)
+                    .expect("the test says when to go on");
             }
             inner.rename(from, to_dir, to, flag)
         }
@@ -3484,7 +3482,7 @@ mod tests {
             })
         };
         reaching
-            .recv_timeout(Duration::from_secs(5))
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
             .expect("the held move must reach its Filesystem");
         let mover = {
             let (cred, root) = (cred.clone(), root.clone());
@@ -3493,11 +3491,9 @@ mod tests {
         thread::sleep(Duration::from_millis(200));
         let renamed = vfs::filename_renameat2(&Arc::default(), &root, "a/x", &root, "a/moved");
         go_on.send(()).expect("the held move must be waiting");
-        holder
-            .join()
-            .expect("the holder must not panic")
+        crate::sched::testing::join("the holder", holder)
             .unwrap_or_else(|_| panic!("the held move must land"));
-        let moved = mover.join().expect("the mover must not panic");
+        let moved = crate::sched::testing::join("the mover", mover);
         let stands = |path| vfs::vfs_fstatat(&cred, &root, path, false).is_ok();
         assert_eq!(
             (renamed, moved, stands("a/moved"), stands("b/y")),
