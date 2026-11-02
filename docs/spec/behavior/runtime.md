@@ -3065,3 +3065,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a stream open to read and write |
 | When | the guest sets it to append and not to block, then asks what it reports |
 | Then | it reports both flags and the rights to read and to write, as Linux's `F_GETFL` reports a pipe's |
+
+## `RT-276` A descriptor reports the kind its file is
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-195` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose entry is a character device it opens like any file |
+| When | the guest opens the entry and asks what its descriptor reports |
+| Then | the descriptor reports a character device, as a stat of the same entry does |
