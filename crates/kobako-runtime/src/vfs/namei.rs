@@ -331,8 +331,9 @@ impl Nameidata {
     }
 
     /// Find what the last name stands for, as Linux's `lookup_last` does: a
-    /// trailing `/` follows a link there and asks for a directory, and a link
-    /// followed leaves another last name to find.
+    /// trailing `/` follows a link there and asks for a directory, a link
+    /// followed leaves another last name to find, and nothing standing there is
+    /// ENOENT, as `step_into` answers before the walk is checked.
     fn lookup_last(&mut self, mut follow: bool) -> Result<(), FilesystemError> {
         loop {
             if self.last_type != LastType::Norm {
@@ -346,6 +347,9 @@ impl Nameidata {
             let held = parent.inode_lock_shared()?;
             let child = self.lookup_last_locked()?;
             drop(held);
+            if child.inode().is_none() {
+                return Err(FilesystemError::NotFound);
+            }
             if !follow || child.kind() != Ok(FileType::Symlink) {
                 return Ok(());
             }
@@ -513,10 +517,7 @@ pub fn do_file_open(
                 nd.on_path(|path| cred.security_file_open(path, FileType::File, mode, how))?;
             (f_op, security)
         }
-        None => {
-            nd.complete_walk()?;
-            return Err(FilesystemError::NotFound);
-        }
+        None => return Err(FilesystemError::NotFound),
         Some(kind) => {
             drop(held);
             nd.complete_walk()?;
@@ -1920,6 +1921,39 @@ mod tests {
             Some(FilesystemError::Escape),
             "vfs_fstatat ending on what a move carried out from under its start must \
              answer an escape, as complete_walk asks path_is_under"
+        );
+    }
+
+    // The same move carries the walk out, so only the missing name answering
+    // before the walk is checked tells ENOENT from the escape.
+    // @behavior RT-278
+    #[test]
+    fn a_walk_ending_where_nothing_stands_answers_enoent_before_where_it_stands() {
+        let cred = Arc::default();
+        let start = || {
+            let root = moves_as_walked(&[("a/b/k", "k"), ("z/keep", "z")], "a/b", "z/b");
+            let how = OpenHow {
+                read: true,
+                directory: true,
+                ..OpenHow::default()
+            };
+            vfs::do_file_open(&cred, &root, "a", &how).expect("a opens")
+        };
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let stat = vfs::vfs_fstatat(&cred, start().path(), "b/l/missing", false);
+        let open = vfs::do_file_open(&cred, start().path(), "b/l/missing", &read);
+        assert_eq!(
+            (stat.err(), open.err()),
+            (
+                Some(FilesystemError::NotFound),
+                Some(FilesystemError::NotFound)
+            ),
+            "vfs_fstatat and do_file_open of a name nothing stands at, through a directory a \
+             move carried out from under the start, must answer ENOENT, as step_into does \
+             before complete_walk"
         );
     }
 
