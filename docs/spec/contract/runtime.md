@@ -1045,21 +1045,23 @@ pub trait SecurityOperations {
 
 ## `SecurityOperations::file_open`
 
-Whether a file of a kind at a path may be opened with an access.
+Whether a file may be opened for a mode as the open asks, a file the open made
+included. What the module answers it keeps on the open file.
 
 ```rust
 pub trait SecurityOperations {
-    fn file_open(&self, _path: SecurityPath<'_>, _kind: FileType, _access: Access) -> Result<(), FilesystemError>;
+    fn file_open(&self, _path: SecurityPath<'_>, _kind: FileType, _mode: FMode, _how: &OpenHow) -> Result<FileSecurity, FilesystemError>;
 }
 ```
 
 ## `SecurityOperations::file_truncate`
 
-Whether an entry may be truncated through an open file.
+Whether an open file may be truncated, judged from what the module kept on it
+as it opened.
 
 ```rust
 pub trait SecurityOperations {
-    fn file_truncate(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
+    fn file_truncate(&self, _kept: &FileSecurity) -> Result<(), FilesystemError>;
 }
 ```
 

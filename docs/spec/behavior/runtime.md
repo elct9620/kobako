@@ -3014,3 +3014,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation holding nothing at a descriptor number |
 | When | the guest sets no time through that number, or on a path starting from it |
 | Then | each call succeeds, as `utimensat` returns before it takes the descriptor |
+
+## `RT-272` A truncate follows what the Policy allowed as the file opened
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-139` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file opened to write beneath a Mount whose Policy allowed it |
+| Given | the file moved since to where the Policy refuses changes |
+| When | the guest truncates the file through its descriptor |
+| Then | the truncate lands, as Landlock keeps on the file what it allowed at the open |
