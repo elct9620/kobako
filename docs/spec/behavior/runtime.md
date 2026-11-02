@@ -2990,3 +2990,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem listing a plain name and then one that holds a `/` |
 | When | the guest lists the directory from its start |
 | Then | the call hands over the names before it, and only a call going on from there answers EIO |
+
+## `RT-270` An allocation or advice on a FIFO answers ESPIPE
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-099` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a FIFO open to write, whose Filesystem opens it like any file |
+| When | a caller allocates for it or advises on it |
+| Then | each call answers ESPIPE, as Linux's `vfs_fallocate` and `generic_fadvise` read what the file is |
