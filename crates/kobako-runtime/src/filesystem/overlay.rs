@@ -23,7 +23,7 @@ use super::{
     InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
 };
 use crate::vfs::{generic_read_dir, notify_change, Dentry, DirContext, Inode, NAME_MAX};
-use inode::OverlayInode;
+use inode::{OverlayDirInode, OverlayFileInode};
 use path::OverlayPath;
 use stack::OverlayFs;
 
@@ -100,7 +100,7 @@ impl Overlay {
 /// recorded, as `ovl_getattr` asks the real path.
 fn real_of(dentry: &Dentry) -> Option<(Arc<Dentry>, Arc<Inode>)> {
     let inode = dentry.inode()?;
-    let real = OverlayInode::of(&inode)?.real()?;
+    let real = OverlayFileInode::of(&inode)?.real();
     Some((real, inode))
 }
 
@@ -123,16 +123,18 @@ impl DentryOperations for Overlay {
         _dir: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
-        if dentry.inode().is_none() {
+        let Some(inode) = dentry.inode() else {
             return Ok(matches!(self.lookup(dentry)?, Lookup::Absent));
+        };
+        if let Some(kept) = OverlayFileInode::of(&inode) {
+            return ovl_revalidate_real(&kept.real());
         }
-        let Some(kept) = dentry.inode().as_deref().and_then(OverlayInode::of) else {
+        let Some(kept) = OverlayDirInode::of(&inode) else {
             return Ok(true);
         };
         let shown = kept.level();
-        let reals = shown.iter().flatten().map(|layer| layer.dentry().clone());
-        for real in reals.chain(kept.real()) {
-            if !ovl_revalidate_real(&real)? {
+        for layer in shown.iter().flatten() {
+            if !ovl_revalidate_real(layer.dentry())? {
                 return Ok(false);
             }
         }
@@ -147,15 +149,18 @@ impl DentryOperations for Overlay {
     /// A name goes once nothing holds it where any Layer behind it would let
     /// its own go, since its `revalidate` answers only as those Layers do.
     fn delete(&self, dentry: &Dentry) -> bool {
-        let Some(kept) = dentry.inode().as_deref().and_then(OverlayInode::of) else {
+        let Some(inode) = dentry.inode() else {
             return false;
         };
-        let real = kept.real().is_some_and(|real| real.goes_when_unused());
-        real || kept
-            .level()
-            .iter()
-            .flatten()
-            .any(|layer| layer.dentry().goes_when_unused())
+        if let Some(kept) = OverlayFileInode::of(&inode) {
+            return kept.real().goes_when_unused();
+        }
+        OverlayDirInode::of(&inode).is_some_and(|kept| {
+            kept.level()
+                .iter()
+                .flatten()
+                .any(|layer| layer.dentry().goes_when_unused())
+        })
     }
 }
 
@@ -321,7 +326,7 @@ impl InodeOperations for Overlay {
     }
 
     fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.fs.unlink(&self.fs.parent(dentry)?, &dentry.name())
+        self.fs.unlink(&self.fs.parent(dentry)?, dentry)
     }
 
     /// Both directories lie in one Overlay, however many directories of
@@ -560,6 +565,27 @@ mod tests {
 
     fn tmpfs_with(path: &str, contents: &str) -> Arc<Tmpfs> {
         Arc::new([(path, contents)].into_iter().collect())
+    }
+
+    // A helper beneath the VFS skips the super block's read-only answer, so only
+    // the view's own upper standing empty keeps the change off its lower Layers.
+    // @behavior FS-197
+    #[test]
+    fn a_change_reaching_an_overlay_with_no_upper_leaves_its_lower_layers_as_they_are() {
+        let top = tmpfs_with("dir/file", "top");
+        let overlay = at(lowers(top.clone(), Arc::new(Tmpfs::new())));
+        assert_eq!(
+            (
+                overlay.create_dir("made").err(),
+                on(&top).symlink_metadata("made").err()
+            ),
+            (
+                Some(FilesystemError::ReadOnlyFilesystem),
+                Some(FilesystemError::NotFound)
+            ),
+            "OverlayFs::mkdir with no upper, reached beneath the VFS's read-only answer, must \
+             answer EROFS and make nothing in its topmost lower Layer"
+        );
     }
 
     /// `upper` over the one lower Layer `lower`.

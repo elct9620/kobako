@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, OpenOptions};
-use super::super::inode::OverlayInode;
+use super::super::inode::OverlayFileInode;
 use super::super::path::OverlayPath;
 use super::{copy_whole, OverlayFs, ViewDir, UPPER};
 use crate::vfs::{Dentry, RenameFlag};
@@ -26,7 +26,10 @@ impl OverlayFs {
             if let Some(held) = at.level()[UPPER].clone() {
                 break held;
             }
-            let above = at.dentry.parent().ok_or(FilesystemError::CrossesDevices)?;
+            let above = at
+                .dentry
+                .parent()
+                .ok_or(FilesystemError::ReadOnlyFilesystem)?;
             let next = self.dir(&above)?;
             unmade.push(at);
             at = next;
@@ -102,10 +105,10 @@ impl OverlayFs {
         let inode = child
             .inode()
             .as_deref()
-            .and_then(OverlayInode::of)
+            .and_then(OverlayFileInode::of)
             .ok_or(FilesystemError::NotFound)?;
         let _held = inode.lock.down_write()?;
-        let real = inode.real().ok_or(FilesystemError::NotFound)?;
+        let real = inode.real();
         // Another call may have copied it up while this one waited, as
         // overlayfs's `ovl_already_copied_up_locked` checks.
         if self.is_in_upper(&real) {

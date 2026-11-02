@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use super::super::{FileOperations, FilesystemError, Kiocb, OpenOptions};
-use super::inode::OverlayInode;
+use super::inode::OverlayFileInode;
 use crate::vfs::Dentry;
 
 /// `file`, opened on `real` for the entry `inode` keeps, as `ovl_open` hands out
@@ -13,7 +13,7 @@ use crate::vfs::Dentry;
 pub(super) fn ovl_file(
     file: Box<dyn FileOperations>,
     real: Arc<Dentry>,
-    inode: Arc<OverlayInode>,
+    inode: Arc<OverlayFileInode>,
 ) -> Box<dyn FileOperations> {
     Box::new(OverlayFile {
         file,
@@ -29,7 +29,7 @@ struct OverlayFile {
     /// The Layer's dentry `file` was opened on.
     real: Arc<Dentry>,
     /// The entry this file reads, which says where its data is now.
-    inode: Arc<OverlayInode>,
+    inode: Arc<OverlayFileInode>,
     /// The upper's file, once a copy up made one and a call found it.
     upper: Option<Box<dyn FileOperations>>,
 }
@@ -38,7 +38,8 @@ impl OverlayFile {
     /// The file holding the data now, as `ovl_real_file_path` finds it.
     fn real_file(&mut self) -> Result<&mut dyn FileOperations, FilesystemError> {
         if self.upper.is_none() {
-            if let Some(real) = self.inode.real().filter(|r| !Arc::ptr_eq(r, &self.real)) {
+            let real = self.inode.real();
+            if !Arc::ptr_eq(&real, &self.real) {
                 let read = OpenOptions {
                     read: true,
                     ..OpenOptions::default()

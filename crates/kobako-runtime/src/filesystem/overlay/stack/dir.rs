@@ -6,11 +6,11 @@
 
 use super::super::super::{FileOperations, FileType, FilesystemError, OpenOptions};
 use super::super::file::ovl_file;
-use super::super::inode::OverlayInode;
+use super::super::inode::{OverlayDirInode, OverlayFileInode};
 use super::super::path::OverlayPath;
 use super::{
-    cleanup, cleanup_whiteouts, entry, layer_dir, ovl_lower_positive, Level, OverlayFs, Shown,
-    ViewDir, UPPER,
+    cleanup, cleanup_whiteouts, entry, layer_dir, ovl_lower_positive, OverlayFs, Shown, ViewDir,
+    UPPER,
 };
 use crate::vfs::{Dentry, RenameFlag};
 
@@ -22,15 +22,6 @@ fn holds_whiteouts(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemErro
         .entries()?
         .iter()
         .any(|entry| inner.is_whiteout(&entry.name)))
-}
-
-/// Whether the upper holds an entry at `name` in `level`, as
-/// `ovl_dentry_upper` answers for a dentry.
-fn upper_shows(level: &Level, name: &str) -> Result<bool, FilesystemError> {
-    match &level[UPPER] {
-        Some(upper) => Ok(matches!(entry(upper, name)?, Shown::Entry(_))),
-        None => Ok(false),
-    }
 }
 
 impl OverlayFs {
@@ -78,35 +69,46 @@ impl OverlayFs {
         Ok(made)
     }
 
-    /// Replace the upper's directory `name` in `dir`, holding nothing but
-    /// whiteouts, with an empty one marked opaque, as overlayfs's
-    /// `ovl_clear_empty` does, so the view shows it empty throughout. Its
-    /// dentry in the view no longer matches, so the next walk finds the one
-    /// exchanged in, should what follows fail.
+    /// An empty directory marked opaque, exchanged in for what stands at `name` in
+    /// `dir`, as overlayfs's `ovl_clear_empty` does, so the view shows it empty
+    /// throughout. A dentry naming a directory there no longer matches, so the next
+    /// walk finds the one exchanged in, should what follows fail.
     pub(in super::super) fn clear_empty(
         &self,
         dir: &OverlayPath,
         name: &str,
     ) -> Result<(), FilesystemError> {
-        self.exchange_in_opaque_dir(dir, name)
-    }
-
-    /// An empty directory marked opaque, exchanged in for what stands at
-    /// `name` in `dir`.
-    fn exchange_in_opaque_dir(&self, dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
         self.exchange_in(dir, name, |work, temp| {
             work.do_mkdir(temp)?;
             work.open_dir(temp)?.set_opaque()
         })
     }
 
+    /// Whether the upper holds what `dentry` names, read from what its entry
+    /// keeps, as `ovl_dentry_upper` answers.
+    fn upper_holds(&self, dentry: &Dentry) -> bool {
+        let Some(inode) = dentry.inode() else {
+            return false;
+        };
+        match OverlayFileInode::of(&inode) {
+            Some(kept) => self.is_in_upper(&kept.real()),
+            None => OverlayDirInode::of(&inode).is_some_and(|kept| kept.level()[UPPER].is_some()),
+        }
+    }
+
     /// Take `name` out of the view: a whiteout over any Layer that keeps
     /// it, which also takes the upper's own entry away, or else only the
     /// upper's entry, as overlayfs's `ovl_do_remove` chooses.
-    fn do_remove(&self, dir: &ViewDir, name: &str, is_dir: bool) -> Result<(), FilesystemError> {
+    fn do_remove(
+        &self,
+        dir: &ViewDir,
+        dentry: &Dentry,
+        is_dir: bool,
+    ) -> Result<(), FilesystemError> {
+        let name = &dentry.name();
         let level = dir.level();
         let shown_below = ovl_lower_positive(&level, name);
-        let upper_holds = upper_shows(&level, name)?;
+        let upper_holds = self.upper_holds(dentry);
         // A directory the upper holds with whiteouts in it is first
         // replaced by an empty one, as overlayfs's `ovl_clear_empty` does,
         // so it removes as an empty directory.
@@ -130,8 +132,8 @@ impl OverlayFs {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let inode = child.inode().ok_or(FilesystemError::NotFound)?;
-        let kept = OverlayInode::of(&inode).ok_or(FilesystemError::IsADirectory)?;
-        let real = kept.real().ok_or(FilesystemError::IsADirectory)?;
+        let kept = OverlayFileInode::of(&inode).ok_or(FilesystemError::IsADirectory)?;
+        let real = kept.real();
         if self.is_in_upper(&real) {
             return real.open(options);
         }
@@ -140,9 +142,7 @@ impl OverlayFs {
             return Ok(ovl_file(file, real, kept));
         }
         self.copy_up_file(dir, child, options.truncate)?;
-        kept.real()
-            .ok_or(FilesystemError::IsADirectory)?
-            .open(options)
+        kept.real().open(options)
     }
 
     /// Make the file `name`, where the view shows nothing, in the upper.
@@ -163,7 +163,7 @@ impl OverlayFs {
     pub(in super::super) fn mkdir(&self, dir: &ViewDir, name: &str) -> Result<(), FilesystemError> {
         let upper_dir = self.upper_dir(dir)?;
         match upper_dir.is_whiteout(name) {
-            true => self.exchange_in_opaque_dir(&upper_dir, name),
+            true => self.clear_empty(&upper_dir, name),
             false => upper_dir.do_mkdir(name),
         }
     }
@@ -176,16 +176,16 @@ impl OverlayFs {
         if !self.check_empty_dir(dentry)? {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
-        self.do_remove(dir, &dentry.name(), true)
+        self.do_remove(dir, dentry, true)
     }
 
     /// A link is removed as itself, wherever it points.
     pub(in super::super) fn unlink(
         &self,
         dir: &ViewDir,
-        name: &str,
+        dentry: &Dentry,
     ) -> Result<(), FilesystemError> {
-        self.do_remove(dir, name, false)
+        self.do_remove(dir, dentry, false)
     }
 
     /// Whether what `moved` names, of kind `moving`, can move at all, as
@@ -198,9 +198,7 @@ impl OverlayFs {
             let lower = level.iter().skip(UPPER + 1).flatten().next().is_some();
             return Ok(level[UPPER].is_some() && !lower);
         }
-        let inode = moved.inode().ok_or(FilesystemError::NotFound)?;
-        let real = OverlayInode::of(&inode).and_then(|kept| kept.real());
-        Ok(moving == FileType::File || real.is_some_and(|real| self.is_in_upper(&real)))
+        Ok(moving == FileType::File || self.upper_holds(moved))
     }
 
     /// A directory moves only when the upper alone holds it; moving one

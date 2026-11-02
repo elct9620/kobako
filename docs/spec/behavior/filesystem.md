@@ -2113,3 +2113,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a directory of a Tmpfs, a Bind, or an Overlay, opened to read |
 | When | a caller reads from it |
 | Then | the read answers EISDIR |
+
+## `FS-197` An Overlay with no upper changes none of its lower Layers
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-169` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay with lower Layers and no upper |
+| When | a change reaches it past the read-only answer of its super block |
+| Then | the change answers EROFS, and the Layers hold what they held |

@@ -21,7 +21,7 @@ mod readdir;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::inode::{ovl_get_inode, OverlayInode};
+use super::inode::{ovl_get_inode, OverlayDirInode};
 use super::path::OverlayPath;
 
 use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb};
@@ -32,9 +32,9 @@ use crate::vfs::{Dentry, Identity};
 const UPPERDIR: &str = "upper";
 const WORKDIR: &str = "work";
 
-/// Where the upper stands among the Layers, topmost first. Every change lands
-/// there; an Overlay without one is read-only at its super block, so no change
-/// reaches it, as `ovl_fill_super` leaves overlayfs's.
+/// Where the upper stands among the Layers, topmost first, holding nothing where
+/// an Overlay has none, as `ovl_inode` keeps `__upperdentry` apart from its lower
+/// stack. Every change lands there.
 pub(super) const UPPER: usize = 0;
 
 /// Each Layer's directory at one directory of the view, topmost first;
@@ -47,7 +47,7 @@ pub(super) type Level = Vec<Option<OverlayPath>>;
 #[derive(Clone)]
 pub(super) struct ViewDir {
     dentry: Arc<Dentry>,
-    inode: Arc<OverlayInode>,
+    inode: Arc<OverlayDirInode>,
 }
 
 impl ViewDir {
@@ -94,12 +94,10 @@ impl Shown {
 }
 
 /// What `dir` shows at `name`, read from one lookup, as `ovl_lookup_single` reads
-/// `d_is_dir` from the dentry it found.
+/// `ovl_is_whiteout` and `d_is_dir` from the dentry it found.
 fn entry(dir: &OverlayPath, name: &str) -> Result<Shown, FilesystemError> {
-    if dir.is_whiteout(name) {
-        return Ok(Shown::Whiteout);
-    }
     match dir.lookup_single(name) {
+        Ok(Some((_, dentry))) if dir.is_whiteout_dentry(&dentry) => Ok(Shown::Whiteout),
         Ok(Some((stored, dentry))) => Ok(Shown::Entry(LayerEntry { stored, dentry })),
         Ok(None) | Err(FilesystemError::NotFound | FilesystemError::InvalidFilename) => {
             Ok(Shown::Nothing)
@@ -213,8 +211,9 @@ fn workdir_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError>
 /// top, as overlayfs's `ovl_fs` holds a mount's layers.
 #[derive(Clone)]
 pub(super) struct OverlayFs {
-    /// Each Layer's root, topmost first; the upper's is its `upper`.
-    roots: Vec<OverlayPath>,
+    /// Each Layer's root, the upper's `upper` at `UPPER` where there is one, and
+    /// the lower Layers beneath it, topmost first.
+    roots: Level,
     /// Where a change is built before it lands, with an upper only.
     work: Option<OverlayPath>,
     /// The next name a change built in `work` takes.
@@ -229,18 +228,18 @@ impl OverlayFs {
         lower: Vec<Arc<Filesystem>>,
         upper: Option<Arc<Filesystem>>,
     ) -> Result<Self, FilesystemError> {
-        let mut roots = Vec::new();
+        let mut roots = vec![None];
         let mut work = None;
         if let Some(upper) = upper {
             let root = OverlayPath::root(&upper);
-            roots.push(workdir_create(&root, UPPERDIR)?);
+            roots[UPPER] = Some(workdir_create(&root, UPPERDIR)?);
             let made = workdir_create(&root, WORKDIR)?;
             for entry in made.entries()? {
                 workdir_cleanup(&made, &entry.name)?;
             }
             work = Some(made);
         }
-        roots.extend(lower.iter().map(OverlayPath::root));
+        roots.extend(lower.iter().map(|layer| Some(OverlayPath::root(layer))));
         Ok(Self {
             roots,
             work,
@@ -255,7 +254,8 @@ impl OverlayFs {
 
     /// What the topmost Layer's root recorded it stands for.
     pub(super) fn root_identity(&self) -> Option<Identity> {
-        self.roots.first()?.dentry().inode()?.identity()
+        let topmost = self.roots.iter().flatten().next()?;
+        topmost.dentry().inode()?.identity()
     }
 
     /// The directory of the view `dentry` names, its state found on the inode
@@ -264,7 +264,7 @@ impl OverlayFs {
     pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
         let inode = ovl_get_inode(dentry, || match dentry.parent() {
             Some(_) => Err(FilesystemError::NotADirectory),
-            None => Ok(self.roots.iter().cloned().map(Some).collect()),
+            None => Ok(self.roots.clone()),
         })?;
         Ok(ViewDir {
             dentry: dentry.get(),

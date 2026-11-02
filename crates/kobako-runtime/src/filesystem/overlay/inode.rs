@@ -1,7 +1,8 @@
 //! The entries of an Overlay's view as it keeps them on their inodes, as
-//! overlayfs keeps an `ovl_inode` for each: a directory's Layers'
-//! directories, the lock a copy up of the entry holds, and where a file's
-//! data is.
+//! overlayfs keeps an `ovl_inode` for each: a directory's Layers' directories, or
+//! where anything else stands in a Layer, with the lock a copy up of the entry
+//! holds. A directory and a file keep apart what `ovl_inode` holds together, so
+//! each answers only what it has.
 //!
 //! The runtime records one inode for each dentry it reaches, so every handle
 //! of an entry reaches the same state, and a removal or a replacement
@@ -17,37 +18,41 @@ use super::stack::{Level, UPPER};
 use crate::locking::RwSemaphore;
 use crate::vfs::{Dentry, Inode};
 
-/// One entry of the view.
-pub(super) struct OverlayInode {
-    /// Each Layer's directory a directory stands for; empty for a file.
+/// A directory of the view.
+pub(super) struct OverlayDirInode {
+    /// Each Layer's directory it stands for.
     level: Mutex<Level>,
-    /// The lock a copy up of the entry holds, as overlayfs's
-    /// `ovl_inode_lock`, so two calls never copy one entry up at once.
+    /// The lock a copy up of it holds, as overlayfs's `ovl_inode_lock`, so two
+    /// calls never copy it up at once.
     pub(super) lock: Arc<RwSemaphore>,
-    /// The Layer's dentry a lookup found this file at, or a copy up made,
-    /// as `struct ovl_entry` holds the real dentries, so the entry answers
-    /// from it even once its name is gone from the view.
-    real: Mutex<Option<Arc<Dentry>>>,
+}
+
+/// A file of the view, or anything else that is no directory.
+pub(super) struct OverlayFileInode {
+    /// The Layer's dentry a lookup found it at, or a copy up made, as `struct
+    /// ovl_entry` holds the real dentries, so it answers from there even once its
+    /// name is gone from the view.
+    real: Mutex<Arc<Dentry>>,
+    /// The lock a copy up of it holds, as overlayfs's `ovl_inode_lock`.
+    pub(super) lock: Arc<RwSemaphore>,
 }
 
 fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
     held.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-impl OverlayInode {
-    /// A directory's Layers, or the Layer's dentry anything else answers
-    /// through, as `ovl_inode_params` carries them.
-    pub(super) fn new(level: Level, real: Option<Arc<Dentry>>) -> Self {
+impl OverlayDirInode {
+    /// A directory standing for `level`, as `ovl_inode_params` carries it.
+    pub(super) fn new(level: Level) -> Self {
         Self {
             level: Mutex::new(level),
             lock: Arc::default(),
-            real: Mutex::new(real),
         }
     }
 
-    /// What `inode` keeps, where it keeps any.
+    /// What `inode` keeps, where it is a directory's.
     pub(super) fn of(inode: &Inode) -> Option<Arc<Self>> {
-        Some(downcast(inode.private().get()?.clone()))
+        inode.private().get()?.clone().downcast().ok()
     }
 
     pub(super) fn level(&self) -> Level {
@@ -60,42 +65,60 @@ impl OverlayInode {
     pub(super) fn inode_update(&self, dir: &OverlayPath) {
         lock(&self.level)[UPPER] = Some(dir.clone());
     }
+}
 
-    /// The Layer's dentry this file answers through.
-    pub(super) fn real(&self) -> Option<Arc<Dentry>> {
+impl OverlayFileInode {
+    /// An entry answering through `real`, as `ovl_inode_params` carries it.
+    pub(super) fn new(real: Arc<Dentry>) -> Self {
+        Self {
+            real: Mutex::new(real),
+            lock: Arc::default(),
+        }
+    }
+
+    /// What `inode` keeps, where it is no directory's.
+    pub(super) fn of(inode: &Inode) -> Option<Arc<Self>> {
+        inode.private().get()?.clone().downcast().ok()
+    }
+
+    /// The Layer's dentry this answers through.
+    pub(super) fn real(&self) -> Arc<Dentry> {
         lock(&self.real).clone()
     }
 
     /// This file's data now stands at `real`, in the upper, as
     /// `ovl_dentry_set_upper_alias` records a copy up.
     pub(super) fn set_real(&self, real: Arc<Dentry>) {
-        *lock(&self.real) = Some(real);
+        *lock(&self.real) = real;
     }
 }
 
-/// The state the entry `dentry` records keeps, made from the level `init`
-/// finds where it keeps none yet, as overlayfs's `ovl_get_inode` finds or
-/// makes one. A dentry recording nothing names no entry to keep it for.
+/// The state of the directory `dentry` records, made from the level `init` finds
+/// where it keeps none yet, as overlayfs's `ovl_get_inode` finds or makes one. A
+/// dentry recording nothing names no entry to keep it for.
 pub(super) fn ovl_get_inode(
     dentry: &Dentry,
     init: impl FnOnce() -> Result<Level, FilesystemError>,
-) -> Result<Arc<OverlayInode>, FilesystemError> {
+) -> Result<Arc<OverlayDirInode>, FilesystemError> {
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-    if let Some(kept) = inode.private().get() {
-        return Ok(downcast(kept.clone()));
+    if let Some(kept) = OverlayDirInode::of(&inode) {
+        return Ok(kept);
     }
-    let made: Arc<dyn Any + Send + Sync> = Arc::new(OverlayInode::new(init()?, None));
-    Ok(downcast(inode.private().get_or_init(|| made).clone()))
+    if inode.private().get().is_some() {
+        return Err(FilesystemError::NotADirectory);
+    }
+    let made: Arc<dyn Any + Send + Sync> = Arc::new(OverlayDirInode::new(init()?));
+    inode
+        .private()
+        .get_or_init(|| made)
+        .clone()
+        .downcast()
+        .map_err(|_| FilesystemError::NotADirectory)
 }
 
 /// Keep on `inode` what its lookup found, as `ovl_inode_init` takes it from
 /// `ovl_lookup` under the directory's lock, so a name moved meanwhile cannot
 /// have the entry stand for another.
-pub(super) fn ovl_inode_init(inode: &Inode, kept: OverlayInode) {
+pub(super) fn ovl_inode_init<T: Any + Send + Sync>(inode: &Inode, kept: T) {
     inode.private().get_or_init(|| Arc::new(kept));
-}
-
-fn downcast(kept: Arc<dyn Any + Send + Sync>) -> Arc<OverlayInode> {
-    kept.downcast()
-        .expect("an Overlay's inode keeps an Overlay's state")
 }

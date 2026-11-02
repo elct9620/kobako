@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, InodeOperations, Metadata};
-use super::super::inode::{ovl_inode_init, OverlayInode};
+use super::super::inode::{ovl_inode_init, OverlayDirInode, OverlayFileInode};
 use super::{entry, layer_dir, LayerEntry, Level, OverlayFs, Shown, UPPER};
 use crate::vfs::{Dentry, Inode};
 
@@ -101,7 +101,7 @@ impl OverlayFs {
         let ops = ops_of(kind);
         if kind != FileType::Directory {
             let inode = self.file_inode(index, &found.dentry, ops)?;
-            ovl_inode_init(&inode, OverlayInode::new(Vec::new(), Some(found.dentry)));
+            ovl_inode_init(&inode, OverlayFileInode::new(found.dentry));
             return Ok(inode);
         }
         let merged = self.lookup_layers(level, name, (index, found))?;
@@ -113,7 +113,7 @@ impl OverlayFs {
             }
             _ => Inode::new(&self.dir_metadata(&merged)?, ops),
         };
-        ovl_inode_init(&inode, OverlayInode::new(merged, None));
+        ovl_inode_init(&inode, OverlayDirInode::new(merged));
         Ok(inode)
     }
 
