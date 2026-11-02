@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::super::super::{FileType, FilesystemError, InodeOperations, Metadata};
 use super::super::inode::{ovl_inode_init, OverlayDirInode, OverlayFileInode};
-use super::{entry, layer_dir, LayerEntry, Level, OverlayFs, Shown, UPPER};
+use super::{entry, layer_dir, LayerEntry, Level, OverlayFs, Presence, UPPER};
 use crate::vfs::{Dentry, Inode};
 
 impl OverlayFs {
@@ -21,9 +21,9 @@ impl OverlayFs {
                 continue;
             };
             match entry(dir, name)? {
-                Shown::Entry(found) => return Ok(Some((index, found))),
-                Shown::Whiteout => break,
-                Shown::Nothing => {}
+                Presence::Entry(found) => return Ok(Some((index, found))),
+                Presence::Whiteout => break,
+                Presence::Nothing => {}
             }
         }
         Ok(None)
@@ -51,7 +51,7 @@ impl OverlayFs {
                 continue;
             };
             match entry(dir, name)? {
-                Shown::Entry(found) if found.kind() == Ok(FileType::Directory) => {
+                Presence::Entry(found) if found.kind() == Ok(FileType::Directory) => {
                     let inner = dir.beneath(found.dentry);
                     let opaque = inner.is_opaque();
                     merged[index] = Some(inner);
@@ -59,8 +59,8 @@ impl OverlayFs {
                         break;
                     }
                 }
-                Shown::Entry(_) | Shown::Whiteout => break,
-                Shown::Nothing => {}
+                Presence::Entry(_) | Presence::Whiteout => break,
+                Presence::Nothing => {}
             }
         }
         Ok(merged)

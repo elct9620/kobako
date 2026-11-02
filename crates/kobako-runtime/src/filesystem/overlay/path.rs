@@ -19,7 +19,7 @@ use super::super::{
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_create, vfs_mkdir, vfs_rename,
+    __start_renaming, lookup_one_qstr_excl, may_create_dentry, vfs_create, vfs_mkdir, vfs_rename,
     vfs_rmdir, vfs_unlink, Cred, Dentry, DirContext, DirEmit, RenameFlag,
 };
 
@@ -124,7 +124,7 @@ impl OverlayPath {
         to: &str,
         flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
-        let rd = start_renaming(
+        let rd = __start_renaming(
             &self.filesystem,
             (&self.dentry, from),
             (&target.dentry, to),

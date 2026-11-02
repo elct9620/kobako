@@ -59,7 +59,7 @@ impl ViewDir {
 
 /// What a Layer shows at a name, as `ovl_lookup_single` tells a whiteout from an
 /// entry.
-enum Shown {
+enum Presence {
     /// Nothing, and a name too long for that Layer to hold is nothing either, as
     /// `ovl_lookup_single` answers ENOENT and ENAMETOOLONG by moving on.
     Nothing,
@@ -87,7 +87,7 @@ impl LayerEntry {
     }
 }
 
-impl Shown {
+impl Presence {
     fn is_directory(&self) -> bool {
         matches!(self, Self::Entry(found) if found.kind() == Ok(FileType::Directory))
     }
@@ -95,12 +95,12 @@ impl Shown {
 
 /// What `dir` shows at `name`, read from one lookup, as `ovl_lookup_single` reads
 /// `ovl_is_whiteout` and `d_is_dir` from the dentry it found.
-fn entry(dir: &OverlayPath, name: &str) -> Result<Shown, FilesystemError> {
+fn entry(dir: &OverlayPath, name: &str) -> Result<Presence, FilesystemError> {
     match dir.lookup_single(name) {
-        Ok(Some((_, dentry))) if dir.is_whiteout_dentry(&dentry) => Ok(Shown::Whiteout),
-        Ok(Some((stored, dentry))) => Ok(Shown::Entry(LayerEntry { stored, dentry })),
+        Ok(Some((_, dentry))) if dir.is_whiteout_dentry(&dentry) => Ok(Presence::Whiteout),
+        Ok(Some((stored, dentry))) => Ok(Presence::Entry(LayerEntry { stored, dentry })),
         Ok(None) | Err(FilesystemError::NotFound | FilesystemError::InvalidFilename) => {
-            Ok(Shown::Nothing)
+            Ok(Presence::Nothing)
         }
         Err(err) => Err(err),
     }
@@ -112,9 +112,9 @@ fn entry(dir: &OverlayPath, name: &str) -> Result<Shown, FilesystemError> {
 fn ovl_lower_positive(level: &Level, name: &str) -> bool {
     for dir in level.iter().skip(UPPER + 1).flatten() {
         match entry(dir, name) {
-            Ok(Shown::Nothing) => {}
-            Ok(Shown::Whiteout) => return false,
-            Ok(Shown::Entry(_)) | Err(_) => return true,
+            Ok(Presence::Nothing) => {}
+            Ok(Presence::Whiteout) => return false,
+            Ok(Presence::Entry(_)) | Err(_) => return true,
         }
     }
     false
@@ -153,7 +153,7 @@ fn layer_dir(dir: &Option<OverlayPath>) -> Result<&OverlayPath, FilesystemError>
 
 /// The directory `name` in `root`, made there first if it stands nowhere, as
 /// overlayfs's `ovl_workdir_create` makes its upperdir's sibling.
-fn workdir_create(root: &OverlayPath, name: &str) -> Result<OverlayPath, FilesystemError> {
+fn ovl_workdir_create(root: &OverlayPath, name: &str) -> Result<OverlayPath, FilesystemError> {
     match root.do_mkdir(name) {
         Ok(()) | Err(FilesystemError::AlreadyExists) => root.open_dir(name),
         Err(err) => Err(err),
@@ -163,7 +163,7 @@ fn workdir_create(root: &OverlayPath, name: &str) -> Result<OverlayPath, Filesys
 /// Take `name` out of `dir`, a directory only once it is empty, as
 /// overlayfs's `ovl_cleanup` takes away what a change left in its
 /// workdir, so whatever another writer made in it meanwhile stays.
-fn cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+fn ovl_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
     match dir.symlink_metadata(name)?.file_type {
         FileType::Directory => dir.do_rmdir(name),
         _ => dir.do_unlink(name),
@@ -173,7 +173,7 @@ fn cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
 /// Take the whiteouts out of the directory `name` in `dir`, and nothing
 /// else, as overlayfs's `ovl_cleanup_whiteouts` does before it removes
 /// one; anything else stands there leaves it holding that.
-fn cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+fn ovl_cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
     if dir.symlink_metadata(name)?.file_type != FileType::Directory {
         return Ok(());
     }
@@ -188,7 +188,7 @@ fn cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), FilesystemErro
 
 /// Take `name` out of the workdir with all it holds, as overlayfs's
 /// `ovl_workdir_cleanup` empties it of what an earlier mount left.
-fn workdir_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+fn ovl_workdir_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
     let mut pending = vec![(dir.clone(), name.to_string())];
     while let Some((dir, name)) = pending.last().cloned() {
         if dir.symlink_metadata(&name)?.file_type != FileType::Directory {
@@ -233,10 +233,10 @@ impl OverlayFs {
         let creator_cred = Arc::default();
         if let Some(upper) = upper {
             let root = OverlayPath::root(&upper, &creator_cred);
-            roots[UPPER] = Some(workdir_create(&root, UPPERDIR)?);
-            let made = workdir_create(&root, WORKDIR)?;
+            roots[UPPER] = Some(ovl_workdir_create(&root, UPPERDIR)?);
+            let made = ovl_workdir_create(&root, WORKDIR)?;
             for entry in made.entries()? {
-                workdir_cleanup(&made, &entry.name)?;
+                ovl_workdir_cleanup(&made, &entry.name)?;
             }
             work = Some(made);
         }

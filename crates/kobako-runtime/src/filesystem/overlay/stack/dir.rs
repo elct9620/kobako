@@ -9,8 +9,8 @@ use super::super::file::ovl_file;
 use super::super::inode::{OverlayDirInode, OverlayFileInode};
 use super::super::path::OverlayPath;
 use super::{
-    cleanup, cleanup_whiteouts, entry, layer_dir, ovl_lower_positive, OverlayFs, Shown, ViewDir,
-    UPPER,
+    entry, layer_dir, ovl_cleanup, ovl_cleanup_whiteouts, ovl_lower_positive, OverlayFs, Presence,
+    ViewDir, UPPER,
 };
 use crate::vfs::{Dentry, RenameFlag};
 
@@ -40,7 +40,7 @@ impl OverlayFs {
             return Err(err);
         }
         if is_dir {
-            let _ = cleanup(work, &temp);
+            let _ = ovl_cleanup(work, &temp);
         }
         Ok(())
     }
@@ -63,9 +63,9 @@ impl OverlayFs {
                 Ok(made)
             })
             .inspect_err(|_| {
-                let _ = cleanup(work, &temp);
+                let _ = ovl_cleanup(work, &temp);
             })?;
-        let _ = cleanup_whiteouts(work, &temp).and_then(|()| cleanup(work, &temp));
+        let _ = ovl_cleanup_whiteouts(work, &temp).and_then(|()| ovl_cleanup(work, &temp));
         Ok(made)
     }
 
@@ -117,7 +117,7 @@ impl OverlayFs {
         }
         match (shown_below, upper_holds) {
             (true, _) => self.cleanup_and_whiteout(&self.upper_dir(dir)?, name),
-            (false, true) => cleanup(layer_dir(&level[UPPER])?, name),
+            (false, true) => ovl_cleanup(layer_dir(&level[UPPER])?, name),
             (false, false) => Err(FilesystemError::NotFound),
         }
     }
@@ -240,7 +240,7 @@ impl OverlayFs {
         // A directory holding only whiteouts is replaced by an empty one first,
         // as `ovl_rename_upper` calls `ovl_clear_empty` for a list not empty.
         if replaces_dir
-            && matches!(entry(&target_dir, to_name)?, Shown::Entry(_))
+            && matches!(entry(&target_dir, to_name)?, Presence::Entry(_))
             && holds_whiteouts(&target_dir, to_name)?
         {
             self.clear_empty(&target_dir, to_name)?;

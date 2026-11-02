@@ -9,9 +9,9 @@ use crate::vfs::{dir_emit_entries, Cred, Dentry, DirContext, DirEntry, Filesyste
 /// The entries a listing began with, on the open directory until it reaches
 /// its end, counted against who holds them.
 #[derive(Default)]
-pub struct Rdir(Option<Held>);
+pub struct Rdir(Option<Listing>);
 
-struct Held {
+struct Listing {
     entries: Vec<DirEntry>,
     charge: Charge,
 }
@@ -67,7 +67,7 @@ impl Rdir {
                 Charge::of(ctx.cred(), &entries)?
             }
         };
-        self.0 = Some(Held { entries, charge });
+        self.0 = Some(Listing { entries, charge });
         Ok(())
     }
 }

@@ -369,7 +369,7 @@ struct OpenFids(Mutex<Vec<(Weak<std::fs::File>, bool)>>);
 
 /// A descriptor open on the file `dentry` records, one open to write where
 /// `writable` asks, as 9p's `v9fs_fid_find_inode` finds one.
-fn find_fid_inode(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::File>> {
+fn v9fs_fid_find_inode(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::File>> {
     let inode = dentry.inode()?;
     let fids = inode.private().get()?.clone().downcast::<OpenFids>().ok()?;
     let fids = fids.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -479,7 +479,7 @@ impl InodeOperations for BindRegular {
     /// A file open anywhere answers from the descriptor that holds it, even
     /// once its name is gone.
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        match find_fid_inode(dentry, false) {
+        match v9fs_fid_find_inode(dentry, false) {
             Some(file) => Ok(to_metadata(
                 cap_std::fs::Metadata::from_file(&file).map_err(to_error)?,
             )),
@@ -489,14 +489,14 @@ impl InodeOperations for BindRegular {
 
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
         if let Some(len) = attr.size {
-            return match find_fid_inode(dentry, true) {
+            return match v9fs_fid_find_inode(dentry, true) {
                 Some(file) => file.set_len(len).map_err(to_error),
                 None => Err(FilesystemError::InvalidInput),
             };
         }
         // A file open anywhere takes them through what holds it, whatever stands
         // at its name by now.
-        if let Some(file) = find_fid_inode(dentry, false) {
+        if let Some(file) = v9fs_fid_find_inode(dentry, false) {
             let mut times = std::fs::FileTimes::new();
             if let Some(atime) = attr.atime {
                 times = times.set_accessed(attr.time_of(atime));

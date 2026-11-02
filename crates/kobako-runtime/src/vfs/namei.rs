@@ -755,7 +755,7 @@ pub fn filename_renameat2(
     }
     from.mnt().mnt_want_write()?;
     let sb = from.mnt().sb();
-    let rd = start_renaming(
+    let rd = __start_renaming(
         sb,
         (source.dentry(), &source.name),
         (target.dentry(), &target.name),
@@ -810,13 +810,13 @@ pub(crate) struct RenameData {
 }
 
 /// Hold both directories of a move and find its names beneath them, as
-/// Linux's `start_renaming` does through `lock_rename`, so no other move
+/// Linux's `__start_renaming` does through `lock_rename`, so no other move
 /// changes what either name stands for before the call acts on it. Nothing at
 /// the source, and at the target what `flag` will not take, is refused as the
 /// flags `__start_renaming` looks each name up with refuse it. So is a move
 /// whose source stands above its target directory, and one whose target stands
 /// above its source directory, which only an exchange may not empty.
-pub(crate) fn start_renaming(
+pub(crate) fn __start_renaming(
     sb: &SuperBlock,
     (old_dir, old_name): (&Arc<Dentry>, &str),
     (new_dir, new_name): (&Arc<Dentry>, &str),
