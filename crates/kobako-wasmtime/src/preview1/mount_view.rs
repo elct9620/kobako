@@ -50,7 +50,8 @@ fn host_entries<F: FileSystemType>(filesystem: &Arc<F>) -> Result<Vec<String>, F
     .expect("/data is a guest path");
     let mut root = vfs::File::root(mount.mnt(), &Arc::default())?;
     let mut names = Vec::new();
-    root.iterate_dir(&mut vfs::DirContext::new(2, &mut |emit| {
+    root.llseek(2, vfs::Whence::Set)?;
+    root.iterate_dir(&mut vfs::DirContext::new(0, &mut |emit| {
         names.push(emit.name.to_string());
         true
     }))?;

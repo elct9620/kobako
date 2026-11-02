@@ -6,9 +6,9 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use kobako_runtime::filesystem::{FileType, Iattr, Metadata, SetTime};
+use kobako_runtime::filesystem::{FileType, FilesystemError, Iattr, Metadata, SetTime};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, DirContext, DirEmit, File, Whence};
+use kobako_runtime::vfs::{self, verify_dirent_name, DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -361,20 +361,33 @@ pub(crate) fn readdir(
 ) -> Answer<types::Size> {
     let profile = table.profile();
     let dir = file(table, fd)?;
+    // preview1 names where a listing goes on by its cookie, as wasi-libc's
+    // `seekdir` moves a directory's position before `getdents`; a listing going
+    // on from where the last one stopped needs no seek.
+    if cookie != dir.pos() {
+        let cookie = i64::try_from(cookie).map_err(|_| FilesystemError::InvalidInput)?;
+        dir.llseek(cookie, Whence::Set)?;
+    }
     let mut used: u32 = 0;
     let mut failed = None;
-    let mut actor =
-        |emit: &DirEmit<'_>| match write_dirent(mem, (start, capacity), &mut used, profile, emit) {
+    let mut actor = |emit: &DirEmit<'_>| {
+        let written = verify_dirent_name(emit.name)
+            .map_err(Into::into)
+            .and_then(|()| write_dirent(mem, (start, capacity), &mut used, profile, emit));
+        match written {
             Ok(room) => room,
             Err(error) => {
                 failed = Some(error);
                 false
             }
-        };
-    dir.iterate_dir(&mut DirContext::new(cookie, &mut actor))?;
+        }
+    };
+    dir.iterate_dir(&mut DirContext::new(0, &mut actor))?;
+    // What was listed answers before a name the listing stopped at, which the
+    // next call meets first, as Linux's `getdents64` answers `buf.error`.
     match failed {
-        Some(error) => Err(error),
-        None => Ok(used),
+        Some(error) if used == 0 => Err(error),
+        _ => Ok(used),
     }
 }
 
@@ -457,8 +470,8 @@ mod tests {
     }
 
     use super::{
-        fdstat_get, fdstat_set_flags, filestat_set_size, filestat_set_times, renumber, seek, sync,
-        tell, Answer, Errno, Fdflags, Fstflags,
+        fdstat_get, fdstat_set_flags, filestat_set_size, filestat_set_times, readdir, renumber,
+        seek, sync, tell, Answer, Errno, Fdflags, Fstflags,
     };
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::memory::GuestMemory;
@@ -927,6 +940,91 @@ mod tests {
             (Some(Errno::Inval), Some(Errno::Mfile)),
             "path_open with no descriptor left through preview1 must answer EINVAL for O_CREAT \
              with O_DIRECTORY, and EMFILE from a descriptor number naming nothing"
+        );
+    }
+
+    /// A directory listing `ok` and then `bad`, whatever `bad` is.
+    struct ListsNames(&'static str);
+
+    impl kobako_runtime::filesystem::FileSystemType for ListsNames {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            kobako_runtime::filesystem::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for ListsNames {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::Directory, 0))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Ok(Box::new(Self(self.0)))
+        }
+    }
+
+    impl FileOperations for ListsNames {
+        fn iterate_shared(
+            &mut self,
+            dentry: &Dentry,
+            ctx: &mut vfs::DirContext<'_>,
+        ) -> Result<(), FilesystemError> {
+            let entries = [
+                vfs::DirEntry::new("ok", FileType::File),
+                vfs::DirEntry::new(self.0, FileType::File),
+            ];
+            vfs::dir_emit_entries(dentry, ctx, &entries);
+            Ok(())
+        }
+    }
+
+    // A built-in Filesystem cannot hold such a name, so only one that hands it
+    // over shows the listing refuses it; Linux's `getdents64` answers what came
+    // before it and leaves the name to the next call, whose cookie stands on it.
+    // @behavior RT-212 RT-269
+    #[test]
+    fn a_listing_stops_at_a_name_no_directory_can_hold() {
+        let listed = |bad: &'static str| {
+            let mount = Mount::new(
+                "/data",
+                Filesystem::new(Arc::new(ListsNames(bad))).expect("the instance must stand"),
+                Access::Read,
+            )
+            .expect("/data is a guest path");
+            let mut table = Descriptors::new(
+                create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
+                create_pipe_files(&PipeInodeInfo::new(1)).1,
+                create_pipe_files(&PipeInodeInfo::new(1)).1,
+                vec![mount],
+                None,
+                None,
+                Profile::Hermetic,
+            )
+            .unwrap_or_else(|_| panic!("the table must make"));
+            let mut bytes = vec![0u8; 256];
+            let (first, next) = {
+                let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+                let mut mem = GuestMemory::new(&mut memory, 256);
+                let buf = GuestPtr::new(0);
+                let first = readdir(&mut table, &mut mem, 3, buf, 256, 0).ok();
+                (first, errno(readdir(&mut table, &mut mem, 3, buf, 256, 3)))
+            };
+            let handed_over = bytes.windows(bad.len().max(1)).any(|w| w == bad.as_bytes());
+            (
+                first.is_some_and(|used| used > 0),
+                next,
+                handed_over && !bad.is_empty(),
+            )
+        };
+        assert_eq!(
+            (listed("../escape"), listed("")),
+            ((true, Some(Errno::Io), false), (true, Some(Errno::Io), false)),
+            "fd_readdir through preview1 of a Filesystem listing `ok` and then a name with a `/` or \
+             an empty one must hand over what came before it, and answer EIO from where it stands, \
+             handing over no such name"
         );
     }
 
