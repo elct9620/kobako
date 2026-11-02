@@ -44,7 +44,8 @@ pub struct OpenHow {
 /// Refuse flags no open can mean before any path is looked at, as Linux's
 /// `build_open_flags` refuses `O_DIRECTORY` with `O_CREAT`, and answer whether
 /// the walk follows a link at the end, which `O_CREAT` with `O_EXCL` never does.
-pub(crate) fn build_open_flags(how: &OpenHow) -> Result<bool, FilesystemError> {
+/// An ABI asks it before it reserves a descriptor, as `do_sys_openat2` does.
+pub fn build_open_flags(how: &OpenHow) -> Result<bool, FilesystemError> {
     match how.directory && how.create {
         true => Err(FilesystemError::InvalidInput),
         false => Ok(how.follow && !(how.create && how.exclusive)),

@@ -377,8 +377,9 @@ impl Nameidata {
 /// Refuse a path no call can take, as Linux's `getname` does before any call
 /// looks at it: an empty one names nothing, one past `PATH_MAX` with its
 /// terminating NUL is too long, and one holding a NUL names nothing a
-/// Filesystem can hold.
-fn getname(path: &str) -> Result<(), FilesystemError> {
+/// Filesystem can hold. An ABI asks it before it looks up where a walk starts,
+/// as Linux's syscalls take the name before `path_init` takes the descriptor.
+pub fn getname(path: &str) -> Result<(), FilesystemError> {
     if path.is_empty() {
         return Err(FilesystemError::NotFound);
     }
