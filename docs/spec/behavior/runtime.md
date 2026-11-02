@@ -2833,3 +2833,39 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest's path call whose walk answers EAGAIN |
 | When | the Wasm Driver handles the call |
 | Then | it makes the call again, four times in all at most, and answers EAGAIN only once they are used up |
+
+## `RT-257` An open no flags can mean answers before the descriptor it names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-225` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding nothing at a descriptor number |
+| When | the guest opens from that number asking to create a directory |
+| Then | the call answers EINVAL |
+
+## `RT-258` An empty path answers before the descriptor it names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-230` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding nothing at a descriptor number |
+| When | the guest makes a call on an empty path starting from that number |
+| Then | the call answers ENOENT |
+
+## `RT-259` A full descriptor table answers after the open's flags
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-190` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding as many descriptors as it may |
+| When | it opens asking to create a directory |
+| Then | the open answers EINVAL, as Linux reads the flags before it reserves a descriptor |
