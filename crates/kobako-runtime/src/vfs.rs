@@ -46,7 +46,7 @@ pub use namei::{
     filename_symlinkat, filename_unlinkat, getname,
 };
 pub use openat2::{build_open_flags, OpenHow, OpenOptions};
-pub use path::Path;
+pub use path::{Path, Start};
 pub use stat::{do_readlinkat, vfs_fstatat, FileType, Metadata};
 pub use super_block::{simple_fill_super, FileSystemType, SuperBlock};
 pub use utimes::{do_utimes, do_utimes_fd};

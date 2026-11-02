@@ -19,7 +19,7 @@ use super::file::{FMode, File, FileOperations};
 use super::inode::{Inode, Mask, RenameFlag};
 use super::mount::VfsMount;
 use super::openat2::{build_open_flags, OpenHow, OpenOptions};
-use super::path::Path;
+use super::path::{Path, Start};
 use super::super_block::SuperBlock;
 use super::{FileType, FilesystemError, Iattr, Metadata};
 use crate::locking::RwSemaphoreGuard;
@@ -71,6 +71,12 @@ impl Nameidata {
     /// The directory the walk stands in, which holds the last name.
     pub(crate) fn dentry(&self) -> &Arc<Dentry> {
         &self.dir
+    }
+
+    /// `dentry` beneath the mount the walk stands on, as Linux's `struct path`
+    /// pairs `nd->path.mnt` with a dentry.
+    pub(crate) fn path_to(&self, dentry: Arc<Dentry>) -> Path {
+        Path::root(&self.mnt).with_dentry(dentry)
     }
 
     /// Refuse what the walk ended on unless it still stands beneath where the
@@ -439,13 +445,18 @@ fn sb_permission(sb: &SuperBlock, dentry: &Dentry, mask: Mask) -> Result<(), Fil
 
 /// The walk of `path` beneath `start`, ready to begin, as Linux's
 /// `set_nameidata` and `path_init` make one. A path no call can take answers
-/// first, wherever it starts; an absolute one is not the caller's to reach, and
-/// a walk starts from nothing but a directory.
-fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata, FilesystemError> {
+/// first, wherever it starts; an absolute one is not the caller's to reach, so
+/// no start is looked for; and a walk starts from nothing but a directory.
+fn set_nameidata(
+    cred: &Arc<Cred>,
+    start: &impl Start,
+    path: &str,
+) -> Result<Nameidata, FilesystemError> {
     getname(path)?;
     if path.starts_with('/') {
         return Err(FilesystemError::Escape);
     }
+    let start = start.path_init()?;
     if start.dentry().kind()? != FileType::Directory {
         return Err(FilesystemError::NotADirectory);
     }
@@ -470,7 +481,7 @@ fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata
 /// A `..` above `start` is not the caller's to reach.
 pub(crate) fn filename_parentat(
     cred: &Arc<Cred>,
-    start: &Path,
+    start: &impl Start,
     path: &str,
 ) -> Result<Nameidata, FilesystemError> {
     let mut nd = set_nameidata(cred, start, path)?;
@@ -485,7 +496,7 @@ pub(crate) fn filename_parentat(
 /// anything but a directory where `LOOKUP_DIRECTORY` asks for one ENOTDIR.
 pub(crate) fn filename_lookup(
     cred: &Arc<Cred>,
-    start: &Path,
+    start: &impl Start,
     path: &str,
     follow: bool,
 ) -> Result<Nameidata, FilesystemError> {
@@ -506,7 +517,7 @@ pub(crate) fn filename_lookup(
 /// does.
 pub fn do_file_open(
     cred: &Arc<Cred>,
-    start: &Path,
+    start: &impl Start,
     path: &str,
     how: &OpenHow,
 ) -> Result<File, FilesystemError> {
@@ -544,7 +555,7 @@ pub fn do_file_open(
             do_open(&nd, &child, kind, how, &options)?
         }
     };
-    Ok(File::new(start.with_dentry(child), f_op, how, cred).with_security(security))
+    Ok(File::new(nd.path_to(child), f_op, how, cred).with_security(security))
 }
 
 /// Make the file an open names where nothing stands and open it, as Linux's
@@ -639,9 +650,9 @@ fn open_mask(how: &OpenHow) -> Mask {
 /// `follow` asks.
 pub fn filename_linkat(
     cred: &Arc<Cred>,
-    old_start: &Path,
+    old_start: &impl Start,
     old_path: &str,
-    new_start: &Path,
+    new_start: &impl Start,
     new_path: &str,
     follow: bool,
 ) -> Result<(), FilesystemError> {
@@ -649,7 +660,7 @@ pub fn filename_linkat(
     let target = old.path()?;
     let mut new = filename_parentat(cred, new_start, new_path)?;
     let (_held, child) = filename_create(&mut new, false)?;
-    if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
+    if !Arc::ptr_eq(&old.mnt, &new.mnt) {
         return Err(FilesystemError::CrossesDevices);
     }
     old.on_path(|old| new.on_path(|new| cred.security_path_link(old, new)))?;
@@ -661,7 +672,7 @@ pub fn filename_linkat(
 pub fn filename_symlinkat(
     cred: &Arc<Cred>,
     target: &str,
-    start: &Path,
+    start: &impl Start,
     path: &str,
 ) -> Result<(), FilesystemError> {
     getname(target)?;
@@ -709,7 +720,11 @@ fn start_dirop(nd: &mut Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Fi
 
 /// Make the directory `path` beneath `start`. A trailing `/` asks for the
 /// directory being made, so it is no refusal here, as `mkdir(2)` takes it.
-pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {
+pub fn filename_mkdirat(
+    cred: &Arc<Cred>,
+    start: &impl Start,
+    path: &str,
+) -> Result<(), FilesystemError> {
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, true)?;
     nd.on_path(|path| cred.security_path_mkdir(path))?;
@@ -718,7 +733,11 @@ pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<()
 
 /// Remove the empty directory `path` beneath `start`, as Linux's
 /// `filename_rmdir` does.
-pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {
+pub fn filename_rmdir(
+    cred: &Arc<Cred>,
+    start: &impl Start,
+    path: &str,
+) -> Result<(), FilesystemError> {
     let mut nd = filename_parentat(cred, start, path)?;
     match nd.last_type {
         LastType::Norm => {}
@@ -736,7 +755,7 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
 /// itself once it is found: no file removes as a directory.
 pub fn filename_unlinkat(
     cred: &Arc<Cred>,
-    start: &Path,
+    start: &impl Start,
     path: &str,
 ) -> Result<(), FilesystemError> {
     let mut nd = filename_parentat(cred, start, path)?;
@@ -761,21 +780,22 @@ pub fn filename_unlinkat(
 /// Linux's `security_path_rename` asks before the move.
 pub fn filename_renameat2(
     cred: &Arc<Cred>,
-    from: &Path,
+    from: &impl Start,
     from_path: &str,
-    to: &Path,
+    to: &impl Start,
     to_path: &str,
 ) -> Result<(), FilesystemError> {
     let mut source = filename_parentat(cred, from, from_path)?;
     let mut target = filename_parentat(cred, to, to_path)?;
-    if !Arc::ptr_eq(from.mnt(), to.mnt()) {
+    if !Arc::ptr_eq(&source.mnt, &target.mnt) {
         return Err(FilesystemError::CrossesDevices);
     }
     if source.last_type != LastType::Norm || target.last_type != LastType::Norm {
         return Err(FilesystemError::ResourceBusy);
     }
-    from.mnt().mnt_want_write()?;
-    let sb = from.mnt().sb();
+    source.mnt.mnt_want_write()?;
+    let mnt = source.mnt.clone();
+    let sb = mnt.sb();
     let rd = __start_renaming(
         sb,
         (source.dentry(), &source.name),

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::attr::notify_change;
 use super::cred::{Cred, SecurityPath};
 use super::namei::filename_lookup;
-use super::path::Path;
+use super::path::{Path, Start};
 use super::{FilesystemError, Iattr};
 
 /// Set `times` on what the descriptor at `path` names, as Linux's `do_utimes_fd`.
@@ -32,13 +32,13 @@ fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Filesy
 /// followed where `follow` asks, as Linux's `do_utimes_path` walks to it first.
 pub fn do_utimes(
     cred: &Arc<Cred>,
-    start: &Path,
+    start: &impl Start,
     path: &str,
     follow: bool,
     times: &Iattr,
 ) -> Result<(), FilesystemError> {
     let nd = filename_lookup(cred, start, path, follow)?;
-    vfs_utimes(cred, &start.with_dentry(nd.path()?), times)
+    vfs_utimes(cred, &nd.path_to(nd.path()?), times)
 }
 
 #[cfg(test)]

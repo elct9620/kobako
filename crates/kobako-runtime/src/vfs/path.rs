@@ -5,6 +5,27 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::mount::VfsMount;
+use super::FilesystemError;
+
+/// Where a walk starts, found once the call has taken its name, as Linux's
+/// `path_init` takes the directory a descriptor names only after the name. A
+/// caller holding a table of descriptors hands how to find it, so a call with
+/// two names answers for the first before it looks at the second's start.
+pub trait Start {
+    fn path_init(&self) -> Result<Path, FilesystemError>;
+}
+
+impl Start for Path {
+    fn path_init(&self) -> Result<Path, FilesystemError> {
+        Ok(self.clone())
+    }
+}
+
+impl<F: Fn() -> Result<Path, FilesystemError>> Start for F {
+    fn path_init(&self) -> Result<Path, FilesystemError> {
+        self()
+    }
+}
 
 /// A name beneath a mount, as an open file holds its `f_path`: the mount's
 /// root, or an entry opened beneath it. A walk starts only from a directory.

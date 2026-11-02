@@ -7,7 +7,7 @@ use std::time::SystemTime;
 
 use super::cred::Cred;
 use super::namei::filename_lookup;
-use super::path::Path;
+use super::path::Start;
 use super::FilesystemError;
 
 /// What a path names.
@@ -117,7 +117,7 @@ impl Metadata {
 /// `AT_SYMLINK_NOFOLLOW` leaves one.
 pub fn vfs_fstatat(
     cred: &Arc<Cred>,
-    start: &Path,
+    start: &impl Start,
     path: &str,
     follow: bool,
 ) -> Result<Metadata, FilesystemError> {
@@ -128,7 +128,7 @@ pub fn vfs_fstatat(
 /// asks the security hook only of a link, and answers anything else invalid.
 pub fn do_readlinkat(
     cred: &Arc<Cred>,
-    start: &Path,
+    start: &impl Start,
     path: &str,
 ) -> Result<String, FilesystemError> {
     let nd = filename_lookup(cred, start, path, false)?;
