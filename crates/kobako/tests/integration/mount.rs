@@ -28,6 +28,7 @@ fn tmpfs(contents: &str) -> Arc<Filesystem> {
     Filesystem::new(Arc::new(
         [("note.txt", contents)].into_iter().collect::<Tmpfs>(),
     ))
+    .expect("the instance must stand")
 }
 
 fn sandbox_with_note() -> Option<Sandbox> {
@@ -147,7 +148,8 @@ fn a_mount_nested_inside_another_reaches_its_own_filesystem() {
     };
     let outer = Filesystem::new(Arc::new(
         [("inner/note.txt", "outer")].into_iter().collect::<Tmpfs>(),
-    ));
+    ))
+    .expect("the instance must stand");
     sandbox
         .mount("/data", outer, Access::Read)
         .expect("mount a Tmpfs at /data");
@@ -244,7 +246,11 @@ impl FileOperations for NoteFile {
 }
 
 /// The directory holding `note.txt`.
-impl kobako_runtime::filesystem::FileSystemType for OneNote {}
+impl kobako_runtime::filesystem::FileSystemType for OneNote {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        kobako_runtime::filesystem::simple_fill_super(sb, self)
+    }
+}
 
 impl InodeOperations for OneNote {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -314,7 +320,8 @@ fn a_filesystem_a_rust_host_app_writes_mounts_like_the_kinds_kobako_ships() {
     sandbox
         .mount(
             "/data",
-            Filesystem::new(Arc::new(OneNote(b"written in rust"))),
+            Filesystem::new(Arc::new(OneNote(b"written in rust")))
+                .expect("the instance must stand"),
             Access::Read,
         )
         .unwrap();

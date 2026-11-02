@@ -3,21 +3,29 @@
 use std::sync::Arc;
 
 use super::dentry::{Dentries, DentryOperations};
+use super::errno::FilesystemError;
 use super::inode::{Inode, InodeOperations};
 use super::stat::{FileType, Metadata};
 use crate::locking::RwSemaphore;
 
-/// What makes an instance of a Filesystem, as Linux's `file_system_type`, whose
-/// value is also what answers for that instance's root.
-pub trait FileSystemType: InodeOperations {
-    /// Set up the instance, asked once before any walk, and answer what its root
-    /// reports, as a driver's `fill_super` fills in its `super_block` and makes
-    /// `s_root`: what every dentry answers through, for a Filesystem changed
-    /// outside the runtime, and whether nothing beneath it changes. A Filesystem
-    /// with nothing to set up reports a root with no identity.
-    fn fill_super(&self, _sb: &mut SuperBlock) -> Metadata {
-        Metadata::new(FileType::Directory, 0)
-    }
+/// What makes an instance of a Filesystem, as Linux's `file_system_type`.
+pub trait FileSystemType: Send + Sync + 'static {
+    /// Set up the instance, asked once before any walk, as a driver's
+    /// `fill_super` fills in its `super_block`: its root through `d_make_root`,
+    /// what every dentry answers through, for a Filesystem changed outside the
+    /// runtime, and whether nothing beneath it changes. An instance that cannot
+    /// stand answers why, and none is made.
+    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError>;
+}
+
+/// Make `root` the root of an instance with nothing else to set up, whose root
+/// names no identity, as Linux's `simple_fill_super` fills one in.
+pub fn simple_fill_super(
+    sb: &mut SuperBlock,
+    root: Arc<dyn InodeOperations>,
+) -> Result<(), FilesystemError> {
+    sb.d_make_root(Inode::new(&Metadata::new(FileType::Directory, 0), root));
+    Ok(())
 }
 
 /// One Filesystem instance, with the directories of it a walk reaches. Every
@@ -25,7 +33,8 @@ pub trait FileSystemType: InodeOperations {
 /// block, so a directory moved or removed beneath one is moved or removed
 /// beneath every other.
 pub struct SuperBlock {
-    root: Arc<dyn InodeOperations>,
+    /// What `fill_super` made its root, as `s_root`.
+    root: Option<Arc<Inode>>,
     dentries: Dentries,
     /// Held by a move between two directories, as Linux's
     /// `s_vfs_rename_mutex`, so no other such move changes which of them
@@ -40,19 +49,26 @@ pub struct SuperBlock {
 }
 
 impl SuperBlock {
-    /// The instance `fs` makes, set up as its `fill_super` asks.
-    pub fn new(fs: Arc<dyn FileSystemType>) -> Arc<Self> {
-        let root: Arc<dyn InodeOperations> = fs.clone();
+    /// The instance `fs` makes, set up as its `fill_super` asks, or why it cannot
+    /// stand. One whose `fill_super` made no root answers EINVAL.
+    pub fn new(fs: Arc<dyn FileSystemType>) -> Result<Arc<Self>, FilesystemError> {
         let mut sb = Self {
-            root: root.clone(),
+            root: None,
             dentries: Dentries::new(None),
             rename_mutex: Arc::default(),
             rdonly: false,
             dontcache: false,
         };
-        let metadata = fs.fill_super(&mut sb);
-        sb.dentries.root().add(Some(Inode::new(&metadata, root)));
-        Arc::new(sb)
+        fs.fill_super(&mut sb)?;
+        let root = sb.root.clone().ok_or(FilesystemError::InvalidInput)?;
+        sb.dentries.root().add(Some(root));
+        Ok(Arc::new(sb))
+    }
+
+    /// Make `root` the root of this instance, as a driver's `fill_super` sets
+    /// `s_root` through `d_make_root`.
+    pub fn d_make_root(&mut self, root: Arc<Inode>) {
+        self.root = Some(root);
     }
 
     /// Have every dentry of this instance answer through `ops`, as a driver's
@@ -92,9 +108,9 @@ impl SuperBlock {
         &self.rename_mutex
     }
 
-    /// The Filesystem's root directory.
-    pub fn root(&self) -> &Arc<dyn InodeOperations> {
-        &self.root
+    /// What this instance's root stands for, once `fill_super` made it, as `s_root`.
+    pub fn root(&self) -> Option<&Arc<Inode>> {
+        self.root.as_ref()
     }
 
     pub(crate) fn dentries(&self) -> &Dentries {

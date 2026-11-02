@@ -16,8 +16,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::Rdir;
 use kobako_runtime::filesystem::{
-    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
+    simple_fill_super, DentryOperations, DirEntry, FileOperations, FileSystemType, FileType,
+    Filesystem, FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions,
+    RenameFlag,
 };
 use kobako_runtime::vfs::{
     generic_read_dir, verify_dirent_name, Dentry, DirContext, Identity, Inode, NAME_MAX,
@@ -374,9 +375,9 @@ impl InodeOperations for RubyRegular {
 /// Its root reports no identity without asking the Ruby object, as FUSE makes its
 /// root from fixed attributes rather than ask the server.
 impl FileSystemType for RubyFilesystem {
-    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
-        sb.set_default_d_op(Arc::new(*self));
-        Metadata::new(FileType::Directory, 0)
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        sb.set_default_d_op(self.clone());
+        simple_fill_super(sb, self)
     }
 }
 

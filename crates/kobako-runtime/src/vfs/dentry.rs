@@ -499,7 +499,11 @@ mod tests {
         root: KernPath,
     }
 
-    impl crate::vfs::FileSystemType for ByPath {}
+    impl crate::vfs::FileSystemType for ByPath {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for ByPath {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -587,6 +591,7 @@ mod tests {
         Filesystem::new(Arc::new(ByPath {
             root: kern_path(tmpfs.clone()),
         }))
+        .expect("the instance must stand")
     }
 
     fn root_of(filesystem: &Arc<Filesystem>) -> Path {

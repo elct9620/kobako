@@ -55,8 +55,8 @@ fn copy_tree(from: &Path, to: &Path) {
 fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
     let engine = shared_engine().map_err(|err| err.to_string())?;
     let bind = Bind::new(root).map_err(|err| err.to_string())?;
-    let mount = Mount::new("/", Filesystem::new(Arc::new(bind)), Access::ReadWrite)
-        .map_err(|err| err.to_string())?;
+    let filesystem = Filesystem::new(Arc::new(bind)).map_err(|err| format!("{err:?}"))?;
+    let mount = Mount::new("/", filesystem, Access::ReadWrite).map_err(|err| err.to_string())?;
     let config = Config {
         timeout: None,
         setup_timeout: None,

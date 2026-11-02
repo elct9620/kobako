@@ -784,7 +784,11 @@ mod tests {
     /// A directory holding at every name a file whose `open` seeks to nine.
     struct OpensSeeksToNine;
 
-    impl crate::vfs::FileSystemType for OpensSeeksToNine {}
+    impl crate::vfs::FileSystemType for OpensSeeksToNine {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for OpensSeeksToNine {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -810,7 +814,7 @@ mod tests {
     fn a_file_answers_where_its_own_seek_lands() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(OpensSeeksToNine)),
+            Filesystem::new(Arc::new(OpensSeeksToNine)).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -831,7 +835,11 @@ mod tests {
     /// A directory holding a file at every name, neither with `open`.
     struct OpensNothing;
 
-    impl crate::vfs::FileSystemType for OpensNothing {}
+    impl crate::vfs::FileSystemType for OpensNothing {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for OpensNothing {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -853,8 +861,12 @@ mod tests {
     #[test]
     fn a_directory_opened_for_neither_reading_nor_writing_refuses_a_read() {
         let tmpfs: Tmpfs = [("d/f", "x")].into_iter().collect();
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::Read)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
         let how = OpenHow {
             directory: true,
             ..OpenHow::default()
@@ -877,7 +889,7 @@ mod tests {
     fn a_write_of_nothing_leaves_an_appending_file_where_it_stands() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Tmpfs::new())),
+            Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -908,7 +920,7 @@ mod tests {
     fn an_entry_without_open_opens_with_no_operations() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(OpensNothing)),
+            Filesystem::new(Arc::new(OpensNothing)).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -942,7 +954,11 @@ mod tests {
         }
     }
 
-    impl crate::vfs::FileSystemType for Lists {}
+    impl crate::vfs::FileSystemType for Lists {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for Lists {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -966,7 +982,7 @@ mod tests {
         let listed = |name| {
             let mount = Mount::new(
                 "/data",
-                Filesystem::new(Arc::new(Lists(name))),
+                Filesystem::new(Arc::new(Lists(name))).expect("the instance must stand"),
                 Access::Read,
             )
             .expect("/data is a guest path");
@@ -994,8 +1010,12 @@ mod tests {
     /// `file.txt`, seven bytes long, opened for `access`.
     fn open(read: bool, write: bool) -> File {
         let tmpfs = Tmpfs::try_from_iter([("file.txt", "granted")]).expect("the seed must fit");
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
         let how = OpenHow {
             read,
             write,
@@ -1062,7 +1082,11 @@ mod tests {
         }
     }
 
-    impl crate::vfs::FileSystemType for ReadsWhole {}
+    impl crate::vfs::FileSystemType for ReadsWhole {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for ReadsWhole {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1093,8 +1117,12 @@ mod tests {
     // @behavior RT-237
     #[test]
     fn listings_held_between_calls_count_against_their_limit() {
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(ReadsWhole)), Access::Read)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(ReadsWhole)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
         let one_listing = 2 * size_of::<DirEntry>() + 2;
         let cred = crate::security::prepare_creds_within([], Some(one_listing));
         let open =
@@ -1121,7 +1149,7 @@ mod tests {
     ) -> Vec<(String, Option<Identity>, Option<Identity>)> {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(filesystem)),
+            Filesystem::new(Arc::new(filesystem)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1168,8 +1196,8 @@ mod tests {
         let lower: Tmpfs = [("a", "x"), ("d/b", "y")].into_iter().collect();
         let upper = Tmpfs::new();
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(lower))],
-            Some(Filesystem::new(Arc::new(upper))),
+            vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
+            Some(Filesystem::new(Arc::new(upper)).expect("the instance must stand")),
         )
         .unwrap_or_else(|_| panic!("the Overlay must make"));
         assert_named_alike("Overlay", identities(overlay));
@@ -1194,8 +1222,12 @@ mod tests {
     #[test]
     fn a_listing_hands_the_dots_first_and_goes_on_where_it_stopped() {
         let tmpfs: Arc<Tmpfs> = Arc::new([("a", "x"), ("b", "y")].into_iter().collect());
-        let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(tmpfs).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
         let mut root = File::root(mount.mnt(), &Arc::default())
             .unwrap_or_else(|_| panic!("the root must open"));
         let entry = |name: &str, next| (name.to_string(), next);
@@ -1213,8 +1245,12 @@ mod tests {
     // @behavior RT-182
     #[test]
     fn a_listing_read_whole_hands_each_entry_the_position_after_it() {
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(ReadsWhole)), Access::Read)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(ReadsWhole)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
         let mut root = File::root(mount.mnt(), &Arc::default())
             .unwrap_or_else(|_| panic!("the root must open"));
         let entry = |name: &str, next| (name.to_string(), next);
@@ -1271,7 +1307,11 @@ mod tests {
         }
     }
 
-    impl crate::vfs::FileSystemType for RecordsCalls {}
+    impl crate::vfs::FileSystemType for RecordsCalls {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for RecordsCalls {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1299,7 +1339,7 @@ mod tests {
     fn open_recording(calls: &RecordsCalls, how: OpenHow) -> File {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(calls.clone())),
+            Filesystem::new(Arc::new(calls.clone())).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1370,7 +1410,11 @@ mod tests {
 
     struct HoldsCountsSyncs(Arc<AtomicUsize>);
 
-    impl crate::vfs::FileSystemType for HoldsCountsSyncs {}
+    impl crate::vfs::FileSystemType for HoldsCountsSyncs {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for HoldsCountsSyncs {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1398,7 +1442,8 @@ mod tests {
         let syncs = Arc::new(AtomicUsize::new(0));
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HoldsCountsSyncs(syncs.clone()))),
+            Filesystem::new(Arc::new(HoldsCountsSyncs(syncs.clone())))
+                .expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1432,8 +1477,12 @@ mod tests {
     #[test]
     fn a_directory_opened_with_flags_reports_them() {
         let tmpfs: Arc<Tmpfs> = Arc::new([("dir/a", "x")].into_iter().collect());
-        let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(tmpfs).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
         let how = OpenHow {
             read: true,
             nonblock: true,
@@ -1454,8 +1503,12 @@ mod tests {
     #[test]
     fn a_directory_answers_as_a_directory_open_to_read_does() {
         let tmpfs: Arc<Tmpfs> = Arc::new([("a", "x")].into_iter().collect());
-        let mount = Mount::new("/data", Filesystem::new(tmpfs), Access::ReadWrite)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(tmpfs).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
         let mut dir = File::root(mount.mnt(), &Arc::default())
             .unwrap_or_else(|_| panic!("the root must open"));
         let mut buf = [0; 2];

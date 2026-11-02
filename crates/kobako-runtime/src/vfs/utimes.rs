@@ -59,7 +59,8 @@ mod tests {
     }
 
     fn mount_of(filesystem: Arc<dyn FileSystemType>, access: MountAccess) -> Mount {
-        Mount::new("/data", Filesystem::new(filesystem), access).expect("/data is a guest path")
+        let filesystem = Filesystem::new(filesystem).expect("the instance must stand");
+        Mount::new("/data", filesystem, access).expect("/data is a guest path")
     }
 
     fn tmpfs() -> Arc<Tmpfs> {
@@ -113,7 +114,11 @@ mod tests {
     /// A directory answering every call but `setattr` by default.
     struct NoSetattr;
 
-    impl FileSystemType for NoSetattr {}
+    impl FileSystemType for NoSetattr {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for NoSetattr {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -136,7 +141,11 @@ mod tests {
     #[derive(Default)]
     struct KeepsTimes(Mutex<Option<Iattr>>);
 
-    impl FileSystemType for KeepsTimes {}
+    impl FileSystemType for KeepsTimes {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for KeepsTimes {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {

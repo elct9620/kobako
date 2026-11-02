@@ -6,7 +6,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::{
-    DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, Iattr,
+    DentryOperations, FileOperations, FileSystemType, Filesystem, FilesystemError, Iattr,
     InodeOperations, Lookup, Mask, Metadata, OpenOptions, RenameFlag,
 };
 use crate::vfs::Dentry;
@@ -89,51 +89,45 @@ pub(crate) trait Hook: Send + Sync + 'static {
     }
 }
 
-/// `inner`, with `hook` stepping in.
+/// A Filesystem over the one `fs` makes, with `hook` stepping in.
 pub(crate) struct Wrap<H> {
-    inner: Arc<dyn InodeOperations>,
-    /// What makes the instance, on the root alone.
-    fs: Option<Arc<dyn FileSystemType>>,
+    fs: Arc<dyn FileSystemType>,
     hook: Arc<H>,
 }
 
 impl<H: Hook> Wrap<H> {
-    /// A Filesystem over the one `fs` makes.
     pub(crate) fn new(fs: Arc<dyn FileSystemType>, hook: Arc<H>) -> Self {
-        Self {
-            inner: fs.clone(),
-            fs: Some(fs),
-            hook,
-        }
-    }
-
-    /// An entry beneath the root, which sets up no instance.
-    fn entry(inner: Arc<dyn InodeOperations>, hook: Arc<H>) -> Self {
-        Self {
-            inner,
-            fs: None,
-            hook,
-        }
+        Self { fs, hook }
     }
 }
 
 impl<H: Hook> FileSystemType for Wrap<H> {
-    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
-        let root = match &self.fs {
-            Some(fs) => fs.fill_super(sb),
-            None => Metadata::new(FileType::Directory, 0),
-        };
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        self.fs.clone().fill_super(sb)?;
+        if let Some(root) = sb.root().cloned() {
+            let wrapped = WrapInode {
+                inner: root.ops().clone(),
+                hook: self.hook.clone(),
+            };
+            sb.d_make_root(root.with_ops(Arc::new(wrapped)));
+        }
         if let Some(ops) = sb.d_op().cloned() {
             sb.set_default_d_op(Arc::new(WrapDentry {
                 ops,
                 hook: self.hook.clone(),
             }));
         }
-        root
+        Ok(())
     }
 }
 
-/// `ops`, handed the directory a `Wrap<H>` wraps.
+/// `inner`, an entry of the Filesystem beneath, with `hook` stepping in.
+struct WrapInode<H> {
+    inner: Arc<dyn InodeOperations>,
+    hook: Arc<H>,
+}
+
+/// `ops`, handed the directory a `WrapInode<H>` wraps.
 struct WrapDentry<H> {
     ops: Arc<dyn DentryOperations>,
     hook: Arc<H>,
@@ -146,13 +140,13 @@ impl<H: Hook> DentryOperations for WrapDentry<H> {
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
         let dir = (dir as &dyn Any)
-            .downcast_ref::<Wrap<H>>()
+            .downcast_ref::<WrapInode<H>>()
             .map_or(dir, |wrap| wrap.inner.as_ref());
         self.hook.revalidate(self.ops.as_ref(), dir, dentry)
     }
 }
 
-impl<H: Hook> InodeOperations for Wrap<H> {
+impl<H: Hook> InodeOperations for WrapInode<H> {
     fn permission(&self, dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
         self.hook.permission(self.inner.as_ref(), dentry, mask)
     }
@@ -164,8 +158,11 @@ impl<H: Hook> InodeOperations for Wrap<H> {
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         Ok(match self.hook.lookup(self.inner.as_ref(), dentry)? {
             Lookup::Found(inode) => {
-                let ops = inode.ops().clone();
-                Lookup::Found(inode.with_ops(Arc::new(Self::entry(ops, self.hook.clone()))))
+                let wrapped = Self {
+                    inner: inode.ops().clone(),
+                    hook: self.hook.clone(),
+                };
+                Lookup::Found(inode.with_ops(Arc::new(wrapped)))
             }
             other => other,
         })

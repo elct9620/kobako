@@ -530,7 +530,11 @@ mod tests {
     /// A directory holding that one file at every name.
     struct HoldsRefusesClose;
 
-    impl kobako_runtime::filesystem::FileSystemType for HoldsRefusesClose {}
+    impl kobako_runtime::filesystem::FileSystemType for HoldsRefusesClose {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            kobako_runtime::filesystem::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for HoldsRefusesClose {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -554,7 +558,7 @@ mod tests {
     fn open_file() -> Descriptor {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HoldsRefusesClose)),
+            Filesystem::new(Arc::new(HoldsRefusesClose)).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -608,7 +612,7 @@ mod tests {
     fn a_directory_refuses_a_call_about_its_position() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HoldsRefusesClose)),
+            Filesystem::new(Arc::new(HoldsRefusesClose)).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -637,8 +641,12 @@ mod tests {
     #[test]
     fn a_descriptor_reports_how_far_it_was_opened_to_sync() {
         let tmpfs: kobako_runtime::filesystem::Tmpfs = [("f", "x")].into_iter().collect();
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
         let root = Path::root(mount.mnt());
         let mut table = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
@@ -696,9 +704,13 @@ mod tests {
         use std::sync::atomic::Ordering;
         let policy = Arc::new(CountsAsks::default());
         let tmpfs: kobako_runtime::filesystem::Tmpfs = [("f", "x")].into_iter().collect();
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
-            .expect("/data is a guest path")
-            .with_policy(policy.clone());
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path")
+        .with_policy(policy.clone());
         let root = Path::root(mount.mnt());
         let mut table = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
@@ -736,7 +748,7 @@ mod tests {
     fn setting_a_descriptors_times_answers_as_a_paths_do() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HoldsRefusesClose)),
+            Filesystem::new(Arc::new(HoldsRefusesClose)).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -830,7 +842,11 @@ mod tests {
     /// A directory that would make any link it is asked to.
     struct MakesLinks;
 
-    impl kobako_runtime::filesystem::FileSystemType for MakesLinks {}
+    impl kobako_runtime::filesystem::FileSystemType for MakesLinks {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            kobako_runtime::filesystem::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for MakesLinks {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -853,7 +869,7 @@ mod tests {
     fn a_link_to_an_absolute_path_is_not_made() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(MakesLinks)),
+            Filesystem::new(Arc::new(MakesLinks)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");

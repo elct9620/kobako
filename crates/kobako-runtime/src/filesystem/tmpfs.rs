@@ -655,10 +655,11 @@ impl Tmpfs {
 }
 
 impl FileSystemType for Tmpfs {
-    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
         sb.set_default_d_op(Arc::new(TmpfsDentry));
         sb.set_dontcache();
-        self.dir.metadata(self.tree.dev)
+        sb.d_make_root(Inode::new(&self.dir.metadata(self.tree.dev), self));
+        Ok(())
     }
 }
 
@@ -952,7 +953,7 @@ mod tests {
         let tmpfs: Tmpfs = [("a", ""), ("b", ""), ("c", "")].into_iter().collect();
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)),
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1002,7 +1003,7 @@ mod tests {
         let wrapped = crate::filesystem::wrap::Wrap::new(Arc::new(tmpfs), counts.clone());
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(wrapped)),
+            Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1028,21 +1029,16 @@ mod tests {
             [("a", "first"), ("b", "second")]
                 .into_iter()
                 .collect::<Tmpfs>(),
-        ));
+        ))
+        .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
         let (first, second) = (
             dentries.alloc_parallel(&root, "a"),
             dentries.alloc_parallel(&root, "b"),
         );
-        filesystem
-            .root()
-            .rename(
-                &first,
-                filesystem.root().as_ref(),
-                &second,
-                Some(RenameFlag::Exchange),
-            )
+        let dir = filesystem.root().expect("the root stands").ops();
+        dir.rename(&first, dir.as_ref(), &second, Some(RenameFlag::Exchange))
             .expect("the two must swap");
         let nlink = |name| {
             let dentry = dentries.alloc_parallel(&root, name);
@@ -1718,7 +1714,8 @@ mod tests {
     fn a_removed_directory_something_holds_keeps_its_inode() {
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Tmpfs::new().with_nr_inodes(Some(2)))),
+            Filesystem::new(Arc::new(Tmpfs::new().with_nr_inodes(Some(2))))
+                .expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1752,7 +1749,7 @@ mod tests {
         let mount = |tmpfs: Tmpfs| {
             crate::mount::Mount::new(
                 "/data",
-                Filesystem::new(Arc::new(tmpfs)),
+                Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
                 crate::mount::Access::ReadWrite,
             )
             .expect("/data is a guest path")

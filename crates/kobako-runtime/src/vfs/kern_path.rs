@@ -26,8 +26,8 @@ pub(crate) struct KernPath(Path);
 
 /// The root of `filesystem`, mounted read-write.
 pub(crate) fn kern_path(filesystem: Arc<dyn FileSystemType>) -> KernPath {
-    let mount = Mount::new("/data", SuperBlock::new(filesystem), Access::ReadWrite)
-        .expect("/data is a guest path");
+    let filesystem = SuperBlock::new(filesystem).expect("the instance must stand");
+    let mount = Mount::new("/data", filesystem, Access::ReadWrite).expect("/data is a guest path");
     KernPath(Path::root(mount.mnt()))
 }
 

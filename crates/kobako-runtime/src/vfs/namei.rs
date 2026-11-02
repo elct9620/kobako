@@ -1097,7 +1097,11 @@ mod tests {
         linked: Arc<AtomicUsize>,
     }
 
-    impl FileSystemType for LinksFile {}
+    impl FileSystemType for LinksFile {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for LinksFile {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1132,8 +1136,12 @@ mod tests {
             lookups: lookups.clone(),
             revalidations: revalidations.clone(),
         };
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(ops)), Access::ReadWrite)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(ops)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
         (Path::root(mount.mnt()), lookups, revalidations)
     }
 
@@ -1163,9 +1171,9 @@ mod tests {
     }
 
     impl FileSystemType for AskedOfAbsent {
-        fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
-            sb.set_default_d_op(Arc::new(self.clone()));
-            Metadata::new(FileType::Directory, 0)
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            sb.set_default_d_op(self.clone());
+            vfs::simple_fill_super(sb, self)
         }
     }
 
@@ -1329,7 +1337,7 @@ mod tests {
         let cred = vfs::Cred::new(vec![hooks.clone()]);
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Tmpfs::new())),
+            Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1382,8 +1390,12 @@ mod tests {
         }
 
         let tmpfs: Tmpfs = [("d/f", "x")].into_iter().collect();
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::Read)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
         let root = Path::root(mount.mnt());
         let cred = vfs::Cred::new(vec![Arc::new(RefusesExec)]);
         assert_eq!(
@@ -1398,9 +1410,41 @@ mod tests {
     struct NamesItsRoot;
 
     impl FileSystemType for NamesItsRoot {
-        fn fill_super(&self, _sb: &mut Filesystem) -> Metadata {
-            Metadata::new(FileType::Directory, 0).with_identity(7, 11)
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            let root = Metadata::new(FileType::Directory, 0).with_identity(7, 11);
+            sb.d_make_root(Inode::new(&root, self));
+            Ok(())
         }
+    }
+
+    /// A Filesystem that cannot stand, or stands with no root.
+    struct NeverStands(Option<FilesystemError>);
+
+    impl FileSystemType for NeverStands {
+        fn fill_super(self: Arc<Self>, _sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            match &self.0 {
+                Some(error) => Err(error.clone()),
+                None => Ok(()),
+            }
+        }
+    }
+
+    // @behavior RT-254
+    #[test]
+    fn an_instance_that_cannot_stand_answers_why() {
+        let answer = |fs: NeverStands| Filesystem::new(Arc::new(fs)).err();
+        assert_eq!(
+            (
+                answer(NeverStands(Some(FilesystemError::PermissionDenied))),
+                answer(NeverStands(None)),
+            ),
+            (
+                Some(FilesystemError::PermissionDenied),
+                Some(FilesystemError::InvalidInput),
+            ),
+            "Filesystem::new must answer what fill_super answers, and EINVAL for a fill_super \
+             that made no root, and make no instance, as vfs_get_tree refuses one"
+        );
     }
 
     impl InodeOperations for NamesItsRoot {
@@ -1411,10 +1455,14 @@ mod tests {
 
     // @behavior RT-247
     #[test]
-    fn a_root_stands_for_what_fill_super_reports() {
+    fn a_root_stands_for_what_fill_super_made() {
         let identity = |fs: Arc<dyn FileSystemType>| {
-            let mount = Mount::new("/data", Filesystem::new(fs), Access::Read)
-                .expect("/data is a guest path");
+            let mount = Mount::new(
+                "/data",
+                Filesystem::new(fs).expect("the instance must stand"),
+                Access::Read,
+            )
+            .expect("/data is a guest path");
             let inode = Path::root(mount.mnt()).dentry().inode();
             inode.and_then(|inode| inode.identity())
         };
@@ -1425,8 +1473,8 @@ mod tests {
                 identity(Arc::new(CreatesOnly::default()))
             ),
             (vfs::Identity::of(&reported), None),
-            "Filesystem::new must record on the root what fill_super reports, and no identity \
-             for a Filesystem with nothing to set up, as fill_super makes s_root"
+            "Filesystem::new must stand on the root fill_super made, with no identity for one \
+             made through simple_fill_super, as fill_super makes s_root"
         );
     }
 
@@ -1434,7 +1482,11 @@ mod tests {
     #[derive(Clone)]
     struct SharesInode(Arc<OnceLock<Arc<Inode>>>);
 
-    impl FileSystemType for SharesInode {}
+    impl FileSystemType for SharesInode {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for SharesInode {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1455,7 +1507,8 @@ mod tests {
     fn a_filesystem_handing_one_inode_for_two_names_shares_it() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(SharesInode(Arc::default()))),
+            Filesystem::new(Arc::new(SharesInode(Arc::default())))
+                .expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1486,7 +1539,11 @@ mod tests {
 
     impl FileOperations for NoOperations {}
 
-    impl FileSystemType for CreatesOnly {}
+    impl FileSystemType for CreatesOnly {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for CreatesOnly {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -1522,7 +1579,7 @@ mod tests {
         let filesystem = CreatesOnly::default();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(filesystem.clone())),
+            Filesystem::new(Arc::new(filesystem.clone())).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1574,7 +1631,7 @@ mod tests {
         let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(wrapped)),
+            Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1709,7 +1766,7 @@ mod tests {
         let wrapped = Wrap::new(Arc::new(tmpfs), Arc::new(LinkAtL(Arc::new(link))));
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(wrapped)),
+            Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1764,7 +1821,8 @@ mod tests {
             let filesystem = Filesystem::new(Arc::new(LinksFile {
                 names,
                 linked: linked.clone(),
-            }));
+            }))
+            .expect("the instance must stand");
             let root = root_of(filesystem);
             let answer =
                 vfs::filename_linkat(&Arc::default(), &root, "file", &root, "other", false);
@@ -1786,7 +1844,8 @@ mod tests {
     fn a_change_asks_a_filesystem_once_for_the_name_it_makes() {
         let counts = Arc::new(CountsAsks::default());
         let filesystem =
-            Filesystem::new(Arc::new(Wrap::new(Arc::new(Tmpfs::new()), counts.clone())));
+            Filesystem::new(Arc::new(Wrap::new(Arc::new(Tmpfs::new()), counts.clone())))
+                .expect("the instance must stand");
         let root = root_of(filesystem);
         let cred = Arc::default();
         let how = OpenHow {
@@ -1847,9 +1906,9 @@ mod tests {
     }
 
     impl FileSystemType for HookedTmpfs {
-        fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
             sb.set_default_d_op(Arc::new(HookedDentry(self.stale.clone())));
-            Metadata::new(FileType::Directory, 0)
+            vfs::simple_fill_super(sb, self)
         }
     }
 
@@ -1944,7 +2003,11 @@ mod tests {
         }
     }
 
-    impl FileSystemType for FoldsToUpper {}
+    impl FileSystemType for FoldsToUpper {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for FoldsToUpper {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -2009,7 +2072,11 @@ mod tests {
     /// counting how often it was.
     struct OpensItsLinks(Arc<AtomicUsize>);
 
-    impl FileSystemType for OpensItsLinks {}
+    impl FileSystemType for OpensItsLinks {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for OpensItsLinks {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -2044,8 +2111,12 @@ mod tests {
     ) -> [Result<(), FilesystemError>; 3] {
         let tmpfs: Tmpfs = [("dir/file", "x")].into_iter().collect();
         let mount = prepare(
-            Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), access)
-                .expect("/data is a guest path"),
+            Mount::new(
+                "/data",
+                Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+                access,
+            )
+            .expect("/data is a guest path"),
         );
         let cred = crate::security::prepare_creds([&mount]);
         let root = Path::root(mount.mnt());
@@ -2104,8 +2175,12 @@ mod tests {
     #[test]
     fn a_move_across_mounts_answers_ahead_of_a_dot_at_its_end() {
         let mount = |tmpfs: Tmpfs| {
-            Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
-                .expect("/data is a guest path")
+            Mount::new(
+                "/data",
+                Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+                Access::ReadWrite,
+            )
+            .expect("/data is a guest path")
         };
         let (first, second) = (mount(Tmpfs::new()), mount(Tmpfs::new()));
         assert_eq!(
@@ -2126,7 +2201,11 @@ mod tests {
     /// each move it is asked for.
     struct OneEntry(Arc<AtomicUsize>);
 
-    impl FileSystemType for OneEntry {}
+    impl FileSystemType for OneEntry {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for OneEntry {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -2157,7 +2236,9 @@ mod tests {
     #[test]
     fn a_move_between_two_names_of_one_entry_changes_nothing() {
         let moves = Arc::new(AtomicUsize::new(0));
-        let root = root_of(Filesystem::new(Arc::new(OneEntry(moves.clone()))));
+        let root = root_of(
+            Filesystem::new(Arc::new(OneEntry(moves.clone()))).expect("the instance must stand"),
+        );
         assert_eq!(
             (
                 vfs::filename_renameat2(&Arc::default(), &root, "a", &root, "b"),
@@ -2175,11 +2256,16 @@ mod tests {
     #[test]
     fn a_readlink_asks_its_hook_only_of_a_link() {
         let tmpfs: Tmpfs = [("file", "x")].into_iter().collect();
-        let plain = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
-            .expect("/data is a guest path");
+        let plain = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
         let links = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(OpensItsLinks(Arc::default()))),
+            Filesystem::new(Arc::new(OpensItsLinks(Arc::default())))
+                .expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2205,7 +2291,10 @@ mod tests {
     #[test]
     fn an_open_refuses_a_link_before_its_filesystem_is_asked() {
         let asked = Arc::new(AtomicUsize::new(0));
-        let root = root_of(Filesystem::new(Arc::new(OpensItsLinks(asked.clone()))));
+        let root = root_of(
+            Filesystem::new(Arc::new(OpensItsLinks(asked.clone())))
+                .expect("the instance must stand"),
+        );
         let answer = vfs::do_file_open(&Arc::default(), &root, "link", &OpenHow::default());
         assert_eq!(
             (answer.err(), asked.load(Ordering::SeqCst)),
@@ -2243,7 +2332,7 @@ mod tests {
     fn an_entry_neither_file_nor_directory_opens_as_access_denied() {
         let tmpfs = Tmpfs::new();
         tmpfs.whiteout("w").expect("the whiteout must be made");
-        let root = root_of(Filesystem::new(Arc::new(tmpfs)));
+        let root = root_of(Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"));
         let how = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -2264,7 +2353,7 @@ mod tests {
             tmpfs: [("d/keep", "x")].into_iter().collect(),
             ..HookedTmpfs::default()
         });
-        let root = root_of(Filesystem::new(hooked.clone()));
+        let root = root_of(Filesystem::new(hooked.clone()).expect("the instance must stand"));
         let held = open_dir(&root, "d");
         hooked.stale.store(true, Ordering::SeqCst);
         vfs::filename_unlinkat(&Arc::default(), &root, "d/keep").expect("the file must go");
@@ -2292,7 +2381,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let root = root_of(Filesystem::new(Arc::new(hooked)));
+        let root = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
         vfs::filename_mkdirat(&Arc::default(), &root, "d").expect("the directory must be made");
         let remover = {
             let root = root.clone();
@@ -2353,9 +2442,13 @@ mod tests {
             resume: Mutex::new(resume),
         };
         let tmpfs: Tmpfs = [("f", "x")].into_iter().collect();
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
-            .expect("/data is a guest path")
-            .with_policy(Arc::new(policy));
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path")
+        .with_policy(Arc::new(policy));
         let root = Path::root(mount.mnt());
         let cred = crate::security::prepare_creds([&mount]);
         let opener = {
@@ -2396,7 +2489,7 @@ mod tests {
     #[test]
     fn a_directory_moved_beneath_itself_is_refused_whatever_its_filesystem() {
         let hooked = Arc::new(HookedTmpfs::default());
-        let root = root_of(Filesystem::new(hooked.clone()));
+        let root = root_of(Filesystem::new(hooked.clone()).expect("the instance must stand"));
         vfs::filename_mkdirat(&Arc::default(), &root, "a").expect("the directory must be made");
         vfs::filename_mkdirat(&Arc::default(), &root, "a/b")
             .expect("the directory beneath it must be made");
@@ -2432,7 +2525,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let path = root_of(Filesystem::new(Arc::new(hooked)));
+        let path = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
         root.set(path.clone()).ok();
         assert_eq!(
             vfs::filename_mkdirat(&Arc::default(), &path, "made"),
@@ -2458,7 +2551,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let path = root_of(Filesystem::new(Arc::new(hooked)));
+        let path = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
         root.set(path.clone()).ok();
         assert_eq!(
             vfs::filename_mkdirat(&Arc::default(), &path, "made"),
@@ -2496,7 +2589,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let root = root_of(Filesystem::new(Arc::new(hooked)));
+        let root = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
         vfs::filename_mkdirat(&Arc::default(), &root, "b").expect("the directory must be made");
         let replaced = open_dir(&root, "b");
         let mover = {
@@ -2540,7 +2633,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let root = root_of(Filesystem::new(Arc::new(hooked)));
+        let root = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
         vfs::filename_mkdirat(&Arc::default(), &root, "d").expect("the directory must be made");
         let remover = {
             let root = root.clone();
@@ -2589,7 +2682,7 @@ mod tests {
             root: kern_path(Arc::new(tmpfs)),
             renaming,
         };
-        let root = root_of(Filesystem::new(Arc::new(folds)));
+        let root = root_of(Filesystem::new(Arc::new(folds)).expect("the instance must stand"));
         let mover = {
             let root = root.clone();
             thread::spawn(move || {
@@ -2619,7 +2712,7 @@ mod tests {
     fn a_path_no_call_can_take_is_refused_before_a_filesystem_is_asked() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Tmpfs::new())),
+            Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2685,9 +2778,9 @@ mod tests {
     }
 
     impl FileSystemType for CountsLookups {
-        fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
-            sb.set_default_d_op(Arc::new(self.clone()));
-            Metadata::new(FileType::Directory, 0)
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            sb.set_default_d_op(self.clone());
+            vfs::simple_fill_super(sb, self)
         }
     }
 
@@ -2695,10 +2788,13 @@ mod tests {
     /// of a Filesystem answering `deleted`.
     fn lookups_of_two_stats(deleted: bool) -> usize {
         let looked_up = Arc::new(AtomicUsize::new(0));
-        let root = root_of(Filesystem::new(Arc::new(CountsLookups {
-            looked_up: looked_up.clone(),
-            deleted,
-        })));
+        let root = root_of(
+            Filesystem::new(Arc::new(CountsLookups {
+                looked_up: looked_up.clone(),
+                deleted,
+            }))
+            .expect("the instance must stand"),
+        );
         for _ in 0..2 {
             vfs::vfs_fstatat(&Arc::default(), &root, "file", false)
                 .unwrap_or_else(|_| panic!("the file must stand"));
@@ -2725,7 +2821,11 @@ mod tests {
     struct RecordedFile;
     impl FileOperations for RecordedFile {}
 
-    impl FileSystemType for RecordsCalls {}
+    impl FileSystemType for RecordsCalls {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for RecordsCalls {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -2777,7 +2877,8 @@ mod tests {
     #[test]
     fn an_open_empties_what_stood_through_setattr_once_it_is_open() {
         let calls = RecordsCalls::default();
-        let root = root_of(Filesystem::new(Arc::new(calls.clone())));
+        let root =
+            root_of(Filesystem::new(Arc::new(calls.clone())).expect("the instance must stand"));
         let cred = Arc::default();
         let truncate = OpenHow {
             write: true,
@@ -2855,7 +2956,8 @@ mod tests {
         });
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook))),
+            Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook)))
+                .expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path")

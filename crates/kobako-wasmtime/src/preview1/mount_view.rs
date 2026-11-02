@@ -33,7 +33,7 @@ use wrap::{Hook, Wrap};
 fn host<F: FileSystemType>(filesystem: &Arc<F>) -> Path {
     let mount = Mount::new(
         "/data",
-        Filesystem::new(filesystem.clone()),
+        Filesystem::new(filesystem.clone()).expect("the instance must stand"),
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
@@ -44,7 +44,7 @@ fn host<F: FileSystemType>(filesystem: &Arc<F>) -> Path {
 fn host_entries<F: FileSystemType>(filesystem: &Arc<F>) -> Result<Vec<String>, FilesystemError> {
     let mount = Mount::new(
         "/data",
-        Filesystem::new(filesystem.clone()),
+        Filesystem::new(filesystem.clone()).expect("the instance must stand"),
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
@@ -434,8 +434,12 @@ fn grant(
     access: Access,
     policy: Option<Arc<dyn Policy>>,
 ) -> Grant {
-    let mount =
-        Mount::new("/data", Filesystem::new(filesystem), access).expect("/data is a guest path");
+    let mount = Mount::new(
+        "/data",
+        Filesystem::new(filesystem).expect("the instance must stand"),
+        access,
+    )
+    .expect("/data is a guest path");
     Grant::Mount(match policy {
         Some(policy) => mount.with_policy(policy),
         None => mount,
@@ -1103,7 +1107,7 @@ fn a_descriptor_moved_beneath_a_policy_still_lists_itself() {
 #[test]
 fn a_directory_moved_beneath_another_mount_of_its_instance_is_reached_beneath_a_policy() {
     let open_after_move = |policy: Arc<dyn Policy>| {
-        let instance = Filesystem::new(file_and_directory());
+        let instance = Filesystem::new(file_and_directory()).expect("the instance must stand");
         let mount = Mount::new("/data", instance.clone(), Access::ReadWrite)
             .expect("/data is a guest path");
         let mut guest = Guest::new(&[Grant::Mount(mount.clone().with_policy(policy))]);
@@ -1172,8 +1176,15 @@ impl Hook for ReusesInodes {
         })
     }
 
-    fn fill_super(&self, _fs: &dyn FileSystemType, _sb: &mut Filesystem) -> Metadata {
-        Metadata::new(FileType::Directory, 0)
+    /// Its root answers as the Filesystem's and sets up nothing of it.
+    fn fill_super(
+        &self,
+        fs: Arc<dyn FileSystemType>,
+        sb: &mut Filesystem,
+    ) -> Result<(), FilesystemError> {
+        let beneath = Filesystem::new(fs)?;
+        let root = beneath.root().ok_or(FilesystemError::NotFound)?;
+        kobako_runtime::filesystem::simple_fill_super(sb, root.ops().clone())
     }
 
     /// The call removing it holds what it looked up, so `dir` is open
@@ -1307,8 +1318,8 @@ fn a_full_table_answers_emfile_whatever_the_path_names() {
 #[test]
 fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
     let overlay = Overlay::new(
-        vec![Filesystem::new(file_and_directory())],
-        Some(Filesystem::new(tmpfs_with("dir/upper", "u"))),
+        vec![Filesystem::new(file_and_directory()).expect("the instance must stand")],
+        Some(Filesystem::new(tmpfs_with("dir/upper", "u")).expect("the instance must stand")),
     )
     .expect("an upper over a lower Layer must make a view");
     let mut guest = Guest::with_open_file_limit(
@@ -1333,8 +1344,8 @@ fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
 #[test]
 fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
     let overlay = Overlay::new(
-        vec![Filesystem::new(file_and_directory())],
-        Some(Filesystem::new(tmpfs_with("dir/upper", "u"))),
+        vec![Filesystem::new(file_and_directory()).expect("the instance must stand")],
+        Some(Filesystem::new(tmpfs_with("dir/upper", "u")).expect("the instance must stand")),
     )
     .expect("an upper over a lower Layer must make a view");
     let mut guest = Guest::new(&[grant(Arc::new(overlay), Access::ReadWrite, None)]);
@@ -1862,8 +1873,12 @@ fn an_unlink_with_a_trailing_slash_answers_for_the_name_itself() {
 #[test]
 fn a_name_no_filesystem_makes_is_answered_by_what_stands() {
     let tmpfs = tmpfs_with("file.txt", "granted");
-    let mount = Mount::new("/data", Filesystem::new(tmpfs.clone()), Access::ReadWrite)
-        .expect("/data is a guest path");
+    let mount = Mount::new(
+        "/data",
+        Filesystem::new(tmpfs.clone()).expect("the instance must stand"),
+        Access::ReadWrite,
+    )
+    .expect("/data is a guest path");
     let root = vfs::Path::root(mount.mnt());
     let cred = Arc::default();
     let link = |old, new| vfs::filename_linkat(&cred, &root, old, &root, new, false);
@@ -2345,7 +2360,7 @@ fn bind_root(host: &std::path::Path) -> Path {
     let directory = Bind::new(host).expect("the host directory must open");
     let mount = Mount::new(
         "/data",
-        Filesystem::new(Arc::new(directory)),
+        Filesystem::new(Arc::new(directory)).expect("the instance must stand"),
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
@@ -2618,7 +2633,11 @@ const ERRNO_PERM: i32 = 63;
 /// Linux's `inode_operations`.
 struct ChangesNothing(Arc<dyn InodeOperations>);
 
-impl FileSystemType for ChangesNothing {}
+impl FileSystemType for ChangesNothing {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        kobako_runtime::filesystem::simple_fill_super(sb, self)
+    }
+}
 
 impl InodeOperations for ChangesNothing {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -3030,8 +3049,8 @@ impl LinkedBeneath {
         let filesystem: Arc<dyn FileSystemType> = if overlay {
             Arc::new(
                 Overlay::new(
-                    vec![Filesystem::new(directory)],
-                    Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+                    vec![Filesystem::new(directory).expect("the instance must stand")],
+                    Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
                 )
                 .expect("an upper over a lower Layer must make a view"),
             )

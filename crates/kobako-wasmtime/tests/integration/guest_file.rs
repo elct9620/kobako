@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, InodeOperations, Kiocb,
-    Lookup, Metadata, OpenOptions, Tmpfs,
+    simple_fill_super, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
+    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
@@ -45,7 +45,12 @@ fn run(source: &str, grants: &[Grant], flags: Vec<Flag>) -> Option<Result<String
 
 fn mount(filesystem: Arc<dyn FileSystemType>, access: Access) -> Grant {
     Grant::Mount(
-        Mount::new("/data", Filesystem::new(filesystem), access).expect("/data is a guest path"),
+        Mount::new(
+            "/data",
+            Filesystem::new(filesystem).expect("the instance must stand"),
+            access,
+        )
+        .expect("/data is a guest path"),
     )
 }
 
@@ -55,8 +60,8 @@ fn note_tmpfs() -> Arc<Tmpfs> {
 
 /// The root of `filesystem` as the host reaches it through the VFS.
 fn host<F: FileSystemType>(filesystem: &Arc<F>) -> Path {
-    let mount = Mount::new("/data", Filesystem::new(filesystem.clone()), Access::Read)
-        .expect("/data is a guest path");
+    let filesystem = Filesystem::new(filesystem.clone()).expect("the instance must stand");
+    let mount = Mount::new("/data", filesystem, Access::Read).expect("/data is a guest path");
     Path::root(mount.mnt())
 }
 
@@ -569,6 +574,9 @@ where
     W: Fn(Box<dyn FileOperations>) -> F + Send + Sync + 'static,
     F: FileOperations + 'static,
 {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        simple_fill_super(sb, self)
+    }
 }
 
 impl<W, F> InodeOperations for WrapsFiles<W>
@@ -904,7 +912,11 @@ fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {
 /// file of several GiB without the test allocating one.
 struct ReportsLen(Arc<dyn InodeOperations>, u64);
 
-impl FileSystemType for ReportsLen {}
+impl FileSystemType for ReportsLen {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        simple_fill_super(sb, self)
+    }
+}
 
 impl InodeOperations for ReportsLen {
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {

@@ -74,12 +74,15 @@ impl Overlay {
             return Err(FilesystemError::InvalidInput);
         }
         let too_few = if upper.is_some() { 1 } else { 2 };
-        let upper_tmpfs = upper
-            .as_ref()
-            .is_none_or(|upper| (upper.root().as_ref() as &dyn Any).is::<Tmpfs>());
+        let upper_tmpfs = upper.as_ref().is_none_or(|upper| {
+            upper
+                .root()
+                .is_some_and(|root| (root.ops().as_ref() as &dyn Any).is::<Tmpfs>())
+        });
         let stack_depth = 1 + lower
             .iter()
-            .filter_map(|layer| (layer.root().as_ref() as &dyn Any).downcast_ref::<Self>())
+            .filter_map(|layer| layer.root())
+            .filter_map(|root| (root.ops().as_ref() as &dyn Any).downcast_ref::<Self>())
             .map(|overlay| overlay.stack_depth)
             .max()
             .unwrap_or(0);
@@ -236,16 +239,18 @@ impl FileSystemType for Overlay {
     /// Its root takes the identity its topmost Layer's root recorded, as
     /// `ovl_get_root` reads a real root's `i_ino`, so making the view asks no
     /// Layer anything.
-    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
-        sb.set_default_d_op(Arc::new(self.clone()));
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        sb.set_default_d_op(self.clone());
         if !self.fs.has_upper() {
             sb.set_rdonly();
         }
         let root = Metadata::new(FileType::Directory, 0);
-        match self.fs.root_identity() {
+        let root = match self.fs.root_identity() {
             Some(identity) => identity.onto(root),
             None => root,
-        }
+        };
+        sb.d_make_root(Inode::new(&root, self));
+        Ok(())
     }
 }
 
@@ -428,11 +433,11 @@ mod tests {
         let lower: Tmpfs = [("file", "x")].into_iter().collect();
         let counts = Arc::new(CountsLookups::default());
         let view = at(Overlay::new(
-            vec![Filesystem::new(Arc::new(Wrap::new(
-                Arc::new(lower),
-                counts.clone(),
-            )))],
-            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+            vec![
+                Filesystem::new(Arc::new(Wrap::new(Arc::new(lower), counts.clone())))
+                    .expect("the instance must stand"),
+            ],
+            Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
         )
         .expect("the Overlay must stack"));
         let asks = |path: &str| {
@@ -478,8 +483,8 @@ mod tests {
         let lower: Tmpfs = [("file", "x")].into_iter().collect();
         let upper = Tmpfs::new();
         let overlay = at(Overlay::new(
-            vec![Filesystem::new(Arc::new(lower))],
-            Some(Filesystem::new(Arc::new(upper))),
+            vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
+            Some(Filesystem::new(Arc::new(upper)).expect("the instance must stand")),
         )
         .expect("the Overlay must stack"));
         assert_eq!(
@@ -590,13 +595,15 @@ mod tests {
 
     /// `upper` over the one lower Layer `lower`.
     fn over(lower: Arc<dyn FileSystemType>, upper: Arc<Tmpfs>) -> Overlay {
-        Overlay::new(vec![Filesystem::new(lower)], Some(Filesystem::new(upper)))
+        let instance = |fs| Filesystem::new(fs).expect("the instance must stand");
+        Overlay::new(vec![instance(lower)], Some(instance(upper)))
             .expect("an upper over a lower Layer must make a view")
     }
 
     /// The lower Layers `top` over `bottom`, with no upper.
     fn lowers(top: Arc<dyn FileSystemType>, bottom: Arc<dyn FileSystemType>) -> Overlay {
-        Overlay::new(vec![Filesystem::new(top), Filesystem::new(bottom)], None)
+        let instance = |fs| Filesystem::new(fs).expect("the instance must stand");
+        Overlay::new(vec![instance(top), instance(bottom)], None)
             .expect("two lower Layers must make a view")
     }
 
@@ -811,7 +818,11 @@ mod tests {
     /// to, recording that it was.
     struct KeepsTimes(Arc<AtomicUsize>);
 
-    impl FileSystemType for KeepsTimes {}
+    impl FileSystemType for KeepsTimes {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for KeepsTimes {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -862,13 +873,14 @@ mod tests {
         let asked = Arc::new(AtomicUsize::new(0));
         let upper = Arc::new(Tmpfs::new());
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(KeepsTimes(asked.clone())))],
-            Some(Filesystem::new(upper.clone())),
+            vec![Filesystem::new(Arc::new(KeepsTimes(asked.clone())))
+                .expect("the instance must stand")],
+            Some(Filesystem::new(upper.clone()).expect("the instance must stand")),
         )
         .unwrap_or_else(|_| panic!("the Overlay must make"));
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(overlay)),
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -899,8 +911,8 @@ mod tests {
         let deep = vec!["a"; 1500].join("/");
         let lower: Tmpfs = [(format!("{deep}/file"), "x")].into_iter().collect();
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(lower))],
-            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+            vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
+            Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
         )
         .unwrap_or_else(|_| panic!("the Overlay must make"));
         let made = std::thread::Builder::new()
@@ -1227,7 +1239,7 @@ mod tests {
         use crate::vfs::lookup_one_qstr_excl;
         let lower = Arc::new([("dir/old", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower.clone(), Arc::new(Tmpfs::new())));
-        let filesystem = Filesystem::new(overlay.clone());
+        let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
         let root = filesystem.dentries().root();
         let dir = lookup_one_qstr_excl(&filesystem, &root, "dir")
             .expect("the directory must be found")
@@ -1268,7 +1280,7 @@ mod tests {
         use crate::vfs::{lookup_one_qstr_excl, vfs_unlink};
         let lower = Arc::new([("dir/file", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower, Arc::new(Tmpfs::new())));
-        let filesystem = Filesystem::new(overlay.clone());
+        let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
         let root = filesystem.dentries().root();
         let dir = lookup_one_qstr_excl(&filesystem, &root, "dir")
             .expect("the directory must be found")
@@ -1375,7 +1387,7 @@ mod tests {
         let overlay = lowers(tmpfs_with("dir/file", "lower"), Arc::new(Tmpfs::new()));
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(overlay)),
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1540,9 +1552,10 @@ mod tests {
         lower: Vec<Arc<dyn FileSystemType>>,
         upper: Option<Arc<dyn FileSystemType>>,
     ) -> Option<FilesystemError> {
+        let instance = |fs| Filesystem::new(fs).expect("the instance must stand");
         Overlay::new(
-            lower.into_iter().map(Filesystem::new).collect(),
-            upper.map(Filesystem::new),
+            lower.into_iter().map(instance).collect(),
+            upper.map(instance),
         )
         .err()
     }
@@ -1566,7 +1579,7 @@ mod tests {
     // @behavior FS-148
     #[test]
     fn an_overlay_refuses_one_instance_as_two_layers() {
-        let instance = || Filesystem::new(Arc::new(Tmpfs::new()));
+        let instance = || Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand");
         let (shared, doubled) = (instance(), instance());
         assert_eq!(
             (
@@ -1730,7 +1743,8 @@ mod tests {
             Filesystem::new(Arc::new(over(
                 Arc::new(Wrap::new(tmpfs, interleave.clone())),
                 Arc::new(Tmpfs::new()),
-            ))),
+            )))
+            .expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1795,7 +1809,8 @@ mod tests {
             Filesystem::new(Arc::new(over(
                 Arc::new(Wrap::new(Arc::new(tmpfs), layer.clone())),
                 Arc::new(Tmpfs::new()),
-            ))),
+            )))
+            .expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2067,9 +2082,9 @@ mod tests {
     /// An Overlay over an empty lower Layer under the Tmpfs `upper`, and
     /// that same Tmpfs mounted on its own, each reached through the VFS.
     fn beside_its_upper(upper: Tmpfs) -> (crate::vfs::Path, crate::vfs::Path) {
-        let upper = Filesystem::new(Arc::new(upper));
+        let upper = Filesystem::new(Arc::new(upper)).expect("the instance must stand");
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(Tmpfs::new()))],
+            vec![Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")],
             Some(upper.clone()),
         )
         .expect("an upper over a lower Layer must make a view");
@@ -2079,7 +2094,10 @@ mod tests {
                     .expect("/data is a guest path");
             crate::vfs::Path::root(mount.mnt())
         };
-        (root(Filesystem::new(Arc::new(overlay))), root(upper))
+        (
+            root(Filesystem::new(Arc::new(overlay)).expect("the instance must stand")),
+            root(upper),
+        )
     }
 
     // The move holds the directory it leaves and the one above it, and the
@@ -2262,7 +2280,11 @@ mod tests {
         }
     }
 
-    impl FileSystemType for FoldsCase {}
+    impl FileSystemType for FoldsCase {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for FoldsCase {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -2461,13 +2483,14 @@ mod tests {
         use crate::vfs::{self, OpenHow, Path};
         let asked = Arc::new(AtomicUsize::new(0));
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(KeepsTimes(asked.clone())))],
-            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+            vec![Filesystem::new(Arc::new(KeepsTimes(asked.clone())))
+                .expect("the instance must stand")],
+            Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
         )
         .expect("the Overlay must stack");
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(overlay)),
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2510,13 +2533,13 @@ mod tests {
         use crate::vfs::{self, OpenHow, Path};
         let lower: Tmpfs = [("d/f", "removed")].into_iter().collect();
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(lower))],
-            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+            vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
+            Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
         )
         .expect("the Overlay must stack");
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(overlay)),
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2578,16 +2601,16 @@ mod tests {
         let lower: Tmpfs = [("d/e/f", "1"), ("d/e/g", "2")].into_iter().collect();
         let hook = Arc::new(SlowsDirectory(AtomicBool::new(false)));
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(Wrap::new(
-                Arc::new(lower),
-                hook.clone(),
-            )))],
-            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+            vec![
+                Filesystem::new(Arc::new(Wrap::new(Arc::new(lower), hook.clone())))
+                    .expect("the instance must stand"),
+            ],
+            Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
         )
         .expect("the Overlay must stack");
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(overlay)),
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2632,13 +2655,13 @@ mod tests {
         ) {
             let lower: Tmpfs = [("d/f", "lower")].into_iter().collect();
             let overlay = Overlay::new(
-                vec![Filesystem::new(Arc::new(lower))],
-                Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+                vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
+                Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
             )
             .expect("the Overlay must stack");
             let mount = Mount::new(
                 "/data",
-                Filesystem::new(Arc::new(overlay)),
+                Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
                 Access::ReadWrite,
             )
             .expect("/data is a guest path");
@@ -2702,7 +2725,11 @@ mod tests {
     /// A lower Layer whose one entry, `pipe`, is a FIFO, counting each open.
     struct HoldsFifo(Arc<AtomicUsize>);
 
-    impl FileSystemType for HoldsFifo {}
+    impl FileSystemType for HoldsFifo {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
 
     impl InodeOperations for HoldsFifo {
         fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
@@ -2741,13 +2768,14 @@ mod tests {
         use crate::vfs::{self, Path};
         let opened = Arc::new(AtomicUsize::new(0));
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(HoldsFifo(opened.clone())))],
-            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+            vec![Filesystem::new(Arc::new(HoldsFifo(opened.clone())))
+                .expect("the instance must stand")],
+            Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
         )
         .expect("the Overlay must stack");
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(overlay)),
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2773,10 +2801,10 @@ mod tests {
     #[test]
     fn a_whiteout_in_a_directory_one_layer_shows_names_nothing() {
         let lower: Tmpfs = [("file", "x")].into_iter().collect();
-        let first_upper = Filesystem::new(Arc::new(Tmpfs::new()));
+        let first_upper = Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand");
         let first = kern_path(Arc::new(
             Overlay::new(
-                vec![Filesystem::new(Arc::new(lower))],
+                vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
                 Some(first_upper.clone()),
             )
             .expect("the Overlay must stack"),
@@ -2784,7 +2812,7 @@ mod tests {
         first.remove_file("file").expect("the file must be removed");
         let second = at(Overlay::new(
             vec![first_upper],
-            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+            Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
         )
         .expect("the Overlay must stack"));
         assert_eq!(
@@ -2822,13 +2850,13 @@ mod tests {
         let lower: Tmpfs = [("file", vec![b'x'; 1 << 20])].into_iter().collect();
         let upper = Tmpfs::new().with_size(Some(4096)).with_nr_inodes(None);
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(lower))],
-            Some(Filesystem::new(Arc::new(upper))),
+            vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
+            Some(Filesystem::new(Arc::new(upper)).expect("the instance must stand")),
         )
         .expect("the Overlay must stack");
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(overlay)),
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2865,11 +2893,19 @@ mod tests {
         std::fs::write(host.join("held/f"), "x").expect("the host file must be written");
         let lower = Filesystem::new(Arc::new(
             crate::filesystem::Bind::new(&host).expect("the host directory must open"),
-        ));
-        let overlay = Overlay::new(vec![lower], Some(Filesystem::new(Arc::new(Tmpfs::new()))))
-            .expect("the Overlay must stack");
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(overlay)), Access::Read)
-            .expect("/data is a guest path");
+        ))
+        .expect("the instance must stand");
+        let overlay = Overlay::new(
+            vec![lower],
+            Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
+        )
+        .expect("the Overlay must stack");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
         let root = Path::root(mount.mnt());
         let cred = Arc::default();
         let directory = OpenHow {
@@ -3005,8 +3041,12 @@ mod tests {
             Arc::new(Wrap::new(lower, Arc::new(RefusesOpen))),
             Arc::new(Tmpfs::new()),
         );
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(overlay)), Access::Read)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
         let directory = OpenHow {
             directory: true,
             ..OpenHow::default()

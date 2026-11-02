@@ -143,12 +143,10 @@ fn apply_mount(sandbox: &mut Sandbox, mount: &Json) -> Result<(), String> {
             ))
         }
     };
+    let filesystem = Filesystem::new(Arc::new(files.collect::<Tmpfs>()))
+        .map_err(|err| format!("mount failed: {err:?}"))?;
     sandbox
-        .mount(
-            at,
-            Filesystem::new(Arc::new(files.collect::<Tmpfs>())),
-            access,
-        )
+        .mount(at, filesystem, access)
         .map_err(|err| format!("mount failed: {err}"))
 }
 

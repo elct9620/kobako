@@ -301,8 +301,12 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
         let mount = prepare(mount);
         let cred = prepare_creds([&mount]);
         let root = Path::root(mount.mnt());
@@ -405,7 +409,8 @@ mod tests {
         let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
         let (reached, asked) = std::sync::mpsc::channel();
         let hook = Arc::new(PausesRevalidate(std::sync::Mutex::new(None)));
-        let filesystem = Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook.clone())));
+        let filesystem = Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook.clone())))
+            .expect("the instance must stand");
         let (cred, held, plain, guard) = held_beneath_a_policy(filesystem);
         *hook.0.lock().expect("the sender") = Some(reached);
         let start = held.path().clone();
@@ -441,8 +446,9 @@ mod tests {
         #[ignore = "a stress witness; run by rake crates:stress"]
         fn a_directory_moving_while_calls_start_from_it_stays_reachable_beneath_a_policy() {
             let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
-            let (cred, held, plain, guard) =
-                held_beneath_a_policy(Filesystem::new(Arc::new(tmpfs)));
+            let (cred, held, plain, guard) = held_beneath_a_policy(
+                Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            );
             let stop = AtomicBool::new(false);
             let start = held.path().clone();
             let refused = std::thread::scope(|scope| {
@@ -479,7 +485,8 @@ mod tests {
     fn only_a_file_or_a_directory_opens() {
         let mount = Mount::new(
             "/data",
-            crate::filesystem::Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new())),
+            crate::filesystem::Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new()))
+                .expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");

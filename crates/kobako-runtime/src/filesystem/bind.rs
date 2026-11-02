@@ -431,13 +431,12 @@ fn open_in(
 /// keeps it once its holder lets go.
 impl FileSystemType for Bind {
     /// Its root reports the host directory it holds, as 9p's `fill_super` asks of
-    /// the attached fid. A host that cannot answer leaves it no identity.
-    fn fill_super(&self, sb: &mut Filesystem) -> Metadata {
-        sb.set_default_d_op(Arc::new(self.clone()));
-        match self.root.dir_metadata() {
-            Ok(metadata) => to_metadata(metadata),
-            Err(_) => Metadata::new(FileType::Directory, 0),
-        }
+    /// the attached fid, and a host that cannot answer makes no instance.
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        sb.set_default_d_op(self.clone());
+        let root = to_metadata(self.root.dir_metadata().map_err(to_error)?);
+        sb.d_make_root(Inode::new(&root, self));
+        Ok(())
     }
 }
 
@@ -810,8 +809,12 @@ mod tests {
 
         /// The root of `filesystem` mounted to change.
         fn root_of(filesystem: Arc<dyn FileSystemType>) -> VfsPath {
-            let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
-                .expect("/data is a guest path");
+            let mount = Mount::new(
+                "/data",
+                Filesystem::new(filesystem).expect("the instance must stand"),
+                Access::ReadWrite,
+            )
+            .expect("/data is a guest path");
             VfsPath::root(mount.mnt())
         }
 
@@ -819,8 +822,8 @@ mod tests {
         fn overlay_of(lower: Bind) -> Arc<Overlay> {
             Arc::new(
                 Overlay::new(
-                    vec![Filesystem::new(Arc::new(lower))],
-                    Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+                    vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
+                    Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
                 )
                 .unwrap_or_else(|_| panic!("the Overlay must stack")),
             )
@@ -989,7 +992,7 @@ mod tests {
         let (bind, file) = nested_tree(&host, 200);
         let mount = crate::mount::Mount::new(
             "/data",
-            crate::filesystem::Filesystem::new(bind.clone()),
+            crate::filesystem::Filesystem::new(bind.clone()).expect("the instance must stand"),
             crate::mount::Access::Read,
         )
         .expect("/data is a guest path");
@@ -1013,16 +1016,21 @@ mod tests {
         use crate::vfs::File;
         let host = HostDir::new("reads-directory");
         let read = |fs: Arc<dyn FileSystemType>| {
-            let mount =
-                crate::mount::Mount::new("/data", Filesystem::new(fs), crate::mount::Access::Read)
-                    .expect("/data is a guest path");
+            let mount = crate::mount::Mount::new(
+                "/data",
+                Filesystem::new(fs).expect("the instance must stand"),
+                crate::mount::Access::Read,
+            )
+            .expect("/data is a guest path");
             let mut dir = File::root(mount.mnt(), &Arc::default()).expect("the root opens");
             (dir.read(&mut [0; 1]).err(), dir.pread(&mut [0; 1], 0).err())
         };
         let overlay = crate::filesystem::Overlay::new(
             vec![
-                Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new())),
-                Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new())),
+                Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new()))
+                    .expect("the instance must stand"),
+                Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new()))
+                    .expect("the instance must stand"),
             ],
             None,
         )
@@ -1055,7 +1063,8 @@ mod tests {
             "/data",
             crate::filesystem::Filesystem::new(Arc::new(
                 Bind::new(&host.0).expect("the host directory must open"),
-            )),
+            ))
+            .expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1083,7 +1092,8 @@ mod tests {
             "/data",
             crate::filesystem::Filesystem::new(Arc::new(
                 Bind::new(&host.0).expect("the host directory must open"),
-            )),
+            ))
+            .expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1116,7 +1126,8 @@ mod tests {
             "/data",
             crate::filesystem::Filesystem::new(Arc::new(
                 Bind::new(host.0.join("m")).expect("the host directory must open"),
-            )),
+            ))
+            .expect("the instance must stand"),
             crate::mount::Access::Read,
         )
         .expect("/data is a guest path");
@@ -1167,7 +1178,8 @@ mod tests {
         fs::write(host.0.join("archive/secret"), "refused").expect("the host file must be written");
         let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
-        ));
+        ))
+        .expect("the instance must stand");
         let writer =
             crate::mount::Mount::new("/data", filesystem.clone(), crate::mount::Access::ReadWrite)
                 .expect("/data is a guest path");
@@ -1214,7 +1226,7 @@ mod tests {
         let (bind, file) = nested_tree(&host, 100);
         let mount = crate::mount::Mount::new(
             "/data",
-            crate::filesystem::Filesystem::new(bind),
+            crate::filesystem::Filesystem::new(bind).expect("the instance must stand"),
             crate::mount::Access::Read,
         )
         .expect("/data is a guest path");
@@ -1256,7 +1268,8 @@ mod tests {
         fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
         let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
-        ));
+        ))
+        .expect("the instance must stand");
         let mount = Mount::new("/data", filesystem, crate::mount::Access::ReadWrite)
             .expect("/data is a guest path");
         let root = vfs::Path::root(mount.mnt());
@@ -1309,7 +1322,8 @@ mod tests {
         fs::write(host.0.join("a/d/secret"), "s").expect("the host file must be written");
         let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
-        ));
+        ))
+        .expect("the instance must stand");
         let mount = Mount::new("/data", filesystem, crate::mount::Access::Read)
             .expect("/data is a guest path")
             .with_policy(Arc::new(RefusesRefused));
@@ -1346,13 +1360,17 @@ mod tests {
         fs::write(host.0.join("f"), "hello").expect("the host file must be written");
         let tmpfs = || [("f", "hello")].into_iter().collect::<Tmpfs>();
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(tmpfs()))],
-            Some(Filesystem::new(Arc::new(Tmpfs::new()))),
+            vec![Filesystem::new(Arc::new(tmpfs())).expect("the instance must stand")],
+            Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
         )
         .expect("the Overlay must stack");
         let root = |filesystem: Arc<dyn FileSystemType>| {
-            let mount = Mount::new("/data", Filesystem::new(filesystem), Access::ReadWrite)
-                .expect("/data is a guest path");
+            let mount = Mount::new(
+                "/data",
+                Filesystem::new(filesystem).expect("the instance must stand"),
+                Access::ReadWrite,
+            )
+            .expect("/data is a guest path");
             crate::vfs::Path::root(mount.mnt())
         };
         [
@@ -1466,11 +1484,16 @@ mod tests {
         fs::create_dir(host.0.join("a")).expect("the host directory must be made");
         let lower = Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
-        ));
-        let upper = Filesystem::new(Arc::new(Tmpfs::new()));
+        ))
+        .expect("the instance must stand");
+        let upper = Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand");
         let overlay = Overlay::new(vec![lower], Some(upper)).expect("the Overlay must stack");
-        let mount = Mount::new("/data", Filesystem::new(Arc::new(overlay)), Access::Read)
-            .expect("/data is a guest path");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
         let root = vfs::Path::root(mount.mnt());
         let directory = OpenHow {
             directory: true,
@@ -1508,7 +1531,8 @@ mod tests {
         fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
         let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
-        ));
+        ))
+        .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
         let dir = dentries.alloc_parallel(&root, "a");
@@ -1535,7 +1559,8 @@ mod tests {
         fs::create_dir_all(host.0.join("a")).expect("the host directory must be made");
         let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
-        ));
+        ))
+        .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
         let dir = dentries.alloc_parallel(&root, "a");
@@ -1559,12 +1584,14 @@ mod tests {
         fs::write(host.0.join("a"), "a").expect("the host file must be written");
         let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
-        ));
+        ))
+        .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let answer = filesystem.root().rename(
+        let dir = filesystem.root().expect("the root stands").ops();
+        let answer = dir.rename(
             &dentries.alloc_parallel(&root, "a"),
-            filesystem.root().as_ref(),
+            dir.as_ref(),
             &dentries.alloc_parallel(&root, "b"),
             Some(RenameFlag::NoReplace),
         );
@@ -1586,7 +1613,8 @@ mod tests {
         fs::write(host.0.join("a/note"), "n").expect("the host file must be written");
         let filesystem = crate::filesystem::Filesystem::new(Arc::new(
             Bind::new(&host.0).expect("the host directory must open"),
-        ));
+        ))
+        .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
         let a = dentries.alloc_parallel(&root, "a");
@@ -1595,7 +1623,7 @@ mod tests {
         let note = dentries.alloc_parallel(&a, "note");
         assert!(
             matches!(
-                filesystem.root().lookup(&note),
+                filesystem.root().expect("the root stands").ops().lookup(&note),
                 Ok(Lookup::Found(inode)) if inode.kind() == FileType::File
             ),
             "a name looked up through Bind in a directory not yet opened, once its dentry moved \
@@ -1908,7 +1936,8 @@ mod tests {
             "/data",
             Filesystem::new(Arc::new(
                 Bind::new(&host.0).expect("the host directory must open"),
-            )),
+            ))
+            .expect("the instance must stand"),
             crate::mount::Access::Read,
         )
         .expect("/data is a guest path");
@@ -1984,7 +2013,8 @@ mod tests {
             "/data",
             Filesystem::new(Arc::new(
                 Bind::new(&host.0).expect("the host directory must open"),
-            )),
+            ))
+            .expect("the instance must stand"),
             crate::mount::Access::Read,
         )
         .expect("/data is a guest path");
@@ -2022,7 +2052,8 @@ mod tests {
             "/data",
             Filesystem::new(Arc::new(
                 Bind::new(&host.0).expect("the host directory must open"),
-            )),
+            ))
+            .expect("the instance must stand"),
             crate::mount::Access::Read,
         )
         .expect("/data is a guest path");

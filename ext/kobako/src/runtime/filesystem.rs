@@ -20,7 +20,7 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{Bind, Filesystem, Overlay, Tmpfs};
+use kobako_runtime::filesystem::{Bind, Filesystem, FilesystemError, Overlay, Tmpfs};
 
 pub(super) use grants::{to_grants, validate_mount};
 
@@ -103,10 +103,21 @@ fn tmpfs_new(args: &[Value]) -> Result<TmpfsFs, MagnusError> {
     let tmpfs = Tmpfs::try_from_iter(files)
         .map_err(|error| MagnusError::new(ruby.exception_arg_error(), error.to_string()))?
         .with_size(size);
-    Ok(TmpfsFs(Filesystem::new(Arc::new(match nr_inodes {
+    let filesystem = Filesystem::new(Arc::new(match nr_inodes {
         Some(nr_inodes) => tmpfs.with_nr_inodes(nr_inodes),
         None => tmpfs,
-    }))))
+    }));
+    filesystem.map(TmpfsFs).map_err(cannot_stand)
+}
+
+/// A Filesystem whose instance cannot stand, an `ArgumentError` the Host App
+/// can rescue.
+fn cannot_stand(error: FilesystemError) -> MagnusError {
+    let ruby = Ruby::get().expect("Ruby thread");
+    MagnusError::new(
+        ruby.exception_arg_error(),
+        format!("cannot make a Filesystem: {error:?}"),
+    )
 }
 
 /// A `size:` or `nr_inodes:` count, or `nil` for none.
@@ -116,14 +127,15 @@ fn to_count(count: Value) -> Result<Option<usize>, MagnusError> {
 
 fn bind_new(path: String) -> Result<BindFs, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
-    Bind::new(&path)
-        .map(|directory| BindFs(Filesystem::new(Arc::new(directory))))
-        .map_err(|err| {
-            MagnusError::new(
-                ruby.exception_arg_error(),
-                format!("cannot open host directory {path}: {err}"),
-            )
-        })
+    let directory = Bind::new(&path).map_err(|err| {
+        MagnusError::new(
+            ruby.exception_arg_error(),
+            format!("cannot open host directory {path}: {err}"),
+        )
+    })?;
+    Filesystem::new(Arc::new(directory))
+        .map(BindFs)
+        .map_err(cannot_stand)
 }
 
 /// `Overlay.new(lower:, upper: nil)`: the Filesystems in `lower`, topmost
@@ -165,7 +177,7 @@ fn overlay_new(args: &[Value]) -> Result<OverlayFs, MagnusError> {
         )
     })?;
     Ok(OverlayFs {
-        filesystem: Filesystem::new(Arc::new(overlay)),
+        filesystem: Filesystem::new(Arc::new(overlay)).map_err(cannot_stand)?,
         layers: lower.into_iter().chain(upper).map(Opaque::from).collect(),
     })
 }
@@ -184,7 +196,7 @@ fn to_filesystem(value: Value) -> Result<Arc<Filesystem>, MagnusError> {
         return Ok(fs.filesystem.clone());
     }
     if let Some(fs) = RubyFilesystem::from_value(value) {
-        return Ok(Filesystem::new(Arc::new(fs)));
+        return Filesystem::new(Arc::new(fs)).map_err(cannot_stand);
     }
     let ruby = Ruby::get().expect("Ruby thread");
     Err(MagnusError::new(

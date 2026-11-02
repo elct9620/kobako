@@ -386,8 +386,12 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
     };
     let directory = Bind::new(&host.0).expect("the host directory must open");
     let grant = Grant::Mount(
-        Mount::new(AT, Filesystem::new(Arc::new(directory)), Access::ReadWrite)
-            .expect("AT is a guest path"),
+        Mount::new(
+            AT,
+            Filesystem::new(Arc::new(directory)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("AT is a guest path"),
     );
     let wasi = Wasi::for_invocation(&config, &[], &[grant]).expect("WASI context must build");
     let mut store = Store::new(engine, Invocation::new(None, wasi));

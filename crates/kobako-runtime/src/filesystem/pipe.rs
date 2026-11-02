@@ -6,19 +6,26 @@
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::vfs::{
-    Dentry, FMode, File, FileOperations, FileSystemType, FileType, FilesystemError, Inode,
-    InodeOperations, Kiocb, Metadata, OpenHow, Path, PollMask, SuperBlock, VfsMount,
+    simple_fill_super, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
+    FilesystemError, Inode, InodeOperations, Kiocb, Metadata, OpenHow, Path, PollMask, SuperBlock,
+    VfsMount,
 };
 
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No path
 /// reaches it: a pipe is only ever open.
-static PIPE_MNT: LazyLock<Path> =
-    LazyLock::new(|| Path::root(&VfsMount::kern_mount(SuperBlock::new(Arc::new(PipeFs)))));
+static PIPE_MNT: LazyLock<Path> = LazyLock::new(|| {
+    let sb = SuperBlock::new(Arc::new(PipeFs)).expect("pipefs fills in nothing that can fail");
+    Path::root(&VfsMount::kern_mount(sb))
+});
 
 /// A pipe reports what it is and no length, as `get_pipe_inode` makes one.
 struct PipeFs;
 
-impl FileSystemType for PipeFs {}
+impl FileSystemType for PipeFs {
+    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError> {
+        simple_fill_super(sb, self)
+    }
+}
 
 impl InodeOperations for PipeFs {
     fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
