@@ -295,40 +295,65 @@ impl Nameidata {
         self.trailing_slash = trailing_slash;
     }
 
+    /// Stand where a last `.` or `..` leads, as Linux's `handle_dots` does.
+    fn handle_dots(&mut self) -> Result<(), FilesystemError> {
+        if self.last_type == LastType::DotDot {
+            self.follow_dotdot()?;
+        }
+        self.path = Some(self.dentry().clone());
+        Ok(())
+    }
+
     /// Find what the last name stands for, as Linux's `lookup_last` does: a
     /// trailing `/` follows a link there and asks for a directory, and a link
-    /// followed leaves another last name to find. A call `creating` finds the
-    /// name under the directory's lock it makes one under, and is handed it
-    /// back, as `lookup_open` looks a name up once with the lock held; a trailing
-    /// `/` refuses what it would make, as `lookup_fast_for_open` refuses it.
-    fn lookup_last(
-        &mut self,
-        mut follow: bool,
-        creating: bool,
-    ) -> Result<Option<RwSemaphoreGuard>, FilesystemError> {
+    /// followed leaves another last name to find.
+    fn lookup_last(&mut self, mut follow: bool) -> Result<(), FilesystemError> {
         loop {
             if self.last_type != LastType::Norm {
-                if self.last_type == LastType::DotDot {
-                    self.follow_dotdot()?;
-                }
-                self.path = Some(self.dentry().clone());
-                return Ok(None);
+                return self.handle_dots();
             }
             if self.trailing_slash {
-                if creating {
-                    return Err(FilesystemError::IsADirectory);
-                }
                 follow = true;
                 self.lookup_directory = true;
             }
             let parent = self.dentry().clone();
-            let held = match creating {
-                true => parent.inode_lock()?,
-                false => parent.inode_lock_shared()?,
-            };
+            let held = parent.inode_lock_shared()?;
+            let child = self.lookup_last_locked()?;
+            drop(held);
+            if !follow || child.kind() != Ok(FileType::Symlink) {
+                return Ok(());
+            }
+            self.pick_link(&child)?;
+            self.link_path_walk()?;
+        }
+    }
+
+    /// Find the last name of an open, as Linux's `open_last_lookups` does. One
+    /// that makes no file finds it as any call does. One that may make it finds
+    /// it under the directory's lock it makes the file under, and is handed that
+    /// lock, as `lookup_open` holds it; a trailing `/` refuses what it would make,
+    /// as `lookup_fast_for_open` does.
+    fn open_last_lookups(
+        &mut self,
+        follow: bool,
+        create: bool,
+    ) -> Result<Option<RwSemaphoreGuard>, FilesystemError> {
+        if !create {
+            self.lookup_last(follow)?;
+            return Ok(None);
+        }
+        loop {
+            if self.last_type != LastType::Norm {
+                self.handle_dots()?;
+                return Ok(None);
+            }
+            if self.trailing_slash {
+                return Err(FilesystemError::IsADirectory);
+            }
+            let held = self.dentry().inode_lock()?;
             let child = self.lookup_last_locked()?;
             if !follow || child.kind() != Ok(FileType::Symlink) {
-                return Ok(creating.then_some(held));
+                return Ok(Some(held));
             }
             drop(held);
             self.pick_link(&child)?;
@@ -408,7 +433,7 @@ pub(crate) fn filename_lookup(
 ) -> Result<Nameidata, FilesystemError> {
     let mut nd = set_nameidata(cred, start, path)?;
     nd.link_path_walk()?;
-    nd.lookup_last(follow, false)?;
+    nd.lookup_last(follow)?;
     nd.complete_walk()?;
     let kind = nd.kind()?;
     if nd.lookup_directory && kind != FileType::Directory {
@@ -431,7 +456,7 @@ pub fn do_file_open(
     let mut nd = set_nameidata(cred, start, path)?;
     nd.lookup_directory = how.directory;
     nd.link_path_walk()?;
-    let held = nd.lookup_last(follow, how.create)?;
+    let held = nd.open_last_lookups(follow, how.create)?;
     nd.complete_walk()?;
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
