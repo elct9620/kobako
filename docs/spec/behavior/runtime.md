@@ -3115,3 +3115,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem made read-only, whose `permission` refuses every write |
 | When | a caller opens one of its files to write |
 | Then | the call answers EROFS, as Linux's `sb_permission` answers before `->permission` |
+
+## `RT-280` A file without `llseek` takes no seek
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-248` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file whose Filesystem answers no `FileOperations::llseek` |
+| When | a call seeks it |
+| Then | the call answers ESPIPE, as Linux clears `FMODE_LSEEK` for a file without `->llseek` |

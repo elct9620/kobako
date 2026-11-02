@@ -1268,12 +1268,12 @@ pub enum Whence {
 
 ## `FileOperations::llseek`
 
-Where a seek leaves this file. A file without it seeks through
-`generic_file_llseek`.
+Where a seek leaves this file. A file without it takes no seek; one that seeks
+as any file does answers through `generic_file_llseek`.
 
 ```rust
 pub trait FileOperations {
-    fn llseek(&mut self, dentry: &Dentry, pos: u64, offset: i64, whence: Whence) -> Result<u64, FilesystemError>;
+    fn llseek(&mut self, _dentry: &Dentry, _pos: u64, _offset: i64, _whence: Whence) -> Result<u64, FilesystemError>;
 }
 ```
 
