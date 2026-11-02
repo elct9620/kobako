@@ -2122,6 +2122,39 @@ mod tests {
         );
     }
 
+    // A host that folds case answers `A` with the entry stored as `a`, so the
+    // VFS finds one entry on both sides; only a host that folds witnesses it.
+    // @behavior FS-205
+    #[test]
+    fn a_rename_to_another_spelling_of_one_name_changes_nothing() {
+        let host = HostDir::new("case-only-rename");
+        fs::write(host.0.join("a"), "x").expect("the host file must be written");
+        if !host.0.join("A").exists() {
+            return;
+        }
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(
+                Bind::new(&host.0).expect("the host directory must open"),
+            ))
+            .expect("the instance must stand"),
+            crate::mount::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = crate::vfs::Path::root(mount.mnt());
+        let renamed = crate::vfs::filename_renameat2(&Arc::default(), &root, "a", &root, "A");
+        let stored: Vec<_> = fs::read_dir(&host.0)
+            .expect("the host directory must list")
+            .map(|entry| entry.expect("the entry must read").file_name())
+            .collect();
+        assert_eq!(
+            (renamed, stored),
+            (Ok(()), vec![std::ffi::OsString::from("a")]),
+            "vfs::filename_renameat2 of `a` to `A` on a Bind of a host that folds case must \
+             succeed and leave `a` spelled as it was, as vfs_rename finds one entry"
+        );
+    }
+
     // Linux walks a directory it may only search, so a stat through one
     // succeeds there; the Bind reads the directory to learn the name's
     // spelling, which the mode refuses. Root reads anything, so only another

@@ -1432,6 +1432,33 @@ mod tests {
         );
     }
 
+    // Linux's `ovl_rename` answers ESTALE once the upper moved beneath it; the
+    // view is undefined here, so the promise is only that the call answers,
+    // and the bound turns a hang into a failure.
+    // @behavior FS-204
+    #[test]
+    fn an_upper_changed_beside_its_overlay_still_answers() {
+        use crate::vfs;
+        let (overlay, upper) = beside_its_upper(
+            [("upper/a/x", "x"), ("upper/a/k", "k")]
+                .into_iter()
+                .collect(),
+        );
+        let cred = Arc::default();
+        vfs::vfs_fstatat(&cred, &overlay, "a/x", false).expect("a/x must stand");
+        vfs::filename_renameat2(&cred, &upper, "upper/a", &upper, "upper/b")
+            .expect("the upper's directory must move");
+        let answered = crate::sched::testing::bounded(|| {
+            vfs::filename_renameat2(&cred, &overlay, "a/x", &overlay, "a/y").err()
+        });
+        assert_ne!(
+            answered,
+            Some(FilesystemError::Interrupted),
+            "vfs::filename_renameat2 through an Overlay whose upper another Mount changed must \
+             answer within its bound"
+        );
+    }
+
     // The lower Layer is a Tmpfs seen through a wrapper, so it reports the
     // device a whiteout is, yet is no Tmpfs whose marks the Overlay reads.
     // @behavior FS-203
