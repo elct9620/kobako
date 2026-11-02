@@ -2,7 +2,7 @@
 //! resolves the path, asks the Mount, and asks the Filesystem.
 
 use kobako_runtime::filesystem::{FilesystemError, Iattr};
-use kobako_runtime::vfs::{self, OpenHow};
+use kobako_runtime::vfs::{self, OpenHow, Start};
 use wiggle::GuestPtr;
 
 use super::errno::{Answer, Errno};
@@ -39,23 +39,19 @@ pub(super) fn retry_eagain<T>(
     answer
 }
 
-/// The guest's path, refused where no call can take it, as Linux's `getname`
-/// copies a name in and checks it before the descriptor is looked at.
-fn getname(mem: &GuestMemory<'_, '_>, path: GuestPtr<str>) -> Answer<String> {
-    let path = mem.path(path)?;
-    vfs::getname(&path)?;
-    Ok(path)
-}
-
 /// Where `fd` stands, for a path to be walked from, once the guard answered for a
-/// directory there. What is no directory the walk itself refuses. A call asks it
-/// inside `retry_eagain`, as a move the guard meets is one a walk meets.
-fn start_of(table: &Descriptors, fd: u32) -> Result<&vfs::Path, FilesystemError> {
-    let file = &table.get(fd).ok_or(FilesystemError::BadDescriptor)?.file;
-    if file.is_directory() {
-        table.walk_guard().check(file.path())?;
+/// directory there, found when the VFS has taken the name, as Linux's
+/// `path_init` takes the descriptor. What is no directory the walk itself
+/// refuses, and a move the guard meets is one a walk meets, so `retry_eagain`
+/// makes the call again.
+fn start_of(table: &Descriptors, fd: u32) -> impl vfs::Start + '_ {
+    move || {
+        let file = &table.get(fd).ok_or(FilesystemError::BadDescriptor)?.file;
+        if file.is_directory() {
+            table.walk_guard().check(file.path())?;
+        }
+        Ok(file.path().clone())
     }
-    Ok(file.path())
 }
 
 pub(crate) fn create_directory(
@@ -64,9 +60,9 @@ pub(crate) fn create_directory(
     fd: u32,
     path: GuestPtr<str>,
 ) -> Answer {
-    let path = getname(mem, path)?;
+    let path = mem.path(path)?;
     Ok(retry_eagain(|| {
-        vfs::filename_mkdirat(table.cred(), start_of(table, fd)?, &path)
+        vfs::filename_mkdirat(table.cred(), &start_of(table, fd), &path)
     })?)
 }
 
@@ -77,10 +73,10 @@ pub(crate) fn filestat_get(
     flags: types::Lookupflags,
     path: GuestPtr<str>,
 ) -> Answer<types::Filestat> {
-    let path = getname(mem, path)?;
+    let path = mem.path(path)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     let metadata =
-        retry_eagain(|| vfs::vfs_fstatat(table.cred(), start_of(table, fd)?, &path, follow))?;
+        retry_eagain(|| vfs::vfs_fstatat(table.cred(), &start_of(table, fd), &path, follow))?;
     Ok(to_filestat(table, metadata))
 }
 
@@ -97,10 +93,10 @@ pub(crate) fn filestat_set_times(
     let Some(times) = times else {
         return Ok(());
     };
-    let path = getname(mem, path)?;
+    let path = mem.path(path)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     Ok(retry_eagain(|| {
-        vfs::do_utimes(table.cred(), start_of(table, fd)?, &path, follow, &times)
+        vfs::do_utimes(table.cred(), &start_of(table, fd), &path, follow, &times)
     })?)
 }
 
@@ -111,11 +107,11 @@ pub(crate) fn link(
     new: (u32, GuestPtr<str>),
     flags: types::Lookupflags,
 ) -> Answer {
-    let (old_path, new_path) = (getname(mem, old.1)?, getname(mem, new.1)?);
+    let (old_path, new_path) = (mem.path(old.1)?, mem.path(new.1)?);
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     Ok(retry_eagain(|| {
-        let (from, to) = (start_of(table, old.0)?, start_of(table, new.0)?);
-        vfs::filename_linkat(table.cred(), from, &old_path, to, &new_path, follow)
+        let (from, to) = (start_of(table, old.0), start_of(table, new.0));
+        vfs::filename_linkat(table.cred(), &from, &old_path, &to, &new_path, follow)
     })?)
 }
 
@@ -145,11 +141,12 @@ pub(crate) fn open(
     // descriptor, so a full table answers whatever the path names, and only then
     // looks at where the walk starts.
     vfs::build_open_flags(&how)?;
-    let path = getname(mem, path)?;
+    let path = mem.path(path)?;
+    vfs::getname(&path)?;
     if table.is_full() {
         return Err(Errno::Mfile.into());
     }
-    let file = retry_eagain(|| vfs::do_file_open(table.cred(), start_of(table, fd)?, &path, &how))?;
+    let file = retry_eagain(|| vfs::do_file_open(table.cred(), &start_of(table, fd), &path, &how))?;
     Ok(table
         .push(Descriptor::for_file(file))
         .ok_or(Errno::Mfile)?
@@ -167,8 +164,8 @@ pub(crate) fn readlink(
     if buf_len == 0 {
         return Err(Errno::Inval.into());
     }
-    let path = getname(mem, path)?;
-    let target = retry_eagain(|| vfs::do_readlinkat(table.cred(), start_of(table, fd)?, &path))?;
+    let path = mem.path(path)?;
+    let target = retry_eagain(|| vfs::do_readlinkat(table.cred(), &start_of(table, fd), &path))?;
     write_link(mem, &target, buf, buf_len)
 }
 
@@ -191,9 +188,9 @@ pub(crate) fn remove_directory(
     fd: u32,
     path: GuestPtr<str>,
 ) -> Answer {
-    let path = getname(mem, path)?;
+    let path = mem.path(path)?;
     Ok(retry_eagain(|| {
-        vfs::filename_rmdir(table.cred(), start_of(table, fd)?, &path)
+        vfs::filename_rmdir(table.cred(), &start_of(table, fd), &path)
     })?)
 }
 
@@ -203,10 +200,10 @@ pub(crate) fn rename(
     old: (u32, GuestPtr<str>),
     new: (u32, GuestPtr<str>),
 ) -> Answer {
-    let (from_path, to_path) = (getname(mem, old.1)?, getname(mem, new.1)?);
+    let (from_path, to_path) = (mem.path(old.1)?, mem.path(new.1)?);
     Ok(retry_eagain(|| {
-        let (from, to) = (start_of(table, old.0)?, start_of(table, new.0)?);
-        vfs::filename_renameat2(table.cred(), from, &from_path, to, &to_path)
+        let (from, to) = (start_of(table, old.0), start_of(table, new.0));
+        vfs::filename_renameat2(table.cred(), &from, &from_path, &to, &to_path)
     })?)
 }
 
@@ -217,15 +214,19 @@ pub(crate) fn symlink(
     fd: u32,
     new_path: GuestPtr<str>,
 ) -> Answer {
-    let (target, path) = (getname(mem, old_path)?, getname(mem, new_path)?);
-    Ok(retry_eagain(|| {
-        let start = start_of(table, fd)?;
-        // wasi-testsuite's symlink_create has a guest make no link to an absolute
-        // path, where Linux would make one; a guest walks none of them anyway.
-        if target.starts_with('/') {
-            return Err(FilesystemError::NotPermitted);
+    let (target, path) = (mem.path(old_path)?, mem.path(new_path)?);
+    // wasi-testsuite's symlink_create has a guest make no link to an absolute
+    // path, where Linux would make one; a guest walks none of them anyway. It
+    // is refused once the start is found, where the link would be made.
+    let start = || -> Result<vfs::Path, FilesystemError> {
+        let start = start_of(table, fd).path_init()?;
+        match target.starts_with('/') {
+            true => Err(FilesystemError::NotPermitted),
+            false => Ok(start),
         }
-        vfs::filename_symlinkat(table.cred(), &target, start, &path)
+    };
+    Ok(retry_eagain(|| {
+        vfs::filename_symlinkat(table.cred(), &target, &start, &path)
     })?)
 }
 
@@ -235,9 +236,9 @@ pub(crate) fn unlink_file(
     fd: u32,
     path: GuestPtr<str>,
 ) -> Answer {
-    let path = getname(mem, path)?;
+    let path = mem.path(path)?;
     Ok(retry_eagain(|| {
-        vfs::filename_unlinkat(table.cred(), start_of(table, fd)?, &path)
+        vfs::filename_unlinkat(table.cred(), &start_of(table, fd), &path)
     })?)
 }
 

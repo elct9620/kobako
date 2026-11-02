@@ -476,7 +476,7 @@ mod tests {
     use crate::preview1::memory::GuestMemory;
     use crate::preview1::path::{
         create_directory, filestat_set_times as path_set_times, open as path_open, readlink,
-        symlink, OpenFlags,
+        rename, symlink, OpenFlags,
     };
     use crate::preview1::types::{self, Rights, Whence};
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
@@ -967,6 +967,48 @@ mod tests {
             "path_open with O_CREAT and O_DIRECTORY, and path_create_directory of an empty and of \
              an overlong path, from a descriptor number naming nothing through preview1 must \
              answer EINVAL, ENOENT, and ENAMETOOLONG, and a path a walk can take EBADF"
+        );
+    }
+
+    // Standard output is a pipe's end, so a walk from it answers ENOTDIR; the
+    // second path is wrong too, so only the order picks which answers.
+    // @behavior RT-286
+    #[test]
+    fn a_call_naming_two_paths_answers_for_its_first_before_its_second() {
+        let table = standard_streams();
+        let mut bytes = vec![b'a'; PATH_MAX];
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
+        let path = |len| GuestPtr::new((0, len));
+        let (stdout, unopened) = (1, 99);
+        assert_eq!(
+            (
+                errno(rename(
+                    &table,
+                    &mem,
+                    (stdout, path(1)),
+                    (stdout, path(PATH_MAX as u32))
+                )),
+                errno(rename(&table, &mem, (stdout, path(1)), (unopened, path(1)))),
+            ),
+            (Some(Errno::Notdir), Some(Errno::Notdir)),
+            "path_rename from standard output to a path past PATH_MAX, or to a descriptor \
+             number naming nothing, through preview1 must answer ENOTDIR for the first path"
+        );
+    }
+
+    // @behavior RT-287
+    #[test]
+    fn an_absolute_path_answers_before_the_descriptor_it_names() {
+        let table = standard_streams();
+        let mut bytes = b"/a".to_vec();
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mem = GuestMemory::new(&mut memory, 16);
+        assert_eq!(
+            errno(create_directory(&table, &mem, 99, GuestPtr::new((0, 2)))),
+            Some(Errno::Notcapable),
+            "path_create_directory of an absolute path from a descriptor number naming nothing \
+             through preview1 must answer ENOTCAPABLE, as path_init looks at no descriptor"
         );
     }
 
