@@ -2808,3 +2808,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose `fill_super` answers an error, and one that makes no root |
 | When | each is made into an instance |
 | Then | no instance is made, the first answers its error, and the second answers EINVAL |
+
+## `RT-255` A security module is asked what a Filesystem's permission allowed
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-242` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a security module recording the changes it is asked about, over a Filesystem with `permission` |
+| When | a call makes a name the Filesystem allows, and one it refuses |
+| Then | the module is asked about the first alone, and the second answers EACCES |

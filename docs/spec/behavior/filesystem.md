@@ -2125,3 +2125,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay with lower Layers and no upper |
 | When | a change reaches it past the read-only answer of its super block |
 | Then | the change answers EROFS, and the Layers hold what they held |
+
+## `FS-198` A call through an Overlay asks a security module of the view alone
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-255` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay, and a security module recording the directories it is asked to let change |
+| When | a call makes a name through the Overlay |
+| Then | the module is asked of the view's directory, and of no directory of a Layer |
