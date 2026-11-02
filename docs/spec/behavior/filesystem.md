@@ -2198,3 +2198,27 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay whose lower Layer is no Tmpfs and reports a character device at a name |
 | When | the directory holding it is listed through the Overlay |
 | Then | the name is listed, as only the Overlay writes whiteouts, and only into a Tmpfs |
+
+## `FS-204` An upper changed beside its Overlay still answers
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-123` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose upper another Mount also holds |
+| When | that Mount moves a directory of the upper, and a rename through the Overlay follows |
+| Then | the rename answers, whatever it finds, as the view is undefined once its upper changes beside it |
+
+## `FS-205` A rename to another spelling of one name changes nothing
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-084` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind of a host that folds case, holding `a` |
+| When | a caller renames `a` to `A` |
+| Then | the rename succeeds and `a` keeps its spelling, as Linux's `vfs_rename` finds one entry on both sides |
