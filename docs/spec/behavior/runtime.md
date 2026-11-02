@@ -2966,3 +2966,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a call waiting on a directory or a name another thread holds |
 | When | its run's deadline passes, or its thread is interrupted |
 | Then | the call answers EINTR while the other still holds, as Linux's killable waits do |
+
+## `RT-268` A link pointing nowhere leaves the walk where it stands
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-119` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem holding a link whose target is empty |
+| When | a call follows the link, at the end of a path or in its middle |
+| Then | the walk goes on from the directory holding the link, as Linux's `pick_link` takes it as a pure jump |
