@@ -2676,3 +2676,23 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened beneath a Mount's root |
 | When | a move carries the directory a walk through it stands in out from under it |
 | Then | the call answers ENOTCAPABLE |
+
+## `RT-242` Each call asks a Filesystem's permission where Linux's VFS does
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem answering `permission` |
+| When | a call walks a path, makes or removes a name, or opens an entry |
+| Then | it asks of each directory walked, of the directory changed, and of the entry opened |
+
+## `RT-243` A change a Filesystem's permission refuses changes nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-242` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose `permission` refuses a change to a directory |
+| When | a call makes or removes a name in that directory |
+| Then | the call answers EACCES, and the directory holds what it held |

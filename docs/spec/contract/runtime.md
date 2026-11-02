@@ -1656,6 +1656,35 @@ pub trait InodeOperations {
 }
 ```
 
+## `InodeOperations::permission`
+
+Whether a call may do what a `Mask` asks of this entry. An entry without it allows
+the call, and its backend answers once the call is made.
+
+```rust
+pub trait InodeOperations {
+    fn permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), FilesystemError>;
+}
+```
+
+## `Mask`
+
+What a call asks of an entry: to pass through it, change it, read it, or open it.
+
+```rust
+pub struct Mask {}
+```
+
+## `Mask::contains`
+
+Whether this holds all of another mask.
+
+```rust
+impl Mask {
+    pub fn contains(self, mask: Self) -> bool {}
+}
+```
+
 ## `InodeOperations::fill_super`
 
 What the runtime asks of a Filesystem's root once, to set up its instance.

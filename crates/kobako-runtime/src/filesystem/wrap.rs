@@ -7,12 +7,21 @@ use std::sync::Arc;
 
 use super::{
     DentryOperations, FileOperations, Filesystem, FilesystemError, Iattr, InodeOperations, Lookup,
-    Metadata, OpenOptions, RenameFlag,
+    Mask, Metadata, OpenOptions, RenameFlag,
 };
 use crate::vfs::Dentry;
 
 /// What a test changes of the Filesystem beneath it.
 pub(crate) trait Hook: Send + Sync + 'static {
+    fn permission(
+        &self,
+        inner: &dyn InodeOperations,
+        dentry: &Dentry,
+        mask: Mask,
+    ) -> Result<(), FilesystemError> {
+        inner.permission(dentry, mask)
+    }
+
     fn revalidate(
         &self,
         ops: &dyn DentryOperations,
@@ -112,6 +121,10 @@ impl<H: Hook> DentryOperations for WrapDentry<H> {
 }
 
 impl<H: Hook> InodeOperations for Wrap<H> {
+    fn permission(&self, dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
+        self.hook.permission(self.inner.as_ref(), dentry, mask)
+    }
+
     fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
         self.hook.getattr(self.inner.as_ref(), dentry)
     }

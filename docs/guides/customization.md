@@ -370,6 +370,7 @@ These two calls follow from what the runtime does itself, so a Filesystem answer
 
 | Method | Keeps | Without it, the runtime answers |
 |---|---|---|
+| `permission` | a call refused before it reaches the entry | allowed, so the backend answers once the call is made |
 | `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | ENOTDIR, no directory to walk through |
 | `fill_super` calling `set_default_d_op` | a held dentry dropped once its name changes | valid, as nothing changes it outside the runtime |
 | `fill_super` calling `set_rdonly` | every change refused | every change allowed |

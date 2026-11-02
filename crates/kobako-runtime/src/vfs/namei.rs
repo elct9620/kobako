@@ -16,7 +16,7 @@ use super::attr::notify_change;
 use super::cred::Cred;
 use super::dentry::Dentry;
 use super::file::{File, FileOperations};
-use super::inode::{Inode, RenameFlag};
+use super::inode::{Inode, Mask, RenameFlag};
 use super::mount::{Access, VfsMount};
 use super::openat2::{build_open_flags, OpenHow, OpenOptions};
 use super::path::Path;
@@ -262,6 +262,7 @@ impl Nameidata {
     /// Linux's `link_path_walk` leaves `nd->last` and `nd->last_type`.
     fn link_path_walk(&mut self) -> Result<(), FilesystemError> {
         loop {
+            inode_permission(self.dentry(), Mask::EXEC)?;
             let part = self.pending.pop_front().ok_or(FilesystemError::NotFound)?;
             let slashes = self
                 .pending
@@ -379,6 +380,12 @@ fn getname(path: &str) -> Result<(), FilesystemError> {
     Ok(())
 }
 
+/// Whether a call may do what `mask` asks of what `dentry` names, as Linux's
+/// `inode_permission` asks `->permission`.
+fn inode_permission(dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
+    dentry.inode_ops()?.permission(dentry, mask)
+}
+
 /// The walk of `path` beneath `start`, ready to begin, as Linux's
 /// `set_nameidata` and `path_init` make one. A path no call can take answers
 /// first, wherever it starts; an absolute one is not the caller's to reach, and
@@ -465,7 +472,7 @@ pub fn do_file_open(
     // `lookup_open` holds it, so nothing made or removed in between changes what
     // the open decided. What already stood opens without it, as `do_open` does.
     let _held = held.filter(|_| existing.is_none());
-    refuse_what_stands(existing, nd.lookup_directory, how)?;
+    refuse_what_stands(&*nd.path()?, existing, nd.lookup_directory, how)?;
     // Creating changes the mount only where nothing stands yet, so the hook
     // judges the open once, knowing what it does. A change asks the mount first.
     let changes = how.write || how.truncate || (how.create && existing.is_none());
@@ -500,6 +507,7 @@ pub fn do_file_open(
 /// What stands at the path answers before any access is judged, as Linux's
 /// `do_open` answers it on a read-only mount.
 fn refuse_what_stands(
+    child: &Dentry,
     existing: Option<FileType>,
     lookup_directory: bool,
     how: &OpenHow,
@@ -514,21 +522,33 @@ fn refuse_what_stands(
     };
     match refusal {
         Some(error) => Err(error),
-        None => may_open(existing, how),
+        None => may_open(child, existing, how),
     }
 }
 
 /// Refuse to open what stands at the path as Linux's `may_open` does: a
-/// link, which the walk would have followed if asked, and a directory for
-/// writing.
-fn may_open(existing: Option<FileType>, how: &OpenHow) -> Result<(), FilesystemError> {
+/// link, which the walk would have followed if asked, a directory for
+/// writing, and anything `inode_permission` refuses for what the open asks.
+fn may_open(
+    child: &Dentry,
+    existing: Option<FileType>,
+    how: &OpenHow,
+) -> Result<(), FilesystemError> {
+    let writes = how.write || how.truncate;
     match existing {
-        Some(FileType::Symlink) => Err(FilesystemError::FilesystemLoop),
-        Some(FileType::Directory) if how.write || how.truncate => {
-            Err(FilesystemError::IsADirectory)
-        }
-        _ => Ok(()),
+        None => return Ok(()),
+        Some(FileType::Symlink) => return Err(FilesystemError::FilesystemLoop),
+        Some(FileType::Directory) if writes => return Err(FilesystemError::IsADirectory),
+        Some(_) => {}
     }
+    let mut mask = Mask::OPEN;
+    if how.read {
+        mask = mask | Mask::READ;
+    }
+    if writes {
+        mask = mask | Mask::WRITE;
+    }
+    inode_permission(child, mask)
 }
 
 /// Give what `old_path` beneath `old_start` names another name at `new_path`
@@ -941,12 +961,13 @@ pub(crate) fn may_create_dentry(dir: &Dentry, child: &Dentry) -> Result<(), File
     if dir.is_deaddir() {
         return Err(FilesystemError::NotFound);
     }
-    Ok(())
+    inode_permission(dir, Mask::WRITE | Mask::EXEC)
 }
 
 /// Refuse to remove `victim`, what stands at a name in `dir`, where
-/// nothing does, where it is not the kind `is_dir` asks for, or once `dir`
-/// was removed, as Linux's `may_delete_dentry` refuses.
+/// nothing does, where `inode_permission` refuses a change to `dir`, where it is
+/// not the kind `is_dir` asks for, or once `dir` was removed, as Linux's
+/// `may_delete_dentry` refuses.
 fn may_delete_dentry(
     dir: &Dentry,
     victim: Option<FileType>,
@@ -955,6 +976,7 @@ fn may_delete_dentry(
     let Some(victim) = victim else {
         return Err(FilesystemError::NotFound);
     };
+    inode_permission(dir, Mask::WRITE | Mask::EXEC)?;
     match (is_dir, victim == FileType::Directory) {
         (true, false) => return Err(FilesystemError::NotADirectory),
         (false, true) => return Err(FilesystemError::IsADirectory),
@@ -982,7 +1004,7 @@ mod tests {
     use crate::mount::{Access, Mount, Policy};
     use crate::sched::testing::count_waits;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, Dentry, Inode, OpenHow, Path, RenameFlag};
+    use crate::vfs::{self, Dentry, Inode, Mask, OpenHow, Path, RenameFlag};
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
 
@@ -1029,6 +1051,117 @@ mod tests {
             self.linked.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
+
+    /// A test's Filesystem recording each `->permission` it is asked, refusing
+    /// any change once `refuse_writes` says.
+    #[derive(Default)]
+    struct RecordsPermission {
+        asked: Mutex<Vec<(String, Mask)>>,
+        refuse_writes: AtomicBool,
+    }
+
+    impl wrap::Hook for RecordsPermission {
+        fn permission(
+            &self,
+            _inner: &dyn InodeOperations,
+            dentry: &Dentry,
+            mask: Mask,
+        ) -> Result<(), FilesystemError> {
+            let mut asked = self.asked.lock().expect("never poisoned");
+            asked.push((dentry.name(), mask));
+            match self.refuse_writes.load(Ordering::SeqCst) && mask.contains(Mask::WRITE) {
+                true => Err(FilesystemError::PermissionDenied),
+                false => Ok(()),
+            }
+        }
+    }
+
+    /// The root of a Tmpfs of `a/b/f` and `a/d/`, whose permission `hook` answers.
+    fn permission_root(hook: &Arc<RecordsPermission>) -> Path {
+        let tmpfs: Tmpfs = [("a/b/f", "f"), ("a/d/keep", "k")].into_iter().collect();
+        let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(wrapped)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        Path::root(mount.mnt())
+    }
+
+    // @behavior RT-242
+    #[test]
+    fn each_call_asks_permission_where_linux_does() {
+        let hook = Arc::new(RecordsPermission::default());
+        let root = permission_root(&hook);
+        let cred = Arc::default();
+        let asks = |call: &dyn Fn()| {
+            hook.asked.lock().expect("never poisoned").clear();
+            call();
+            hook.asked.lock().expect("never poisoned").clone()
+        };
+        let name = |name: &str, mask| (name.to_string(), mask);
+        let change = Mask::WRITE | Mask::EXEC;
+        assert_eq!(
+            asks(&|| vfs::filename_mkdirat(&cred, &root, "a/b/c").expect("mkdir lands")),
+            [
+                name("", Mask::EXEC),
+                name("a", Mask::EXEC),
+                name("b", Mask::EXEC),
+                name("b", change),
+                name("b", change),
+            ],
+            "vfs::filename_mkdirat must ask of each directory walked, then of the one \
+             changed, as may_lookup and may_create_dentry do"
+        );
+        assert!(
+            asks(&|| vfs::filename_unlinkat(&cred, &root, "a/b/f").expect("unlink lands"))
+                .ends_with(&[name("b", change)]),
+            "vfs::filename_unlinkat must ask of the directory it changes, as may_delete_dentry"
+        );
+        let read = OpenHow {
+            read: true,
+            directory: true,
+            ..OpenHow::default()
+        };
+        assert!(
+            asks(&|| {
+                vfs::do_file_open(&cred, &root, "a/d", &read).expect("the directory opens");
+            })
+            .ends_with(&[name("d", Mask::OPEN | Mask::READ)]),
+            "vfs::do_file_open must ask of what it opens for what the open asks, as may_open"
+        );
+    }
+
+    // @behavior RT-243
+    #[test]
+    fn what_permission_refuses_changes_nothing() {
+        let hook = Arc::new(RecordsPermission::default());
+        let root = permission_root(&hook);
+        let cred = Arc::default();
+        hook.refuse_writes.store(true, Ordering::SeqCst);
+        let made = vfs::filename_mkdirat(&cred, &root, "a/made");
+        let removed = vfs::filename_unlinkat(&cred, &root, "a/b/f");
+        hook.refuse_writes.store(false, Ordering::SeqCst);
+        assert_eq!(
+            (made, removed),
+            (
+                Err(FilesystemError::PermissionDenied),
+                Err(FilesystemError::PermissionDenied)
+            ),
+            "vfs::filename_mkdirat and filename_unlinkat on a directory whose permission \
+             refuses a change must answer EACCES"
+        );
+        assert_eq!(
+            vfs::vfs_fstatat(&cred, &root, "a/made", false).err(),
+            Some(FilesystemError::NotFound),
+            "a refused mkdir must make nothing"
+        );
+        assert!(
+            vfs::vfs_fstatat(&cred, &root, "a/b/f", false).is_ok(),
+            "a refused unlink must leave the file"
+        );
     }
 
     /// A link at the name `l`, moving a directory the moment the walk follows it,

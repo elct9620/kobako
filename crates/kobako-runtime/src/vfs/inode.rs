@@ -2,6 +2,7 @@
 //! `struct inode` is what a dentry is instantiated with.
 
 use std::any::Any;
+use std::ops::BitOr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -38,6 +39,15 @@ pub enum Lookup {
 /// itself, as the VFS above a filesystem does, so a link never leads a call
 /// out of the directory a descriptor opened.
 pub trait InodeOperations: Any + Send + Sync {
+    /// Whether a call may do what `mask` asks of this entry, which `dentry`
+    /// names, as `->permission` answers `inode_permission`. The VFS asks where
+    /// Linux does and holds no mode to judge by, so an entry without it allows
+    /// the call, and the backend answers once it is made, as FUSE leaves a
+    /// server to without `default_permissions`.
+    fn permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), FilesystemError> {
+        Ok(())
+    }
+
     /// What this entry, which `dentry` names, reports of itself, as
     /// `getattr` is handed the path it answers for, even once its name is
     /// gone and only an open file holds it, as `fstat` asks the same. A link
@@ -142,6 +152,35 @@ pub trait InodeOperations: Any + Send + Sync {
         _flag: Option<RenameFlag>,
     ) -> Result<(), FilesystemError> {
         Err(FilesystemError::NotPermitted)
+    }
+}
+
+/// What a call asks of an entry, as Linux's `MAY_*` bits in the mask
+/// `inode_permission` takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mask(u8);
+
+impl Mask {
+    /// Passing through a directory, as `MAY_EXEC`.
+    pub const EXEC: Self = Self(1);
+    /// Changing it, as `MAY_WRITE`.
+    pub const WRITE: Self = Self(1 << 1);
+    /// Reading it, as `MAY_READ`.
+    pub const READ: Self = Self(1 << 2);
+    /// Opening it, as `MAY_OPEN`.
+    pub const OPEN: Self = Self(1 << 3);
+
+    /// Whether this holds all of `mask`.
+    pub fn contains(self, mask: Self) -> bool {
+        self.0 & mask.0 == mask.0
+    }
+}
+
+impl BitOr for Mask {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        Self(self.0 | other.0)
     }
 }
 
