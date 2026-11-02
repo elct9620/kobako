@@ -1152,6 +1152,16 @@ impl File {
 }
 ```
 
+## `File::pos`
+
+Where its next read, write, or listing starts.
+
+```rust
+impl File {
+    pub fn pos(&self) -> u64 {}
+}
+```
+
 ## `File::is_directory`
 
 Whether it is a directory.
@@ -1588,6 +1598,24 @@ How to open a path, as `openat2` takes its flags.
 pub struct OpenHow {}
 ```
 
+## `getname`
+
+Refuse a path no call can take. An ABI asks it before it looks up where a walk
+starts, as Linux takes the name before the descriptor.
+
+```rust
+pub fn getname(path: &str) -> Result<(), FilesystemError> {}
+```
+
+## `build_open_flags`
+
+Refuse flags no open can mean, and answer whether the walk follows a link at the
+end. An ABI asks it before it reserves a descriptor.
+
+```rust
+pub fn build_open_flags(how: &OpenHow) -> Result<bool, FilesystemError> {}
+```
+
 ## `do_file_open`
 
 Open a path beneath a directory, as Linux's `do_file_open` serves `openat`.
@@ -1719,6 +1747,16 @@ A change setting the times named, leaving any other as it stands.
 ```rust
 impl Iattr {
     pub fn times(atime: Option<SetTime>, mtime: Option<SetTime>) -> Self {}
+}
+```
+
+## `Iattr::time_of`
+
+The time a `SetTime` names, now read as the moment the change lands.
+
+```rust
+impl Iattr {
+    pub fn time_of(&self, set: SetTime) -> SystemTime {}
 }
 ```
 
@@ -2134,15 +2172,6 @@ impl DirContext {
 }
 ```
 
-## `DirContext::failed`
-
-Whether a name no directory can hold stopped the listing.
-
-```rust
-impl DirContext {
-    pub fn failed(&self) -> bool {}
-}
-```
 
 ## `DirContext::dir_emit`
 
@@ -2548,6 +2577,44 @@ registration is handed back.
 
 ```rust
 pub fn register_blocking(blocking: Box<dyn Blocking>) -> Result<(), Box<dyn Blocking>> {}
+```
+
+## `run_task`
+
+Run the given closure as one run. Its waits for a lock end at the deadline or
+once its thread is interrupted. A run within another keeps the outer one's
+interrupt.
+
+```rust
+pub fn run_task<T>(deadline: Option<Instant>, run: impl FnOnce() -> T) -> T {}
+```
+
+## `Task`
+
+A thread as its frontend may interrupt it from another thread.
+
+```rust
+pub struct Task {}
+```
+
+## `Task::current`
+
+The calling thread.
+
+```rust
+impl Task {
+    pub fn current() -> Self {}
+}
+```
+
+## `Task::interrupt`
+
+Have every wait of the run the thread carries out stop, until that run ends.
+
+```rust
+impl Task {
+    pub fn interrupt(&self) {}
+}
 ```
 
 ## `Blocking`

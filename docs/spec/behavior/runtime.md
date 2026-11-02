@@ -2978,3 +2978,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem holding a link whose target is empty |
 | When | a call follows the link, at the end of a path or in its middle |
 | Then | the walk goes on from the directory holding the link, as Linux's `pick_link` takes it as a pure jump |
+
+## `RT-269` A listing hands over what came before a name no directory can hold
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-212` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem listing a plain name and then one that holds a `/` |
+| When | the guest lists the directory from its start |
+| Then | the call hands over the names before it, and only a call going on from there answers EIO |
