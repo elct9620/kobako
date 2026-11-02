@@ -163,17 +163,14 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
     let descriptor = descriptor(table, fd)?;
     let file = &descriptor.file;
     let mut fs_flags = Fdflags::empty();
-    if !file.is_stream() {
-        fs_flags.set(Fdflags::APPEND, file.append());
-        fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
-        fs_flags.set(Fdflags::DSYNC, file.dsync() || file.sync());
-        fs_flags.set(Fdflags::SYNC, file.sync());
-    }
+    fs_flags.set(Fdflags::APPEND, file.append());
+    fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
+    fs_flags.set(Fdflags::DSYNC, file.dsync() || file.sync());
+    fs_flags.set(Fdflags::SYNC, file.sync());
     let (fs_filetype, fs_rights_base, fs_rights_inheriting) = if file.is_stream() {
-        let rights = match file.readable() {
-            true => Rights::FD_READ,
-            false => Rights::FD_WRITE,
-        };
+        let mut rights = Rights::empty();
+        rights.set(Rights::FD_READ, file.readable());
+        rights.set(Rights::FD_WRITE, file.writable());
         (Filetype::Unknown, rights, rights)
     } else if descriptor.preopen.is_some() {
         (Filetype::Directory, preopen_rights(), preopen_inheriting())
@@ -539,23 +536,36 @@ mod tests {
         }
     }
 
-    /// A directory holding that one file at every name.
-    struct HoldsRefusesClose;
+    /// A file its Filesystem opens with no position.
+    struct Stream;
 
-    impl kobako_runtime::filesystem::FileSystemType for HoldsRefusesClose {
+    impl FileOperations for Stream {
+        fn is_stream(&self) -> bool {
+            true
+        }
+    }
+
+    /// A directory holding at every name a file whose open answers what
+    /// its function makes.
+    struct Holds(fn() -> Box<dyn FileOperations>);
+
+    /// A directory holding a file its Filesystem refuses to close.
+    const HOLDS_REFUSES_CLOSE: Holds = Holds(|| Box::new(RefusesClose));
+
+    impl kobako_runtime::filesystem::FileSystemType for Holds {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
             kobako_runtime::filesystem::simple_fill_super(sb, self)
         }
     }
 
-    impl InodeOperations for HoldsRefusesClose {
+    impl InodeOperations for Holds {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             Ok(Metadata::new(FileType::Directory, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let found = Metadata::new(FileType::File, 0);
-            Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
+            Ok(Lookup::Found(Inode::new(&found, Arc::new(Self(self.0)))))
         }
 
         fn open(
@@ -563,24 +573,34 @@ mod tests {
             _dentry: &Dentry,
             _options: &OpenOptions,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            Ok(Box::new(RefusesClose))
+            Ok((self.0)())
         }
     }
 
-    fn open_file() -> Descriptor {
+    /// The file `holds` holds, opened as `how` asks beneath a Mount that
+    /// writes when `how` does.
+    fn open_held(holds: Holds, how: &OpenHow) -> Descriptor {
+        let access = match how.write {
+            true => Access::ReadWrite,
+            false => Access::Read,
+        };
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HoldsRefusesClose)).expect("the instance must stand"),
-            Access::Read,
+            Filesystem::new(Arc::new(holds)).expect("the instance must stand"),
+            access,
         )
         .expect("/data is a guest path");
-        let mut how = OpenHow::default();
-        how.read = true;
         let start = Path::root(mount.mnt());
         Descriptor::for_file(
-            vfs::do_file_open(&Arc::default(), &start, "file", &how)
+            vfs::do_file_open(&Arc::default(), &start, "file", how)
                 .unwrap_or_else(|_| panic!("the file must open")),
         )
+    }
+
+    fn open_file() -> Descriptor {
+        let mut how = OpenHow::default();
+        how.read = true;
+        open_held(HOLDS_REFUSES_CLOSE, &how)
     }
 
     // @behavior RT-176
@@ -617,6 +637,35 @@ mod tests {
         );
     }
 
+    // A pipe end is open one way only, so a stream open both ways comes from
+    // a Filesystem's open.
+    // @behavior RT-275
+    #[test]
+    fn a_stream_reports_what_it_was_opened_and_set_for() {
+        let mut table = standard_streams();
+        let mut how = OpenHow::default();
+        how.read = true;
+        how.write = true;
+        let fd = table
+            .push(open_held(Holds(|| Box::new(Stream)), &how))
+            .expect("a descriptor to set");
+        assert!(
+            fdstat_set_flags(&mut table, fd, Fdflags::APPEND | Fdflags::NONBLOCK).is_ok(),
+            "fd_fdstat_set_flags asking a stream to append and not to block must succeed"
+        );
+        let stat = fdstat_get(&table, fd).unwrap_or_else(|_| panic!("the stream must report"));
+        assert_eq!(
+            (
+                stat.fs_flags,
+                stat.fs_rights_base
+                    .contains(Rights::FD_READ | Rights::FD_WRITE)
+            ),
+            (Fdflags::APPEND | Fdflags::NONBLOCK, true),
+            "fd_fdstat_get on a stream open to read and write, set to append and not to block, \
+             must report both flags and both rights, as Linux's F_GETFL reports a pipe's"
+        );
+    }
+
     // wasi-testsuite's dir_fd_op_failures names these answers and writes that
     // they part from POSIX, where a directory seeks.
     // @behavior RT-184
@@ -624,7 +673,7 @@ mod tests {
     fn a_directory_refuses_a_call_about_its_position() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HoldsRefusesClose)).expect("the instance must stand"),
+            Filesystem::new(Arc::new(HOLDS_REFUSES_CLOSE)).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -760,7 +809,7 @@ mod tests {
     fn setting_a_descriptors_times_answers_as_a_paths_do() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HoldsRefusesClose)).expect("the instance must stand"),
+            Filesystem::new(Arc::new(HOLDS_REFUSES_CLOSE)).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
