@@ -68,4 +68,10 @@ impl FileOperations for OverlayFile {
     fn flush(&mut self) -> Result<(), FilesystemError> {
         self.file.flush()
     }
+
+    /// A stream stays one through the view, as overlayfs hands a special file's
+    /// open to its real inode.
+    fn is_stream(&self) -> bool {
+        self.file.is_stream()
+    }
 }

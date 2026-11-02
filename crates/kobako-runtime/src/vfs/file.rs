@@ -149,6 +149,13 @@ pub trait FileOperations: Send {
     fn flush(&mut self) -> Result<(), FilesystemError> {
         Ok(())
     }
+
+    /// Whether this file reads and writes what comes next, with no position,
+    /// as an `->open` calling `stream_open` marks one. The default takes a
+    /// position.
+    fn is_stream(&self) -> bool {
+        false
+    }
 }
 
 /// Where a seek by `offset` from `whence` leaves a file `dentry` names, whose
@@ -228,6 +235,12 @@ impl FMode {
             mode |= Self::WRITE.0;
         }
         Self(mode)
+    }
+
+    /// This mode with no position, as `stream_open` clears `FMODE_LSEEK`,
+    /// `FMODE_PREAD`, and `FMODE_PWRITE` and sets `FMODE_STREAM`.
+    fn stream_open(self) -> Self {
+        Self(self.0 & (Self::READ.0 | Self::WRITE.0) | Self::STREAM.0)
     }
 
     /// This mode with `mode` added.
@@ -445,17 +458,22 @@ pub struct File {
 }
 
 impl File {
-    /// The file `ops` answers for, opened at `path` as `how` asks.
+    /// The file `ops` answers for, opened at `path` as `how` asks, with no
+    /// position where `ops` is a stream.
     pub(crate) fn new(
         path: Path,
         ops: Box<dyn FileOperations>,
         how: &OpenHow,
         cred: &Arc<Cred>,
     ) -> Self {
+        let mode = match ops.is_stream() {
+            true => FMode::of(how).stream_open(),
+            false => FMode::of(how),
+        };
         Self {
             path,
             ops,
-            mode: FMode::of(how),
+            mode,
             append: how.append,
             nonblock: how.nonblock,
             dsync: how.dsync,
@@ -484,12 +502,6 @@ impl File {
             ..OpenHow::default()
         };
         Ok(Self::new(path, ops, &how, cred))
-    }
-
-    /// This file with no position, as `stream_open` makes a pipe's ends.
-    pub(crate) fn stream_open(&mut self) {
-        let access = self.mode.0 & (FMode::READ.0 | FMode::WRITE.0);
-        self.mode = FMode(access | FMode::STREAM.0);
     }
 
     /// The root of `mnt` opened as a directory for `cred`.
@@ -815,23 +827,24 @@ mod tests {
         }
     }
 
-    /// A directory holding at every name a file whose `open` seeks to nine.
-    struct OpensSeeksToNine;
+    /// A directory holding at every name a file whose `open` answers what
+    /// its function makes.
+    struct Opens(fn() -> Box<dyn FileOperations>);
 
-    impl crate::vfs::FileSystemType for OpensSeeksToNine {
+    impl crate::vfs::FileSystemType for Opens {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
             crate::vfs::simple_fill_super(sb, self)
         }
     }
 
-    impl InodeOperations for OpensSeeksToNine {
+    impl InodeOperations for Opens {
         fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
             Ok(Metadata::new(FileType::File, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let found = Metadata::new(FileType::File, 0);
-            Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
+            Ok(Lookup::Found(Inode::new(&found, Arc::new(Self(self.0)))))
         }
 
         fn open(
@@ -839,16 +852,16 @@ mod tests {
             _dentry: &Dentry,
             _options: &OpenOptions,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            Ok(Box::new(SeeksToNine))
+            Ok((self.0)())
         }
     }
 
-    // @behavior RT-248
-    #[test]
-    fn a_file_answers_where_its_own_seek_lands() {
+    /// The file at any name beneath a Mount of a Filesystem whose `open`
+    /// answers what `opens` makes, opened to read.
+    fn open_one(opens: fn() -> Box<dyn FileOperations>) -> File {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(OpensSeeksToNine)).expect("the instance must stand"),
+            Filesystem::new(Arc::new(Opens(opens))).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -856,8 +869,45 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let mut file = do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &read)
-            .expect("the file opens");
+        do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &read)
+            .expect("the file opens")
+    }
+
+    /// A file its Filesystem opens with no position.
+    struct Stream;
+
+    impl FileOperations for Stream {
+        fn is_stream(&self) -> bool {
+            true
+        }
+    }
+
+    // A file a Filesystem opens as a stream would otherwise seek as any file
+    // does, so only the open's mark keeps a position from it.
+    // @behavior RT-273
+    #[test]
+    fn a_file_its_filesystem_opens_as_a_stream_takes_no_position() {
+        let mut file = open_one(|| Box::new(Stream));
+        assert_eq!(
+            (
+                file.llseek(0, Whence::Set),
+                file.pread(&mut [0], 0),
+                file.is_stream()
+            ),
+            (
+                Err(FilesystemError::NotSeekable),
+                Err(FilesystemError::NotSeekable),
+                true
+            ),
+            "File::llseek and File::pread on a file its Filesystem's open marks a stream must \
+             answer ESPIPE, as stream_open clears FMODE_LSEEK and FMODE_PREAD"
+        );
+    }
+
+    // @behavior RT-248
+    #[test]
+    fn a_file_answers_where_its_own_seek_lands() {
+        let mut file = open_one(|| Box::new(SeeksToNine));
         assert_eq!(
             (file.llseek(0, Whence::Set), file.llseek(0, Whence::Cur)),
             (Ok(9), Ok(9)),

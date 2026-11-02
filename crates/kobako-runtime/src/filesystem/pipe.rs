@@ -113,6 +113,12 @@ impl FileOperations for AnonPipe {
             false => PollMask::OUT,
         }
     }
+
+    /// Neither end takes a position, as `create_pipe_files` calls
+    /// `stream_open` on both.
+    fn is_stream(&self) -> bool {
+        true
+    }
 }
 
 /// The read and the write end of `pipe`, as Linux's `create_pipe_files` opens
@@ -122,14 +128,12 @@ pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
     let found = Metadata::new(FileType::Fifo, 0);
     dentry.add(Some(Inode::new(&found, Arc::new(PipeFs))));
     let end = |how: OpenHow| {
-        let mut file = File::new(
+        File::new(
             PIPE_MNT.with_dentry(dentry.clone()),
             Box::new(AnonPipe(pipe.clone())),
             &how,
             &Arc::default(),
-        );
-        file.stream_open();
-        file
+        )
     };
     (
         end(OpenHow {
