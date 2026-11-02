@@ -361,12 +361,12 @@ fn every_descriptor_call_answers_as_wasmtime_wasi_preview1() {
         for call in CALLS {
             for fd in 0..=3 {
                 let kobako = through_kobako(call, fd, limit);
-                if let Some(errno) = answered_as_a_linux_pipe(call, fd) {
+                if let Some(errno) = answered_as_linux(call, fd) {
                     assert_eq!(
                         kobako.errno,
                         Some(errno),
-                        "{call} on standard stream {fd} through kobako's preview1 imports must \
-                         answer as Linux answers for a pipe"
+                        "{call} on descriptor {fd} through kobako's preview1 imports must answer \
+                         as Linux does"
                     );
                     continue;
                 }
@@ -381,17 +381,19 @@ fn every_descriptor_call_answers_as_wasmtime_wasi_preview1() {
     }
 }
 
-/// Where a standard stream parts from wasmtime-wasi, the errno Linux answers
-/// for a pipe, which outranks it: an offset, a sync, or a size is no pipe's,
-/// and a pipe is no directory to open beneath. Linux also takes `O_APPEND` on
-/// a pipe, reports one link where wasmtime-wasi reports none, and checks no
-/// path for a call setting no time, as `utimensat` returns first.
-fn answered_as_a_linux_pipe(call: &str, fd: i32) -> Option<i32> {
+/// Where kobako parts from wasmtime-wasi, the errno Linux answers, which
+/// outranks it. For a standard stream it answers as for a pipe: an offset, a
+/// sync, or a size is no pipe's, and a pipe is no directory to open beneath.
+/// Linux also takes `O_APPEND` on a pipe, reports one link where wasmtime-wasi
+/// reports none, and checks neither path nor descriptor for a call setting no
+/// time, as `utimensat` returns first.
+fn answered_as_linux(call: &str, fd: i32) -> Option<i32> {
     const ERRNO_SUCCESS: i32 = 0;
     const ERRNO_INVAL: i32 = 28;
     const ERRNO_NOTDIR: i32 = 54;
     const ERRNO_SPIPE: i32 = 70;
     match (call, fd) {
+        ("fd_filestat_set_times" | "path_filestat_set_times", 3) => Some(ERRNO_SUCCESS),
         ("fd_advise", 0..=2) => Some(ERRNO_SPIPE),
         ("fd_allocate" | "fd_sync" | "fd_datasync" | "fd_filestat_set_size", 0..=2) => {
             Some(ERRNO_INVAL)

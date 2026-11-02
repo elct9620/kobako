@@ -231,15 +231,14 @@ pub(crate) fn filestat_set_times(
     mtim: types::Timestamp,
     flags: Fstflags,
 ) -> Answer {
-    let times = to_iattr(atim, mtim, flags)?;
+    // Asking no time does nothing, so Linux's `utimensat` answers before it
+    // takes the descriptor.
+    let Some(times) = to_iattr(atim, mtim, flags)? else {
+        return Ok(());
+    };
     let file = &descriptor(table, fd)?.file;
-    match times {
-        Some(times) => {
-            table.walk_guard().check(file.path())?;
-            Ok(vfs::do_utimes_fd(table.cred(), file.path(), &times)?)
-        }
-        None => Ok(()),
-    }
+    table.walk_guard().check(file.path())?;
+    Ok(vfs::do_utimes_fd(table.cred(), file.path(), &times)?)
 }
 
 pub(crate) fn pread(
@@ -891,6 +890,40 @@ mod tests {
             "path_open with O_CREAT and O_DIRECTORY, and path_create_directory of an empty and of \
              an overlong path, from a descriptor number naming nothing through preview1 must \
              answer EINVAL, ENOENT, and ENAMETOOLONG, and a path a walk can take EBADF"
+        );
+    }
+
+    // Linux's `utimensat` answers a call asking no time before it takes the
+    // name or the descriptor, so a number naming nothing never shows.
+    // @behavior RT-271
+    #[test]
+    fn a_call_asking_no_time_succeeds_whatever_descriptor_it_names() {
+        let table = standard_streams();
+        let mut bytes = *b"a";
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mem = GuestMemory::new(&mut memory, 1);
+        let unopened = 99;
+        assert_eq!(
+            (
+                errno(filestat_set_times(
+                    &table,
+                    unopened,
+                    0,
+                    0,
+                    Fstflags::empty()
+                )),
+                errno(path_set_times(
+                    &table,
+                    &mem,
+                    unopened,
+                    types::Lookupflags::empty(),
+                    GuestPtr::new((0, 1)),
+                    None
+                )),
+            ),
+            (None, None),
+            "fd_filestat_set_times and path_filestat_set_times asking no time through preview1 \
+             must succeed from a descriptor number naming nothing"
         );
     }
 

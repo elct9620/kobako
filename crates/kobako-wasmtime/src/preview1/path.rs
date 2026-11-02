@@ -92,15 +92,17 @@ pub(crate) fn filestat_set_times(
     path: GuestPtr<str>,
     times: Option<Iattr>,
 ) -> Answer {
+    // Asking no time does nothing, so Linux's `utimensat` answers before it
+    // takes the name or the descriptor.
+    let Some(times) = times else {
+        return Ok(());
+    };
     let path = getname(mem, path)?;
     let start = walk_start(table, fd)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
-    match times {
-        Some(times) => Ok(retry_eagain(|| {
-            vfs::do_utimes(table.cred(), start, &path, follow, &times)
-        })?),
-        None => Ok(()),
-    }
+    Ok(retry_eagain(|| {
+        vfs::do_utimes(table.cred(), start, &path, follow, &times)
+    })?)
 }
 
 pub(crate) fn link(
