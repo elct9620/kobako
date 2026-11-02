@@ -301,6 +301,58 @@ mod tests {
 
     const ERRNO_INVAL: i32 = 28;
 
+    /// What a lone wait on standard output answers for event `tag`, 1 to read
+    /// and 2 to write.
+    fn wait_on_stdout(tag: i32) -> i32 {
+        const WAIT_ON_FD_WAT: &str = r#"
+            (module
+              (import "wasi_snapshot_preview1" "poll_oneoff"
+                (func $poll (param i32 i32 i32 i32) (result i32)))
+              (memory (export "memory") 1)
+              (func (export "wait_on") (param $tag i32) (result i32)
+                (i32.store8 (i32.const 8) (local.get $tag))
+                (i32.store (i32.const 16) (i32.const 1))
+                (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96))))
+        "#;
+        let engine = shared_engine().expect("shared engine must be constructible");
+        let config = Config {
+            timeout: None,
+            setup_timeout: None,
+            memory_limit: None,
+            stdout_limit: None,
+            stderr_limit: None,
+            open_file_limit: None,
+            profile: Profile::Hermetic,
+        };
+        let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");
+        let mut store = Store::new(engine, Invocation::new(None, wasi));
+        store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
+        let linker = imports::linker().expect("host imports must link");
+        let module = Module::new(engine, WAIT_ON_FD_WAT).expect("wait module must compile");
+        linker
+            .instantiate(&mut store, &module)
+            .expect("wait module must instantiate")
+            .get_typed_func::<i32, i32>(&mut store, "wait_on")
+            .expect("wait export must resolve")
+            .call(&mut store, tag)
+            .expect("the wait must not trap")
+    }
+
+    const ERRNO_BADF: i32 = 8;
+
+    // Nothing ever makes standard output ready to read, so without the refusal
+    // the wait would only end with the invocation.
+    // @behavior RT-285
+    #[test]
+    fn a_wait_on_what_a_descriptor_never_does_answers_ebadf() {
+        assert_eq!(
+            [1, 2].map(wait_on_stdout),
+            [ERRNO_BADF, 0],
+            "poll_oneoff on standard output must answer EBADF waiting to read and be ready to \
+             write"
+        );
+    }
+
     // @behavior RT-074
     #[test]
     fn a_permissive_wait_ends_at_the_deadline_as_a_timeout() {

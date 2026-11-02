@@ -113,6 +113,32 @@ mod tests {
     /// which wasmtime hands each call by default.
     const HOSTCALL_FUEL: usize = 128 << 20;
 
+    // Linux's `readv` would move all three buffers, so only the first with room
+    // being the one handed back shows the encoding moves one per call.
+    // @behavior RT-284
+    #[test]
+    fn a_read_or_write_moves_its_first_buffer_with_room() {
+        #[repr(align(8))]
+        struct AlignedBytes([u8; 64]);
+
+        // Three iovecs at 0: empty at 32, three bytes at 40, two at 48.
+        let mut bytes = AlignedBytes([0; 64]);
+        for (at, (buf, len)) in [(32u32, 0u32), (40, 3), (48, 2)].into_iter().enumerate() {
+            bytes.0[at * 8..at * 8 + 4].copy_from_slice(&buf.to_le_bytes());
+            bytes.0[at * 8 + 4..at * 8 + 8].copy_from_slice(&len.to_le_bytes());
+        }
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes.0);
+        let taken = GuestMemory::new(&mut memory, HOSTCALL_FUEL)
+            .first_non_empty_iovec(GuestPtr::new((0, 3)))
+            .unwrap_or_else(|_| panic!("the iovecs must be read"));
+        assert_eq!(
+            (taken.offset_base(), taken.len()),
+            (40, 3),
+            "a preview1 read handed an empty buffer, then three bytes, then two, must move only \
+             the three bytes, as wasmtime-wasi does"
+        );
+    }
+
     // Neither the array nor the buffer exists in this small memory, so the
     // budget alone, spent before anything is read, refuses each.
     // @behavior RT-096
