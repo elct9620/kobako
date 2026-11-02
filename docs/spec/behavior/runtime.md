@@ -3002,3 +3002,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a FIFO open to write, whose Filesystem opens it like any file |
 | When | a caller allocates for it or advises on it |
 | Then | each call answers ESPIPE, as Linux's `vfs_fallocate` and `generic_fadvise` read what the file is |
+
+## `RT-271` A call asking no time succeeds whatever descriptor it names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-187` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding nothing at a descriptor number |
+| When | the guest sets no time through that number, or on a path starting from it |
+| Then | each call succeeds, as `utimensat` returns before it takes the descriptor |
