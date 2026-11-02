@@ -5,8 +5,7 @@
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::Cred;
-use super::mount::Access;
+use super::cred::{Cred, SecurityPath};
 use super::namei::filename_lookup;
 use super::path::Path;
 use super::{FilesystemError, Iattr};
@@ -24,7 +23,10 @@ pub fn do_utimes_fd(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), 
 fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
     path.mnt().mnt_want_write()?;
     let dentry = path.dentry();
-    cred.security_path_perm(path.mnt(), &|| dentry.path_raw(), Access::ReadWrite)?;
+    cred.security_inode_setattr(SecurityPath {
+        mnt: path.mnt(),
+        name: &|| dentry.path_raw(),
+    })?;
     notify_change(dentry, times)
 }
 

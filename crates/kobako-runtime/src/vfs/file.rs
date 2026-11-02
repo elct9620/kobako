@@ -688,6 +688,7 @@ impl File {
         if !regular || !self.writable() || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
         }
+        self.cred.security_file_truncate(self.path.dentry())?;
         notify_change(self.path.dentry(), &Iattr::size(len))
     }
 

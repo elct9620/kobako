@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::mount::{Mount, Policy};
 use crate::vfs::{
     d_revalidate, Access, Cred, Dentry, FileType, FilesystemError, Path, SecurityOperations,
-    VfsMount, PATH_MAX,
+    SecurityPath, VfsMount, PATH_MAX,
 };
 
 /// Whether each name from the root down to `path` still names what the runtime
@@ -42,7 +42,12 @@ struct KobakoSecurity;
 impl SecurityOperations for KobakoSecurity {
     /// Only a file or a directory opens: the runtime provides no peer for a
     /// FIFO or a socket, and a device would act on being opened.
-    fn file_open(&self, kind: FileType) -> Result<(), FilesystemError> {
+    fn file_open(
+        &self,
+        _path: SecurityPath<'_>,
+        kind: FileType,
+        _access: Access,
+    ) -> Result<(), FilesystemError> {
         match kind {
             FileType::File | FileType::Directory => Ok(()),
             _ => Err(FilesystemError::PermissionDenied),
@@ -76,24 +81,18 @@ impl MountPolicy {
             (at, path) => format!("{at}/{path}"),
         }
     }
-}
 
-impl SecurityOperations for MountPolicy {
-    /// The Policy judges the path as the Filesystem stores its names, so a
-    /// host folding case or Unicode form cannot hand it one spelling of an
-    /// entry it refuses by another. One a Policy could not be handed within
-    /// `PATH_MAX` is refused as too long, as AppArmor's `aa_path_name` refuses
-    /// one past its buffer.
-    fn path_perm(
-        &self,
-        mnt: &Arc<VfsMount>,
-        path: &dyn Fn() -> String,
-        access: Access,
-    ) -> Result<(), FilesystemError> {
-        if !self.guards(mnt) {
+    /// Judge `path` as AppArmor's `aa_path_perm` judges a whole path once, each
+    /// hook below reaching it as AppArmor's do. The Policy judges the path as the
+    /// Filesystem stores its names, so a host folding case or Unicode form cannot
+    /// hand it one spelling of an entry it refuses by another. One a Policy could
+    /// not be handed within `PATH_MAX` is refused as too long, as AppArmor's
+    /// `aa_path_name` refuses one past its buffer.
+    fn path_perm(&self, path: SecurityPath<'_>, access: Access) -> Result<(), FilesystemError> {
+        if !self.guards(path.mnt) {
             return Ok(());
         }
-        let path = self.guest_path(&path());
+        let path = self.guest_path(&(path.name)());
         if path.len() >= PATH_MAX {
             return Err(FilesystemError::InvalidFilename);
         }
@@ -102,20 +101,67 @@ impl SecurityOperations for MountPolicy {
             false => Err(FilesystemError::PermissionDenied),
         }
     }
+}
 
-    /// Everything beneath a directory would take paths the Policy never
-    /// judged, and a Policy answers for one path, not a tree, so its move is
-    /// refused as one across devices and the guest copies entry by entry instead,
-    /// as Landlock answers a move it cannot show keeps each right beneath. A move
-    /// onto its own name takes no new path.
+impl SecurityOperations for MountPolicy {
+    fn path_mknod(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+        self.path_perm(path, Access::ReadWrite)
+    }
+
+    fn path_mkdir(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+        self.path_perm(path, Access::ReadWrite)
+    }
+
+    fn path_rmdir(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+        self.path_perm(path, Access::ReadWrite)
+    }
+
+    fn path_unlink(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+        self.path_perm(path, Access::ReadWrite)
+    }
+
+    fn path_symlink(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+        self.path_perm(path, Access::ReadWrite)
+    }
+
+    fn path_link(
+        &self,
+        old: SecurityPath<'_>,
+        new: SecurityPath<'_>,
+    ) -> Result<(), FilesystemError> {
+        self.path_perm(old, Access::ReadWrite)?;
+        self.path_perm(new, Access::ReadWrite)
+    }
+
+    fn file_open(
+        &self,
+        path: SecurityPath<'_>,
+        _kind: FileType,
+        access: Access,
+    ) -> Result<(), FilesystemError> {
+        self.path_perm(path, access)
+    }
+
+    fn inode_setattr(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+        self.path_perm(path, Access::ReadWrite)
+    }
+
+    /// Both paths are judged. Everything beneath a directory would take paths the
+    /// Policy never judged, and a Policy answers for one path, not a tree, so its
+    /// move is refused as one across devices and the guest copies entry by entry
+    /// instead, as Landlock answers a move it cannot show keeps each right beneath.
+    /// A move onto its own name takes no new path.
     fn path_rename(
         &self,
-        mnt: &Arc<VfsMount>,
-        old: &Arc<Dentry>,
-        new: &Arc<Dentry>,
+        old: SecurityPath<'_>,
+        new: SecurityPath<'_>,
+        (old_dentry, new_dentry): (&Arc<Dentry>, &Arc<Dentry>),
     ) -> Result<(), FilesystemError> {
-        let moves_dir = old.kind() == Ok(FileType::Directory) && !Arc::ptr_eq(old, new);
-        match moves_dir && self.guards(mnt) {
+        self.path_perm(old, Access::ReadWrite)?;
+        self.path_perm(new, Access::ReadWrite)?;
+        let moves_dir =
+            old_dentry.kind() == Ok(FileType::Directory) && !Arc::ptr_eq(old_dentry, new_dentry);
+        match moves_dir && self.guards(old.mnt) {
             true => Err(FilesystemError::CrossesDevices),
             false => Ok(()),
         }
@@ -402,7 +448,19 @@ mod tests {
     // @behavior RT-197
     #[test]
     fn only_a_file_or_a_directory_opens() {
-        let judged = |kind| KobakoSecurity.file_open(kind).is_ok();
+        let mount = Mount::new(
+            "/data",
+            crate::filesystem::Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new())),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let judged = |kind| {
+            let path = SecurityPath {
+                mnt: mount.mnt(),
+                name: &String::new,
+            };
+            KobakoSecurity.file_open(path, kind, Access::Read).is_ok()
+        };
         assert_eq!(
             [
                 FileType::File,

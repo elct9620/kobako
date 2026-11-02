@@ -31,7 +31,7 @@ pub(crate) use namei::{
 
 pub(crate) use attr::notify_change;
 pub use attr::{Iattr, SetTime};
-pub use cred::{Cred, SecurityOperations};
+pub use cred::{Cred, SecurityOperations, SecurityPath};
 pub use dentry::{Dentry, DentryOperations};
 pub use errno::FilesystemError;
 pub use file::{

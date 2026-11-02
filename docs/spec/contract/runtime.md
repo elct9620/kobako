@@ -954,23 +954,112 @@ module can only refuse.
 pub trait SecurityOperations: Send + Sync {}
 ```
 
-## `SecurityOperations::path_perm`
+## `SecurityPath`
 
-Whether a path beneath a mount may be reached with an access.
+A path a hook is asked about: its mount, and its name built only for a module
+reading it.
+
+```rust
+pub struct SecurityPath {}
+```
+
+## `SecurityOperations::inode_permission`
+
+Whether a call may do what a `Mask` asks of an entry, once the entry allowed it.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_perm(&self, _mnt: &Arc<VfsMount>, _path: &dyn Fn() -> String, _access: Access) -> Result<(), FilesystemError>;
+    fn inode_permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::path_mknod`
+
+Whether a file may be made at a path.
+
+```rust
+pub trait SecurityOperations {
+    fn path_mknod(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::path_mkdir`
+
+Whether a directory may be made at a path.
+
+```rust
+pub trait SecurityOperations {
+    fn path_mkdir(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::path_rmdir`
+
+Whether the directory at a path may go.
+
+```rust
+pub trait SecurityOperations {
+    fn path_rmdir(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::path_unlink`
+
+Whether the file at a path may go.
+
+```rust
+pub trait SecurityOperations {
+    fn path_unlink(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::path_symlink`
+
+Whether a link may be made at a path.
+
+```rust
+pub trait SecurityOperations {
+    fn path_symlink(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::path_link`
+
+Whether what one path names may also go by another.
+
+```rust
+pub trait SecurityOperations {
+    fn path_link(&self, _old: SecurityPath<'_>, _new: SecurityPath<'_>) -> Result<(), FilesystemError>;
 }
 ```
 
 ## `SecurityOperations::file_open`
 
-Whether a file of a kind may be opened.
+Whether a file of a kind at a path may be opened with an access.
 
 ```rust
 pub trait SecurityOperations {
-    fn file_open(&self, _kind: FileType) -> Result<(), FilesystemError>;
+    fn file_open(&self, _path: SecurityPath<'_>, _kind: FileType, _access: Access) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::file_truncate`
+
+Whether an entry may be truncated through an open file.
+
+```rust
+pub trait SecurityOperations {
+    fn file_truncate(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
+}
+```
+
+## `SecurityOperations::inode_setattr`
+
+Whether the entry at a path may change.
+
+```rust
+pub trait SecurityOperations {
+    fn inode_setattr(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
 }
 ```
 
@@ -986,11 +1075,11 @@ pub trait SecurityOperations {
 
 ## `SecurityOperations::path_rename`
 
-Whether what one Dentry names beneath a mount may move to another.
+Whether what one path names may move to another, the dentries of each given.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_rename(&self, _mnt: &Arc<VfsMount>, _old: &Arc<Dentry>, _new: &Arc<Dentry>) -> Result<(), FilesystemError>;
+    fn path_rename(&self, _old: SecurityPath<'_>, _new: SecurityPath<'_>, _dentries: (&Arc<Dentry>, &Arc<Dentry>)) -> Result<(), FilesystemError>;
 }
 ```
 

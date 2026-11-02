@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::Cred;
+use super::cred::{Cred, SecurityPath};
 use super::dentry::Dentry;
 use super::file::{File, FileOperations};
 use super::inode::{Inode, Mask, RenameFlag};
@@ -121,11 +121,23 @@ impl Nameidata {
         names.join("/")
     }
 
-    /// Whether a security hook lets the path be reached with `access`, as
-    /// Linux's `security_path_*` asks once its call holds the name.
-    fn security_path_perm(&self, access: Access) -> Result<(), FilesystemError> {
+    /// Answer `hook` for the path the walk ended on, as Linux's `security_path_*`
+    /// is handed `struct path` once its call holds the name.
+    fn on_path<T>(&self, hook: impl FnOnce(SecurityPath<'_>) -> T) -> T {
+        hook(SecurityPath {
+            mnt: &self.mnt,
+            name: &|| self.dentry_path(),
+        })
+    }
+
+    /// Whether a security hook lets the directory the walk stands in change, as
+    /// `may_create_dentry` and `may_delete_dentry` reach it through
+    /// `inode_permission`. The VFS's own helpers carry no Cred, as what a
+    /// Filesystem does beneath its own name is its to answer, as overlayfs
+    /// overrides the caller's creds, so a call asks here.
+    fn security_may_change(&self) -> Result<(), FilesystemError> {
         self.cred
-            .security_path_perm(&self.mnt, &|| self.dentry_path(), access)
+            .security_inode_permission(self.dentry(), Mask::WRITE | Mask::EXEC)
     }
 }
 
@@ -265,6 +277,8 @@ impl Nameidata {
     fn link_path_walk(&mut self) -> Result<(), FilesystemError> {
         loop {
             inode_permission(self.dentry(), Mask::EXEC)?;
+            self.cred
+                .security_inode_permission(self.dentry(), Mask::EXEC)?;
             let part = self.pending.pop_front().ok_or(FilesystemError::NotFound)?;
             let slashes = self
                 .pending
@@ -481,12 +495,19 @@ pub fn do_file_open(
     if changes {
         nd.mnt.mnt_want_write()?;
     }
-    nd.security_path_perm(match changes {
+    let access = match changes {
         true => Access::ReadWrite,
         false => Access::Read,
-    })?;
-    if let Some(kind) = existing {
-        cred.security_file_open(kind)?;
+    };
+    match existing {
+        Some(kind) => {
+            cred.security_inode_permission(&*nd.path()?, open_mask(how))?;
+            nd.on_path(|path| cred.security_file_open(path, kind, access))?;
+        }
+        None => {
+            nd.on_path(|path| cred.security_path_mknod(path))?;
+            nd.security_may_change()?;
+        }
     }
     let options = OpenOptions {
         read: how.read,
@@ -501,6 +522,7 @@ pub fn do_file_open(
     // Only what stood is emptied, as Linux's `do_open` calls
     // `handle_truncate` for a regular file it did not make.
     if how.truncate && existing == Some(FileType::File) {
+        cred.security_file_truncate(&child)?;
         notify_change(&child, &Iattr::open_truncate())?;
     }
     Ok(File::new(start.with_dentry(child), f_op, how, cred))
@@ -536,21 +558,27 @@ fn may_open(
     existing: Option<FileType>,
     how: &OpenHow,
 ) -> Result<(), FilesystemError> {
-    let writes = how.write || how.truncate;
     match existing {
         None => return Ok(()),
         Some(FileType::Symlink) => return Err(FilesystemError::FilesystemLoop),
-        Some(FileType::Directory) if writes => return Err(FilesystemError::IsADirectory),
+        Some(FileType::Directory) if how.write || how.truncate => {
+            return Err(FilesystemError::IsADirectory)
+        }
         Some(_) => {}
     }
+    inode_permission(child, open_mask(how))
+}
+
+/// What an open asks of what it opens, as `build_open_flags` makes `acc_mode`.
+fn open_mask(how: &OpenHow) -> Mask {
     let mut mask = Mask::OPEN;
     if how.read {
         mask = mask | Mask::READ;
     }
-    if writes {
+    if how.write || how.truncate {
         mask = mask | Mask::WRITE;
     }
-    inode_permission(child, mask)
+    mask
 }
 
 /// Give what `old_path` beneath `old_start` names another name at `new_path`
@@ -573,8 +601,8 @@ pub fn filename_linkat(
     if !Arc::ptr_eq(old_start.mnt(), new_start.mnt()) {
         return Err(FilesystemError::CrossesDevices);
     }
-    old.security_path_perm(Access::ReadWrite)?;
-    new.security_path_perm(Access::ReadWrite)?;
+    old.on_path(|old| new.on_path(|new| cred.security_path_link(old, new)))?;
+    new.security_may_change()?;
     vfs_link(new.mnt.sb(), &target, new.dentry(), &child)
 }
 
@@ -589,7 +617,8 @@ pub fn filename_symlinkat(
     getname(target)?;
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, false)?;
-    nd.security_path_perm(Access::ReadWrite)?;
+    nd.on_path(|path| cred.security_path_symlink(path))?;
+    nd.security_may_change()?;
     vfs_symlink(nd.mnt.sb(), nd.dentry(), &child, target)
 }
 
@@ -632,7 +661,8 @@ fn start_dirop(nd: &mut Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Fi
 pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), FilesystemError> {
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, true)?;
-    nd.security_path_perm(Access::ReadWrite)?;
+    nd.on_path(|path| cred.security_path_mkdir(path))?;
+    nd.security_may_change()?;
     vfs_mkdir(nd.mnt.sb(), nd.dentry(), &child)
 }
 
@@ -647,7 +677,8 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
     }
     nd.mnt.mnt_want_write()?;
     let (_held, child) = start_dirop(&mut nd)?;
-    nd.security_path_perm(Access::ReadWrite)?;
+    nd.on_path(|path| cred.security_path_rmdir(path))?;
+    nd.security_may_change()?;
     vfs_rmdir(nd.mnt.sb(), nd.dentry(), &child)
 }
 
@@ -671,7 +702,8 @@ pub fn filename_unlinkat(
             _ => FilesystemError::NotADirectory,
         });
     }
-    nd.security_path_perm(Access::ReadWrite)?;
+    nd.on_path(|path| cred.security_path_unlink(path))?;
+    nd.security_may_change()?;
     vfs_unlink(nd.mnt.sb(), nd.dentry(), &child)
 }
 
@@ -710,9 +742,11 @@ pub fn filename_renameat2(
     if !is_dir && (source.trailing_slash || target.trailing_slash) {
         return Err(FilesystemError::NotADirectory);
     }
-    source.security_path_perm(Access::ReadWrite)?;
-    target.security_path_perm(Access::ReadWrite)?;
-    cred.security_path_rename(from.mnt(), &rd.old_dentry, &rd.new_dentry)?;
+    source.on_path(|old| {
+        target.on_path(|new| cred.security_path_rename(old, new, (&rd.old_dentry, &rd.new_dentry)))
+    })?;
+    source.security_may_change()?;
+    target.security_may_change()?;
     vfs_rename(sb, &rd)
 }
 
@@ -1186,6 +1220,138 @@ mod tests {
             lookups.load(Ordering::SeqCst),
             2,
             "a Filesystem whose delete lets a name go must be asked again for it"
+        );
+    }
+
+    /// A security module recording the hooks a call reaches, by name.
+    #[derive(Default)]
+    struct RecordsHooks(Mutex<Vec<String>>);
+
+    impl RecordsHooks {
+        fn record(&self, hook: &str) {
+            self.0
+                .lock()
+                .expect("never poisoned")
+                .push(hook.to_string());
+        }
+    }
+
+    impl vfs::SecurityOperations for RecordsHooks {
+        fn path_mknod(&self, _path: vfs::SecurityPath<'_>) -> Result<(), FilesystemError> {
+            self.record("path_mknod");
+            Ok(())
+        }
+
+        fn path_mkdir(&self, _path: vfs::SecurityPath<'_>) -> Result<(), FilesystemError> {
+            self.record("path_mkdir");
+            Ok(())
+        }
+
+        fn path_rmdir(&self, _path: vfs::SecurityPath<'_>) -> Result<(), FilesystemError> {
+            self.record("path_rmdir");
+            Ok(())
+        }
+
+        fn path_unlink(&self, _path: vfs::SecurityPath<'_>) -> Result<(), FilesystemError> {
+            self.record("path_unlink");
+            Ok(())
+        }
+
+        fn path_rename(
+            &self,
+            _old: vfs::SecurityPath<'_>,
+            _new: vfs::SecurityPath<'_>,
+            _dentries: (&Arc<Dentry>, &Arc<Dentry>),
+        ) -> Result<(), FilesystemError> {
+            self.record("path_rename");
+            Ok(())
+        }
+
+        fn file_open(
+            &self,
+            _path: vfs::SecurityPath<'_>,
+            _kind: FileType,
+            _access: Access,
+        ) -> Result<(), FilesystemError> {
+            self.record("file_open");
+            Ok(())
+        }
+
+        fn file_truncate(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.record("file_truncate");
+            Ok(())
+        }
+    }
+
+    // @behavior RT-249
+    #[test]
+    fn each_call_reaches_the_hook_linux_names_for_it() {
+        let hooks = Arc::new(RecordsHooks::default());
+        let cred = vfs::Cred::new(vec![hooks.clone()]);
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(Tmpfs::new())),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let write = OpenHow {
+            write: true,
+            create: true,
+            ..OpenHow::default()
+        };
+        let reopen = OpenHow {
+            write: true,
+            truncate: true,
+            ..OpenHow::default()
+        };
+        vfs::filename_mkdirat(&cred, &root, "d").expect("mkdir");
+        vfs::filename_rmdir(&cred, &root, "d").expect("rmdir");
+        vfs::do_file_open(&cred, &root, "f", &write).expect("the file is made");
+        let mut file = vfs::do_file_open(&cred, &root, "f", &reopen).expect("the file opens");
+        file.truncate(0).expect("truncate");
+        vfs::filename_renameat2(&cred, &root, "f", &root, "g").expect("rename");
+        vfs::filename_unlinkat(&cred, &root, "g").expect("unlink");
+        assert_eq!(
+            *hooks.0.lock().expect("never poisoned"),
+            [
+                "path_mkdir",
+                "path_rmdir",
+                "path_mknod",
+                "file_open",
+                "file_truncate",
+                "file_truncate",
+                "path_rename",
+                "path_unlink",
+            ],
+            "each call through the VFS must reach the security hook Linux names for it"
+        );
+    }
+
+    // @behavior RT-250
+    #[test]
+    fn a_module_refusing_what_a_walk_asks_refuses_the_walk() {
+        struct RefusesExec;
+
+        impl vfs::SecurityOperations for RefusesExec {
+            fn inode_permission(&self, dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
+                match dentry.name() == "d" && mask.contains(Mask::EXEC) {
+                    true => Err(FilesystemError::PermissionDenied),
+                    false => Ok(()),
+                }
+            }
+        }
+
+        let tmpfs: Tmpfs = [("d/f", "x")].into_iter().collect();
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::Read)
+            .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let cred = vfs::Cred::new(vec![Arc::new(RefusesExec)]);
+        assert_eq!(
+            vfs::vfs_fstatat(&cred, &root, "d/f", false).err(),
+            Some(FilesystemError::PermissionDenied),
+            "vfs_fstatat through a directory a module refuses to pass must answer EACCES, as \
+             security_inode_permission answers may_lookup"
         );
     }
 

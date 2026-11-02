@@ -2748,3 +2748,23 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file whose Filesystem answers `FileOperations::llseek` |
 | When | a call seeks it |
 | Then | the call answers where that seek lands, and the file stands there |
+
+## `RT-249` Each call reaches the security hook Linux names for it
+
+| Step | Statement |
+| --- | --- |
+| Given | a security module recording the hooks it is asked |
+| When | calls make, open, truncate, move, and remove names |
+| Then | each call reaches the hook Linux names for what it does, a truncate through an open file included |
+
+## `RT-250` What a security module refuses of a walk refuses the walk
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-242` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a security module refusing to pass through a directory |
+| When | a call walks through that directory |
+| Then | the call answers EACCES |
