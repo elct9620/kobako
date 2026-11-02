@@ -3077,3 +3077,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose entry is a character device it opens like any file |
 | When | the guest opens the entry and asks what its descriptor reports |
 | Then | the descriptor reports a character device, as a stat of the same entry does |
+
+## `RT-277` A readlink into no room is invalid
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-208` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a Mount |
+| When | the guest reads a link into a buffer of no bytes, naming a path no walk can take |
+| Then | the call answers EINVAL before the path, as Linux's `do_readlinkat` refuses a size of zero first |
