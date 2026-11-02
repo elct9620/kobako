@@ -1124,6 +1124,26 @@ pub enum Whence {
 }
 ```
 
+## `FileOperations::llseek`
+
+Where a seek leaves this file. A file without it seeks through
+`generic_file_llseek`.
+
+```rust
+pub trait FileOperations {
+    fn llseek(&mut self, dentry: &Dentry, pos: u64, offset: i64, whence: Whence) -> Result<u64, FilesystemError>;
+}
+```
+
+## `generic_file_llseek`
+
+Where a seek leaves a file. It counts from the start, the position, or the reported
+end, and refuses a place past the largest offset.
+
+```rust
+pub fn generic_file_llseek(dentry: &Dentry, pos: u64, offset: i64, whence: Whence) -> Result<u64, FilesystemError> {}
+```
+
 ## `File::llseek`
 
 Move its position and answer where it stands, as `vfs_llseek` does.

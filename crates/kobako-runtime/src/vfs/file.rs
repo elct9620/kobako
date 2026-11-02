@@ -48,6 +48,19 @@ impl Kiocb {
 /// One open file. The runtime keeps its position and hands each call where it
 /// lands.
 pub trait FileOperations: Send {
+    /// Where a seek by `offset` from `whence` leaves this file, which `dentry`
+    /// names and whose position stands at `pos`, as `f_op->llseek` answers. A file
+    /// without it seeks as any file does, through `generic_file_llseek`.
+    fn llseek(
+        &mut self,
+        dentry: &Dentry,
+        pos: u64,
+        offset: i64,
+        whence: Whence,
+    ) -> Result<u64, FilesystemError> {
+        generic_file_llseek(dentry, pos, offset, whence)
+    }
+
     /// Read into `buf` from where `iocb` lands, moving it past what was read
     /// unless the file has no positions. A file without it refuses as Linux's
     /// `vfs_read` refuses one without `f_op->read_iter`.
@@ -101,6 +114,25 @@ pub trait FileOperations: Send {
     fn flush(&mut self) -> Result<(), FilesystemError> {
         Ok(())
     }
+}
+
+/// Where a seek by `offset` from `whence` leaves a file `dentry` names, whose
+/// position stands at `pos`, refused past the largest offset, as Linux's
+/// `generic_file_llseek` counts from the position, or the end its inode reports.
+pub fn generic_file_llseek(
+    dentry: &Dentry,
+    pos: u64,
+    offset: i64,
+    whence: Whence,
+) -> Result<u64, FilesystemError> {
+    let base = match whence {
+        Whence::Set => 0,
+        Whence::Cur => pos,
+        Whence::End => dentry.getattr()?.len,
+    };
+    base.checked_add_signed(offset)
+        .filter(|pos| *pos <= MAX_OFFSET)
+        .ok_or(FilesystemError::InvalidInput)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -365,23 +397,15 @@ impl File {
         self.nonblock = nonblock;
     }
 
-    /// Move its position, answering where it now stands, as `vfs_llseek` and
-    /// `generic_file_llseek_size` do.
+    /// Move its position, answering where it now stands, as `vfs_llseek` refuses
+    /// a file with no position and asks `f_op->llseek` of the rest.
     pub fn llseek(&mut self, offset: i64, whence: Whence) -> Result<u64, FilesystemError> {
         if !self.mode.contains(FMode::LSEEK) {
             return Err(FilesystemError::NotSeekable);
         }
-        let base = match whence {
-            Whence::Set => 0,
-            Whence::Cur => self.pos,
-            Whence::End => self.getattr()?.len,
-        };
-        let pos = base
-            .checked_add_signed(offset)
-            .filter(|pos| *pos <= MAX_OFFSET)
-            .ok_or(FilesystemError::InvalidInput)?;
-        self.pos = pos;
-        Ok(pos)
+        let dentry = self.path.dentry().clone();
+        self.pos = self.ops.llseek(&dentry, self.pos, offset, whence)?;
+        Ok(self.pos)
     }
 
     /// Take a hint about `len` bytes, as `generic_fadvise` refuses a pipe and
@@ -699,6 +723,68 @@ mod tests {
     use crate::filesystem::{Filesystem, InodeOperations, Lookup, Overlay, Tmpfs};
     use crate::mount::{Access, Mount};
     use crate::vfs::Inode;
+
+    /// A file whose seek lands at a position of its own.
+    struct SeeksToNine;
+
+    impl FileOperations for SeeksToNine {
+        fn llseek(
+            &mut self,
+            _dentry: &Dentry,
+            _pos: u64,
+            _offset: i64,
+            _whence: Whence,
+        ) -> Result<u64, FilesystemError> {
+            Ok(9)
+        }
+    }
+
+    /// A directory holding at every name a file whose `open` seeks to nine.
+    struct OpensSeeksToNine;
+
+    impl crate::vfs::FileSystemType for OpensSeeksToNine {}
+
+    impl InodeOperations for OpensSeeksToNine {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::File, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let found = Metadata::new(FileType::File, 0);
+            Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Ok(Box::new(SeeksToNine))
+        }
+    }
+
+    // @behavior RT-248
+    #[test]
+    fn a_file_answers_where_its_own_seek_lands() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(OpensSeeksToNine)),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let mut file = do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &read)
+            .expect("the file opens");
+        assert_eq!(
+            (file.llseek(0, Whence::Set), file.llseek(0, Whence::Cur)),
+            (Ok(9), Ok(9)),
+            "File::llseek on a file answering llseek itself must answer and keep where that \
+             seek lands, as vfs_llseek asks f_op->llseek"
+        );
+    }
 
     /// A directory holding a file at every name, neither with `open`.
     struct OpensNothing;

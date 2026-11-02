@@ -35,8 +35,8 @@ pub use cred::{Cred, SecurityOperations};
 pub use dentry::{Dentry, DentryOperations};
 pub use errno::FilesystemError;
 pub use file::{
-    verify_dirent_name, DirContext, DirEmit, DirEntry, FMode, File, FileOperations, Kiocb,
-    PollMask, Whence,
+    generic_file_llseek, verify_dirent_name, DirContext, DirEmit, DirEntry, FMode, File,
+    FileOperations, Kiocb, PollMask, Whence,
 };
 pub use inode::{Identity, Inode, InodeOperations, Lookup, Mask, RenameFlag};
 pub use mount::{Access, VfsMount};

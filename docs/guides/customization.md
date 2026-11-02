@@ -381,6 +381,7 @@ These two calls follow from what the runtime does itself, so a Filesystem answer
 | `atomic_open` | a file made and opened in one step, for a backend needing that | makes it through `create`, then opens it |
 | `setattr` | a file sized through what holds it, and times of the guest's choosing | EINVAL for a size, ENOTSUP for a time |
 | `link`, `symlink` | a name made under the directory's lock | EPERM |
+| `FileOperations::llseek` | a position of the file's own choosing | counts from the start, the position, or the end `getattr` reports |
 | `FileOperations::read_iter`, `write_iter` | a file's bytes, moving `Kiocb::pos` past what they took | EINVAL |
 | `FileOperations::iterate_shared` | a directory listed from what its `open` made | ENOTDIR |
 | `FileOperations::fsync` | what was written made durable; answer `Ok` with nothing to flush | EINVAL |

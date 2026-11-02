@@ -2736,3 +2736,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose `fill_super` reports a root with an identity, and one with nothing to set up |
 | When | each is made into an instance |
 | Then | the first root records that identity, and the second none |
+
+## `RT-248` A file answering `llseek` itself decides where its seek lands
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-116` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file whose Filesystem answers `FileOperations::llseek` |
+| When | a call seeks it |
+| Then | the call answers where that seek lands, and the file stands there |
