@@ -28,6 +28,17 @@ pub enum FileType {
     Unknown,
 }
 
+impl FileType {
+    /// Whether it is a device, a FIFO, or a socket, as Linux's `special_file`
+    /// names what an open for writing takes no write access to its mount for.
+    pub(crate) fn is_special(self) -> bool {
+        matches!(
+            self,
+            Self::CharDevice | Self::BlockDevice | Self::Fifo | Self::Socket
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Metadata {

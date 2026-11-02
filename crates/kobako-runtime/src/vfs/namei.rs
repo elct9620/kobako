@@ -477,77 +477,93 @@ pub fn do_file_open(
     nd.lookup_directory = how.directory;
     nd.link_path_walk()?;
     let held = nd.open_last_lookups(follow, how.create)?;
-    nd.complete_walk()?;
-    // The walk followed every link the call asked it to, so a link at the
-    // end now is one swapped in since, and is opened as itself.
-    let existing = nd.path()?.inode().map(|inode| inode.kind());
-    // A file being made is open before the directory's lock goes, as Linux's
-    // `lookup_open` holds it, so nothing made or removed in between changes what
-    // the open decided. What already stood opens without it, as `do_open` does.
-    let _held = held.filter(|_| existing.is_none());
-    refuse_what_stands(cred, &*nd.path()?, existing, nd.lookup_directory, how)?;
-    // Creating changes the mount only where nothing stands yet, so the hook
-    // judges the open once, knowing what it does. A change asks the mount first.
-    let changes = how.write || how.truncate || (how.create && existing.is_none());
-    if changes {
-        nd.mnt.mnt_want_write()?;
-    }
-    let access = match changes {
-        true => Access::ReadWrite,
-        false => Access::Read,
-    };
     let child = nd.path()?;
-    match existing {
-        Some(kind) => nd.on_path(|path| cred.security_file_open(path, kind, access))?,
-        None => may_o_create(&nd, &child)?,
-    }
     let options = OpenOptions {
         read: how.read,
         write: how.write,
         truncate: how.truncate,
     };
-    let f_op = match existing {
-        None => atomic_open(nd.dentry(), &child, &options)?,
-        Some(_) => child.open(&options)?,
+    // The walk followed every link the call asked it to, so a link at the
+    // end now is one swapped in since, and is opened as itself.
+    let f_op = match child.inode().map(|inode| inode.kind()) {
+        // A file is made and opened before the directory's lock goes, so nothing
+        // made or removed in between changes what the open decided. What it made
+        // is opened as `do_open` opens a file `FMODE_CREATED` marks: it asks for
+        // nothing but the open, and is never walked again. The security modules
+        // judged the make, so a Policy is asked once for the open.
+        None if how.create => {
+            let _held = held;
+            let f_op = lookup_open(&nd, &child, &options)?;
+            may_open(cred, &child, FileType::File, Mask::OPEN)?;
+            f_op
+        }
+        None => {
+            nd.complete_walk()?;
+            return Err(FilesystemError::NotFound);
+        }
+        Some(kind) => {
+            drop(held);
+            nd.complete_walk()?;
+            do_open(&nd, &child, kind, how, &options)?
+        }
     };
-    // Only what stood is emptied, as Linux's `do_open` calls
-    // `handle_truncate` for a regular file it did not make.
-    if how.truncate && existing == Some(FileType::File) {
-        cred.security_file_truncate(&child)?;
-        notify_change(&child, &Iattr::open_truncate())?;
-    }
     Ok(File::new(start.with_dentry(child), f_op, how, cred))
 }
 
-/// Whether an open may make `child` in the directory the walk stands in, as
-/// Linux's `may_o_create` asks the module judging the path and then
-/// `inode_permission`.
-fn may_o_create(nd: &Nameidata, child: &Dentry) -> Result<(), FilesystemError> {
+/// Make the file an open names where nothing stands and open it, as Linux's
+/// `lookup_open` asks the mount and `may_o_create` before `->create`.
+fn lookup_open(
+    nd: &Nameidata,
+    child: &Dentry,
+    options: &OpenOptions,
+) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    nd.mnt.mnt_want_write()?;
     nd.on_path(|path| nd.cred.security_path_mknod(path))?;
-    may_create_dentry(&nd.cred, nd.dentry(), child)
+    may_create_dentry(&nd.cred, nd.dentry(), child)?;
+    atomic_open(nd.dentry(), child, options)
 }
 
-/// What stands at the path answers before any access is judged, as Linux's
-/// `do_open` answers it on a read-only mount.
-fn refuse_what_stands(
-    cred: &Cred,
+/// Open what stood at the path, as Linux's `do_open`: what stands answers
+/// first, a truncate asks the mount before `may_open`, a write asks it after
+/// for anything but a special file, as `do_dentry_open` takes write access, and
+/// only a regular file is emptied, as `handle_truncate` asks the security
+/// modules first.
+fn do_open(
+    nd: &Nameidata,
     child: &Dentry,
-    existing: Option<FileType>,
-    lookup_directory: bool,
+    kind: FileType,
     how: &OpenHow,
-) -> Result<(), FilesystemError> {
-    let refusal = match existing {
-        None if !how.create => Some(FilesystemError::NotFound),
-        Some(_) if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
-        Some(FileType::Directory) if how.create => Some(FilesystemError::IsADirectory),
-        Some(FileType::Directory) | None => None,
-        Some(_) if lookup_directory => Some(FilesystemError::NotADirectory),
-        Some(_) => None,
+    options: &OpenOptions,
+) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    let refusal = match kind {
+        _ if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
+        FileType::Directory if how.create => Some(FilesystemError::IsADirectory),
+        FileType::Directory => None,
+        _ if nd.lookup_directory => Some(FilesystemError::NotADirectory),
+        _ => None,
     };
-    match refusal {
-        Some(error) => Err(error),
-        None => may_open(cred, child, existing, how),
+    if let Some(error) = refusal {
+        return Err(error);
     }
+    let truncate = how.truncate && kind == FileType::File;
+    if truncate {
+        nd.mnt.mnt_want_write()?;
+    }
+    may_open(&nd.cred, child, kind, open_mask(how))?;
+    if how.write && !kind.is_special() {
+        nd.mnt.mnt_want_write()?;
+    }
+    let access = match how.write || how.truncate {
+        true => Access::ReadWrite,
+        false => Access::Read,
+    };
+    nd.on_path(|path| nd.cred.security_file_open(path, kind, access))?;
+    let f_op = child.open(options)?;
+    if truncate {
+        nd.cred.security_file_truncate(child)?;
+        notify_change(child, &Iattr::open_truncate())?;
+    }
+    Ok(f_op)
 }
 
 /// Refuse to open what stands at the path as Linux's `may_open` does: a
@@ -556,18 +572,17 @@ fn refuse_what_stands(
 fn may_open(
     cred: &Cred,
     child: &Dentry,
-    existing: Option<FileType>,
-    how: &OpenHow,
+    kind: FileType,
+    mask: Mask,
 ) -> Result<(), FilesystemError> {
-    match existing {
-        None => return Ok(()),
-        Some(FileType::Symlink) => return Err(FilesystemError::FilesystemLoop),
-        Some(FileType::Directory) if how.write || how.truncate => {
+    match kind {
+        FileType::Symlink => return Err(FilesystemError::FilesystemLoop),
+        FileType::Directory if mask.contains(Mask::WRITE) => {
             return Err(FilesystemError::IsADirectory)
         }
-        Some(_) => {}
+        _ => {}
     }
-    inode_permission(cred, child, open_mask(how))
+    inode_permission(cred, child, mask)
 }
 
 /// What an open asks of what it opens, as `build_open_flags` makes `acc_mode`.
@@ -2934,10 +2949,12 @@ mod tests {
 
         fn atomic_open(
             &self,
-            _dentry: &Dentry,
+            dentry: &Dentry,
             _options: &OpenOptions,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.0.lock().expect("never poisoned").push("atomic_open");
+            let file = Metadata::new(crate::filesystem::FileType::File, 0);
+            dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
             Ok(Box::new(RecordedFile))
         }
     }
@@ -2967,6 +2984,152 @@ mod tests {
             ),
             "vfs::do_file_open with O_TRUNC of a file that stands must open it and then ask \
              setattr marked as from an open, and of one it makes must ask neither"
+        );
+    }
+
+    /// A directory holding `f`, of `kind`, which refuses whatever `refuses` asks
+    /// of `f` and of what it makes, and records whether it made anything.
+    #[derive(Clone)]
+    struct Holds {
+        kind: crate::filesystem::FileType,
+        refuses: Mask,
+        made: Arc<AtomicBool>,
+    }
+
+    impl Holds {
+        fn of(kind: crate::filesystem::FileType, refuses: Mask) -> Self {
+            Self {
+                kind,
+                refuses,
+                made: Arc::default(),
+            }
+        }
+    }
+
+    impl FileSystemType for Holds {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for Holds {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(crate::filesystem::FileType::Directory, 0))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            if dentry.name() != "f" {
+                return Ok(Lookup::Absent);
+            }
+            let found = Metadata::new(self.kind, 0);
+            Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone()))))
+        }
+
+        fn permission(&self, dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
+            match dentry.parent().is_some() && mask.contains(self.refuses) {
+                true => Err(FilesystemError::PermissionDenied),
+                false => Ok(()),
+            }
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Ok(Box::new(RecordedFile))
+        }
+
+        fn atomic_open(
+            &self,
+            dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            self.made.store(true, Ordering::SeqCst);
+            let file = Metadata::new(crate::filesystem::FileType::File, 0);
+            dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
+            Ok(Box::new(RecordedFile))
+        }
+    }
+
+    fn open_beneath(
+        holds: Holds,
+        access: Access,
+        path: &str,
+        how: &OpenHow,
+    ) -> Option<FilesystemError> {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(holds)).expect("the instance must stand"),
+            access,
+        )
+        .expect("/data is a guest path");
+        let cred = crate::security::prepare_creds([&mount]);
+        vfs::do_file_open(&cred, &Path::root(mount.mnt()), path, how).err()
+    }
+
+    // Linux's `do_dentry_open` takes write access to the mount for anything but
+    // a special file, so a FIFO reaches the security module, which refuses it.
+    // @behavior RT-260
+    #[test]
+    fn a_special_file_opened_to_write_beneath_a_read_only_mount_answers_as_its_module_does() {
+        let write = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        let file = crate::filesystem::FileType::File;
+        let fifo = crate::filesystem::FileType::Fifo;
+        assert_eq!(
+            (
+                open_beneath(Holds::of(fifo, Mask::EXEC), Access::Read, "f", &write),
+                open_beneath(Holds::of(file, Mask::EXEC), Access::Read, "f", &write),
+            ),
+            (
+                Some(FilesystemError::PermissionDenied),
+                Some(FilesystemError::ReadOnlyFilesystem)
+            ),
+            "vfs::do_file_open to write beneath a read-only Mount must answer EACCES for a FIFO, \
+             as the security module refuses it, and EROFS for a file"
+        );
+    }
+
+    // Linux's `do_open` asks the mount for a truncate before `may_open` asks the
+    // entry, so the entry's refusal never shows.
+    // @behavior RT-261
+    #[test]
+    fn a_truncating_open_beneath_a_read_only_mount_answers_erofs_first() {
+        let truncate = OpenHow {
+            read: true,
+            truncate: true,
+            ..OpenHow::default()
+        };
+        let file = crate::filesystem::FileType::File;
+        assert_eq!(
+            open_beneath(Holds::of(file, Mask::WRITE), Access::Read, "f", &truncate),
+            Some(FilesystemError::ReadOnlyFilesystem),
+            "vfs::do_file_open with O_TRUNC of a file its Filesystem refuses to write, beneath a \
+             read-only Mount, must answer EROFS"
+        );
+    }
+
+    // @behavior RT-262
+    #[test]
+    fn an_open_asks_to_open_what_it_just_made() {
+        let holds = Holds::of(crate::filesystem::FileType::File, Mask::OPEN);
+        let made = holds.made.clone();
+        let create = OpenHow {
+            write: true,
+            create: true,
+            ..OpenHow::default()
+        };
+        assert_eq!(
+            (
+                open_beneath(holds, Access::ReadWrite, "new", &create),
+                made.load(Ordering::SeqCst)
+            ),
+            (Some(FilesystemError::PermissionDenied), true),
+            "vfs::do_file_open with O_CREAT of a missing path whose Filesystem refuses to open what \
+             it makes must make the file and answer EACCES"
         );
     }
 
