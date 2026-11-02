@@ -839,6 +839,97 @@ mod tests {
         );
     }
 
+    // Linux reads the flags and the name before `path_init` takes the
+    // descriptor, so a number naming nothing answers only once both are fine.
+    // @behavior RT-257 RT-258
+    #[test]
+    fn a_call_no_walk_can_take_answers_before_the_descriptor_it_names() {
+        let mut table = standard_streams();
+        let mut bytes = vec![b'a'; PATH_MAX];
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
+        let flags = |oflags| OpenFlags {
+            dirflags: types::Lookupflags::empty(),
+            oflags,
+            rights_base: Rights::FD_READ,
+            fdflags: Fdflags::empty(),
+        };
+        let path = |len| GuestPtr::new((0, len));
+        let unopened = 99;
+        let create_dir = flags(types::Oflags::CREAT | types::Oflags::DIRECTORY);
+        assert_eq!(
+            (
+                errno(path_open(&mut table, &mem, unopened, path(1), &create_dir)),
+                errno(create_directory(&table, &mem, unopened, path(0))),
+                errno(create_directory(
+                    &table,
+                    &mem,
+                    unopened,
+                    path(PATH_MAX as u32)
+                )),
+                errno(create_directory(&table, &mem, unopened, path(1))),
+            ),
+            (
+                Some(Errno::Inval),
+                Some(Errno::Noent),
+                Some(Errno::Nametoolong),
+                Some(Errno::Badf)
+            ),
+            "path_open with O_CREAT and O_DIRECTORY, and path_create_directory of an empty and of \
+             an overlong path, from a descriptor number naming nothing through preview1 must \
+             answer EINVAL, ENOENT, and ENAMETOOLONG, and a path a walk can take EBADF"
+        );
+    }
+
+    // Linux's `do_sys_openat2` reads the flags before `FD_ADD` reserves a
+    // descriptor, and the name before the walk looks at where it starts.
+    // @behavior RT-259
+    #[test]
+    fn a_full_table_answers_after_the_flags_and_before_the_start() {
+        let mut table = Descriptors::new(
+            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            Vec::new(),
+            Some(3),
+            None,
+            Profile::Hermetic,
+        )
+        .expect("a table holding no Mount must make");
+        let mut bytes = *b"a";
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mem = GuestMemory::new(&mut memory, 1);
+        let flags = |oflags| OpenFlags {
+            dirflags: types::Lookupflags::empty(),
+            oflags,
+            rights_base: Rights::FD_READ,
+            fdflags: Fdflags::empty(),
+        };
+        let unopened = 99;
+        let path = GuestPtr::new((0, 1));
+        assert_eq!(
+            (
+                errno(path_open(
+                    &mut table,
+                    &mem,
+                    unopened,
+                    path,
+                    &flags(types::Oflags::CREAT | types::Oflags::DIRECTORY)
+                )),
+                errno(path_open(
+                    &mut table,
+                    &mem,
+                    unopened,
+                    path,
+                    &flags(types::Oflags::empty())
+                )),
+            ),
+            (Some(Errno::Inval), Some(Errno::Mfile)),
+            "path_open with no descriptor left through preview1 must answer EINVAL for O_CREAT \
+             with O_DIRECTORY, and EMFILE from a descriptor number naming nothing"
+        );
+    }
+
     /// A directory that would make any link it is asked to.
     struct MakesLinks;
 
