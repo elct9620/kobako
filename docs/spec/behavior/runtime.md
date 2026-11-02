@@ -2905,3 +2905,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem refusing to open what it makes |
 | When | the guest opens a missing path to create it |
 | Then | the open answers EACCES and the file stands, as Linux's `do_open` asks `may_open` of a file it made |
+
+## `RT-263` A directory moving to another parent is asked to change
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-242` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem answering `permission` |
+| When | a call moves a directory into another directory |
+| Then | the directory itself is asked whether it may change, as Linux's `vfs_rename` asks of its `..` |
