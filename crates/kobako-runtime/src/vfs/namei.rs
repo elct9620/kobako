@@ -3447,6 +3447,59 @@ mod tests {
 
     // A second walk reaching the name while the first asks waits through the
     // registered Blocking, so the count shows it waited rather than asked.
+    /// A directory whose lookup of `x` asks the runtime about `x` once more, as a
+    /// Filesystem written in Ruby may stat through its own Mount, counting each
+    /// lookup.
+    #[derive(Default)]
+    struct AsksItsOwnName {
+        root: OnceLock<Path>,
+        asked: AtomicUsize,
+    }
+
+    impl FileSystemType for AsksItsOwnName {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for AsksItsOwnName {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(match dentry.parent() {
+                Some(_) => Metadata::new(FileType::File, 0),
+                None => Metadata::new(FileType::Directory, 0),
+            })
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            if self.asked.fetch_add(1, Ordering::SeqCst) == 0 {
+                let root = self.root.get().expect("the root is set before any walk");
+                vfs::vfs_fstatat(&Arc::default(), root, "x", false)?;
+            }
+            let file = Metadata::new(FileType::File, 0);
+            Ok(Lookup::Found(Inode::new(&file, Arc::new(Self::default()))))
+        }
+    }
+
+    // Waiting for the lookup under way would wait on the walk making it, so only
+    // asking again within it lets the walk answer; the bound turns a wait on
+    // itself into a failure rather than a hang.
+    // @behavior RT-282
+    #[test]
+    fn a_filesystem_asking_about_the_name_its_lookup_answers_is_asked_within_it() {
+        let filesystem = Arc::new(AsksItsOwnName::default());
+        let root = root_of(Filesystem::new(filesystem.clone()).expect("the instance must stand"));
+        filesystem.root.set(root.clone()).ok();
+        let answer = crate::sched::testing::bounded(|| {
+            vfs::vfs_fstatat(&Arc::default(), &root, "x", false).map(|found| found.file_type)
+        });
+        assert_eq!(
+            (answer, filesystem.asked.load(Ordering::SeqCst)),
+            (Ok(FileType::File), 2),
+            "vfs_fstatat of a name whose lookup asks the runtime about that name must ask the \
+             Filesystem again within the lookup and answer, rather than wait on itself"
+        );
+    }
+
     // @behavior RT-264
     #[test]
     fn walks_reaching_one_name_at_once_ask_its_filesystem_once() {
