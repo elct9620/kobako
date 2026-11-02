@@ -1210,6 +1210,25 @@ mod tests {
         );
     }
 
+    // @behavior RT-182
+    #[test]
+    fn a_listing_read_whole_hands_each_entry_the_position_after_it() {
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(ReadsWhole)), Access::Read)
+            .expect("/data is a guest path");
+        let mut root = File::root(mount.mnt(), &Arc::default())
+            .unwrap_or_else(|_| panic!("the root must open"));
+        let entry = |name: &str, next| (name.to_string(), next);
+        assert_eq!(
+            (list(&mut root, 0, 3), list(&mut root, 3, 9)),
+            (
+                vec![entry(".", 1), entry("..", 2), entry("a", 3)],
+                vec![entry("b", 4)],
+            ),
+            "File::iterate_dir over a Filesystem listing through Rdir must hand each entry the \
+             position after it, so a listing going on from there repeats nothing"
+        );
+    }
+
     /// A file counting its syncs, at every name of a directory.
     struct CountsSyncs(Arc<AtomicUsize>);
 

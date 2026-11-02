@@ -971,6 +971,7 @@ mod tests {
         let first = list(&mut dir, 2, 1);
         let root = Path::root(mount.mnt());
         crate::vfs::filename_unlinkat(&cred, &root, "a").expect("the name goes");
+        crate::vfs::filename_unlinkat(&cred, &root, "b").expect("the name goes");
         let how = crate::vfs::OpenHow {
             write: true,
             create: true,
@@ -985,10 +986,11 @@ mod tests {
             (names(first), names(list(&mut dir, next, usize::MAX))),
             (
                 vec!["a".to_string()],
-                vec!["b".to_string(), "c".to_string(), "d".to_string()]
+                vec!["c".to_string(), "d".to_string()]
             ),
-            "File::iterate_dir going on over a Tmpfs must repeat nothing and hold what was made \
-             since, as offset_readdir reads on from each name's stable offset"
+            "File::iterate_dir going on over a Tmpfs must repeat nothing, pass over what was \
+             removed, and hold what was made since, as offset_readdir reads on from each name's \
+             stable offset"
         );
     }
 
