@@ -254,9 +254,12 @@ impl Nameidata {
         if target.starts_with('/') {
             return Err(FilesystemError::Escape);
         }
-        if target.is_empty() {
-            return Err(FilesystemError::NotFound);
-        }
+        // A link pointing nowhere leaves the walk where it stands, as Linux's
+        // `pick_link` makes it a pure jump.
+        let target = match target.is_empty() {
+            true => ".".to_string(),
+            false => target,
+        };
         for part in parts(&target).into_iter().rev() {
             self.pending.push_front(part);
         }
@@ -3239,6 +3242,57 @@ mod tests {
             ),
             "vfs::vfs_fstatat of one name from two walks at once must ask the Filesystem's \
              lookup once, the second waiting for the first's answer"
+        );
+    }
+
+    /// A directory holding the link `e`, pointing nowhere, and the file `f`.
+    struct PointsNowhere(crate::filesystem::FileType);
+
+    impl FileSystemType for PointsNowhere {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for PointsNowhere {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(self.0, 0))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            use crate::filesystem::FileType;
+            let kind = match dentry.name().as_str() {
+                "e" => FileType::Symlink,
+                "f" => FileType::File,
+                _ => return Ok(Lookup::Absent),
+            };
+            let found = Metadata::new(kind, 0);
+            Ok(Lookup::Found(Inode::new(&found, Arc::new(Self(kind)))))
+        }
+
+        fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
+            Ok(String::new())
+        }
+    }
+
+    // Only a host's or a Ruby Filesystem's link can point nowhere, as Linux
+    // refuses to make one; `pick_link` then leaves the walk where it stands.
+    // @behavior RT-268
+    #[test]
+    fn a_link_pointing_nowhere_leaves_the_walk_where_it_stands() {
+        use crate::filesystem::FileType;
+        let root = root_of(
+            Filesystem::new(Arc::new(PointsNowhere(FileType::Directory)))
+                .expect("the instance must stand"),
+        );
+        let kind = |path: &str| {
+            vfs::vfs_fstatat(&Arc::default(), &root, path, true).map(|found| found.file_type)
+        };
+        assert_eq!(
+            (kind("e"), kind("e/f")),
+            (Ok(FileType::Directory), Ok(FileType::File)),
+            "vfs::vfs_fstatat following a link that points nowhere must reach the directory \
+             holding it, at the end of a path and in its middle"
         );
     }
 
