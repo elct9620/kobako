@@ -1073,7 +1073,7 @@ mod tests {
         let mount = Mount::new("/data", Filesystem::new(Arc::new(ReadsWhole)), Access::Read)
             .expect("/data is a guest path");
         let one_listing = 2 * size_of::<DirEntry>() + 2;
-        let cred = Cred::default().with_rdir_limit(Some(one_listing));
+        let cred = crate::security::prepare_creds_within([], Some(one_listing));
         let open =
             || File::root(mount.mnt(), &cred).unwrap_or_else(|_| panic!("the root must open"));
         let (mut first, mut second, mut whole) = (open(), open(), open());
@@ -1085,7 +1085,7 @@ mod tests {
         assert_eq!(
             (held, refused, read_whole, after_close),
             (Ok(()), Err(FilesystemError::OutOfMemory), Ok(()), Ok(())),
-            "File::iterate_dir of a second listing stopped part way, past what Cred::with_rdir_limit \
+            "File::iterate_dir of a second listing stopped part way, past its caller's memory limit \
              allows, must answer ENOMEM, one read whole must hold nothing, and closing the \
              first must give its bytes back"
         );

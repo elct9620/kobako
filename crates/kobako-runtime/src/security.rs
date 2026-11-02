@@ -3,6 +3,7 @@
 //! answer through the hooks it leaves for such modules, and the VFS never
 //! learns what they decide.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::mount::{Mount, Policy};
@@ -146,9 +147,54 @@ impl SecurityOperations for MountPolicy {
     }
 }
 
+/// How many bytes a Filesystem holds on one caller's behalf between calls, so a
+/// guest's descriptors cannot multiply a directory past what it was allotted, as
+/// `__vm_enough_memory` weighs what `vm_committed_as` counts.
+struct MemoryLimit {
+    limit: usize,
+    used: AtomicUsize,
+}
+
+impl SecurityOperations for MemoryLimit {
+    fn vm_enough_memory(&self, bytes: usize) -> Result<(), FilesystemError> {
+        self.used
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                used.checked_add(bytes).filter(|&total| total <= self.limit)
+            })
+            .map(|_| ())
+            .map_err(|_| FilesystemError::OutOfMemory)
+    }
+
+    fn vm_unacct_memory(&self, bytes: usize) {
+        self.used.fetch_sub(bytes, Ordering::Relaxed);
+    }
+}
+
+/// The Cred an Invocation over `mounts` runs with, its Filesystems holding at most
+/// `memory_limit` bytes on its behalf, or without bound for `None`.
+pub fn prepare_creds_within<'a>(
+    mounts: impl IntoIterator<Item = &'a Mount>,
+    memory_limit: Option<usize>,
+) -> Arc<Cred> {
+    let mut security = modules_for(mounts);
+    if let Some(limit) = memory_limit {
+        security.push(Arc::new(MemoryLimit {
+            limit,
+            used: AtomicUsize::new(0),
+        }));
+    }
+    Cred::new(security)
+}
+
 /// The Cred an Invocation over `mounts` runs with, as `prepare_creds` makes
 /// one for a task: kobako's own rules, then each Mount's Policy.
 pub fn prepare_creds<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {
+    Cred::new(modules_for(mounts))
+}
+
+fn modules_for<'a>(
+    mounts: impl IntoIterator<Item = &'a Mount>,
+) -> Vec<Arc<dyn SecurityOperations>> {
     let mut security: Vec<Arc<dyn SecurityOperations>> = vec![Arc::new(KobakoSecurity)];
     for mount in mounts {
         if let Some(policy) = mount.policy() {
@@ -159,7 +205,7 @@ pub fn prepare_creds<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cre
             }));
         }
     }
-    Cred::new(security)
+    security
 }
 
 #[cfg(test)]

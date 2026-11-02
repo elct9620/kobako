@@ -936,16 +936,6 @@ impl Cred {
 }
 ```
 
-## `Cred::with_rdir_limit`
-
-This caller, whose files hold at most this many bytes of listings between calls.
-
-```rust
-impl Cred {
-    pub fn with_rdir_limit(&self, limit: Option<usize>) -> Arc<Self> {}
-}
-```
-
 ## `prepare_creds`
 
 The Cred an Invocation over these Mounts runs with: kobako's own rules, then each
@@ -2080,22 +2070,33 @@ impl Rdir {
 }
 ```
 
-## `RdirCharge`
+## `SecurityOperations::vm_enough_memory`
 
-Bytes a listing counts for as long as it holds them.
+Whether more bytes may be held for this caller. A module without it allows them.
 
 ```rust
-pub struct RdirCharge {}
+pub trait SecurityOperations {
+    fn vm_enough_memory(&self, _bytes: usize) -> Result<(), FilesystemError>;
+}
 ```
 
-## `Cred::account_rdir`
+## `SecurityOperations::vm_unacct_memory`
 
-Count bytes a listing goes on holding, refused as out of memory past the limit.
+Bytes allowed earlier are held no more.
 
 ```rust
-impl Cred {
-    pub fn account_rdir(&self, bytes: usize) -> Result<RdirCharge, FilesystemError> {}
+pub trait SecurityOperations {
+    fn vm_unacct_memory(&self, _bytes: usize);
 }
+```
+
+## `prepare_creds_within`
+
+The caller an Invocation over its Mounts runs as, whose Filesystems hold at most this
+many bytes on its behalf.
+
+```rust
+pub fn prepare_creds_within<'a>(mounts: impl IntoIterator<Item = &'a Mount>, memory_limit: Option<usize>) -> Arc<Cred> {}
 ```
 
 ## `FileOperations::fallocate`

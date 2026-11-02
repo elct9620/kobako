@@ -12,7 +12,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::security::prepare_creds;
+use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{Cred, File};
 
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
@@ -54,7 +54,7 @@ impl Descriptors {
         stderr: File,
         mounts: Vec<Mount>,
         limit: Option<usize>,
-        rdir_limit: Option<usize>,
+        memory_limit: Option<usize>,
         profile: Profile,
     ) -> Result<Self, FilesystemError> {
         let mut used = BTreeMap::from([
@@ -62,7 +62,7 @@ impl Descriptors {
             (1, Descriptor::of(stdout)),
             (2, Descriptor::of(stderr)),
         ]);
-        let cred = prepare_creds(&mounts).with_rdir_limit(rdir_limit);
+        let cred = prepare_creds_within(&mounts, memory_limit);
         for (fd, mount) in (3..).zip(&mounts) {
             used.insert(
                 fd,
