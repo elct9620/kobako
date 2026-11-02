@@ -2103,8 +2103,8 @@ both live in the upper and never show, so no name is reserved
 | Step | Statement |
 | --- | --- |
 | Given | a Tmpfs directory a caller began to list, stopping after one name |
-| When | that name is removed and another made, and the caller lists on |
-| Then | the listing repeats nothing, skips nothing that stood, and holds the new name |
+| When | that name and one it has not reached are removed, another is made, and the caller lists on |
+| Then | the listing repeats nothing, skips nothing that still stands, and holds the new name |
 
 ## `FS-196` A directory of each built-in Filesystem answers its read as a directory
 
