@@ -2173,3 +2173,28 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs file a caller holds open, which another thread keeps moving |
 | When | the caller stats the file it holds |
 | Then | every stat reports the file with a name, as a move removes none |
+
+## `FS-202` A name beneath a directory the host lets only be searched is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-172` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind holding a directory the process may only search, and a file in it |
+| When | the file's path is stated, run as a user the host holds to the mode |
+| Then | the stat answers EACCES, as a Bind reads the directory to learn how the name is spelled |
+
+## `FS-203` An Overlay reads a whiteout only from a Tmpfs
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-019` |
+| relates | `FS-123` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer is no Tmpfs and reports a character device at a name |
+| When | the directory holding it is listed through the Overlay |
+| Then | the name is listed, as only the Overlay writes whiteouts, and only into a Tmpfs |
