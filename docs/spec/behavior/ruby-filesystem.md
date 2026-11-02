@@ -226,7 +226,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 
 | Step | Statement |
 | --- | --- |
-| Given | a Ruby Filesystem whose `open` raises `Errno::EAGAIN` |
+| Given | a Ruby Filesystem whose `open` raises `Errno::ETIMEDOUT` |
 | When | the script opens a file |
 | Then | the open raises `Errno::EIO` |
 
