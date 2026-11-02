@@ -3089,3 +3089,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a Mount |
 | When | the guest reads a link into a buffer of no bytes, naming a path no walk can take |
 | Then | the call answers EINVAL before the path, as Linux's `do_readlinkat` refuses a size of zero first |
+
+## `RT-278` A walk ending where nothing stands answers ENOENT before where it stands
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-241` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount's root |
+| When | a move carries a walk through it out from under it, to a last name nothing stands at |
+| Then | the call answers ENOENT, as Linux's `step_into` refuses that name before `complete_walk` |
