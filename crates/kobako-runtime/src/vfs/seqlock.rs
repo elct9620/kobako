@@ -30,10 +30,17 @@ impl SeqLock {
         written
     }
 
-    /// Where the writes stand, to ask `read_seqretry` about later, as
-    /// `raw_seqcount_begin` reads: one under way counts as having changed it.
+    /// Where the writes stand once none is under way, to ask `read_seqretry`
+    /// about later, as `__read_seqcount_begin` spins past an odd count. Holding
+    /// the writer's lock a moment waits out the one write it guards.
     pub(crate) fn read_seqbegin(&self) -> usize {
-        self.sequence.load(Ordering::SeqCst) & !1
+        loop {
+            let sequence = self.sequence.load(Ordering::SeqCst);
+            if sequence.is_multiple_of(2) {
+                return sequence;
+            }
+            drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner));
+        }
     }
 
     /// Whether a write began since `read_seqbegin` answered `begun`.

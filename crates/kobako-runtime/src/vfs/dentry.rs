@@ -697,6 +697,49 @@ mod tests {
         }
     }
 
+    // Linux's `path_init` reads `rename_lock` with `__read_seqcount_begin`,
+    // which spins past a write under way, so a walk begun during a move is
+    // never answered EAGAIN for that move.
+    // @behavior RT-265
+    #[test]
+    fn a_walk_begun_during_a_move_begins_once_it_lands() {
+        use crate::sched::testing::MAX_WAIT;
+        use crate::vfs::seqlock::SeqLock;
+        use std::sync::mpsc;
+        use std::thread;
+
+        let lock = Arc::new(SeqLock::new());
+        let (entered, entering) = mpsc::channel();
+        let (release, releasing) = mpsc::channel::<()>();
+        let writer = {
+            let lock = lock.clone();
+            thread::spawn(move || {
+                lock.write(|| {
+                    entered.send(()).ok();
+                    releasing.recv_timeout(MAX_WAIT).ok();
+                })
+            })
+        };
+        entering
+            .recv_timeout(MAX_WAIT)
+            .expect("the write must begin");
+        let reader = {
+            let lock = lock.clone();
+            thread::spawn(move || lock.read_seqbegin())
+        };
+        thread::sleep(std::time::Duration::from_millis(50));
+        let waited = !reader.is_finished();
+        release.send(()).ok();
+        writer.join().expect("the write must not panic");
+        let begun = reader.join().expect("the read must not panic");
+        assert_eq!(
+            (waited, begun, lock.read_seqretry(begun)),
+            (true, 2, false),
+            "SeqLock::read_seqbegin during a write must wait for it to end and answer where the \
+             writes stand after it, which no later read finds changed"
+        );
+    }
+
     // `d_revalidate` compares what the dentry recorded first, so a later
     // lookup replacing it would hide the change it is there to see.
     #[test]
