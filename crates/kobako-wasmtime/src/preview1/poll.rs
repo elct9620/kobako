@@ -69,7 +69,7 @@ pub(crate) fn poll_oneoff(
             Kind::FdRead | Kind::FdWrite => (true, 1),
         };
         if ready {
-            mem.write(events.add(written)?, event(sub, nbytes))?;
+            mem.write(events.add(written)?, to_event(sub, nbytes))?;
             written += 1;
         }
     }
@@ -85,11 +85,11 @@ fn read_subscription(
     let kind = match sub.u {
         SubscriptionU::Clock(clock) => read_clock(invocation, &clock)?,
         SubscriptionU::FdRead(subscribed) => {
-            ready(invocation, subscribed, PollMask::IN)?;
+            poll_descriptor(invocation, subscribed, PollMask::IN)?;
             Kind::FdRead
         }
         SubscriptionU::FdWrite(subscribed) => {
-            ready(invocation, subscribed, PollMask::OUT)?;
+            poll_descriptor(invocation, subscribed, PollMask::OUT)?;
             Kind::FdWrite
         }
     };
@@ -102,7 +102,7 @@ fn read_subscription(
 /// Hold a subscription to what its descriptor would find ready. A pipe's end
 /// is never ready for what the other end does, and nothing here would wake a
 /// wait on it, so that is `BADF` rather than a wait that never ends.
-fn ready(
+fn poll_descriptor(
     invocation: &Invocation,
     subscribed: types::SubscriptionFdReadwrite,
     event: PollMask,
@@ -154,7 +154,7 @@ fn wait(invocation: &Invocation, nanos: u64) -> Answer {
     Ok(())
 }
 
-fn event(sub: &Subscription, nbytes: u64) -> types::Event {
+fn to_event(sub: &Subscription, nbytes: u64) -> types::Event {
     types::Event {
         userdata: sub.userdata,
         error: Errno::Success,

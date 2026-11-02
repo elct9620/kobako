@@ -69,7 +69,7 @@ fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
 
 /// The open file `fd` stands for, in a call about its position. wasi-testsuite
 /// has a directory refuse one, where Linux would seek it.
-fn seekable(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
+fn seekable_file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
     match file(table, fd)? {
         file if file.is_directory() => Err(Errno::Badf.into()),
         file => Ok(file),
@@ -78,7 +78,7 @@ fn seekable(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
 
 /// A call any file or directory answers, which preview1 refuses for
 /// stdio.
-fn file_or_directory(table: &Descriptors, fd: u32) -> Answer {
+fn refuse_stream(table: &Descriptors, fd: u32) -> Answer {
     match descriptor(table, fd)?.file.is_stream() {
         true => Err(Errno::Badf.into()),
         false => Ok(()),
@@ -101,7 +101,7 @@ fn to_filetype(file_type: FileType) -> Filetype {
 
 /// A `filestat` for what a Filesystem reports a path names, as the guest
 /// holding `table` sees it, at time zero where it keeps no time.
-pub(crate) fn filestat(table: &Descriptors, metadata: Metadata) -> types::Filestat {
+pub(crate) fn to_filestat(table: &Descriptors, metadata: Metadata) -> types::Filestat {
     let metadata = table.profile().guest_metadata(metadata);
     types::Filestat {
         dev: metadata.dev,
@@ -109,15 +109,15 @@ pub(crate) fn filestat(table: &Descriptors, metadata: Metadata) -> types::Filest
         filetype: to_filetype(metadata.file_type),
         nlink: metadata.nlink,
         size: metadata.len,
-        atim: timestamp(metadata.accessed),
-        mtim: timestamp(metadata.modified),
-        ctim: timestamp(metadata.changed),
+        atim: to_timestamp(metadata.accessed),
+        mtim: to_timestamp(metadata.modified),
+        ctim: to_timestamp(metadata.changed),
     }
 }
 
 /// `time` as a preview1 `timestamp`, nanoseconds since the Unix epoch;
 /// zero for none, and the largest timestamp for a time past it.
-fn timestamp(time: Option<SystemTime>) -> u64 {
+fn to_timestamp(time: Option<SystemTime>) -> u64 {
     time.and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .map_or(0, |since| {
             u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
@@ -212,12 +212,12 @@ pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: Fdflags)
 
 /// Rights only narrow at open, so a later change is unsupported.
 pub(crate) fn fdstat_set_rights(table: &Descriptors, fd: u32) -> Answer {
-    file_or_directory(table, fd)?;
+    refuse_stream(table, fd)?;
     Err(Errno::Notsup.into())
 }
 
 pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filestat> {
-    Ok(filestat(table, descriptor(table, fd)?.file.getattr()?))
+    Ok(to_filestat(table, descriptor(table, fd)?.file.getattr()?))
 }
 
 pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> Answer {
@@ -309,7 +309,7 @@ pub(crate) fn read(
 }
 
 /// The `dirent` header ahead of one entry's name.
-fn dirent_header(emit: &DirEmit<'_>, d_ino: u64) -> Answer<Vec<u8>> {
+fn to_dirent_header(emit: &DirEmit<'_>, d_ino: u64) -> Answer<Vec<u8>> {
     let mut header = vec![0; types::Dirent::guest_size() as usize];
     WitxMemory::Unshared(&mut header).write(
         GuestPtr::new(0),
@@ -333,7 +333,7 @@ fn write_dirent(
     emit: &DirEmit<'_>,
 ) -> Answer<bool> {
     let (start, capacity) = buf;
-    let header = dirent_header(emit, profile.guest_ino(emit.identity))?;
+    let header = to_dirent_header(emit, profile.guest_ino(emit.identity))?;
     for part in [&header[..], emit.name.as_bytes()] {
         let room = (capacity - *used) as usize;
         let take = part.len().min(room);
@@ -417,11 +417,11 @@ pub(crate) fn seek(
         types::Whence::Cur => Whence::Cur,
         types::Whence::End => Whence::End,
     };
-    Ok(seekable(table, fd)?.llseek(offset, whence)?)
+    Ok(seekable_file(table, fd)?.llseek(offset, whence)?)
 }
 
 pub(crate) fn tell(table: &mut Descriptors, fd: u32) -> Answer<u64> {
-    Ok(seekable(table, fd)?.llseek(0, Whence::Cur)?)
+    Ok(seekable_file(table, fd)?.llseek(0, Whence::Cur)?)
 }
 
 pub(crate) fn write(
@@ -577,7 +577,7 @@ mod tests {
         let mut how = OpenHow::default();
         how.read = true;
         let start = Path::root(mount.mnt());
-        Descriptor::of(
+        Descriptor::for_file(
             vfs::do_file_open(&Arc::default(), &start, "file", &how)
                 .unwrap_or_else(|_| panic!("the file must open")),
         )
@@ -679,7 +679,7 @@ mod tests {
             let opened = vfs::do_file_open(&cred, &root, "f", &how)
                 .unwrap_or_else(|_| panic!("the file must open"));
             let fd = table
-                .push(Descriptor::of(opened))
+                .push(Descriptor::for_file(opened))
                 .unwrap_or_else(|| panic!("the table must have room"));
             let Ok(stat) = fdstat_get(&table, fd) else {
                 panic!("the descriptor must report itself");
@@ -740,7 +740,7 @@ mod tests {
         let opened = vfs::do_file_open(&cred, &root, "f", &read)
             .unwrap_or_else(|_| panic!("the file must open"));
         let fd = table
-            .push(Descriptor::of(opened))
+            .push(Descriptor::for_file(opened))
             .unwrap_or_else(|| panic!("the table must have room"));
         vfs::filename_unlinkat(&cred, &root, "f").unwrap_or_else(|_| panic!("the name must go"));
         policy.0.store(0, Ordering::SeqCst);

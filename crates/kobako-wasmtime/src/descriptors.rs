@@ -24,7 +24,7 @@ pub(crate) struct Descriptor {
 
 impl Descriptor {
     /// The descriptor of `file`, naming no preopen.
-    pub(crate) fn of(file: File) -> Self {
+    pub(crate) fn for_file(file: File) -> Self {
         Self {
             file,
             preopen: None,
@@ -60,9 +60,9 @@ impl Descriptors {
         profile: Profile,
     ) -> Result<Self, FilesystemError> {
         let mut used = BTreeMap::from([
-            (0, Descriptor::of(stdin)),
-            (1, Descriptor::of(stdout)),
-            (2, Descriptor::of(stderr)),
+            (0, Descriptor::for_file(stdin)),
+            (1, Descriptor::for_file(stdout)),
+            (2, Descriptor::for_file(stderr)),
         ]);
         let cred = prepare_creds_within(&mounts, memory_limit);
         let walk_guard = WalkGuard::new(&mounts);
@@ -169,7 +169,7 @@ mod tests {
         .unwrap_or_else(|_| panic!("a table holding no Mount must make"));
         let mut open = || {
             table
-                .push(Descriptor::of(pipe_end()))
+                .push(Descriptor::for_file(pipe_end()))
                 .expect("a table with no limit takes every descriptor")
         };
         let numbers = [open(), open(), open()];
@@ -178,9 +178,9 @@ mod tests {
         table.remove(4);
         assert_eq!(
             (
-                table.push(Descriptor::of(pipe_end())),
-                table.push(Descriptor::of(pipe_end())),
-                table.push(Descriptor::of(pipe_end())),
+                table.push(Descriptor::for_file(pipe_end())),
+                table.push(Descriptor::for_file(pipe_end())),
+                table.push(Descriptor::for_file(pipe_end())),
             ),
             (Some(3), Some(4), Some(6)),
             "path_open's descriptors must take the lowest closed number first, as Linux's alloc_fd \
