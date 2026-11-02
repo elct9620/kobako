@@ -3095,6 +3095,38 @@ mod tests {
         vfs::do_file_open(&cred, &Path::root(mount.mnt()), path, how).err()
     }
 
+    // Linux's `vfs_fallocate` and `generic_fadvise` read what the file is, so a
+    // FIFO a Filesystem opens like any file still answers ESPIPE. Only a module
+    // letting a FIFO open reaches this, as the bundled one refuses it.
+    // @behavior RT-270
+    #[test]
+    fn an_allocation_or_advice_on_a_fifo_answers_espipe() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(Holds::of(
+                crate::filesystem::FileType::Fifo,
+                Mask::EXEC,
+            )))
+            .expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let write = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        let mut fifo = vfs::do_file_open(&Arc::default(), &Path::root(mount.mnt()), "f", &write)
+            .unwrap_or_else(|_| panic!("the FIFO must open"));
+        assert_eq!(
+            (fifo.fallocate(0, 1).err(), fifo.fadvise(0, 1).err()),
+            (
+                Some(FilesystemError::NotSeekable),
+                Some(FilesystemError::NotSeekable)
+            ),
+            "File::fallocate and File::fadvise of a FIFO opened to write must answer ESPIPE"
+        );
+    }
+
     // Linux's `do_dentry_open` takes write access to the mount for anything but
     // a special file, so a FIFO reaches the security module, which refuses it.
     // @behavior RT-260

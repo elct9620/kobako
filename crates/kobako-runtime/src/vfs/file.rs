@@ -467,10 +467,12 @@ impl File {
 
     /// Whether it is a directory, as `S_ISDIR(file_inode(file))`.
     pub fn is_directory(&self) -> bool {
-        self.path
-            .dentry()
-            .inode()
-            .is_some_and(|inode| inode.kind() == FileType::Directory)
+        self.kind() == Some(FileType::Directory)
+    }
+
+    /// What kind of entry it is, as `file_inode(file)->i_mode` says.
+    fn kind(&self) -> Option<FileType> {
+        self.path.dentry().inode().map(|inode| inode.kind())
     }
 
     /// What it was opened for.
@@ -527,11 +529,11 @@ impl File {
         Ok(self.pos)
     }
 
-    /// Take a hint about `len` bytes, as `generic_fadvise` refuses a pipe and
-    /// a negative length and ignores the rest. Every Filesystem is still
-    /// correct without one.
+    /// Take a hint about `len` bytes, as `generic_fadvise` refuses a FIFO and
+    /// a negative length and ignores the rest, an offset past the largest one
+    /// included, as Linux answers. Every Filesystem is still correct without one.
     pub fn fadvise(&self, _offset: u64, len: u64) -> Result<(), FilesystemError> {
-        if self.is_stream() {
+        if self.kind() == Some(FileType::Fifo) {
             return Err(FilesystemError::NotSeekable);
         }
         match len > MAX_OFFSET {
@@ -541,14 +543,18 @@ impl File {
     }
 
     /// Reserve `len` bytes from `offset`, as `vfs_fallocate` refuses in this
-    /// order before it asks `f_op->fallocate`.
+    /// order before it asks `f_op->fallocate`: what the call asks, the open's
+    /// mode, and then a FIFO or a directory. A device never opens, so its
+    /// Filesystem answers for anything else.
     pub fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
         if offset > MAX_OFFSET || len == 0 || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
         }
         self.may_write()?;
-        if self.is_stream() {
-            return Err(FilesystemError::NotSeekable);
+        match self.kind() {
+            Some(FileType::Fifo) => return Err(FilesystemError::NotSeekable),
+            Some(FileType::Directory) => return Err(FilesystemError::IsADirectory),
+            _ => {}
         }
         if offset + len > MAX_OFFSET {
             return Err(FilesystemError::FileTooLarge);
