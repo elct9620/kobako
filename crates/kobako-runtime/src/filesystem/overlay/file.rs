@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::super::{FileOperations, FilesystemError, Kiocb, OpenOptions};
 use super::inode::OverlayFileInode;
-use crate::vfs::Dentry;
+use crate::vfs::{generic_file_llseek, Dentry, Whence};
 
 /// `file`, opened on `real` for the entry `inode` keeps, as `ovl_open` hands out
 /// a file over the real one.
@@ -55,6 +55,18 @@ impl OverlayFile {
 }
 
 impl FileOperations for OverlayFile {
+    /// The view's size answers an end, which is the real file's, as
+    /// `ovl_llseek` seeks the real file.
+    fn llseek(
+        &mut self,
+        dentry: &Dentry,
+        pos: u64,
+        offset: i64,
+        whence: Whence,
+    ) -> Result<u64, FilesystemError> {
+        generic_file_llseek(dentry, pos, offset, whence)
+    }
+
     fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         self.real_file()?.read_iter(iocb, buf)
     }

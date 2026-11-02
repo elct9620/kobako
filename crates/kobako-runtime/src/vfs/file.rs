@@ -79,15 +79,16 @@ pub fn generic_write_sync<F: FileOperations + ?Sized>(
 pub trait FileOperations: Send {
     /// Where a seek by `offset` from `whence` leaves this file, which `dentry`
     /// names and whose position stands at `pos`, as `f_op->llseek` answers. A file
-    /// without it seeks as any file does, through `generic_file_llseek`.
+    /// without it takes no seek, as Linux clears `FMODE_LSEEK` for one; one that
+    /// seeks as any file does answers through `generic_file_llseek`.
     fn llseek(
         &mut self,
-        dentry: &Dentry,
-        pos: u64,
-        offset: i64,
-        whence: Whence,
+        _dentry: &Dentry,
+        _pos: u64,
+        _offset: i64,
+        _whence: Whence,
     ) -> Result<u64, FilesystemError> {
-        generic_file_llseek(dentry, pos, offset, whence)
+        Err(FilesystemError::NotSeekable)
     }
 
     /// Read into `buf` from where `iocb` lands, moving it past what was read
@@ -905,6 +906,23 @@ mod tests {
         );
     }
 
+    /// A file its Filesystem gives no operation at all.
+    struct NoSeek;
+
+    impl FileOperations for NoSeek {}
+
+    // @behavior RT-280
+    #[test]
+    fn a_file_without_llseek_takes_no_seek() {
+        let mut file = open_one(|| Box::new(NoSeek));
+        assert_eq!(
+            (file.llseek(0, Whence::Set), file.pos()),
+            (Err(FilesystemError::NotSeekable), 0),
+            "File::llseek of a file whose Filesystem answers no llseek must answer ESPIPE and \
+             leave its position, as Linux clears FMODE_LSEEK for one"
+        );
+    }
+
     // @behavior RT-248
     #[test]
     fn a_file_answers_where_its_own_seek_lands() {
@@ -1088,6 +1106,16 @@ mod tests {
     struct ReadsWholeDir(crate::filesystem::Rdir);
 
     impl FileOperations for ReadsWholeDir {
+        fn llseek(
+            &mut self,
+            dentry: &Dentry,
+            pos: u64,
+            offset: i64,
+            whence: Whence,
+        ) -> Result<u64, FilesystemError> {
+            generic_file_llseek(dentry, pos, offset, whence)
+        }
+
         fn iterate_shared(
             &mut self,
             dentry: &Dentry,

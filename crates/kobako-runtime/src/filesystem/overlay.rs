@@ -22,7 +22,10 @@ use super::{
     DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, Iattr,
     InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
 };
-use crate::vfs::{generic_read_dir, notify_change, Dentry, DirContext, Inode, NAME_MAX};
+use crate::vfs::{
+    generic_file_llseek, generic_read_dir, notify_change, Dentry, DirContext, Inode, Whence,
+    NAME_MAX,
+};
 use inode::{OverlayDirInode, OverlayFileInode};
 use path::OverlayPath;
 use stack::OverlayFs;
@@ -365,6 +368,16 @@ struct OverlayDir {
 }
 
 impl FileOperations for OverlayDir {
+    fn llseek(
+        &mut self,
+        dentry: &Dentry,
+        pos: u64,
+        offset: i64,
+        whence: Whence,
+    ) -> Result<u64, FilesystemError> {
+        generic_file_llseek(dentry, pos, offset, whence)
+    }
+
     fn read_iter(
         &mut self,
         _iocb: &mut super::Kiocb,

@@ -27,7 +27,9 @@ use super::{
     FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
     SetTime,
 };
-use crate::vfs::{generic_read_dir, Dentry, DirContext, Identity, Inode};
+use crate::vfs::{
+    generic_file_llseek, generic_read_dir, Dentry, DirContext, Identity, Inode, Whence,
+};
 use fid::{FidCache, OpenDirFid};
 
 /// A host directory and everything beneath it. What a guest writes lands
@@ -651,6 +653,16 @@ impl InodeOperations for Bind {
 struct BindDir(Arc<Dir>, Rdir);
 
 impl FileOperations for BindDir {
+    fn llseek(
+        &mut self,
+        dentry: &Dentry,
+        pos: u64,
+        offset: i64,
+        whence: Whence,
+    ) -> Result<u64, FilesystemError> {
+        generic_file_llseek(dentry, pos, offset, whence)
+    }
+
     fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
         generic_read_dir()
     }
@@ -745,6 +757,16 @@ impl BindFile {
 }
 
 impl FileOperations for BindFile {
+    fn llseek(
+        &mut self,
+        dentry: &Dentry,
+        pos: u64,
+        offset: i64,
+        whence: Whence,
+    ) -> Result<u64, FilesystemError> {
+        generic_file_llseek(dentry, pos, offset, whence)
+    }
+
     fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut file = &*self.file;
         file.seek(SeekFrom::Start(iocb.pos)).map_err(to_error)?;

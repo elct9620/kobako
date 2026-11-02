@@ -13,7 +13,7 @@ use super::{
     FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
     SetTime,
 };
-use crate::vfs::{dir_emit_dots, generic_read_dir, DirContext};
+use crate::vfs::{dir_emit_dots, generic_file_llseek, generic_read_dir, DirContext, Whence};
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
 use whiteout::Whiteout;
 
@@ -764,6 +764,16 @@ struct TmpfsDir {
 }
 
 impl FileOperations for TmpfsDir {
+    fn llseek(
+        &mut self,
+        dentry: &Dentry,
+        pos: u64,
+        offset: i64,
+        whence: Whence,
+    ) -> Result<u64, FilesystemError> {
+        generic_file_llseek(dentry, pos, offset, whence)
+    }
+
     fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
         generic_read_dir()
     }
@@ -894,6 +904,16 @@ pub(crate) struct TmpfsFile {
 }
 
 impl FileOperations for TmpfsFile {
+    fn llseek(
+        &mut self,
+        dentry: &Dentry,
+        pos: u64,
+        offset: i64,
+        whence: Whence,
+    ) -> Result<u64, FilesystemError> {
+        generic_file_llseek(dentry, pos, offset, whence)
+    }
+
     fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let data = &lock(&self.data).bytes;
         let start = usize::try_from(iocb.pos)
