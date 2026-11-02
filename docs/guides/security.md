@@ -297,6 +297,10 @@ Bind opens only files and directories: a FIFO, socket, or device raises
 | a Tmpfs over a Bind | a Bind is a real host path the guest changes |
 | `size:` and `nr_inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
 | `open_file_limit:` sized against the host's own | host descriptors: two per file, one per directory's Layer, 64 per Bind |
+| no writable grant over kobako's compile cache | the host runs what that cache holds as native code |
+
+The compile cache is `$XDG_CACHE_HOME/kobako`, else `~/.cache/kobako`. A Bind of
+`$HOME` covers it, and so does a Ruby Filesystem or Service that writes there.
 
 ### Mount Blocks
 
