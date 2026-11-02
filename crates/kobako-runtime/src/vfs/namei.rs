@@ -907,6 +907,15 @@ pub(crate) fn vfs_rename(
         }
         (target, _) => may_delete_dentry(cred, new_dir, target, is_dir)?,
     }
+    // A directory changing its parent changes its `..`, so it is asked to change.
+    if !Arc::ptr_eq(old_dir, new_dir) {
+        if is_dir {
+            inode_permission(cred, old, Mask::WRITE)?;
+        }
+        if flag == Some(RenameFlag::Exchange) && target == Some(FileType::Directory) {
+            inode_permission(cred, new, Mask::WRITE)?;
+        }
+    }
     let _held = lock_moved(
         (old, is_dir),
         (new, target == Some(FileType::Directory)),
@@ -1735,6 +1744,33 @@ mod tests {
             })
             .ends_with(&[name("d", Mask::OPEN | Mask::READ)]),
             "vfs::do_file_open must ask of what it opens for what the open asks, as may_open"
+        );
+    }
+
+    // @behavior RT-263
+    #[test]
+    fn a_directory_moving_to_another_parent_is_asked_to_change() {
+        let hook = Arc::new(RecordsPermission::default());
+        let root = permission_root(&hook);
+        let cred = Arc::default();
+        let asks = |from: &str, to: &str| {
+            hook.asked.lock().expect("never poisoned").clear();
+            vfs::filename_renameat2(&cred, &root, from, &root, to).expect("the move lands");
+            hook.asked.lock().expect("never poisoned").clone()
+        };
+        let asked_of_d = |asked: Vec<(String, Mask)>| {
+            asked
+                .into_iter()
+                .any(|(name, mask)| name == "d" && mask == Mask::WRITE)
+        };
+        assert_eq!(
+            (
+                asked_of_d(asks("a/d", "a/b/d")),
+                asked_of_d(asks("a/b/d", "a/b/e"))
+            ),
+            (true, false),
+            "vfs::filename_renameat2 of a directory into another parent must ask its permission \
+             to write, as vfs_rename does for its `..`, and a move within one parent must not"
         );
     }
 
