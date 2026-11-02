@@ -2118,6 +2118,15 @@ impl Kiocb {
 }
 ```
 
+## `generic_write_sync`
+
+Make what a write changed durable through the file where the call asks. A
+Filesystem's write calls it once the write landed.
+
+```rust
+pub fn generic_write_sync<F: FileOperations + ?Sized>(file: &mut F, iocb: &Kiocb, written: usize) -> Result<usize, FilesystemError> {}
+```
+
 ## `FileOperations::read_iter`
 
 Read into the buffer from where the call lands, answering how much was read. It
