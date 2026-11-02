@@ -472,8 +472,8 @@ mod tests {
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::memory::GuestMemory;
     use crate::preview1::path::{
-        create_directory, filestat_set_times as path_set_times, open as path_open, symlink,
-        OpenFlags,
+        create_directory, filestat_set_times as path_set_times, open as path_open, readlink,
+        symlink, OpenFlags,
     };
     use crate::preview1::types::{self, Rights, Whence};
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
@@ -964,6 +964,29 @@ mod tests {
             "path_open with O_CREAT and O_DIRECTORY, and path_create_directory of an empty and of \
              an overlong path, from a descriptor number naming nothing through preview1 must \
              answer EINVAL, ENOENT, and ENAMETOOLONG, and a path a walk can take EBADF"
+        );
+    }
+
+    // @behavior RT-277
+    #[test]
+    fn a_readlink_into_no_room_is_invalid() {
+        let table = standard_streams();
+        let mut bytes = vec![0u8; 8];
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mut mem = GuestMemory::new(&mut memory, 16);
+        assert_eq!(
+            errno(readlink(
+                &table,
+                &mut mem,
+                99,
+                GuestPtr::new((0, 0)),
+                GuestPtr::new(0),
+                0
+            )),
+            Some(Errno::Inval),
+            "path_readlink into a buffer of no bytes, of an empty path from a descriptor number \
+             naming nothing, through preview1 must answer EINVAL, as do_readlinkat refuses the \
+             size first"
         );
     }
 

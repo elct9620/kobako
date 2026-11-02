@@ -167,6 +167,9 @@ pub(crate) fn readlink(
     buf: GuestPtr<u8>,
     buf_len: types::Size,
 ) -> Answer<types::Size> {
+    if buf_len == 0 {
+        return Err(Errno::Inval.into());
+    }
     let path = getname(mem, path)?;
     let start = start_of(table, fd)?;
     let target = retry_eagain(|| vfs::do_readlinkat(table.cred(), start, &path))?;
