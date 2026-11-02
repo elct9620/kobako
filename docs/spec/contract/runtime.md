@@ -1065,13 +1065,13 @@ pub trait SecurityOperations {
 }
 ```
 
-## `SecurityOperations::inode_setattr`
+## `SecurityOperations::path_utimes`
 
-Whether the entry at a path may change.
+Whether times may be set on the entry at a path.
 
 ```rust
 pub trait SecurityOperations {
-    fn inode_setattr(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+    fn path_utimes(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
 }
 ```
 
