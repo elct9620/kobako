@@ -411,7 +411,9 @@ mod tests {
         let start = held.path().clone();
         let first = std::thread::scope(|scope| {
             let first = scope.spawn(|| guard.check(&start));
-            asked.recv().expect("the call must ask revalidate");
+            asked
+                .recv_timeout(crate::sched::testing::MAX_WAIT)
+                .expect("the call must ask revalidate");
             let root = Path::root(plain.mnt());
             crate::vfs::filename_renameat2(&prepare_creds([]), &root, "p/d", &root, "q/d")
                 .expect("the move must land");

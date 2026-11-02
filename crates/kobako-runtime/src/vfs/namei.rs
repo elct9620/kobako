@@ -1238,9 +1238,9 @@ mod tests {
                 order.lock().expect("never poisoned").push("writer");
             })
         };
-        while !rwsem.writer_waits() {
-            thread::yield_now();
-        }
+        crate::sched::testing::wait_until("the writer queueing behind the reader", || {
+            rwsem.writer_waits()
+        });
         let reader = {
             let (rwsem, order) = (rwsem.clone(), order.clone());
             thread::spawn(move || {
@@ -2299,7 +2299,7 @@ mod tests {
             thread::spawn(move || vfs::filename_rmdir(&Arc::default(), &root, "d"))
         };
         removing
-            .recv()
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
             .expect("the removal must reach the Filesystem");
         vfs::filename_mkdirat(&Arc::default(), &root, "d")
             .expect("another directory must be made in its place");
@@ -2369,7 +2369,9 @@ mod tests {
                 vfs::do_file_open(&cred, &root, "f", &how).map(drop)
             })
         };
-        reaching.recv().expect("the open must reach the Policy");
+        reaching
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the open must reach the Policy");
         let remover = thread::spawn(move || {
             let answer = vfs::filename_unlinkat(&cred, &root, "f");
             removed.send(()).ok();
@@ -2501,7 +2503,9 @@ mod tests {
             let root = root.clone();
             thread::spawn(move || vfs::filename_renameat2(&Arc::default(), &root, "a", &root, "b"))
         };
-        renaming.recv().expect("the move must reach the Filesystem");
+        renaming
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the move must reach the Filesystem");
         let made = vfs::filename_mkdirat(&Arc::default(), &replaced, "made");
         let moved = mover.join().expect("the mover must not panic");
         assert_eq!(
@@ -2543,7 +2547,7 @@ mod tests {
             thread::spawn(move || vfs::filename_rmdir(&Arc::default(), &root, "d"))
         };
         removing
-            .recv()
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
             .expect("the removal must reach the Filesystem");
         let made = vfs::filename_mkdirat(&Arc::default(), &root, "e");
         remover

@@ -48,6 +48,23 @@ pub(crate) mod testing {
     use std::cell::RefCell;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    /// The longest a test waits for another thread, so what never arrives fails
+    /// the test instead of hanging the suite.
+    pub(crate) const MAX_WAIT: Duration = Duration::from_secs(10);
+
+    /// Wait until `arrived`, failing the test with `what` past `MAX_WAIT`.
+    pub(crate) fn wait_until(what: &str, arrived: impl Fn() -> bool) {
+        let started = Instant::now();
+        while !arrived() {
+            assert!(
+                started.elapsed() < MAX_WAIT,
+                "{what} did not happen within {MAX_WAIT:?}"
+            );
+            std::thread::yield_now();
+        }
+    }
 
     use super::{Blocking, BLOCKING};
 

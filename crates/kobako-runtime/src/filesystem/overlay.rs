@@ -3143,9 +3143,9 @@ mod tests {
         let first = at(overlay);
         let second = first.clone();
         let copying = thread::spawn(move || write_over(&first, "note", b"first"));
-        while !sleeps.opening.load(Ordering::SeqCst) {
-            thread::sleep(Duration::from_millis(1));
-        }
+        crate::sched::testing::wait_until("the first copy up opening its lower file", || {
+            sleeps.opening.load(Ordering::SeqCst)
+        });
         let waited = write_over(&second, "note", b"later");
         assert_eq!(
             (
