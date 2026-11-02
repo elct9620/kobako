@@ -96,7 +96,7 @@ impl OverlayFs {
         name: &str,
         (index, found): (usize, LayerEntry),
         ops_of: impl Fn(FileType) -> Arc<dyn InodeOperations>,
-    ) -> Result<Inode, FilesystemError> {
+    ) -> Result<Arc<Inode>, FilesystemError> {
         let kind = found.kind()?;
         let ops = ops_of(kind);
         if kind != FileType::Directory {
@@ -126,7 +126,7 @@ impl OverlayFs {
         index: usize,
         real: &Dentry,
         ops: Arc<dyn InodeOperations>,
-    ) -> Result<Inode, FilesystemError> {
+    ) -> Result<Arc<Inode>, FilesystemError> {
         let found = real.inode().ok_or(FilesystemError::NotFound)?;
         let breaks = self.has_upper() && index != UPPER && real.getattr()?.nlink > 1;
         Ok(match breaks {

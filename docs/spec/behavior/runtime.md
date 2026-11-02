@@ -2720,3 +2720,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem holding nothing at a name, with nothing holding the name between two calls |
 | When | both calls name it |
 | Then | it is looked up once and asked whether it holds, and looked up twice where `DentryOperations::delete` lets it go |
+
+## `RT-246` Two names a Filesystem hands one inode for share it
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem handing the same inode for two names |
+| When | a call opens each name |
+| Then | both dentries record that one inode |

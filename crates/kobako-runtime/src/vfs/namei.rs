@@ -1184,6 +1184,49 @@ mod tests {
         );
     }
 
+    /// A Filesystem handing one inode for every name.
+    #[derive(Clone)]
+    struct SharesInode(Arc<OnceLock<Arc<Inode>>>);
+
+    impl InodeOperations for SharesInode {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::File, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let file = Metadata::new(FileType::File, 0);
+            let inode = self
+                .0
+                .get_or_init(|| Inode::new(&file, Arc::new(self.clone())));
+            Ok(Lookup::Found(inode.clone()))
+        }
+    }
+
+    // @behavior RT-246
+    #[test]
+    fn a_filesystem_handing_one_inode_for_two_names_shares_it() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(SharesInode(Arc::default()))),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let open =
+            |name| vfs::do_file_open(&Arc::default(), &root, name, &read).expect("the name opens");
+        let (first, second) = (open("first"), open("second"));
+        let inode = |file: &vfs::File| file.path().dentry().inode().expect("the file stands");
+        assert!(
+            Arc::ptr_eq(&inode(&first), &inode(&second)),
+            "vfs::do_file_open of two names a Filesystem hands one inode for must record that \
+             inode on both, as d_splice_alias records what iget5_locked found"
+        );
+    }
+
     /// A Filesystem making a file through `create` alone, counting each open of
     /// what it made.
     #[derive(Clone, Default)]

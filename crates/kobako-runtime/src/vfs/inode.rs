@@ -15,8 +15,10 @@ use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 /// What one name in a directory turned out to be, as `->lookup` answers.
 pub enum Lookup {
     /// The entry standing at the name, for the runtime to record on the
-    /// dentry, as `d_splice_alias` records it.
-    Found(Inode),
+    /// dentry, as `d_splice_alias` records it. A Filesystem naming one entry by
+    /// more than one name hands the same one, as `iget5_locked` finds it, and so
+    /// shares its lock.
+    Found(Arc<Inode>),
     /// Nothing stands at the name, as a negative dentry records.
     Absent,
     /// The entry the name reaches is stored under this other spelling, as
@@ -261,30 +263,34 @@ pub struct Inode {
 
 impl Inode {
     /// The entry `metadata` reports, answered for by `ops`.
-    pub fn new(metadata: &Metadata, ops: Arc<dyn InodeOperations>) -> Self {
+    pub fn new(metadata: &Metadata, ops: Arc<dyn InodeOperations>) -> Arc<Self> {
         Self::of_kind(metadata.file_type, Identity::of(metadata), ops)
     }
 
     /// This entry answered for by `ops`, as a Filesystem wrapping another
     /// wraps each entry that one's lookup finds.
-    pub fn with_ops(&self, ops: Arc<dyn InodeOperations>) -> Self {
+    pub fn with_ops(&self, ops: Arc<dyn InodeOperations>) -> Arc<Self> {
         Self::of_kind(self.kind, self.identity, ops)
     }
 
     /// The root of a Filesystem, which a lookup never finds.
-    pub(super) fn root(ops: Arc<dyn InodeOperations>) -> Self {
+    pub(super) fn root(ops: Arc<dyn InodeOperations>) -> Arc<Self> {
         Self::of_kind(FileType::Directory, None, ops)
     }
 
-    fn of_kind(kind: FileType, identity: Option<Identity>, ops: Arc<dyn InodeOperations>) -> Self {
-        Self {
+    fn of_kind(
+        kind: FileType,
+        identity: Option<Identity>,
+        ops: Arc<dyn InodeOperations>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
             kind,
             identity,
             ops,
             private: OnceLock::new(),
             rwsem: Arc::default(),
             dead: AtomicBool::new(false),
-        }
+        })
     }
 
     /// Hold it shared, as Linux's `inode_lock_shared` holds the directory it

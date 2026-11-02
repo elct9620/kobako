@@ -709,7 +709,7 @@ already naming something keeps it.
 
 ```rust
 impl Dentry {
-    pub fn add(&self, inode: Option<Inode>) {}
+    pub fn add(&self, inode: Option<Arc<Inode>>) {}
 }
 ```
 
@@ -787,7 +787,7 @@ The entry some metadata reports, answered for by its operations.
 
 ```rust
 impl Inode {
-    pub fn new(metadata: &Metadata, ops: Arc<dyn InodeOperations>) -> Self {}
+    pub fn new(metadata: &Metadata, ops: Arc<dyn InodeOperations>) -> Arc<Self> {}
 }
 ```
 
@@ -797,7 +797,7 @@ This entry answered for by other operations, as a wrapper wraps what it finds.
 
 ```rust
 impl Inode {
-    pub fn with_ops(&self, ops: Arc<dyn InodeOperations>) -> Self {}
+    pub fn with_ops(&self, ops: Arc<dyn InodeOperations>) -> Arc<Self> {}
 }
 ```
 

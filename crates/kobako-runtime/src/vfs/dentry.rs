@@ -201,11 +201,11 @@ impl Dentry {
     /// A dentry already naming something keeps it, as Linux instantiates a
     /// dentry once, so a later lookup never hides a change `d_revalidate`
     /// must see.
-    pub fn add(&self, inode: Option<Inode>) {
+    pub fn add(&self, inode: Option<Arc<Inode>>) {
         let mut state = self.state();
         state.looked_up = true;
         if state.inode.is_none() {
-            state.inode = inode.map(Arc::new);
+            state.inode = inode;
         }
     }
 

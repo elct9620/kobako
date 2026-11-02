@@ -605,7 +605,7 @@ impl Tmpfs {
     }
 
     /// The inode answering for `node`, an entry of this Tmpfs.
-    fn inode_of(&self, node: Node) -> Inode {
+    fn inode_of(&self, node: Node) -> Arc<Inode> {
         let metadata = self.node_metadata(&node);
         let ops: Arc<dyn InodeOperations> = match node {
             Node::Directory(dir) => Arc::new(self.beneath(dir)),
