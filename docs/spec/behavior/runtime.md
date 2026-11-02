@@ -2954,3 +2954,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | another Mount moving it each time the runtime asks whether it stands |
 | When | the guest makes a call starting from it |
 | Then | the call answers EAGAIN once a few passes from the root each met a move |
+
+## `RT-267` A wait ends once its run is to stop
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-166` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a call waiting on a directory or a name another thread holds |
+| When | its run's deadline passes, or its thread is interrupted |
+| Then | the call answers EINTR while the other still holds, as Linux's killable waits do |

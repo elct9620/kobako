@@ -29,6 +29,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 - `test/e2e/test_mount_rename.rb`
 - `test/e2e/test_overlay_threads.rb`
 - `test/e2e/test_directory_lock_threads.rb`
+- `test/e2e/test_directory_lock_stops.rb`
 - `crates/kobako/tests/integration/mount.rs`
 - `test/parity/test_mount.rb`
 
@@ -367,3 +368,27 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox holding the GVL that waits on a directory a mount's block holds |
 | When | the Host App interrupts its Thread |
 | Then | a later Sandbox changes that directory |
+
+## `MT-031` A Sandbox waiting on a directory stops at its own timeout
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-029` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a timeout that waits on a directory a mount's block holds |
+| When | its timeout passes while the block still holds the directory |
+| Then | the Sandbox raises its timeout then, without waiting for the block |
+
+## `MT-032` A Sandbox interrupted while it waits on a directory stops waiting
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox that waits on a directory a mount's block holds |
+| When | the Host App interrupts its Thread |
+| Then | the interrupt is raised while the block still holds the directory |
