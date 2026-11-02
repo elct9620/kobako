@@ -26,6 +26,8 @@ What the determinism buys is witnessed where it shows: two invocations beginning
 
 Compiling an artifact is expensive enough to keep on disk, and a cache is a second way in. So each of its refusals is witnessed twice over: that construction still succeeds, and what the cache directory holds afterwards. A cache that quietly loaded a planted artifact would pass the first observation alone.
 
+The refusals hold off other users. A Mount or a Service the host grants writes as the host's own user. No refusal tells such a write apart, so the host keeps every writable grant off the cache.
+
 ### Invocation results
 
 What the runtime hands an invocation back is read here, not through the Sandbox that usually reads it. A binding that shifted a field's shape would still pass every Sandbox assertion about the derived value. This is also why the two channels are separated twice. One separation is at this seam; the other is a difference the two frontends must agree on.
