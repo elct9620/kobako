@@ -47,10 +47,14 @@ pub struct Bind {
 
 impl Bind {
     /// Open the host directory at `path`, the one place this Filesystem
-    /// reaches outside itself.
+    /// reaches outside itself. One the host lets no one read is refused, so its
+    /// root answers an open to read as any directory beneath it does, on every
+    /// host alike.
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
+        let root = Dir::open_ambient_dir(path, ambient_authority())?;
+        may_read_dir(&root).map_err(|_| io::Error::from(io::ErrorKind::PermissionDenied))?;
         Ok(Self {
-            root: Arc::new(Dir::open_ambient_dir(path, ambient_authority())?),
+            root: Arc::new(root),
             fids: Arc::default(),
         })
     }
@@ -581,15 +585,13 @@ impl InodeOperations for Bind {
         })
     }
 
-    /// A Mount's root is the Host App's to hand over, read or not, so only a
-    /// directory beneath it answers whether it may be read.
     fn open(
         &self,
         dentry: &Dentry,
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let fid = self.fid_lookup(dentry)?;
-        if options.read && dentry.parent().is_some() {
+        if options.read {
             may_read_dir(&fid)?;
         }
         OpenDirFid::set(dentry, &fid);
@@ -2035,6 +2037,31 @@ mod tests {
                 answer,
                 Some(FilesystemError::PermissionDenied),
                 "vfs::do_file_open to read a host directory no one may read must answer EACCES"
+            );
+        }
+    }
+
+    // Linux holds a directory for its path alone, so only asking the host to
+    // read it refuses one no one may read; macOS refuses it on any open. Root
+    // reads anything, so only another user sees the refusal.
+    // @behavior FS-200
+    #[cfg(unix)]
+    #[test]
+    fn a_bind_of_a_directory_the_host_lets_no_one_read_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let host = HostDir::new("unreadable-root");
+        let mode = |mode| fs::Permissions::from_mode(mode);
+        fs::set_permissions(&host.0, mode(0o100)).expect("the host directory's mode must be set");
+        let enforced = fs::read_dir(&host.0).is_err();
+        let answer = Bind::new(&host.0).err().map(|err| err.kind());
+        fs::set_permissions(&host.0, mode(0o755))
+            .expect("the host directory's mode must be restored");
+        if enforced {
+            assert_eq!(
+                answer,
+                Some(io::ErrorKind::PermissionDenied),
+                "Bind::new of a host directory no one may read must be refused as permission denied"
             );
         }
     }
