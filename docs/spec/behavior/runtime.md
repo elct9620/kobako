@@ -2729,11 +2729,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a call opens each name |
 | Then | both dentries record that one inode |
 
-## `RT-247` A Filesystem's root stands for what `fill_super` reports
+## `RT-247` A Filesystem's root stands for what `fill_super` made
 
 | Step | Statement |
 | --- | --- |
-| Given | a Filesystem whose `fill_super` reports a root with an identity, and one with nothing to set up |
+| Given | a Filesystem whose `fill_super` makes a root with an identity, and one making it through `simple_fill_super` |
 | When | each is made into an instance |
 | Then | the first root records that identity, and the second none |
 
@@ -2796,3 +2796,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a thread holding a directory shared, and a writer waiting for it |
 | When | another thread asks for it shared, and the first asks for it shared again |
 | Then | the other waits until the writer finished, and the first takes it at once, never hanging on itself |
+
+## `RT-254` An instance `fill_super` cannot set up answers why
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-247` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose `fill_super` answers an error, and one that makes no root |
+| When | each is made into an instance |
+| Then | no instance is made, the first answers its error, and the second answers EINVAL |

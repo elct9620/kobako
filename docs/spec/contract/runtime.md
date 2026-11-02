@@ -605,11 +605,21 @@ pub struct SuperBlock {}
 
 ## `SuperBlock::new`
 
-The instance a Filesystem makes, set up as its `fill_super` asks.
+The instance a Filesystem makes, set up as its `fill_super` asks, or why it cannot stand.
 
 ```rust
 impl SuperBlock {
-    pub fn new(fs: Arc<dyn FileSystemType>) -> Arc<Self> {}
+    pub fn new(fs: Arc<dyn FileSystemType>) -> Result<Arc<Self>, FilesystemError> {}
+}
+```
+
+## `SuperBlock::d_make_root`
+
+The instance's root, set from `FileSystemType::fill_super`.
+
+```rust
+impl SuperBlock {
+    pub fn d_make_root(&mut self, root: Arc<Inode>) {}
 }
 ```
 
@@ -666,11 +676,11 @@ impl SuperBlock {
 
 ## `SuperBlock::root`
 
-The Filesystem's root directory.
+The Filesystem's root directory, once `FileSystemType::fill_super` made it.
 
 ```rust
 impl SuperBlock {
-    pub fn root(&self) -> &Arc<dyn InodeOperations> {}
+    pub fn root(&self) -> Option<&Arc<Inode>> {}
 }
 ```
 
@@ -1828,21 +1838,32 @@ impl Mask {
 
 ## `FileSystemType`
 
-What makes an instance of a Filesystem, and answers for that instance's root.
+What makes an instance of a Filesystem.
 
 ```rust
-pub trait FileSystemType: InodeOperations {}
+pub trait FileSystemType: Send + Sync + 'static {}
+```
+
+## `simple_fill_super`
+
+Makes `root` the root of an instance with nothing else to set up. Its root names no
+identity, every name stays valid, and every change is allowed.
+
+```rust
+pub fn simple_fill_super(
+    sb: &mut SuperBlock,
+    root: Arc<dyn InodeOperations>,
+) -> Result<(), FilesystemError> {}
 ```
 
 ## `FileSystemType::fill_super`
 
-What the runtime asks once to set up an instance, answering what its root reports.
-A Filesystem without one keeps every name valid, allows every change, and gives its
-root no identity.
+What the runtime asks once to set up an instance and make its root, answering why it
+cannot stand.
 
 ```rust
 pub trait FileSystemType {
-    fn fill_super(&self, _sb: &mut SuperBlock) -> Metadata;
+    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError>;
 }
 ```
 
