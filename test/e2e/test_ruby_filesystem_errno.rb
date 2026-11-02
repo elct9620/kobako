@@ -22,10 +22,19 @@ class TestE2ERubyFilesystemErrno < Minitest::Test
                  "in the script"
   end
 
+  # A walk a move landed in answers EAGAIN, so a script must be able to name it.
+  # @behavior RF-015
+  def test_a_script_names_eagain_as_linux_numbers_it
+    number = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval("Errno::EAGAIN.new.errno").value
+    assert_equal ["Errno::EAGAIN", 11], [rescued_class(Errno::EAGAIN), number],
+                 "an open whose Ruby Filesystem raises Errno::EAGAIN through Sandbox#eval must raise Errno::EAGAIN " \
+                 "in the script, numbered 11"
+  end
+
   # @behavior RF-016
   def test_an_errno_the_guest_has_no_class_for_reaches_the_script_as_eio
-    assert_equal "Errno::EIO", rescued_class(Errno::EAGAIN),
-                 "an open whose Ruby Filesystem raises Errno::EAGAIN through Sandbox#eval must raise Errno::EIO " \
+    assert_equal "Errno::EIO", rescued_class(Errno::ETIMEDOUT),
+                 "an open whose Ruby Filesystem raises Errno::ETIMEDOUT through Sandbox#eval must raise Errno::EIO " \
                  "in the script"
   end
 

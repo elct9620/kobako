@@ -39,6 +39,8 @@ pub enum FilesystemError {
     /// Bytes that are no valid character where the call needs one.
     IllegalSequence,
     Interrupted,
+    /// A call to make again, as a walk a move landed in answers.
+    WouldBlock,
     TooManyOpenFiles,
     /// A name too long for the Filesystem.
     InvalidFilename,
@@ -54,7 +56,8 @@ pub enum FilesystemError {
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, FilesystemError); 26] = [
+const POSIX_NAMES: [(&str, FilesystemError); 27] = [
+    ("EAGAIN", FilesystemError::WouldBlock),
     ("ENOENT", FilesystemError::NotFound),
     ("EEXIST", FilesystemError::AlreadyExists),
     ("ENOTDIR", FilesystemError::NotADirectory),

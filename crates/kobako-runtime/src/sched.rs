@@ -55,7 +55,7 @@ pub(crate) mod testing {
     pub(crate) const MAX_WAIT: Duration = Duration::from_secs(10);
 
     /// Wait until `arrived`, failing the test with `what` past `MAX_WAIT`.
-    pub(crate) fn wait_until(what: &str, arrived: impl Fn() -> bool) {
+    pub(crate) fn wait_until(what: &str, mut arrived: impl FnMut() -> bool) {
         let started = Instant::now();
         while !arrived() {
             assert!(

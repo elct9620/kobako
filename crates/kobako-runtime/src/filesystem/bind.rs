@@ -277,6 +277,7 @@ fn to_error(err: io::Error) -> FilesystemError {
         io::ErrorKind::InvalidFilename => FilesystemError::InvalidFilename,
         io::ErrorKind::NotSeekable => FilesystemError::NotSeekable,
         io::ErrorKind::Interrupted => FilesystemError::Interrupted,
+        io::ErrorKind::WouldBlock => FilesystemError::WouldBlock,
         io::ErrorKind::OutOfMemory => FilesystemError::OutOfMemory,
         _ => FilesystemError::Other(err.to_string()),
     }

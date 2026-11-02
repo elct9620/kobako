@@ -13,6 +13,7 @@ pub(crate) type Answer<T = ()> = Result<T, types::Error>;
 /// the witx case, `E` prefixed and upper-cased.
 fn from_posix_name(name: &str) -> Option<Errno> {
     Some(match name {
+        "EAGAIN" => Errno::Again,
         "ENOENT" => Errno::Noent,
         "EEXIST" => Errno::Exist,
         "ENOTDIR" => Errno::Notdir,
@@ -106,6 +107,7 @@ mod tests {
             (FilesystemError::ResourceBusy, 10),
             (FilesystemError::IllegalSequence, 25),
             (FilesystemError::Interrupted, 27),
+            (FilesystemError::WouldBlock, 6),
             (FilesystemError::TooManyOpenFiles, 33),
             (FilesystemError::InvalidFilename, 37),
             (FilesystemError::OutOfMemory, 48),

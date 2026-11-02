@@ -44,8 +44,9 @@ pub trait DentryOperations: Send + Sync {
 const MAX_CACHED_DENTRIES: NonZeroUsize = NonZeroUsize::new(1024).expect("the bound is not zero");
 
 /// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
-/// parents answers where the dentry stood at one instant.
-static RENAME_LOCK: SeqLock = SeqLock::new();
+/// parents answers where the dentry stood at one instant, and a walk learns of a
+/// move landing meanwhile.
+pub(super) static RENAME_LOCK: SeqLock = SeqLock::new();
 
 /// One name of a Filesystem, and where it stands now. Only the VFS makes
 /// one, so a Filesystem reads the name a call is about from it.

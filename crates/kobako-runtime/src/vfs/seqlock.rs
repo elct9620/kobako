@@ -30,6 +30,17 @@ impl SeqLock {
         written
     }
 
+    /// Where the writes stand, to ask `read_seqretry` about later, as
+    /// `raw_seqcount_begin` reads: one under way counts as having changed it.
+    pub(crate) fn read_seqbegin(&self) -> usize {
+        self.sequence.load(Ordering::SeqCst) & !1
+    }
+
+    /// Whether a write began since `read_seqbegin` answered `begun`.
+    pub(crate) fn read_seqretry(&self, begun: usize) -> bool {
+        self.sequence.load(Ordering::SeqCst) != begun
+    }
+
     /// What `read` answers with no write overlapping it, as
     /// `read_seqbegin_or_lock` reads: first without waiting, then, once a
     /// write overlapped, holding writers off, so writes one after another

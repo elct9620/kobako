@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use super::attr::notify_change;
 use super::cred::{Cred, SecurityPath};
-use super::dentry::Dentry;
+use super::dentry::{Dentry, RENAME_LOCK};
 use super::file::{File, FileOperations};
 use super::inode::{Inode, Mask, RenameFlag};
 use super::mount::{Access, VfsMount};
@@ -47,6 +47,8 @@ pub(crate) struct Nameidata {
     /// The directory the walk started from, which no `..` climbs above, as
     /// `nd->root` holds it for `RESOLVE_BENEATH`.
     root: Arc<Dentry>,
+    /// Where `RENAME_LOCK` stood when the walk began, as `nd->r_seq`.
+    r_seq: usize,
     /// The directory the walk stands in, which holds the last name.
     dir: Arc<Dentry>,
     pending: VecDeque<String>,
@@ -259,6 +261,11 @@ impl Nameidata {
             return Err(FilesystemError::Escape);
         }
         self.dir = self.dir.parent().ok_or(FilesystemError::Escape)?;
+        // A move along the way may have carried `..` above where the walk started,
+        // so the caller makes the call again, as `handle_dots` answers a scoped walk.
+        if RENAME_LOCK.read_seqretry(self.r_seq) {
+            return Err(FilesystemError::WouldBlock);
+        }
         Ok(())
     }
 
@@ -407,6 +414,7 @@ fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata
         mnt: start.mnt().clone(),
         cred: cred.clone(),
         root: start.dentry().clone(),
+        r_seq: RENAME_LOCK.read_seqbegin(),
         dir: start.dentry().clone(),
         pending: parts(path),
         links: 0,
@@ -1831,14 +1839,22 @@ mod tests {
     // two of its steps without a thread racing it.
     // @behavior RT-240
     #[test]
-    fn a_dotdot_reads_where_the_directory_stands_now() {
+    fn a_dotdot_a_move_landed_before_asks_the_caller_again() {
         let root = moves_as_walked(&[("a/b/keep", "k"), ("z/c", "moved")], "a/b", "z/b");
-        let found = vfs::vfs_fstatat(&Arc::default(), &root, "a/b/l/../c", false);
+        let cred = Arc::default();
+        let during = vfs::vfs_fstatat(&cred, &root, "a/b/l/../c", false);
+        // Any move in the process answers a `..` so, as `rename_lock` is one for all,
+        // and tests beside this one make them.
+        let mut after = Err(FilesystemError::WouldBlock);
+        crate::sched::testing::wait_until("the call made again answering", || {
+            after = vfs::vfs_fstatat(&cred, &root, "z/b/../c", false);
+            after != Err(FilesystemError::WouldBlock)
+        });
         assert_eq!(
-            found.map(|metadata| metadata.len),
-            Ok(5),
-            "vfs_fstatat through `..` of a directory moved during the walk must reach \
-             the directory it stands in now, as follow_dotdot reads d_parent"
+            (during.map(|_| ()), after.map(|metadata| metadata.len)),
+            (Err(FilesystemError::WouldBlock), Ok(5)),
+            "vfs_fstatat through `..` with a move landing during the walk must answer EAGAIN, \
+             as handle_dots reads r_seq, and the call made again reaches where it stands now"
         );
     }
 
