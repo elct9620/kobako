@@ -21,7 +21,7 @@ pub fn do_utimes_fd(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), 
 fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
     path.mnt().mnt_want_write()?;
     let dentry = path.dentry();
-    cred.security_inode_setattr(SecurityPath {
+    cred.security_path_utimes(SecurityPath {
         mnt: path.mnt(),
         name: &|| dentry.path_raw(),
     })?;

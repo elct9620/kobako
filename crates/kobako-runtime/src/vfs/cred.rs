@@ -101,8 +101,10 @@ pub trait SecurityOperations: Send + Sync {
         Ok(())
     }
 
-    /// Whether the entry at `path` may change, as `security_inode_setattr`.
-    fn inode_setattr(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    /// Whether times may be set on the entry at `path`. Linux has no path hook
+    /// for times, so this is kobako's own, beside `path_truncate` and
+    /// `path_chmod` in kind, letting a module judge the path a call names.
+    fn path_utimes(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
         Ok(())
     }
 
@@ -233,11 +235,11 @@ impl Cred {
             .try_for_each(|(module, kept)| module.file_truncate(kept))
     }
 
-    pub(crate) fn security_inode_setattr(
+    pub(crate) fn security_path_utimes(
         &self,
         path: SecurityPath<'_>,
     ) -> Result<(), FilesystemError> {
-        self.call_int_hook(|module| module.inode_setattr(path))
+        self.call_int_hook(|module| module.path_utimes(path))
     }
 
     pub(crate) fn security_inode_readlink(&self) -> Result<(), FilesystemError> {

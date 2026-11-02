@@ -181,7 +181,7 @@ impl SecurityOperations for MountPolicy {
         }
     }
 
-    fn inode_setattr(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_utimes(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
         self.path_perm(path, Access::ReadWrite)
     }
 
