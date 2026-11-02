@@ -2941,3 +2941,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a move under way through the runtime |
 | When | a walk begins |
 | Then | it begins once the move lands, so no `..` it takes answers EAGAIN for that move |
+
+## `RT-266` A start moved in every pass beneath a Policy answers EAGAIN
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-234` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory a guest holds beneath a Mount with a Policy |
+| Given | another Mount moving it each time the runtime asks whether it stands |
+| When | the guest makes a call starting from it |
+| Then | the call answers EAGAIN once a few passes from the root each met a move |
