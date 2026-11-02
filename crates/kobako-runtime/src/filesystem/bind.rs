@@ -495,10 +495,10 @@ impl InodeOperations for BindRegular {
         if let Some(file) = find_fid_inode(dentry, false) {
             let mut times = std::fs::FileTimes::new();
             if let Some(atime) = attr.atime {
-                times = times.set_accessed(atime.to_system_time());
+                times = times.set_accessed(attr.time_of(atime));
             }
             if let Some(mtime) = attr.mtime {
-                times = times.set_modified(mtime.to_system_time());
+                times = times.set_modified(attr.time_of(mtime));
             }
             return file.set_times(times).map_err(to_error);
         }

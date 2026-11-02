@@ -227,18 +227,29 @@ impl Times {
     /// Set either time given, as `utimensat` does, which `shmem_setattr` counts
     /// as a change to the entry.
     fn set(&mut self, accessed: Option<SystemTime>, modified: Option<SystemTime>) {
+        self.set_at(accessed, modified, SystemTime::now());
+    }
+
+    /// Set either time given as a change landing at `changed`.
+    fn set_at(
+        &mut self,
+        accessed: Option<SystemTime>,
+        modified: Option<SystemTime>,
+        changed: SystemTime,
+    ) {
         self.accessed = accessed.unwrap_or(self.accessed);
         self.modified = modified.unwrap_or(self.modified);
-        self.changed = SystemTime::now();
+        self.changed = changed;
     }
 
     /// Set the times `attr` names, if it names any, as `shmem_setattr` takes them
-    /// from `setattr_copy`.
+    /// from `setattr_copy`, all at the one moment the change lands.
     fn apply(&mut self, attr: &Iattr) {
         if attr.atime.is_some() || attr.mtime.is_some() {
-            self.set(
-                attr.atime.map(SetTime::to_system_time),
-                attr.mtime.map(SetTime::to_system_time),
+            self.set_at(
+                attr.atime.map(|set| attr.time_of(set)),
+                attr.mtime.map(|set| attr.time_of(set)),
+                attr.time_of(SetTime::Now),
             );
         }
     }
@@ -1704,6 +1715,33 @@ mod tests {
         assert!(
             after.changed > before.changed && after.modified == before.modified,
             "Tmpfs::rename of a file must move its changed time and leave its modified time"
+        );
+    }
+
+    // Linux's `notify_change` reads `current_time` once and `shmem_setattr` sets
+    // every time from it, so a clock read for each would leave them apart. A
+    // moment long past tells the one handed from one read here.
+    // @behavior FS-199
+    #[test]
+    fn times_set_to_now_read_the_one_moment_the_change_lands() {
+        let tmpfs = at([("file", "x")].into_iter().collect());
+        let landed = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        let now = Some(SetTime::Now);
+        tmpfs
+            .setattr(
+                "file",
+                &Iattr {
+                    ctime: Some(landed),
+                    ..Iattr::times(now, now)
+                },
+            )
+            .expect("the times must be set");
+        let set = tmpfs.symlink_metadata("file").expect("the file must stand");
+        assert_eq!(
+            (set.accessed, set.modified, set.changed),
+            (Some(landed), Some(landed), Some(landed)),
+            "Tmpfs::setattr setting both times to now must set them and its changed time to the \
+             moment the change lands"
         );
     }
 

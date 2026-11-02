@@ -7,11 +7,16 @@ use super::dentry::Dentry;
 use super::FilesystemError;
 
 /// Apply `attr` to what `dentry` names under its lock, as Linux's `notify_change`
-/// reaches `->setattr`.
+/// reaches `->setattr`, the moment it lands read once, as `current_time` is, so
+/// every time it sets to now reads the same.
 pub(crate) fn notify_change(dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
     let _held = dentry.inode_lock()?;
-    inode.ops().setattr(dentry, attr)
+    let attr = Iattr {
+        ctime: Some(SystemTime::now()),
+        ..*attr
+    };
+    inode.ops().setattr(dentry, &attr)
 }
 
 /// What a change sets of an entry, as Linux's `struct iattr`; a field left
@@ -27,6 +32,9 @@ pub struct Iattr {
     /// Whether the size comes from an open asking to truncate, as `ATTR_OPEN`
     /// says, so a Filesystem that truncated in `->open` has nothing left to do.
     pub open: bool,
+    /// The moment the change lands, which `notify_change` sets, as Linux's
+    /// `ia_ctime`: what a time set to now reads, and the entry's change time.
+    pub ctime: Option<SystemTime>,
 }
 
 impl Iattr {
@@ -37,6 +45,7 @@ impl Iattr {
             atime: None,
             mtime: None,
             open: false,
+            ctime: None,
         }
     }
 
@@ -55,6 +64,15 @@ impl Iattr {
             atime,
             mtime,
             open: false,
+            ctime: None,
+        }
+    }
+
+    /// The time `set` names, now read as the moment this change lands.
+    pub fn time_of(&self, set: SetTime) -> SystemTime {
+        match set {
+            SetTime::Now => self.ctime.unwrap_or_else(SystemTime::now),
+            SetTime::At(time) => time,
         }
     }
 }
@@ -65,14 +83,4 @@ impl Iattr {
 pub enum SetTime {
     Now,
     At(SystemTime),
-}
-
-impl SetTime {
-    /// The time this names as of now, as `setattr_copy` reads `ia_atime`.
-    pub fn to_system_time(self) -> SystemTime {
-        match self {
-            Self::Now => SystemTime::now(),
-            Self::At(time) => time,
-        }
-    }
 }

@@ -163,14 +163,17 @@ mod tests {
     fn a_filesystem_with_setattr_answers_for_the_times_itself() {
         let filesystem = Arc::new(KeepsTimes::default());
         let mount = mount_of(filesystem.clone(), MountAccess::ReadWrite);
+        let answer = vfs_utimes(&Arc::default(), &Path::root(mount.mnt()), &times());
+        let handed = filesystem
+            .0
+            .lock()
+            .unwrap()
+            .map(|attr| (attr.atime, attr.mtime, attr.ctime.is_some()));
         assert_eq!(
-            (
-                vfs_utimes(&Arc::default(), &Path::root(mount.mnt()), &times()),
-                *filesystem.0.lock().unwrap(),
-            ),
-            (Ok(()), Some(times())),
-            "vfs::vfs_utimes on a Filesystem with setattr must hand it the times and answer what \
-             it answers"
+            (answer, handed),
+            (Ok(()), Some((times().atime, times().mtime, true))),
+            "vfs::vfs_utimes on a Filesystem with setattr must hand it the times and the moment \
+             the change lands, and answer what it answers"
         );
     }
 

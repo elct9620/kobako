@@ -92,12 +92,17 @@ impl KernPath {
 
     /// Truncate or extend the file at `path`, as `->setattr` is asked.
     pub(crate) fn truncate(&self, path: &str, len: u64) -> Result<(), FilesystemError> {
+        self.setattr(path, &Iattr::size(len))
+    }
+
+    /// Hand `attr` to what `path` names, as `->setattr` is asked.
+    pub(crate) fn setattr(&self, path: &str, attr: &Iattr) -> Result<(), FilesystemError> {
         let child = self.resolve(path)?.path()?;
         child
             .inode()
             .ok_or(FilesystemError::NotFound)?
             .ops()
-            .setattr(&child, &Iattr::size(len))
+            .setattr(&child, attr)
     }
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
