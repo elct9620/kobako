@@ -188,7 +188,7 @@ pub(crate) fn lookup_one_qstr_excl(
     let dentry_of = |name: &str| -> Result<Arc<Dentry>, FilesystemError> {
         match lookup_dcache(sb, parent, name)? {
             Some(held) => Ok(held),
-            None => Ok(sb.dentries().child(parent, name)),
+            None => Ok(sb.dentries().alloc_parallel(parent, name)),
         }
     };
     let given = dentry_of(name)?;

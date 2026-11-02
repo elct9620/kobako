@@ -392,9 +392,9 @@ impl Dentries {
         Dentry::new(Some(self.root.clone()), "", self.ops.clone())
     }
 
-    /// The directory `name` in `parent`, as `d_lookup` finds it, or a new
-    /// dentry for it, as `d_alloc` makes one.
-    pub(crate) fn child(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
+    /// The dentry of `name` in `parent`, the one held there or a new one, as
+    /// `d_alloc_parallel` finds or makes one, so each caller shares it.
+    pub(crate) fn alloc_parallel(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
         self.hashtable().get_or_insert_with(key(parent, name), || {
             Dentry::new(Some(parent.clone()), name, self.ops.clone())
         })
@@ -616,7 +616,7 @@ mod tests {
             Metadata::new(FileType::Directory, 0).with_identity(1, 3),
         );
         let dentries = Dentries::new(None);
-        let dentry = dentries.child(&dentries.root(), "dir");
+        let dentry = dentries.alloc_parallel(&dentries.root(), "dir");
         dentry.add(None);
         dentry.add(Some(Inode::new(&first, ops.clone())));
         dentry.add(Some(Inode::new(&second, ops)));
@@ -688,7 +688,7 @@ mod tests {
         let dentries = Dentries::new(None);
         let mut leaf = dentries.root();
         for _ in 0..200_000 {
-            leaf = dentries.child(&leaf, "a");
+            leaf = dentries.alloc_parallel(&leaf, "a");
         }
         let released = std::thread::Builder::new()
             .stack_size(64 * 1024)
@@ -706,14 +706,14 @@ mod tests {
     fn an_exchange_swaps_two_dentries() {
         let dentries = super::Dentries::new(None);
         let root = dentries.root();
-        let a = dentries.child(&root, "a");
-        let b = dentries.child(&dentries.child(&root, "d"), "b");
+        let a = dentries.alloc_parallel(&root, "a");
+        let b = dentries.alloc_parallel(&dentries.alloc_parallel(&root, "d"), "b");
         dentries.exchange(&a, &b);
         assert_eq!(
             (
                 a.path_raw(),
                 b.path_raw(),
-                Arc::ptr_eq(&dentries.child(&root, "a"), &b)
+                Arc::ptr_eq(&dentries.alloc_parallel(&root, "a"), &b)
             ),
             ("d/b".to_string(), "a".to_string(), true),
             "Dentries::exchange must hand each dentry the other's name, and find each by its new \
@@ -740,8 +740,11 @@ mod tests {
         fn a_path_asked_while_directories_above_it_move_names_one_that_stood() {
             let dentries = Arc::new(Dentries::new(None));
             let root = dentries.root();
-            let (x, y) = (dentries.child(&root, "x"), dentries.child(&root, "y"));
-            let leaf = dentries.child(&dentries.child(&x, "b"), "leaf");
+            let (x, y) = (
+                dentries.alloc_parallel(&root, "x"),
+                dentries.alloc_parallel(&root, "y"),
+            );
+            let leaf = dentries.alloc_parallel(&dentries.alloc_parallel(&x, "b"), "leaf");
             let stop = Arc::new(AtomicBool::new(false));
             let moving = {
                 let (dentries, stop) = (dentries.clone(), stop.clone());
@@ -775,8 +778,11 @@ mod tests {
         fn a_directory_moving_through_the_vfs_is_never_taken_for_unlinked() {
             let dentries = Arc::new(Dentries::new(None));
             let root = dentries.root();
-            let (x, y) = (dentries.child(&root, "x"), dentries.child(&root, "y"));
-            let moved = dentries.child(&x, "a");
+            let (x, y) = (
+                dentries.alloc_parallel(&root, "x"),
+                dentries.alloc_parallel(&root, "y"),
+            );
+            let moved = dentries.alloc_parallel(&x, "a");
             let stop = Arc::new(AtomicBool::new(false));
             let moving = {
                 let (dentries, stop) = (dentries.clone(), stop.clone());

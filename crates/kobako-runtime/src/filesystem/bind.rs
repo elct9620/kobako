@@ -1511,7 +1511,7 @@ mod tests {
         ));
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let dir = dentries.child(&root, "a");
+        let dir = dentries.alloc_parallel(&root, "a");
         dir.lookup_inode(&root).expect("the name must be found");
         fs::remove_dir(host.0.join("a")).expect("the host must remove it");
         let answer = dir
@@ -1538,7 +1538,7 @@ mod tests {
         ));
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let dir = dentries.child(&root, "a");
+        let dir = dentries.alloc_parallel(&root, "a");
         dir.lookup_inode(&root).expect("the name must be found");
         fs::rename(host.0.join("a"), host.0.join("moved")).expect("the host must move it");
         fs::create_dir(host.0.join("a")).expect("the host must make another");
@@ -1563,9 +1563,9 @@ mod tests {
         let dentries = filesystem.dentries();
         let root = dentries.root();
         let answer = filesystem.root().rename(
-            &dentries.child(&root, "a"),
+            &dentries.alloc_parallel(&root, "a"),
             filesystem.root().as_ref(),
-            &dentries.child(&root, "b"),
+            &dentries.alloc_parallel(&root, "b"),
             Some(RenameFlag::NoReplace),
         );
         assert_eq!(
@@ -1589,10 +1589,10 @@ mod tests {
         ));
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let a = dentries.child(&root, "a");
+        let a = dentries.alloc_parallel(&root, "a");
         fs::rename(host.0.join("a"), host.0.join("x")).expect("the host must move it");
         dentries.move_dentry(&root, "a", &root, "x");
-        let note = dentries.child(&a, "note");
+        let note = dentries.alloc_parallel(&a, "note");
         assert!(
             matches!(
                 filesystem.root().lookup(&note),

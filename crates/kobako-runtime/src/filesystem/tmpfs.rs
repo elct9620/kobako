@@ -1029,7 +1029,10 @@ mod tests {
         ));
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let (first, second) = (dentries.child(&root, "a"), dentries.child(&root, "b"));
+        let (first, second) = (
+            dentries.alloc_parallel(&root, "a"),
+            dentries.alloc_parallel(&root, "b"),
+        );
         filesystem
             .root()
             .rename(
@@ -1040,7 +1043,7 @@ mod tests {
             )
             .expect("the two must swap");
         let nlink = |name| {
-            let dentry = dentries.child(&root, name);
+            let dentry = dentries.alloc_parallel(&root, name);
             dentry.lookup_inode(&root).expect("the name must be found");
             dentry.getattr().map(|metadata| metadata.nlink)
         };
