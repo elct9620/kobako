@@ -3052,3 +3052,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a character device open to write, whose Filesystem opens it like any file |
 | When | a caller allocates for it |
 | Then | the call answers ENODEV, as Linux's `vfs_fallocate` allocates only for a regular file or a block device |
+
+## `RT-275` A stream reports what it was opened and set for
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-129` |
+| relates | `RT-177` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a stream open to read and write |
+| When | the guest sets it to append and not to block, then asks what it reports |
+| Then | it reports both flags and the rights to read and to write, as Linux's `F_GETFL` reports a pipe's |
