@@ -113,9 +113,11 @@ pub trait InodeOperations: Any + Send + Sync {
     }
 
     /// Make the directory `dentry` names in this one, recording it on `dentry`
-    /// where it can, as `->mkdir` calls `d_instantiate`; the next walk asks for
-    /// one that did not. A directory without it, or without any change below,
-    /// answers EPERM, as Linux's VFS does.
+    /// where it can, as `->mkdir` calls `d_instantiate`. One that records nothing
+    /// answers for the name at the next walk, through its `revalidate` or by
+    /// keeping no name, as Linux leaves a negative dentry to its Filesystem. A
+    /// directory without it, or without any change below, answers EPERM, as
+    /// Linux's VFS does.
     fn mkdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::NotPermitted)
     }

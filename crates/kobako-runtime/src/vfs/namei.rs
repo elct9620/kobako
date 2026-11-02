@@ -618,7 +618,7 @@ pub fn filename_linkat(
         return Err(FilesystemError::CrossesDevices);
     }
     old.on_path(|old| new.on_path(|new| cred.security_path_link(old, new)))?;
-    vfs_link(cred, new.mnt.sb(), &target, new.dentry(), &child)
+    vfs_link(cred, &target, new.dentry(), &child)
 }
 
 /// Make the link `path` beneath `start` names, pointing at `target`, as
@@ -633,7 +633,7 @@ pub fn filename_symlinkat(
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, false)?;
     nd.on_path(|path| cred.security_path_symlink(path))?;
-    vfs_symlink(cred, nd.mnt.sb(), nd.dentry(), &child, target)
+    vfs_symlink(cred, nd.dentry(), &child, target)
 }
 
 /// Hold the directory a name is made in and take the name's dentry, as
@@ -681,7 +681,7 @@ pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<()
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, true)?;
     nd.on_path(|path| cred.security_path_mkdir(path))?;
-    vfs_mkdir(cred, nd.mnt.sb(), nd.dentry(), &child)
+    vfs_mkdir(cred, nd.dentry(), &child)
 }
 
 /// Remove the empty directory `path` beneath `start`, as Linux's
@@ -965,17 +965,11 @@ pub(crate) fn vfs_unlink(
 }
 
 /// Make the directory `child` in `dir`, as Linux's `vfs_mkdir` does once its
-/// caller holds `dir`.
-pub(crate) fn vfs_mkdir(
-    cred: &Cred,
-    sb: &SuperBlock,
-    dir: &Dentry,
-    child: &Arc<Dentry>,
-) -> Result<(), FilesystemError> {
+/// caller holds `dir`. A Filesystem that records nothing on `child` answers for
+/// it at the next walk, as its `revalidate` or its uncached names do.
+pub(crate) fn vfs_mkdir(cred: &Cred, dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
     may_create_dentry(cred, dir, child)?;
-    dir.inode_ops()?.mkdir(child)?;
-    drop_unless_instantiated(sb, child);
-    Ok(())
+    dir.inode_ops()?.mkdir(child)
 }
 
 /// Make the file `child` in `dir` and open it as `options` asks, as Linux's
@@ -995,23 +989,14 @@ pub(crate) fn vfs_create(cred: &Cred, dir: &Dentry, child: &Dentry) -> Result<()
     dir.inode_ops()?.create(child)
 }
 
-/// Let go of `child`, a name just made, unless its Filesystem recorded what
-/// stands there, as `d_drop` leaves one for the next walk to look up afresh.
-fn drop_unless_instantiated(sb: &SuperBlock, child: &Arc<Dentry>) {
-    if child.inode().is_none() {
-        sb.dentries().unhash(child);
-    }
-}
-
 /// Give what `old` names another name, `child` in `dir`, as Linux's `vfs_link`
 /// does once its caller holds `dir`: a directory is refused, and what `old`
 /// names is held, so a removal landing first leaves no name to give another.
 fn vfs_link(
     cred: &Cred,
-    sb: &SuperBlock,
     old: &Dentry,
     dir: &Dentry,
-    child: &Arc<Dentry>,
+    child: &Dentry,
 ) -> Result<(), FilesystemError> {
     may_create_dentry(cred, dir, child)?;
     if old.kind()? == FileType::Directory {
@@ -1021,24 +1006,19 @@ fn vfs_link(
     if old.getattr()?.nlink == 0 {
         return Err(FilesystemError::NotFound);
     }
-    dir.inode_ops()?.link(old, child)?;
-    drop_unless_instantiated(sb, child);
-    Ok(())
+    dir.inode_ops()?.link(old, child)
 }
 
 /// Make the link `child` in `dir`, as Linux's `vfs_symlink` does once its caller
 /// holds `dir`.
 fn vfs_symlink(
     cred: &Cred,
-    sb: &SuperBlock,
     dir: &Dentry,
-    child: &Arc<Dentry>,
+    child: &Dentry,
     target: &str,
 ) -> Result<(), FilesystemError> {
     may_create_dentry(cred, dir, child)?;
-    dir.inode_ops()?.symlink(child, target)?;
-    drop_unless_instantiated(sb, child);
-    Ok(())
+    dir.inode_ops()?.symlink(child, target)
 }
 
 /// Refuse to make an entry at `child` in `dir` where its lookup found one, or

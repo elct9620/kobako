@@ -240,12 +240,8 @@ impl OverlayPath {
 
     pub(super) fn do_mkdir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_mkdir(
-            &self.creator_cred,
-            &self.filesystem,
-            &self.dentry,
-            &self.lookup_real(name)?,
-        )
+        let child = self.lookup_real(name)?;
+        vfs_mkdir(&self.creator_cred, &self.dentry, &child)
     }
 
     pub(super) fn do_rmdir(&self, name: &str) -> Result<(), FilesystemError> {

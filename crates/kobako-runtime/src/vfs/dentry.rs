@@ -500,8 +500,21 @@ mod tests {
         root: KernPath,
     }
 
+    /// A name it recorded nothing for is looked up again, as a Ruby Filesystem's
+    /// `revalidate` answers, so one it made is found where the make left it.
+    impl super::DentryOperations for ByPath {
+        fn revalidate(
+            &self,
+            _dir: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<bool, FilesystemError> {
+            Ok(dentry.inode().is_some())
+        }
+    }
+
     impl crate::vfs::FileSystemType for ByPath {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            sb.set_default_d_op(self.clone());
             crate::vfs::simple_fill_super(sb, self)
         }
     }

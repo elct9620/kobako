@@ -147,7 +147,7 @@ impl KernPath {
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let (nd, child) = self.parent(path)?;
-        vfs_mkdir(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
+        vfs_mkdir(&nd.cred, nd.dentry(), &child)
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
