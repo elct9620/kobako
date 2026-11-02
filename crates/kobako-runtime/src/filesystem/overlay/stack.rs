@@ -21,7 +21,7 @@ mod readdir;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::inode::{ovl_get_inode, OverlayDirInode};
+use super::inode::OverlayDirInode;
 use super::path::OverlayPath;
 
 use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb};
@@ -263,14 +263,17 @@ impl OverlayFs {
         topmost.dentry().inode()?.identity()
     }
 
+    /// The state of the root, which stands for every Layer's root, as overlayfs's
+    /// `ovl_get_root` keeps it on the root's inode as it mounts.
+    pub(super) fn root_dir(&self) -> OverlayDirInode {
+        OverlayDirInode::new(self.roots.clone())
+    }
+
     /// The directory of the view `dentry` names, its state found on the inode
-    /// its lookup recorded; the root, which no lookup finds, stands for every
-    /// Layer's root.
+    /// its lookup, or the mount for the root, recorded.
     pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
-        let inode = ovl_get_inode(dentry, || match dentry.parent() {
-            Some(_) => Err(FilesystemError::NotADirectory),
-            None => Ok(self.roots.clone()),
-        })?;
+        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+        let inode = OverlayDirInode::of(&inode).ok_or(FilesystemError::NotADirectory)?;
         Ok(ViewDir {
             dentry: dentry.get(),
             inode,

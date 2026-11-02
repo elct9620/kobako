@@ -249,7 +249,10 @@ impl FileSystemType for Overlay {
             Some(identity) => identity.onto(root),
             None => root,
         };
-        sb.d_make_root(Inode::new(&root, self));
+        let root_dir = self.fs.root_dir();
+        let root = Inode::new(&root, self);
+        inode::ovl_inode_init(&root, root_dir);
+        sb.d_make_root(root);
         Ok(())
     }
 }

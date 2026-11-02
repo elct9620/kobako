@@ -12,7 +12,6 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use super::super::FilesystemError;
 use super::path::OverlayPath;
 use super::stack::{Level, UPPER};
 use crate::locking::RwSemaphore;
@@ -91,29 +90,6 @@ impl OverlayFileInode {
     pub(super) fn set_real(&self, real: Arc<Dentry>) {
         *lock(&self.real) = real;
     }
-}
-
-/// The state of the directory `dentry` records, made from the level `init` finds
-/// where it keeps none yet, as overlayfs's `ovl_get_inode` finds or makes one. A
-/// dentry recording nothing names no entry to keep it for.
-pub(super) fn ovl_get_inode(
-    dentry: &Dentry,
-    init: impl FnOnce() -> Result<Level, FilesystemError>,
-) -> Result<Arc<OverlayDirInode>, FilesystemError> {
-    let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-    if let Some(kept) = OverlayDirInode::of(&inode) {
-        return Ok(kept);
-    }
-    if inode.private().get().is_some() {
-        return Err(FilesystemError::NotADirectory);
-    }
-    let made: Arc<dyn Any + Send + Sync> = Arc::new(OverlayDirInode::new(init()?));
-    inode
-        .private()
-        .get_or_init(|| made)
-        .clone()
-        .downcast()
-        .map_err(|_| FilesystemError::NotADirectory)
 }
 
 /// Keep on `inode` what its lookup found, as `ovl_inode_init` takes it from
