@@ -45,8 +45,12 @@ fn directory_how() -> OpenHow {
     how
 }
 
-/// The names `file` lists, kinds included, `.` and `..` among them.
+/// The names `file` lists from its start, kinds included, `.` and `..` among
+/// them, as the Linux side seeks a directory back before `getdents64`.
 fn entries(file: &mut File) -> Result<Vec<(String, FileType)>, FilesystemError> {
+    if file.is_directory() {
+        file.llseek(0, Whence::Set)?;
+    }
     let mut names = Vec::new();
     let mut actor = |emit: &DirEmit<'_>| {
         names.push((emit.name.to_string(), emit.file_type));
