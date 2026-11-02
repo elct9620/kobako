@@ -1754,14 +1754,26 @@ pub trait InodeOperations {
 }
 ```
 
-## `InodeOperations::atomic_open`
+## `InodeOperations::create`
 
-Make the file a Dentry names in this directory and open it. A directory without
-it answers permission denied.
+Make the file a Dentry names in this directory and record it on that Dentry. A
+directory without it answers permission denied.
 
 ```rust
 pub trait InodeOperations {
-    fn atomic_open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Result<Box<dyn FileOperations>, FilesystemError>;
+    fn create(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
+}
+```
+
+## `InodeOperations::atomic_open`
+
+Make the file a Dentry names in this directory, record it on that Dentry, and open
+it in one step. A directory without it makes the file through `create` and opens
+what that recorded.
+
+```rust
+pub trait InodeOperations {
+    fn atomic_open(&self, dentry: &Dentry, options: &OpenOptions) -> Result<Box<dyn FileOperations>, FilesystemError>;
 }
 ```
 

@@ -573,7 +573,7 @@ pub fn filename_linkat(
     }
     old.security_path_perm(Access::ReadWrite)?;
     new.security_path_perm(Access::ReadWrite)?;
-    vfs_link(&target, new.dentry(), &child)
+    vfs_link(new.mnt.sb(), &target, new.dentry(), &child)
 }
 
 /// Make the link `path` beneath `start` names, pointing at `target`, as
@@ -588,7 +588,7 @@ pub fn filename_symlinkat(
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, false)?;
     nd.security_path_perm(Access::ReadWrite)?;
-    vfs_symlink(nd.dentry(), &child, target)
+    vfs_symlink(nd.mnt.sb(), nd.dentry(), &child, target)
 }
 
 /// Hold the directory a name is made in and take the name's dentry, as
@@ -631,7 +631,7 @@ pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<()
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, true)?;
     nd.security_path_perm(Access::ReadWrite)?;
-    vfs_mkdir(nd.dentry(), &child)
+    vfs_mkdir(nd.mnt.sb(), nd.dentry(), &child)
 }
 
 /// Remove the empty directory `path` beneath `start`, as Linux's
@@ -910,9 +910,15 @@ pub(crate) fn vfs_unlink(
 
 /// Make the directory `child` in `dir`, as Linux's `vfs_mkdir` does once its
 /// caller holds `dir`.
-pub(crate) fn vfs_mkdir(dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
+pub(crate) fn vfs_mkdir(
+    sb: &SuperBlock,
+    dir: &Dentry,
+    child: &Arc<Dentry>,
+) -> Result<(), FilesystemError> {
     may_create_dentry(dir, child)?;
-    dir.inode_ops()?.mkdir(child)
+    dir.inode_ops()?.mkdir(child)?;
+    drop_unless_instantiated(sb, child);
+    Ok(())
 }
 
 /// Make the file `child` in `dir` and open it as `options` asks, as Linux's
@@ -923,17 +929,33 @@ pub(crate) fn atomic_open(
     options: &OpenOptions,
 ) -> Result<Box<dyn FileOperations>, FilesystemError> {
     may_create_dentry(dir, child)?;
-    let file = dir.inode_ops()?.atomic_open(child, options)?;
-    // What was made stands at the name now, as `->atomic_open` calls
-    // `d_instantiate`, for a Filesystem that did not record it itself.
-    child.lookup_inode(dir)?;
-    Ok(file)
+    dir.inode_ops()?.atomic_open(child, options)
+}
+
+/// Make the file `child` in `dir`, as Linux's `vfs_create` does once its caller
+/// holds `dir`.
+pub(crate) fn vfs_create(dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
+    may_create_dentry(dir, child)?;
+    dir.inode_ops()?.create(child)
+}
+
+/// Let go of `child`, a name just made, unless its Filesystem recorded what
+/// stands there, as `d_drop` leaves one for the next walk to look up afresh.
+fn drop_unless_instantiated(sb: &SuperBlock, child: &Arc<Dentry>) {
+    if child.inode().is_none() {
+        sb.dentries().unhash(child);
+    }
 }
 
 /// Give what `old` names another name, `child` in `dir`, as Linux's `vfs_link`
 /// does once its caller holds `dir`: a directory is refused, and what `old`
 /// names is held, so a removal landing first leaves no name to give another.
-fn vfs_link(old: &Dentry, dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
+fn vfs_link(
+    sb: &SuperBlock,
+    old: &Dentry,
+    dir: &Dentry,
+    child: &Arc<Dentry>,
+) -> Result<(), FilesystemError> {
     may_create_dentry(dir, child)?;
     if old.kind()? == FileType::Directory {
         return Err(FilesystemError::NotPermitted);
@@ -942,14 +964,23 @@ fn vfs_link(old: &Dentry, dir: &Dentry, child: &Dentry) -> Result<(), Filesystem
     if old.getattr()?.nlink == 0 {
         return Err(FilesystemError::NotFound);
     }
-    dir.inode_ops()?.link(old, child)
+    dir.inode_ops()?.link(old, child)?;
+    drop_unless_instantiated(sb, child);
+    Ok(())
 }
 
 /// Make the link `child` in `dir`, as Linux's `vfs_symlink` does once its caller
 /// holds `dir`.
-fn vfs_symlink(dir: &Dentry, child: &Dentry, target: &str) -> Result<(), FilesystemError> {
+fn vfs_symlink(
+    sb: &SuperBlock,
+    dir: &Dentry,
+    child: &Arc<Dentry>,
+    target: &str,
+) -> Result<(), FilesystemError> {
     may_create_dentry(dir, child)?;
-    dir.inode_ops()?.symlink(child, target)
+    dir.inode_ops()?.symlink(child, target)?;
+    drop_unless_instantiated(sb, child);
+    Ok(())
 }
 
 /// Refuse to make an entry at `child` in `dir` where its lookup found one, or
@@ -1051,6 +1082,73 @@ mod tests {
             self.linked.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
+
+    /// A Filesystem making a file through `create` alone, counting each open of
+    /// what it made.
+    #[derive(Clone, Default)]
+    struct CreatesOnly {
+        opened: Arc<AtomicUsize>,
+    }
+
+    struct NoOperations;
+
+    impl FileOperations for NoOperations {}
+
+    impl InodeOperations for CreatesOnly {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(match dentry.parent() {
+                Some(_) => Metadata::new(FileType::File, 0),
+                None => Metadata::new(FileType::Directory, 0),
+            })
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            Ok(Lookup::Absent)
+        }
+
+        fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            let made = Metadata::new(FileType::File, 0);
+            dentry.add(Some(Inode::new(&made, Arc::new(self.clone()))));
+            Ok(())
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            self.opened.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(NoOperations))
+        }
+    }
+
+    // @behavior RT-244
+    #[test]
+    fn a_filesystem_with_create_alone_opens_what_it_made() {
+        let filesystem = CreatesOnly::default();
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(filesystem.clone())),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let how = OpenHow {
+            write: true,
+            create: true,
+            ..OpenHow::default()
+        };
+        let file = vfs::do_file_open(&Arc::default(), &Path::root(mount.mnt()), "made", &how)
+            .expect("a Filesystem with create makes the file");
+        assert_eq!(
+            (
+                file.getattr().map(|made| made.file_type),
+                filesystem.opened.load(Ordering::SeqCst)
+            ),
+            (Ok(FileType::File), 1),
+            "vfs::do_file_open making a file on a Filesystem with no atomic_open must open \
+             what create recorded, as lookup_open does"
+        );
     }
 
     /// A test's Filesystem recording each `->permission` it is asked, refusing

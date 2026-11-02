@@ -283,13 +283,15 @@ impl InodeOperations for Overlay {
         Ok(Box::new(OverlayDir { fs, _real }))
     }
 
-    fn atomic_open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.fs
-            .create(&self.fs.parent(dentry)?, &dentry.name(), options)
+    /// What was made is found through the view's own lookup, as `ovl_instantiate`
+    /// records the inode for the real dentry.
+    fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.fs.create(&self.fs.parent(dentry)?, &dentry.name())?;
+        match self.lookup(dentry)? {
+            Lookup::Found(inode) => dentry.add(Some(inode)),
+            _ => return Err(FilesystemError::NotFound),
+        }
+        Ok(())
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

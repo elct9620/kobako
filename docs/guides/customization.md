@@ -376,7 +376,8 @@ These two calls follow from what the runtime does itself, so a Filesystem answer
 | `fill_super` calling `set_rdonly` | every change refused | every change allowed |
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
 | `open` | an entry opened to read, write, or list | opens with no operations |
-| `atomic_open` | a file made and opened under the directory's lock | EACCES |
+| `create` | a file made under the directory's lock and recorded on its `Dentry` | EACCES |
+| `atomic_open` | a file made and opened in one step, for a backend needing that | makes it through `create`, then opens it |
 | `setattr` | a file sized through what holds it, and times of the guest's choosing | EINVAL for a size, ENOTSUP for a time |
 | `link`, `symlink` | a name made under the directory's lock | EPERM |
 | `FileOperations::read_iter`, `write_iter` | a file's bytes, moving `Kiocb::pos` past what they took | EINVAL |

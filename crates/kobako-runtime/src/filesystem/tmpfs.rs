@@ -603,6 +603,25 @@ impl Tmpfs {
             Node::Whiteout { .. } => Metadata::new(FileType::CharDevice, 0),
         }
     }
+
+    /// The inode answering for `node`, an entry of this Tmpfs.
+    fn inode_of(&self, node: Node) -> Inode {
+        let metadata = self.node_metadata(&node);
+        let ops: Arc<dyn InodeOperations> = match node {
+            Node::Directory(dir) => Arc::new(self.beneath(dir)),
+            Node::File(data) => Arc::new(TmpfsRegular { data }),
+            Node::Whiteout { .. } => Arc::new(TmpfsWhiteout),
+        };
+        Inode::new(&metadata, ops)
+    }
+
+    /// Put `node` at the name `dentry` carries and record it there, as
+    /// `shmem_mknod` calls `d_instantiate`.
+    fn make(&self, dentry: &Dentry, node: Node) -> Result<(), FilesystemError> {
+        self.dir.state().insert(&dentry.name(), node.clone());
+        dentry.add(Some(self.inode_of(node)));
+        Ok(())
+    }
 }
 
 /// A directory of a Tmpfs answers for the names in it. A file answers
@@ -630,32 +649,16 @@ impl InodeOperations for Tmpfs {
             Err(FilesystemError::NotFound) => return Ok(Lookup::Absent),
             Err(err) => return Err(err),
         };
-        let metadata = self.node_metadata(&node);
-        let ops: Arc<dyn InodeOperations> = match node {
-            Node::Directory(dir) => Arc::new(self.beneath(dir)),
-            Node::File(data) => Arc::new(TmpfsRegular { data }),
-            Node::Whiteout { .. } => Arc::new(TmpfsWhiteout),
-        };
-        Ok(Lookup::Found(Inode::new(&metadata, ops)))
+        Ok(Lookup::Found(self.inode_of(node)))
     }
 
     fn fill_super(&self, sb: &mut Filesystem) {
         sb.set_default_d_op(Arc::new(TmpfsDentry));
     }
 
-    fn atomic_open(
-        &self,
-        dentry: &Dentry,
-        _options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         let data = Content::create(&self.tree)?;
-        self.dir
-            .state()
-            .insert(&dentry.name(), Node::File(data.clone()));
-        let made = lock(&data).metadata();
-        let ops = Arc::new(TmpfsRegular { data: data.clone() });
-        dentry.add(Some(Inode::new(&made, ops)));
-        Ok(Box::new(TmpfsFile { data }))
+        self.make(dentry, Node::File(data))
     }
 
     fn open(
@@ -671,9 +674,7 @@ impl InodeOperations for Tmpfs {
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.tree.space.inodes.take(1)?;
-        let made = Node::Directory(self.new_directory());
-        self.dir.state().insert(&dentry.name(), made);
-        Ok(())
+        self.make(dentry, Node::Directory(self.new_directory()))
     }
 
     /// The VFS found a directory at the name, as `shmem_rmdir` leaves it to,

@@ -150,15 +150,12 @@ impl OverlayFs {
         &self,
         dir: &ViewDir,
         name: &str,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    ) -> Result<(), FilesystemError> {
         let upper_dir = self.upper_dir(dir)?;
-        if !upper_dir.is_whiteout(name) {
-            return upper_dir.atomic_open(name, options);
+        match upper_dir.is_whiteout(name) {
+            true => self.exchange_in(&upper_dir, name, |work, temp| work.do_create(temp)),
+            false => upper_dir.do_create(name),
         }
-        self.exchange_in(&upper_dir, name, |work, temp| {
-            work.atomic_open(temp, options)
-        })
     }
 
     /// A directory made where a whiteout hid one is marked opaque, so the

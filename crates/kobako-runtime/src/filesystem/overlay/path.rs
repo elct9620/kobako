@@ -5,7 +5,7 @@
 //! `lookup_one_unlocked`, and exclusive while one is made, removed, or
 //! moved, as `start_creating`, `start_removing`, and `start_renaming`. A
 //! name is found through the VFS's `lookup_one_qstr_excl`, and an entry made,
-//! removed, or moved through its `vfs_mkdir`, `atomic_open`, `vfs_rmdir`,
+//! removed, or moved through its `vfs_mkdir`, `vfs_create`, `vfs_rmdir`,
 //! `vfs_unlink`, and `vfs_rename`, as overlayfs's are, so the VFS checks
 //! what stands there and the Layer's dentries follow each change.
 
@@ -18,7 +18,7 @@ use super::super::{
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    atomic_open, lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_mkdir, vfs_rename,
+    lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_create, vfs_mkdir, vfs_rename,
     vfs_rmdir, vfs_unlink, Dentry, RenameFlag,
 };
 
@@ -167,15 +167,10 @@ impl OverlayPath {
         }
     }
 
-    /// Make the file `name` and open it, holding the directory, as
-    /// `O_CREAT` does.
-    pub(super) fn atomic_open(
-        &self,
-        name: &str,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    /// Make the file `name`, holding the directory, as `ovl_do_create` does.
+    pub(super) fn do_create(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        atomic_open(&self.dentry, &*self.lookup_real(name)?, options)
+        vfs_create(&self.dentry, &*self.lookup_real(name)?)
     }
 
     /// The directory standing at `name`, a link there refused as a loop, as
@@ -227,7 +222,7 @@ impl OverlayPath {
 
     pub(super) fn do_mkdir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_mkdir(&self.dentry, &*self.lookup_real(name)?)
+        vfs_mkdir(&self.filesystem, &self.dentry, &self.lookup_real(name)?)
     }
 
     pub(super) fn do_rmdir(&self, name: &str) -> Result<(), FilesystemError> {

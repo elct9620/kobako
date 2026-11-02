@@ -97,20 +97,30 @@ pub trait InodeOperations: Any + Send + Sync {
         Ok(Box::new(EmptyFops))
     }
 
-    /// Make the file `dentry` names in this directory, refusing one that
-    /// already stands, and open it as `options` asks, in one step as
-    /// `->atomic_open` does. A directory without it answers EACCES, as
-    /// Linux's VFS does.
-    fn atomic_open(
-        &self,
-        _dentry: &Dentry,
-        _options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    /// Make the file `dentry` names in this directory and record it on `dentry`,
+    /// as `->create` calls `d_instantiate`. A directory without it answers
+    /// EACCES, as Linux's VFS does.
+    fn create(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::PermissionDenied)
     }
 
-    /// Make the directory `dentry` names in this one. A directory without it,
-    /// or without any change below, answers EPERM, as Linux's VFS does.
+    /// Make the file `dentry` names in this directory, recording it on `dentry`,
+    /// and open it as `options` asks, as `->atomic_open` does for a backend that
+    /// must do both in one step. A directory without it makes the file through
+    /// `create` and opens what that recorded, as Linux's `lookup_open` does.
+    fn atomic_open(
+        &self,
+        dentry: &Dentry,
+        options: &OpenOptions,
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        self.create(dentry)?;
+        dentry.open(options)
+    }
+
+    /// Make the directory `dentry` names in this one, recording it on `dentry`
+    /// where it can, as `->mkdir` calls `d_instantiate`; the next walk asks for
+    /// one that did not. A directory without it, or without any change below,
+    /// answers EPERM, as Linux's VFS does.
     fn mkdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::NotPermitted)
     }

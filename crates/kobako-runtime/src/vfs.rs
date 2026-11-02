@@ -25,7 +25,7 @@ mod super_block;
 mod utimes;
 
 pub(crate) use namei::{
-    atomic_open, d_revalidate, lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_mkdir,
+    d_revalidate, lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_create, vfs_mkdir,
     vfs_rename, vfs_rmdir, vfs_unlink,
 };
 

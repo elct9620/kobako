@@ -2696,3 +2696,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose `permission` refuses a change to a directory |
 | When | a call makes or removes a name in that directory |
 | Then | the call answers EACCES, and the directory holds what it held |
+
+## `RT-244` A Filesystem with `create` alone opens what it made
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-175` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem with `create` and no `atomic_open` |
+| When | a guest opens a name where nothing stands, asking to create it |
+| Then | the Filesystem makes the file, and the open reaches what it recorded |
