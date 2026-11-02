@@ -13,6 +13,7 @@ use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
+use super::path::retry_eagain;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
 use crate::descriptors::{Descriptor, Descriptors};
 
@@ -234,8 +235,10 @@ pub(crate) fn filestat_set_times(
         return Ok(());
     };
     let file = &descriptor(table, fd)?.file;
-    table.walk_guard().check(file.path())?;
-    Ok(vfs::do_utimes_fd(table.cred(), file.path(), &times)?)
+    Ok(retry_eagain(|| {
+        table.walk_guard().check(file.path())?;
+        vfs::do_utimes_fd(table.cred(), file.path(), &times)
+    })?)
 }
 
 pub(crate) fn pread(
