@@ -1,7 +1,7 @@
 //! The 10 `path_*` calls. Each hands the call to the runtime's VFS, which
 //! resolves the path, asks the Mount, and asks the Filesystem.
 
-use kobako_runtime::filesystem::Iattr;
+use kobako_runtime::filesystem::{FilesystemError, Iattr};
 use kobako_runtime::vfs::{self, OpenHow};
 use wiggle::GuestPtr;
 
@@ -17,6 +17,26 @@ pub(crate) struct OpenFlags {
     pub(crate) oflags: types::Oflags,
     pub(crate) rights_base: types::Rights,
     pub(crate) fdflags: types::Fdflags,
+}
+
+/// How many times a call is made before a guest is answered EAGAIN, as cap-std
+/// makes `openat2` four times: any move in the process answers a `..` walking
+/// past it so, and nothing bounds how often one lands.
+const MAX_ATTEMPTS: usize = 4;
+
+/// What `call` answers once no move landed during its walk, made again at most
+/// `MAX_ATTEMPTS` times in all, as cap-std retries `openat2` on EAGAIN.
+fn retry_eagain<T>(
+    mut call: impl FnMut() -> Result<T, FilesystemError>,
+) -> Result<T, FilesystemError> {
+    let mut answer = call();
+    for _ in 1..MAX_ATTEMPTS {
+        if !matches!(answer, Err(FilesystemError::WouldBlock)) {
+            break;
+        }
+        answer = call();
+    }
+    answer
 }
 
 /// Where `fd` stands, for a path to be walked from, once the guard answered for a
@@ -36,11 +56,10 @@ pub(crate) fn create_directory(
     path: GuestPtr<str>,
 ) -> Answer {
     let start = walk_start(table, fd)?;
-    Ok(vfs::filename_mkdirat(
-        table.cred(),
-        start,
-        &mem.path(path)?,
-    )?)
+    let path = mem.path(path)?;
+    Ok(retry_eagain(|| {
+        vfs::filename_mkdirat(table.cred(), start, &path)
+    })?)
 }
 
 pub(crate) fn filestat_get(
@@ -52,7 +71,8 @@ pub(crate) fn filestat_get(
 ) -> Answer<types::Filestat> {
     let start = walk_start(table, fd)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
-    let metadata = vfs::vfs_fstatat(table.cred(), start, &mem.path(path)?, follow)?;
+    let path = mem.path(path)?;
+    let metadata = retry_eagain(|| vfs::vfs_fstatat(table.cred(), start, &path, follow))?;
     Ok(filestat(table, metadata))
 }
 
@@ -68,7 +88,9 @@ pub(crate) fn filestat_set_times(
     let path = mem.path(path)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     match times {
-        Some(times) => Ok(vfs::do_utimes(table.cred(), start, &path, follow, &times)?),
+        Some(times) => Ok(retry_eagain(|| {
+            vfs::do_utimes(table.cred(), start, &path, follow, &times)
+        })?),
         None => Ok(()),
     }
 }
@@ -84,14 +106,9 @@ pub(crate) fn link(
     let to = walk_start(table, new.0)?;
     let (old_path, new_path) = (mem.path(old.1)?, mem.path(new.1)?);
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
-    Ok(vfs::filename_linkat(
-        table.cred(),
-        from,
-        &old_path,
-        to,
-        &new_path,
-        follow,
-    )?)
+    Ok(retry_eagain(|| {
+        vfs::filename_linkat(table.cred(), from, &old_path, to, &new_path, follow)
+    })?)
 }
 
 pub(crate) fn open(
@@ -123,7 +140,7 @@ pub(crate) fn open(
     how.sync = flags
         .fdflags
         .intersects(types::Fdflags::RSYNC | types::Fdflags::SYNC);
-    let file = vfs::do_file_open(table.cred(), start, &path, &how)?;
+    let file = retry_eagain(|| vfs::do_file_open(table.cred(), start, &path, &how))?;
     Ok(table.push(Descriptor::of(file)).ok_or(Errno::Mfile)?.into())
 }
 
@@ -136,7 +153,8 @@ pub(crate) fn readlink(
     buf_len: types::Size,
 ) -> Answer<types::Size> {
     let start = walk_start(table, fd)?;
-    let target = vfs::do_readlinkat(table.cred(), start, &mem.path(path)?)?;
+    let path = mem.path(path)?;
+    let target = retry_eagain(|| vfs::do_readlinkat(table.cred(), start, &path))?;
     write_link(mem, &target, buf, buf_len)
 }
 
@@ -160,7 +178,10 @@ pub(crate) fn remove_directory(
     path: GuestPtr<str>,
 ) -> Answer {
     let start = walk_start(table, fd)?;
-    Ok(vfs::filename_rmdir(table.cred(), start, &mem.path(path)?)?)
+    let path = mem.path(path)?;
+    Ok(retry_eagain(|| {
+        vfs::filename_rmdir(table.cred(), start, &path)
+    })?)
 }
 
 pub(crate) fn rename(
@@ -172,13 +193,9 @@ pub(crate) fn rename(
     let from = walk_start(table, old.0)?;
     let to = walk_start(table, new.0)?;
     let (from_path, to_path) = (mem.path(old.1)?, mem.path(new.1)?);
-    Ok(vfs::filename_renameat2(
-        table.cred(),
-        from,
-        &from_path,
-        to,
-        &to_path,
-    )?)
+    Ok(retry_eagain(|| {
+        vfs::filename_renameat2(table.cred(), from, &from_path, to, &to_path)
+    })?)
 }
 
 pub(crate) fn symlink(
@@ -195,12 +212,9 @@ pub(crate) fn symlink(
     if target.starts_with('/') {
         return Err(Errno::Perm.into());
     }
-    Ok(vfs::filename_symlinkat(
-        table.cred(),
-        &target,
-        start,
-        &path,
-    )?)
+    Ok(retry_eagain(|| {
+        vfs::filename_symlinkat(table.cred(), &target, start, &path)
+    })?)
 }
 
 pub(crate) fn unlink_file(
@@ -210,11 +224,10 @@ pub(crate) fn unlink_file(
     path: GuestPtr<str>,
 ) -> Answer {
     let start = walk_start(table, fd)?;
-    Ok(vfs::filename_unlinkat(
-        table.cred(),
-        start,
-        &mem.path(path)?,
-    )?)
+    let path = mem.path(path)?;
+    Ok(retry_eagain(|| {
+        vfs::filename_unlinkat(table.cred(), start, &path)
+    })?)
 }
 
 #[cfg(test)]
@@ -236,6 +249,37 @@ mod tests {
             (answered, &bytes),
             (3, b"\0\0tar\0\0\0"),
             "where a link points through path_readlink must fill the buffer and answer what fit"
+        );
+    }
+
+    /// What `retry_eagain` answers when the first `moves` calls each had a move
+    /// land in them, and how many calls it made.
+    fn retried(moves: usize) -> (Result<(), FilesystemError>, usize) {
+        let mut made = 0;
+        let answer = retry_eagain(|| {
+            made += 1;
+            match made <= moves {
+                true => Err(FilesystemError::WouldBlock),
+                false => Ok(()),
+            }
+        });
+        (answer, made)
+    }
+
+    // A move lands during a walk only between two of its steps, which no guest
+    // call can time, so the retry itself witnesses it.
+    // @behavior RT-256
+    #[test]
+    fn a_path_call_a_move_landed_in_is_made_again_four_times_at_most() {
+        assert_eq!(
+            [retried(0), retried(3), retried(4)],
+            [
+                (Ok(()), 1),
+                (Ok(()), 4),
+                (Err(FilesystemError::WouldBlock), 4),
+            ],
+            "a path_* call answered EAGAIN must be made again until it answers otherwise, four \
+             times in all at most, as cap-std makes openat2"
         );
     }
 }
