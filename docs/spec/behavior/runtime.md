@@ -62,6 +62,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/wasi.rs`
 - `crates/kobako-wasmtime/src/preview1/poll.rs`
 - `crates/kobako-wasmtime/src/preview1/fd.rs`
+- `crates/kobako-wasmtime/src/preview1/path.rs`
 - `crates/kobako-wasmtime/src/preview1/mount_view.rs`
 - `crates/kobako-wasmtime/src/preview1/memory.rs`
 - `crates/kobako-wasmtime/src/preview1/differential.rs`
@@ -2820,3 +2821,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a security module recording the changes it is asked about, over a Filesystem with `permission` |
 | When | a call makes a name the Filesystem allows, and one it refuses |
 | Then | the module is asked about the first alone, and the second answers EACCES |
+
+## `RT-256` A guest's path call a move landed in is made again a few times
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-240` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest's path call whose walk answers EAGAIN |
+| When | the Wasm Driver handles the call |
+| Then | it makes the call again, four times in all at most, and answers EAGAIN only once they are used up |
