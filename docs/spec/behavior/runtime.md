@@ -3151,3 +3151,39 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose lookup of a name asks the runtime about that same name |
 | When | a walk reaches the name |
 | Then | the Filesystem is asked again within its own lookup, and the walk answers rather than waiting on itself |
+
+## `RT-283` A guest sees one device for every entry
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-194` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry whose Filesystem reports a device and an inode number |
+| When | a guest on either posture asks what it is |
+| Then | it sees the device as 0, as the inode number it sees already tells entries apart |
+
+## `RT-284` A guest's read or write moves its first buffer with room
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-096` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a preview1 read or write handed several buffers, the first of them empty |
+| When | the Wasm Driver takes the buffers |
+| Then | it moves only the first buffer with room, as wasmtime-wasi does, leaving the rest to the guest's next call |
+
+## `RT-285` A wait on what a descriptor never does answers EBADF
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-131` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding its standard output, a pipe's write end |
+| When | it waits for that descriptor to be ready to read, and to write |
+| Then | the first answers EBADF rather than a wait no event ends, and the second is ready |
