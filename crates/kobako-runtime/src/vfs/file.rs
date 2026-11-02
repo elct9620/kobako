@@ -525,7 +525,7 @@ impl File {
     }
 
     /// What kind of entry it is, as `file_inode(file)->i_mode` says.
-    fn kind(&self) -> Option<FileType> {
+    pub fn kind(&self) -> Option<FileType> {
         self.path.dentry().inode().map(|inode| inode.kind())
     }
 
