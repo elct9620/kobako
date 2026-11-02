@@ -14,11 +14,14 @@ use magnus::{prelude::*, Error as MagnusError, RClass, RModule, RString, Ruby, V
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use kobako_runtime::filesystem::Rdir;
 use kobako_runtime::filesystem::{
     DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
     FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
 };
-use kobako_runtime::vfs::{verify_dirent_name, Dentry, Identity, Inode, NAME_MAX};
+use kobako_runtime::vfs::{
+    generic_read_dir, verify_dirent_name, Dentry, DirContext, Identity, Inode, NAME_MAX,
+};
 
 use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
@@ -411,7 +414,7 @@ impl InodeOperations for RubyFilesystem {
         _dentry: &Dentry,
         _options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        Ok(Box::new(RubyDir(*self)))
+        Ok(Box::new(RubyDir(*self, Rdir::default())))
     }
 
     fn atomic_open(
@@ -473,11 +476,24 @@ impl InodeOperations for RubyFilesystem {
 
 /// A directory of the Ruby object, open: it asks the object by the path the
 /// dentry it is handed stands at.
-struct RubyDir(RubyFilesystem);
+struct RubyDir(RubyFilesystem, Rdir);
 
 impl FileOperations for RubyDir {
-    fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.0.entries_at(dentry)
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        generic_read_dir()
+    }
+
+    /// What a listing began with stays on the open directory until it ends, so
+    /// a caller reading in small steps asks the object once, as FUSE's readdir
+    /// cache spares asking the server each time.
+    fn iterate_shared(
+        &mut self,
+        dentry: &Dentry,
+        ctx: &mut DirContext<'_>,
+    ) -> Result<(), FilesystemError> {
+        let filesystem = self.0;
+        self.1
+            .iterate(dentry, ctx, || filesystem.entries_at(dentry))
     }
 
     /// The object has nothing of a directory's own to flush, as FUSE's

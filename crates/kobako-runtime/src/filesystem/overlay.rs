@@ -17,11 +17,12 @@ mod stack;
 use std::any::Any;
 use std::sync::Arc;
 
+use super::rdir::Rdir;
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Iattr, InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
+    DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, Iattr,
+    InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
 };
-use crate::vfs::{notify_change, Dentry, Inode, NAME_MAX};
+use crate::vfs::{generic_read_dir, notify_change, Dentry, DirContext, Inode, NAME_MAX};
 use inode::OverlayInode;
 use path::OverlayPath;
 use stack::OverlayFs;
@@ -293,7 +294,11 @@ impl InodeOperations for Overlay {
             .map(OverlayPath::open_real)
             .collect::<Result<_, _>>()?;
         let fs = self.fs.clone();
-        Ok(Box::new(OverlayDir { fs, _real }))
+        Ok(Box::new(OverlayDir {
+            fs,
+            _real,
+            cache: Rdir::default(),
+        }))
     }
 
     /// What was made is found through the view's own lookup, as `ovl_instantiate`
@@ -342,11 +347,26 @@ impl InodeOperations for Overlay {
 struct OverlayDir {
     fs: OverlayFs,
     _real: Vec<Box<dyn FileOperations>>,
+    /// What a listing merged, held until it ends, as `ovl_dir_cache` holds it.
+    cache: Rdir,
 }
 
 impl FileOperations for OverlayDir {
-    fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        self.fs.dir_read_merged(&self.fs.dir(dentry)?.level())
+    fn read_iter(
+        &mut self,
+        _iocb: &mut super::Kiocb,
+        _buf: &mut [u8],
+    ) -> Result<usize, FilesystemError> {
+        generic_read_dir()
+    }
+
+    fn iterate_shared(
+        &mut self,
+        dentry: &Dentry,
+        ctx: &mut DirContext<'_>,
+    ) -> Result<(), FilesystemError> {
+        let (fs, cache) = (&self.fs, &mut self.cache);
+        cache.iterate(dentry, ctx, || fs.dir_read_merged(&fs.dir(dentry)?.level()))
     }
 
     /// Its Layers answer for what they hold, and its upper is a Tmpfs, so
@@ -2202,11 +2222,17 @@ mod tests {
     struct FoldedDir(KernPath);
 
     impl FileOperations for FoldedDir {
-        fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            match folded(dentry).as_str() {
+        fn iterate_shared(
+            &mut self,
+            dentry: &Dentry,
+            ctx: &mut DirContext<'_>,
+        ) -> Result<(), FilesystemError> {
+            let entries = match folded(dentry).as_str() {
                 "" => self.0.entries(),
                 at => self.0.open_dir(at)?.entries(),
-            }
+            }?;
+            crate::vfs::dir_emit_entries(dentry, ctx, &entries);
+            Ok(())
         }
     }
 

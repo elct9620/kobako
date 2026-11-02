@@ -48,15 +48,12 @@ fn host_entries<F: FileSystemType>(filesystem: &Arc<F>) -> Result<Vec<String>, F
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
-    let mut root = vfs::File::root(mount.mnt())?;
+    let mut root = vfs::File::root(mount.mnt(), &Arc::default())?;
     let mut names = Vec::new();
-    root.iterate_dir(
-        &vfs::Cred::default(),
-        &mut vfs::DirContext::new(2, &mut |emit| {
-            names.push(emit.name.to_string());
-            true
-        }),
-    )?;
+    root.iterate_dir(&mut vfs::DirContext::new(2, &mut |emit| {
+        names.push(emit.name.to_string());
+        true
+    }))?;
     Ok(names)
 }
 
@@ -828,26 +825,38 @@ fn a_hermetic_guest_sees_no_inode_numbers() {
     );
 }
 
+/// A host directory holding only `a.txt`, which a Bind reads whole to list.
+fn host_dir_with_a_file(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("kobako-listing-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the host directory must be created");
+    std::fs::write(dir.join("a.txt"), "").expect("the host file must be written");
+    dir
+}
+
 // The first listing fills its buffer with `.` and `..` exactly, so it has
 // not reached its end when the file is made.
 // @behavior RT-107
 #[test]
 fn a_listing_goes_on_over_the_entries_it_began_with() {
-    let tmpfs = tmpfs_with("a.txt", "");
-    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]);
+    let dir = host_dir_with_a_file("goes-on");
+    let bind = Arc::new(Bind::new(&dir).expect("the host directory must open"));
+    let mut guest = Guest::new(&[grant(bind.clone(), Access::ReadWrite, None)]);
     assert_eq!(
         guest.list(0, 51),
         [".", ".."],
         "the first listing must hold the dots"
     );
-    overwrite(&host(&tmpfs), "b.txt");
+    overwrite(&host(&bind), "b.txt");
     assert_eq!(
         guest.list(2, 4096),
         ["a.txt"],
         "a listing going on through fd_readdir must read the entries it began with"
     );
+    let mut from_the_start = guest.list(0, 4096);
+    from_the_start.sort();
     assert_eq!(
-        guest.list(0, 4096),
+        from_the_start,
         [".", "..", "a.txt", "b.txt"],
         "a listing from the start through fd_readdir must read the directory as it stands"
     );
@@ -858,10 +867,11 @@ fn a_listing_goes_on_over_the_entries_it_began_with() {
 // @behavior RT-237
 #[test]
 fn a_listing_it_cannot_hold_within_a_guests_memory_answers_enomem() {
+    let dir = host_dir_with_a_file("holds");
     let answer = |memory_limit| {
-        let tmpfs = tmpfs_with("a.txt", "");
+        let bind = Arc::new(Bind::new(&dir).expect("the host directory must open"));
         let mut guest =
-            Guest::with_memory_limit(memory_limit, &[grant(tmpfs, Access::ReadWrite, None)]);
+            Guest::with_memory_limit(memory_limit, &[grant(bind, Access::ReadWrite, None)]);
         guest.call_list(0, 51)
     };
     assert_eq!(

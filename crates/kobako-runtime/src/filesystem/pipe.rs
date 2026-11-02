@@ -119,6 +119,7 @@ pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
             PIPE_MNT.with_dentry(dentry.clone()),
             Box::new(AnonPipe(pipe.clone())),
             &how,
+            &Arc::default(),
         );
         file.stream_open();
         file

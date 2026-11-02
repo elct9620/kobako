@@ -1085,7 +1085,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Mount whose directory a guest began to list, and a file then made in it |
+| Given | an invocation handed a Bind Mount whose directory a guest began to list, and a file then made in it |
 | When | the guest lists on from where it stopped, then lists again from the start |
 | Then | only the listing from the start holds the new file |
 
@@ -2625,7 +2625,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest with a memory limit, its descriptors holding listings up to that limit |
+| Given | a guest with a memory limit, its descriptors on a Bind holding listings up to that limit |
 | When | the guest stops another listing part way |
 | Then | the call answers ENOMEM, a listing read whole still succeeds, and closing a descriptor gives back what it held |
 

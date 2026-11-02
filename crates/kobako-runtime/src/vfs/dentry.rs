@@ -484,8 +484,8 @@ mod tests {
 
     use super::{Dentries, Dentry};
     use crate::filesystem::{
-        DirEntry, FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup,
-        Metadata, OpenOptions, Tmpfs,
+        FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup, Metadata,
+        OpenOptions, Tmpfs,
     };
     use crate::mount::{Access, Mount};
     use crate::vfs::kern_path::{kern_path, KernPath};
@@ -569,11 +569,17 @@ mod tests {
     struct ByPathDir(KernPath);
 
     impl FileOperations for ByPathDir {
-        fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            match dentry.path_raw().as_str() {
+        fn iterate_shared(
+            &mut self,
+            dentry: &Dentry,
+            ctx: &mut vfs::DirContext<'_>,
+        ) -> Result<(), FilesystemError> {
+            let entries = match dentry.path_raw().as_str() {
                 "" => self.0.entries(),
                 at => self.0.open_dir(at)?.entries(),
-            }
+            }?;
+            vfs::dir_emit_entries(dentry, ctx, &entries);
+            Ok(())
         }
     }
 
@@ -639,9 +645,9 @@ mod tests {
         assert_eq!(
             (
                 vfs::filename_mkdirat(&Arc::default(), &dir, "made"),
-                File::directory(dir.clone())
+                File::directory(dir.clone(), &Arc::default())
                     .expect("the directory must open")
-                    .iterate_dir(&vfs::Cred::default(), &mut vfs::DirContext::new(0, &mut |_| true)),
+                    .iterate_dir(&mut vfs::DirContext::new(0, &mut |_| true)),
                 kern_path(tmpfs.clone()).symlink_metadata("dir/made").err()
             ),
             (

@@ -21,12 +21,13 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt, SystemTimeSpec};
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
+use super::rdir::Rdir;
 use super::{
     DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
     FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
     SetTime,
 };
-use crate::vfs::{Dentry, Identity, Inode};
+use crate::vfs::{generic_read_dir, Dentry, DirContext, Identity, Inode};
 use fid::{FidCache, OpenDirFid};
 
 /// A host directory and everything beneath it. What a guest writes lands
@@ -592,7 +593,7 @@ impl InodeOperations for Bind {
             may_read_dir(&fid)?;
         }
         OpenDirFid::set(dentry, &fid);
-        Ok(Box::new(BindDir(fid)))
+        Ok(Box::new(BindDir(fid, Rdir::default())))
     }
 
     fn atomic_open(
@@ -645,11 +646,22 @@ impl InodeOperations for Bind {
 /// A host directory, open on the descriptor it holds, as 9p's `v9fs_dir_readdir`
 /// reads the fid in `private_data`, so it follows the directory wherever it
 /// moves.
-struct BindDir(Arc<Dir>);
+struct BindDir(Arc<Dir>, Rdir);
 
 impl FileOperations for BindDir {
-    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        entries_of(&self.0)
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        generic_read_dir()
+    }
+
+    /// What a listing began with stays on the open directory until it ends, as
+    /// 9p's `fid->rdir` holds what the server sent.
+    fn iterate_shared(
+        &mut self,
+        dentry: &Dentry,
+        ctx: &mut DirContext<'_>,
+    ) -> Result<(), FilesystemError> {
+        let dir = self.0.clone();
+        self.1.iterate(dentry, ctx, || entries_of(&dir))
     }
 
     /// Make the host directory's names durable. Windows syncs no directory, so
@@ -989,6 +1001,43 @@ mod tests {
              them open, keeping {}",
             bind.fids.len()
         );
+    }
+
+    // @behavior FS-196
+    #[test]
+    fn a_directory_of_each_built_in_filesystem_answers_its_read_as_a_directory() {
+        use crate::vfs::File;
+        let host = HostDir::new("reads-directory");
+        let read = |fs: Arc<dyn FileSystemType>| {
+            let mount =
+                crate::mount::Mount::new("/data", Filesystem::new(fs), crate::mount::Access::Read)
+                    .expect("/data is a guest path");
+            let mut dir = File::root(mount.mnt(), &Arc::default()).expect("the root opens");
+            (dir.read(&mut [0; 1]).err(), dir.pread(&mut [0; 1], 0).err())
+        };
+        let overlay = crate::filesystem::Overlay::new(
+            vec![
+                Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new())),
+                Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new())),
+            ],
+            None,
+        )
+        .expect("the Overlay must stack");
+        let refused = Some(FilesystemError::IsADirectory);
+        for answer in [
+            read(Arc::new(crate::filesystem::Tmpfs::new())),
+            read(Arc::new(
+                Bind::new(&host.0).expect("the host directory must open"),
+            )),
+            read(Arc::new(overlay)),
+        ] {
+            assert_eq!(
+                answer,
+                (refused.clone(), refused.clone()),
+                "File::read and pread of a directory of each built-in Filesystem must answer \
+                 EISDIR, as generic_read_dir does"
+            );
+        }
     }
 
     // Nothing holds `x` between the two stats, so what answers the second is the
@@ -1859,7 +1908,7 @@ mod tests {
             crate::mount::Access::Read,
         )
         .expect("/data is a guest path");
-        let Ok(mut root) = crate::vfs::File::root(mount.mnt()) else {
+        let Ok(mut root) = crate::vfs::File::root(mount.mnt(), &Arc::default()) else {
             panic!("the root must open");
         };
         assert_eq!(

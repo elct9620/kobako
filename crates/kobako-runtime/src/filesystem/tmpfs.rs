@@ -13,6 +13,7 @@ use super::{
     FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
     SetTime,
 };
+use crate::vfs::{dir_emit_dots, generic_read_dir, DirContext};
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
 use whiteout::Whiteout;
 
@@ -114,6 +115,12 @@ struct Dir {
 
 struct State {
     entries: BTreeMap<String, Node>,
+    /// Each name by its stable position in a listing, as `simple_offset_ctx`
+    /// keeps one, so a listing going on reads the directory as it stands without
+    /// holding what it began with.
+    offsets: BTreeMap<u64, String>,
+    offset_of: BTreeMap<String, u64>,
+    next_offset: u64,
     /// How many of `entries` are directories, as `inc_nlink` keeps a
     /// directory's count, so no stat reads every entry.
     subdirectories: u64,
@@ -126,12 +133,30 @@ struct State {
 }
 
 impl State {
-    /// Hold `node` under `name`, answering what stood there.
+    /// Hold `node` under `name`, answering what stood there. The name takes the
+    /// next position in a listing, as `simple_offset_add` hands one out.
     fn hold(&mut self, name: &str, node: Node) -> Option<Node> {
         self.subdirectories += u64::from(matches!(node, Node::Directory(_)));
         let replaced = self.entries.insert(name.to_string(), node);
         self.subdirectories -= u64::from(matches!(replaced, Some(Node::Directory(_))));
+        self.forget_offset(name);
+        self.offsets.insert(self.next_offset, name.to_string());
+        self.offset_of.insert(name.to_string(), self.next_offset);
+        self.next_offset += 1;
         replaced
+    }
+
+    /// Leave `name` out of a listing from now on, as `simple_offset_remove`.
+    fn forget_offset(&mut self, name: &str) {
+        if let Some(offset) = self.offset_of.remove(name) {
+            self.offsets.remove(&offset);
+        }
+    }
+
+    /// The first entry a listing at `pos` reaches, and the position it stands at.
+    fn entry_from(&self, pos: u64) -> Option<(u64, &str, &Node)> {
+        let (offset, name) = self.offsets.range(pos..).next()?;
+        Some((*offset, name, self.entries.get(name)?))
     }
 
     /// Hold `node` under `name`, a change to the directory's content.
@@ -158,6 +183,7 @@ impl State {
         self.entries.remove(name).inspect(|taken| {
             self.subdirectories -= u64::from(matches!(taken, Node::Directory(_)));
         });
+        self.forget_offset(name);
         self.times.touch();
     }
 
@@ -229,6 +255,9 @@ impl Dir {
             space,
             state: Mutex::new(State {
                 entries: BTreeMap::new(),
+                offsets: BTreeMap::new(),
+                offset_of: BTreeMap::new(),
+                next_offset: 2,
                 subdirectories: 0,
                 removed: false,
                 xattrs: BTreeMap::new(),
@@ -572,8 +601,8 @@ impl Tmpfs {
                 Some(Node::File(_) | Node::Whiteout { .. }) => return Err(SeedError::Twice(path)),
                 None => {}
             }
-            state.entries.insert(
-                name(&path).to_string(),
+            state.hold(
+                name(&path),
                 Node::File(Content::seed(contents.into(), &tmpfs.tree)),
             );
         }
@@ -723,14 +752,34 @@ struct TmpfsDir {
 }
 
 impl FileOperations for TmpfsDir {
-    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        Ok(self
-            .dir
-            .state()
-            .entries
-            .iter()
-            .map(|(name, node)| node.dir_entry(name, self.dev))
-            .collect())
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        generic_read_dir()
+    }
+
+    /// Reads on from each name's stable position, as `offset_readdir` does, so
+    /// nothing is held between two calls.
+    fn iterate_shared(
+        &mut self,
+        dentry: &Dentry,
+        ctx: &mut DirContext<'_>,
+    ) -> Result<(), FilesystemError> {
+        if !dir_emit_dots(dentry, ctx) {
+            return Ok(());
+        }
+        loop {
+            let found = {
+                let state = self.dir.state();
+                state
+                    .entry_from(ctx.pos())
+                    .map(|(offset, name, node)| (offset, node.dir_entry(name, self.dev)))
+            };
+            let Some((offset, entry)) = found else {
+                return Ok(());
+            };
+            if !ctx.dir_emit(&entry, offset + 1) {
+                return Ok(());
+            }
+        }
     }
 
     /// A Tmpfs holds nothing to make durable, as tmpfs names `noop_fsync` for
@@ -894,6 +943,53 @@ mod tests {
             self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             inner.lookup(dentry)
         }
+    }
+
+    // @behavior FS-195
+    #[test]
+    fn a_listing_goes_on_from_a_position_each_name_keeps() {
+        use crate::vfs::{DirContext, File, Path};
+        let tmpfs: Tmpfs = [("a", ""), ("b", ""), ("c", "")].into_iter().collect();
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)),
+            crate::mount::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let cred = Arc::default();
+        let mut dir = File::root(mount.mnt(), &cred).expect("the root opens");
+        let list = |dir: &mut File, pos, room: usize| {
+            let mut seen = Vec::new();
+            let mut actor = |emit: &crate::vfs::DirEmit<'_>| {
+                seen.push((emit.name.to_string(), emit.next));
+                seen.len() < room
+            };
+            dir.iterate_dir(&mut DirContext::new(pos, &mut actor))
+                .expect("the directory lists");
+            seen
+        };
+        let first = list(&mut dir, 2, 1);
+        let root = Path::root(mount.mnt());
+        crate::vfs::filename_unlinkat(&cred, &root, "a").expect("the name goes");
+        let how = crate::vfs::OpenHow {
+            write: true,
+            create: true,
+            ..crate::vfs::OpenHow::default()
+        };
+        crate::vfs::do_file_open(&cred, &root, "d", &how).expect("the name is made");
+        let names = |seen: Vec<(String, u64)>| -> Vec<String> {
+            seen.into_iter().map(|(name, _)| name).collect()
+        };
+        let next = first[0].1;
+        assert_eq!(
+            (names(first), names(list(&mut dir, next, usize::MAX))),
+            (
+                vec!["a".to_string()],
+                vec!["b".to_string(), "c".to_string(), "d".to_string()]
+            ),
+            "File::iterate_dir going on over a Tmpfs must repeat nothing and hold what was made \
+             since, as offset_readdir reads on from each name's stable offset"
+        );
     }
 
     // @behavior FS-192

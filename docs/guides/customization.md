@@ -383,7 +383,8 @@ These two calls follow from what the runtime does itself, so a Filesystem answer
 | `link`, `symlink` | a name made under the directory's lock | EPERM |
 | `FileOperations::llseek` | a position of the file's own choosing | counts from the start, the position, or the end `getattr` reports |
 | `FileOperations::read_iter`, `write_iter` | a file's bytes, moving `Kiocb::pos` past what they took | EINVAL |
-| `FileOperations::iterate_shared` | a directory listed from what its `open` made | ENOTDIR |
+| `FileOperations::read_iter` on a directory, answering `generic_read_dir` | a directory's read refused as one | EINVAL |
+| `FileOperations::iterate_shared` | a directory listed from what its `open` made, through `dir_emit_dots` and `DirContext::dir_emit`, or `Rdir` for one read whole | ENOTDIR |
 | `FileOperations::fsync` | what was written made durable; answer `Ok` with nothing to flush | EINVAL |
 | `FileOperations::fallocate` | room reserved ahead of a write | ENOTSUP |
 | `FileOperations::poll` | what a call would find ready | ready to read and write |

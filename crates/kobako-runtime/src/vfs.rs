@@ -31,12 +31,12 @@ pub(crate) use namei::{
 
 pub(crate) use attr::notify_change;
 pub use attr::{Iattr, SetTime};
-pub use cred::{Cred, SecurityOperations};
+pub use cred::{Cred, RdirCharge, SecurityOperations};
 pub use dentry::{Dentry, DentryOperations};
 pub use errno::FilesystemError;
 pub use file::{
-    generic_file_llseek, verify_dirent_name, DirContext, DirEmit, DirEntry, FMode, File,
-    FileOperations, Kiocb, PollMask, Whence,
+    dir_emit_dots, dir_emit_entries, generic_file_llseek, generic_read_dir, verify_dirent_name,
+    DirContext, DirEmit, DirEntry, FMode, File, FileOperations, Kiocb, PollMask, Whence,
 };
 pub use inode::{Identity, Inode, InodeOperations, Lookup, Mask, RenameFlag};
 pub use mount::{Access, VfsMount};

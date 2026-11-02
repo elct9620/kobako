@@ -274,8 +274,17 @@ impl InodeOperations for OneNote {
 struct NoteDir;
 
 impl FileOperations for NoteDir {
-    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        Ok(vec![DirEntry::new("note.txt", FileType::File)])
+    fn iterate_shared(
+        &mut self,
+        dentry: &Dentry,
+        ctx: &mut kobako_runtime::vfs::DirContext<'_>,
+    ) -> Result<(), FilesystemError> {
+        kobako_runtime::vfs::dir_emit_entries(
+            dentry,
+            ctx,
+            &[DirEntry::new("note.txt", FileType::File)],
+        );
+        Ok(())
     }
 }
 

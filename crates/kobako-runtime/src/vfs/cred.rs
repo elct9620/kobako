@@ -79,7 +79,7 @@ impl Default for RdirAccount {
 }
 
 /// Bytes a file's listing counts for as long as it holds them.
-pub(super) struct RdirCharge {
+pub struct RdirCharge {
     account: Arc<RdirAccount>,
     bytes: usize,
 }
@@ -113,7 +113,7 @@ impl Cred {
 
     /// Count `bytes` of a listing a file goes on holding, refused as out of memory
     /// past the limit, as `alloc_pipe_info` accounts each pipe to `cred->user`.
-    pub(super) fn account_rdir(&self, bytes: usize) -> Result<RdirCharge, FilesystemError> {
+    pub fn account_rdir(&self, bytes: usize) -> Result<RdirCharge, FilesystemError> {
         let account = &self.rdirs;
         account
             .used

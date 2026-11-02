@@ -20,7 +20,7 @@ use super::super::{
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
     lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_create, vfs_mkdir, vfs_rename,
-    vfs_rmdir, vfs_unlink, Dentry, RenameFlag,
+    vfs_rmdir, vfs_unlink, Dentry, DirContext, DirEmit, RenameFlag,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -218,10 +218,16 @@ impl OverlayPath {
             read: true,
             ..OpenOptions::default()
         };
+        let mut entries = Vec::new();
+        let mut actor = |emit: &DirEmit<'_>| {
+            entries.push(emit.to_dir_entry());
+            true
+        };
         self.dentry
             .inode_ops()?
             .open(&self.dentry, &options)?
-            .iterate_shared(&self.dentry)
+            .iterate_shared(&self.dentry, &mut DirContext::new(2, &mut actor))?;
+        Ok(entries)
     }
 
     pub(super) fn do_mkdir(&self, name: &str) -> Result<(), FilesystemError> {

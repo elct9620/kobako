@@ -107,10 +107,10 @@ impl Wasi {
             create_pipe_files(&stderr).1,
             mounts,
             open_file_limit,
+            memory_limit,
             profile,
         )
-        .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?
-        .with_rdir_limit(memory_limit);
+        .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?;
 
         let mut builder = WasiCtxBuilder::new();
         // The profile decides the ambient authority granted: the

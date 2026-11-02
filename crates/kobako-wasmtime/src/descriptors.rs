@@ -54,6 +54,7 @@ impl Descriptors {
         stderr: File,
         mounts: Vec<Mount>,
         limit: Option<usize>,
+        rdir_limit: Option<usize>,
         profile: Profile,
     ) -> Result<Self, FilesystemError> {
         let mut used = BTreeMap::from([
@@ -61,12 +62,12 @@ impl Descriptors {
             (1, Descriptor::of(stdout)),
             (2, Descriptor::of(stderr)),
         ]);
-        let cred = prepare_creds(&mounts);
+        let cred = prepare_creds(&mounts).with_rdir_limit(rdir_limit);
         for (fd, mount) in (3..).zip(&mounts) {
             used.insert(
                 fd,
                 Descriptor {
-                    file: File::root(mount.mnt())?,
+                    file: File::root(mount.mnt(), &cred)?,
                     preopen: Some(mount.at().to_string()),
                 },
             );
@@ -78,13 +79,6 @@ impl Descriptors {
             cred,
             profile,
         })
-    }
-
-    /// This table, its files holding at most `limit` bytes of listings between
-    /// calls, so a guest's host memory stays near what it was allotted.
-    pub(crate) fn with_rdir_limit(mut self, limit: Option<usize>) -> Self {
-        self.cred = self.cred.with_rdir_limit(limit);
-        self
     }
 
     /// Who the guest's calls are made for.
@@ -158,6 +152,7 @@ mod tests {
             pipe_end(),
             pipe_end(),
             Vec::new(),
+            None,
             None,
             Profile::Hermetic,
         )

@@ -17,6 +17,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/filesystem/bind.rs`
 - `crates/kobako-runtime/src/filesystem/overlay.rs`
 - `crates/kobako-runtime/src/filesystem/pipe.rs`
+- `crates/kobako-runtime/src/filesystem/rdir.rs`
 - `crates/kobako-runtime/src/filesystem/tmpfs.rs`
 - `crates/kobako-runtime/src/grant.rs`
 - `crates/kobako-runtime/src/mount.rs`
@@ -1024,11 +1025,11 @@ pub struct File {}
 
 ## `File::root`
 
-The root of a mounted Filesystem opened as a directory.
+The root of a mounted Filesystem opened as a directory for a caller.
 
 ```rust
 impl File {
-    pub fn root(mnt: &Arc<VfsMount>) -> Result<Self, FilesystemError> {}
+    pub fn root(mnt: &Arc<VfsMount>, cred: &Arc<Cred>) -> Result<Self, FilesystemError> {}
 }
 ```
 
@@ -1376,12 +1377,12 @@ impl DirContext {
 
 ## `File::iterate_dir`
 
-Hand a listing the entries of the directory from its position, `.` and `..`
-first, until its actor stops. A removed directory answers not found.
+Hand a listing the entries of the directory from its position until its actor
+stops. A removed directory answers not found.
 
 ```rust
 impl File {
-    pub fn iterate_dir(&mut self, cred: &Cred, ctx: &mut DirContext<'_>) -> Result<(), FilesystemError> {}
+    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), FilesystemError> {}
 }
 ```
 
@@ -1974,12 +1975,126 @@ pub trait FileOperations {
 
 ## `FileOperations::iterate_shared`
 
-The entries of this directory, without `.` or `..`. A file without it answers
-not a directory.
+Hand a listing the entries of this directory from its position, `.` and `..`
+first, until its actor stops. A file without it answers not a directory.
 
 ```rust
 pub trait FileOperations {
-    fn iterate_shared(&mut self, _dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError>;
+    fn iterate_shared(&mut self, _dentry: &Dentry, _ctx: &mut DirContext<'_>) -> Result<(), FilesystemError>;
+}
+```
+
+## `DirContext::pos`
+
+Where the listing stands.
+
+```rust
+impl DirContext {
+    pub fn pos(&self) -> u64 {}
+}
+```
+
+## `DirContext::cred`
+
+Who the listing is for.
+
+```rust
+impl DirContext {
+    pub fn cred(&self) -> &Arc<Cred> {}
+}
+```
+
+## `DirContext::failed`
+
+Whether a name no directory can hold stopped the listing.
+
+```rust
+impl DirContext {
+    pub fn failed(&self) -> bool {}
+}
+```
+
+## `DirContext::dir_emit`
+
+Hand the actor an entry, standing at a position once it took it, answering whether
+to go on.
+
+```rust
+impl DirContext {
+    pub fn dir_emit(&mut self, entry: &DirEntry, next: u64) -> bool {}
+}
+```
+
+## `DirEmit::to_dir_entry`
+
+This entry as a list keeps one.
+
+```rust
+impl DirEmit {
+    pub fn to_dir_entry(&self) -> DirEntry {}
+}
+```
+
+## `dir_emit_dots`
+
+Hand a listing the `.` and `..` it has yet to reach, answering whether to go on.
+
+```rust
+pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {}
+```
+
+## `dir_emit_entries`
+
+Hand a listing its dots, then entries by their index, answering whether it took
+them all.
+
+```rust
+pub fn dir_emit_entries(dentry: &Dentry, ctx: &mut DirContext<'_>, entries: &[DirEntry]) -> bool {}
+```
+
+## `generic_read_dir`
+
+What a directory's read answers.
+
+```rust
+pub fn generic_read_dir() -> Result<usize, FilesystemError> {}
+```
+
+## `Rdir`
+
+What a directory read whole at once holds while a listing goes on.
+
+```rust
+pub struct Rdir {}
+```
+
+## `Rdir::iterate`
+
+Hand a listing the directory from its position. A listing from the start reads it,
+and one going on reads what that listing began with. Those entries count against the
+caller until the listing ends.
+
+```rust
+impl Rdir {
+    pub fn iterate(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>, read: impl FnOnce() -> Result<Vec<DirEntry>, FilesystemError>) -> Result<(), FilesystemError> {}
+}
+```
+
+## `RdirCharge`
+
+Bytes a listing counts for as long as it holds them.
+
+```rust
+pub struct RdirCharge {}
+```
+
+## `Cred::account_rdir`
+
+Count bytes a listing goes on holding, refused as out of memory past the limit.
+
+```rust
+impl Cred {
+    pub fn account_rdir(&self, bytes: usize) -> Result<RdirCharge, FilesystemError> {}
 }
 ```
 

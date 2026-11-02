@@ -2093,3 +2093,23 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind whose walk found nothing at a name |
 | When | the guest makes a directory there, and stats the name |
 | Then | the stat finds the directory |
+
+## `FS-195` A Tmpfs listing goes on from a position each name keeps
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-182` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs directory a caller began to list, stopping after one name |
+| When | that name is removed and another made, and the caller lists on |
+| Then | the listing repeats nothing, skips nothing that stood, and holds the new name |
+
+## `FS-196` A directory of each built-in Filesystem answers its read as a directory
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory of a Tmpfs, a Bind, or an Overlay, opened to read |
+| When | a caller reads from it |
+| Then | the read answers EISDIR |

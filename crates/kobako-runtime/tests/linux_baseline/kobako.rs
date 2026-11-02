@@ -52,7 +52,7 @@ fn entries(file: &mut File) -> Result<Vec<(String, FileType)>, FilesystemError> 
         names.push((emit.name.to_string(), emit.file_type));
         true
     };
-    file.iterate_dir(&Cred::default(), &mut DirContext::new(0, &mut actor))?;
+    file.iterate_dir(&mut DirContext::new(0, &mut actor))?;
     Ok(names)
 }
 
@@ -70,8 +70,8 @@ impl Kobako {
     pub fn new(filesystem: Arc<Filesystem>, access: Access, merged: bool) -> Self {
         let mount = Mount::new("/baseline", filesystem, access).expect("/baseline is a guest path");
         let cred = prepare_creds([&mount]);
-        let root =
-            File::root(mount.mnt()).unwrap_or_else(|error| panic!("the root must open: {error:?}"));
+        let root = File::root(mount.mnt(), &cred)
+            .unwrap_or_else(|error| panic!("the root must open: {error:?}"));
         Self {
             cred,
             mnt: mount.mnt().clone(),
@@ -87,8 +87,8 @@ impl Kobako {
             .expect("/baseline is a guest path")
             .with_policy(policy);
         let cred = prepare_creds([&mount]);
-        let root =
-            File::root(mount.mnt()).unwrap_or_else(|error| panic!("the root must open: {error:?}"));
+        let root = File::root(mount.mnt(), &cred)
+            .unwrap_or_else(|error| panic!("the root must open: {error:?}"));
         Self {
             cred,
             mnt: mount.mnt().clone(),
@@ -100,8 +100,8 @@ impl Kobako {
 
     /// Another caller of the same mount, with descriptors of its own.
     pub fn another(&self) -> Self {
-        let root =
-            File::root(&self.mnt).unwrap_or_else(|error| panic!("the root must open: {error:?}"));
+        let root = File::root(&self.mnt, &self.cred)
+            .unwrap_or_else(|error| panic!("the root must open: {error:?}"));
         Self {
             cred: self.cred.clone(),
             mnt: self.mnt.clone(),

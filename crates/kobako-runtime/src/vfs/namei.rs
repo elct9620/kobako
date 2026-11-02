@@ -503,7 +503,7 @@ pub fn do_file_open(
     if how.truncate && existing == Some(FileType::File) {
         notify_change(&child, &Iattr::open_truncate())?;
     }
-    Ok(File::new(start.with_dentry(child), f_op, how))
+    Ok(File::new(start.with_dentry(child), f_op, how, cred))
 }
 
 /// What stands at the path answers before any access is judged, as Linux's
@@ -1031,8 +1031,8 @@ mod tests {
 
     use crate::filesystem::wrap::{self, Wrap};
     use crate::filesystem::{
-        DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-        FilesystemError, InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
+        DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
+        InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
     };
     use crate::mount::{Access, Mount, Policy};
     use crate::sched::testing::count_waits;
@@ -1725,11 +1725,17 @@ mod tests {
     struct FoldedDir(KernPath);
 
     impl FileOperations for FoldedDir {
-        fn iterate_shared(&mut self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-            match folded(dentry).as_str() {
+        fn iterate_shared(
+            &mut self,
+            dentry: &Dentry,
+            ctx: &mut vfs::DirContext<'_>,
+        ) -> Result<(), FilesystemError> {
+            let entries = match folded(dentry).as_str() {
                 "" => self.0.entries(),
                 at => self.0.open_dir(at)?.entries(),
-            }
+            }?;
+            vfs::dir_emit_entries(dentry, ctx, &entries);
+            Ok(())
         }
     }
 
