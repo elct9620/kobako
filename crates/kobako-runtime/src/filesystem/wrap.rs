@@ -130,6 +130,10 @@ impl<H: Hook> InodeOperations for Wrap<H> {
         self.inner.setattr(dentry, attr)
     }
 
+    fn get_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+        self.inner.get_link(dentry)
+    }
+
     fn fill_super(&self, sb: &mut Filesystem) {
         self.inner.fill_super(sb);
         if let Some(ops) = sb.d_op().cloned() {

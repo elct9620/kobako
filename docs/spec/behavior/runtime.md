@@ -2652,3 +2652,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a read-write Bind Mount on a host other than Linux, holding a file |
 | When | the guest opens the file to write and asks to allocate room in it |
 | Then | the allocation answers ENOTSUP, and the file holds what it held |
+
+## `RT-240` A `..` reaches the directory above where its directory stands now
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-115` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a walk standing in a directory beneath a Mount |
+| When | the directory moves during the walk, and the path goes on with `..` |
+| Then | the walk goes on from the directory it moved beneath |
+
+## `RT-241` A walk a move carried out from under its start answers ENOTCAPABLE
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-115` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a directory it opened beneath a Mount's root |
+| When | a move carries the directory a walk through it stands in out from under it |
+| Then | the call answers ENOTCAPABLE |

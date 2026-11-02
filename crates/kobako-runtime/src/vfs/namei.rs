@@ -44,9 +44,11 @@ enum LastType {
 pub(crate) struct Nameidata {
     pub(crate) mnt: Arc<VfsMount>,
     pub(crate) cred: Arc<Cred>,
-    /// Each directory from the one the walk started from, which no `..`
-    /// climbs above, down to the one it stands in.
-    frames: Vec<Arc<Dentry>>,
+    /// The directory the walk started from, which no `..` climbs above, as
+    /// `nd->root` holds it for `RESOLVE_BENEATH`.
+    root: Arc<Dentry>,
+    /// The directory the walk stands in, which holds the last name.
+    dir: Arc<Dentry>,
     pending: VecDeque<String>,
     links: usize,
     /// The last name, as Linux's `nd->last`, empty unless it is a `Norm` one.
@@ -66,7 +68,18 @@ pub(crate) struct Nameidata {
 impl Nameidata {
     /// The directory the walk stands in, which holds the last name.
     pub(crate) fn dentry(&self) -> &Arc<Dentry> {
-        self.frames.last().expect("a walk stands somewhere")
+        &self.dir
+    }
+
+    /// Refuse what the walk ended on unless it still stands beneath where the
+    /// walk started, as `complete_walk` asks `path_is_under` once a move may have
+    /// carried a directory out from under it.
+    fn complete_walk(&self) -> Result<(), FilesystemError> {
+        let ended = self.path.as_ref().unwrap_or(&self.dir);
+        match ended.is_subdir(&self.root) {
+            true => Ok(()),
+            false => Err(FilesystemError::Escape),
+        }
     }
 
     /// The dentry the walk ended on, as Linux's `do_open` and `vfs_getattr`
@@ -206,7 +219,7 @@ impl Nameidata {
         match inode.kind() {
             FileType::Symlink => self.pick_link(&dentry),
             FileType::Directory => {
-                self.frames.push(dentry);
+                self.dir = dentry;
                 Ok(())
             }
             _ => Err(FilesystemError::NotADirectory),
@@ -233,14 +246,15 @@ impl Nameidata {
         Ok(())
     }
 
-    /// Step out of the directory the walk stands in. Out of the one the
-    /// walk started from, no `..` holds a capability, as `RESOLVE_BENEATH`
-    /// refuses a caller's and a link's alike.
+    /// Step to the directory above the one the walk stands in, wherever that
+    /// one stands now, as `follow_dotdot` reads `d_parent`. Out of the one the
+    /// walk started from, or the mount's root, no `..` holds a capability, as
+    /// `RESOLVE_BENEATH` refuses a caller's and a link's alike.
     fn follow_dotdot(&mut self) -> Result<(), FilesystemError> {
-        if self.frames.len() == 1 {
+        if Arc::ptr_eq(&self.dir, &self.root) {
             return Err(FilesystemError::Escape);
         }
-        self.frames.pop();
+        self.dir = self.dir.parent().ok_or(FilesystemError::Escape)?;
         Ok(())
     }
 
@@ -356,7 +370,8 @@ fn set_nameidata(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<Nameidata
     Ok(Nameidata {
         mnt: start.mnt().clone(),
         cred: cred.clone(),
-        frames: vec![start.dentry().clone()],
+        root: start.dentry().clone(),
+        dir: start.dentry().clone(),
         pending: parts(path),
         links: 0,
         name: String::new(),
@@ -377,6 +392,7 @@ pub(crate) fn filename_parentat(
 ) -> Result<Nameidata, FilesystemError> {
     let mut nd = set_nameidata(cred, start, path)?;
     nd.link_path_walk()?;
+    nd.complete_walk()?;
     Ok(nd)
 }
 
@@ -393,6 +409,7 @@ pub(crate) fn filename_lookup(
     let mut nd = set_nameidata(cred, start, path)?;
     nd.link_path_walk()?;
     nd.lookup_last(follow, false)?;
+    nd.complete_walk()?;
     let kind = nd.kind()?;
     if nd.lookup_directory && kind != FileType::Directory {
         return Err(FilesystemError::NotADirectory);
@@ -415,6 +432,7 @@ pub fn do_file_open(
     nd.lookup_directory = how.directory;
     nd.link_path_walk()?;
     let held = nd.lookup_last(follow, how.create)?;
+    nd.complete_walk()?;
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     let existing = nd.path()?.inode().map(|inode| inode.kind());
@@ -986,6 +1004,104 @@ mod tests {
             self.linked.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
+
+    /// A link at the name `l`, moving a directory the moment the walk follows it,
+    /// when the walk holds no directory's lock, and leading back where it stands.
+    struct MovesWhenFollowed {
+        cred: Arc<vfs::Cred>,
+        root: Arc<OnceLock<Path>>,
+        from: &'static str,
+        to: &'static str,
+    }
+
+    impl InodeOperations for MovesWhenFollowed {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::Symlink, 0))
+        }
+
+        fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
+            let root = self.root.get().expect("the mount stands by the first walk");
+            vfs::filename_renameat2(&self.cred, root, self.from, root, self.to)?;
+            Ok(".".to_string())
+        }
+    }
+
+    struct LinkAtL(Arc<dyn InodeOperations>);
+
+    impl wrap::Hook for LinkAtL {
+        fn lookup(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<Lookup, FilesystemError> {
+            if dentry.name() != "l" {
+                return inner.lookup(dentry);
+            }
+            let link = Metadata::new(FileType::Symlink, 0);
+            Ok(Lookup::Found(Inode::new(&link, self.0.clone())))
+        }
+    }
+
+    /// The root of a Tmpfs of `files`, where following `l` moves `from` to `to`.
+    fn moves_as_walked(
+        files: &[(&'static str, &'static str)],
+        from: &'static str,
+        to: &'static str,
+    ) -> Path {
+        let tmpfs: Tmpfs = files.iter().copied().collect();
+        let root = Arc::new(OnceLock::new());
+        let link = MovesWhenFollowed {
+            cred: Arc::default(),
+            root: root.clone(),
+            from,
+            to,
+        };
+        let wrapped = Wrap::new(Arc::new(tmpfs), Arc::new(LinkAtL(Arc::new(link))));
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(wrapped)),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let path = Path::root(mount.mnt());
+        root.set(path.clone()).ok().expect("set only here");
+        path
+    }
+
+    // Only a link gives the walk a moment holding no lock, so a move lands between
+    // two of its steps without a thread racing it.
+    // @behavior RT-240
+    #[test]
+    fn a_dotdot_reads_where_the_directory_stands_now() {
+        let root = moves_as_walked(&[("a/b/keep", "k"), ("z/c", "moved")], "a/b", "z/b");
+        let found = vfs::vfs_fstatat(&Arc::default(), &root, "a/b/l/../c", false);
+        assert_eq!(
+            found.map(|metadata| metadata.len),
+            Ok(5),
+            "vfs_fstatat through `..` of a directory moved during the walk must reach \
+             the directory it stands in now, as follow_dotdot reads d_parent"
+        );
+    }
+
+    // @behavior RT-241
+    #[test]
+    fn a_walk_carried_out_from_under_its_start_answers_an_escape() {
+        let root = moves_as_walked(&[("a/b/k", "k"), ("z/keep", "z")], "a/b", "z/b");
+        let how = OpenHow {
+            read: true,
+            directory: true,
+            ..OpenHow::default()
+        };
+        let cred = Arc::default();
+        let start = vfs::do_file_open(&cred, &root, "a", &how).expect("a opens");
+        let ended = vfs::vfs_fstatat(&cred, start.path(), "b/l/k", false);
+        assert_eq!(
+            ended.err(),
+            Some(FilesystemError::Escape),
+            "vfs_fstatat ending on what a move carried out from under its start must \
+             answer an escape, as complete_walk asks path_is_under"
+        );
     }
 
     // A removal landing just before the link leaves the entry with no name, so
