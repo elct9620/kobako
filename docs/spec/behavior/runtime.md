@@ -2929,3 +2929,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose lookup of a name is under way for one walk |
 | When | another walk reaches the same name |
 | Then | it waits for that lookup's answer, and the Filesystem is asked once, as Linux's `d_alloc_parallel` has it wait |
+
+## `RT-265` A walk begun during a move begins once the move lands
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-240` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a move under way through the runtime |
+| When | a walk begins |
+| Then | it begins once the move lands, so no `..` it takes answers EAGAIN for that move |
