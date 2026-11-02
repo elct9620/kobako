@@ -52,6 +52,7 @@ const CODES: &[Code] = &[
     code(c"ELOOP", 32, 40, "Too many levels of symbolic links"),
     code(c"EMFILE", 33, 24, "Too many open files"),
     code(c"ENAMETOOLONG", 37, 36, "File name too long"),
+    code(c"ENODEV", 43, 19, "No such device"),
     code(c"ENOENT", 44, 2, "No such file or directory"),
     code(c"ENOMEM", 48, 12, "Cannot allocate memory"),
     code(c"ENOSPC", 51, 28, "No space left on device"),
