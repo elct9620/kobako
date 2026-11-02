@@ -33,6 +33,7 @@ const fn code(
 
 const CODES: &[Code] = &[
     code(c"EACCES", 2, 13, "Permission denied"),
+    code(c"EAGAIN", 6, 11, "Resource temporarily unavailable"),
     code(c"EBADF", 8, 9, "Bad file descriptor"),
     code(c"EBUSY", 10, 16, "Device or resource busy"),
     code(c"EDEADLK", 16, 35, "Resource deadlock avoided"),
