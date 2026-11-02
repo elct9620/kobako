@@ -2161,3 +2161,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a host directory the host lets no one read |
 | When | a caller makes a Bind of it |
 | Then | the Bind is refused as permission denied, on every host alike |
+
+## `FS-201` A moved Tmpfs entry keeps its names through the move
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-177` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs file a caller holds open, which another thread keeps moving |
+| When | the caller stats the file it holds |
+| Then | every stat reports the file with a name, as a move removes none |
