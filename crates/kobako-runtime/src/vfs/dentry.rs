@@ -8,7 +8,8 @@
 
 use std::any::Any;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::thread::ThreadId;
 
 use lru::LruCache;
 
@@ -18,6 +19,7 @@ use super::seqlock::SeqLock;
 use super::{FileType, FilesystemError, Metadata, OpenOptions};
 use crate::hashtable::Hashtable;
 use crate::locking::RwSemaphoreGuard;
+use crate::sched;
 
 /// What a Filesystem answers about a name rather than an entry, as Linux's
 /// `dentry_operations`: a name may stand for nothing, so no inode can answer
@@ -61,6 +63,19 @@ pub struct Dentry {
     /// What answers about this name, as `d_alloc` copies `s_d_op` from the
     /// super block.
     ops: Option<Arc<dyn DentryOperations>>,
+    /// Wakes the walks waiting while another looks this name up, as Linux's
+    /// `d_wait` does.
+    lookup_done: Condvar,
+}
+
+/// Where a walk asking for a lookup stands, as `d_alloc_parallel` answers.
+enum InLookup {
+    /// A lookup already answered for the name.
+    Answered,
+    /// This walk asks, and ends the lookup once answered.
+    Begun,
+    /// This walk's own lookup of the name is under way, and asks again within it.
+    Within,
 }
 
 struct State {
@@ -74,6 +89,9 @@ struct State {
     /// stands there rather than that nobody asked, as `d_add` leaves one hashed
     /// where `d_alloc` left it waiting for its `->lookup`.
     looked_up: bool,
+    /// The walk asking the Filesystem what stands here, while it asks, as
+    /// `DCACHE_PAR_LOOKUP` marks a dentry `d_alloc_parallel` handed out.
+    in_lookup: Option<ThreadId>,
 }
 
 impl Dentry {
@@ -88,10 +106,12 @@ impl Dentry {
                 name: name.to_string(),
                 inode: None,
                 looked_up: false,
+                in_lookup: None,
             }),
             this: this.clone(),
             fsdata: OnceLock::new(),
             ops,
+            lookup_done: Condvar::new(),
         })
     }
 
@@ -238,19 +258,71 @@ impl Dentry {
 
     /// Ask the directory `dir` what stands here where no lookup answered yet, and
     /// record it, as Linux's `lookup_fast` keeps a dentry, a negative one too, and
-    /// `lookup_one_qstr_excl` asks `->lookup` for one just made. A directory holding
+    /// `__lookup_slow` asks `->lookup` for one just made. One walk asks while any
+    /// other reaching the name waits for its answer, as `d_alloc_parallel` marks
+    /// the dentry in lookup and `d_wait_lookup` waits on it. A directory holding
     /// the entry under another spelling answers that spelling, for the caller to
     /// take that dentry instead.
     pub(crate) fn lookup_inode(&self, dir: &Dentry) -> Result<Option<String>, FilesystemError> {
-        if self.state().looked_up {
-            return Ok(None);
+        let ends = match self.d_in_lookup() {
+            InLookup::Answered => return Ok(None),
+            InLookup::Begun => true,
+            InLookup::Within => false,
+        };
+        let found = dir.inode_ops().and_then(|ops| ops.lookup(self));
+        let found = found.map(|found| match found {
+            Lookup::Found(inode) => {
+                self.add(Some(inode));
+                None
+            }
+            Lookup::Absent => {
+                self.add(None);
+                None
+            }
+            Lookup::Spelled(stored) => Some(stored),
+        });
+        if ends {
+            self.d_lookup_done();
         }
-        match dir.inode_ops()?.lookup(self)? {
-            Lookup::Found(inode) => self.add(Some(inode)),
-            Lookup::Absent => self.add(None),
-            Lookup::Spelled(stored) => return Ok(Some(stored)),
+        found
+    }
+
+    /// Mark this in lookup for the calling walk, waiting while another walk's
+    /// lookup of it is under way. A Filesystem asking the runtime about the name
+    /// its own lookup is answering asks it again within that lookup, as it would
+    /// otherwise wait on itself.
+    fn d_in_lookup(&self) -> InLookup {
+        let current = sched::current();
+        loop {
+            let mut state = self.state();
+            match state.in_lookup {
+                Some(walk) if walk == current => return InLookup::Within,
+                Some(_) => {
+                    drop(state);
+                    sched::schedule(&mut || {
+                        let mut state = self.state();
+                        while state.in_lookup.is_some() {
+                            state = self
+                                .lookup_done
+                                .wait(state)
+                                .unwrap_or_else(PoisonError::into_inner);
+                        }
+                    });
+                }
+                None if state.looked_up => return InLookup::Answered,
+                None => {
+                    state.in_lookup = Some(current);
+                    return InLookup::Begun;
+                }
+            }
         }
-        Ok(None)
+    }
+
+    /// End this walk's lookup, waking every walk waiting on it, as
+    /// `d_lookup_done` does.
+    fn d_lookup_done(&self) {
+        self.state().in_lookup = None;
+        self.lookup_done.notify_all();
     }
 
     /// What kind of entry this records, `NotFound` where it records none, as

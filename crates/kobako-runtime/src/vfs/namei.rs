@@ -166,17 +166,31 @@ pub(crate) fn d_revalidate(
     Ok(valid)
 }
 
-/// `name` in `parent` as that directory stores it, and the dentry of that
-/// spelling with what stands there recorded on it, as Linux's
-/// `lookup_one_qstr_excl` asks `->lookup` and a case-insensitive filesystem
-/// answers through `d_add_ci`: every spelling reaching one entry shares its
-/// dentry, and so its lock. The caller holds that directory's lock. A directory
-/// removed through the VFS is asked about no name, as Linux refuses a dead one.
+/// `name` in `parent` as that directory stores it, and its dentry, for a call
+/// holding that directory's lock to change the name, as Linux's
+/// `lookup_one_qstr_excl` does.
 pub(crate) fn lookup_one_qstr_excl(
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<(String, Arc<Dentry>), FilesystemError> {
+    __lookup_slow(sb, parent, name)
+}
+
+/// `name` in `parent` as that directory stores it, and the dentry of that
+/// spelling with what stands there recorded on it, as Linux's `__lookup_slow`
+/// asks `->lookup` once among the walks holding the directory's lock shared, and
+/// a case-insensitive filesystem answers through `d_add_ci`: every spelling
+/// reaching one entry shares its dentry, and so its lock. A directory removed
+/// through the VFS is asked about no name, as Linux refuses a dead one.
+fn __lookup_slow(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<(String, Arc<Dentry>), FilesystemError> {
+    if parent.is_deaddir() {
+        return Err(FilesystemError::NotFound);
+    }
     let dentry_of = |name: &str| -> Result<Arc<Dentry>, FilesystemError> {
         match lookup_dcache(sb, parent, name)? {
             Some(held) => Ok(held),
@@ -184,9 +198,6 @@ pub(crate) fn lookup_one_qstr_excl(
         }
     };
     let given = dentry_of(name)?;
-    if given.inode().is_none() && parent.is_deaddir() {
-        return Err(FilesystemError::NotFound);
-    }
     let (stored, dentry) = match given.lookup_inode(parent)? {
         None => (name.to_string(), given),
         Some(stored) => {
@@ -209,7 +220,7 @@ fn lookup_slow(
     name: &str,
 ) -> Result<Arc<Dentry>, FilesystemError> {
     let _held = parent.inode_lock_shared()?;
-    Ok(lookup_one_qstr_excl(sb, parent, name)?.1)
+    Ok(__lookup_slow(sb, parent, name)?.1)
 }
 
 /// Each name of `path`, empty between two slashes and after a last one.
@@ -653,9 +664,6 @@ fn filename_create(
     let child = nd.lookup_last_locked()?;
     if child.inode().is_some() {
         return Err(FilesystemError::AlreadyExists);
-    }
-    if nd.dentry().is_deaddir() {
-        return Err(FilesystemError::NotFound);
     }
     if nd.trailing_slash && !want_dir {
         return Err(FilesystemError::NotFound);
@@ -3146,6 +3154,91 @@ mod tests {
             (Some(FilesystemError::PermissionDenied), true),
             "vfs::do_file_open with O_CREAT of a missing path whose Filesystem refuses to open what \
              it makes must make the file and answer EACCES"
+        );
+    }
+
+    /// A directory whose lookup of `x` counts itself and holds until told to go on.
+    struct HoldsLookup {
+        asked: AtomicUsize,
+        reached: Mutex<mpsc::Sender<()>>,
+        go_on: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl FileSystemType for HoldsLookup {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for HoldsLookup {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(crate::filesystem::FileType::Directory, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            self.reached.lock().expect("never poisoned").send(()).ok();
+            self.go_on
+                .lock()
+                .expect("never poisoned")
+                .recv_timeout(crate::sched::testing::MAX_WAIT)
+                .ok();
+            Ok(Lookup::Absent)
+        }
+    }
+
+    // A second walk reaching the name while the first asks waits through the
+    // registered Blocking, so the count shows it waited rather than asked.
+    // @behavior RT-264
+    #[test]
+    fn walks_reaching_one_name_at_once_ask_its_filesystem_once() {
+        let (reached, reaching) = mpsc::channel();
+        let (go_on, going) = mpsc::channel();
+        let holds = Arc::new(HoldsLookup {
+            asked: AtomicUsize::new(0),
+            reached: Mutex::new(reached),
+            go_on: Mutex::new(going),
+        });
+        let root = root_of(Filesystem::new(holds.clone()).expect("the instance must stand"));
+        let stat = |root: &Path| vfs::vfs_fstatat(&Arc::default(), root, "x", false).err();
+        let first = {
+            let root = root.clone();
+            thread::spawn(move || stat(&root))
+        };
+        reaching
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the first walk must ask");
+        let (counted, counting) = mpsc::channel();
+        let second = {
+            let root = root.clone();
+            thread::spawn(move || {
+                counted.send(count_waits()).ok();
+                stat(&root)
+            })
+        };
+        let waits = counting
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the second walk must start");
+        crate::sched::testing::wait_until("the second walk waiting", || {
+            waits.load(Ordering::SeqCst) > 0
+        });
+        go_on.send(()).ok();
+        go_on.send(()).ok();
+        let answers = (
+            first.join().expect("the first walk must not panic"),
+            second.join().expect("the second walk must not panic"),
+        );
+        assert_eq!(
+            (answers, holds.asked.load(Ordering::SeqCst)),
+            (
+                (
+                    Some(FilesystemError::NotFound),
+                    Some(FilesystemError::NotFound)
+                ),
+                1
+            ),
+            "vfs::vfs_fstatat of one name from two walks at once must ask the Filesystem's \
+             lookup once, the second waiting for the first's answer"
         );
     }
 
