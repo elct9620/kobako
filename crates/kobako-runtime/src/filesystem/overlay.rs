@@ -593,6 +593,47 @@ mod tests {
         );
     }
 
+    /// A security module recording the name of each directory it is asked to
+    /// let change.
+    struct RecordsChanges(Arc<Mutex<Vec<String>>>);
+
+    impl crate::vfs::SecurityOperations for RecordsChanges {
+        fn inode_permission(
+            &self,
+            dentry: &Dentry,
+            mask: crate::vfs::Mask,
+        ) -> Result<(), FilesystemError> {
+            if mask.contains(crate::vfs::Mask::WRITE) {
+                self.0.lock().expect("never poisoned").push(dentry.name());
+            }
+            Ok(())
+        }
+    }
+
+    // A Layer's directories carry names of their own, so a module asked about
+    // one would record more than the view's root.
+    // @behavior FS-198
+    #[test]
+    fn a_call_through_an_overlay_asks_a_module_of_the_view_alone() {
+        let overlay = over(tmpfs_with("f", "x"), Arc::new(Tmpfs::new()));
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(overlay)).expect("the instance must stand"),
+            crate::mount::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let cred = crate::vfs::Cred::new(vec![Arc::new(RecordsChanges(asked.clone()))]);
+        let root = crate::vfs::Path::root(mount.mnt());
+        let made = crate::vfs::filename_mkdirat(&cred, &root, "d");
+        assert_eq!(
+            (made, asked.lock().expect("never poisoned").clone()),
+            (Ok(()), vec![String::new()]),
+            "vfs::filename_mkdirat through an Overlay must ask a security module of the view's \
+             directory alone, as overlayfs makes its Layers' calls with its creator_cred"
+        );
+    }
+
     /// `upper` over the one lower Layer `lower`.
     fn over(lower: Arc<dyn FileSystemType>, upper: Arc<Tmpfs>) -> Overlay {
         let instance = |fs| Filesystem::new(fs).expect("the instance must stand");
@@ -1288,7 +1329,8 @@ mod tests {
         let file = lookup_one_qstr_excl(&filesystem, &dir, "file")
             .expect("the file must be found")
             .1;
-        vfs_unlink(&filesystem, &dir, &file).expect("the file must be removed");
+        vfs_unlink(&Default::default(), &filesystem, &dir, &file)
+            .expect("the file must be removed");
         let upper_root = overlay.fs.dir(&root).expect("the root must stand").level()[0]
             .clone()
             .expect("the upper shows the root");

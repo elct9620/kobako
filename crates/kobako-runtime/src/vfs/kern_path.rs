@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::namei::{
-    atomic_open, filename_lookup, filename_parentat, lookup_one_qstr_excl, vfs_mkdir, vfs_rename,
-    vfs_rmdir, vfs_unlink, Nameidata, RenameData,
+    atomic_open, filename_lookup, filename_parentat, lookup_one_qstr_excl, may_create_dentry,
+    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata, RenameData,
 };
 use super::path::Path;
 use super::{
@@ -86,6 +86,7 @@ impl KernPath {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let (nd, child) = self.parent(path)?;
+        may_create_dentry(&nd.cred, nd.dentry(), &child)?;
         atomic_open(nd.dentry(), &child, options)
     }
 
@@ -141,17 +142,17 @@ impl KernPath {
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let (nd, child) = self.parent(path)?;
-        vfs_mkdir(nd.mnt.sb(), nd.dentry(), &child)
+        vfs_mkdir(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let (nd, child) = self.parent(path)?;
-        vfs_rmdir(nd.mnt.sb(), nd.dentry(), &child)
+        vfs_rmdir(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
         let (nd, child) = self.parent(path)?;
-        vfs_unlink(nd.mnt.sb(), nd.dentry(), &child)
+        vfs_unlink(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
 
     /// Move `from` beneath this directory to `to` beneath `to_dir`,
@@ -171,6 +172,7 @@ impl KernPath {
             return Err(FilesystemError::DirectoryNotEmpty);
         }
         vfs_rename(
+            &source.cred,
             source.mnt.sb(),
             &RenameData {
                 _held: Vec::new(),

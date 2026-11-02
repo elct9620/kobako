@@ -129,16 +129,6 @@ impl Nameidata {
             name: &|| self.dentry_path(),
         })
     }
-
-    /// Whether a security hook lets the directory the walk stands in change, as
-    /// `may_create_dentry` and `may_delete_dentry` reach it through
-    /// `inode_permission`. The VFS's own helpers carry no Cred, as what a
-    /// Filesystem does beneath its own name is its to answer, as overlayfs
-    /// overrides the caller's creds, so a call asks here.
-    fn security_may_change(&self) -> Result<(), FilesystemError> {
-        self.cred
-            .security_inode_permission(self.dentry(), Mask::WRITE | Mask::EXEC)
-    }
 }
 
 /// The dentry held for `name` in `parent`, as Linux's `lookup_dcache` finds one:
@@ -276,9 +266,7 @@ impl Nameidata {
     /// Linux's `link_path_walk` leaves `nd->last` and `nd->last_type`.
     fn link_path_walk(&mut self) -> Result<(), FilesystemError> {
         loop {
-            inode_permission(self.dentry(), Mask::EXEC)?;
-            self.cred
-                .security_inode_permission(self.dentry(), Mask::EXEC)?;
+            inode_permission(&self.cred, self.dentry(), Mask::EXEC)?;
             let part = self.pending.pop_front().ok_or(FilesystemError::NotFound)?;
             let slashes = self
                 .pending
@@ -396,10 +384,11 @@ fn getname(path: &str) -> Result<(), FilesystemError> {
     Ok(())
 }
 
-/// Whether a call may do what `mask` asks of what `dentry` names, as Linux's
-/// `inode_permission` asks `->permission`.
-fn inode_permission(dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
-    dentry.inode_ops()?.permission(dentry, mask)
+/// Whether `cred` may do what `mask` asks of what `dentry` names, as Linux's
+/// `inode_permission` asks `->permission` and then the security modules.
+fn inode_permission(cred: &Cred, dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
+    dentry.inode_ops()?.permission(dentry, mask)?;
+    cred.security_inode_permission(dentry, mask)
 }
 
 /// The walk of `path` beneath `start`, ready to begin, as Linux's
@@ -487,7 +476,7 @@ pub fn do_file_open(
     // `lookup_open` holds it, so nothing made or removed in between changes what
     // the open decided. What already stood opens without it, as `do_open` does.
     let _held = held.filter(|_| existing.is_none());
-    refuse_what_stands(&*nd.path()?, existing, nd.lookup_directory, how)?;
+    refuse_what_stands(cred, &*nd.path()?, existing, nd.lookup_directory, how)?;
     // Creating changes the mount only where nothing stands yet, so the hook
     // judges the open once, knowing what it does. A change asks the mount first.
     let changes = how.write || how.truncate || (how.create && existing.is_none());
@@ -498,22 +487,16 @@ pub fn do_file_open(
         true => Access::ReadWrite,
         false => Access::Read,
     };
+    let child = nd.path()?;
     match existing {
-        Some(kind) => {
-            cred.security_inode_permission(&*nd.path()?, open_mask(how))?;
-            nd.on_path(|path| cred.security_file_open(path, kind, access))?;
-        }
-        None => {
-            nd.on_path(|path| cred.security_path_mknod(path))?;
-            nd.security_may_change()?;
-        }
+        Some(kind) => nd.on_path(|path| cred.security_file_open(path, kind, access))?,
+        None => may_o_create(&nd, &child)?,
     }
     let options = OpenOptions {
         read: how.read,
         write: how.write,
         truncate: how.truncate,
     };
-    let child = nd.path()?;
     let f_op = match existing {
         None => atomic_open(nd.dentry(), &child, &options)?,
         Some(_) => child.open(&options)?,
@@ -527,9 +510,18 @@ pub fn do_file_open(
     Ok(File::new(start.with_dentry(child), f_op, how, cred))
 }
 
+/// Whether an open may make `child` in the directory the walk stands in, as
+/// Linux's `may_o_create` asks the module judging the path and then
+/// `inode_permission`.
+fn may_o_create(nd: &Nameidata, child: &Dentry) -> Result<(), FilesystemError> {
+    nd.on_path(|path| nd.cred.security_path_mknod(path))?;
+    may_create_dentry(&nd.cred, nd.dentry(), child)
+}
+
 /// What stands at the path answers before any access is judged, as Linux's
 /// `do_open` answers it on a read-only mount.
 fn refuse_what_stands(
+    cred: &Cred,
     child: &Dentry,
     existing: Option<FileType>,
     lookup_directory: bool,
@@ -545,7 +537,7 @@ fn refuse_what_stands(
     };
     match refusal {
         Some(error) => Err(error),
-        None => may_open(child, existing, how),
+        None => may_open(cred, child, existing, how),
     }
 }
 
@@ -553,6 +545,7 @@ fn refuse_what_stands(
 /// link, which the walk would have followed if asked, a directory for
 /// writing, and anything `inode_permission` refuses for what the open asks.
 fn may_open(
+    cred: &Cred,
     child: &Dentry,
     existing: Option<FileType>,
     how: &OpenHow,
@@ -565,7 +558,7 @@ fn may_open(
         }
         Some(_) => {}
     }
-    inode_permission(child, open_mask(how))
+    inode_permission(cred, child, open_mask(how))
 }
 
 /// What an open asks of what it opens, as `build_open_flags` makes `acc_mode`.
@@ -601,8 +594,7 @@ pub fn filename_linkat(
         return Err(FilesystemError::CrossesDevices);
     }
     old.on_path(|old| new.on_path(|new| cred.security_path_link(old, new)))?;
-    new.security_may_change()?;
-    vfs_link(new.mnt.sb(), &target, new.dentry(), &child)
+    vfs_link(cred, new.mnt.sb(), &target, new.dentry(), &child)
 }
 
 /// Make the link `path` beneath `start` names, pointing at `target`, as
@@ -617,8 +609,7 @@ pub fn filename_symlinkat(
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, false)?;
     nd.on_path(|path| cred.security_path_symlink(path))?;
-    nd.security_may_change()?;
-    vfs_symlink(nd.mnt.sb(), nd.dentry(), &child, target)
+    vfs_symlink(cred, nd.mnt.sb(), nd.dentry(), &child, target)
 }
 
 /// Hold the directory a name is made in and take the name's dentry, as
@@ -636,7 +627,12 @@ fn filename_create(
     let write = nd.mnt.mnt_want_write();
     let held = nd.dentry().inode_lock()?;
     let child = nd.lookup_last_locked()?;
-    may_create_dentry(nd.dentry(), &child)?;
+    if child.inode().is_some() {
+        return Err(FilesystemError::AlreadyExists);
+    }
+    if nd.dentry().is_deaddir() {
+        return Err(FilesystemError::NotFound);
+    }
     if nd.trailing_slash && !want_dir {
         return Err(FilesystemError::NotFound);
     }
@@ -661,8 +657,7 @@ pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<()
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, true)?;
     nd.on_path(|path| cred.security_path_mkdir(path))?;
-    nd.security_may_change()?;
-    vfs_mkdir(nd.mnt.sb(), nd.dentry(), &child)
+    vfs_mkdir(cred, nd.mnt.sb(), nd.dentry(), &child)
 }
 
 /// Remove the empty directory `path` beneath `start`, as Linux's
@@ -677,8 +672,7 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<(), 
     nd.mnt.mnt_want_write()?;
     let (_held, child) = start_dirop(&mut nd)?;
     nd.on_path(|path| cred.security_path_rmdir(path))?;
-    nd.security_may_change()?;
-    vfs_rmdir(nd.mnt.sb(), nd.dentry(), &child)
+    vfs_rmdir(cred, nd.mnt.sb(), nd.dentry(), &child)
 }
 
 /// Remove the file `path` beneath `start`, as Linux's `filename_unlinkat` does.
@@ -702,8 +696,7 @@ pub fn filename_unlinkat(
         });
     }
     nd.on_path(|path| cred.security_path_unlink(path))?;
-    nd.security_may_change()?;
-    vfs_unlink(nd.mnt.sb(), nd.dentry(), &child)
+    vfs_unlink(cred, nd.mnt.sb(), nd.dentry(), &child)
 }
 
 /// Move `from_path` beneath `from` to `to_path` beneath `to`. A rename
@@ -744,9 +737,7 @@ pub fn filename_renameat2(
     source.on_path(|old| {
         target.on_path(|new| cred.security_path_rename(old, new, (&rd.old_dentry, &rd.new_dentry)))
     })?;
-    source.security_may_change()?;
-    target.security_may_change()?;
-    vfs_rename(sb, &rd)
+    vfs_rename(cred, sb, &rd)
 }
 
 /// Hold both directories a move between them changes exclusive, as Linux's
@@ -870,7 +861,11 @@ fn lock_two_nondirectories(
 /// side is checked first, as `vfs_rename` asks `may_delete_dentry` and
 /// `may_create_dentry`. A directory replaced at the new name is gone for whoever
 /// holds it, and an exchange swaps the two names' dentries, as `d_exchange` does.
-pub(crate) fn vfs_rename(sb: &SuperBlock, rd: &RenameData) -> Result<(), FilesystemError> {
+pub(crate) fn vfs_rename(
+    cred: &Cred,
+    sb: &SuperBlock,
+    rd: &RenameData,
+) -> Result<(), FilesystemError> {
     let (old_dir, old) = (&rd.old_parent, &rd.old_dentry);
     let (new_dir, new) = (&rd.new_parent, &rd.new_dentry);
     let flag = rd.flag;
@@ -880,13 +875,13 @@ pub(crate) fn vfs_rename(sb: &SuperBlock, rd: &RenameData) -> Result<(), Filesys
         return Ok(());
     }
     let is_dir = moving == Some(FileType::Directory);
-    may_delete_dentry(old_dir, moving, is_dir)?;
+    may_delete_dentry(cred, old_dir, moving, is_dir)?;
     match (target, flag) {
-        (None, _) => may_create_dentry(new_dir, new)?,
+        (None, _) => may_create_dentry(cred, new_dir, new)?,
         (target, Some(RenameFlag::Exchange)) => {
-            may_delete_dentry(new_dir, target, target == Some(FileType::Directory))?
+            may_delete_dentry(cred, new_dir, target, target == Some(FileType::Directory))?
         }
-        (target, _) => may_delete_dentry(new_dir, target, is_dir)?,
+        (target, _) => may_delete_dentry(cred, new_dir, target, is_dir)?,
     }
     let _held = lock_moved(
         (old, is_dir),
@@ -915,11 +910,12 @@ pub(crate) fn vfs_rename(sb: &SuperBlock, rd: &RenameData) -> Result<(), Filesys
 /// once its caller holds `dir`: the directory removed is held too, so nothing
 /// is made in it meanwhile, and its dentry dies before either is let go.
 pub(crate) fn vfs_rmdir(
+    cred: &Cred,
     sb: &SuperBlock,
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    may_delete_dentry(dir, victim.kind().ok(), true)?;
+    may_delete_dentry(cred, dir, victim.kind().ok(), true)?;
     let _victim = victim.inode_lock()?;
     dir.inode_ops()?.rmdir(victim)?;
     victim.mark_dead();
@@ -932,11 +928,12 @@ pub(crate) fn vfs_rmdir(
 /// as `d_delete` unhashes one still in use, so a file made at the name later
 /// has its own.
 pub(crate) fn vfs_unlink(
+    cred: &Cred,
     sb: &SuperBlock,
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    may_delete_dentry(dir, victim.kind().ok(), false)?;
+    may_delete_dentry(cred, dir, victim.kind().ok(), false)?;
     let _victim = victim.inode_lock()?;
     dir.inode_ops()?.unlink(victim)?;
     sb.dentries().unhash(victim);
@@ -946,31 +943,31 @@ pub(crate) fn vfs_unlink(
 /// Make the directory `child` in `dir`, as Linux's `vfs_mkdir` does once its
 /// caller holds `dir`.
 pub(crate) fn vfs_mkdir(
+    cred: &Cred,
     sb: &SuperBlock,
     dir: &Dentry,
     child: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    may_create_dentry(dir, child)?;
+    may_create_dentry(cred, dir, child)?;
     dir.inode_ops()?.mkdir(child)?;
     drop_unless_instantiated(sb, child);
     Ok(())
 }
 
 /// Make the file `child` in `dir` and open it as `options` asks, as Linux's
-/// `atomic_open` does once its caller holds `dir`.
+/// `atomic_open` does once its caller holds `dir` and asked `may_o_create`.
 pub(crate) fn atomic_open(
     dir: &Dentry,
     child: &Dentry,
     options: &OpenOptions,
 ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-    may_create_dentry(dir, child)?;
     dir.inode_ops()?.atomic_open(child, options)
 }
 
 /// Make the file `child` in `dir`, as Linux's `vfs_create` does once its caller
 /// holds `dir`.
-pub(crate) fn vfs_create(dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
-    may_create_dentry(dir, child)?;
+pub(crate) fn vfs_create(cred: &Cred, dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
+    may_create_dentry(cred, dir, child)?;
     dir.inode_ops()?.create(child)
 }
 
@@ -986,12 +983,13 @@ fn drop_unless_instantiated(sb: &SuperBlock, child: &Arc<Dentry>) {
 /// does once its caller holds `dir`: a directory is refused, and what `old`
 /// names is held, so a removal landing first leaves no name to give another.
 fn vfs_link(
+    cred: &Cred,
     sb: &SuperBlock,
     old: &Dentry,
     dir: &Dentry,
     child: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    may_create_dentry(dir, child)?;
+    may_create_dentry(cred, dir, child)?;
     if old.kind()? == FileType::Directory {
         return Err(FilesystemError::NotPermitted);
     }
@@ -1007,12 +1005,13 @@ fn vfs_link(
 /// Make the link `child` in `dir`, as Linux's `vfs_symlink` does once its caller
 /// holds `dir`.
 fn vfs_symlink(
+    cred: &Cred,
     sb: &SuperBlock,
     dir: &Dentry,
     child: &Arc<Dentry>,
     target: &str,
 ) -> Result<(), FilesystemError> {
-    may_create_dentry(dir, child)?;
+    may_create_dentry(cred, dir, child)?;
     dir.inode_ops()?.symlink(child, target)?;
     drop_unless_instantiated(sb, child);
     Ok(())
@@ -1020,14 +1019,18 @@ fn vfs_symlink(
 
 /// Refuse to make an entry at `child` in `dir` where its lookup found one, or
 /// once `dir` was removed, as Linux's `may_create_dentry` reads `d_inode`.
-pub(crate) fn may_create_dentry(dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
+pub(crate) fn may_create_dentry(
+    cred: &Cred,
+    dir: &Dentry,
+    child: &Dentry,
+) -> Result<(), FilesystemError> {
     if child.inode().is_some() {
         return Err(FilesystemError::AlreadyExists);
     }
     if dir.is_deaddir() {
         return Err(FilesystemError::NotFound);
     }
-    inode_permission(dir, Mask::WRITE | Mask::EXEC)
+    inode_permission(cred, dir, Mask::WRITE | Mask::EXEC)
 }
 
 /// Refuse to remove `victim`, what stands at a name in `dir`, where
@@ -1035,6 +1038,7 @@ pub(crate) fn may_create_dentry(dir: &Dentry, child: &Dentry) -> Result<(), File
 /// not the kind `is_dir` asks for, or once `dir` was removed, as Linux's
 /// `may_delete_dentry` refuses.
 fn may_delete_dentry(
+    cred: &Cred,
     dir: &Dentry,
     victim: Option<FileType>,
     is_dir: bool,
@@ -1042,7 +1046,7 @@ fn may_delete_dentry(
     let Some(victim) = victim else {
         return Err(FilesystemError::NotFound);
     };
-    inode_permission(dir, Mask::WRITE | Mask::EXEC)?;
+    inode_permission(cred, dir, Mask::WRITE | Mask::EXEC)?;
     match (is_dir, victim == FileType::Directory) {
         (true, false) => return Err(FilesystemError::NotADirectory),
         (false, true) => return Err(FilesystemError::IsADirectory),
@@ -1625,6 +1629,55 @@ mod tests {
         }
     }
 
+    /// A security module counting the changes it is asked about.
+    struct CountsChanges(Arc<AtomicUsize>);
+
+    impl vfs::SecurityOperations for CountsChanges {
+        fn inode_permission(&self, _dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
+            if mask.contains(Mask::WRITE) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+            Ok(())
+        }
+    }
+
+    // @behavior RT-255
+    #[test]
+    fn a_module_is_asked_only_what_a_filesystems_permission_allowed() {
+        let hook = Arc::new(RecordsPermission::default());
+        let root = permission_root(&hook);
+        let asked = Arc::new(AtomicUsize::new(0));
+        let cred = vfs::Cred::new(vec![Arc::new(CountsChanges(asked.clone()))]);
+        let how = OpenHow {
+            write: true,
+            create: true,
+            ..OpenHow::default()
+        };
+        let make = |name: &str| {
+            (
+                vfs::filename_mkdirat(&cred, &root, &format!("{name}-dir")),
+                vfs::do_file_open(&cred, &root, &format!("{name}-file"), &how).map(drop),
+            )
+        };
+        let allowed = make("made");
+        let after_allowed = asked.load(Ordering::SeqCst);
+        hook.refuse_writes.store(true, Ordering::SeqCst);
+        let refused = make("refused");
+        let denied = || Err(FilesystemError::PermissionDenied);
+        assert_eq!(
+            (
+                allowed,
+                after_allowed,
+                refused,
+                asked.load(Ordering::SeqCst)
+            ),
+            ((Ok(()), Ok(())), 2, (denied(), denied()), 2),
+            "vfs::filename_mkdirat and vfs::do_file_open making a name must ask a security \
+             module once a Filesystem's permission allowed the change, as inode_permission \
+             asks ->permission first and may_o_create asks it of an open"
+        );
+    }
+
     /// The root of a Tmpfs of `a/b/f` and `a/d/`, whose permission `hook` answers.
     fn permission_root(hook: &Arc<RecordsPermission>) -> Path {
         let tmpfs: Tmpfs = [("a/b/f", "f"), ("a/d/keep", "k")].into_iter().collect();
@@ -1657,7 +1710,6 @@ mod tests {
                 name("", Mask::EXEC),
                 name("a", Mask::EXEC),
                 name("b", Mask::EXEC),
-                name("b", change),
                 name("b", change),
             ],
             "vfs::filename_mkdirat must ask of each directory walked, then of the one \

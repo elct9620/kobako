@@ -230,8 +230,9 @@ impl OverlayFs {
     ) -> Result<Self, FilesystemError> {
         let mut roots = vec![None];
         let mut work = None;
+        let creator_cred = Arc::default();
         if let Some(upper) = upper {
-            let root = OverlayPath::root(&upper);
+            let root = OverlayPath::root(&upper, &creator_cred);
             roots[UPPER] = Some(workdir_create(&root, UPPERDIR)?);
             let made = workdir_create(&root, WORKDIR)?;
             for entry in made.entries()? {
@@ -239,7 +240,11 @@ impl OverlayFs {
             }
             work = Some(made);
         }
-        roots.extend(lower.iter().map(|layer| Some(OverlayPath::root(layer))));
+        roots.extend(
+            lower
+                .iter()
+                .map(|layer| Some(OverlayPath::root(layer, &creator_cred))),
+        );
         Ok(Self {
             roots,
             work,

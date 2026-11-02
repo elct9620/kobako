@@ -20,7 +20,7 @@ use super::super::{
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
     lookup_one_qstr_excl, may_create_dentry, start_renaming, vfs_create, vfs_mkdir, vfs_rename,
-    vfs_rmdir, vfs_unlink, Dentry, DirContext, DirEmit, RenameFlag,
+    vfs_rmdir, vfs_unlink, Cred, Dentry, DirContext, DirEmit, RenameFlag,
 };
 
 /// The attribute marking a directory opaque, and its value, as
@@ -32,14 +32,18 @@ const OPAQUE: &[u8] = b"y";
 pub(super) struct OverlayPath {
     filesystem: Arc<Filesystem>,
     dentry: Arc<Dentry>,
+    /// Who every call on a Layer is made as, whoever asked the view, as overlayfs
+    /// overrides the caller's creds with `ofs->creator_cred`.
+    creator_cred: Arc<Cred>,
 }
 
 impl OverlayPath {
     /// The root of the Layer `filesystem` stands for.
-    pub(super) fn root(filesystem: &Arc<Filesystem>) -> Self {
+    pub(super) fn root(filesystem: &Arc<Filesystem>, creator_cred: &Arc<Cred>) -> Self {
         Self {
             dentry: filesystem.dentries().root(),
             filesystem: filesystem.clone(),
+            creator_cred: creator_cred.clone(),
         }
     }
 
@@ -107,7 +111,7 @@ impl OverlayPath {
 
     pub(super) fn do_whiteout(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        may_create_dentry(&self.dentry, &*self.lookup_real(name)?)?;
+        may_create_dentry(&self.creator_cred, &self.dentry, &*self.lookup_real(name)?)?;
         self.upper()?.whiteout(name)
     }
 
@@ -126,7 +130,7 @@ impl OverlayPath {
             (&target.dentry, to),
             flag,
         )?;
-        vfs_rename(&self.filesystem, &rd)
+        vfs_rename(&self.creator_cred, &self.filesystem, &rd)
     }
 
     pub(super) fn do_tmpfile(&self) -> Result<TmpfsFile, FilesystemError> {
@@ -143,7 +147,7 @@ impl OverlayPath {
     ) -> Result<Arc<Dentry>, FilesystemError> {
         let _held = self.inode_lock()?;
         let dentry = self.lookup_real(name)?;
-        may_create_dentry(&self.dentry, &dentry)?;
+        may_create_dentry(&self.creator_cred, &self.dentry, &dentry)?;
         let upper = self.upper()?;
         upper.link(file, name)?;
         if let Lookup::Found(inode) = upper.lookup(&dentry)? {
@@ -174,14 +178,14 @@ impl OverlayPath {
     pub(super) fn beneath(&self, dentry: Arc<Dentry>) -> Self {
         Self {
             dentry,
-            filesystem: self.filesystem.clone(),
+            ..self.clone()
         }
     }
 
     /// Make the file `name`, holding the directory, as `ovl_do_create` does.
     pub(super) fn do_create(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_create(&self.dentry, &*self.lookup_real(name)?)
+        vfs_create(&self.creator_cred, &self.dentry, &*self.lookup_real(name)?)
     }
 
     /// The directory standing at `name`, a link there refused as a loop, as
@@ -191,10 +195,7 @@ impl OverlayPath {
         let dentry = self.lookup_real(name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
-            FileType::Directory => Ok(Self {
-                dentry,
-                filesystem: self.filesystem.clone(),
-            }),
+            FileType::Directory => Ok(self.beneath(dentry)),
             FileType::Symlink => Err(FilesystemError::FilesystemLoop),
             _ => Err(FilesystemError::NotADirectory),
         }
@@ -239,16 +240,31 @@ impl OverlayPath {
 
     pub(super) fn do_mkdir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_mkdir(&self.filesystem, &self.dentry, &self.lookup_real(name)?)
+        vfs_mkdir(
+            &self.creator_cred,
+            &self.filesystem,
+            &self.dentry,
+            &self.lookup_real(name)?,
+        )
     }
 
     pub(super) fn do_rmdir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_rmdir(&self.filesystem, &self.dentry, &self.lookup_real(name)?)
+        vfs_rmdir(
+            &self.creator_cred,
+            &self.filesystem,
+            &self.dentry,
+            &self.lookup_real(name)?,
+        )
     }
 
     pub(super) fn do_unlink(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_unlink(&self.filesystem, &self.dentry, &self.lookup_real(name)?)
+        vfs_unlink(
+            &self.creator_cred,
+            &self.filesystem,
+            &self.dentry,
+            &self.lookup_real(name)?,
+        )
     }
 }
