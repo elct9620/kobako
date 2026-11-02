@@ -498,7 +498,7 @@ impl FileOperations for RubyDir {
 
     /// The object has nothing of a directory's own to flush, as FUSE's
     /// `fuse_dir_fsync` answers for a server without `fsyncdir`.
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
         Ok(())
     }
 }
@@ -642,7 +642,7 @@ impl FileOperations for RubyFile {
     }
 
     /// A file lacking `fsync` has nothing of its own to flush.
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
         change_if_answered(self.file.get(), "fsync")
     }
 

@@ -155,8 +155,8 @@ pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
     Ok(table.remove(fd).ok_or(Errno::Badf)?.file.close()?)
 }
 
-pub(crate) fn sync(table: &mut Descriptors, fd: u32) -> Answer {
-    Ok(file(table, fd)?.fsync()?)
+pub(crate) fn sync(table: &mut Descriptors, fd: u32, datasync: bool) -> Answer {
+    Ok(file(table, fd)?.fsync(datasync)?)
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
@@ -166,6 +166,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
     if !file.is_stream() {
         fs_flags.set(Fdflags::APPEND, file.append());
         fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
+        fs_flags.set(Fdflags::DSYNC, file.dsync() || file.sync());
         fs_flags.set(Fdflags::SYNC, file.sync());
     }
     let (fs_filetype, fs_rights_base, fs_rights_inheriting) = if file.is_stream() {
@@ -501,7 +502,7 @@ mod tests {
         let mut table = standard_streams();
         assert_eq!(
             [
-                errno(sync(&mut table, 1)),
+                errno(sync(&mut table, 1, false)),
                 errno(filestat_set_size(&mut table, 1, 0)),
                 errno(tell(&mut table, 0)),
                 errno(tell(&mut table, 1)),
@@ -572,7 +573,7 @@ mod tests {
         let mut table = standard_streams();
         let fd = table.push(open_file()).expect("a descriptor to sync");
         assert_eq!(
-            errno(sync(&mut table, fd)),
+            errno(sync(&mut table, fd, false)),
             Some(Errno::Inval),
             "fd_sync on a file whose Filesystem has no fsync must answer EINVAL"
         );
@@ -629,6 +630,50 @@ mod tests {
             (Some(Errno::Badf), Some(Errno::Badf)),
             "fd_tell and fd_seek on a directory through preview1 must answer EBADF, as \
              wasi-testsuite requires"
+        );
+    }
+
+    // @behavior RT-251
+    #[test]
+    fn a_descriptor_reports_how_far_it_was_opened_to_sync() {
+        let tmpfs: kobako_runtime::filesystem::Tmpfs = [("f", "x")].into_iter().collect();
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(tmpfs)), Access::ReadWrite)
+            .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let mut table = Descriptors::new(
+            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            vec![mount],
+            None,
+            None,
+            Profile::Hermetic,
+        )
+        .unwrap_or_else(|_| panic!("the table must make"));
+        let cred = table.cred().clone();
+        let mut reported = |dsync, sync| {
+            let mut how = OpenHow::default();
+            how.write = true;
+            how.dsync = dsync;
+            how.sync = sync;
+            let opened = vfs::do_file_open(&cred, &root, "f", &how)
+                .unwrap_or_else(|_| panic!("the file must open"));
+            let fd = table
+                .push(Descriptor::of(opened))
+                .unwrap_or_else(|| panic!("the table must have room"));
+            let Ok(stat) = fdstat_get(&table, fd) else {
+                panic!("the descriptor must report itself");
+            };
+            (
+                stat.fs_flags.contains(Fdflags::DSYNC),
+                stat.fs_flags.contains(Fdflags::SYNC),
+            )
+        };
+        assert_eq!(
+            (reported(true, false), reported(false, true)),
+            ((true, false), (true, true)),
+            "fd_fdstat_get must report DSYNC alone for a file opened O_DSYNC, and both for one \
+             opened O_SYNC, whose bits hold O_DSYNC's as Linux's do"
         );
     }
 

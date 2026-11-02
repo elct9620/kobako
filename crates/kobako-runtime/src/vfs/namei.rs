@@ -1222,6 +1222,46 @@ mod tests {
         );
     }
 
+    // Holding it shared again past the waiting writer stands in for what a walk
+    // does when a Ruby Filesystem reaches its own Mount, which must never hang.
+    // @behavior RT-253
+    #[test]
+    fn a_writer_goes_ahead_of_readers_arriving_after_it() {
+        use crate::locking::RwSemaphore;
+        let rwsem: Arc<RwSemaphore> = Arc::default();
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let held = rwsem.down_read().expect("the first reader holds it");
+        let writer = {
+            let (rwsem, order) = (rwsem.clone(), order.clone());
+            thread::spawn(move || {
+                let _held = rwsem.down_write().expect("the writer holds it");
+                order.lock().expect("never poisoned").push("writer");
+            })
+        };
+        while !rwsem.writer_waits() {
+            thread::yield_now();
+        }
+        let reader = {
+            let (rwsem, order) = (rwsem.clone(), order.clone());
+            thread::spawn(move || {
+                let _held = rwsem.down_read().expect("the reader holds it");
+                order.lock().expect("never poisoned").push("reader");
+            })
+        };
+        let again = rwsem.down_read().map(drop);
+        thread::sleep(Duration::from_millis(50));
+        let before = order.lock().expect("never poisoned").clone();
+        drop(held);
+        writer.join().expect("the writer finishes");
+        reader.join().expect("the reader finishes");
+        assert_eq!(
+            (again, before, order.lock().expect("never poisoned").clone()),
+            (Ok(()), Vec::new(), vec!["writer", "reader"]),
+            "a reader arriving behind a waiting writer must wait for it, as \
+             rwsem_down_read_slowpath queues, while one already holding it takes it again"
+        );
+    }
+
     /// A security module recording the hooks a call reaches, by name.
     #[derive(Default)]
     struct RecordsHooks(Mutex<Vec<String>>);

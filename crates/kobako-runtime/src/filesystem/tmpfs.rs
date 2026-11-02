@@ -784,7 +784,7 @@ impl FileOperations for TmpfsDir {
 
     /// A Tmpfs holds nothing to make durable, as tmpfs names `noop_fsync` for
     /// its directories too.
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
         Ok(())
     }
 }
@@ -908,7 +908,7 @@ impl FileOperations for TmpfsFile {
 
     /// Nothing outlives the Tmpfs, so there is nothing to flush, as shmem's
     /// `noop_fsync`.
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
         Ok(())
     }
 

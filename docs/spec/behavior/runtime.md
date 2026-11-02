@@ -2768,3 +2768,31 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a security module refusing to pass through a directory |
 | When | a call walks through that directory |
 | Then | the call answers EACCES |
+
+## `RT-251` A write syncs only as far as its file was opened to
+
+| Step | Statement |
+| --- | --- |
+| Given | files opened with `O_DSYNC`, with `O_SYNC`, and with neither |
+| When | each is written, and a caller asks to sync data alone, then everything |
+| Then | `O_DSYNC` and the data sync reach the file as data alone, and `O_SYNC` and the full sync as everything |
+
+## `RT-252` One call takes at most the most one read or write takes
+
+| Step | Statement |
+| --- | --- |
+| Given | a file opened to read and write, and a buffer past 2 GiB less a page |
+| When | a call reads or writes that buffer |
+| Then | the file is handed 2 GiB less a page, as a short count the caller reads on from |
+
+## `RT-253` A writer waiting for a directory goes ahead of readers arriving after it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-166` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a thread holding a directory shared, and a writer waiting for it |
+| When | another thread asks for it shared, and the first asks for it shared again |
+| Then | the other waits until the writer finished, and the first takes it at once, never hanging on itself |

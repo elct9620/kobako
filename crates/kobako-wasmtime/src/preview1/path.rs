@@ -119,9 +119,10 @@ pub(crate) fn open(
     how.follow = flags.dirflags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     how.append = flags.fdflags.contains(types::Fdflags::APPEND);
     how.nonblock = flags.fdflags.contains(types::Fdflags::NONBLOCK);
+    how.dsync = flags.fdflags.contains(types::Fdflags::DSYNC);
     how.sync = flags
         .fdflags
-        .intersects(types::Fdflags::DSYNC | types::Fdflags::RSYNC | types::Fdflags::SYNC);
+        .intersects(types::Fdflags::RSYNC | types::Fdflags::SYNC);
     let file = vfs::do_file_open(table.cred(), start, &path, &how)?;
     Ok(table.push(Descriptor::of(file)).ok_or(Errno::Mfile)?.into())
 }

@@ -60,8 +60,8 @@ impl FileOperations for OverlayFile {
 
     /// A file open to read flushes what it reads, as `ovl_fsync` syncs the
     /// real file.
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
-        self.real_file()?.fsync()
+    fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {
+        self.real_file()?.fsync(datasync)
     }
 
     fn flush(&mut self) -> Result<(), FilesystemError> {

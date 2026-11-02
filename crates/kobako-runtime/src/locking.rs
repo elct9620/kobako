@@ -16,7 +16,7 @@ pub(crate) struct Deadlock;
 /// Held shared by any number of threads or exclusive by one. A thread
 /// asking again for a hold it could only get once it let go of its own is
 /// refused as a Deadlock; a thread already holding it shared may hold it
-/// shared again.
+/// shared again, even past a waiting writer, which waits for that thread.
 #[derive(Default)]
 pub(crate) struct RwSemaphore {
     holders: Mutex<Holders>,
@@ -32,6 +32,10 @@ struct Holders {
     /// How many threads wait for a release, so one nobody waits for wakes
     /// no one.
     waiting: usize,
+    /// How many threads wait to hold it exclusive, which a thread arriving to hold
+    /// it shared goes behind, as `rwsem_down_read_slowpath` queues behind a waiting
+    /// writer, so readers one after another never keep a writer out.
+    writers_waiting: usize,
 }
 
 /// The semaphore while one call holds it, freed as the call returns. It keeps
@@ -54,6 +58,7 @@ impl RwSemaphore {
         self.down(current, false, |holders| match holders.writer {
             Some(writer) if writer == current => Err(Deadlock),
             Some(_) => Ok(false),
+            None if holders.writers_waiting > 0 && !holders.readers.contains(&current) => Ok(false),
             None => {
                 holders.readers.push(current);
                 Ok(true)
@@ -76,6 +81,12 @@ impl RwSemaphore {
         })
     }
 
+    /// Whether a thread waits to hold it exclusive, for a test to see one queued.
+    #[cfg(test)]
+    pub(crate) fn writer_waits(&self) -> bool {
+        self.holders().writers_waiting > 0
+    }
+
     /// Take the hold `take` grants, or wait for it.
     fn down(
         self: &Arc<Self>,
@@ -86,7 +97,7 @@ impl RwSemaphore {
         let mut holders = self.holders();
         if !take(&mut holders)? {
             drop(holders);
-            self.down_slowpath(&mut take)?;
+            self.down_slowpath(exclusive, &mut take)?;
         }
         Ok(RwSemaphoreGuard {
             semaphore: self.clone(),
@@ -99,14 +110,16 @@ impl RwSemaphore {
     /// `rwsem_down_write_slowpath` call `schedule`.
     fn down_slowpath(
         &self,
+        exclusive: bool,
         take: &mut impl FnMut(&mut Holders) -> Result<bool, Deadlock>,
     ) -> Result<(), Deadlock> {
         let mut taken = Ok(());
         sched::schedule(&mut || {
             let mut holders = self.holders();
+            holders.writers_waiting += usize::from(exclusive);
             loop {
                 match take(&mut holders) {
-                    Ok(true) => return,
+                    Ok(true) => break,
                     Ok(false) => {
                         holders.waiting += 1;
                         holders = self
@@ -117,9 +130,15 @@ impl RwSemaphore {
                     }
                     Err(err) => {
                         taken = Err(err);
-                        return;
+                        break;
                     }
                 }
+            }
+            holders.writers_waiting -= usize::from(exclusive);
+            // A reader may have stood behind this writer, which now takes it or
+            // gave up; one that took it wakes them again once it lets go.
+            if holders.waiting > 0 && taken.is_err() {
+                self.freed.notify_all();
             }
         });
         taken

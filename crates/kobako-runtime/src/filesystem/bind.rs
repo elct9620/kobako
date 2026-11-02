@@ -666,7 +666,7 @@ impl FileOperations for BindDir {
 
     /// Make the host directory's names durable. Windows syncs no directory, so
     /// there the host answers for them itself.
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
         sync_dir(&self.0)
     }
 }
@@ -762,8 +762,12 @@ impl FileOperations for BindFile {
         Ok(written)
     }
 
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
-        self.file.sync_all().map_err(to_error)
+    fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {
+        match datasync {
+            true => self.file.sync_data(),
+            false => self.file.sync_all(),
+        }
+        .map_err(to_error)
     }
 
     /// Reserve the room on the host, as `v9fs_file_fallocate` asks its server. Only
@@ -1912,7 +1916,7 @@ mod tests {
             panic!("the root must open");
         };
         assert_eq!(
-            root.fsync(),
+            root.fsync(false),
             Ok(()),
             "File::fsync of a Bind's root must succeed, as Linux syncs a directory"
         );

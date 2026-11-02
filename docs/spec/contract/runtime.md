@@ -1192,6 +1192,16 @@ impl File {
 }
 ```
 
+## `File::dsync`
+
+Whether what each write needs read back is durable before it answers.
+
+```rust
+impl File {
+    pub fn dsync(&self) -> bool {}
+}
+```
+
 ## `File::sync`
 
 Whether each write is made durable before it answers.
@@ -1390,7 +1400,7 @@ Make what was written durable.
 
 ```rust
 impl File {
-    pub fn fsync(&mut self) -> Result<(), FilesystemError> {}
+    pub fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {}
 }
 ```
 
@@ -2236,7 +2246,7 @@ itself; one without it refuses as invalid input.
 
 ```rust
 pub trait FileOperations {
-    fn fsync(&mut self) -> Result<(), FilesystemError>;
+    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError>;
 }
 ```
 

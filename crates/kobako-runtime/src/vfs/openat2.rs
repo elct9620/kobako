@@ -33,7 +33,11 @@ pub struct OpenHow {
     pub append: bool,
     /// Ask not to wait, as `O_NONBLOCK` does.
     pub nonblock: bool,
-    /// Make each write durable before it answers, as `O_SYNC` does.
+    /// Make what each write needs read back durable before it answers, as
+    /// `O_DSYNC` does.
+    pub dsync: bool,
+    /// Make everything each write changed durable before it answers, as
+    /// `O_SYNC` does.
     pub sync: bool,
 }
 

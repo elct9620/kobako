@@ -125,10 +125,8 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         self.answer(memory, |_, inv| fd::close(table(inv), fd.into()))
     }
 
-    /// A Filesystem makes what was written durable in one step, so data and
-    /// metadata sync alike.
     fn fd_datasync(&mut self, memory: &mut wiggle::GuestMemory<'_>, fd: types::Fd) -> Answer {
-        self.answer(memory, |_, inv| fd::sync(table(inv), fd.into()))
+        self.answer(memory, |_, inv| fd::sync(table(inv), fd.into(), true))
     }
 
     fn fd_fdstat_get(
@@ -286,7 +284,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
     }
 
     fn fd_sync(&mut self, memory: &mut wiggle::GuestMemory<'_>, fd: types::Fd) -> Answer {
-        self.answer(memory, |_, inv| fd::sync(table(inv), fd.into()))
+        self.answer(memory, |_, inv| fd::sync(table(inv), fd.into(), false))
     }
 
     fn fd_tell(

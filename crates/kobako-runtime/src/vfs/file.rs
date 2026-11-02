@@ -17,6 +17,10 @@ use super::{FileType, FilesystemError, Iattr, Metadata, PATH_MAX};
 /// The largest offset a file holds, where Linux's signed `loff_t` ends.
 const MAX_OFFSET: u64 = i64::MAX as u64;
 
+/// The most one read or write takes, as Linux's `MAX_RW_COUNT`, the largest
+/// signed 32-bit count rounded down to a page.
+const MAX_RW_COUNT: usize = i32::MAX as usize & !4095;
+
 /// Where one read or write lands, and where the file left off once it did,
 /// as Linux's `struct kiocb`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,10 +109,11 @@ pub trait FileOperations: Send {
         PollMask::IN | PollMask::OUT
     }
 
-    /// Make what was written durable. A file with nothing to flush answers
-    /// success itself, as tmpfs names `noop_fsync`; one without it refuses
+    /// Make what was written durable, only what reading it back needs where
+    /// `datasync` asks, as `f_op->fsync` takes it. A file with nothing to flush
+    /// answers success itself, as tmpfs names `noop_fsync`; one without it refuses
     /// as Linux's `vfs_fsync_range` refuses one without `f_op->fsync`.
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
         Err(FilesystemError::InvalidInput)
     }
 
@@ -403,8 +408,11 @@ pub struct File {
     /// Whether it asked not to wait, as `O_NONBLOCK` in `f_flags`. Nothing
     /// here waits, so it only reports back.
     nonblock: bool,
-    /// Whether each write is made durable before it answers, as `O_SYNC` in
-    /// `f_flags`.
+    /// Whether what each write needs read back is durable before it answers, as
+    /// `O_DSYNC` in `f_flags`.
+    dsync: bool,
+    /// Whether everything each write changed is durable before it answers, as
+    /// `O_SYNC` in `f_flags`.
     sync: bool,
     /// Where the next read or write lands, as `f_pos`.
     pos: u64,
@@ -426,6 +434,7 @@ impl File {
             mode: FMode::of(how),
             append: how.append,
             nonblock: how.nonblock,
+            dsync: how.dsync,
             sync: how.sync,
             pos: 0,
             cred: cred.clone(),
@@ -497,7 +506,12 @@ impl File {
         self.nonblock
     }
 
-    /// Whether each write is made durable before it answers.
+    /// Whether what each write needs read back is durable before it answers.
+    pub fn dsync(&self) -> bool {
+        self.dsync
+    }
+
+    /// Whether everything each write changed is durable before it answers.
     pub fn sync(&self) -> bool {
         self.sync
     }
@@ -628,7 +642,8 @@ impl File {
         self.may_read()?;
         self.rw_verify_area(self.pos, buf.len())?;
         let mut iocb = self.kiocb(self.pos);
-        let read = self.ops.read_iter(&mut iocb, buf)?;
+        let count = buf.len().min(MAX_RW_COUNT);
+        let read = self.ops.read_iter(&mut iocb, &mut buf[..count])?;
         self.pos = iocb.pos;
         Ok(read)
     }
@@ -637,7 +652,8 @@ impl File {
     pub fn pread(&mut self, buf: &mut [u8], pos: u64) -> Result<usize, FilesystemError> {
         self.may_pread(pos)?;
         self.rw_verify_area(pos, buf.len())?;
-        self.ops.read_iter(&mut self.kiocb(pos), buf)
+        let count = buf.len().min(MAX_RW_COUNT);
+        self.ops.read_iter(&mut self.kiocb(pos), &mut buf[..count])
     }
 
     /// Write at its position, moving it past what was written, as `vfs_write`
@@ -646,7 +662,9 @@ impl File {
         self.may_write()?;
         self.rw_verify_area(self.pos, buf.len())?;
         let mut iocb = self.kiocb(self.pos);
-        let written = self.ops.write_iter(&mut iocb, buf)?;
+        let written = self
+            .ops
+            .write_iter(&mut iocb, &buf[..buf.len().min(MAX_RW_COUNT)])?;
         if written > 0 {
             self.pos = iocb.pos;
         }
@@ -654,10 +672,11 @@ impl File {
     }
 
     /// Make `written` bytes durable where it was opened to, as
-    /// `generic_write_sync` does once a write has landed.
+    /// `generic_write_sync` does once a write has landed: data alone unless
+    /// `O_SYNC` asks for everything.
     fn generic_write_sync(&mut self, written: usize) -> Result<usize, FilesystemError> {
-        if self.sync && written > 0 {
-            self.ops.fsync()?;
+        if (self.dsync || self.sync) && written > 0 {
+            self.ops.fsync(!self.sync)?;
         }
         Ok(written)
     }
@@ -667,13 +686,16 @@ impl File {
     pub fn pwrite(&mut self, buf: &[u8], pos: u64) -> Result<usize, FilesystemError> {
         self.may_pwrite(pos)?;
         self.rw_verify_area(pos, buf.len())?;
-        let written = self.ops.write_iter(&mut self.kiocb(pos), buf)?;
+        let written = self
+            .ops
+            .write_iter(&mut self.kiocb(pos), &buf[..buf.len().min(MAX_RW_COUNT)])?;
         self.generic_write_sync(written)
     }
 
-    /// Make what was written durable, as `vfs_fsync` does.
-    pub fn fsync(&mut self) -> Result<(), FilesystemError> {
-        self.ops.fsync()
+    /// Make what was written durable, as `vfs_fsync` does, and `vfs_fsync_range`
+    /// passes `datasync` through.
+    pub fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {
+        self.ops.fsync(datasync)
     }
 
     /// What it reports of itself, as `vfs_getattr` answers.
@@ -1196,10 +1218,135 @@ mod tests {
             Ok(buf.len())
         }
 
-        fn fsync(&mut self) -> Result<(), FilesystemError> {
+        fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
+
+    /// A file taking whatever it is handed, recording how much and how it syncs.
+    #[derive(Clone, Default)]
+    struct RecordsCalls {
+        taken: Arc<AtomicUsize>,
+        syncs: Arc<std::sync::Mutex<Vec<bool>>>,
+    }
+
+    impl FileOperations for RecordsCalls {
+        fn read_iter(
+            &mut self,
+            _iocb: &mut Kiocb,
+            buf: &mut [u8],
+        ) -> Result<usize, FilesystemError> {
+            self.taken.store(buf.len(), Ordering::SeqCst);
+            Ok(0)
+        }
+
+        fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+            self.taken.store(buf.len(), Ordering::SeqCst);
+            Ok(buf.len())
+        }
+
+        fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {
+            self.syncs.lock().expect("never poisoned").push(datasync);
+            Ok(())
+        }
+    }
+
+    impl crate::vfs::FileSystemType for RecordsCalls {}
+
+    impl InodeOperations for RecordsCalls {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(match dentry.parent() {
+                Some(_) => Metadata::new(FileType::File, 0),
+                None => Metadata::new(FileType::Directory, 0),
+            })
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let found = Metadata::new(FileType::File, 0);
+            Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone()))))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenOptions,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Ok(Box::new(self.clone()))
+        }
+    }
+
+    /// `calls` open at `file`, as `how` asks.
+    fn open_recording(calls: &RecordsCalls, how: OpenHow) -> File {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(calls.clone())),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &how)
+            .unwrap_or_else(|_| panic!("the file must open"))
+    }
+
+    // @behavior RT-251
+    #[test]
+    fn each_write_syncs_only_as_far_as_the_file_was_opened_to() {
+        let calls = RecordsCalls::default();
+        let open = |dsync, sync| {
+            open_recording(
+                &calls,
+                OpenHow {
+                    write: true,
+                    dsync,
+                    sync,
+                    ..OpenHow::default()
+                },
+            )
+        };
+        open(false, false).write(b"x").expect("the write lands");
+        open(true, false).write(b"x").expect("the write lands");
+        open(false, true).write(b"x").expect("the write lands");
+        let mut file = open(false, false);
+        file.fsync(true).expect("the sync lands");
+        file.fsync(false).expect("the sync lands");
+        assert_eq!(
+            *calls.syncs.lock().expect("never poisoned"),
+            [true, false, true, false],
+            "File::write on a file opened O_DSYNC must sync its data alone, on one opened O_SYNC \
+             all of it, and File::fsync must pass datasync through, as vfs_fsync_range does"
+        );
+    }
+
+    // @behavior RT-252
+    #[test]
+    fn a_single_call_takes_at_most_the_most_one_read_or_write_takes() {
+        let calls = RecordsCalls::default();
+        let mut file = open_recording(
+            &calls,
+            OpenHow {
+                read: true,
+                write: true,
+                ..OpenHow::default()
+            },
+        );
+        // The allocator hands zeroed pages it has not touched, so this holds little.
+        let mut past = vec![0u8; MAX_RW_COUNT + 1];
+        let mut taken = |call: &mut dyn FnMut(&mut File, &mut [u8])| {
+            calls.taken.store(0, Ordering::SeqCst);
+            call(&mut file, &mut past);
+            calls.taken.load(Ordering::SeqCst)
+        };
+        let answers = [
+            taken(&mut |file, buf| drop(file.read(buf))),
+            taken(&mut |file, buf| drop(file.pread(buf, 0))),
+            taken(&mut |file, buf| drop(file.write(buf))),
+            taken(&mut |file, buf| drop(file.pwrite(buf, 0))),
+        ];
+        assert_eq!(
+            answers, [0x7fff_f000; 4],
+            "File::read, pread, write, and pwrite past MAX_RW_COUNT must hand the file only that \
+             many bytes, as vfs_read and vfs_write cut count"
+        );
     }
 
     struct HoldsCountsSyncs(Arc<AtomicUsize>);
@@ -1301,7 +1448,7 @@ mod tests {
                 dir.pwrite(b"xy", 0),
                 dir.truncate(0),
                 dir.fallocate(0, 1),
-                dir.fsync(),
+                dir.fsync(false),
                 dir.fadvise(0, 0),
             ),
             (

@@ -210,7 +210,7 @@ impl Kobako {
                 let got = file!(*slot).getattr();
                 answer(got, |metadata| self.stat(metadata))
             }
-            Call::Fsync(slot) => ok_or_errno(file!(*slot).fsync()),
+            Call::Fsync(slot) => ok_or_errno(file!(*slot).fsync(false)),
             Call::Readdir(slot) => answer(entries(file!(*slot)), |names| {
                 let mut names: Vec<_> = names
                     .into_iter()

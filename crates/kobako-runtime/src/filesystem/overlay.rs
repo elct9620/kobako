@@ -372,7 +372,7 @@ impl FileOperations for OverlayDir {
     /// Its Layers answer for what they hold, and its upper is a Tmpfs, so
     /// nothing is left to make durable, as `ovl_dir_fsync` finds with no upper
     /// of its own to sync.
-    fn fsync(&mut self) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
         Ok(())
     }
 }
@@ -478,14 +478,14 @@ mod tests {
         )
         .expect("the Overlay must stack"));
         assert_eq!(
-            open_to_read(&overlay, "file").fsync(),
+            open_to_read(&overlay, "file").fsync(false),
             Ok(()),
             "FileOperations::fsync on an Overlay's file open to read from a Tmpfs Layer must \
              succeed"
         );
         let tmpfs = at([("file", "x")].into_iter().collect::<Tmpfs>());
         assert_eq!(
-            open_to_read(&tmpfs, "file").fsync(),
+            open_to_read(&tmpfs, "file").fsync(false),
             Ok(()),
             "FileOperations::fsync on a Tmpfs file must succeed"
         );
