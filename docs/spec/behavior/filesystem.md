@@ -2149,3 +2149,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs file |
 | When | a caller sets both its times to now |
 | Then | a stat reports both, and its changed time, as one moment |
+
+## `FS-200` A Bind of a directory the host lets no one read is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-189` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host directory the host lets no one read |
+| When | a caller makes a Bind of it |
+| Then | the Bind is refused as permission denied, on every host alike |
