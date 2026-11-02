@@ -115,6 +115,21 @@ mod tests {
         );
     }
 
+    // A device number depends on how many Filesystems the process made before,
+    // so the inode number a guest reads folds it in and the device stays out.
+    // @behavior RT-283
+    #[test]
+    fn a_guest_sees_one_device_for_every_entry() {
+        let reported = Metadata::new(FileType::File, 1).with_identity(7, 9);
+        assert_eq!(
+            [Profile::Hermetic, Profile::Permissive]
+                .map(|profile| profile.guest_metadata(reported).dev),
+            [0, 0],
+            "Profile::guest_metadata of an entry a Filesystem reports on device 7 must report \
+             device 0 on either posture"
+        );
+    }
+
     // An unkeyed hash answers what anyone can compute from a host's numbers,
     // so the hash a guest reads must differ from it.
     // @behavior RT-194
