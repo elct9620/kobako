@@ -654,6 +654,7 @@ impl InodeOperations for Tmpfs {
 
     fn fill_super(&self, sb: &mut Filesystem) {
         sb.set_default_d_op(Arc::new(TmpfsDentry));
+        sb.set_dontcache();
     }
 
     fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -748,16 +749,17 @@ impl DentryOperations for TmpfsDentry {
         dir: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
-        let Some(identity) = dentry.inode().and_then(|inode| inode.identity()) else {
-            return Ok(true);
-        };
         let Some(dir) = (dir as &dyn Any).downcast_ref::<Tmpfs>() else {
             return Ok(true);
         };
-        Ok(match dir.dir.get(&dentry.name()) {
-            Ok(node) => Identity::of(&dir.node_metadata(&node)) == Some(identity),
-            Err(_) => false,
-        })
+        let found = dir.dir.get(&dentry.name()).ok();
+        let Some(inode) = dentry.inode() else {
+            return Ok(found.is_none());
+        };
+        let Some(identity) = inode.identity() else {
+            return Ok(true);
+        };
+        Ok(found.is_some_and(|node| Identity::of(&dir.node_metadata(&node)) == Some(identity)))
     }
 }
 
@@ -875,6 +877,45 @@ impl FileOperations for TmpfsFile {
 mod tests {
     use super::*;
     use crate::vfs::kern_path::{kern_path, KernPath};
+
+    #[derive(Default)]
+    struct CountsLookups(std::sync::atomic::AtomicUsize);
+
+    impl crate::filesystem::wrap::Hook for CountsLookups {
+        fn lookup(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<Lookup, FilesystemError> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            inner.lookup(dentry)
+        }
+    }
+
+    // @behavior FS-192
+    #[test]
+    fn a_tmpfs_keeps_no_name_nothing_holds() {
+        let counts = Arc::new(CountsLookups::default());
+        let tmpfs: Tmpfs = [("file", "f")].into_iter().collect();
+        let wrapped = crate::filesystem::wrap::Wrap::new(Arc::new(tmpfs), counts.clone());
+        let mount = crate::mount::Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(wrapped)),
+            crate::mount::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = crate::vfs::Path::root(mount.mnt());
+        for _ in 0..2 {
+            crate::vfs::vfs_fstatat(&Arc::default(), &root, "file", false)
+                .expect("the file stands");
+        }
+        assert_eq!(
+            counts.0.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "vfs::vfs_fstatat twice of a Tmpfs's file must ask its lookup each time, as \
+             shmem sets DCACHE_DONTCACHE"
+        );
+    }
 
     // Each file leaves one name and takes another, so only keeping the count
     // through the swap reports both as still named.

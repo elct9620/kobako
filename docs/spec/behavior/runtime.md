@@ -2708,3 +2708,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem with `create` and no `atomic_open` |
 | When | a guest opens a name where nothing stands, asking to create it |
 | Then | the Filesystem makes the file, and the open reaches what it recorded |
+
+## `RT-245` A name nothing stands at stays for the next walk unless its Filesystem lets it go
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-216` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem holding nothing at a name, with nothing holding the name between two calls |
+| When | both calls name it |
+| Then | it is looked up once and asked whether it holds, and looked up twice where `DentryOperations::delete` lets it go |

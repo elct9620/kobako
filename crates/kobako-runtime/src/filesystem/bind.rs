@@ -154,23 +154,32 @@ impl Bind {
     /// A host may reuse an inode number for what it made in its place, so the
     /// kind must match too, as NFS compares a file handle's attributes.
     fn stands_as_recorded(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-        let Some(inode) = dentry.inode().filter(|inode| inode.identity().is_some()) else {
+        let inode = dentry.inode();
+        if inode
+            .as_ref()
+            .is_some_and(|inode| inode.identity().is_none())
+        {
             return Ok(true);
-        };
+        }
         let found = self.at(dentry, |dir, name| {
             dir.symlink_metadata(name).map_err(to_error)
         });
-        match found {
-            Ok(found) => {
+        match (found, inode) {
+            (Ok(found), Some(inode)) => {
                 let found = to_metadata(found);
                 Ok(Identity::of(&found) == inode.identity() && found.file_type == inode.kind())
             }
-            Err(
-                FilesystemError::NotFound
-                | FilesystemError::NotADirectory
-                | FilesystemError::FilesystemLoop,
+            (Ok(_), None) => Ok(false),
+            (Err(FilesystemError::NotFound), None) => Ok(true),
+            (
+                Err(
+                    FilesystemError::NotFound
+                    | FilesystemError::NotADirectory
+                    | FilesystemError::FilesystemLoop,
+                ),
+                _,
             ) => Ok(false),
-            Err(err) => Err(err),
+            (Err(err), _) => Err(err),
         }
     }
 }
@@ -430,7 +439,7 @@ impl DentryOperations for Bind {
     fn delete(&self, dentry: &Dentry) -> bool {
         dentry
             .inode()
-            .is_none_or(|inode| inode.identity().is_none())
+            .is_some_and(|inode| inode.identity().is_none())
     }
 }
 
@@ -970,6 +979,62 @@ mod tests {
             "vfs::do_file_open 200 directories beneath a Bind must land and keep at most 64 of \
              them open, keeping {}",
             bind.fids.len()
+        );
+    }
+
+    // Nothing holds `x` between the two stats, so what answers the second is the
+    // negative dentry the first left, asked whether it still holds.
+    // @behavior FS-193
+    #[test]
+    fn a_name_kept_as_absent_shows_what_the_host_made_there() {
+        use crate::vfs::{self, Path as VfsPath};
+        let host = HostDir::new("kept-absent");
+        let mount = crate::mount::Mount::new(
+            "/data",
+            crate::filesystem::Filesystem::new(Arc::new(
+                Bind::new(&host.0).expect("the host directory must open"),
+            )),
+            crate::mount::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = VfsPath::root(mount.mnt());
+        let cred = Arc::default();
+        let stat = || vfs::vfs_fstatat(&cred, &root, "x", false).err();
+        let before = stat();
+        fs::write(host.0.join("x"), "x").expect("the host file must be written");
+        assert_eq!(
+            (before, stat()),
+            (Some(FilesystemError::NotFound), None),
+            "vfs::vfs_fstatat of a name kept as absent, once the host made a file there, must \
+             find the file"
+        );
+    }
+
+    // The Bind records nothing it makes, so what stands at the name is known only
+    // to a lookup, which the absent dentry the walk kept must not answer for.
+    // @behavior FS-194
+    #[test]
+    fn a_directory_made_where_a_name_was_kept_as_absent_is_found() {
+        use crate::vfs::{self, Path as VfsPath};
+        let host = HostDir::new("made-at-absent");
+        let mount = crate::mount::Mount::new(
+            "/data",
+            crate::filesystem::Filesystem::new(Arc::new(
+                Bind::new(&host.0).expect("the host directory must open"),
+            )),
+            crate::mount::Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = VfsPath::root(mount.mnt());
+        let cred = Arc::default();
+        let before = vfs::vfs_fstatat(&cred, &root, "made", false).err();
+        vfs::filename_mkdirat(&cred, &root, "made").expect("the directory must be made");
+        let after = vfs::vfs_fstatat(&cred, &root, "made", false).map(|made| made.file_type);
+        assert_eq!(
+            (before, after),
+            (Some(FilesystemError::NotFound), Ok(FileType::Directory)),
+            "vfs::filename_mkdirat at a name kept as absent must leave the next walk finding \
+             the directory, as d_drop leaves a dentry nothing recorded on"
         );
     }
 

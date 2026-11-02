@@ -374,6 +374,7 @@ These two calls follow from what the runtime does itself, so a Filesystem answer
 | `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | ENOTDIR, no directory to walk through |
 | `fill_super` calling `set_default_d_op` | a held dentry dropped once its name changes | valid, as nothing changes it outside the runtime |
 | `fill_super` calling `set_rdonly` | every change refused | every change allowed |
+| `fill_super` calling `set_dontcache` | no name kept once nothing holds it | a name kept for the next walk, absent ones too |
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
 | `open` | an entry opened to read, write, or list | opens with no operations |
 | `create` | a file made under the directory's lock and recorded on its `Dentry` | EACCES |

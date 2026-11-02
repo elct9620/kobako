@@ -518,7 +518,7 @@ impl DentryOperations for RubyFilesystem {
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
         let Some(inode) = dentry.inode().filter(|_| find_open_file(dentry).is_none()) else {
-            return Ok(dentry.inode().is_none());
+            return Ok(false);
         };
         match self.stat(dentry.path_raw()) {
             Ok(found) => {

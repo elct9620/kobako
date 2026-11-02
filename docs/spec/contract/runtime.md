@@ -642,6 +642,17 @@ impl SuperBlock {
 }
 ```
 
+## `SuperBlock::set_dontcache`
+
+Keeps no Dentry of the instance once nothing holds it, set from
+`InodeOperations::fill_super`.
+
+```rust
+impl SuperBlock {
+    pub fn set_dontcache(&mut self) {}
+}
+```
+
 ## `SuperBlock::rdonly`
 
 Whether nothing beneath the instance changes, however it is mounted.

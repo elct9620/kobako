@@ -69,6 +69,10 @@ struct State {
     /// What the name stands for once a lookup found it, `None` while the
     /// dentry is negative.
     inode: Option<Arc<Inode>>,
+    /// Whether a lookup answered for the name, so a negative dentry says nothing
+    /// stands there rather than that nobody asked, as `d_add` leaves one hashed
+    /// where `d_alloc` left it waiting for its `->lookup`.
+    looked_up: bool,
 }
 
 impl Dentry {
@@ -82,6 +86,7 @@ impl Dentry {
                 parent,
                 name: name.to_string(),
                 inode: None,
+                looked_up: false,
             }),
             this: this.clone(),
             fsdata: OnceLock::new(),
@@ -198,6 +203,7 @@ impl Dentry {
     /// must see.
     pub fn add(&self, inode: Option<Inode>) {
         let mut state = self.state();
+        state.looked_up = true;
         if state.inode.is_none() {
             state.inode = inode.map(Arc::new);
         }
@@ -223,13 +229,19 @@ impl Dentry {
         identity(self).is_some() && identity(self) == identity(other)
     }
 
-    /// Ask the directory `dir` what stands here where nothing is recorded yet,
-    /// and record it, as Linux's `lookup_fast` keeps a dentry that names
-    /// something and `lookup_one_qstr_excl` asks `->lookup` for one that does not. A
-    /// directory holding the entry under another spelling answers that
-    /// spelling, for the caller to take that dentry instead.
+    /// Whether a lookup answered for the name, so there is something to ask
+    /// `revalidate` of, as `d_in_lookup` tells a dentry still waiting for one.
+    pub(crate) fn looked_up(&self) -> bool {
+        self.state().looked_up
+    }
+
+    /// Ask the directory `dir` what stands here where no lookup answered yet, and
+    /// record it, as Linux's `lookup_fast` keeps a dentry, a negative one too, and
+    /// `lookup_one_qstr_excl` asks `->lookup` for one just made. A directory holding
+    /// the entry under another spelling answers that spelling, for the caller to
+    /// take that dentry instead.
     pub(crate) fn lookup_inode(&self, dir: &Dentry) -> Result<Option<String>, FilesystemError> {
-        if self.inode().is_some() {
+        if self.state().looked_up {
             return Ok(None);
         }
         match dir.inode_ops()?.lookup(self)? {
@@ -350,12 +362,12 @@ impl Dentries {
         self.lru.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Keep `dentry`, which a lookup found standing, for the next walk, unless
-    /// its Filesystem lets it go, as `dput` adds a dentry `d_delete` allows to
-    /// the LRU. What this pushes out goes once the table is let go of, as its
-    /// release may reach another Filesystem.
+    /// Keep `dentry`, which a lookup answered for, standing or not, for the next
+    /// walk, unless its Filesystem lets it go, as `retain_dentry` adds a dentry
+    /// `d_delete` allows to the LRU. What this pushes out goes once the table is
+    /// let go of, as its release may reach another Filesystem.
     pub(crate) fn retain(&self, dentry: &Arc<Dentry>) {
-        if dentry.inode().is_none() || dentry.goes_when_unused() {
+        if dentry.goes_when_unused() {
             return;
         }
         let pushed_out = self

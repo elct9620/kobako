@@ -2057,3 +2057,39 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind opening a name in a directory while a move carries that name out of it |
 | When | the host refuses the open as leading out of the directory |
 | Then | the call answers ENOENT, as nothing stands at the name |
+
+## `FS-192` A Tmpfs keeps no name nothing holds
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-216` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs holding a file, with nothing holding its name between two calls |
+| When | both calls name it |
+| Then | it is looked up each time |
+
+## `FS-193` A name a Bind kept as absent shows what its host made there
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-161`, `RT-245` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind whose walk found nothing at a name, with nothing holding the name |
+| When | the host makes a file there, and the guest stats the name |
+| Then | the stat finds the file |
+
+## `FS-194` A directory a Bind made at a name kept as absent is found
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-245` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind whose walk found nothing at a name |
+| When | the guest makes a directory there, and stats the name |
+| Then | the stat finds the directory |

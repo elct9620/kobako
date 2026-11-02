@@ -20,6 +20,9 @@ pub struct SuperBlock {
     /// Whether nothing beneath it changes, however it is mounted, as
     /// `SB_RDONLY` in `s_flags`.
     rdonly: bool,
+    /// Whether no dentry stays once nothing holds it, as `DCACHE_DONTCACHE` in
+    /// `s_d_flags`.
+    dontcache: bool,
 }
 
 impl SuperBlock {
@@ -30,6 +33,7 @@ impl SuperBlock {
             dentries: Dentries::new(None),
             rename_mutex: Arc::default(),
             rdonly: false,
+            dontcache: false,
         };
         root.fill_super(&mut sb);
         sb.dentries.root().add(Some(Inode::root(root)));
@@ -56,6 +60,17 @@ impl SuperBlock {
     /// Whether nothing beneath this instance changes, as `sb_rdonly`.
     pub fn rdonly(&self) -> bool {
         self.rdonly
+    }
+
+    /// Keep no dentry of this instance once nothing holds it, as a driver with
+    /// nothing to gain from a cache sets `DCACHE_DONTCACHE`, as tmpfs does.
+    pub fn set_dontcache(&mut self) {
+        self.dontcache = true;
+    }
+
+    /// Whether no dentry of this instance stays once nothing holds it.
+    pub(crate) fn dontcache(&self) -> bool {
+        self.dontcache
     }
 
     pub(crate) fn rename_mutex(&self) -> &Arc<RwSemaphore> {

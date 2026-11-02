@@ -152,7 +152,7 @@ pub(crate) fn d_revalidate(
     dir: &Dentry,
     dentry: &Arc<Dentry>,
 ) -> Result<bool, FilesystemError> {
-    let valid = match dentry.ops() {
+    let valid = match dentry.ops().filter(|_| dentry.looked_up()) {
         Some(ops) => ops.revalidate(dir.inode_ops()?.as_ref(), dentry)?,
         None => true,
     };
@@ -191,7 +191,9 @@ pub(crate) fn lookup_one_qstr_excl(
             (stored, dentry)
         }
     };
-    sb.dentries().retain(&dentry);
+    if !sb.dontcache() {
+        sb.dentries().retain(&dentry);
+    }
     Ok((stored, dentry))
 }
 
@@ -1084,6 +1086,104 @@ mod tests {
         }
     }
 
+    /// The root of an `AskedOfAbsent`, with what counts its lookups and
+    /// revalidations.
+    fn counted_lookups(deleted: bool, stands: bool) -> (Path, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+        let lookups = Arc::new(AtomicUsize::new(0));
+        let revalidations = Arc::new(AtomicUsize::new(0));
+        let ops = AskedOfAbsent {
+            deleted,
+            stands,
+            lookups: lookups.clone(),
+            revalidations: revalidations.clone(),
+        };
+        let mount = Mount::new("/data", Filesystem::new(Arc::new(ops)), Access::ReadWrite)
+            .expect("/data is a guest path");
+        (Path::root(mount.mnt()), lookups, revalidations)
+    }
+
+    /// A Filesystem whose one answer for every name is `stands`, counting what it
+    /// is asked, keeping a name unless `deleted`.
+    #[derive(Clone)]
+    struct AskedOfAbsent {
+        deleted: bool,
+        stands: bool,
+        lookups: Arc<AtomicUsize>,
+        revalidations: Arc<AtomicUsize>,
+    }
+
+    impl DentryOperations for AskedOfAbsent {
+        fn revalidate(
+            &self,
+            _dir: &dyn InodeOperations,
+            _dentry: &Dentry,
+        ) -> Result<bool, FilesystemError> {
+            self.revalidations.fetch_add(1, Ordering::SeqCst);
+            Ok(true)
+        }
+
+        fn delete(&self, _dentry: &Dentry) -> bool {
+            self.deleted
+        }
+    }
+
+    impl InodeOperations for AskedOfAbsent {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(Metadata::new(FileType::Directory, 0))
+        }
+
+        fn fill_super(&self, sb: &mut Filesystem) {
+            sb.set_default_d_op(Arc::new(self.clone()));
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            self.lookups.fetch_add(1, Ordering::SeqCst);
+            Ok(match self.stands {
+                true => {
+                    let file = Metadata::new(FileType::File, 0);
+                    Lookup::Found(Inode::new(&file, Arc::new(self.clone())))
+                }
+                false => Lookup::Absent,
+            })
+        }
+    }
+
+    // @behavior RT-245
+    #[test]
+    fn a_name_nothing_stands_at_stays_for_the_next_walk() {
+        let cred = Arc::default();
+        let stat_twice = |root: &Path| {
+            let first = vfs::vfs_fstatat(&cred, root, "gone", false);
+            let second = vfs::vfs_fstatat(&cred, root, "gone", false);
+            (first.err(), second.err())
+        };
+        let (root, lookups, revalidations) = counted_lookups(false, false);
+        assert_eq!(
+            (
+                stat_twice(&root),
+                lookups.load(Ordering::SeqCst),
+                revalidations.load(Ordering::SeqCst)
+            ),
+            (
+                (
+                    Some(FilesystemError::NotFound),
+                    Some(FilesystemError::NotFound)
+                ),
+                1,
+                1
+            ),
+            "vfs::vfs_fstatat twice of a name nothing stands at must ask ->lookup once and \
+             revalidate what it kept, as retain_dentry keeps a negative dentry"
+        );
+        let (root, lookups, _) = counted_lookups(true, false);
+        stat_twice(&root);
+        assert_eq!(
+            lookups.load(Ordering::SeqCst),
+            2,
+            "a Filesystem whose delete lets a name go must be asked again for it"
+        );
+    }
+
     /// A Filesystem making a file through `create` alone, counting each open of
     /// what it made.
     #[derive(Clone, Default)]
@@ -1413,7 +1513,7 @@ mod tests {
                 "the file must be made"
             );
         });
-        vfs::vfs_fstatat(&cred, &root, "file", false).expect("the file must stand");
+        let _held = vfs::do_file_open(&cred, &root, "file", &how).expect("the file must stand");
         let moved = asked(&|| {
             vfs::filename_renameat2(&cred, &root, "file", &root, "moved").expect("the move")
         });

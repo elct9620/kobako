@@ -14,7 +14,8 @@ use std::sync::Arc;
 
 use super::super::tmpfs::TmpfsFile;
 use super::super::{
-    DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Metadata, OpenOptions, Tmpfs,
+    DirEntry, FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup,
+    Metadata, OpenOptions, Tmpfs,
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
@@ -136,8 +137,11 @@ impl OverlayPath {
         let _held = self.inode_lock()?;
         let dentry = self.lookup_real(name)?;
         may_create_dentry(&self.dentry, &dentry)?;
-        self.upper()?.link(file, name)?;
-        dentry.lookup_inode(&self.dentry)?;
+        let upper = self.upper()?;
+        upper.link(file, name)?;
+        if let Lookup::Found(inode) = upper.lookup(&dentry)? {
+            dentry.add(Some(inode));
+        }
         Ok(dentry)
     }
 

@@ -122,6 +122,9 @@ impl DentryOperations for Overlay {
         _dir: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<bool, FilesystemError> {
+        if dentry.inode().is_none() {
+            return Ok(matches!(self.lookup(dentry)?, Lookup::Absent));
+        }
         let Some(kept) = dentry.inode().as_deref().and_then(OverlayInode::of) else {
             return Ok(true);
         };
@@ -144,7 +147,7 @@ impl DentryOperations for Overlay {
     /// its own go, since its `revalidate` answers only as those Layers do.
     fn delete(&self, dentry: &Dentry) -> bool {
         let Some(kept) = dentry.inode().as_deref().and_then(OverlayInode::of) else {
-            return true;
+            return false;
         };
         let real = kept.real().is_some_and(|real| real.goes_when_unused());
         real || kept
