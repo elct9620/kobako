@@ -238,9 +238,9 @@ Each role keeps to its own work, so a change that crosses roles is a change in t
 
 | Role | Owns |
 |---|---|
-| Wasm Driver | decoding, errno codes, the fd table, rights, the Cred |
+| Wasm Driver | decoding, errno codes, the fd table, rights, the Cred, asking `WalkGuard` |
 | VFS | the walk, dentries, inodes, open files, mounts, operation tables, what an entry lacks |
-| Security Module | whether a path may be reached, registered for each Invocation on its Cred |
+| Security Module | whether a path may be reached or memory held, and `WalkGuard` |
 | Filesystem Driver | what one entry answers, and its own state on a dentry or inode |
 | locking, sched | whether a wait can end, who asks, and the frontend's way to wait |
 

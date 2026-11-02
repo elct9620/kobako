@@ -334,7 +334,7 @@ driver, so choosing an engine there means choosing a different frontend.
 
 ## Filesystem
 
-A Mount hands the guest a Filesystem made from any `impl InodeOperations`, and an Overlay
+A Mount hands the guest a Filesystem made from any `impl FileSystemType`, and an Overlay
 stacks Filesystems as Layers.
 The runtime walks each guest path one name at a time and checks it before the
 Filesystem acts on it. It follows a link itself, so a Filesystem only answers one
@@ -384,7 +384,7 @@ These two calls follow from what the runtime does itself, so a Filesystem answer
 | `FileOperations::llseek` | a position of the file's own choosing | counts from the start, the position, or the end `getattr` reports |
 | `FileOperations::read_iter`, `write_iter` | a file's bytes, moving `Kiocb::pos` past what they took | EINVAL |
 | `FileOperations::read_iter` on a directory, answering `generic_read_dir` | a directory's read refused as one | EINVAL |
-| `FileOperations::iterate_shared` | a directory listed from what its `open` made, through `dir_emit_dots` and `DirContext::dir_emit`, or `Rdir` for one read whole | ENOTDIR |
+| `FileOperations::iterate_shared` | a directory listed through `dir_emit_dots` and `DirContext::dir_emit`, or `Rdir` | ENOTDIR |
 | `FileOperations::fsync` | what was written made durable; answer `Ok` with nothing to flush | EINVAL |
 | `FileOperations::fallocate` | room reserved ahead of a write | ENOTSUP |
 | `FileOperations::poll` | what a call would find ready | ready to read and write |
