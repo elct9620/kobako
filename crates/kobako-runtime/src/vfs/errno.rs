@@ -1,7 +1,7 @@
 //! Why a call on a Filesystem failed, under the POSIX name each failure
 //! stands for, as Linux's calls answer an errno.
 
-use crate::locking::Deadlock;
+use crate::locking::DownError;
 
 /// Why a Filesystem call failed, for the ABI above to encode as its error code.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,9 +86,12 @@ const POSIX_NAMES: [(&str, FilesystemError); 27] = [
     ("ESPIPE", FilesystemError::NotSeekable),
 ];
 
-impl From<Deadlock> for FilesystemError {
-    fn from(_: Deadlock) -> Self {
-        Self::Deadlock
+impl From<DownError> for FilesystemError {
+    fn from(error: DownError) -> Self {
+        match error {
+            DownError::Deadlock => Self::Deadlock,
+            DownError::Interrupted => Self::Interrupted,
+        }
     }
 }
 

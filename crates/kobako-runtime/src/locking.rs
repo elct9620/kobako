@@ -7,16 +7,24 @@ use std::thread::ThreadId;
 
 use crate::sched;
 
-/// A wait no release could ever end, since the thread asking holds what it
-/// asks for. A thread must never hang on itself, so it is answered, as
-/// Linux's `rt_mutex` answers `-EDEADLK`.
+/// Why a hold was not taken.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Deadlock;
+pub(crate) enum DownError {
+    /// A wait no release could ever end, since the thread asking holds what it
+    /// asks for. A thread must never hang on itself, so it is answered, as
+    /// Linux's `rt_mutex` answers `-EDEADLK`.
+    Deadlock,
+    /// The wait's run was to stop, past its deadline or interrupted, as
+    /// `down_read_killable` answers `-EINTR` on a fatal signal.
+    Interrupted,
+}
 
 /// Held shared by any number of threads or exclusive by one. A thread
 /// asking again for a hold it could only get once it let go of its own is
 /// refused as a Deadlock; a thread already holding it shared may hold it
 /// shared again, even past a waiting writer, which waits for that thread.
+/// Every wait for it ends once its run is to stop, as each wait of Linux's
+/// is `_killable`.
 #[derive(Default)]
 pub(crate) struct RwSemaphore {
     holders: Mutex<Holders>,
@@ -53,10 +61,10 @@ impl RwSemaphore {
     }
 
     /// Hold it shared, waiting while a writer holds it.
-    pub(crate) fn down_read(self: &Arc<Self>) -> Result<RwSemaphoreGuard, Deadlock> {
+    pub(crate) fn down_read(self: &Arc<Self>) -> Result<RwSemaphoreGuard, DownError> {
         let current = sched::current();
         self.down(current, false, |holders| match holders.writer {
-            Some(writer) if writer == current => Err(Deadlock),
+            Some(writer) if writer == current => Err(DownError::Deadlock),
             Some(_) => Ok(false),
             None if holders.writers_waiting > 0 && !holders.readers.contains(&current) => Ok(false),
             None => {
@@ -67,11 +75,11 @@ impl RwSemaphore {
     }
 
     /// Hold it exclusive, waiting while anyone holds it.
-    pub(crate) fn down_write(self: &Arc<Self>) -> Result<RwSemaphoreGuard, Deadlock> {
+    pub(crate) fn down_write(self: &Arc<Self>) -> Result<RwSemaphoreGuard, DownError> {
         let current = sched::current();
         self.down(current, true, |holders| {
             if holders.writer == Some(current) || holders.readers.contains(&current) {
-                return Err(Deadlock);
+                return Err(DownError::Deadlock);
             }
             if holders.writer.is_some() || !holders.readers.is_empty() {
                 return Ok(false);
@@ -92,8 +100,8 @@ impl RwSemaphore {
         self: &Arc<Self>,
         holder: ThreadId,
         exclusive: bool,
-        mut take: impl FnMut(&mut Holders) -> Result<bool, Deadlock>,
-    ) -> Result<RwSemaphoreGuard, Deadlock> {
+        mut take: impl FnMut(&mut Holders) -> Result<bool, DownError>,
+    ) -> Result<RwSemaphoreGuard, DownError> {
         let mut holders = self.holders();
         if !take(&mut holders)? {
             drop(holders);
@@ -107,12 +115,13 @@ impl RwSemaphore {
     }
 
     /// Wait for a release and ask again, as `rwsem_down_read_slowpath` and
-    /// `rwsem_down_write_slowpath` call `schedule`.
+    /// `rwsem_down_write_slowpath` call `schedule`, until the run is to stop, as
+    /// a killable wait looks at `fatal_signal_pending` each time it wakes.
     fn down_slowpath(
         &self,
         exclusive: bool,
-        take: &mut impl FnMut(&mut Holders) -> Result<bool, Deadlock>,
-    ) -> Result<(), Deadlock> {
+        take: &mut impl FnMut(&mut Holders) -> Result<bool, DownError>,
+    ) -> Result<(), DownError> {
         let mut taken = Ok(());
         sched::schedule(&mut || {
             let mut holders = self.holders();
@@ -120,12 +129,17 @@ impl RwSemaphore {
             loop {
                 match take(&mut holders) {
                     Ok(true) => break,
+                    Ok(false) if sched::fatal_signal_pending() => {
+                        taken = Err(DownError::Interrupted);
+                        break;
+                    }
                     Ok(false) => {
                         holders.waiting += 1;
                         holders = self
                             .freed
-                            .wait(holders)
-                            .unwrap_or_else(PoisonError::into_inner);
+                            .wait_timeout(holders, sched::sleep_slice())
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .0;
                         holders.waiting -= 1;
                     }
                     Err(err) => {

@@ -3242,6 +3242,92 @@ mod tests {
         );
     }
 
+    // Linux's waits on a directory and on a name in lookup are killable, so a
+    // run whose deadline passed or whose thread was interrupted stops waiting
+    // while the holder still holds.
+    // @behavior RT-267
+    #[test]
+    fn a_wait_ends_once_its_run_is_to_stop() {
+        use crate::sched::{run_task, Task};
+        use std::time::Instant;
+
+        let root =
+            root_of(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand"));
+        let held = root.dentry().inode_lock().expect("the test holds the root");
+        let past_deadline = {
+            let root = root.clone();
+            thread::spawn(move || {
+                run_task(Some(Instant::now() + Duration::from_millis(50)), || {
+                    vfs::filename_mkdirat(&Arc::default(), &root, "late")
+                })
+            })
+        };
+        let (task, tasked) = mpsc::channel();
+        let interrupted = {
+            let root = root.clone();
+            thread::spawn(move || {
+                run_task(None, || {
+                    task.send(Task::current()).ok();
+                    vfs::filename_mkdirat(&Arc::default(), &root, "stopped")
+                })
+            })
+        };
+        tasked
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the run must start")
+            .interrupt();
+        crate::sched::testing::wait_until("both waits ending", || {
+            past_deadline.is_finished() && interrupted.is_finished()
+        });
+        drop(held);
+        assert_eq!(
+            (
+                past_deadline.join().expect("the wait must not panic"),
+                interrupted.join().expect("the wait must not panic"),
+            ),
+            (
+                Err(FilesystemError::Interrupted),
+                Err(FilesystemError::Interrupted)
+            ),
+            "vfs::filename_mkdirat waiting on a directory another thread holds must answer EINTR \
+             once its run's deadline passes, and once its thread is interrupted"
+        );
+    }
+
+    // @behavior RT-267
+    #[test]
+    fn a_wait_for_a_name_in_lookup_ends_once_its_run_is_to_stop() {
+        use std::time::Instant;
+
+        let (reached, reaching) = mpsc::channel();
+        let (go_on, going) = mpsc::channel();
+        let holds = Arc::new(HoldsLookup {
+            asked: AtomicUsize::new(0),
+            reached: Mutex::new(reached),
+            go_on: Mutex::new(going),
+        });
+        let root = root_of(Filesystem::new(holds).expect("the instance must stand"));
+        let first = {
+            let root = root.clone();
+            thread::spawn(move || vfs::vfs_fstatat(&Arc::default(), &root, "x", false).err())
+        };
+        reaching
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the first walk must ask");
+        let deadline = Some(Instant::now() + Duration::from_millis(50));
+        let second = crate::sched::run_task(deadline, || {
+            vfs::vfs_fstatat(&Arc::default(), &root, "x", false).err()
+        });
+        go_on.send(()).ok();
+        first.join().expect("the first walk must not panic");
+        assert_eq!(
+            second,
+            Some(FilesystemError::Interrupted),
+            "vfs::vfs_fstatat of a name another walk is looking up must answer EINTR once its \
+             run's deadline passes"
+        );
+    }
+
     /// Holds a move of `k` inside its Filesystem, its directories and the
     /// rename lock held, until told to go on.
     struct HoldsMoveOfK {

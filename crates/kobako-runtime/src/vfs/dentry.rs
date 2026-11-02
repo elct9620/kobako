@@ -264,7 +264,7 @@ impl Dentry {
     /// the entry under another spelling answers that spelling, for the caller to
     /// take that dentry instead.
     pub(crate) fn lookup_inode(&self, dir: &Dentry) -> Result<Option<String>, FilesystemError> {
-        let ends = match self.d_in_lookup() {
+        let ends = match self.d_in_lookup()? {
             InLookup::Answered => return Ok(None),
             InLookup::Begun => true,
             InLookup::Within => false,
@@ -288,31 +288,35 @@ impl Dentry {
     }
 
     /// Mark this in lookup for the calling walk, waiting while another walk's
-    /// lookup of it is under way. A Filesystem asking the runtime about the name
-    /// its own lookup is answering asks it again within that lookup, as it would
-    /// otherwise wait on itself.
-    fn d_in_lookup(&self) -> InLookup {
+    /// lookup of it is under way, until the walk's run is to stop. A Filesystem
+    /// asking the runtime about the name its own lookup is answering asks it again
+    /// within that lookup, as it would otherwise wait on itself.
+    fn d_in_lookup(&self) -> Result<InLookup, FilesystemError> {
         let current = sched::current();
         loop {
             let mut state = self.state();
             match state.in_lookup {
-                Some(walk) if walk == current => return InLookup::Within,
+                Some(walk) if walk == current => return Ok(InLookup::Within),
+                Some(_) if sched::fatal_signal_pending() => {
+                    return Err(FilesystemError::Interrupted)
+                }
                 Some(_) => {
                     drop(state);
                     sched::schedule(&mut || {
-                        let mut state = self.state();
-                        while state.in_lookup.is_some() {
-                            state = self
-                                .lookup_done
-                                .wait(state)
-                                .unwrap_or_else(PoisonError::into_inner);
+                        let state = self.state();
+                        if state.in_lookup.is_some() {
+                            drop(
+                                self.lookup_done
+                                    .wait_timeout(state, sched::sleep_slice())
+                                    .unwrap_or_else(PoisonError::into_inner),
+                            );
                         }
                     });
                 }
-                None if state.looked_up => return InLookup::Answered,
+                None if state.looked_up => return Ok(InLookup::Answered),
                 None => {
                     state.in_lookup = Some(current);
-                    return InLookup::Begun;
+                    return Ok(InLookup::Begun);
                 }
             }
         }

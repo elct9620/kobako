@@ -1,9 +1,15 @@
 //! Who is running and how it waits, beneath every lock, as Linux's
 //! `kernel/sched` is: a lock asks only for its wait to happen, so nothing
-//! above it knows what waiting means to the frontend.
+//! above it knows what waiting means to the frontend. A run past its deadline,
+//! or one its frontend interrupted, stops waiting, as a fatal signal ends
+//! Linux's killable waits, so one Sandbox holding a lock never holds another's
+//! thread past that one's own end.
 
-use std::sync::OnceLock;
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::thread::{self, ThreadId};
+use std::time::{Duration, Instant};
 
 /// How a thread waits for a lock another thread holds. A frontend whose
 /// threads share a lock of their own, as Ruby's threads share the GVL,
@@ -39,6 +45,91 @@ thread_local! {
 /// Who is running, as Linux's `current`.
 pub(crate) fn current() -> ThreadId {
     CURRENT.with(|current| *current)
+}
+
+/// A thread as its frontend may interrupt it from another thread, as a signal
+/// reaches a Linux task.
+#[derive(Clone, Default)]
+pub struct Task {
+    interrupted: Arc<AtomicBool>,
+}
+
+impl Task {
+    /// The calling thread.
+    pub fn current() -> Self {
+        TASK.with(|task| task.borrow().task.clone())
+    }
+
+    /// Have every wait of the run this thread carries out stop, as a fatal
+    /// signal ends a killable wait; it holds until that run ends.
+    pub fn interrupt(&self) {
+        self.interrupted.store(true, Ordering::SeqCst);
+    }
+}
+
+/// A thread, and when the run it carries out is to stop.
+#[derive(Default)]
+struct Running {
+    task: Task,
+    deadline: Option<Instant>,
+    /// How many runs the thread is inside, one within another where a
+    /// Filesystem's own call starts another.
+    depth: usize,
+}
+
+thread_local! {
+    static TASK: RefCell<Running> = RefCell::default();
+}
+
+/// Run `run` as a run that stops waiting once `deadline` passes or its thread
+/// is interrupted, as a Linux task stops a killable wait on a fatal signal. A
+/// run within another keeps the outer one's interrupt.
+pub fn run_task<T>(deadline: Option<Instant>, run: impl FnOnce() -> T) -> T {
+    /// Puts back the deadline of the run around this one, however `run` ends,
+    /// and lets an interrupt go once no run is left.
+    struct Outer(Option<Instant>);
+
+    impl Drop for Outer {
+        fn drop(&mut self) {
+            TASK.with(|task| {
+                let mut running = task.borrow_mut();
+                running.deadline = self.0;
+                running.depth -= 1;
+                if running.depth == 0 {
+                    running.task.interrupted.store(false, Ordering::SeqCst);
+                }
+            });
+        }
+    }
+
+    let _outer = Outer(TASK.with(|task| {
+        let mut running = task.borrow_mut();
+        running.depth += 1;
+        std::mem::replace(&mut running.deadline, deadline)
+    }));
+    run()
+}
+
+/// Whether the calling thread's run is to stop waiting, as Linux's
+/// `fatal_signal_pending(current)` answers.
+pub(crate) fn fatal_signal_pending() -> bool {
+    TASK.with(|task| {
+        let running = task.borrow();
+        running.task.interrupted.load(Ordering::SeqCst)
+            || running.deadline.is_some_and(|at| Instant::now() >= at)
+    })
+}
+
+/// The most a wait sleeps before it looks again whether its run is to stop.
+const MAX_SLEEP: Duration = Duration::from_millis(10);
+
+/// How long a wait sleeps before it looks again whether its run is to stop:
+/// never past its deadline.
+pub(crate) fn sleep_slice() -> Duration {
+    TASK.with(|task| match task.borrow().deadline {
+        Some(at) => at.saturating_duration_since(Instant::now()).min(MAX_SLEEP),
+        None => MAX_SLEEP,
+    })
 }
 
 /// A process has one Blocking, so a test counts only the waits of the thread
