@@ -2942,18 +2942,19 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a walk begins |
 | Then | it begins once the move lands, so no `..` it takes answers EAGAIN for that move |
 
-## `RT-266` A start moved in every pass beneath a Policy answers EAGAIN
+## `RT-266` A start moved while it is asked beneath a Policy answers EAGAIN
 
 | Attribute | Value |
 | --- | --- |
 | refines | `RT-234` |
+| relates | `RT-256` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a directory a guest holds beneath a Mount with a Policy |
-| Given | another Mount moving it each time the runtime asks whether it stands |
-| When | the guest makes a call starting from it |
-| Then | the call answers EAGAIN once a few passes from the root each met a move |
+| Given | another Mount moving it while the runtime asks whether it stands |
+| When | the runtime asks whether it stands |
+| Then | it answers EAGAIN for the Driver to make the call again |
 
 ## `RT-267` A wait ends once its run is to stop
 
