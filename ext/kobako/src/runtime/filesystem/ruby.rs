@@ -21,7 +21,8 @@ use kobako_runtime::filesystem::{
     RenameFlag,
 };
 use kobako_runtime::vfs::{
-    generic_read_dir, verify_dirent_name, Dentry, DirContext, Identity, Inode, NAME_MAX,
+    generic_read_dir, generic_write_sync, verify_dirent_name, Dentry, DirContext, Identity, Inode,
+    NAME_MAX,
 };
 
 use crate::runtime::pinned_value::PinnedValue;
@@ -570,6 +571,25 @@ impl RubyFile {
     /// answers where the file then ends, as `IO#pos` does after a write to
     /// a file opened to append. A file lacking it cannot append, since its
     /// `size` and `pwrite` are two steps another writer can land between.
+    fn pwrite(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        let pos = iocb.pos;
+        let written = ask(
+            self.file.get(),
+            "pwrite",
+            FilesystemError::ReadOnlyFilesystem,
+            |ruby, file| file.funcall("pwrite", (ruby.str_from_slice(buf), pos)),
+        )
+        .and_then(|written: usize| match written {
+            written if written <= buf.len() => Ok(written),
+            written => Err(FilesystemError::Other(format!(
+                "pwrite answered {written} bytes written of the {} it was handed",
+                buf.len()
+            ))),
+        })?;
+        iocb.pos += written as u64;
+        Ok(written)
+    }
+
     fn append(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         let end: u64 = ask(
             self.file.get(),
@@ -621,25 +641,11 @@ impl FileOperations for RubyFile {
     }
 
     fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-        if iocb.append {
-            return self.append(iocb, buf);
-        }
-        let pos = iocb.pos;
-        let written = ask(
-            self.file.get(),
-            "pwrite",
-            FilesystemError::ReadOnlyFilesystem,
-            |ruby, file| file.funcall("pwrite", (ruby.str_from_slice(buf), pos)),
-        )
-        .and_then(|written: usize| match written {
-            written if written <= buf.len() => Ok(written),
-            written => Err(FilesystemError::Other(format!(
-                "pwrite answered {written} bytes written of the {} it was handed",
-                buf.len()
-            ))),
-        })?;
-        iocb.pos += written as u64;
-        Ok(written)
+        let written = match iocb.append {
+            true => self.append(iocb, buf)?,
+            false => self.pwrite(iocb, buf)?,
+        };
+        generic_write_sync(self, iocb, written)
     }
 
     /// A file lacking `fsync` has nothing of its own to flush.
