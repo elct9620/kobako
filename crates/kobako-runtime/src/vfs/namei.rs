@@ -287,7 +287,7 @@ impl Nameidata {
     /// Linux's `link_path_walk` leaves `nd->last` and `nd->last_type`.
     fn link_path_walk(&mut self) -> Result<(), FilesystemError> {
         loop {
-            inode_permission(&self.cred, self.dentry(), Mask::EXEC)?;
+            inode_permission(&self.cred, self.mnt.sb(), self.dentry(), Mask::EXEC)?;
             let part = self.pending.pop_front().ok_or(FilesystemError::NotFound)?;
             let slashes = self
                 .pending
@@ -412,9 +412,29 @@ pub fn getname(path: &str) -> Result<(), FilesystemError> {
 
 /// Whether `cred` may do what `mask` asks of what `dentry` names, as Linux's
 /// `inode_permission` asks `->permission` and then the security modules.
-fn inode_permission(cred: &Cred, dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
+fn inode_permission(
+    cred: &Cred,
+    sb: &SuperBlock,
+    dentry: &Dentry,
+    mask: Mask,
+) -> Result<(), FilesystemError> {
+    sb_permission(sb, dentry, mask)?;
     dentry.inode_ops()?.permission(dentry, mask)?;
     cred.security_inode_permission(dentry, mask)
+}
+
+/// Refuse a write to a file, a directory, or a link of a read-only `sb`, as
+/// Linux's `sb_permission` does before any Filesystem or module is asked.
+fn sb_permission(sb: &SuperBlock, dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
+    if !mask.contains(Mask::WRITE) || !sb.rdonly() {
+        return Ok(());
+    }
+    match dentry.kind()? {
+        FileType::File | FileType::Directory | FileType::Symlink => {
+            Err(FilesystemError::ReadOnlyFilesystem)
+        }
+        _ => Ok(()),
+    }
 }
 
 /// The walk of `path` beneath `start`, ready to begin, as Linux's
@@ -511,7 +531,7 @@ pub fn do_file_open(
         None if how.create => {
             let _held = held;
             let f_op = lookup_open(&nd, &child, &options)?;
-            may_open(cred, &child, FileType::File, Mask::OPEN)?;
+            may_open(cred, nd.mnt.sb(), &child, FileType::File, Mask::OPEN)?;
             let mode = FMode::of(how).with(FMode::CREATED);
             let security =
                 nd.on_path(|path| cred.security_file_open(path, FileType::File, mode, how))?;
@@ -536,7 +556,7 @@ fn lookup_open(
 ) -> Result<Box<dyn FileOperations>, FilesystemError> {
     nd.mnt.mnt_want_write()?;
     nd.on_path(|path| nd.cred.security_path_mknod(path))?;
-    may_create_dentry(&nd.cred, nd.dentry(), child)?;
+    may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), child)?;
     atomic_open(nd.dentry(), child, options)
 }
 
@@ -566,7 +586,7 @@ fn do_open(
     if truncate {
         nd.mnt.mnt_want_write()?;
     }
-    may_open(&nd.cred, child, kind, open_mask(how))?;
+    may_open(&nd.cred, nd.mnt.sb(), child, kind, open_mask(how))?;
     if how.write && !kind.is_special() {
         nd.mnt.mnt_want_write()?;
     }
@@ -585,6 +605,7 @@ fn do_open(
 /// writing, and anything `inode_permission` refuses for what the open asks.
 fn may_open(
     cred: &Cred,
+    sb: &SuperBlock,
     child: &Dentry,
     kind: FileType,
     mask: Mask,
@@ -596,7 +617,7 @@ fn may_open(
         }
         _ => {}
     }
-    inode_permission(cred, child, mask)
+    inode_permission(cred, sb, child, mask)
 }
 
 /// What an open asks of what it opens, as `build_open_flags` makes `acc_mode`.
@@ -632,7 +653,7 @@ pub fn filename_linkat(
         return Err(FilesystemError::CrossesDevices);
     }
     old.on_path(|old| new.on_path(|new| cred.security_path_link(old, new)))?;
-    vfs_link(cred, &target, new.dentry(), &child)
+    vfs_link(cred, new.mnt.sb(), &target, new.dentry(), &child)
 }
 
 /// Make the link `path` beneath `start` names, pointing at `target`, as
@@ -647,7 +668,7 @@ pub fn filename_symlinkat(
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, false)?;
     nd.on_path(|path| cred.security_path_symlink(path))?;
-    vfs_symlink(cred, nd.dentry(), &child, target)
+    vfs_symlink(cred, nd.mnt.sb(), nd.dentry(), &child, target)
 }
 
 /// Hold the directory a name is made in and take the name's dentry, as
@@ -692,7 +713,7 @@ pub fn filename_mkdirat(cred: &Arc<Cred>, start: &Path, path: &str) -> Result<()
     let mut nd = filename_parentat(cred, start, path)?;
     let (_held, child) = filename_create(&mut nd, true)?;
     nd.on_path(|path| cred.security_path_mkdir(path))?;
-    vfs_mkdir(cred, nd.dentry(), &child)
+    vfs_mkdir(cred, nd.mnt.sb(), nd.dentry(), &child)
 }
 
 /// Remove the empty directory `path` beneath `start`, as Linux's
@@ -910,21 +931,25 @@ pub(crate) fn vfs_rename(
         return Ok(());
     }
     let is_dir = moving == Some(FileType::Directory);
-    may_delete_dentry(cred, old_dir, moving, is_dir)?;
+    may_delete_dentry(cred, sb, old_dir, moving, is_dir)?;
     match (target, flag) {
-        (None, _) => may_create_dentry(cred, new_dir, new)?,
-        (target, Some(RenameFlag::Exchange)) => {
-            may_delete_dentry(cred, new_dir, target, target == Some(FileType::Directory))?
-        }
-        (target, _) => may_delete_dentry(cred, new_dir, target, is_dir)?,
+        (None, _) => may_create_dentry(cred, sb, new_dir, new)?,
+        (target, Some(RenameFlag::Exchange)) => may_delete_dentry(
+            cred,
+            sb,
+            new_dir,
+            target,
+            target == Some(FileType::Directory),
+        )?,
+        (target, _) => may_delete_dentry(cred, sb, new_dir, target, is_dir)?,
     }
     // A directory changing its parent changes its `..`, so it is asked to change.
     if !Arc::ptr_eq(old_dir, new_dir) {
         if is_dir {
-            inode_permission(cred, old, Mask::WRITE)?;
+            inode_permission(cred, sb, old, Mask::WRITE)?;
         }
         if flag == Some(RenameFlag::Exchange) && target == Some(FileType::Directory) {
-            inode_permission(cred, new, Mask::WRITE)?;
+            inode_permission(cred, sb, new, Mask::WRITE)?;
         }
     }
     let _held = lock_moved(
@@ -959,7 +984,7 @@ pub(crate) fn vfs_rmdir(
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    may_delete_dentry(cred, dir, victim.kind().ok(), true)?;
+    may_delete_dentry(cred, sb, dir, victim.kind().ok(), true)?;
     let _victim = victim.inode_lock()?;
     dir.inode_ops()?.rmdir(victim)?;
     victim.mark_dead();
@@ -977,7 +1002,7 @@ pub(crate) fn vfs_unlink(
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), FilesystemError> {
-    may_delete_dentry(cred, dir, victim.kind().ok(), false)?;
+    may_delete_dentry(cred, sb, dir, victim.kind().ok(), false)?;
     let _victim = victim.inode_lock()?;
     dir.inode_ops()?.unlink(victim)?;
     sb.dentries().unhash(victim);
@@ -987,8 +1012,13 @@ pub(crate) fn vfs_unlink(
 /// Make the directory `child` in `dir`, as Linux's `vfs_mkdir` does once its
 /// caller holds `dir`. A Filesystem that records nothing on `child` answers for
 /// it at the next walk, as its `revalidate` or its uncached names do.
-pub(crate) fn vfs_mkdir(cred: &Cred, dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
-    may_create_dentry(cred, dir, child)?;
+pub(crate) fn vfs_mkdir(
+    cred: &Cred,
+    sb: &SuperBlock,
+    dir: &Dentry,
+    child: &Dentry,
+) -> Result<(), FilesystemError> {
+    may_create_dentry(cred, sb, dir, child)?;
     dir.inode_ops()?.mkdir(child)
 }
 
@@ -1004,8 +1034,13 @@ pub(crate) fn atomic_open(
 
 /// Make the file `child` in `dir`, as Linux's `vfs_create` does once its caller
 /// holds `dir`.
-pub(crate) fn vfs_create(cred: &Cred, dir: &Dentry, child: &Dentry) -> Result<(), FilesystemError> {
-    may_create_dentry(cred, dir, child)?;
+pub(crate) fn vfs_create(
+    cred: &Cred,
+    sb: &SuperBlock,
+    dir: &Dentry,
+    child: &Dentry,
+) -> Result<(), FilesystemError> {
+    may_create_dentry(cred, sb, dir, child)?;
     dir.inode_ops()?.create(child)
 }
 
@@ -1014,11 +1049,12 @@ pub(crate) fn vfs_create(cred: &Cred, dir: &Dentry, child: &Dentry) -> Result<()
 /// names is held, so a removal landing first leaves no name to give another.
 fn vfs_link(
     cred: &Cred,
+    sb: &SuperBlock,
     old: &Dentry,
     dir: &Dentry,
     child: &Dentry,
 ) -> Result<(), FilesystemError> {
-    may_create_dentry(cred, dir, child)?;
+    may_create_dentry(cred, sb, dir, child)?;
     if old.kind()? == FileType::Directory {
         return Err(FilesystemError::NotPermitted);
     }
@@ -1033,11 +1069,12 @@ fn vfs_link(
 /// holds `dir`.
 fn vfs_symlink(
     cred: &Cred,
+    sb: &SuperBlock,
     dir: &Dentry,
     child: &Dentry,
     target: &str,
 ) -> Result<(), FilesystemError> {
-    may_create_dentry(cred, dir, child)?;
+    may_create_dentry(cred, sb, dir, child)?;
     dir.inode_ops()?.symlink(child, target)
 }
 
@@ -1045,6 +1082,7 @@ fn vfs_symlink(
 /// once `dir` was removed, as Linux's `may_create_dentry` reads `d_inode`.
 pub(crate) fn may_create_dentry(
     cred: &Cred,
+    sb: &SuperBlock,
     dir: &Dentry,
     child: &Dentry,
 ) -> Result<(), FilesystemError> {
@@ -1054,7 +1092,7 @@ pub(crate) fn may_create_dentry(
     if dir.is_deaddir() {
         return Err(FilesystemError::NotFound);
     }
-    inode_permission(cred, dir, Mask::WRITE | Mask::EXEC)
+    inode_permission(cred, sb, dir, Mask::WRITE | Mask::EXEC)
 }
 
 /// Refuse to remove `victim`, what stands at a name in `dir`, where
@@ -1063,6 +1101,7 @@ pub(crate) fn may_create_dentry(
 /// `may_delete_dentry` refuses.
 fn may_delete_dentry(
     cred: &Cred,
+    sb: &SuperBlock,
     dir: &Dentry,
     victim: Option<FileType>,
     is_dir: bool,
@@ -1070,7 +1109,7 @@ fn may_delete_dentry(
     let Some(victim) = victim else {
         return Err(FilesystemError::NotFound);
     };
-    inode_permission(cred, dir, Mask::WRITE | Mask::EXEC)?;
+    inode_permission(cred, sb, dir, Mask::WRITE | Mask::EXEC)?;
     match (is_dir, victim == FileType::Directory) {
         (true, false) => return Err(FilesystemError::NotADirectory),
         (false, true) => return Err(FilesystemError::IsADirectory),
@@ -1785,6 +1824,61 @@ mod tests {
             (true, false),
             "vfs::filename_renameat2 of a directory into another parent must ask its permission \
              to write, as vfs_rename does for its `..`, and a move within one parent must not"
+        );
+    }
+
+    /// A read-only directory holding a file at every name, whose permission
+    /// refuses every write.
+    struct ReadOnlyRefusingWrites;
+
+    impl FileSystemType for ReadOnlyRefusingWrites {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            sb.set_rdonly();
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for ReadOnlyRefusingWrites {
+        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+            Ok(match dentry.parent() {
+                Some(_) => Metadata::new(FileType::File, 0),
+                None => Metadata::new(FileType::Directory, 0),
+            })
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let file = Metadata::new(FileType::File, 0);
+            Ok(Lookup::Found(Inode::new(&file, Arc::new(Self))))
+        }
+
+        fn permission(&self, _dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
+            match mask.contains(Mask::WRITE) {
+                true => Err(FilesystemError::PermissionDenied),
+                false => Ok(()),
+            }
+        }
+    }
+
+    // Both the read-only instance and the Filesystem's permission refuse the
+    // write, so only the order tells which answers first.
+    // @behavior RT-279
+    #[test]
+    fn a_read_only_filesystem_refuses_a_write_before_its_permission_is_asked() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(ReadOnlyRefusingWrites)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let how = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        assert_eq!(
+            vfs::do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &how).err(),
+            Some(FilesystemError::ReadOnlyFilesystem),
+            "vfs::do_file_open to write a file of a read-only Filesystem whose permission refuses \
+             writes must answer EROFS, as sb_permission answers before ->permission"
         );
     }
 

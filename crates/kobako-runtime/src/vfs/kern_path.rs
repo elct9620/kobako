@@ -86,7 +86,7 @@ impl KernPath {
         options: &OpenOptions,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let (nd, child) = self.parent(path)?;
-        may_create_dentry(&nd.cred, nd.dentry(), &child)?;
+        may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)?;
         atomic_open(nd.dentry(), &child, options)
     }
 
@@ -147,7 +147,7 @@ impl KernPath {
 
     pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
         let (nd, child) = self.parent(path)?;
-        vfs_mkdir(&nd.cred, nd.dentry(), &child)
+        vfs_mkdir(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {

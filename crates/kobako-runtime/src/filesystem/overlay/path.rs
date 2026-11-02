@@ -111,7 +111,12 @@ impl OverlayPath {
 
     pub(super) fn do_whiteout(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        may_create_dentry(&self.creator_cred, &self.dentry, &*self.lookup_real(name)?)?;
+        may_create_dentry(
+            &self.creator_cred,
+            &self.filesystem,
+            &self.dentry,
+            &*self.lookup_real(name)?,
+        )?;
         self.upper()?.whiteout(name)
     }
 
@@ -147,7 +152,7 @@ impl OverlayPath {
     ) -> Result<Arc<Dentry>, FilesystemError> {
         let _held = self.inode_lock()?;
         let dentry = self.lookup_real(name)?;
-        may_create_dentry(&self.creator_cred, &self.dentry, &dentry)?;
+        may_create_dentry(&self.creator_cred, &self.filesystem, &self.dentry, &dentry)?;
         let upper = self.upper()?;
         upper.link(file, name)?;
         if let Lookup::Found(inode) = upper.lookup(&dentry)? {
@@ -185,7 +190,12 @@ impl OverlayPath {
     /// Make the file `name`, holding the directory, as `ovl_do_create` does.
     pub(super) fn do_create(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
-        vfs_create(&self.creator_cred, &self.dentry, &*self.lookup_real(name)?)
+        vfs_create(
+            &self.creator_cred,
+            &self.filesystem,
+            &self.dentry,
+            &*self.lookup_real(name)?,
+        )
     }
 
     /// The directory standing at `name`, a link there refused as a loop, as
@@ -241,7 +251,7 @@ impl OverlayPath {
     pub(super) fn do_mkdir(&self, name: &str) -> Result<(), FilesystemError> {
         let _held = self.inode_lock()?;
         let child = self.lookup_real(name)?;
-        vfs_mkdir(&self.creator_cred, &self.dentry, &child)
+        vfs_mkdir(&self.creator_cred, &self.filesystem, &self.dentry, &child)
     }
 
     pub(super) fn do_rmdir(&self, name: &str) -> Result<(), FilesystemError> {
