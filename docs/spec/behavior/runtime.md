@@ -2869,3 +2869,39 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding as many descriptors as it may |
 | When | it opens asking to create a directory |
 | Then | the open answers EINVAL, as Linux reads the flags before it reserves a descriptor |
+
+## `RT-260` A special file opened to write beneath a read-only Mount answers as its security module does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-196` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-only Mount whose Filesystem holds a FIFO |
+| When | the guest opens the FIFO to write |
+| Then | the open answers EACCES, as Linux takes no write access to a mount for a special file |
+
+## `RT-261` A truncating open beneath a read-only Mount answers EROFS first
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-215` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-only Mount whose Filesystem refuses every write to a file |
+| When | the guest opens the file to read with `O_TRUNC` |
+| Then | the open answers EROFS, as Linux asks the mount before `may_open` |
+
+## `RT-262` An open asks to open what it just made
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-244` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem refusing to open what it makes |
+| When | the guest opens a missing path to create it |
+| Then | the open answers EACCES and the file stands, as Linux's `do_open` asks `may_open` of a file it made |
