@@ -3125,6 +3125,35 @@ mod tests {
         );
     }
 
+    // Linux's `vfs_fallocate` allocates only for a regular file or a block
+    // device. Only a module letting a device open reaches this, as the bundled
+    // one refuses it.
+    // @behavior RT-274
+    #[test]
+    fn an_allocation_on_a_character_device_answers_enodev() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(Holds::of(
+                crate::filesystem::FileType::CharDevice,
+                Mask::EXEC,
+            )))
+            .expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let write = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        let mut device = vfs::do_file_open(&Arc::default(), &Path::root(mount.mnt()), "f", &write)
+            .unwrap_or_else(|_| panic!("the device must open"));
+        assert_eq!(
+            device.fallocate(0, 1).err(),
+            Some(FilesystemError::NoSuchDevice),
+            "File::fallocate of a character device opened to write must answer ENODEV"
+        );
+    }
+
     // Linux's `do_dentry_open` takes write access to the mount for anything but
     // a special file, so a FIFO reaches the security module, which refuses it.
     // @behavior RT-260

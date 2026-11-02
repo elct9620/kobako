@@ -39,6 +39,7 @@ fn from_posix_name(name: &str) -> Option<Errno> {
         "ENOTSOCK" => Errno::Notsock,
         "EOVERFLOW" => Errno::Overflow,
         "ESPIPE" => Errno::Spipe,
+        "ENODEV" => Errno::Nodev,
         _ => return None,
     })
 }
@@ -114,6 +115,7 @@ mod tests {
             (FilesystemError::NotASocket, 57),
             (FilesystemError::ValueTooLarge, 61),
             (FilesystemError::NotSeekable, 70),
+            (FilesystemError::NoSuchDevice, 43),
             (FilesystemError::Other("x".into()), 29),
         ];
         for (error, code) in cases {

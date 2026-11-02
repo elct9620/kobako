@@ -31,6 +31,15 @@ class TestE2ERubyFilesystemErrno < Minitest::Test
                  "in the script, numbered 11"
   end
 
+  # An allocation on a device answers ENODEV, so a script must be able to name it.
+  # @behavior RF-015
+  def test_a_script_names_enodev_as_linux_numbers_it
+    number = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval("Errno::ENODEV.new.errno").value
+    assert_equal ["Errno::ENODEV", 19], [rescued_class(Errno::ENODEV), number],
+                 "an open whose Ruby Filesystem raises Errno::ENODEV through Sandbox#eval must raise Errno::ENODEV " \
+                 "in the script, numbered 19"
+  end
+
   # @behavior RF-016
   def test_an_errno_the_guest_has_no_class_for_reaches_the_script_as_eio
     assert_equal "Errno::EIO", rescued_class(Errno::ETIMEDOUT),

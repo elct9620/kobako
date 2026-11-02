@@ -598,8 +598,8 @@ impl File {
 
     /// Reserve `len` bytes from `offset`, as `vfs_fallocate` refuses in this
     /// order before it asks `f_op->fallocate`: what the call asks, the open's
-    /// mode, and then a FIFO or a directory. A device never opens, so its
-    /// Filesystem answers for anything else.
+    /// mode, a FIFO, a directory, and then anything but a regular file or a
+    /// block device.
     pub fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
         if offset > MAX_OFFSET || len == 0 || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
@@ -608,7 +608,8 @@ impl File {
         match self.kind() {
             Some(FileType::Fifo) => return Err(FilesystemError::NotSeekable),
             Some(FileType::Directory) => return Err(FilesystemError::IsADirectory),
-            _ => {}
+            Some(FileType::File | FileType::BlockDevice) | None => {}
+            Some(_) => return Err(FilesystemError::NoSuchDevice),
         }
         if offset + len > MAX_OFFSET {
             return Err(FilesystemError::FileTooLarge);

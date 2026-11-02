@@ -49,6 +49,9 @@ pub enum FilesystemError {
     /// A value too large for the type the call answers in.
     ValueTooLarge,
     NotSeekable,
+    /// A call the kind of file it reached cannot take, as a device that
+    /// allocates nothing.
+    NoSuchDevice,
     /// Any other failure, with what the Filesystem knows of it.
     Other(String),
 }
@@ -56,7 +59,7 @@ pub enum FilesystemError {
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, FilesystemError); 27] = [
+const POSIX_NAMES: [(&str, FilesystemError); 28] = [
     ("EAGAIN", FilesystemError::WouldBlock),
     ("ENOENT", FilesystemError::NotFound),
     ("EEXIST", FilesystemError::AlreadyExists),
@@ -84,6 +87,7 @@ const POSIX_NAMES: [(&str, FilesystemError); 27] = [
     ("ENOTSOCK", FilesystemError::NotASocket),
     ("EOVERFLOW", FilesystemError::ValueTooLarge),
     ("ESPIPE", FilesystemError::NotSeekable),
+    ("ENODEV", FilesystemError::NoSuchDevice),
 ];
 
 impl From<DownError> for FilesystemError {
