@@ -2433,7 +2433,8 @@ impl Drop for LinkedHost {
 }
 
 // The link stands before the dot, so it is followed as Linux follows a
-// link that is not the last name, and the dot answers as RT-102's does.
+// link that is not the last name, and the dot answers as one through a
+// directory does.
 // @behavior RT-161
 #[cfg(unix)]
 #[test]
