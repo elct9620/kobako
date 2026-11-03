@@ -93,7 +93,7 @@ pub(crate) fn filestat_set_times(
     let path = mem.path(path)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     Ok(retry_eagain(|| {
-        vfs::do_utimes(table.cred(), &start_of(table, fd), &path, follow, times)
+        vfs::do_utimes_path(table.cred(), &start_of(table, fd), &path, follow, times)
     })?)
 }
 

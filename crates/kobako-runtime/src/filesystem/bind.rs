@@ -820,7 +820,7 @@ mod tests {
         use crate::filesystem::{Overlay, Tmpfs};
         use crate::mount::{Access, Mount};
         use crate::vfs::kern_path::filp_open;
-        use crate::vfs::{do_utimes, do_utimes_fd, vfs_fstatat, OpenHow, Path as VfsPath};
+        use crate::vfs::{do_utimes_fd, do_utimes_path, vfs_fstatat, OpenHow, Path as VfsPath};
 
         /// One second past the Unix epoch, which no clock is at.
         fn moment() -> std::time::SystemTime {
@@ -856,7 +856,7 @@ mod tests {
         /// What a stat of `path` beneath `root` reports as its modified time, once
         /// it was set.
         fn modified_after_setting(root: &VfsPath, path: &str) -> Option<std::time::SystemTime> {
-            do_utimes(&Arc::default(), root, path, false, &set_modified())
+            do_utimes_path(&Arc::default(), root, path, false, &set_modified())
                 .expect("the time must be set");
             vfs_fstatat(&Arc::default(), root, path, false)
                 .ok()
@@ -900,7 +900,7 @@ mod tests {
             assert_eq!(
                 (answers, host_modified(&host.0.join("dir/file.txt"))),
                 ([(set, set); 3], set),
-                "vfs::do_utimes on a file and a directory of a Tmpfs, a Bind, and an Overlay must \
+                "vfs::do_utimes_pathon a file and a directory of a Tmpfs, a Bind, and an Overlay must \
              keep the time, a Bind's on the host"
             );
         }
@@ -914,7 +914,7 @@ mod tests {
             assert_eq!(
             (seen, host_modified(&host.0.join("dir")) == before),
             (Some(moment()), true),
-            "vfs::do_utimes on a directory through an Overlay must show the time and leave the \
+            "vfs::do_utimes_pathon a directory through an Overlay must show the time and leave the \
              lower Layer's directory as it was"
         );
         }
@@ -927,7 +927,7 @@ mod tests {
             let host = host_with_a_file("link-time");
             std::os::unix::fs::symlink("dir", host.0.join("link")).expect("the link must be made");
             assert_eq!(
-                do_utimes(
+                do_utimes_path(
                     &Arc::default(),
                     &root_of(Arc::new(bind_of(&host))),
                     "link",
@@ -935,7 +935,7 @@ mod tests {
                     &set_modified(),
                 ),
                 Err(FilesystemError::Unsupported),
-                "vfs::do_utimes following no link of a Bind's link must answer ENOTSUP"
+                "vfs::do_utimes_pathfollowing no link of a Bind's link must answer ENOTSUP"
             );
         }
 

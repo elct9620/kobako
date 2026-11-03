@@ -31,7 +31,7 @@ fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Filesy
 
 /// Set `times` on what `path` beneath `start` names, a link at its end
 /// followed where `follow` asks, as Linux's `do_utimes_path` walks to it first.
-pub fn do_utimes(
+pub fn do_utimes_path(
     cred: &Arc<Cred>,
     start: &impl Start,
     path: &str,
@@ -113,7 +113,7 @@ mod tests {
     fn setting_times_asks_the_mount_then_the_entry() {
         let set = |access, path: &str| {
             let mount = mount_of(tmpfs(), access);
-            do_utimes(
+            do_utimes_path(
                 &Arc::default(),
                 &Path::root(mount.mnt()),
                 path,
@@ -132,7 +132,7 @@ mod tests {
                 Err(FilesystemError::ReadOnlyFilesystem),
                 Ok(()),
             ),
-            "vfs::do_utimes must answer what is not there ENOENT, a read-only Mount EROFS, and \
+            "vfs::do_utimes_path must answer what is not there ENOENT, a read-only Mount EROFS, and \
              hand a Tmpfs entry the times"
         );
     }

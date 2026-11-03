@@ -1759,12 +1759,13 @@ it as unsupported.
 pub fn do_readlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result<String, FilesystemError> {}
 ```
 
-## `do_utimes`
+## `do_utimes_path`
 
-Refuse setting timestamps as unsupported once the path is known to stand.
+Set timestamps on what a path names, as Linux's `do_utimes_path` walks to it
+first. A link at its end is followed where asked.
 
 ```rust
-pub fn do_utimes(cred: &Arc<Cred>, start: &impl Start, path: &str, follow: bool, times: &Iattr) -> Result<(), FilesystemError> {}
+pub fn do_utimes_path(cred: &Arc<Cred>, start: &impl Start, path: &str, follow: bool, times: &Iattr) -> Result<(), FilesystemError> {}
 ```
 
 ## `verify_dirent_name`

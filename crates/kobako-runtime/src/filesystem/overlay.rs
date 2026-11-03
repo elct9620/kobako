@@ -952,7 +952,7 @@ mod tests {
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        let answer = crate::vfs::do_utimes(
+        let answer = crate::vfs::do_utimes_path(
             &Arc::default(),
             &crate::vfs::Path::root(mount.mnt()),
             "file",
@@ -966,7 +966,7 @@ mod tests {
                 kern_path(upper).vfs_lstat("upper/file").is_ok()
             ),
             (Ok(()), 0, true),
-            "vfs::do_utimes through an Overlay on a file of its lower Layer must copy the file \
+            "vfs::do_utimes_paththrough an Overlay on a file of its lower Layer must copy the file \
              up, set the time there, and never ask the lower Layer"
         );
     }
@@ -2891,7 +2891,7 @@ mod tests {
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        let answer = vfs::do_utimes(
+        let answer = vfs::do_utimes_path(
             &Arc::default(),
             &Path::root(mount.mnt()),
             "pipe",
@@ -2901,7 +2901,7 @@ mod tests {
         assert_eq!(
             (answer, opened.load(Ordering::SeqCst)),
             (Err(FilesystemError::PermissionDenied), 0),
-            "vfs::do_utimes on a FIFO a lower Layer holds through an Overlay must answer EACCES \
+            "vfs::do_utimes_pathon a FIFO a lower Layer holds through an Overlay must answer EACCES \
              and open nothing"
         );
     }

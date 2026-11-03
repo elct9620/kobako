@@ -47,7 +47,7 @@ pub use openat2::{build_open_flags, OpenFlags, OpenHow};
 pub use path::{Path, Start};
 pub use stat::{do_readlinkat, vfs_fstatat, FileType, Kstat};
 pub use super_block::{simple_fill_super, FileSystemType, SuperBlock};
-pub use utimes::{do_utimes, do_utimes_fd};
+pub use utimes::{do_utimes_fd, do_utimes_path};
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.

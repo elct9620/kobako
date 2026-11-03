@@ -204,7 +204,7 @@ impl Kobako {
             Call::Utimes { base, path, follow } => {
                 let time = UNIX_EPOCH + Duration::from_secs(UTIME_SECONDS as u64);
                 let times = Iattr::times(None, Some(SetTime::At(time)));
-                ok_or_errno(vfs::do_utimes(
+                ok_or_errno(vfs::do_utimes_path(
                     &self.cred,
                     start!(*base),
                     path,
