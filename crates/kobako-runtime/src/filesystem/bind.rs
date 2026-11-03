@@ -223,10 +223,17 @@ fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, FilesystemError> {
 /// directory.
 fn open_dir_nofollow(dir: &Dir, name: &str) -> Result<Dir, FilesystemError> {
     dir.open_dir_nofollow(name)
-        .map_err(|err| match dir.symlink_metadata(name) {
-            Ok(metadata) if metadata.file_type().is_symlink() => FilesystemError::FilesystemLoop,
-            _ => to_error(err),
-        })
+        .map_err(|err| nofollow_error(dir, name, err))
+}
+
+/// Why an open of `name` in `dir` that follows no link failed, a link there
+/// named a loop, as Linux's `O_NOFOLLOW` answers `ELOOP`, where the host
+/// names it otherwise.
+fn nofollow_error(dir: &Dir, name: &str, err: io::Error) -> FilesystemError {
+    match dir.symlink_metadata(name) {
+        Ok(metadata) if metadata.file_type().is_symlink() => FilesystemError::FilesystemLoop,
+        _ => to_error(err),
+    }
 }
 
 /// `name` as `cap_std` takes it. Windows reads some names as other names or as
@@ -399,17 +406,15 @@ fn open_in(
     // first use, the open itself never waiting for a peer, nor following
     // a link swapped in, since the runtime follows a link itself.
     open.follow(FollowSymlinks::No);
-    let found = dir.symlink_metadata(name);
-    if let Ok(FileType::Symlink) = found.map(|metadata| to_file_type(metadata.file_type())) {
-        return Err(FilesystemError::FilesystemLoop);
-    }
     #[cfg(unix)]
     {
         use cap_std::fs::OpenOptionsExt;
         use rustix::fs::OFlags;
         open.custom_flags((OFlags::NONBLOCK | OFlags::NOCTTY).bits() as i32);
     }
-    let file = dir.open_with(name, &open).map_err(to_error)?;
+    let file = dir
+        .open_with(name, &open)
+        .map_err(|err| nofollow_error(dir, name, err))?;
     match to_file_type(file.metadata().map_err(to_error)?.file_type()) {
         FileType::RegFile => {}
         FileType::Dir => return Err(FilesystemError::IsADirectory),
@@ -2259,6 +2264,28 @@ mod tests {
             opened,
             Err(FilesystemError::FilesystemLoop),
             "a host link opened through a Bind must be refused as a link, its target unreached"
+        );
+    }
+
+    // The VFS refuses a link it found before asking the Bind, so only the
+    // Bind's own open sees a link the host put in place after the lookup.
+    // @behavior FS-047
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_refuses_a_link_put_in_place_of_what_it_opens() {
+        let host = HostDir::new("nofollow-swapped");
+        fs::write(host.0.join("target"), "x").expect("the host file must be written");
+        std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
+        let dir = Dir::open_ambient_dir(&host.0, ambient_authority()).expect("the host directory");
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        assert_eq!(
+            open_in(&dir, "link", &read, false).map(drop),
+            Err(FilesystemError::FilesystemLoop),
+            "a host link standing where a Bind opens a file must be refused as a link, its \
+             target unreached"
         );
     }
 
