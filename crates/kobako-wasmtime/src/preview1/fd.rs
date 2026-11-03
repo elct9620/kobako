@@ -180,7 +180,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
     let mut fs_flags = Fdflags::empty();
     fs_flags.set(Fdflags::APPEND, file.append());
     fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
-    fs_flags.set(Fdflags::DSYNC, file.dsync() || file.sync());
+    fs_flags.set(Fdflags::DSYNC, file.dsync());
     fs_flags.set(Fdflags::SYNC, file.sync());
     let (fs_rights_base, fs_rights_inheriting) = if file.is_stream() {
         let mut rights = Rights::empty();
