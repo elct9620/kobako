@@ -315,6 +315,11 @@ impl Inode {
         Ok(self.rwsem.down_write()?)
     }
 
+    /// Whether `held` holds its lock, as Linux's `inode_is_locked` asks.
+    pub(super) fn is_locked_by(&self, held: &RwSemaphoreGuard) -> bool {
+        held.holds(&self.rwsem)
+    }
+
     /// Whether the directory was removed or replaced, as `IS_DEADDIR`.
     pub(super) fn is_deaddir(&self) -> bool {
         self.dead.load(Ordering::SeqCst)

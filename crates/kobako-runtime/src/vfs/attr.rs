@@ -10,13 +10,20 @@ use crate::locking::RwSemaphoreGuard;
 /// Apply `attr` to what `dentry` names, as Linux's `notify_change` reaches
 /// `->setattr`, the moment it lands read once, as `current_time` is, so every
 /// time it sets to now reads the same. The caller holds the entry's lock and
-/// hands its guard over, as `notify_change` warns unless `inode_is_locked`.
+/// hands its guard over, as `notify_change` warns unless `inode_is_locked`;
+/// the lock was reached through the entry, which a dentry never drops.
 pub(crate) fn notify_change(
     dentry: &Dentry,
-    _held: &RwSemaphoreGuard,
+    held: &RwSemaphoreGuard,
     attr: &Iattr,
 ) -> Result<(), FilesystemError> {
-    let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+    let inode = dentry
+        .inode()
+        .expect("a dentry whose entry is locked names it");
+    debug_assert!(
+        inode.is_locked_by(held),
+        "notify_change takes the guard of the entry's own lock"
+    );
     let attr = Iattr {
         ctime: Some(SystemTime::now()),
         ..*attr

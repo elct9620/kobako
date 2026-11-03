@@ -159,6 +159,13 @@ impl RwSemaphore {
     }
 }
 
+impl RwSemaphoreGuard {
+    /// Whether this holds `semaphore`.
+    pub(crate) fn holds(&self, semaphore: &Arc<RwSemaphore>) -> bool {
+        Arc::ptr_eq(&self.semaphore, semaphore)
+    }
+}
+
 impl Drop for RwSemaphoreGuard {
     fn drop(&mut self) {
         let mut holders = self.semaphore.holders();
