@@ -173,7 +173,8 @@ impl OverlayPath {
     /// Set this directory's times to those `stat` reports, as
     /// `ovl_set_timestamps` hands `notify_change` the upper dentry.
     pub(super) fn set_timestamps(&self, stat: &Kstat) -> Result<(), FilesystemError> {
-        notify_change(&self.dentry, &timestamps(stat))
+        let held = self.dentry.inode_lock()?;
+        notify_change(&self.dentry, &held, &timestamps(stat))
     }
 
     /// `name` as this directory stores it and the dentry standing there, `None`

@@ -634,7 +634,8 @@ fn do_open(
     };
     if truncate {
         nd.cred.security_file_truncate(&security)?;
-        notify_change(child, &Iattr::open_truncate())?;
+        let held = child.inode_lock()?;
+        notify_change(child, &held, &Iattr::open_truncate())?;
     }
     Ok((f_op, security))
 }

@@ -25,7 +25,8 @@ fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Filesy
         mnt: path.mnt(),
         name: &|| dentry.path_raw(),
     })?;
-    notify_change(dentry, times)
+    let held = dentry.inode_lock()?;
+    notify_change(dentry, &held, times)
 }
 
 /// Set `times` on what `path` beneath `start` names, a link at its end
@@ -79,6 +80,31 @@ mod tests {
             vfs_utimes(&Arc::default(), &root, &times()),
             Err(FilesystemError::Deadlock),
             "vfs::vfs_utimes on an entry whose lock its own thread holds must answer EDEADLK"
+        );
+    }
+
+    // @behavior RT-236
+    #[test]
+    fn a_truncate_through_a_descriptor_holds_the_entry_lock() {
+        let mount = mount_of(tmpfs(), MountAccess::ReadWrite);
+        let write = crate::vfs::OpenHow {
+            write: true,
+            ..Default::default()
+        };
+        let mut file = crate::vfs::kern_path::filp_open(
+            &Arc::default(),
+            &Path::root(mount.mnt()),
+            "file.txt",
+            &write,
+        )
+        .expect("the file opens to write");
+        let dentry = file.path().dentry().clone();
+        let _held = dentry.inode_lock().expect("the lock must be free");
+        assert_eq!(
+            file.truncate(0),
+            Err(FilesystemError::Deadlock),
+            "vfs::File::truncate on a file whose lock its own thread holds must answer EDEADLK, \
+             as do_ftruncate holds the inode's lock around notify_change"
         );
     }
 

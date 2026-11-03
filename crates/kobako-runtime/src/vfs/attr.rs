@@ -5,13 +5,18 @@ use std::time::SystemTime;
 
 use super::dentry::Dentry;
 use super::FilesystemError;
+use crate::locking::RwSemaphoreGuard;
 
-/// Apply `attr` to what `dentry` names under its lock, as Linux's `notify_change`
-/// reaches `->setattr`, the moment it lands read once, as `current_time` is, so
-/// every time it sets to now reads the same.
-pub(crate) fn notify_change(dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+/// Apply `attr` to what `dentry` names, as Linux's `notify_change` reaches
+/// `->setattr`, the moment it lands read once, as `current_time` is, so every
+/// time it sets to now reads the same. The caller holds the entry's lock and
+/// hands its guard over, as `notify_change` warns unless `inode_is_locked`.
+pub(crate) fn notify_change(
+    dentry: &Dentry,
+    _held: &RwSemaphoreGuard,
+    attr: &Iattr,
+) -> Result<(), FilesystemError> {
     let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-    let _held = dentry.inode_lock()?;
     let attr = Iattr {
         ctime: Some(SystemTime::now()),
         ..*attr

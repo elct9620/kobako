@@ -770,7 +770,9 @@ impl File {
             return Err(FilesystemError::InvalidInput);
         }
         self.cred.security_file_truncate(&self.security)?;
-        notify_change(self.path.dentry(), &Iattr::size(len))
+        let dentry = self.path.dentry();
+        let held = dentry.inode_lock()?;
+        notify_change(dentry, &held, &Iattr::size(len))
     }
 
     /// Hand `ctx` the entries of the directory from where it stands until the

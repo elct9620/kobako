@@ -214,8 +214,10 @@ impl InodeOperations for OverlayRegular {
         let (real, _) = real_of(dentry).ok_or(FilesystemError::NotFound)?;
         // The open's truncate never reached the upper's open, so the upper must
         // empty the file itself, as `ovl_setattr` clears `ATTR_OPEN`.
+        let held = real.inode_lock()?;
         notify_change(
             &real,
+            &held,
             &Iattr {
                 open: false,
                 ..*attr
@@ -280,7 +282,8 @@ impl InodeOperations for Overlay {
     /// stays as it was.
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
         let upper = self.fs.upper_dir(&self.fs.dir(dentry)?)?;
-        notify_change(upper.dentry(), attr)
+        let held = upper.dentry().inode_lock()?;
+        notify_change(upper.dentry(), &held, attr)
     }
 
     /// The entry as a Layer spells it, as `ovl_lookup` hands
