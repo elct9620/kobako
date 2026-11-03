@@ -134,7 +134,7 @@ A Ruby tier uses only the tiers to its right. These rules govern how a change cr
 |---|---|
 | wrapper changes go to `beni` upstream | kobako takes them by a dependency bump |
 | a low-level gap is fixed in that layer | a workaround above leaves it for every other caller |
-| `vfs` aligns fully to Linux VFS | the design is early, and a departure is hard to undo |
+| `vfs` aligns its behavior and logic to Linux VFS, not its file layout | the design is early, and a departure is hard to undo |
 | `filesystem` conforms to the specification | its security baseline; the implementation is ours, nothing else judges it |
 
 ## Build and commands
