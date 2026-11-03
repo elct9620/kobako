@@ -2857,7 +2857,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation holding nothing at a descriptor number |
-| When | the guest makes a call on an empty path starting from that number |
+| When | the guest makes a call other than a readlink on an empty path starting from that number |
 | Then | the call answers ENOENT |
 
 ## `RT-259` A full descriptor table answers after the open's flags
@@ -3226,3 +3226,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem with `create` and no `atomic_open`, and a security module refusing the open |
 | When | a guest opens a name where nothing stands, asking to create it |
 | Then | the Filesystem makes the file, and its `open` is never asked |
+
+## `RT-289` A readlink of an empty path answers for the descriptor it names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-258` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation holding a file at one descriptor number and nothing at another |
+| When | the guest reads a link at an empty path from each number |
+| Then | the number naming nothing answers EBADF, and the file answers ENOENT |
