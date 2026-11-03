@@ -1981,7 +1981,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a directory opened through the runtime, with no Driver in front of it |
 | When | a caller lists it, stops early, and lists it again from where it stopped |
-| Then | `.` and `..` come first, each entry carries its own position, and the listing stands past the last entry taken |
+| Then | `.` and `..` come first, and each entry carries its own position |
 
 ## `RT-183` A guest tells entries apart by inode number where its posture allows
 
@@ -2857,7 +2857,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation holding nothing at a descriptor number |
-| When | the guest makes a call other than a readlink on an empty path starting from that number |
+| When | the guest makes a non-readlink call on an empty path from that number |
 | Then | the call answers ENOENT |
 
 ## `RT-259` A full descriptor table answers after the open's flags
