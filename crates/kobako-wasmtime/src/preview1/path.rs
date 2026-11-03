@@ -86,17 +86,12 @@ pub(crate) fn filestat_set_times(
     fd: u32,
     flags: types::Lookupflags,
     path: GuestPtr<str>,
-    times: Option<Iattr>,
+    times: &Iattr,
 ) -> Answer {
-    // Asking no time does nothing, so Linux's `utimensat` answers before it
-    // takes the name or the descriptor.
-    let Some(times) = times else {
-        return Ok(());
-    };
     let path = mem.path(path)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     Ok(retry_eagain(|| {
-        vfs::do_utimes(table.cred(), &start_of(table, fd), &path, follow, &times)
+        vfs::do_utimes(table.cred(), &start_of(table, fd), &path, follow, times)
     })?)
 }
 

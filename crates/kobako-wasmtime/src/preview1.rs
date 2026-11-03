@@ -188,7 +188,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         fst_flags: types::Fstflags,
     ) -> Answer {
         self.answer(memory, |_, inv| {
-            fd::filestat_set_times(table(inv), fd.into(), atim, mtim, fst_flags)
+            fd::utimensat(atim, mtim, fst_flags, |times| {
+                fd::filestat_set_times(table(inv), fd.into(), times)
+            })
         })
     }
 
@@ -340,8 +342,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         fst_flags: types::Fstflags,
     ) -> Answer {
         self.answer(memory, |mem, inv| {
-            let times = fd::to_iattr(atim, mtim, fst_flags)?;
-            path::filestat_set_times(table(inv), mem, fd.into(), flags, path, times)
+            fd::utimensat(atim, mtim, fst_flags, |times| {
+                path::filestat_set_times(table(inv), mem, fd.into(), flags, path, times)
+            })
         })
     }
 

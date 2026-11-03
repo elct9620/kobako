@@ -139,10 +139,24 @@ fn to_timestamp(time: Option<SystemTime>) -> u64 {
         })
 }
 
-/// The times `flags` ask to set, `None` where they ask none, as `utimensat`
-/// returns before it looks at anything. Setting a timestamp and setting it to
-/// now are exclusive: asking both is `INVAL`.
-pub(crate) fn to_iattr(
+/// Set the times `flags` ask through `call`, answering before it looks at the
+/// name or the descriptor where they ask none, as Linux's `utimensat` does
+/// for both. Setting a timestamp and setting it to now are exclusive: asking
+/// both is `INVAL`.
+pub(crate) fn utimensat(
+    atim: types::Timestamp,
+    mtim: types::Timestamp,
+    flags: Fstflags,
+    call: impl FnOnce(&Iattr) -> Answer,
+) -> Answer {
+    match to_iattr(atim, mtim, flags)? {
+        Some(times) => call(&times),
+        None => Ok(()),
+    }
+}
+
+/// The times `flags` ask to set, `None` where they ask none.
+fn to_iattr(
     atim: types::Timestamp,
     mtim: types::Timestamp,
     flags: Fstflags,
@@ -244,22 +258,11 @@ pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> 
     Ok(file(table, fd)?.truncate(size)?)
 }
 
-pub(crate) fn filestat_set_times(
-    table: &Descriptors,
-    fd: u32,
-    atim: types::Timestamp,
-    mtim: types::Timestamp,
-    flags: Fstflags,
-) -> Answer {
-    // Asking no time does nothing, so Linux's `utimensat` answers before it
-    // takes the descriptor.
-    let Some(times) = to_iattr(atim, mtim, flags)? else {
-        return Ok(());
-    };
+pub(crate) fn filestat_set_times(table: &Descriptors, fd: u32, times: &Iattr) -> Answer {
     let file = open_file(table, fd)?;
     Ok(retry_eagain(|| {
         table.walk_guard().check(file.path())?;
-        vfs::do_utimes_fd(table.cred(), file.path(), &times)
+        vfs::do_utimes_fd(table.cred(), file.path(), times)
     })?)
 }
 
@@ -522,8 +525,14 @@ mod tests {
 
     use super::{
         fdstat_get, fdstat_set_flags, filestat_set_size, filestat_set_times, readdir, renumber,
-        seek, sync, tell, Answer, Errno, Fdflags, Fstflags,
+        seek, sync, tell, utimensat, Answer, Errno, Fdflags, Fstflags,
     };
+
+    /// `fd_filestat_set_times` of `fd` setting both times to zero as `flags`
+    /// ask, as the dispatcher answers it.
+    fn set_times(table: &Descriptors, fd: u32, flags: Fstflags) -> Answer {
+        utimensat(0, 0, flags, |times| filestat_set_times(table, fd, times))
+    }
     use crate::descriptors::{Descriptor, Descriptors};
     use crate::preview1::memory::GuestMemory;
     use crate::preview1::path::{
@@ -882,7 +891,7 @@ mod tests {
         policy.0.store(0, Ordering::SeqCst);
         assert_eq!(
             (
-                errno(filestat_set_times(&table, fd, 0, 0, Fstflags::ATIM_NOW)),
+                errno(set_times(&table, fd, Fstflags::ATIM_NOW)),
                 policy.0.load(Ordering::SeqCst)
             ),
             (Some(Errno::Noent), 0),
@@ -912,15 +921,9 @@ mod tests {
         .unwrap_or_else(|_| panic!("the table must make"));
         assert_eq!(
             (
-                errno(filestat_set_times(&table, 3, 0, 0, Fstflags::MTIM)),
-                errno(filestat_set_times(&table, 3, 0, 0, Fstflags::empty())),
-                errno(filestat_set_times(
-                    &table,
-                    3,
-                    0,
-                    0,
-                    Fstflags::MTIM | Fstflags::MTIM_NOW
-                )),
+                errno(set_times(&table, 3, Fstflags::MTIM)),
+                errno(set_times(&table, 3, Fstflags::empty())),
+                errno(set_times(&table, 3, Fstflags::MTIM | Fstflags::MTIM_NOW)),
             ),
             (Some(Errno::Rofs), None, Some(Errno::Inval)),
             "fd_filestat_set_times beneath a read-only Mount through preview1 must answer EROFS, \
@@ -966,14 +969,14 @@ mod tests {
                 errno(path_open(&mut table, &mem, fd, path(1), &flags)),
                 errno(create_directory(&table, &mem, fd, path(0))),
                 errno(create_directory(&table, &mem, fd, path(PATH_MAX as u32))),
-                errno(path_set_times(
+                errno(utimensat(0, 0, Fstflags::empty(), |times| path_set_times(
                     &table,
                     &mem,
                     fd,
                     types::Lookupflags::empty(),
                     path(1),
-                    None
-                )),
+                    times
+                ))),
             ),
             (
                 Some(Errno::Inval),
@@ -1137,21 +1140,15 @@ mod tests {
         let unopened = 99;
         assert_eq!(
             (
-                errno(filestat_set_times(
-                    &table,
-                    unopened,
-                    0,
-                    0,
-                    Fstflags::empty()
-                )),
-                errno(path_set_times(
+                errno(set_times(&table, unopened, Fstflags::empty())),
+                errno(utimensat(0, 0, Fstflags::empty(), |times| path_set_times(
                     &table,
                     &mem,
                     unopened,
                     types::Lookupflags::empty(),
                     GuestPtr::new((0, 1)),
-                    None
-                )),
+                    times
+                ))),
             ),
             (None, None),
             "fd_filestat_set_times and path_filestat_set_times asking no time through preview1 \
