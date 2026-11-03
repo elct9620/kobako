@@ -3462,3 +3462,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose `atomic_open` makes and opens the file, and a security module refusing the open |
 | When | a guest opens a name where nothing stands, asking to create it |
 | Then | the Filesystem makes the file and the open answers EACCES, as Linux's `finish_open` reaches `security_file_open` |
+
+## `RT-309` Moving a descriptor onto a number nothing stands at answers EBADF
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-114` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding one open file and no descriptor at the next number |
+| When | the guest renumbers the file onto that number |
+| Then | the call answers EBADF and the file stays at its own number, as preview1 replaces only an open descriptor |
