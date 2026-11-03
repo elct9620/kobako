@@ -15,9 +15,10 @@
   ;; The answer at 8: the ok tag 0x10, then the errno as a positive fixint.
   (func (export "__kobako_downcall") (param i32 i32) (result i64)
     (local $errno i32)
-    ;; O_DIRECTORY, every right but none a directory refuses.
+    ;; O_DIRECTORY with fd_read, so the directory opens to read rather than
+    ;; standing only for its path, and passes every right down.
     (local.set $errno (call $open (i32.const 3) (i32.const 0) (i32.const 700) (i32.const 3)
-      (i32.const 2) (i64.const 0) (i64.const 0x1FFFFFFF) (i32.const 0) (i32.const 128)))
+      (i32.const 2) (i64.const 2) (i64.const 0x1FFFFFFF) (i32.const 0) (i32.const 128)))
     ;; No oflags, fd_read alone.
     (if (i32.eqz (local.get $errno))
       (then (local.set $errno (call $open (i32.load (i32.const 128)) (i32.const 0)
