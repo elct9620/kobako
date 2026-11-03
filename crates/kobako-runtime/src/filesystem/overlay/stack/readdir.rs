@@ -4,8 +4,38 @@
 use std::collections::HashSet;
 
 use super::super::super::{DirEntry, FileType, FilesystemError};
-use super::{Level, OverlayFs};
+use super::{Level, OverlayFs, UPPER};
 use crate::vfs::Dentry;
+
+/// What a directory of the view lists, and whether its upper holds a
+/// whiteout, which overlayfs's `ovl_dir_read_merged` keeps on its list.
+struct Merged {
+    entries: Vec<DirEntry>,
+    upper_whiteouts: bool,
+}
+
+/// Each Layer's entries topmost first, a name a Layer above shows or whites
+/// out taken once.
+fn read_merged(level: &Level) -> Result<Merged, FilesystemError> {
+    let mut merged = Merged {
+        entries: Vec::new(),
+        upper_whiteouts: false,
+    };
+    let mut taken: HashSet<String> = HashSet::new();
+    for (index, dir) in level.iter().enumerate() {
+        let Some(dir) = dir else { continue };
+        for entry in dir.entries()? {
+            // A whiteout lists as a device, as overlayfs's `ovl_fill_merge`
+            // reads `DT_CHR` before asking.
+            let whiteout = entry.file_type == FileType::CharDevice && dir.is_whiteout(&entry.name);
+            merged.upper_whiteouts |= whiteout && index == UPPER;
+            if taken.insert(entry.name.clone()) && !whiteout {
+                merged.entries.push(entry);
+            }
+        }
+    }
+    Ok(merged)
+}
 
 impl OverlayFs {
     /// Each Layer's entries topmost first, a name a Layer above shows or
@@ -14,26 +44,14 @@ impl OverlayFs {
         &self,
         level: &Level,
     ) -> Result<Vec<DirEntry>, FilesystemError> {
-        let mut entries: Vec<DirEntry> = Vec::new();
-        let mut taken: HashSet<String> = HashSet::new();
-        for dir in level.iter().flatten() {
-            for entry in dir.entries()? {
-                // A whiteout lists as a device, as overlayfs's
-                // `ovl_fill_merge` reads `DT_CHR` before asking.
-                let whiteout =
-                    entry.file_type == FileType::CharDevice && dir.is_whiteout(&entry.name);
-                if taken.insert(entry.name.clone()) && !whiteout {
-                    entries.push(entry);
-                }
-            }
-        }
-        Ok(entries)
+        Ok(read_merged(level)?.entries)
     }
 
-    /// Whether the directory `dentry` names shows no entry, as
-    /// `ovl_check_empty_dir` reads what its `ovl_entry` holds.
-    pub(super) fn check_empty_dir(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
-        let level = self.dir(dentry)?.level();
-        Ok(self.dir_read_merged(&level)?.is_empty())
+    /// Whether the directory `dentry` names shows no entry, `None` where it
+    /// shows one, and otherwise whether its upper holds whiteouts to clear
+    /// first, as `ovl_check_empty_dir` hands `ovl_clear_empty` its list.
+    pub(super) fn check_empty_dir(&self, dentry: &Dentry) -> Result<Option<bool>, FilesystemError> {
+        let merged = read_merged(&self.dir(dentry)?.level())?;
+        Ok(merged.entries.is_empty().then_some(merged.upper_whiteouts))
     }
 }

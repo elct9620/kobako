@@ -9,20 +9,10 @@ use super::super::file::ovl_file;
 use super::super::inode::{OverlayDirInode, OverlayFileInode};
 use super::super::path::OverlayPath;
 use super::{
-    entry, layer_dir, ovl_cleanup, ovl_cleanup_whiteouts, ovl_lower_positive, OverlayFs, Presence,
-    ViewDir, UPPER,
+    entry, layer_dir, ovl_cleanup, ovl_cleanup_whiteouts, ovl_lower_positive, OverlayFs, ViewDir,
+    UPPER,
 };
 use crate::vfs::{Dentry, RenameFlag};
-
-/// Whether the directory `name` in `dir` holds a whiteout, which
-/// overlayfs's `ovl_check_empty_dir` lists for `ovl_clear_empty`.
-fn holds_whiteouts(dir: &OverlayPath, name: &str) -> Result<bool, FilesystemError> {
-    let inner = dir.open_dir(name)?;
-    Ok(inner
-        .entries()?
-        .iter()
-        .any(|entry| inner.is_whiteout(&entry.name)))
-}
 
 impl OverlayFs {
     /// Hide `name` in `dir` with a whiteout made in the workdir first, then
@@ -98,21 +88,21 @@ impl OverlayFs {
 
     /// Take `name` out of the view: a whiteout over any Layer that keeps
     /// it, which also takes the upper's own entry away, or else only the
-    /// upper's entry, as overlayfs's `ovl_do_remove` chooses.
+    /// upper's entry, as overlayfs's `ovl_do_remove` chooses. A directory
+    /// whose upper holds whiteouts, as `upper_whiteouts` says, is first
+    /// replaced by an empty one, as overlayfs's `ovl_clear_empty` does, so it
+    /// removes as an empty directory.
     fn do_remove(
         &self,
         dir: &ViewDir,
         dentry: &Dentry,
-        is_dir: bool,
+        upper_whiteouts: bool,
     ) -> Result<(), FilesystemError> {
         let name = &dentry.name();
         let level = dir.level();
         let shown_below = ovl_lower_positive(&level, name);
         let upper_holds = self.upper_holds(dentry);
-        // A directory the upper holds with whiteouts in it is first
-        // replaced by an empty one, as overlayfs's `ovl_clear_empty` does,
-        // so it removes as an empty directory.
-        if is_dir && upper_holds && holds_whiteouts(layer_dir(&level[UPPER])?, name)? {
+        if upper_whiteouts {
             self.clear_empty(layer_dir(&level[UPPER])?, name)?;
         }
         match (shown_below, upper_holds) {
@@ -173,10 +163,10 @@ impl OverlayFs {
         dir: &ViewDir,
         dentry: &Dentry,
     ) -> Result<(), FilesystemError> {
-        if !self.check_empty_dir(dentry)? {
-            return Err(FilesystemError::DirectoryNotEmpty);
-        }
-        self.do_remove(dir, dentry, true)
+        let upper_whiteouts = self
+            .check_empty_dir(dentry)?
+            .ok_or(FilesystemError::DirectoryNotEmpty)?;
+        self.do_remove(dir, dentry, upper_whiteouts)
     }
 
     /// A link is removed as itself, wherever it points.
@@ -228,10 +218,12 @@ impl OverlayFs {
             return Err(FilesystemError::CrossesDevices);
         }
         // Only an empty directory is replaced.
-        let replaces_dir = target.kind() == Ok(FileType::Directory);
-        if replaces_dir && !self.check_empty_dir(target)? {
-            return Err(FilesystemError::DirectoryNotEmpty);
-        }
+        let upper_whiteouts = match target.kind() == Ok(FileType::Directory) {
+            true => self
+                .check_empty_dir(target)?
+                .ok_or(FilesystemError::DirectoryNotEmpty)?,
+            false => false,
+        };
         let shown_below = ovl_lower_positive(&from_level, from_name);
         if moving == FileType::File {
             self.copy_up_file(from, moved, false)?;
@@ -239,10 +231,7 @@ impl OverlayFs {
         let target_dir = self.upper_dir(to)?;
         // A directory holding only whiteouts is replaced by an empty one first,
         // as `ovl_rename_upper` calls `ovl_clear_empty` for a list not empty.
-        if replaces_dir
-            && matches!(entry(&target_dir, to_name)?, Presence::Entry(_))
-            && holds_whiteouts(&target_dir, to_name)?
-        {
+        if upper_whiteouts {
             self.clear_empty(&target_dir, to_name)?;
         }
         let source_dir = from.level()[UPPER]
