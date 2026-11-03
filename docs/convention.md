@@ -157,7 +157,7 @@ These names come from another side, and step 1 keeps each as that side spells it
 | Side | As in |
 |---|---|
 | Rust API Guidelines | `new`, `try_`, `as_`, `into_`, `_mut`, a getter without `get_`, a trait such as `Blocking` |
-| Rust standard library | `OpenOptions`, `Metadata`, `DirEntry` |
+| Rust standard library, where a Bind reaches its host | `OpenOptions`, `Metadata` |
 | Linux, for the VFS, a Filesystem's operations, locks, and scheduling | `filename_mkdirat`, `vfs_mkdir`, `DentryOperations::revalidate`, `RwSemaphore::down_read`, `sched::schedule` |
 | Ruby and its hooks | `method_missing`, `respond_to_missing?`, `LocalJumpError`, `ThreadError` |
 | magnus and beni | `funcall`, `define_method` |
