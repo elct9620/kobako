@@ -231,16 +231,16 @@ impl OverlayPath {
     /// This directory opened, kept open for whoever holds it, as overlayfs's
     /// `ovl_dir_open` opens the real directory.
     pub(super) fn open_real(&self) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let options = OpenHow {
+        let how = OpenHow {
             read: true,
             ..OpenHow::default()
         };
-        self.dentry.inode_ops()?.open(&self.dentry, &options)
+        self.dentry.inode_ops()?.open(&self.dentry, &how)
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.inode_lock_shared()?;
-        let options = OpenHow {
+        let how = OpenHow {
             read: true,
             ..OpenHow::default()
         };
@@ -251,7 +251,7 @@ impl OverlayPath {
         };
         self.dentry
             .inode_ops()?
-            .open(&self.dentry, &options)?
+            .open(&self.dentry, &how)?
             .iterate_shared(&self.dentry, &mut DirContext::new(2, &mut actor))?;
         Ok(entries)
     }
