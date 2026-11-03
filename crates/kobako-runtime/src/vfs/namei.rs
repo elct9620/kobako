@@ -3537,6 +3537,10 @@ mod tests {
             Ok(Box::new(RecordedFile))
         }
 
+        fn setattr(&self, _dentry: &Dentry, _attr: &vfs::Iattr) -> Result<(), FilesystemError> {
+            Ok(())
+        }
+
         fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
             self.made.store(true, Ordering::SeqCst);
             let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
@@ -3625,6 +3629,35 @@ mod tests {
             device.fallocate(0, 1).err(),
             Some(FilesystemError::NoSuchDevice),
             "File::fallocate of a character device opened to write must answer ENODEV"
+        );
+    }
+
+    // The Filesystem sizes anything, so only the VFS's own check of what the
+    // file is can refuse a device.
+    // @behavior RT-307
+    #[test]
+    fn sizing_a_character_device_answers_einval() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(Holds::of(
+                crate::filesystem::FileType::Chrdev,
+                Mask::EXEC,
+            )))
+            .expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let write = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        let mut device =
+            vfs::kern_path::filp_open(&Arc::default(), &Path::root(mount.mnt()), "f", &write)
+                .unwrap_or_else(|_| panic!("the device must open"));
+        assert_eq!(
+            device.truncate(0).err(),
+            Some(FilesystemError::InvalidInput),
+            "File::truncate of a character device opened to write must answer EINVAL"
         );
     }
 
