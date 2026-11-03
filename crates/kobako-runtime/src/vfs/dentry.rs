@@ -646,7 +646,11 @@ mod tests {
         }
 
         fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
-            self.root.create(&dentry.path_raw(), how).map(Finish::Open)
+            let file = self.root.create(&dentry.path_raw(), how)?;
+            Ok(Finish::Open {
+                file,
+                created: true,
+            })
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

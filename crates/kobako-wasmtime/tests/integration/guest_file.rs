@@ -625,11 +625,15 @@ where
     /// Opens what it made, as a Filesystem ending in `finish_open` does, so the
     /// new file is wrapped too.
     fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
-        let made = match self.inner.atomic_open(dentry, how)? {
-            Finish::Open(made) => made,
-            _ => self.inner.open(dentry, how)?,
+        let (made, created) = match self.inner.atomic_open(dentry, how)? {
+            Finish::Open { file, created } => (file, created),
+            Finish::NoOpen { created } => (self.inner.open(dentry, how)?, created),
+            _ => unreachable!("Finish has only these two ends"),
         };
-        Ok(Finish::Open(Box::new((self.wrap)(made))))
+        Ok(Finish::Open {
+            file: Box::new((self.wrap)(made)),
+            created,
+        })
     }
 }
 

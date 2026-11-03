@@ -601,7 +601,11 @@ impl InodeOperations for Bind {
     }
 
     fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
-        self.open_file(dentry, how, true).map(Finish::Open)
+        let file = self.open_file(dentry, how, true)?;
+        Ok(Finish::Open {
+            file,
+            created: true,
+        })
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

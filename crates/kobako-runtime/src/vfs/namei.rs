@@ -527,61 +527,84 @@ pub fn do_file_open(
     nd.link_path_walk()?;
     let held = nd.open_last_lookups(op.lookup_follow(), how.create)?;
     let child = nd.path()?;
-    // The walk followed every link the call asked it to, so a link at the
-    // end now is one swapped in since, and is opened as itself.
-    let (f_op, security) = match child.inode().map(|inode| inode.kind()) {
-        // Only a create reaches the last name with nothing there, as
-        // `open_last_lookups` refuses it otherwise. A file is made and opened
-        // before the directory's lock goes, so nothing made or removed in
-        // between changes what the open decided. What it made is opened as
-        // `do_open` opens a file `FMODE_CREATED` marks: it asks for nothing but
-        // the open, and is never walked again. One a Filesystem only made is
-        // opened once the modules allowed it, as `vfs_open` follows `may_open`.
-        None => {
-            let _held = held;
-            let finish = lookup_open(&nd, &child, how)?;
-            may_open(cred, nd.mnt.sb(), &child, FileType::RegFile, Mask::OPEN)?;
-            let mode = FMode::of(how).with(FMode::CREATED);
-            let security =
-                nd.on_path(|path| cred.security_file_open(path, FileType::RegFile, mode, how))?;
-            let f_op = match finish {
-                Finish::Open(f_op) => f_op,
-                Finish::NoOpen => child.open(how)?,
-            };
-            (f_op, security)
-        }
-        Some(kind) => {
-            drop(held);
-            nd.complete_walk()?;
-            do_open(&nd, &child, kind, op)?
-        }
+    // Only a create reaches the last name with nothing there, as
+    // `open_last_lookups` refuses it otherwise.
+    let opened = match child.inode() {
+        None => lookup_open(&nd, &child, how)?,
+        Some(_) => Opened::default(),
     };
+    drop(held);
+    let (f_op, security) = do_open(&nd, &child, opened, op)?;
     Ok(File::new(nd.path_to(child), f_op, how, cred).with_security(security))
 }
 
+/// What `lookup_open` leaves `do_open`, as Linux's open `file` carries
+/// `FMODE_OPENED` and `FMODE_CREATED` out of it.
+#[derive(Default)]
+struct Opened {
+    file: Option<(Box<dyn FileOperations>, Vec<FileSecurity>)>,
+    created: bool,
+}
+
+/// What an open of `how` is for, marked as made by it where it was, as
+/// `->atomic_open` and `lookup_open` set `FMODE_CREATED`.
+fn f_mode(how: &OpenHow, created: bool) -> FMode {
+    match created {
+        true => FMode::of(how).with(FMode::CREATED),
+        false => FMode::of(how),
+    }
+}
+
 /// Make the file an open names where nothing stands, as Linux's `lookup_open`
-/// asks the mount and `may_o_create` before `->atomic_open` or `->create`.
-fn lookup_open(nd: &Nameidata, child: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+/// asks the mount and `may_o_create` before `->atomic_open` or `->create`, under
+/// the directory's lock its caller holds. A Filesystem opening the file too is
+/// asked of the security modules here, as its `finish_open` reaches
+/// `do_dentry_open`.
+fn lookup_open(nd: &Nameidata, child: &Dentry, how: &OpenHow) -> Result<Opened, FilesystemError> {
     nd.mnt.mnt_want_write()?;
     nd.on_path(|path| nd.cred.security_path_mknod(path))?;
     may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), child)?;
-    atomic_open(nd.dentry(), child, how)
+    match atomic_open(nd.dentry(), child, how)? {
+        Finish::Open { file, created } => {
+            let kind = child.kind()?;
+            let mode = f_mode(how, created);
+            let security = nd.on_path(|path| nd.cred.security_file_open(path, kind, mode, how))?;
+            Ok(Opened {
+                file: Some((file, security)),
+                created,
+            })
+        }
+        Finish::NoOpen { created } => Ok(Opened {
+            file: None,
+            created,
+        }),
+    }
 }
 
-/// Open what stood at the path, as Linux's `do_open`: what stands answers
-/// first, a truncate asks the mount before `may_open`, a write asks it after
-/// for anything but a special file, as `do_dentry_open` takes write access, and
-/// only a regular file is emptied, as `handle_truncate` asks the security
-/// modules first.
+/// Open what the walk ended on once the directory's lock is gone, as Linux's
+/// `do_open`. An entry that stood is walked to completion and answers first,
+/// while a file the open made asks for nothing but the open and is never
+/// truncated. A truncate asks the mount before `may_open`, a write asks it
+/// after for anything but a special file, as `do_dentry_open` takes write
+/// access, and only a regular file is emptied, as `handle_truncate` asks the
+/// security modules first. What a Filesystem opened already is not opened
+/// again, as `FMODE_OPENED` skips `vfs_open`.
 fn do_open(
     nd: &Nameidata,
     child: &Dentry,
-    kind: FileType,
+    opened: Opened,
     op: &OpenFlags,
 ) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
     let how = op.open_flag();
+    let created = opened.created;
+    if opened.file.is_none() && !created {
+        nd.complete_walk()?;
+    }
+    // The walk followed every link the call asked it to, so a link at the
+    // end now is one swapped in since, and is opened as itself.
+    let kind = child.kind()?;
     let refusal = match kind {
-        _ if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
+        _ if how.create && how.exclusive && !created => Some(FilesystemError::AlreadyExists),
         FileType::Dir if how.create => Some(FilesystemError::IsADirectory),
         FileType::Dir => None,
         _ if nd.lookup_directory => Some(FilesystemError::NotADirectory),
@@ -590,17 +613,25 @@ fn do_open(
     if let Some(error) = refusal {
         return Err(error);
     }
-    let truncate = how.truncate && kind == FileType::RegFile;
+    let (acc_mode, truncate) = match created {
+        true => (Mask::OPEN, false),
+        false => (op.acc_mode(), how.truncate && kind == FileType::RegFile),
+    };
     if truncate {
         nd.mnt.mnt_want_write()?;
     }
-    may_open(&nd.cred, nd.mnt.sb(), child, kind, op.acc_mode())?;
-    if how.write && !kind.is_special() {
-        nd.mnt.mnt_want_write()?;
-    }
-    let security =
-        nd.on_path(|path| nd.cred.security_file_open(path, kind, FMode::of(how), how))?;
-    let f_op = child.open(how)?;
+    may_open(&nd.cred, nd.mnt.sb(), child, kind, acc_mode)?;
+    let (f_op, security) = match opened.file {
+        Some(file) => file,
+        None => {
+            if how.write && !kind.is_special() {
+                nd.mnt.mnt_want_write()?;
+            }
+            let mode = f_mode(how, created);
+            let security = nd.on_path(|path| nd.cred.security_file_open(path, kind, mode, how))?;
+            (child.open(how)?, security)
+        }
+    };
     if truncate {
         nd.cred.security_file_truncate(&security)?;
         notify_change(child, &Iattr::open_truncate())?;
@@ -1721,6 +1752,123 @@ mod tests {
         );
     }
 
+    /// A Filesystem whose `open` of what it made takes the lock of the directory
+    /// it made it in, as one reaching that directory again would.
+    #[derive(Clone, Default)]
+    struct OpensWithinItsDirectory(CreatesOnly);
+
+    impl FileSystemType for OpensWithinItsDirectory {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for OpensWithinItsDirectory {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            self.0.getattr(dentry)
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            self.0.lookup(dentry)
+        }
+
+        fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            let made = Kstat::new(FileType::RegFile, 0);
+            dentry.add(Some(Inode::new(&made, Arc::new(self.clone()))));
+            Ok(())
+        }
+
+        fn open(
+            &self,
+            dentry: &Dentry,
+            how: &OpenHow,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            let parent = dentry.parent().expect("a made file has a directory");
+            let _held = parent.inode_lock()?;
+            self.0.open(dentry, how)
+        }
+    }
+
+    // @behavior RT-293
+    #[test]
+    fn a_file_an_open_made_opens_once_its_directory_is_unlocked() {
+        let filesystem = OpensWithinItsDirectory::default();
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(filesystem)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let how = OpenHow {
+            write: true,
+            create: true,
+            ..OpenHow::default()
+        };
+        assert!(
+            vfs::kern_path::filp_open(&Arc::default(), &Path::root(mount.mnt()), "made", &how)
+                .is_ok(),
+            "vfs::do_file_open making a file must open it once the directory's lock is gone, \
+             as lookup_open unlocks the directory before do_open"
+        );
+    }
+
+    /// A Filesystem whose `atomic_open` finds a file standing at the name and
+    /// opens it, making nothing, as one whose backend another writer reaches.
+    #[derive(Clone, Default)]
+    struct FindsAFileStanding(CreatesOnly);
+
+    impl FileSystemType for FindsAFileStanding {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for FindsAFileStanding {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            self.0.getattr(dentry)
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            self.0.lookup(dentry)
+        }
+
+        fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
+            let found = Kstat::new(FileType::RegFile, 0);
+            dentry.add(Some(Inode::new(&found, Arc::new(self.clone()))));
+            Ok(Finish::Open {
+                file: Box::new(NoOperations),
+                created: false,
+            })
+        }
+    }
+
+    // @behavior RT-294
+    #[test]
+    fn a_file_atomic_open_found_standing_opens_as_one_that_stood() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(FindsAFileStanding::default()))
+                .expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let how = OpenHow {
+            write: true,
+            create: true,
+            exclusive: true,
+            ..OpenHow::default()
+        };
+        let answer =
+            vfs::kern_path::filp_open(&Arc::default(), &Path::root(mount.mnt()), "found", &how);
+        assert_eq!(
+            answer.err(),
+            Some(FilesystemError::AlreadyExists),
+            "vfs::do_file_open with create and exclusive, on a Filesystem whose atomic_open \
+             found the file standing, must answer EEXIST, as do_open refuses O_EXCL without \
+             FMODE_CREATED"
+        );
+    }
+
     /// A test's Filesystem recording each `->permission` it is asked, refusing
     /// any change once `refuse_writes` says.
     #[derive(Default)]
@@ -2348,7 +2496,11 @@ mod tests {
         }
 
         fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
-            self.root.create(&folded(dentry), how).map(Finish::Open)
+            let file = self.root.create(&folded(dentry), how)?;
+            Ok(Finish::Open {
+                file,
+                created: true,
+            })
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -3170,7 +3322,10 @@ mod tests {
             self.0.lock().expect("never poisoned").push("atomic_open");
             let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
-            Ok(Finish::Open(Box::new(RecordedFile)))
+            Ok(Finish::Open {
+                file: Box::new(RecordedFile),
+                created: true,
+            })
         }
     }
 
@@ -3328,7 +3483,10 @@ mod tests {
             self.made.store(true, Ordering::SeqCst);
             let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
-            Ok(Finish::Open(Box::new(RecordedFile)))
+            Ok(Finish::Open {
+                file: Box::new(RecordedFile),
+                created: true,
+            })
         }
     }
 

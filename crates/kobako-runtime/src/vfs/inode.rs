@@ -11,15 +11,20 @@ use super::file::FileOperations;
 use super::{FileType, FilesystemError, Iattr, Kstat, OpenHow};
 use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
-/// What an `atomic_open` did with the file it made, as Linux's `->atomic_open`
-/// ends in `finish_open` or `finish_no_open`.
+/// What an `atomic_open` did with the name it was asked to open, as Linux's
+/// `->atomic_open` ends in `finish_open` or `finish_no_open`. `created` says
+/// whether it made the file, as `FMODE_CREATED` does: one it found standing is
+/// opened as any open of an entry that stood, and one it made asks for nothing
+/// but the open.
 #[non_exhaustive]
 pub enum Finish {
     /// It opened the file too, as `finish_open` does.
-    Open(Box<dyn FileOperations>),
-    /// It only made the file, for the VFS to open as any open does, as
-    /// `finish_no_open` hands the dentry back.
-    NoOpen,
+    Open {
+        file: Box<dyn FileOperations>,
+        created: bool,
+    },
+    /// It left the open to the VFS, as `finish_no_open` hands the dentry back.
+    NoOpen { created: bool },
 }
 
 /// What one name in a directory turned out to be, as `->lookup` answers.
@@ -119,7 +124,7 @@ pub trait InodeOperations: Any + Send + Sync {
     /// calls `->create` and `do_open` opens what it made.
     fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
         self.create(dentry)?;
-        Ok(Finish::NoOpen)
+        Ok(Finish::NoOpen { created: true })
     }
 
     /// Make the directory `dentry` names in this one, recording it on `dentry`

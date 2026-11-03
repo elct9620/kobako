@@ -101,8 +101,8 @@ impl KernPath {
         let (nd, child) = self.parent(path)?;
         may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)?;
         match atomic_open(nd.dentry(), &child, how)? {
-            Finish::Open(file) => Ok(file),
-            Finish::NoOpen => child.open(how),
+            Finish::Open { file, .. } => Ok(file),
+            Finish::NoOpen { .. } => child.open(how),
         }
     }
 
