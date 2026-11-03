@@ -2118,8 +2118,8 @@ pub enum RenameFlag {}
 
 ## `Finish`
 
-What `atomic_open` did with the file it made: opened it too, or left the open to
-the runtime.
+What `atomic_open` did with a name: opened the file too, or left the open to the
+runtime. Each end says whether it made the file.
 
 ```rust
 pub enum Finish {}

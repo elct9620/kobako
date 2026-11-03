@@ -3274,3 +3274,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem answering `permission` |
 | When | a call opens a file to append to it |
 | Then | the open asks to append as well as to write, as Linux's `MAY_APPEND` does |
+
+## `RT-293` A file an open makes opens once its directory is unlocked
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-244` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose `open` reaches the directory it made a file in |
+| When | a call opens a name where nothing stands, asking to create it |
+| Then | the open succeeds, as Linux's `lookup_open` unlocks the directory before `do_open` |
+
+## `RT-294` A file `atomic_open` finds standing opens as one that stood
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-244` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose `atomic_open` finds a file at the name and makes nothing |
+| When | a call opens that name, asking to create it alone |
+| Then | the open answers EEXIST, as Linux's `do_open` refuses `O_EXCL` without `FMODE_CREATED` |
