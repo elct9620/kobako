@@ -440,9 +440,9 @@ pub(crate) fn readdir(
     }
 }
 
-/// preview1 renumbering closes `to` as `fd_close` does, answering a close
-/// its Filesystem refuses, and moves `from` onto its number; both must
-/// already be open.
+/// preview1 renumbering moves `from` onto `to`, both already open, then
+/// closes what stood at `to`, ignoring how its close answers, as Linux's
+/// `do_dup2` installs the file before `filp_close` of the one it replaced.
 pub(crate) fn renumber(table: &mut Descriptors, from: u32, to: u32) -> Answer {
     if table.get(from).is_none() || table.get(to).is_none() {
         return Err(Errno::Badf.into());
@@ -450,9 +450,11 @@ pub(crate) fn renumber(table: &mut Descriptors, from: u32, to: u32) -> Answer {
     if from == to {
         return Ok(());
     }
-    close(table, to)?;
-    let moved = table.remove(from).ok_or(Errno::Badf)?;
+    let (Some(moved), Some(replaced)) = (table.remove(from), table.remove(to)) else {
+        return Err(Errno::Badf.into());
+    };
     table.place(to, moved);
+    let _ = replaced.file.close();
     Ok(())
 }
 
@@ -1423,20 +1425,24 @@ mod tests {
         );
     }
 
+    // The replaced file refuses its close, so only a renumber that moves the
+    // source before closing, and ignores that answer, succeeds.
     // @behavior RT-114
     #[test]
-    fn renumbering_onto_an_open_file_closes_it_first() {
+    fn renumbering_onto_an_open_file_replaces_it_whatever_its_close_answers() {
         let mut table = standard_streams();
         let from = table.push(open_file()).expect("a descriptor to move");
         let to = table.push(open_file()).expect("a descriptor to move onto");
         assert_eq!(
-            errno(renumber(&mut table, from, to)),
-            Some(Errno::Acces),
-            "fd_renumber onto a file whose Filesystem refuses the close must answer that refusal"
-        );
-        assert!(
-            table.get(to).is_none() && table.get(from).is_some(),
-            "a refused close through fd_renumber must leave the target closed and the source in place"
+            (
+                errno(renumber(&mut table, from, to)),
+                table.get(from).is_none(),
+                table.get(to).is_some()
+            ),
+            (None, true, true),
+            "fd_renumber through preview1 onto a file whose Filesystem refuses the close must \
+             succeed, the source now standing at the target and its own number free, as Linux's \
+             do_dup2 ignores filp_close of the file it replaced"
         );
     }
 }
