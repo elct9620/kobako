@@ -1188,7 +1188,7 @@ struct ReusesInodes {
 }
 
 impl ReusesInodes {
-    fn dir_metadata(&self, found: Kstat) -> Kstat {
+    fn dir_kstat(&self, found: Kstat) -> Kstat {
         let ino = 100 + self.removed_while_open.load(Ordering::SeqCst) as u64;
         found.with_identity(1, ino)
     }
@@ -1202,7 +1202,7 @@ impl Hook for ReusesInodes {
     ) -> Result<Kstat, FilesystemError> {
         let found = inner.getattr(dentry)?;
         Ok(match dentry.name().as_str() {
-            "dir" => self.dir_metadata(found),
+            "dir" => self.dir_kstat(found),
             _ => found,
         })
     }
@@ -1215,7 +1215,7 @@ impl Hook for ReusesInodes {
         Ok(match inner.lookup(dentry)? {
             Lookup::Found(inode) if dentry.name() == "dir" => {
                 self.found.lock().unwrap().push(Arc::downgrade(inode.ops()));
-                let found = self.dir_metadata(inode.ops().getattr(dentry)?);
+                let found = self.dir_kstat(inode.ops().getattr(dentry)?);
                 Lookup::Found(Inode::new(&found, inode.ops().clone()))
             }
             other => other,
