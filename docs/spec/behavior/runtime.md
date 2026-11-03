@@ -2076,7 +2076,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a guest holding as many descriptors as it may |
-| When | it opens a path that names nothing |
+| When | it opens a path that names nothing, or one no call can take |
 | Then | the open answers EMFILE, as Linux reserves a descriptor first |
 
 ## `RT-191` The host ABI endpoint needs nothing of an Engine
