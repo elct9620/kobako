@@ -3214,3 +3214,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation holding nothing at a descriptor number |
 | When | the guest makes a directory at an absolute path from that number |
 | Then | the call answers ENOTCAPABLE, as Linux's `path_init` looks at no descriptor for an absolute path |
+
+## `RT-288` A file made by `create` alone opens only once the security modules allow it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-244` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem with `create` and no `atomic_open`, and a security module refusing the open |
+| When | a guest opens a name where nothing stands, asking to create it |
+| Then | the Filesystem makes the file, and its `open` is never asked |
