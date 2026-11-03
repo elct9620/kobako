@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
-use crate::vfs::{dir_emit_entries, Cred, Dentry, DirContext, DirEntry, FilesystemError};
+use crate::vfs::{Cred, Dentry, DirContext, DirEntry, FileType, FilesystemError};
 
-/// The entries a listing began with, on the open directory until it reaches
-/// its end, counted against who holds them.
+/// The entries a listing began with, `.` and `..` first, on the open directory
+/// until it reaches its end, counted against who holds them.
 #[derive(Default)]
 pub struct Rdir(Option<Listing>);
 
@@ -43,13 +43,15 @@ impl Drop for Charge {
 }
 
 impl Rdir {
-    /// Hand `ctx` the directory from its position, `.` and `..` first. A listing
-    /// from the start reads the directory through `read`, and one going on reads
-    /// what that listing began with. Those entries count against the caller from
-    /// the moment they are read until the listing ends, as `ovl_cache_get` and
-    /// `v9fs_alloc_rdir_buf` allocate before the first `dir_emit`: past what a
-    /// security module allows, the listing answers out of memory before it hands
-    /// any entry.
+    /// Hand `ctx` the directory from its position. A listing from the start
+    /// reads the directory through `read`, then stats it and what stands above
+    /// it for `.` and `..`, as 9p and FUSE take those from their server and
+    /// `ovl_cache_update` asks `vfs_getattr`; a failure of either answers before
+    /// any entry. A listing going on reads what that listing began with. Those
+    /// entries count against the caller from the moment they are read until the
+    /// listing ends, as `ovl_cache_get` and `v9fs_alloc_rdir_buf` allocate before
+    /// the first `dir_emit`: past what a security module allows, the listing
+    /// answers out of memory before it hands any entry.
     pub fn iterate(
         &mut self,
         dentry: &Dentry,
@@ -59,15 +61,44 @@ impl Rdir {
         let listing = match self.0.take().filter(|_| ctx.pos() != 0) {
             Some(held) => held,
             None => {
-                let mut entries = read()?;
+                let read = read()?;
+                let mut entries = dots(dentry)?;
+                entries.extend(read);
                 entries.shrink_to_fit();
                 let _charge = Charge::of(ctx.cred(), &entries)?;
                 Listing { entries, _charge }
             }
         };
-        if !dir_emit_entries(dentry, ctx, &listing.entries) {
+        if !emit_from(ctx, &listing.entries) {
             self.0 = Some(listing);
         }
         Ok(())
     }
+}
+
+/// `.` and `..` as a stat of `dentry` and of what stands above it reports them,
+/// `..` naming `dentry` itself at the root.
+fn dots(dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+    let dot = dentry.getattr()?;
+    let dotdot = match dentry.parent() {
+        Some(parent) => parent.getattr()?,
+        None => dot,
+    };
+    Ok(vec![
+        DirEntry::new(".", FileType::Dir).with_identity(dot.dev, dot.ino),
+        DirEntry::new("..", FileType::Dir).with_identity(dotdot.dev, dotdot.ino),
+    ])
+}
+
+/// Hand `ctx` `entries` from where it stands, each at its index, answering
+/// whether it took them all.
+fn emit_from(ctx: &mut DirContext<'_>, entries: &[DirEntry]) -> bool {
+    let skip = usize::try_from(ctx.pos()).unwrap_or(usize::MAX);
+    entries.iter().skip(skip).all(|entry| {
+        let took = ctx.dir_emit(entry);
+        if took {
+            ctx.set_pos(ctx.pos() + 1);
+        }
+        took
+    })
 }

@@ -2391,8 +2391,7 @@ mod tests {
                 "" => self.0.entries(),
                 at => self.0.open_dir(at)?.entries(),
             }?;
-            crate::vfs::dir_emit_entries(dentry, ctx, &entries);
-            Ok(())
+            crate::filesystem::Rdir::default().iterate(dentry, ctx, || Ok(entries))
         }
     }
 

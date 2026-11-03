@@ -1235,12 +1235,11 @@ mod tests {
             dentry: &Dentry,
             ctx: &mut vfs::DirContext<'_>,
         ) -> Result<(), FilesystemError> {
-            let entries = [
+            let entries = vec![
                 vfs::DirEntry::new("ok", FileType::RegFile),
                 vfs::DirEntry::new(self.0, FileType::RegFile),
             ];
-            vfs::dir_emit_entries(dentry, ctx, &entries);
-            Ok(())
+            kobako_runtime::filesystem::Rdir::default().iterate(dentry, ctx, || Ok(entries))
         }
     }
 

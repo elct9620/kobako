@@ -285,11 +285,12 @@ impl FileOperations for NoteDir {
         dentry: &Dentry,
         ctx: &mut kobako_runtime::vfs::DirContext<'_>,
     ) -> Result<(), FilesystemError> {
-        kobako_runtime::vfs::dir_emit_entries(
-            dentry,
-            ctx,
-            &[DirEntry::new("note.txt", FileType::RegFile)],
-        );
+        if kobako_runtime::vfs::dir_emit_dots(dentry, ctx)
+            && ctx.pos() == 2
+            && ctx.dir_emit(&DirEntry::new("note.txt", FileType::RegFile))
+        {
+            ctx.set_pos(3);
+        }
         Ok(())
     }
 }

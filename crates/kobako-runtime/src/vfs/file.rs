@@ -394,26 +394,27 @@ pub(super) fn do_dentry_open(
     Ok((dentry.open(how)?, security))
 }
 
-/// What `dentry` reports it stands for, `None` where a Filesystem cannot answer,
-/// rather than failing the listing.
-fn identity_of(dentry: &Dentry) -> Option<Identity> {
-    dentry.getattr().ok().and_then(|stat| Identity::of(&stat))
+/// The identity the inode `dentry` holds was looked up with, as Linux reads
+/// `i_ino`.
+fn i_ino(dentry: &Dentry) -> Option<Identity> {
+    dentry.inode().and_then(|inode| inode.identity())
 }
 
 /// Hand `ctx` the `.` and `..` it has yet to reach, as Linux's `dir_emit_dots`
-/// does, `..` naming what stands above `dentry`, or itself at the root. It
-/// answers whether to go on.
+/// does with the inode numbers the dentries hold, `..` naming what stands above
+/// `dentry`, or itself at the root. It asks no Filesystem and answers whether
+/// to go on.
 pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {
     if ctx.pos == 0 {
-        if !ctx.emit(".", FileType::Dir, identity_of(dentry)) {
+        if !ctx.emit(".", FileType::Dir, i_ino(dentry)) {
             return false;
         }
         ctx.pos = 1;
     }
     if ctx.pos == 1 {
         let above = match dentry.parent() {
-            Some(parent) => identity_of(&parent),
-            None => identity_of(dentry),
+            Some(parent) => i_ino(&parent),
+            None => i_ino(dentry),
         };
         if !ctx.emit("..", FileType::Dir, above) {
             return false;
@@ -421,22 +422,6 @@ pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {
         ctx.pos = 2;
     }
     true
-}
-
-/// Hand `ctx` the `.` and `..` it has yet to reach, then `entries` from where it
-/// stands, each at its index past those two, answering whether it took them all.
-pub fn dir_emit_entries(dentry: &Dentry, ctx: &mut DirContext<'_>, entries: &[DirEntry]) -> bool {
-    if !dir_emit_dots(dentry, ctx) {
-        return false;
-    }
-    let skip = usize::try_from(ctx.pos - 2).unwrap_or(usize::MAX);
-    entries.iter().skip(skip).all(|entry| {
-        let took = ctx.dir_emit(entry);
-        if took {
-            ctx.pos += 1;
-        }
-        took
-    })
 }
 
 /// What a directory's read answers, as Linux's `generic_read_dir` is every
@@ -1200,6 +1185,147 @@ mod tests {
         }
     }
 
+    /// A Filesystem listing whole, whose directory cannot be stated.
+    struct CannotStat;
+
+    impl crate::vfs::FileSystemType for CannotStat {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for CannotStat {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Err(FilesystemError::Other("no stat".into()))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenHow,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Ok(Box::new(ReadsWholeDir(crate::filesystem::Rdir::default())))
+        }
+    }
+
+    /// A Filesystem listing whole, whose every directory stats as one inode.
+    struct StatsAsOne;
+
+    impl crate::vfs::FileSystemType for StatsAsOne {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            crate::vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for StatsAsOne {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Dir, 0).with_identity(7, 9))
+        }
+
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _options: &OpenHow,
+        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+            Ok(Box::new(ReadsWholeDir(crate::filesystem::Rdir::default())))
+        }
+    }
+
+    /// The identities a listing of `dir` from the start hands `.` and `..`.
+    fn dots_of(dir: &mut File) -> Vec<Option<Identity>> {
+        let mut dots = Vec::new();
+        dir.iterate_dir(&mut DirContext::new(0, &mut |entry| {
+            if entry.name.starts_with('.') {
+                dots.push(entry.identity);
+            }
+            true
+        }))
+        .unwrap_or_else(|_| panic!("the directory must list"));
+        dots
+    }
+
+    // The root was made without asking the Filesystem, so only `.` and `..`
+    // taken from its stat name the inode it reports.
+    // @behavior RT-305
+    #[test]
+    fn a_listing_read_whole_names_its_dots_as_a_stat_does() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(StatsAsOne)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let Ok(mut dir) = File::root(mount.mnt(), &Arc::default()) else {
+            panic!("the root must open");
+        };
+        let one = Identity::from_numbers(7, 9);
+        assert_eq!(
+            dots_of(&mut dir),
+            [one, one],
+            "File::iterate_dir through Rdir of a root must name . and .. as the Filesystem's \
+             stat of it names them"
+        );
+    }
+
+    // @behavior RT-305
+    #[test]
+    fn a_tmpfs_listing_names_its_dots_as_a_stat_does() {
+        let tmpfs: Tmpfs = [("d/f", "x")].into_iter().collect();
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let (root, cred) = (Path::root(mount.mnt()), Arc::default());
+        let stat = |path| {
+            crate::vfs::vfs_fstatat(&cred, &root, path, false)
+                .ok()
+                .and_then(|stat| Identity::of(&stat))
+        };
+        let how = OpenHow {
+            read: true,
+            directory: true,
+            ..OpenHow::default()
+        };
+        let Ok(mut dir) = filp_open(&cred, &root, "d", &how) else {
+            panic!("the directory must open");
+        };
+        assert_eq!(
+            dots_of(&mut dir),
+            [stat("d"), stat(".")],
+            "File::iterate_dir of a Tmpfs directory must name . and .. as a stat of the \
+             directory and of the one above it names them"
+        );
+    }
+
+    // The entries read fine, so only a listing asking the stat for `.` before
+    // it hands any entry answers the failure with nothing handed.
+    // @behavior RT-304
+    #[test]
+    fn a_listing_whose_directory_cannot_be_stated_hands_nothing() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(CannotStat)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let Ok(mut dir) = File::root(mount.mnt(), &Arc::default()) else {
+            panic!("the root must open");
+        };
+        let mut seen = 0;
+        let answer = dir.iterate_dir(&mut DirContext::new(0, &mut |_| {
+            seen += 1;
+            true
+        }));
+        assert_eq!(
+            (answer, seen),
+            (Err(FilesystemError::Other("no stat".into())), 0),
+            "File::iterate_dir through Rdir of a directory its Filesystem cannot stat must answer \
+             that failure and hand no entry, as ovl_cache_update fails the listing"
+        );
+    }
+
     /// A listing of `file` from the start, its actor stopping after `room`
     /// entries.
     fn begin_listing(file: &mut File, room: usize) -> Result<(), FilesystemError> {
@@ -1259,7 +1385,8 @@ mod tests {
             Access::Read,
         )
         .expect("/data is a guest path");
-        let one_listing = 2 * size_of::<DirEntry>() + 2;
+        // `.`, `..`, and two one-letter names.
+        let one_listing = 4 * size_of::<DirEntry>() + 1 + 2 + 2;
         let cred = crate::security::prepare_creds_within(Some(one_listing));
         // A Driver opens the root before the Policies apply and lists through
         // the Cred they were added to, so both must count against one limit.
