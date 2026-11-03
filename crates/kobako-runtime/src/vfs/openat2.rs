@@ -41,6 +41,7 @@ pub struct OpenFlags {
     open_flag: OpenHow,
     acc_mode: Mask,
     lookup_follow: bool,
+    lookup_directory: bool,
 }
 
 impl OpenFlags {
@@ -58,6 +59,12 @@ impl OpenFlags {
     /// `lookup_flags` asks.
     pub(crate) fn lookup_follow(&self) -> bool {
         self.lookup_follow
+    }
+
+    /// Whether the walk must end on a directory, as `LOOKUP_DIRECTORY` in
+    /// `lookup_flags` asks.
+    pub(crate) fn lookup_directory(&self) -> bool {
+        self.lookup_directory
     }
 }
 
@@ -77,9 +84,13 @@ pub fn build_open_flags(how: &OpenHow) -> Result<OpenFlags, FilesystemError> {
     if how.write || how.truncate {
         acc_mode = acc_mode | Mask::WRITE;
     }
+    if how.append {
+        acc_mode = acc_mode | Mask::APPEND;
+    }
     Ok(OpenFlags {
         open_flag: *how,
         acc_mode,
         lookup_follow: how.follow && !(how.create && how.exclusive),
+        lookup_directory: how.directory,
     })
 }

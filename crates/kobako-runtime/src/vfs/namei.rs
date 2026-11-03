@@ -523,7 +523,7 @@ pub fn do_file_open(
 ) -> Result<File, FilesystemError> {
     let how = op.open_flag();
     let mut nd = set_nameidata(cred, start, path)?;
-    nd.lookup_directory = how.directory;
+    nd.lookup_directory = op.lookup_directory();
     nd.link_path_walk()?;
     let held = nd.open_last_lookups(op.lookup_follow(), how.create)?;
     let child = nd.path()?;
@@ -1847,6 +1847,28 @@ mod tests {
             })
             .ends_with(&[name("d", Mask::OPEN | Mask::READ)]),
             "vfs::do_file_open must ask of what it opens for what the open asks, as may_open"
+        );
+    }
+
+    // @behavior RT-292
+    #[test]
+    fn an_open_that_appends_asks_to_append() {
+        let hook = Arc::new(RecordsPermission::default());
+        let root = permission_root(&hook);
+        let append = OpenHow {
+            write: true,
+            append: true,
+            ..OpenHow::default()
+        };
+        vfs::kern_path::filp_open(&Arc::default(), &root, "a/b/f", &append)
+            .expect("the file opens");
+        assert!(
+            hook.asked
+                .lock()
+                .expect("never poisoned")
+                .ends_with(&[("f".to_string(), Mask::OPEN | Mask::WRITE | Mask::APPEND)]),
+            "an open with append through vfs::do_file_open must ask the file to append as well \
+             as to write, as build_open_flags adds MAY_APPEND"
         );
     }
 

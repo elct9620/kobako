@@ -186,6 +186,9 @@ impl Mask {
     pub const READ: Self = Self(1 << 2);
     /// Opening it, as `MAY_OPEN`.
     pub const OPEN: Self = Self(1 << 3);
+    /// Changing it only at its end, as `MAY_APPEND`, which comes with `WRITE`
+    /// so a module can tell an append from any other write.
+    pub const APPEND: Self = Self(1 << 4);
 
     /// Whether this holds all of `mask`.
     pub fn contains(self, mask: Self) -> bool {
