@@ -229,7 +229,7 @@ The Filesystem context follows Linux's three layers: the Wasm Driver in the sysc
 
 beneath the VFS and every Filesystem Driver:
 ┌───────────────────────────────────────────┐
-│ locking   rw_semaphore                    │
+│ locking   rw_semaphore · seqlock          │
 │ sched     current · schedule ◀── frontend │
 └───────────────────────────────────────────┘
 ```
