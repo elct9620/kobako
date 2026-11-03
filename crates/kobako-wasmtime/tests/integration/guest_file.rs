@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
     simple_fill_super, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
-    Finish, InodeOperations, Kiocb, Lookup, Metadata, OpenHow, Tmpfs,
+    Finish, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
@@ -585,7 +585,7 @@ where
     W: Fn(Box<dyn FileOperations>) -> F + Send + Sync + 'static,
     F: FileOperations + 'static,
 {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         self.inner.getattr(dentry)
     }
 
@@ -921,7 +921,7 @@ impl FileSystemType for ReportsLen {
 }
 
 impl InodeOperations for ReportsLen {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         let mut metadata = self.0.getattr(dentry)?;
         if metadata.file_type == FileType::File {
             metadata.len = self.1;

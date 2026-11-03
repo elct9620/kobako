@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
     DentryOperations, FileOperations, FileSystemType, Filesystem, FilesystemError, Finish,
-    InodeOperations, Lookup, Metadata, OpenHow, RenameFlag,
+    InodeOperations, Kstat, Lookup, OpenHow, RenameFlag,
 };
 use kobako_runtime::vfs::Dentry;
 
@@ -18,7 +18,7 @@ pub(super) trait Hook: Send + Sync + 'static {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-    ) -> Result<Metadata, FilesystemError> {
+    ) -> Result<Kstat, FilesystemError> {
         inner.getattr(dentry)
     }
 
@@ -138,7 +138,7 @@ impl<H: Hook> DentryOperations for WrapDentry<H> {
 }
 
 impl<H: Hook> InodeOperations for WrapInode<H> {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         self.hook.getattr(self.inner.as_ref(), dentry)
     }
 

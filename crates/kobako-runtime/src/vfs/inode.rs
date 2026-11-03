@@ -8,7 +8,7 @@ use std::sync::{Arc, OnceLock};
 
 use super::dentry::Dentry;
 use super::file::FileOperations;
-use super::{FileType, FilesystemError, Iattr, Metadata, OpenHow};
+use super::{FileType, FilesystemError, Iattr, Kstat, OpenHow};
 use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
 /// What an `atomic_open` did with the file it made, as Linux's `->atomic_open`
@@ -64,7 +64,7 @@ pub trait InodeOperations: Any + Send + Sync {
     /// `getattr` is handed the path it answers for, even once its name is
     /// gone and only an open file holds it, as `fstat` asks the same. A link
     /// reports itself.
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError>;
 
     /// Apply `attr` to this entry, even once its name is gone and only an
     /// open file holds it, as `ftruncate`, `open` with `O_TRUNC`, and
@@ -230,7 +230,7 @@ pub struct Identity {
 impl Identity {
     /// The identity `metadata` names, `None` where its inode of zero reports
     /// none.
-    pub fn of(metadata: &Metadata) -> Option<Self> {
+    pub fn of(metadata: &Kstat) -> Option<Self> {
         Self::from_numbers(metadata.dev, metadata.ino)
     }
 
@@ -241,7 +241,7 @@ impl Identity {
     }
 
     /// `metadata`, naming this identity.
-    pub fn onto(self, metadata: Metadata) -> Metadata {
+    pub fn onto(self, metadata: Kstat) -> Kstat {
         metadata.with_identity(self.dev, self.ino)
     }
 }
@@ -268,7 +268,7 @@ pub struct Inode {
 
 impl Inode {
     /// The entry `metadata` reports, answered for by `ops`.
-    pub fn new(metadata: &Metadata, ops: Arc<dyn InodeOperations>) -> Arc<Self> {
+    pub fn new(metadata: &Kstat, ops: Arc<dyn InodeOperations>) -> Arc<Self> {
         Self::of_kind(metadata.file_type, Identity::of(metadata), ops)
     }
 

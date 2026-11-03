@@ -17,7 +17,7 @@ use super::namei::{
 use super::path::{Path, Start};
 use super::{
     build_open_flags, DirEntry, File, FileOperations, FileSystemType, FileType, FilesystemError,
-    Finish, Iattr, Metadata, OpenHow, SuperBlock,
+    Finish, Iattr, Kstat, OpenHow, SuperBlock,
 };
 use crate::mount::{Access, Mount};
 
@@ -134,13 +134,13 @@ impl KernPath {
     }
 
     /// What the directory reports of itself.
-    pub(crate) fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    pub(crate) fn metadata(&self) -> Result<Kstat, FilesystemError> {
         self.0.dentry().getattr()
     }
 
     /// What `path` names, a link reported as itself; the directory itself
     /// for the empty path.
-    pub(crate) fn symlink_metadata(&self, path: &str) -> Result<Metadata, FilesystemError> {
+    pub(crate) fn symlink_metadata(&self, path: &str) -> Result<Kstat, FilesystemError> {
         if path.is_empty() {
             return self.metadata();
         }

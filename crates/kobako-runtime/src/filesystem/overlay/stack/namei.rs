@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use super::super::super::{FileType, FilesystemError, InodeOperations, Metadata};
+use super::super::super::{FileType, FilesystemError, InodeOperations, Kstat};
 use super::super::inode::{ovl_inode_init, OverlayDirInode, OverlayFileInode};
 use super::{entry, layer_dir, LayerEntry, Level, OverlayFs, Presence, UPPER};
 use crate::vfs::{Dentry, Inode};
@@ -70,10 +70,7 @@ impl OverlayFs {
     /// reports a merged one: what its topmost Layer reports, under the identity
     /// of the topmost lower Layer showing it, as `ovl_path_lower` finds it, so
     /// copying it up leaves the identity as it was, and one name.
-    pub(in super::super) fn dir_metadata(
-        &self,
-        level: &Level,
-    ) -> Result<Metadata, FilesystemError> {
+    pub(in super::super) fn dir_metadata(&self, level: &Level) -> Result<Kstat, FilesystemError> {
         let mut shown = level.iter().flatten();
         let topmost = shown.next().ok_or(FilesystemError::NotFound)?.metadata()?;
         Ok(match shown.next() {
@@ -130,7 +127,7 @@ impl OverlayFs {
         let found = real.inode().ok_or(FilesystemError::NotFound)?;
         let breaks = self.has_upper() && index != UPPER && real.getattr()?.nlink > 1;
         Ok(match breaks {
-            true => Inode::new(&Metadata::new(found.kind(), 0), ops),
+            true => Inode::new(&Kstat::new(found.kind(), 0), ops),
             false => found.with_ops(ops),
         })
     }

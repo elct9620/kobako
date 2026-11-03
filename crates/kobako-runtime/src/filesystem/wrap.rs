@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use super::{
     DentryOperations, FileOperations, FileSystemType, Filesystem, FilesystemError, Finish, Iattr,
-    InodeOperations, Lookup, Mask, Metadata, OpenHow, RenameFlag,
+    InodeOperations, Kstat, Lookup, Mask, OpenHow, RenameFlag,
 };
 use crate::vfs::Dentry;
 
@@ -35,7 +35,7 @@ pub(crate) trait Hook: Send + Sync + 'static {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-    ) -> Result<Metadata, FilesystemError> {
+    ) -> Result<Kstat, FilesystemError> {
         inner.getattr(dentry)
     }
 
@@ -151,7 +151,7 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
         self.hook.permission(self.inner.as_ref(), dentry, mask)
     }
 
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         self.hook.getattr(self.inner.as_ref(), dentry)
     }
 

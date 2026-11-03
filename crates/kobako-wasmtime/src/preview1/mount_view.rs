@@ -11,8 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
-    FileOperations, FileSystemType, FileType, FilesystemError, InodeOperations, Kiocb, Lookup,
-    Metadata, OpenHow, Overlay, RenameFlag, Tmpfs,
+    FileOperations, FileSystemType, FileType, FilesystemError, InodeOperations, Kiocb, Kstat,
+    Lookup, OpenHow, Overlay, RenameFlag, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
@@ -1148,7 +1148,7 @@ struct ReusesInodes {
 }
 
 impl ReusesInodes {
-    fn dir_metadata(&self, found: Metadata) -> Metadata {
+    fn dir_metadata(&self, found: Kstat) -> Kstat {
         let ino = 100 + self.removed_while_open.load(Ordering::SeqCst) as u64;
         found.with_identity(1, ino)
     }
@@ -1159,7 +1159,7 @@ impl Hook for ReusesInodes {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-    ) -> Result<Metadata, FilesystemError> {
+    ) -> Result<Kstat, FilesystemError> {
         let found = inner.getattr(dentry)?;
         Ok(match dentry.name().as_str() {
             "dir" => self.dir_metadata(found),
@@ -1257,7 +1257,7 @@ impl Hook for NamesNoIdentity {
         Ok(match inner.lookup(dentry)? {
             Lookup::Found(inode) => {
                 let found = inode.ops().getattr(dentry)?;
-                let bare = Metadata::new(found.file_type, found.len);
+                let bare = Kstat::new(found.file_type, found.len);
                 Lookup::Found(Inode::new(&bare, inode.ops().clone()))
             }
             other => other,
@@ -2656,7 +2656,7 @@ impl FileSystemType for ChangesNothing {
 }
 
 impl InodeOperations for ChangesNothing {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         self.0.getattr(dentry)
     }
 

@@ -6,7 +6,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use kobako_runtime::filesystem::{FileType, FilesystemError, Iattr, Metadata, SetTime};
+use kobako_runtime::filesystem::{FileType, FilesystemError, Iattr, Kstat, SetTime};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{self, verify_dirent_name, DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
@@ -102,7 +102,7 @@ fn to_filetype(file_type: FileType) -> Filetype {
 
 /// A `filestat` for what a Filesystem reports a path names, as the guest
 /// holding `table` sees it, at time zero where it keeps no time.
-pub(crate) fn to_filestat(table: &Descriptors, metadata: Metadata) -> types::Filestat {
+pub(crate) fn to_filestat(table: &Descriptors, metadata: Kstat) -> types::Filestat {
     let metadata = table.profile().guest_metadata(metadata);
     types::Filestat {
         dev: metadata.dev,
@@ -508,7 +508,7 @@ mod tests {
     use crate::preview1::types::{self, Rights, Whence};
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
     use kobako_runtime::filesystem::{
-        FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup, Metadata,
+        FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Kstat, Lookup,
     };
     use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::profile::Profile;
@@ -593,12 +593,12 @@ mod tests {
     }
 
     impl InodeOperations for Holds {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            Ok(Metadata::new(FileType::Directory, 0))
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Directory, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Metadata::new(self.0, 0);
+            let found = Kstat::new(self.0, 0);
             Ok(Lookup::Found(Inode::new(
                 &found,
                 Arc::new(Self(self.0, self.1)),
@@ -1190,8 +1190,8 @@ mod tests {
     }
 
     impl InodeOperations for ListsNames {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            Ok(Metadata::new(FileType::Directory, 0))
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Directory, 0))
         }
 
         fn open(
@@ -1345,8 +1345,8 @@ mod tests {
     }
 
     impl InodeOperations for MakesLinks {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            Ok(Metadata::new(FileType::Directory, 0))
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Directory, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {

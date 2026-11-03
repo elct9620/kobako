@@ -41,7 +41,7 @@ impl FileType {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct Metadata {
+pub struct Kstat {
     pub file_type: FileType,
     /// The length in bytes, of a directory what its Filesystem reports.
     pub len: u64,
@@ -61,8 +61,8 @@ pub struct Metadata {
     pub changed: Option<SystemTime>,
 }
 
-impl Metadata {
-    /// Metadata named once, reporting no identity or time.
+impl Kstat {
+    /// Kstat named once, reporting no identity or time.
     pub fn new(file_type: FileType, len: u64) -> Self {
         Self {
             file_type,
@@ -120,7 +120,7 @@ pub fn vfs_fstatat(
     start: &impl Start,
     path: &str,
     follow: bool,
-) -> Result<Metadata, FilesystemError> {
+) -> Result<Kstat, FilesystemError> {
     filename_lookup(cred, start, path, follow)?.getattr()
 }
 

@@ -10,7 +10,7 @@ use std::time::SystemTime;
 use super::path::{ancestors, name, normalize_seed};
 use super::{
     DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow, RenameFlag, SetTime,
+    FilesystemError, Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag, SetTime,
 };
 use crate::vfs::{dir_emit_dots, generic_file_llseek, generic_read_dir, DirContext, Whence};
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
@@ -239,7 +239,7 @@ impl Times {
         self.changed = attr.time_of(SetTime::Now);
     }
 
-    fn report(self, metadata: Metadata) -> Metadata {
+    fn report(self, metadata: Kstat) -> Kstat {
         metadata.with_times(Some(self.accessed), Some(self.modified), Some(self.changed))
     }
 }
@@ -266,7 +266,7 @@ impl Dir {
     /// directory it holds, as a tmpfs counts `.` and each `..` beneath it,
     /// and a size of `BOGO_DIRENT_SIZE` for each of its entries and those
     /// two, as a tmpfs sizes a directory. One removed counts no name.
-    fn metadata(&self, dev: u64) -> Metadata {
+    fn metadata(&self, dev: u64) -> Kstat {
         let state = self.state();
         let len = (2 + state.entries.len() as u64) * BOGO_DIRENT_SIZE;
         let nlink = match state.removed {
@@ -274,7 +274,7 @@ impl Dir {
             false => 2 + state.subdirectories,
         };
         state.times.report(
-            Metadata::new(FileType::Directory, len)
+            Kstat::new(FileType::Directory, len)
                 .with_identity(dev, self.ino)
                 .with_nlink(nlink),
         )
@@ -411,9 +411,9 @@ impl Content {
         }))
     }
 
-    fn metadata(&self) -> Metadata {
+    fn metadata(&self) -> Kstat {
         self.times.report(
-            Metadata::new(FileType::File, self.bytes.len() as u64)
+            Kstat::new(FileType::File, self.bytes.len() as u64)
                 .with_identity(self.dev, self.ino)
                 .with_nlink(self.names),
         )
@@ -472,7 +472,7 @@ impl Tmpfs {
             tree: Arc::new(Tree {
                 space: space.clone(),
                 inodes_follow_limit: AtomicBool::new(true),
-                dev: Metadata::unique_device(),
+                dev: Kstat::unique_device(),
                 next_ino: AtomicU64::new(2),
             }),
             dir: Dir::new(1, space),
@@ -621,11 +621,11 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Tmpfs {
 impl Tmpfs {
     /// What `node`, an entry of this Tmpfs, reports of itself. A whiteout is
     /// a character device 0:0, as tmpfs makes one.
-    fn node_metadata(&self, node: &Node) -> Metadata {
+    fn node_metadata(&self, node: &Node) -> Kstat {
         match node {
             Node::File(data) => lock(data).metadata(),
             Node::Directory(dir) => dir.metadata(self.tree.dev),
-            Node::Whiteout { .. } => Metadata::new(FileType::CharDevice, 0),
+            Node::Whiteout { .. } => Kstat::new(FileType::CharDevice, 0),
         }
     }
 
@@ -662,7 +662,7 @@ impl FileSystemType for Tmpfs {
 /// through `TmpfsRegular`, and a whiteout, a character device 0:0 with no
 /// driver to open it, through `TmpfsWhiteout`.
 impl InodeOperations for Tmpfs {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         Ok(self.dir.metadata(self.tree.dev))
     }
 
@@ -830,7 +830,7 @@ struct TmpfsRegular {
 }
 
 impl InodeOperations for TmpfsRegular {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         Ok(lock(&self.data).metadata())
     }
 
@@ -859,8 +859,8 @@ impl InodeOperations for TmpfsRegular {
 struct TmpfsWhiteout;
 
 impl InodeOperations for TmpfsWhiteout {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata::new(FileType::CharDevice, 0))
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        Ok(Kstat::new(FileType::CharDevice, 0))
     }
 }
 
@@ -1580,7 +1580,7 @@ mod tests {
     // @behavior FS-085
     #[test]
     fn a_device_of_its_own_stands_apart_from_every_other_device() {
-        let (first, second) = (Metadata::unique_device(), Metadata::unique_device());
+        let (first, second) = (Kstat::unique_device(), Kstat::unique_device());
         let tmpfs = at(Tmpfs::new())
             .metadata()
             .expect("the root must stand")
@@ -1590,7 +1590,7 @@ mod tests {
                 && first != second
                 && tmpfs != first
                 && tmpfs != second,
-            "devices from Metadata::unique_device and a Tmpfs's root must each set the top bit \
+            "devices from Kstat::unique_device and a Tmpfs's root must each set the top bit \
              and differ from one another"
         );
     }

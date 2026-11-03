@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::Rdir;
 use kobako_runtime::filesystem::{
     simple_fill_super, DentryOperations, DirEntry, FileOperations, FileSystemType, FileType,
-    Filesystem, FilesystemError, Finish, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow,
+    Filesystem, FilesystemError, Finish, Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow,
     RenameFlag,
 };
 use kobako_runtime::vfs::{
@@ -48,12 +48,12 @@ impl RubyFilesystem {
         let answers = |name| value.respond_to(name, false).unwrap_or(false);
         (answers("open") && answers("stat")).then(|| Self {
             object: Opaque::from(value),
-            dev: Metadata::unique_device(),
+            dev: Kstat::unique_device(),
         })
     }
 
     /// What the object's `stat` answers for `path`.
-    fn stat(&self, path: String) -> Result<Metadata, FilesystemError> {
+    fn stat(&self, path: String) -> Result<Kstat, FilesystemError> {
         let own_dev = self.dev;
         ask(
             self.object,
@@ -61,7 +61,7 @@ impl RubyFilesystem {
             FilesystemError::Unsupported,
             |_, fs| {
                 let stat: Value = fs.funcall("stat", (path,))?;
-                let metadata = Metadata::new(kind_of(stat)?, stat.funcall("size", ())?);
+                let metadata = Kstat::new(kind_of(stat)?, stat.funcall("size", ())?);
                 // A stat names its identity as `File::Stat` does; without a
                 // `dev` the Filesystem stands for a device of its own, so it
                 // shares an identity with no other Filesystem.
@@ -97,7 +97,7 @@ fn kind_of(stat: Value) -> Result<FileType, MagnusError> {
 }
 
 /// `metadata` with the times and the count of names `stat` records.
-fn with_stat_record(stat: Value, metadata: Metadata) -> Result<Metadata, MagnusError> {
+fn with_stat_record(stat: Value, metadata: Kstat) -> Result<Kstat, MagnusError> {
     let metadata = metadata.with_times(
         time_of(stat, "atime")?,
         time_of(stat, "mtime")?,
@@ -306,7 +306,7 @@ impl RubyFilesystem {
 struct RubyLink(RubyFilesystem);
 
 impl InodeOperations for RubyLink {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         self.0.stat(dentry.path_raw())
     }
 
@@ -322,7 +322,7 @@ impl InodeOperations for RubyRegular {
     /// A file open here answers for itself even once its name is gone, as 9p
     /// asks an open fid: its `size`, and its `stat` where it has one. It stays
     /// the entry its lookup recorded; anything else is asked by its path.
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         let Some(file) = find_open_file(dentry) else {
             return self.0.stat(dentry.path_raw());
         };
@@ -331,7 +331,7 @@ impl InodeOperations for RubyRegular {
             "size",
             FilesystemError::Unsupported,
             |_, file| {
-                let metadata = Metadata::new(FileType::File, file.funcall("size", ())?);
+                let metadata = Kstat::new(FileType::File, file.funcall("size", ())?);
                 if file.respond_to("stat", false)? {
                     with_stat_record(file.funcall("stat", ())?, metadata)
                 } else {
@@ -385,7 +385,7 @@ impl FileSystemType for RubyFilesystem {
 /// A directory of a Ruby Filesystem, asked by the path a dentry stands at, the
 /// path a Policy judges.
 impl InodeOperations for RubyFilesystem {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         self.stat(dentry.path_raw())
     }
 

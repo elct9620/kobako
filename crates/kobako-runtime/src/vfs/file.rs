@@ -12,7 +12,7 @@ use super::inode::Identity;
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
 use super::path::Path;
-use super::{FileType, FilesystemError, Iattr, Metadata, PATH_MAX};
+use super::{FileType, FilesystemError, Iattr, Kstat, PATH_MAX};
 
 /// The largest offset a file holds, where Linux's signed `loff_t` ends.
 const MAX_OFFSET: u64 = i64::MAX as u64;
@@ -183,7 +183,7 @@ pub fn generic_file_llseek(
 pub struct DirEntry {
     pub name: String,
     pub file_type: FileType,
-    /// The device and inode numbers naming the entry, as `Metadata` reports
+    /// The device and inode numbers naming the entry, as `Kstat` reports
     /// them and `dir_emit` hands `d_ino`. An `ino` of zero reports none.
     pub dev: u64,
     pub ino: u64,
@@ -305,7 +305,7 @@ impl DirEmit<'_> {
         let entry = DirEntry::new(self.name, self.file_type);
         match self.identity {
             Some(identity) => {
-                let named = identity.onto(Metadata::new(self.file_type, 0));
+                let named = identity.onto(Kstat::new(self.file_type, 0));
                 entry.with_identity(named.dev, named.ino)
             }
             None => entry,
@@ -749,7 +749,7 @@ impl File {
     }
 
     /// What it reports of itself, as `vfs_getattr` answers.
-    pub fn getattr(&self) -> Result<Metadata, FilesystemError> {
+    pub fn getattr(&self) -> Result<Kstat, FilesystemError> {
         self.path.dentry().getattr()
     }
 
@@ -842,12 +842,12 @@ mod tests {
     }
 
     impl InodeOperations for Opens {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            Ok(Metadata::new(FileType::File, 0))
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::File, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Metadata::new(FileType::File, 0);
+            let found = Kstat::new(FileType::File, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(Self(self.0)))))
         }
 
@@ -946,15 +946,15 @@ mod tests {
     }
 
     impl InodeOperations for OpensNothing {
-        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.parent() {
-                Some(_) => Metadata::new(FileType::File, 0),
-                None => Metadata::new(FileType::Directory, 0),
+                Some(_) => Kstat::new(FileType::File, 0),
+                None => Kstat::new(FileType::Directory, 0),
             })
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Metadata::new(FileType::File, 0);
+            let found = Kstat::new(FileType::File, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
         }
     }
@@ -1141,8 +1141,8 @@ mod tests {
     }
 
     impl InodeOperations for ReadsWhole {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            Ok(Metadata::new(FileType::Directory, 0))
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Directory, 0))
         }
 
         fn open(
@@ -1370,15 +1370,15 @@ mod tests {
     }
 
     impl InodeOperations for RecordsCalls {
-        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.parent() {
-                Some(_) => Metadata::new(FileType::File, 0),
-                None => Metadata::new(FileType::Directory, 0),
+                Some(_) => Kstat::new(FileType::File, 0),
+                None => Kstat::new(FileType::Directory, 0),
             })
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Metadata::new(FileType::File, 0);
+            let found = Kstat::new(FileType::File, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone()))))
         }
 
@@ -1473,12 +1473,12 @@ mod tests {
     }
 
     impl InodeOperations for HoldsCountsSyncs {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            Ok(Metadata::new(FileType::Directory, 0))
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Directory, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Metadata::new(FileType::File, 0);
+            let found = Kstat::new(FileType::File, 0);
             let ops = Arc::new(Self(self.0.clone()));
             Ok(Lookup::Found(Inode::new(&found, ops)))
         }

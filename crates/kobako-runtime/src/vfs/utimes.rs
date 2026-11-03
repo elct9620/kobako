@@ -48,7 +48,7 @@ mod tests {
 
     use super::*;
     use crate::filesystem::{
-        FileSystemType, FileType, Filesystem, InodeOperations, Metadata, SetTime, Tmpfs,
+        FileSystemType, FileType, Filesystem, InodeOperations, Kstat, SetTime, Tmpfs,
     };
     use crate::mount::{Access as MountAccess, Mount, Policy};
     use crate::security::prepare_creds;
@@ -121,8 +121,8 @@ mod tests {
     }
 
     impl InodeOperations for NoSetattr {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            Ok(Metadata::new(FileType::Directory, 0))
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Directory, 0))
         }
     }
 
@@ -148,8 +148,8 @@ mod tests {
     }
 
     impl InodeOperations for KeepsTimes {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-            Ok(Metadata::new(FileType::Directory, 0))
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Directory, 0))
         }
 
         fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {

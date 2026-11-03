@@ -24,7 +24,7 @@ use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 use super::rdir::Rdir;
 use super::{
     DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Finish, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow, RenameFlag,
+    FilesystemError, Finish, Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag,
     SetTime,
 };
 use crate::vfs::{
@@ -328,13 +328,13 @@ fn to_special_file_type(_host: cap_std::fs::FileType) -> FileType {
 /// What a host entry is, with the size the host reports. The host names
 /// its identity, link count, and times on unix; elsewhere a Bind reports
 /// none.
-fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
+fn to_metadata(metadata: cap_std::fs::Metadata) -> Kstat {
     let file_type = to_file_type(metadata.file_type());
     let len = metadata.len();
     #[cfg(unix)]
     {
         use cap_std::fs::MetadataExt;
-        Metadata::new(file_type, len)
+        Kstat::new(file_type, len)
             .with_identity(metadata.dev(), metadata.ino())
             .with_nlink(metadata.nlink())
             .with_times(
@@ -344,7 +344,7 @@ fn to_metadata(metadata: cap_std::fs::Metadata) -> Metadata {
             )
     }
     #[cfg(not(unix))]
-    Metadata::new(file_type, len)
+    Kstat::new(file_type, len)
 }
 
 /// The time `seconds` and `nanoseconds` after the Unix epoch, as `stat`
@@ -471,7 +471,7 @@ struct BindRegular(Bind);
 struct BindLink(Bind);
 
 /// What an entry standing at its name in the directory above reports.
-fn stat_at(bind: &Bind, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+fn stat_at(bind: &Bind, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
     bind.at(dentry, |dir, name| {
         Ok(to_metadata(dir.symlink_metadata(name).map_err(to_error)?))
     })
@@ -480,7 +480,7 @@ fn stat_at(bind: &Bind, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
 impl InodeOperations for BindRegular {
     /// A file open anywhere answers from the descriptor that holds it, even
     /// once its name is gone.
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         match v9fs_fid_find_inode(dentry, false) {
             Some(file) => Ok(to_metadata(
                 cap_std::fs::Metadata::from_file(&file).map_err(to_error)?,
@@ -524,7 +524,7 @@ impl InodeOperations for BindRegular {
 }
 
 impl InodeOperations for BindLink {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         stat_at(&self.0, dentry)
     }
 
@@ -546,7 +546,7 @@ impl InodeOperations for BindLink {
 impl InodeOperations for Bind {
     /// A directory answers from its own descriptor, which follows it wherever
     /// it moves and keeps its inode taken while it is open.
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         Ok(to_metadata(
             self.fid_lookup(dentry)?.dir_metadata().map_err(to_error)?,
         ))

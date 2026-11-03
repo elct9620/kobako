@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata,
+    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Kstat, Lookup,
     OpenHow, Tmpfs,
 };
 use kobako::msgpack::Value;
@@ -253,14 +253,14 @@ impl kobako_runtime::filesystem::FileSystemType for OneNote {
 }
 
 impl InodeOperations for OneNote {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata::new(FileType::Directory, 0))
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        Ok(Kstat::new(FileType::Directory, 0))
     }
 
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         Ok(match dentry.name().as_str() {
             "note.txt" => {
-                let found = Metadata::new(FileType::File, self.0.len() as u64);
+                let found = Kstat::new(FileType::File, self.0.len() as u64);
                 Lookup::Found(Inode::new(&found, Arc::new(Note(self.0))))
             }
             _ => Lookup::Absent,
@@ -298,8 +298,8 @@ impl FileOperations for NoteDir {
 struct Note(&'static [u8]);
 
 impl InodeOperations for Note {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata::new(FileType::File, self.0.len() as u64))
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        Ok(Kstat::new(FileType::File, self.0.len() as u64))
     }
 
     fn open(

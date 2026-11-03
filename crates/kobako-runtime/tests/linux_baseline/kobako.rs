@@ -125,7 +125,7 @@ impl Kobako {
         }
     }
 
-    fn stat(&self, metadata: vfs::Metadata) -> String {
+    fn stat(&self, metadata: vfs::Kstat) -> String {
         describe(
             kind_name(metadata.file_type),
             metadata.len,

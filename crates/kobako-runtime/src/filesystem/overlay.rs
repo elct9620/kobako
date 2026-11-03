@@ -20,7 +20,7 @@ use std::sync::Arc;
 use super::rdir::Rdir;
 use super::{
     DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Lookup, Metadata, OpenHow, RenameFlag, Tmpfs,
+    InodeOperations, Kstat, Lookup, OpenHow, RenameFlag, Tmpfs,
 };
 use crate::vfs::{
     generic_file_llseek, generic_read_dir, notify_change, Dentry, DirContext, Inode, Whence,
@@ -189,7 +189,7 @@ impl Overlay {
 
     /// What the Layer the entry's name is found in reports, under the identity
     /// the view recorded.
-    fn real_getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn real_getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         let (real, inode) = real_of(dentry).ok_or(FilesystemError::NotFound)?;
         let found = real.getattr()?;
         Ok(match inode.identity() {
@@ -200,7 +200,7 @@ impl Overlay {
 }
 
 impl InodeOperations for OverlayRegular {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         self.0.real_getattr(dentry)
     }
 
@@ -234,7 +234,7 @@ impl InodeOperations for OverlayRegular {
 }
 
 impl InodeOperations for OverlayLink {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         self.0.real_getattr(dentry)
     }
 
@@ -255,7 +255,7 @@ impl FileSystemType for Overlay {
         if !self.fs.has_upper() {
             sb.set_rdonly();
         }
-        let root = Metadata::new(FileType::Directory, 0);
+        let root = Kstat::new(FileType::Directory, 0);
         let root = match self.fs.root_identity() {
             Some(identity) => identity.onto(root),
             None => root,
@@ -272,7 +272,7 @@ impl FileSystemType for Overlay {
 /// is handed, as `ovl_dir_inode_operations` answers for one.
 impl InodeOperations for Overlay {
     /// It reports its merged Layers.
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         self.fs.dir_metadata(&self.fs.dir(dentry)?.level())
     }
 
@@ -890,17 +890,17 @@ mod tests {
     }
 
     impl InodeOperations for KeepsTimes {
-        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.name().as_str() {
-                "file" => Metadata::new(FileType::File, 0).with_identity(1, 2),
-                _ => Metadata::new(FileType::Directory, 0).with_identity(1, 1),
+                "file" => Kstat::new(FileType::File, 0).with_identity(1, 2),
+                _ => Kstat::new(FileType::Directory, 0).with_identity(1, 1),
             })
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             Ok(match dentry.name().as_str() {
                 "file" => Lookup::Found(Inode::new(
-                    &Metadata::new(FileType::File, 0).with_identity(1, 2),
+                    &Kstat::new(FileType::File, 0).with_identity(1, 2),
                     Arc::new(Self(self.0.clone())),
                 )),
                 _ => Lookup::Absent,
@@ -1901,7 +1901,7 @@ mod tests {
                 &self,
                 inner: &dyn InodeOperations,
                 dentry: &Dentry,
-            ) -> Result<Metadata, FilesystemError> {
+            ) -> Result<Kstat, FilesystemError> {
                 let reentering = self.overlay.lock().unwrap().take();
                 if let Some(overlay) = reentering {
                     *self.answer.lock().unwrap() = Some((
@@ -2332,7 +2332,7 @@ mod tests {
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-        ) -> Result<Metadata, FilesystemError> {
+        ) -> Result<Kstat, FilesystemError> {
             if dentry.name() == "dir" {
                 return Err(FilesystemError::Other("dir has no stat".to_string()));
             }
@@ -2352,7 +2352,7 @@ mod tests {
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-        ) -> Result<Metadata, FilesystemError> {
+        ) -> Result<Kstat, FilesystemError> {
             if dentry.name() == "file" && self.seen.swap(true, Ordering::SeqCst) {
                 return Err(FilesystemError::NotFound);
             }
@@ -2404,7 +2404,7 @@ mod tests {
     }
 
     impl InodeOperations for FoldsCase {
-        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             self.root.symlink_metadata(&folded(dentry))
         }
 
@@ -2697,7 +2697,7 @@ mod tests {
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-        ) -> Result<Metadata, FilesystemError> {
+        ) -> Result<Kstat, FilesystemError> {
             if dentry.name() == "e" && self.0.swap(false, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }
@@ -2853,17 +2853,17 @@ mod tests {
     }
 
     impl InodeOperations for HoldsFifo {
-        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.name().as_str() {
-                "pipe" => Metadata::new(FileType::Fifo, 0).with_identity(1, 2),
-                _ => Metadata::new(FileType::Directory, 0).with_identity(1, 1),
+                "pipe" => Kstat::new(FileType::Fifo, 0).with_identity(1, 2),
+                _ => Kstat::new(FileType::Directory, 0).with_identity(1, 1),
             })
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             Ok(match dentry.name().as_str() {
                 "pipe" => Lookup::Found(Inode::new(
-                    &Metadata::new(FileType::Fifo, 0).with_identity(1, 2),
+                    &Kstat::new(FileType::Fifo, 0).with_identity(1, 2),
                     Arc::new(Self(self.0.clone())),
                 )),
                 _ => Lookup::Absent,
@@ -3382,7 +3382,7 @@ mod tests {
             tmpfs_with("dir/lower", "x"),
             tmpfs_with("upper/dir/upper", "x"),
         ));
-        let identity = |metadata: Result<Metadata, FilesystemError>| {
+        let identity = |metadata: Result<Kstat, FilesystemError>| {
             let metadata = metadata.expect("the directory must stand");
             (metadata.dev, metadata.ino)
         };

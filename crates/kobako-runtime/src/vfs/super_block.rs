@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::dentry::{Dentries, DentryOperations};
 use super::errno::FilesystemError;
 use super::inode::{Inode, InodeOperations};
-use super::stat::{FileType, Metadata};
+use super::stat::{FileType, Kstat};
 use crate::locking::RwSemaphore;
 
 /// What makes an instance of a Filesystem, as Linux's `file_system_type`.
@@ -24,7 +24,7 @@ pub fn simple_fill_super(
     sb: &mut SuperBlock,
     root: Arc<dyn InodeOperations>,
 ) -> Result<(), FilesystemError> {
-    sb.d_make_root(Inode::new(&Metadata::new(FileType::Directory, 0), root));
+    sb.d_make_root(Inode::new(&Kstat::new(FileType::Directory, 0), root));
     Ok(())
 }
 

@@ -10,7 +10,7 @@ use std::hash::{BuildHasher, RandomState};
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::vfs::{FileType, Identity, Metadata};
+use crate::vfs::{FileType, Identity, Kstat};
 
 /// The ordered isolation ladder a runtime builds one rung of.
 ///
@@ -58,7 +58,7 @@ impl Profile {
     /// is no clock it can read. A link reports no size, so nothing of where it
     /// points reaches the guest, and an entry is told apart only by what
     /// `guest_ino` answers.
-    pub fn guest_metadata(self, metadata: Metadata) -> Metadata {
+    pub fn guest_metadata(self, metadata: Kstat) -> Kstat {
         let ino = self.guest_ino(Identity::of(&metadata));
         let masked = match self {
             Self::Permissive => metadata,
@@ -71,7 +71,7 @@ impl Profile {
                 )
             }
         };
-        Metadata {
+        Kstat {
             len: match masked.file_type {
                 FileType::Symlink => 0,
                 _ => masked.len,
@@ -90,7 +90,7 @@ mod tests {
     // @behavior RT-173 RT-183
     #[test]
     fn a_guest_sees_no_size_for_a_link_and_only_what_its_posture_allows() {
-        let reported = Metadata::new(FileType::Symlink, 42)
+        let reported = Kstat::new(FileType::Symlink, 42)
             .with_identity(7, 9)
             .with_times(Some(SystemTime::now()), None, None);
         let (hermetic, permissive) = (
@@ -120,7 +120,7 @@ mod tests {
     // @behavior RT-283
     #[test]
     fn a_guest_sees_one_device_for_every_entry() {
-        let reported = Metadata::new(FileType::File, 1).with_identity(7, 9);
+        let reported = Kstat::new(FileType::File, 1).with_identity(7, 9);
         assert_eq!(
             [Profile::Hermetic, Profile::Permissive]
                 .map(|profile| profile.guest_metadata(reported).dev),
@@ -138,7 +138,7 @@ mod tests {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let reported = Metadata::new(FileType::File, 0).with_identity(7, 9);
+        let reported = Kstat::new(FileType::File, 0).with_identity(7, 9);
         let identity = Identity::of(&reported);
         let mut unkeyed = DefaultHasher::new();
         identity
@@ -163,7 +163,7 @@ mod tests {
     // @behavior RT-193
     #[test]
     fn an_entry_whose_filesystem_keeps_no_count_is_named_once() {
-        let reported = Metadata::new(FileType::File, 0);
+        let reported = Kstat::new(FileType::File, 0);
         assert_eq!(
             (
                 Profile::Hermetic.guest_metadata(reported).nlink,

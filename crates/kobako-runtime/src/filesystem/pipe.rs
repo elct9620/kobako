@@ -7,7 +7,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::vfs::{
     simple_fill_super, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
-    FilesystemError, Inode, InodeOperations, Kiocb, Metadata, OpenHow, Path, PollMask, SuperBlock,
+    FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, Path, PollMask, SuperBlock,
     VfsMount,
 };
 
@@ -28,8 +28,8 @@ impl FileSystemType for PipeFs {
 }
 
 impl InodeOperations for PipeFs {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Metadata, FilesystemError> {
-        Ok(Metadata::new(FileType::Fifo, 0))
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        Ok(Kstat::new(FileType::Fifo, 0))
     }
 }
 
@@ -125,7 +125,7 @@ impl FileOperations for AnonPipe {
 /// both on one inode. Neither takes a position.
 pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
     let dentry = PIPE_MNT.mnt().sb().dentries().alloc_pseudo();
-    let found = Metadata::new(FileType::Fifo, 0);
+    let found = Kstat::new(FileType::Fifo, 0);
     dentry.add(Some(Inode::new(&found, Arc::new(PipeFs))));
     let end = |how: OpenHow| {
         File::new(

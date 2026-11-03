@@ -16,7 +16,7 @@ use lru::LruCache;
 use super::file::FileOperations;
 use super::inode::{Inode, InodeOperations, Lookup};
 use super::seqlock::SeqLock;
-use super::{FileType, FilesystemError, Metadata, OpenHow};
+use super::{FileType, FilesystemError, Kstat, OpenHow};
 use crate::hashtable::Hashtable;
 use crate::locking::RwSemaphoreGuard;
 use crate::sched;
@@ -350,7 +350,7 @@ impl Dentry {
 
     /// What the entry this records reports of itself, `NotFound` where it
     /// records none, as `vfs_getattr` asks the inode a dentry holds.
-    pub(crate) fn getattr(&self) -> Result<Metadata, FilesystemError> {
+    pub(crate) fn getattr(&self) -> Result<Kstat, FilesystemError> {
         match self.inode() {
             Some(inode) => inode.ops().getattr(self),
             None => Err(FilesystemError::NotFound),
@@ -569,7 +569,7 @@ mod tests {
 
     use super::{Dentries, Dentry};
     use crate::filesystem::{
-        FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup, Metadata,
+        FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Kstat, Lookup,
         Tmpfs,
     };
     use crate::mount::{Access, Mount};
@@ -604,7 +604,7 @@ mod tests {
     }
 
     impl InodeOperations for ByPath {
-        fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             self.root.symlink_metadata(&dentry.path_raw())
         }
 
@@ -760,8 +760,8 @@ mod tests {
     fn a_dentry_keeps_what_a_lookup_first_found_there() {
         let ops: Arc<dyn InodeOperations> = Arc::new(Tmpfs::new());
         let (first, second) = (
-            Metadata::new(FileType::Directory, 0).with_identity(1, 2),
-            Metadata::new(FileType::Directory, 0).with_identity(1, 3),
+            Kstat::new(FileType::Directory, 0).with_identity(1, 2),
+            Kstat::new(FileType::Directory, 0).with_identity(1, 3),
         );
         let dentries = Dentries::new(None);
         let dentry = dentries.alloc_parallel(&dentries.root(), "dir");

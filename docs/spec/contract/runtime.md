@@ -487,7 +487,7 @@ Driver encodes it into. A Driver shows only this.
 
 ```rust
 impl Profile {
-    pub fn guest_metadata(self, metadata: Metadata) -> Metadata {}
+    pub fn guest_metadata(self, metadata: Kstat) -> Kstat {}
 }
 ```
 
@@ -769,7 +769,7 @@ none.
 
 ```rust
 impl Identity {
-    pub fn of(metadata: &Metadata) -> Option<Self> {}
+    pub fn of(metadata: &Kstat) -> Option<Self> {}
 }
 ```
 
@@ -780,7 +780,7 @@ for apart from its path.
 
 ```rust
 impl Identity {
-    pub fn onto(self, metadata: Metadata) -> Metadata {}
+    pub fn onto(self, metadata: Kstat) -> Kstat {}
 }
 ```
 
@@ -798,7 +798,7 @@ The entry some metadata reports, answered for by its operations.
 
 ```rust
 impl Inode {
-    pub fn new(metadata: &Metadata, ops: Arc<dyn InodeOperations>) -> Arc<Self> {}
+    pub fn new(metadata: &Kstat, ops: Arc<dyn InodeOperations>) -> Arc<Self> {}
 }
 ```
 
@@ -1473,7 +1473,7 @@ What it reports of itself.
 
 ```rust
 impl File {
-    pub fn getattr(&self) -> Result<Metadata, FilesystemError> {}
+    pub fn getattr(&self) -> Result<Kstat, FilesystemError> {}
 }
 ```
 
@@ -1735,7 +1735,7 @@ What a path names, a link at its end followed where asked and reported as
 itself otherwise.
 
 ```rust
-pub fn vfs_fstatat(cred: &Arc<Cred>, start: &impl Start, path: &str, follow: bool) -> Result<Metadata, FilesystemError> {}
+pub fn vfs_fstatat(cred: &Arc<Cred>, start: &impl Start, path: &str, follow: bool) -> Result<Kstat, FilesystemError> {}
 ```
 
 ## `do_readlinkat`
@@ -1863,7 +1863,7 @@ What this entry reports of itself. A link reports itself.
 
 ```rust
 pub trait InodeOperations {
-    fn getattr(&self, dentry: &Dentry) -> Result<Metadata, FilesystemError>;
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError>;
 }
 ```
 
@@ -2392,63 +2392,63 @@ What a path names: a file, a directory, a link, or another kind a host holds, su
 pub enum FileType {}
 ```
 
-## `Metadata`
+## `Kstat`
 
 What a path names, its length, and its identity.
 
 ```rust
-pub struct Metadata {}
+pub struct Kstat {}
 ```
 
-## `Metadata::new`
+## `Kstat::new`
 
 What a path names and its length, as a Filesystem reports it.
 
 ```rust
-impl Metadata {
+impl Kstat {
     pub fn new(file_type: FileType, len: u64) -> Self {}
 }
 ```
 
-## `Metadata::with_identity`
+## `Kstat::with_identity`
 
 The same metadata naming the device and inode numbers a Filesystem gives what
 the path holds.
 
 ```rust
-impl Metadata {
+impl Kstat {
     pub fn with_identity(self, dev: u64, ino: u64) -> Self {}
 }
 ```
 
-## `Metadata::with_nlink`
+## `Kstat::with_nlink`
 
 The same metadata counting the names a Filesystem gives the entry.
 
 ```rust
-impl Metadata {
+impl Kstat {
     pub fn with_nlink(self, nlink: u64) -> Self {}
 }
 ```
 
-## `Metadata::with_times`
+## `Kstat::with_times`
 
 The same metadata recording when the entry was last read, written, and
 changed.
 
 ```rust
-impl Metadata {
+impl Kstat {
     pub fn with_times(self, accessed: Option<SystemTime>, modified: Option<SystemTime>, changed: Option<SystemTime>) -> Self {}
 }
 ```
 
-## `Metadata::unique_device`
+## `Kstat::unique_device`
 
 A device number for a Filesystem with none of its own. No earlier call
 returned it, and no host reports it.
 
 ```rust
-impl Metadata {
+impl Kstat {
     pub fn unique_device() -> u64 {}
 }
 ```

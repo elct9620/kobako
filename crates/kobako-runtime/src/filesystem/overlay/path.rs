@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use super::super::tmpfs::TmpfsFile;
 use super::super::{
-    DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr, InodeOperations,
-    Lookup, Metadata, OpenHow, SetTime, Tmpfs,
+    DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr, InodeOperations, Kstat,
+    Lookup, OpenHow, SetTime, Tmpfs,
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
@@ -25,7 +25,7 @@ use crate::vfs::{
 
 /// The change setting what `stat` reports of its times, as
 /// `ovl_set_timestamps` sets `ATTR_ATIME_SET` and `ATTR_MTIME_SET`.
-pub(super) fn timestamps(stat: &Metadata) -> Iattr {
+pub(super) fn timestamps(stat: &Kstat) -> Iattr {
     Iattr::times(
         stat.accessed.map(SetTime::At),
         stat.modified.map(SetTime::At),
@@ -172,7 +172,7 @@ impl OverlayPath {
 
     /// Set this directory's times to those `stat` reports, as
     /// `ovl_set_timestamps` hands `notify_change` the upper dentry.
-    pub(super) fn set_timestamps(&self, stat: &Metadata) -> Result<(), FilesystemError> {
+    pub(super) fn set_timestamps(&self, stat: &Kstat) -> Result<(), FilesystemError> {
         notify_change(&self.dentry, &timestamps(stat))
     }
 
@@ -219,11 +219,11 @@ impl OverlayPath {
         }
     }
 
-    pub(super) fn metadata(&self) -> Result<Metadata, FilesystemError> {
+    pub(super) fn metadata(&self) -> Result<Kstat, FilesystemError> {
         self.dentry.getattr()
     }
 
-    pub(super) fn symlink_metadata(&self, name: &str) -> Result<Metadata, FilesystemError> {
+    pub(super) fn symlink_metadata(&self, name: &str) -> Result<Kstat, FilesystemError> {
         let _held = self.inode_lock_shared()?;
         self.lookup_real(name)?.getattr()
     }
