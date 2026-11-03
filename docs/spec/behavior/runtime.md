@@ -1981,7 +1981,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a directory opened through the runtime, with no Driver in front of it |
 | When | a caller lists it, stops early, and lists it again from where it stopped |
-| Then | `.` and `..` come first, and each entry carries the position after it |
+| Then | `.` and `..` come first, each entry carries its own position, and the listing stands past the last entry taken |
 
 ## `RT-183` A guest tells entries apart by inode number where its posture allows
 
