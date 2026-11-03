@@ -126,15 +126,27 @@ pub fn vfs_fstatat(
 
 /// Where the link at `path` beneath `start` points, as Linux's `do_readlinkat`
 /// asks the security hook only of a link, and answers anything else invalid.
+/// It takes the name with `LOOKUP_EMPTY`, so an empty one names `start`
+/// itself, and anything but a link there is not found. The caller's buffer is
+/// the ABI's to judge, as only its syscall has one.
 pub fn do_readlinkat(
     cred: &Arc<Cred>,
     start: &impl Start,
     path: &str,
 ) -> Result<String, FilesystemError> {
-    let nd = filename_lookup(cred, start, path, false)?;
-    if nd.kind()? != FileType::Symlink {
-        return Err(FilesystemError::InvalidInput);
+    let (target, refusal) = match path.is_empty() {
+        true => (
+            start.path_init()?.dentry().clone(),
+            FilesystemError::NotFound,
+        ),
+        false => (
+            filename_lookup(cred, start, path, false)?.path()?,
+            FilesystemError::InvalidInput,
+        ),
+    };
+    if target.kind()? != FileType::Symlink {
+        return Err(refusal);
     }
     cred.security_inode_readlink()?;
-    nd.path()?.get_link()
+    target.get_link()
 }

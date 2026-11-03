@@ -1039,6 +1039,37 @@ mod tests {
         );
     }
 
+    // Linux's `do_readlinkat` takes its name with `LOOKUP_EMPTY`, so an empty
+    // path names the descriptor itself: one naming nothing answers as
+    // `path_init` does, and a file, which is no link, as not found. The file
+    // also shows the start need not be a directory.
+    // @behavior RT-289
+    #[test]
+    fn a_readlink_of_an_empty_path_answers_for_its_descriptor() {
+        let mut table = standard_streams();
+        let fd = table.push(open_file()).expect("a descriptor to start from");
+        let mut bytes = vec![0u8; 8];
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mut mem = GuestMemory::new(&mut memory, 16);
+        let mut empty_from = |start| {
+            errno(readlink(
+                &table,
+                &mut mem,
+                start,
+                GuestPtr::new((0, 0)),
+                GuestPtr::new(0),
+                8,
+            ))
+        };
+        assert_eq!(
+            (empty_from(99), empty_from(fd)),
+            (Some(Errno::Badf), Some(Errno::Noent)),
+            "path_readlink of an empty path through preview1 must answer EBADF from a descriptor \
+             number naming nothing and ENOENT from a file, as do_readlinkat reads the descriptor \
+             itself"
+        );
+    }
+
     // Linux's `utimensat` answers a call asking no time before it takes the
     // name or the descriptor, so a number naming nothing never shows.
     // @behavior RT-271
