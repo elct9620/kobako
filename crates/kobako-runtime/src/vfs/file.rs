@@ -12,6 +12,7 @@ use super::inode::{EmptyFops, Identity, Inode};
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
 use super::path::Path;
+use super::stat::special_file;
 use super::{FileType, FilesystemError, Iattr, Kstat, PATH_MAX};
 
 /// The largest offset a file holds, as Linux's `OFFSET_MAX` ends its signed
@@ -375,23 +376,27 @@ impl<'a> DirContext<'a> {
     }
 }
 
-/// Open what `dentry` holds as `mode` and `how` ask for `cred`, as Linux's
-/// `do_dentry_open` asks the security modules before `f_op->open`. A file that
-/// stands only for its path asks neither and holds no operations, as
-/// `do_dentry_open` hands an `O_PATH` file `empty_fops`.
+/// Open what stands at `at` as `mode` and `how` ask for `cred`, as Linux's
+/// `do_dentry_open` takes write access to the mount for anything but a special
+/// file, then asks the security modules before `open`. A file that stands only
+/// for its path asks nothing and holds no operations, as `do_dentry_open`
+/// hands an `O_PATH` file `empty_fops`.
 pub(super) fn do_dentry_open(
     cred: &Cred,
     at: SecurityPath<'_>,
-    dentry: &Dentry,
     kind: FileType,
     mode: FMode,
     how: &OpenHow,
+    open: impl FnOnce() -> Result<Box<dyn FileOperations>, FilesystemError>,
 ) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
     if mode.contains(FMode::PATH) {
         return Ok((Box::new(EmptyFops), Vec::new()));
     }
+    if mode.contains(FMode::WRITE) && !special_file(kind) {
+        at.mnt.mnt_want_write()?;
+    }
     let security = cred.security_file_open(at, kind, mode, how)?;
-    Ok((dentry.open(how)?, security))
+    Ok((open()?, security))
 }
 
 /// The identity the inode `dentry` holds was looked up with, as Linux reads
@@ -526,7 +531,9 @@ impl File {
             mnt: path.mnt(),
             name: &name,
         };
-        let (ops, security) = do_dentry_open(cred, at, path.dentry(), kind, FMode::of(how), how)?;
+        let (ops, security) = do_dentry_open(cred, at, kind, FMode::of(how), how, || {
+            path.dentry().open(how)
+        })?;
         Ok(Self::new(path, ops, how, cred).with_security(security))
     }
 
@@ -1097,6 +1104,37 @@ mod tests {
         };
         filp_open(&Arc::default(), &Path::root(mount.mnt()), "file.txt", &how)
             .unwrap_or_else(|_| panic!("file.txt must open"))
+    }
+
+    // Opening what a path already names walks nothing, so only
+    // `do_dentry_open` can take write access to the mount, as in Linux.
+    // @behavior RT-078
+    #[test]
+    fn a_dentry_opened_to_write_beneath_a_read_only_mount_answers_erofs() {
+        let tmpfs = Tmpfs::try_from_iter([("file.txt", "granted")]).expect("the seed must fit");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let write = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        let path = filp_open(&Arc::default(), &Path::root(mount.mnt()), "file.txt", &read)
+            .unwrap_or_else(|_| panic!("file.txt must open to read"))
+            .path()
+            .clone();
+        assert_eq!(
+            File::dentry_open(path, &write, &Arc::default()).err(),
+            Some(FilesystemError::ReadOnlyFilesystem),
+            "File::dentry_open to write a file beneath a read-only Mount must answer EROFS"
+        );
     }
 
     // No Driver stands in front of these calls, so the file itself is what

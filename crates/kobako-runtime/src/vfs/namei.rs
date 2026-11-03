@@ -20,7 +20,6 @@ use super::inode::{Finish, Inode, Mask, RenameFlag};
 use super::mount::VfsMount;
 use super::openat2::{OpenFlags, OpenHow};
 use super::path::{Path, Start};
-use super::stat::special_file;
 use super::super_block::SuperBlock;
 use super::{FileType, FilesystemError, Iattr, Kstat};
 use crate::locking::RwSemaphoreGuard;
@@ -555,8 +554,9 @@ fn do_o_path(nd: Nameidata, op: &OpenFlags) -> Result<File, FilesystemError> {
     let nd = path_lookupat(nd, op.lookup_follow())?;
     let child = nd.path()?;
     let kind = child.kind()?;
-    let (f_op, security) =
-        nd.on_path(|path| do_dentry_open(&nd.cred, path, &child, kind, FMode::PATH, how))?;
+    let (f_op, security) = nd.on_path(|path| {
+        do_dentry_open(&nd.cred, path, kind, FMode::PATH, how, || child.open(how))
+    })?;
     Ok(File::new(nd.path_to(child), f_op, how, &nd.cred).with_security(security))
 }
 
@@ -579,9 +579,8 @@ fn f_mode(how: &OpenHow, created: bool) -> FMode {
 
 /// Make the file an open names where nothing stands, as Linux's `lookup_open`
 /// asks the mount and `may_o_create` before `->atomic_open` or `->create`, under
-/// the directory's lock its caller holds. A Filesystem opening the file too is
-/// asked of the security modules here, as its `finish_open` reaches
-/// `do_dentry_open`.
+/// the directory's lock its caller holds. A Filesystem opening the file too
+/// finishes it through `do_dentry_open` here, as its `finish_open` does.
 fn lookup_open(nd: &Nameidata, child: &Dentry, how: &OpenHow) -> Result<Opened, FilesystemError> {
     nd.mnt.mnt_want_write()?;
     nd.on_path(|path| nd.cred.security_path_mknod(path))?;
@@ -590,9 +589,10 @@ fn lookup_open(nd: &Nameidata, child: &Dentry, how: &OpenHow) -> Result<Opened, 
         Finish::Open { file, created } => {
             let kind = child.kind()?;
             let mode = f_mode(how, created);
-            let security = nd.on_path(|path| nd.cred.security_file_open(path, kind, mode, how))?;
+            let opened =
+                nd.on_path(|path| do_dentry_open(&nd.cred, path, kind, mode, how, || Ok(file)))?;
             Ok(Opened {
-                file: Some((file, security)),
+                file: Some(opened),
                 created,
             })
         }
@@ -606,11 +606,10 @@ fn lookup_open(nd: &Nameidata, child: &Dentry, how: &OpenHow) -> Result<Opened, 
 /// Open what the walk ended on once the directory's lock is gone, as Linux's
 /// `do_open`. An entry that stood is walked to completion and answers first,
 /// while a file the open made asks for nothing but the open and is never
-/// truncated. A truncate asks the mount before `may_open`, a write asks it
-/// after for anything but a special file, as `do_dentry_open` takes write
-/// access, and only a regular file is emptied, as `handle_truncate` asks the
-/// security modules first. What a Filesystem opened already is not opened
-/// again, as `FMODE_OPENED` skips `vfs_open`.
+/// truncated. A truncate asks the mount before `may_open`, and only a regular
+/// file is emptied, as `handle_truncate` asks the security modules first. What
+/// a Filesystem opened already is not opened again, as `FMODE_OPENED` skips
+/// `vfs_open`.
 fn do_open(
     nd: &Nameidata,
     child: &Dentry,
@@ -646,11 +645,8 @@ fn do_open(
     let (f_op, security) = match opened.file {
         Some(file) => file,
         None => {
-            if how.write && !special_file(kind) {
-                nd.mnt.mnt_want_write()?;
-            }
             let mode = f_mode(how, created);
-            nd.on_path(|path| do_dentry_open(&nd.cred, path, child, kind, mode, how))?
+            nd.on_path(|path| do_dentry_open(&nd.cred, path, kind, mode, how, || child.open(how)))?
         }
     };
     if truncate {
@@ -1771,6 +1767,33 @@ mod tests {
             "vfs::do_file_open making a file on a Filesystem with no atomic_open, under a \
              security module refusing the open, must never ask the Filesystem's open, as \
              do_open asks security_file_open before vfs_open reaches f_op->open"
+        );
+    }
+
+    // @behavior RT-308
+    #[test]
+    fn a_file_atomic_open_makes_and_opens_answers_as_the_modules_do() {
+        let holds = Holds::of(FileType::RegFile, Mask::EXEC);
+        let made = holds.made.clone();
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(holds)).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let how = OpenHow {
+            write: true,
+            create: true,
+            ..OpenHow::default()
+        };
+        let cred = Cred::new(vec![Arc::new(RefusesWhatWasMade)]);
+        let answer = vfs::kern_path::filp_open(&cred, &Path::root(mount.mnt()), "made", &how);
+        assert_eq!(
+            (answer.err(), made.load(Ordering::SeqCst)),
+            (Some(FilesystemError::PermissionDenied), true),
+            "vfs::do_file_open making a file through atomic_open, under a security module \
+             refusing the open, must make the file and answer EACCES, as finish_open reaches \
+             security_file_open"
         );
     }
 
