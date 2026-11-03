@@ -1959,6 +1959,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file opened beneath a Mount, with no Driver in front of it |
 | When | a caller reads or writes it against its mode, or past the largest offset |
 | Then | the first answers EBADF and the second EINVAL, and the Filesystem is not asked |
+
 ## `RT-181` An allocation refuses in Linux's order
 
 | Attribute | Value |
@@ -1970,7 +1971,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file opened to read, a file opened to write, and a pipe's write end |
 | When | a caller allocates no bytes on the first, then some on each |
 | Then | the calls answer EINVAL, EBADF, ENOTSUP, and ESPIPE |
-
 ## `RT-182` A listing hands `.` and `..` first and goes on where it stopped
 
 | Attribute | Value |
@@ -3330,3 +3330,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory the guest opened without the right to read, list, or write |
 | When | the guest lists, syncs, advises, sizes, or sets the times or flags of the descriptor, or waits on it |
 | Then | each call answers EBADF, as Linux's `fdget` refuses `O_PATH`, and a stat or a walk from it succeeds |
+
+## `RT-298` A directory a guest opens hands down the right to write
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-128` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount holding a directory |
+| When | the guest opens the directory and reads the rights its descriptor hands down |
+| Then | those rights hold `fd_write`, as Linux takes an open's mode from its flags alone |
