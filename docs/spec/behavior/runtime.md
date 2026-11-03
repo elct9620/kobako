@@ -3262,3 +3262,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a security module refusing to open a directory |
 | When | a Mount's root is opened for an Invocation |
 | Then | the open answers as the module refuses, as Linux's `dentry_open` asks it |
+
+## `RT-292` An open that appends asks to append
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-242` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem answering `permission` |
+| When | a call opens a file to append to it |
+| Then | the open asks to append as well as to write, as Linux's `MAY_APPEND` does |

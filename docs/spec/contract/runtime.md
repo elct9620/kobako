@@ -1901,7 +1901,8 @@ pub trait InodeOperations {
 
 ## `Mask`
 
-What a call asks of an entry: to pass through it, change it, read it, or open it.
+What a call asks of an entry: to pass through, change, append to, read, or open
+it.
 
 ```rust
 pub struct Mask {}
