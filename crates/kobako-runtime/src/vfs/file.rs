@@ -660,7 +660,7 @@ impl File {
     /// `IOCB_APPEND`, `IOCB_DSYNC`, and `IOCB_SYNC` from `f_flags`.
     fn kiocb(&self, pos: u64) -> Kiocb {
         let iocb = Kiocb {
-            dsync: self.dsync || self.sync,
+            dsync: self.dsync,
             sync: self.sync,
             ..Kiocb::at(pos)
         };
