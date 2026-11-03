@@ -86,7 +86,7 @@ impl KernPath {
         path: &str,
         how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        match self.symlink_metadata(path) {
+        match self.vfs_lstat(path) {
             Err(FilesystemError::NotFound) => self.create(path, how),
             _ => self.open(path, how),
         }
@@ -133,16 +133,16 @@ impl KernPath {
         }
     }
 
-    /// What the directory reports of itself.
-    pub(crate) fn metadata(&self) -> Result<Kstat, FilesystemError> {
+    /// What the directory reports of itself, as `vfs_getattr`.
+    pub(crate) fn vfs_getattr(&self) -> Result<Kstat, FilesystemError> {
         self.0.dentry().getattr()
     }
 
-    /// What `path` names, a link reported as itself; the directory itself
-    /// for the empty path.
-    pub(crate) fn symlink_metadata(&self, path: &str) -> Result<Kstat, FilesystemError> {
+    /// What `path` names, a link reported as itself, as `vfs_lstat`; the
+    /// directory itself for the empty path.
+    pub(crate) fn vfs_lstat(&self, path: &str) -> Result<Kstat, FilesystemError> {
         if path.is_empty() {
-            return self.metadata();
+            return self.vfs_getattr();
         }
         self.resolve(path)?.getattr()
     }
@@ -153,11 +153,11 @@ impl KernPath {
     }
 
     #[cfg(unix)]
-    pub(crate) fn read_link(&self, path: &str) -> Result<String, FilesystemError> {
+    pub(crate) fn vfs_readlink(&self, path: &str) -> Result<String, FilesystemError> {
         self.resolve(path)?.path()?.get_link()
     }
 
-    pub(crate) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+    pub(crate) fn iterate_dir(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -165,17 +165,17 @@ impl KernPath {
         File::dentry_open(self.0.clone(), &read, &Arc::default())?.iterate_shared()
     }
 
-    pub(crate) fn create_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    pub(crate) fn vfs_mkdir(&self, path: &str) -> Result<(), FilesystemError> {
         let (nd, child) = self.parent(path)?;
         vfs_mkdir(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
 
-    pub(crate) fn remove_dir(&self, path: &str) -> Result<(), FilesystemError> {
+    pub(crate) fn vfs_rmdir(&self, path: &str) -> Result<(), FilesystemError> {
         let (nd, child) = self.parent(path)?;
         vfs_rmdir(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
 
-    pub(crate) fn remove_file(&self, path: &str) -> Result<(), FilesystemError> {
+    pub(crate) fn vfs_unlink(&self, path: &str) -> Result<(), FilesystemError> {
         let (nd, child) = self.parent(path)?;
         vfs_unlink(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }

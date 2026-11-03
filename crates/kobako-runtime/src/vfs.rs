@@ -19,7 +19,6 @@ mod mount;
 mod namei;
 mod openat2;
 mod path;
-mod seqlock;
 mod stat;
 mod super_block;
 mod utimes;

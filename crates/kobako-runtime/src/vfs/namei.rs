@@ -20,6 +20,7 @@ use super::inode::{Finish, Inode, Mask, RenameFlag};
 use super::mount::VfsMount;
 use super::openat2::{OpenFlags, OpenHow};
 use super::path::{Path, Start};
+use super::stat::special_file;
 use super::super_block::SuperBlock;
 use super::{FileType, FilesystemError, Iattr, Kstat};
 use crate::locking::RwSemaphoreGuard;
@@ -645,7 +646,7 @@ fn do_open(
     let (f_op, security) = match opened.file {
         Some(file) => file,
         None => {
-            if how.write && !kind.is_special() {
+            if how.write && !special_file(kind) {
                 nd.mnt.mnt_want_write()?;
             }
             let mode = f_mode(how, created);
@@ -2475,8 +2476,8 @@ mod tests {
             ctx: &mut vfs::DirContext<'_>,
         ) -> Result<(), FilesystemError> {
             let entries = match folded(dentry).as_str() {
-                "" => self.0.entries(),
-                at => self.0.open_dir(at)?.entries(),
+                "" => self.0.iterate_dir(),
+                at => self.0.open_dir(at)?.iterate_dir(),
             }?;
             crate::filesystem::Rdir::default().iterate(dentry, ctx, || Ok(entries))
         }
@@ -2490,13 +2491,13 @@ mod tests {
 
     impl InodeOperations for FoldsToUpper {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            self.root.symlink_metadata(&folded(dentry))
+            self.root.vfs_lstat(&folded(dentry))
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let name = dentry.name();
             let upper = name.to_uppercase();
-            match self.root.symlink_metadata(&folded(dentry)) {
+            match self.root.vfs_lstat(&folded(dentry)) {
                 Ok(_) if upper != name => Ok(Lookup::Spelled(upper)),
                 Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
                 Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
@@ -2524,15 +2525,15 @@ mod tests {
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.create_dir(&folded(dentry))
+            self.root.vfs_mkdir(&folded(dentry))
         }
 
         fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_dir(&folded(dentry))
+            self.root.vfs_rmdir(&folded(dentry))
         }
 
         fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_file(&folded(dentry))
+            self.root.vfs_unlink(&folded(dentry))
         }
 
         fn rename(

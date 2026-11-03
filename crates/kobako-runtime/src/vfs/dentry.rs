@@ -15,9 +15,9 @@ use lru::LruCache;
 
 use super::file::FileOperations;
 use super::inode::{Inode, InodeOperations, Lookup};
-use super::seqlock::SeqLock;
 use super::{FileType, FilesystemError, Kstat, OpenHow};
 use crate::hashtable::Hashtable;
+use crate::locking::seqlock::SeqLock;
 use crate::locking::RwSemaphoreGuard;
 use crate::sched;
 
@@ -618,11 +618,11 @@ mod tests {
 
     impl InodeOperations for ByPath {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            self.root.symlink_metadata(&dentry.path_raw())
+            self.root.vfs_lstat(&dentry.path_raw())
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            match self.root.symlink_metadata(&dentry.path_raw()) {
+            match self.root.vfs_lstat(&dentry.path_raw()) {
                 Ok(found) => Ok(Lookup::Found(Inode::new(
                     &found,
                     Arc::new(Self {
@@ -654,15 +654,15 @@ mod tests {
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.create_dir(&dentry.path_raw())
+            self.root.vfs_mkdir(&dentry.path_raw())
         }
 
         fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_dir(&dentry.path_raw())
+            self.root.vfs_rmdir(&dentry.path_raw())
         }
 
         fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_file(&dentry.path_raw())
+            self.root.vfs_unlink(&dentry.path_raw())
         }
 
         fn rename(
@@ -690,8 +690,8 @@ mod tests {
             ctx: &mut vfs::DirContext<'_>,
         ) -> Result<(), FilesystemError> {
             let entries = match dentry.path_raw().as_str() {
-                "" => self.0.entries(),
-                at => self.0.open_dir(at)?.entries(),
+                "" => self.0.iterate_dir(),
+                at => self.0.open_dir(at)?.iterate_dir(),
             }?;
             crate::filesystem::Rdir::default().iterate(dentry, ctx, || Ok(entries))
         }
@@ -728,8 +728,8 @@ mod tests {
     // @behavior RT-265
     #[test]
     fn a_walk_begun_during_a_move_begins_once_it_lands() {
+        use crate::locking::seqlock::SeqLock;
         use crate::sched::testing::MAX_WAIT;
-        use crate::vfs::seqlock::SeqLock;
         use std::sync::mpsc;
         use std::thread;
 
@@ -814,7 +814,7 @@ mod tests {
                 )
                     .expect("the directory must open")
                     .iterate_dir(&mut vfs::DirContext::new(0, &mut |_| true)),
-                kern_path(tmpfs.clone()).symlink_metadata("dir/made").err()
+                kern_path(tmpfs.clone()).vfs_lstat("dir/made").err()
             ),
             (
                 Err(FilesystemError::NotFound),

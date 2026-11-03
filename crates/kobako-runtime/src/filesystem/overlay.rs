@@ -469,7 +469,7 @@ mod tests {
         .expect("the Overlay must stack"));
         let asks = |path: &str| {
             counts.0.store(0, Ordering::SeqCst);
-            let _ = view.symlink_metadata(path);
+            let _ = view.vfs_lstat(path);
             counts.0.load(Ordering::SeqCst)
         };
         assert_eq!(
@@ -490,9 +490,9 @@ mod tests {
         let long = format!("dir/{}", "n".repeat(NAME_MAX + 1));
         assert_eq!(
             (
-                view.symlink_metadata(&long).err(),
-                view.create_dir(&long).err(),
-                on(&upper).symlink_metadata("upper/dir").err(),
+                view.vfs_lstat(&long).err(),
+                view.vfs_mkdir(&long).err(),
+                on(&upper).vfs_lstat("upper/dir").err(),
             ),
             (
                 Some(FilesystemError::InvalidFilename),
@@ -583,8 +583,8 @@ mod tests {
 
     fn names(fs: &KernPath, path: &str) -> Vec<String> {
         let listed = match path {
-            "" => fs.entries(),
-            path => fs.open_dir(path).and_then(|dir| dir.entries()),
+            "" => fs.iterate_dir(),
+            path => fs.open_dir(path).and_then(|dir| dir.iterate_dir()),
         };
         let mut names: Vec<String> = listed
             .expect("the directory must list")
@@ -608,8 +608,8 @@ mod tests {
         let overlay = at(lowers(top.clone(), Arc::new(Tmpfs::new())));
         assert_eq!(
             (
-                overlay.create_dir("made").err(),
-                on(&top).symlink_metadata("made").err()
+                overlay.vfs_mkdir("made").err(),
+                on(&top).vfs_lstat("made").err()
             ),
             (
                 Some(FilesystemError::ReadOnlyFilesystem),
@@ -731,7 +731,7 @@ mod tests {
         let tree = LinkTree::new("not-merged");
         let overlay = tree.under(tmpfs_with("upper/dirlink/.keep", ""));
         overlay
-            .remove_file("dirlink/.keep")
+            .vfs_unlink("dirlink/.keep")
             .expect("the seed must go");
         assert_eq!(
             (
@@ -740,7 +740,7 @@ mod tests {
             ),
             (Err(FilesystemError::NotFound), 0),
             "a name beneath a directory an upper Layer holds, where a lower Layer holds a link, \
-             through Overlay::metadata and its listing must show nothing the link leads to"
+             through vfs_lstat and its listing must show nothing the link leads to"
         );
     }
 
@@ -762,11 +762,11 @@ mod tests {
         assert_eq!(
             (
                 overlay.open_dir("dirlink").map(drop),
-                overlay.read_link("dirlink")
+                overlay.vfs_readlink("dirlink")
             ),
             (Err(FilesystemError::FilesystemLoop), Ok("dir".to_string())),
             "a link a Bind Layer holds, opened through Overlay::open_dir, must be a \
-             link loop, and through Overlay::read_link must answer where it points"
+             link loop, and through vfs_readlink must answer where it points"
         );
     }
 
@@ -781,7 +781,7 @@ mod tests {
             (file_type("link"), file_type("dangling")),
             (Ok(FileType::Symlink), Ok(FileType::Symlink)),
             "a link a Bind Layer holds, pointing at a file or at nothing, looked up through \
-             Overlay::symlink_metadata must be reported as a link"
+             vfs_lstat must be reported as a link"
         );
     }
 
@@ -794,11 +794,11 @@ mod tests {
         let host = LinkTree::new("unlink");
         let overlay = host.overlay();
         let removed = (
-            overlay.remove_dir("dirlink"),
-            overlay.remove_file("dirlink"),
-            overlay.remove_file("dangling"),
+            overlay.vfs_rmdir("dirlink"),
+            overlay.vfs_unlink("dirlink"),
+            overlay.vfs_unlink("dangling"),
         );
-        let gone = |path| overlay.symlink_metadata(path).err();
+        let gone = |path| overlay.vfs_lstat(path).err();
         assert_eq!(
             (
                 removed,
@@ -812,8 +812,8 @@ mod tests {
                 Some(FilesystemError::NotFound),
                 true
             ),
-            "a link a read-only Bind Layer holds, removed through Overlay::remove_dir and \
-             Overlay::remove_file, must be refused as no directory and then removed as itself, \
+            "a link a read-only Bind Layer holds, removed through vfs_rmdir and \
+             vfs_unlink, must be refused as no directory and then removed as itself, \
              leaving the Layer as it was"
         );
     }
@@ -861,7 +861,7 @@ mod tests {
         assert!(made.success(), "the FIFO must be made");
         let overlay = host.overlay();
         overlay
-            .create_dir("made")
+            .vfs_mkdir("made")
             .expect("a directory must be made in the upper");
         let file_type = |path| kind(&overlay, path);
         assert_eq!(
@@ -963,7 +963,7 @@ mod tests {
             (
                 answer,
                 asked.load(Ordering::SeqCst),
-                kern_path(upper).symlink_metadata("upper/file").is_ok()
+                kern_path(upper).vfs_lstat("upper/file").is_ok()
             ),
             (Ok(()), 0, true),
             "vfs::do_utimes through an Overlay on a file of its lower Layer must copy the file \
@@ -987,8 +987,8 @@ mod tests {
             .stack_size(256 * 1024)
             .spawn(move || {
                 let view = kern_path(Arc::new(overlay));
-                view.create_dir(&format!("{deep}/made"))?;
-                view.symlink_metadata(&format!("{deep}/made"))
+                view.vfs_mkdir(&format!("{deep}/made"))?;
+                view.vfs_lstat(&format!("{deep}/made"))
                     .map(|found| found.file_type)
             })
             .expect("the thread must start")
@@ -1061,7 +1061,7 @@ mod tests {
         assert_eq!(
             (
                 overlay
-                    .symlink_metadata("dirlink")
+                    .vfs_lstat("dirlink")
                     .map(|metadata| metadata.file_type),
                 overlay.open_dir("dirlink").map(drop)
             ),
@@ -1078,16 +1078,16 @@ mod tests {
     fn removing_a_file_over_a_lower_directory_leaves_it_hidden() {
         let lower = tmpfs_with("f/g", "lower");
         let overlay = at(over(lower.clone(), tmpfs_with("upper/f", "upper")));
-        let removed = overlay.remove_file("f");
+        let removed = overlay.vfs_unlink("f");
         assert_eq!(
             (
                 removed,
-                overlay.symlink_metadata("f").err(),
-                on(&lower).symlink_metadata("f/g").is_ok()
+                overlay.vfs_lstat("f").err(),
+                on(&lower).vfs_lstat("f/g").is_ok()
             ),
             (Ok(()), Some(FilesystemError::NotFound), true),
             "a file a higher Layer holds over a lower Layer's directory, removed through \
-             Overlay::remove_file, must leave the path gone from the view and the lower \
+             vfs_unlink, must leave the path gone from the view and the lower \
              directory as it was"
         );
     }
@@ -1099,10 +1099,10 @@ mod tests {
     fn a_directory_moves_onto_one_holding_only_markers() {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::new()));
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         overlay
-            .create_dir("new")
+            .vfs_mkdir("new")
             .expect("the directory must be made");
         overwrite(&overlay, "new/made", b"made");
         let moved = overlay.rename("new", &overlay, "dir");
@@ -1121,22 +1121,22 @@ mod tests {
     fn a_directory_made_again_moves_as_the_uppers_own() {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::new()));
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         overlay
-            .remove_dir("dir")
+            .vfs_rmdir("dir")
             .expect("the directory must be removed");
         overlay
-            .create_dir("dir")
+            .vfs_mkdir("dir")
             .expect("the directory must be made again");
         let moved = overlay.rename("dir", &overlay, "moved");
         assert_eq!(
             (
                 moved,
-                overlay.symlink_metadata("dir").err(),
+                overlay.vfs_lstat("dir").err(),
                 overlay
                     .open_dir("moved")
-                    .and_then(|dir| dir.entries())
+                    .and_then(|dir| dir.iterate_dir())
                     .map(|entries| entries.len())
             ),
             (Ok(()), Some(FilesystemError::NotFound), Ok(0)),
@@ -1172,7 +1172,7 @@ mod tests {
         assert_eq!(
             (
                 overlay.create("dangling", &exclusive).map(drop),
-                overlay.create_dir("dangling")
+                overlay.vfs_mkdir("dangling")
             ),
             (
                 Err(FilesystemError::AlreadyExists),
@@ -1213,7 +1213,7 @@ mod tests {
         let (overlay, lower) = overlay_on(Arc::new(Tmpfs::new()));
         overwrite(&overlay, "dir/file", b"upper");
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         assert_eq!(
             read(&on(&lower), "dir/file"),
@@ -1227,12 +1227,12 @@ mod tests {
     fn a_file_removed_through_an_overlay_is_gone_from_its_view() {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::new()));
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         assert_eq!(
-            overlay.symlink_metadata("dir/file"),
+            overlay.vfs_lstat("dir/file"),
             Err(FilesystemError::NotFound),
-            "a lower file removed through Overlay::remove_file must no longer be found there"
+            "a lower file removed through vfs_unlink must no longer be found there"
         );
     }
 
@@ -1271,10 +1271,7 @@ mod tests {
         let overlay = at(over(lower.clone(), upper.clone()));
         overwrite(&overlay, "new", b"made");
         assert_eq!(
-            (
-                read(&on(&upper), "upper/new"),
-                on(&lower).symlink_metadata("new")
-            ),
+            (read(&on(&upper), "upper/new"), on(&lower).vfs_lstat("new")),
             (b"made".to_vec(), Err(FilesystemError::NotFound)),
             "a file created through Overlay::open must land in the upper alone"
         );
@@ -1286,14 +1283,14 @@ mod tests {
         let upper = Arc::new(Tmpfs::new());
         let (overlay, _) = overlay_on(upper.clone());
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         assert_eq!(
             on(&upper)
-                .symlink_metadata("upper/dir/file")
+                .vfs_lstat("upper/dir/file")
                 .map(|metadata| metadata.file_type),
             Ok(FileType::Chrdev),
-            "a lower Layer's file removed through Overlay::remove_file must leave a whiteout, a \
+            "a lower Layer's file removed through vfs_unlink must leave a whiteout, a \
              device of no kind the guest opens, at its name in the upper"
         );
     }
@@ -1316,7 +1313,7 @@ mod tests {
         layer
             .rename("dir", &layer, "moved")
             .expect("the Layer's directory must move");
-        layer.create_dir("dir").expect("another must be made");
+        layer.vfs_mkdir("dir").expect("another must be made");
         overwrite(&layer, "dir/new", b"y");
         let names: Vec<String> = overlay
             .fs
@@ -1389,11 +1386,11 @@ mod tests {
         let upper = Arc::new(Tmpfs::new());
         let (overlay, lower) = overlay_on(upper.clone());
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         let rebuilt = at(over(lower, upper));
         assert_eq!(
-            rebuilt.symlink_metadata("dir/file"),
+            rebuilt.vfs_lstat("dir/file"),
             Err(FilesystemError::NotFound),
             "a lower file removed through an Overlay over a Tmpfs must stay gone from a new Overlay over the same Layers"
         );
@@ -1404,18 +1401,18 @@ mod tests {
     fn a_directory_made_again_where_one_was_removed_shows_nothing_from_below() {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::new()));
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         overlay
-            .remove_dir("dir")
+            .vfs_rmdir("dir")
             .expect("the directory must be removed");
         overlay
-            .create_dir("dir")
+            .vfs_mkdir("dir")
             .expect("the directory must be made");
         assert_eq!(
             names(&overlay, "dir"),
             Vec::<String>::new(),
-            "a directory made again through Overlay::create_dir must list nothing from the lower Layer"
+            "a directory made again through vfs_mkdir must list nothing from the lower Layer"
         );
     }
 
@@ -1425,7 +1422,7 @@ mod tests {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::new()));
         overwrite(&overlay, "dir/new", b"made");
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         assert_eq!(
             names(&overlay, "dir"),
@@ -1474,9 +1471,7 @@ mod tests {
         assert_eq!(
             (
                 names(&overlay, ""),
-                overlay
-                    .symlink_metadata("device")
-                    .map(|found| found.file_type)
+                overlay.vfs_lstat("device").map(|found| found.file_type)
             ),
             (vec!["device".to_string()], Ok(FileType::Chrdev)),
             "a character device in a lower Layer that is no Tmpfs, listed and stated through an \
@@ -1558,9 +1553,9 @@ mod tests {
         let overlay = at(over(Arc::new(lower), upper.clone()));
         assert_eq!(
             (
-                overlay.create_dir("long"),
+                overlay.vfs_mkdir("long"),
                 on(&upper)
-                    .symlink_metadata("upper/long")
+                    .vfs_lstat("upper/long")
                     .map(|found| found.file_type)
             ),
             (Ok(()), Ok(FileType::Dir)),
@@ -1577,8 +1572,8 @@ mod tests {
         let upper = Arc::new(Tmpfs::new().with_nr_inodes(Some(5)));
         let lower: Tmpfs = [("base", "x")].into_iter().collect();
         let overlay = at(over(Arc::new(lower), upper));
-        overlay.create_dir("from").expect("the source must be made");
-        overlay.create_dir("to").expect("the target must be made");
+        overlay.vfs_mkdir("from").expect("the source must be made");
+        overlay.vfs_mkdir("to").expect("the target must be made");
         assert_eq!(
             overlay.rename("from", &overlay, "to"),
             Ok(()),
@@ -1597,13 +1592,11 @@ mod tests {
         let upper = Arc::new(Tmpfs::new());
         let overlay = at(over(lower.clone(), upper));
         overlay
-            .create_dir("dir/made")
+            .vfs_mkdir("dir/made")
             .expect("the directory must be made");
-        let found = overlay
-            .symlink_metadata("dir")
-            .expect("the directory must stand");
+        let found = overlay.vfs_lstat("dir").expect("the directory must stand");
         let below = on(&lower)
-            .symlink_metadata("dir")
+            .vfs_lstat("dir")
             .expect("the directory must stand");
         assert_eq!(
             (found.ino, found.dev, found.nlink, found.size),
@@ -1629,7 +1622,7 @@ mod tests {
             .expect("the move must land");
         assert_eq!(
             (
-                overlay.symlink_metadata("a").map(drop),
+                overlay.vfs_lstat("a").map(drop),
                 read(&overlay, "b"),
                 std::fs::read(host.0.join("b")).expect("the host file must be read"),
             ),
@@ -1783,7 +1776,7 @@ mod tests {
         assert_eq!(
             (
                 read(&overlay, "dir/moved"),
-                overlay.symlink_metadata("dir/file"),
+                overlay.vfs_lstat("dir/file"),
                 read(&on(&lower), "dir/file"),
             ),
             (
@@ -1855,7 +1848,7 @@ mod tests {
         let tmpfs = tmpfs_with("dir/.keep", "");
         let interleave = Arc::new(Interleave::default());
         on(&tmpfs)
-            .remove_file("dir/.keep")
+            .vfs_unlink("dir/.keep")
             .expect("the seed must go");
         let mount = crate::mount::Mount::new(
             "/data",
@@ -1967,9 +1960,9 @@ mod tests {
     fn a_removal_that_cannot_leave_its_whiteout_removes_nothing() {
         let (overlay, _) = full_over_lower(&[("dir/file", "upper")], 2);
         assert_eq!(
-            (overlay.remove_file("dir/file"), read(&overlay, "dir/file")),
+            (overlay.vfs_unlink("dir/file"), read(&overlay, "dir/file")),
             (Err(FilesystemError::StorageFull), b"upper".to_vec()),
-            "a file removed through Overlay::remove_file whose whiteout finds no room must stay as \
+            "a file removed through vfs_unlink whose whiteout finds no room must stay as \
              it was"
         );
     }
@@ -1981,20 +1974,20 @@ mod tests {
     fn a_directory_made_over_a_whiteout_without_room_is_not_made() {
         let lower = Arc::new(Tmpfs::new());
         on(&lower)
-            .create_dir("gone")
+            .vfs_mkdir("gone")
             .expect("the directory must be made");
         let upper = Arc::new(Tmpfs::new().with_nr_inodes(Some(4)));
         let overlay = at(over(lower, upper));
         overlay
-            .remove_dir("gone")
+            .vfs_rmdir("gone")
             .expect("the directory must be removed");
         assert_eq!(
-            (overlay.create_dir("gone"), overlay.symlink_metadata("gone")),
+            (overlay.vfs_mkdir("gone"), overlay.vfs_lstat("gone")),
             (
                 Err(FilesystemError::StorageFull),
                 Err(FilesystemError::NotFound)
             ),
-            "a directory made through Overlay::create_dir over a whiteout, with no room left, \
+            "a directory made through vfs_mkdir over a whiteout, with no room left, \
              must be refused as out of space and leave the name hidden"
         );
     }
@@ -2008,7 +2001,7 @@ mod tests {
         assert_eq!(
             (
                 overlay.rename("dir/file", &overlay, "dir/moved"),
-                overlay.symlink_metadata("dir/moved"),
+                overlay.vfs_lstat("dir/moved"),
                 read(&overlay, "dir/file")
             ),
             (
@@ -2028,7 +2021,7 @@ mod tests {
         assert_eq!(
             (
                 overlay.rename("dir", &overlay, "moved"),
-                overlay.symlink_metadata("moved")
+                overlay.vfs_lstat("moved")
             ),
             (
                 Err(FilesystemError::CrossesDevices),
@@ -2048,7 +2041,7 @@ mod tests {
         let (overlay, _) = overlay_on(upper.clone());
         overwrite(&overlay, "note", b"x");
         overlay
-            .create_dir("empty")
+            .vfs_mkdir("empty")
             .expect("the directory must be made");
         assert_eq!(
             (
@@ -2074,11 +2067,11 @@ mod tests {
         let upper = Arc::new(Tmpfs::new());
         let lower: Arc<Tmpfs> = Arc::new([("dir/.keep", "")].into_iter().collect());
         on(&lower)
-            .remove_file("dir/.keep")
+            .vfs_unlink("dir/.keep")
             .expect("the seed must go");
         let overlay = at(over(lower.clone(), upper.clone()));
         overlay
-            .create_dir("made")
+            .vfs_mkdir("made")
             .expect("the directory must be made");
         overlay
             .rename("made", &overlay, "dir")
@@ -2101,7 +2094,7 @@ mod tests {
         let (overlay, _) = overlay_on(upper.clone());
         overwrite(&overlay, "dir/file", b"changed");
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         assert_eq!(
             (names(&on(&upper), ""), names(&on(&upper), "work")),
@@ -2122,15 +2115,15 @@ mod tests {
         let upper = Arc::new(Tmpfs::new());
         let (overlay, _) = overlay_on(upper.clone());
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the file must be removed");
         overlay
-            .remove_dir("dir")
+            .vfs_rmdir("dir")
             .expect("the emptied directory must be removed");
         assert_eq!(
             (names(&on(&upper), "work"), kind(&overlay, "dir")),
             (Vec::<String>::new(), Err(FilesystemError::NotFound)),
-            "Overlay::remove_dir of a lower directory whose file Overlay::remove_file removed \
+            "vfs_rmdir of a lower directory whose file vfs_unlink removed \
              must leave the upper Tmpfs's work empty and the directory gone"
         );
     }
@@ -2142,7 +2135,7 @@ mod tests {
     fn a_copy_up_keeps_the_lower_files_times() {
         let lower = tmpfs_with("dir/file", "lower");
         let before = on(&lower)
-            .symlink_metadata("dir/file")
+            .vfs_lstat("dir/file")
             .expect("the lower file must stand");
         std::thread::sleep(Duration::from_millis(10));
         let overlay = at(over(lower, Arc::new(Tmpfs::new())));
@@ -2156,7 +2149,7 @@ mod tests {
             )
             .expect("the open must copy the file up");
         assert_eq!(
-            overlay.symlink_metadata("dir/file").map(|stat| stat.mtime),
+            overlay.vfs_lstat("dir/file").map(|stat| stat.mtime),
             Ok(before.mtime),
             "a lower file opened to write through Overlay::open, writing nothing, must keep the \
              lower file's modified time once copied up"
@@ -2172,7 +2165,7 @@ mod tests {
         let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         overwrite(&overlay, "dir/a", b"changed");
         let before = overlay
-            .symlink_metadata("dir")
+            .vfs_lstat("dir")
             .expect("the directory must stand")
             .mtime;
         std::thread::sleep(Duration::from_millis(10));
@@ -2186,7 +2179,7 @@ mod tests {
             )
             .expect("the open must copy the file up");
         assert_eq!(
-            overlay.symlink_metadata("dir").map(|stat| stat.mtime),
+            overlay.vfs_lstat("dir").map(|stat| stat.mtime),
             Ok(before),
             "a lower file copied up through Overlay::open into a directory the upper holds must \
              leave that directory's modified time as it was"
@@ -2309,7 +2302,7 @@ mod tests {
         assert_eq!(
             (
                 write_over(&overlay, "dir/file", b"x"),
-                on(&upper).symlink_metadata("upper/dir/file"),
+                on(&upper).vfs_lstat("upper/dir/file"),
                 read(&overlay, "dir/file")
             ),
             (
@@ -2388,8 +2381,8 @@ mod tests {
             ctx: &mut DirContext<'_>,
         ) -> Result<(), FilesystemError> {
             let entries = match folded(dentry).as_str() {
-                "" => self.0.entries(),
-                at => self.0.open_dir(at)?.entries(),
+                "" => self.0.iterate_dir(),
+                at => self.0.open_dir(at)?.iterate_dir(),
             }?;
             crate::filesystem::Rdir::default().iterate(dentry, ctx, || Ok(entries))
         }
@@ -2403,13 +2396,13 @@ mod tests {
 
     impl InodeOperations for FoldsCase {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            self.root.symlink_metadata(&folded(dentry))
+            self.root.vfs_lstat(&folded(dentry))
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let name = dentry.name();
             let lower = name.to_lowercase();
-            match self.root.symlink_metadata(&folded(dentry)) {
+            match self.root.vfs_lstat(&folded(dentry)) {
                 Ok(_) if lower != name => Ok(Lookup::Spelled(lower)),
                 Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
                 Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
@@ -2437,15 +2430,15 @@ mod tests {
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.create_dir(&folded(dentry))
+            self.root.vfs_mkdir(&folded(dentry))
         }
 
         fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_dir(&folded(dentry))
+            self.root.vfs_rmdir(&folded(dentry))
         }
 
         fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.remove_file(&folded(dentry))
+            self.root.vfs_unlink(&folded(dentry))
         }
 
         fn rename(
@@ -2461,7 +2454,7 @@ mod tests {
 
     /// What `path` names through `fs`, or why it names nothing.
     fn kind(fs: &KernPath, path: &str) -> Result<FileType, FilesystemError> {
-        fs.symlink_metadata(path).map(|metadata| metadata.file_type)
+        fs.vfs_lstat(path).map(|metadata| metadata.file_type)
     }
 
     // The inner directory is opened too, so only directories held as the
@@ -2472,8 +2465,8 @@ mod tests {
     fn a_directory_opened_from_an_overlay_follows_it_when_it_moves() {
         let upper = Arc::new(Tmpfs::new());
         let overlay = at(over(Arc::new(Tmpfs::new()), upper.clone()));
-        overlay.create_dir("dir").expect("dir must be made");
-        overlay.create_dir("dir/inner").expect("inner must be made");
+        overlay.vfs_mkdir("dir").expect("dir must be made");
+        overlay.vfs_mkdir("dir/inner").expect("inner must be made");
         let dir = overlay.open_dir("dir").expect("dir must open");
         let inner = overlay.open_dir("dir/inner").expect("inner must open");
         overlay
@@ -2501,18 +2494,18 @@ mod tests {
     #[test]
     fn an_overlay_directory_removed_while_opened_makes_nothing_more() {
         let overlay = at(over(Arc::new(Tmpfs::new()), Arc::new(Tmpfs::new())));
-        overlay.create_dir("dir").expect("dir must be made");
+        overlay.vfs_mkdir("dir").expect("dir must be made");
         let dir = overlay.open_dir("dir").expect("dir must open");
-        overlay.remove_dir("dir").expect("dir must remove");
-        overlay.create_dir("dir").expect("another dir must be made");
+        overlay.vfs_rmdir("dir").expect("dir must remove");
+        overlay.vfs_mkdir("dir").expect("another dir must be made");
         assert_eq!(
             (
                 write(&dir, "made", b"x"),
-                dir.entries().map(|entries| entries.len()),
+                dir.iterate_dir().map(|entries| entries.len()),
                 names(&overlay, "dir").len()
             ),
             (Err(FilesystemError::NotFound), Ok(0), 0),
-            "a directory Overlay::open_dir opened, once Overlay::remove_dir removed it and another \
+            "a directory Overlay::open_dir opened, once vfs_rmdir removed it and another \
              was made in its place, must make nothing, list nothing, and leave the new one empty"
         );
     }
@@ -2532,7 +2525,7 @@ mod tests {
             .rename("upper/dir", &outside, "upper/moved")
             .expect("the Layer must move it");
         outside
-            .create_dir("upper/dir")
+            .vfs_mkdir("upper/dir")
             .expect("the Layer must make another");
         overwrite(&outside, "upper/dir/file", b"other");
         assert_eq!(
@@ -2928,14 +2921,14 @@ mod tests {
             )
             .expect("the Overlay must stack"),
         ));
-        first.remove_file("file").expect("the file must be removed");
+        first.vfs_unlink("file").expect("the file must be removed");
         let second = at(Overlay::new(
             vec![first_upper],
             Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
         )
         .expect("the Overlay must stack"));
         assert_eq!(
-            second.symlink_metadata("upper/file").err(),
+            second.vfs_lstat("upper/file").err(),
             Some(FilesystemError::NotFound),
             "a stat through an Overlay of a whiteout in a directory one Layer shows must answer \
              ENOENT, as the listing shows nothing there"
@@ -3211,11 +3204,13 @@ mod tests {
         ));
         assert_eq!(
             (
-                overlay.symlink_metadata("dir/sub").map(|metadata| metadata.file_type),
+                overlay
+                    .vfs_lstat("dir/sub")
+                    .map(|metadata| metadata.file_type),
                 read(&overlay, "dir/sub/file")
             ),
             (Ok(FileType::Dir), b"upper".to_vec()),
-            "a directory looked up through Overlay::metadata above a lower Layer holding a file on \
+            "a directory looked up through vfs_lstat above a lower Layer holding a file on \
              its path must read as a directory, as its files open"
         );
     }
@@ -3258,7 +3253,7 @@ mod tests {
         let mut reader = open_to_read(&overlay, "dir/file");
         overwrite(&overlay, "dir/file", b"upper");
         overlay
-            .remove_file("dir/file")
+            .vfs_unlink("dir/file")
             .expect("the removal must land");
         overwrite(&overlay, "dir/file", b"fresh");
         overlay
@@ -3268,7 +3263,7 @@ mod tests {
             read_from(reader.as_mut()),
             b"upper".to_vec(),
             "a file Overlay::open handed out to read must keep reading what it held once \
-             Overlay::remove_file took it away, whatever later stands at its path"
+             vfs_unlink took it away, whatever later stands at its path"
         );
     }
 
@@ -3329,9 +3324,7 @@ mod tests {
             Arc::new([("dir/a.txt", "a")].into_iter().collect::<Tmpfs>());
         let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         let identity = |overlay: &KernPath| {
-            let metadata = overlay
-                .symlink_metadata("dir")
-                .expect("the directory must stand");
+            let metadata = overlay.vfs_lstat("dir").expect("the directory must stand");
             (metadata.dev, metadata.ino)
         };
         let before = identity(&overlay);
@@ -3340,7 +3333,7 @@ mod tests {
             (identity(&overlay) == before, before.1 != 0),
             (true, true),
             "a directory of a lower Layer copied up by a write through an Overlay's open must \
-             keep the identity Overlay::metadata reported before"
+             keep the identity vfs_lstat reported before"
         );
     }
 
@@ -3354,14 +3347,9 @@ mod tests {
         let overlay = at(over(lower.clone(), upper.clone()));
         std::thread::sleep(std::time::Duration::from_millis(10));
         write(&overlay, "dir/b.txt", b"b").expect("the upper must take a write");
-        let merged = overlay
-            .symlink_metadata("dir")
-            .expect("the directory must stand");
+        let merged = overlay.vfs_lstat("dir").expect("the directory must stand");
         let modified = |layer: &Arc<Tmpfs>, path: &str| {
-            on(layer)
-                .symlink_metadata(path)
-                .expect("a Layer holds it")
-                .mtime
+            on(layer).vfs_lstat(path).expect("a Layer holds it").mtime
         };
         assert_eq!(
             (
@@ -3387,10 +3375,10 @@ mod tests {
             (metadata.dev, metadata.ino)
         };
         assert_eq!(
-            identity(overlay.symlink_metadata("dir")),
-            identity(overlay.symlink_metadata("dir")),
-            "a directory two Layers hold, looked up through Overlay::symlink_metadata, must \
-             report the identity Overlay::metadata does"
+            identity(overlay.vfs_lstat("dir")),
+            identity(overlay.vfs_lstat("dir")),
+            "a directory two Layers hold, looked up through vfs_lstat, must \
+             report the identity vfs_lstat does"
         );
     }
 }

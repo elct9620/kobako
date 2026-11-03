@@ -28,12 +28,13 @@ pub enum FileType {
     Unknown,
 }
 
-impl FileType {
-    /// Whether it is a device, a FIFO, or a socket, as Linux's `special_file`
-    /// names what an open for writing takes no write access to its mount for.
-    pub(crate) fn is_special(self) -> bool {
-        matches!(self, Self::Chrdev | Self::Blkdev | Self::Fifo | Self::Sock)
-    }
+/// Whether `kind` is a device, a FIFO, or a socket, as Linux's `special_file`
+/// names what an open for writing takes no write access to its mount for.
+pub(crate) fn special_file(kind: FileType) -> bool {
+    matches!(
+        kind,
+        FileType::Chrdev | FileType::Blkdev | FileType::Fifo | FileType::Sock
+    )
 }
 
 /// What a Filesystem reports of an entry, as Linux's `struct kstat`.

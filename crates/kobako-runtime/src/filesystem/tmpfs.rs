@@ -1086,7 +1086,7 @@ mod tests {
         assert!(
             fs.create(&"x".repeat(NAME_MAX), &how).is_ok()
                 && matches!(
-                    fs.symlink_metadata(&"x".repeat(NAME_MAX + 1)),
+                    fs.vfs_lstat(&"x".repeat(NAME_MAX + 1)),
                     Err(FilesystemError::InvalidFilename)
                 ),
             "a name of NAME_MAX bytes must land in a Tmpfs, and one past it answer ENAMETOOLONG"
@@ -1275,15 +1275,12 @@ mod tests {
     fn a_directory_with_entries_is_not_removed() {
         let tmpfs = at([("dir/file", "x")].into_iter().collect());
         assert_eq!(
-            tmpfs.remove_dir("dir"),
+            tmpfs.vfs_rmdir("dir"),
             Err(FilesystemError::DirectoryNotEmpty)
         );
-        assert_eq!(tmpfs.remove_file("dir/file"), Ok(()));
-        assert_eq!(tmpfs.remove_dir("dir"), Ok(()));
-        assert_eq!(
-            tmpfs.symlink_metadata("dir"),
-            Err(FilesystemError::NotFound)
-        );
+        assert_eq!(tmpfs.vfs_unlink("dir/file"), Ok(()));
+        assert_eq!(tmpfs.vfs_rmdir("dir"), Ok(()));
+        assert_eq!(tmpfs.vfs_lstat("dir"), Err(FilesystemError::NotFound));
     }
 
     #[test]
@@ -1293,10 +1290,7 @@ mod tests {
             .rename("old", &tmpfs, "new")
             .expect("the rename must succeed");
         assert_eq!(read_all(&tmpfs, "new/inner/file"), b"x");
-        assert_eq!(
-            tmpfs.symlink_metadata("old"),
-            Err(FilesystemError::NotFound)
-        );
+        assert_eq!(tmpfs.vfs_lstat("old"), Err(FilesystemError::NotFound));
     }
 
     fn writable(fs: &KernPath, path: &str) -> Box<dyn FileOperations> {
@@ -1376,11 +1370,11 @@ mod tests {
         writable(&tmpfs, "first")
             .write_iter(&mut Kiocb::at(0), b"four")
             .expect("the first file must fit");
-        tmpfs.remove_file("first").expect("the file must remove");
+        tmpfs.vfs_unlink("first").expect("the file must remove");
         assert_eq!(
             writable(&tmpfs, "second").write_iter(&mut Kiocb::at(0), b"four"),
             Ok(4),
-            "the space a file removed through Tmpfs::remove_file held must be free for the next"
+            "the space a file removed through vfs_unlink held must be free for the next"
         );
     }
 
@@ -1413,7 +1407,7 @@ mod tests {
     fn a_path_beneath_a_file_is_not_a_directory() {
         let tmpfs = at([("file", "x")].into_iter().collect());
         assert_eq!(
-            tmpfs.symlink_metadata("file/inner"),
+            tmpfs.vfs_lstat("file/inner"),
             Err(FilesystemError::NotADirectory)
         );
     }
@@ -1438,9 +1432,9 @@ mod tests {
         assert_eq!(
             (
                 create(&tmpfs, "file"),
-                tmpfs.create_dir("dir"),
+                tmpfs.vfs_mkdir("dir"),
                 create(&tmpfs, "past"),
-                tmpfs.create_dir("past_dir"),
+                tmpfs.vfs_mkdir("past_dir"),
             ),
             (
                 Ok(()),
@@ -1502,7 +1496,7 @@ mod tests {
     fn a_tmpfs_replaces_only_what_rename_lets_a_move_replace() {
         let tmpfs = at([("file", "f"), ("full/inner", "i")].into_iter().collect());
         tmpfs
-            .create_dir("empty")
+            .vfs_mkdir("empty")
             .expect("the directory must be made");
         let moves = [
             ("file", "empty"),
@@ -1512,7 +1506,7 @@ mod tests {
         ]
         .map(|(from, to)| tmpfs.rename(from, &tmpfs, to).err());
         let mut standing: Vec<String> = tmpfs
-            .entries()
+            .iterate_dir()
             .expect("the root must list")
             .into_iter()
             .map(|entry| entry.name)
@@ -1540,19 +1534,17 @@ mod tests {
     #[test]
     fn a_removed_directory_gives_its_inode_back() {
         let tmpfs = at(Tmpfs::new().with_nr_inodes(Some(3)));
-        tmpfs.create_dir("a").expect("the first directory must fit");
-        tmpfs
-            .create_dir("b")
-            .expect("the second directory must fit");
-        tmpfs.remove_dir("a").expect("the directory must remove");
-        let after_removal = tmpfs.create_dir("c");
+        tmpfs.vfs_mkdir("a").expect("the first directory must fit");
+        tmpfs.vfs_mkdir("b").expect("the second directory must fit");
+        tmpfs.vfs_rmdir("a").expect("the directory must remove");
+        let after_removal = tmpfs.vfs_mkdir("c");
         tmpfs
             .rename("c", &tmpfs, "b")
             .expect("a directory must replace an empty one");
         assert_eq!(
-            (after_removal, tmpfs.create_dir("d")),
+            (after_removal, tmpfs.vfs_mkdir("d")),
             (Ok(()), Ok(())),
-            "a directory removed through Tmpfs::remove_dir, or replaced through Tmpfs::rename, \
+            "a directory removed through vfs_rmdir, or replaced through Tmpfs::rename, \
              must give its inode back"
         );
     }
@@ -1564,13 +1556,13 @@ mod tests {
     fn a_removed_file_gives_its_inode_back_once_closed() {
         let tmpfs = at(Tmpfs::new().with_nr_inodes(Some(2)));
         let handle = writable(&tmpfs, "first");
-        tmpfs.remove_file("first").expect("the file must remove");
+        tmpfs.vfs_unlink("first").expect("the file must remove");
         let while_open = create(&tmpfs, "second");
         drop(handle);
         assert_eq!(
             (while_open, create(&tmpfs, "second")),
             (Err(FilesystemError::StorageFull), Ok(())),
-            "the inode of a file removed through Tmpfs::remove_file must stay taken while a \
+            "the inode of a file removed through vfs_unlink must stay taken while a \
              handle holds it, and be free once it closes"
         );
     }
@@ -1582,7 +1574,7 @@ mod tests {
     fn a_device_of_its_own_stands_apart_from_every_other_device() {
         let (first, second) = (Kstat::unique_device(), Kstat::unique_device());
         let tmpfs = at(Tmpfs::new())
-            .metadata()
+            .vfs_getattr()
             .expect("the root must stand")
             .dev;
         assert!(
@@ -1619,7 +1611,7 @@ mod tests {
         let tmpfs = kern_path(held.clone());
         for _ in 0..64 {
             tmpfs
-                .create_dir("n")
+                .vfs_mkdir("n")
                 .expect("the new directory must be made");
             tmpfs
                 .rename("d", &tmpfs, "n/d")
@@ -1653,8 +1645,8 @@ mod tests {
         create(&dir, "made").expect("the file must be made");
         assert_eq!(
             (
-                tmpfs.symlink_metadata("moved/made").map(|m| m.file_type),
-                tmpfs.symlink_metadata("dir/made").map(|m| m.file_type)
+                tmpfs.vfs_lstat("moved/made").map(|m| m.file_type),
+                tmpfs.vfs_lstat("dir/made").map(|m| m.file_type)
             ),
             (Ok(FileType::RegFile), Err(FilesystemError::NotFound)),
             "a file made through a directory Tmpfs::open_dir opened before Tmpfs::rename moved \
@@ -1666,15 +1658,15 @@ mod tests {
     #[test]
     fn a_tmpfs_directory_removed_while_opened_makes_nothing_more() {
         let tmpfs = at(Tmpfs::new());
-        tmpfs.create_dir("dir").expect("the directory must be made");
+        tmpfs.vfs_mkdir("dir").expect("the directory must be made");
         let dir = tmpfs.open_dir("dir").expect("the directory must open");
-        tmpfs.remove_dir("dir").expect("the directory must remove");
+        tmpfs.vfs_rmdir("dir").expect("the directory must remove");
         assert_eq!(
             (
                 create(&dir, "made"),
-                dir.create_dir("inner"),
-                dir.entries().map(|entries| entries.len()),
-                dir.symlink_metadata("").map(|m| m.file_type)
+                dir.vfs_mkdir("inner"),
+                dir.iterate_dir().map(|entries| entries.len()),
+                dir.vfs_lstat("").map(|m| m.file_type)
             ),
             (
                 Err(FilesystemError::NotFound),
@@ -1682,7 +1674,7 @@ mod tests {
                 Ok(0),
                 Ok(FileType::Dir)
             ),
-            "a directory Tmpfs::open_dir opened, once Tmpfs::remove_dir removed it, must make \
+            "a directory Tmpfs::open_dir opened, once vfs_rmdir removed it, must make \
              nothing, list nothing, and still stat as a directory"
         );
     }
@@ -1691,15 +1683,15 @@ mod tests {
     #[test]
     fn a_tmpfs_directory_never_moves_beneath_itself() {
         let tmpfs = at(Tmpfs::new());
-        tmpfs.create_dir("a").expect("the directory must be made");
+        tmpfs.vfs_mkdir("a").expect("the directory must be made");
         tmpfs
-            .create_dir("a/b")
+            .vfs_mkdir("a/b")
             .expect("the inner directory must be made");
         let inner = tmpfs.open_dir("a/b").expect("the directory must open");
         assert_eq!(
             (
                 tmpfs.rename("a", &inner, "a"),
-                tmpfs.symlink_metadata("a/b").map(|m| m.file_type)
+                tmpfs.vfs_lstat("a/b").map(|m| m.file_type)
             ),
             (Err(FilesystemError::InvalidInput), Ok(FileType::Dir)),
             "Tmpfs::rename of a directory into one opened beneath it must answer InvalidInput \
@@ -1714,14 +1706,12 @@ mod tests {
     #[test]
     fn a_moved_file_moves_only_its_changed_time() {
         let tmpfs = at([("file", "x")].into_iter().collect());
-        let before = tmpfs.symlink_metadata("file").expect("the file must stand");
+        let before = tmpfs.vfs_lstat("file").expect("the file must stand");
         std::thread::sleep(std::time::Duration::from_millis(20));
         tmpfs
             .rename("file", &tmpfs, "moved")
             .expect("the move must land");
-        let after = tmpfs
-            .symlink_metadata("moved")
-            .expect("the file must stand");
+        let after = tmpfs.vfs_lstat("moved").expect("the file must stand");
         assert!(
             after.ctime > before.ctime && after.mtime == before.mtime,
             "Tmpfs::rename of a file must move its changed time and leave its modified time"
@@ -1746,7 +1736,7 @@ mod tests {
                 },
             )
             .expect("the times must be set");
-        let set = tmpfs.symlink_metadata("file").expect("the file must stand");
+        let set = tmpfs.vfs_lstat("file").expect("the file must stand");
         assert_eq!(
             (set.atime, set.mtime, set.ctime),
             (Some(landed), Some(landed), Some(landed)),
@@ -1835,15 +1825,13 @@ mod tests {
             .expect("the file must be made");
         file.write_iter(&mut Kiocb::at(0), b"ab")
             .expect("the file must take a write");
-        let made = tmpfs
-            .symlink_metadata("file")
-            .expect("the file must report");
+        let made = tmpfs.vfs_lstat("file").expect("the file must report");
         file.read_iter(&mut Kiocb::at(0), &mut [0; 1])
             .expect("the file must read");
         std::thread::sleep(std::time::Duration::from_millis(10));
         file.write_iter(&mut Kiocb::at(0), b"c")
             .expect("the file must take a write within its length");
-        let written = tmpfs.symlink_metadata("file").expect("the file must stand");
+        let written = tmpfs.vfs_lstat("file").expect("the file must stand");
         assert_eq!(
             (
                 written.atime == made.atime,
@@ -1851,7 +1839,7 @@ mod tests {
                 written.ctime == written.mtime,
             ),
             (true, true, true),
-            "Tmpfs::metadata of a file read and then written must keep its access time from \
+            "vfs_lstat of a file read and then written must keep its access time from \
              when it was made, and move its modification and change times to the write"
         );
     }
@@ -1860,18 +1848,13 @@ mod tests {
     #[test]
     fn a_tmpfs_counts_a_directorys_names_as_a_tmpfs_does() {
         let tmpfs = at([("dir/file", "x")].into_iter().collect());
-        tmpfs.create_dir("dir/a").expect("a directory must be made");
-        tmpfs.create_dir("dir/b").expect("a directory must be made");
-        let nlink = |path| {
-            tmpfs
-                .symlink_metadata(path)
-                .expect("the entry must stand")
-                .nlink
-        };
+        tmpfs.vfs_mkdir("dir/a").expect("a directory must be made");
+        tmpfs.vfs_mkdir("dir/b").expect("a directory must be made");
+        let nlink = |path| tmpfs.vfs_lstat(path).expect("the entry must stand").nlink;
         assert_eq!(
             (nlink("dir"), nlink("dir/file")),
             (4, 1),
-            "Tmpfs::metadata of a directory holding a file and two directories must count four \
+            "vfs_lstat of a directory holding a file and two directories must count four \
              names, and of the file one"
         );
     }
@@ -1883,22 +1866,22 @@ mod tests {
     fn a_removed_directory_something_holds_counts_no_name() {
         let tmpfs = at(Tmpfs::new());
         for path in ["gone", "replaced", "moved", "other"] {
-            tmpfs.create_dir(path).expect("a directory must be made");
+            tmpfs.vfs_mkdir(path).expect("a directory must be made");
         }
         let held = |path| tmpfs.open_dir(path).expect("the directory must open");
         let (gone, replaced, moved) = (held("gone"), held("replaced"), held("moved"));
-        tmpfs.remove_dir("gone").expect("the directory must go");
+        tmpfs.vfs_rmdir("gone").expect("the directory must go");
         tmpfs
             .rename("other", &tmpfs, "replaced")
             .expect("the move must replace the directory");
         tmpfs
             .rename("moved", &tmpfs, "there")
             .expect("the move must land");
-        let nlink = |dir: &KernPath| dir.metadata().expect("the directory must answer").nlink;
+        let nlink = |dir: &KernPath| dir.vfs_getattr().expect("the directory must answer").nlink;
         assert_eq!(
             (nlink(&gone), nlink(&replaced), nlink(&moved)),
             (0, 0, 2),
-            "Tmpfs::metadata of a held directory removed, or replaced by a move, must count no \
+            "vfs_getattr of a held Tmpfs directory removed, or replaced by a move, must count no \
              name, and of one that moved must count its two"
         );
     }
@@ -1907,18 +1890,18 @@ mod tests {
     #[test]
     fn a_tmpfs_sizes_a_directory_as_a_tmpfs_does() {
         let tmpfs = at([("dir/file", "x")].into_iter().collect());
-        tmpfs.create_dir("dir/a").expect("a directory must be made");
-        tmpfs.create_dir("empty").expect("a directory must be made");
+        tmpfs.vfs_mkdir("dir/a").expect("a directory must be made");
+        tmpfs.vfs_mkdir("empty").expect("a directory must be made");
         let len = |path| {
             tmpfs
-                .symlink_metadata(path)
+                .vfs_lstat(path)
                 .expect("the directory must stand")
                 .size
         };
         assert_eq!(
             (len("dir"), len("empty")),
             (80, 40),
-            "Tmpfs::metadata of a directory holding two entries must report a size of 80, and of \
+            "vfs_lstat of a directory holding two entries must report a size of 80, and of \
              an empty one 40"
         );
     }
@@ -1927,11 +1910,9 @@ mod tests {
     #[test]
     fn a_tmpfs_gives_each_directory_it_makes_an_identity_of_its_own() {
         let tmpfs = at(Tmpfs::new());
-        tmpfs.create_dir("dir").expect("the directory must be made");
+        tmpfs.vfs_mkdir("dir").expect("the directory must be made");
         let identity = |path| {
-            let metadata = tmpfs
-                .symlink_metadata(path)
-                .expect("the directory must stand");
+            let metadata = tmpfs.vfs_lstat(path).expect("the directory must stand");
             (metadata.dev, metadata.ino)
         };
         let before = identity("dir");
@@ -1939,13 +1920,13 @@ mod tests {
             .rename("dir", &tmpfs, "moved")
             .expect("the directory must move");
         tmpfs
-            .create_dir("dir")
+            .vfs_mkdir("dir")
             .expect("another directory must be made");
         assert_eq!(
             (identity("moved") == before, identity("dir") == before),
             (true, false),
             "a directory moved through Tmpfs::rename must keep its identity, and one made at its \
-             old path through Tmpfs::create_dir must have another"
+             old path through vfs_mkdir must have another"
         );
     }
 

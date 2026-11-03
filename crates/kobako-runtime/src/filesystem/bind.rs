@@ -1716,24 +1716,18 @@ mod tests {
         let host = make_fifo_host("fifo-type");
         let directory = bind_host(&host.0);
         let listed: Vec<_> = directory
-            .entries()
+            .iterate_dir()
             .expect("the directory must list")
             .into_iter()
             .map(|entry| entry.file_type)
             .collect();
         assert_eq!(
             (
-                directory
-                    .symlink_metadata("pipe")
-                    .map(|metadata| metadata.file_type),
-                directory
-                    .symlink_metadata("pipe")
-                    .map(|metadata| metadata.file_type),
+                directory.vfs_lstat("pipe").map(|stat| stat.file_type),
                 listed
             ),
-            (Ok(FileType::Fifo), Ok(FileType::Fifo), vec![FileType::Fifo]),
-            "a FIFO looked up through Bind::metadata and symlink_metadata, and listed \
-             through read_dir, must answer a FIFO"
+            (Ok(FileType::Fifo), vec![FileType::Fifo]),
+            "a FIFO beneath a Bind, looked up and listed through the VFS, must answer a FIFO"
         );
     }
 
@@ -1746,18 +1740,14 @@ mod tests {
         let host = HostDir::new("special");
         let _socket = std::os::unix::net::UnixListener::bind(host.0.join("sock"))
             .expect("the socket must be bound");
-        let kind = |directory: KernPath, name| {
-            directory
-                .symlink_metadata(name)
-                .map(|metadata| metadata.file_type)
-        };
+        let kind = |directory: KernPath, name| directory.vfs_lstat(name).map(|stat| stat.file_type);
         assert_eq!(
             (
                 kind(bind_host(&host.0), "sock"),
                 kind(bind_host("/dev"), "null"),
             ),
             (Ok(FileType::Sock), Ok(FileType::Chrdev)),
-            "Bind::symlink_metadata of a socket and of /dev/null must answer the kind the host \
+            "vfs_lstat of a socket and of /dev/null must answer the kind the host \
              gives each"
         );
     }
@@ -2214,7 +2204,7 @@ mod tests {
         assert_eq!(
             directory.entries().map(drop),
             Err(FilesystemError::IllegalSequence),
-            "a host name that is not UTF-8 listed through Bind::entries must fail as \
+            "a host name that is not UTF-8 listed through iterate_dir must fail as \
              IllegalSequence, not as an unnamed failure"
         );
     }
@@ -2283,21 +2273,19 @@ mod tests {
         std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
         let directory = bind_host(&host.0);
         let listed = directory
-            .entries()
+            .iterate_dir()
             .expect("the host directory must list")
             .into_iter()
             .find(|entry| entry.name == "link")
             .map(|entry| entry.file_type);
         assert_eq!(
             (
-                directory
-                    .symlink_metadata("link")
-                    .map(|metadata| metadata.file_type),
+                directory.vfs_lstat("link").map(|stat| stat.file_type),
                 listed
             ),
             (Ok(FileType::Symlink), Some(FileType::Symlink)),
-            "a host link looked up through Bind::symlink_metadata and listed through \
-             Bind::entries must report a link"
+            "a host link beneath a Bind, looked up through vfs_lstat and listed through \
+             iterate_dir, must report a link"
         );
     }
 
@@ -2311,12 +2299,12 @@ mod tests {
         fs::write(host.0.join("sub/file"), "hello").expect("the host file must be written");
         let directory = bind_host(&host.0);
         assert_eq!(
-            directory.symlink_metadata("sub").map(|stat| stat.size),
+            directory.vfs_lstat("sub").map(|stat| stat.size),
             Ok(fs::metadata(host.0.join("sub"))
                 .expect("the host directory must stand")
                 .len()),
-            "a host directory looked up through Bind::symlink_metadata must report the size its \
-             host reports"
+            "a host directory beneath a Bind looked up through vfs_lstat must report the size \
+             its host reports"
         );
     }
 
@@ -2327,9 +2315,9 @@ mod tests {
         fs::create_dir(host.0.join("sub")).expect("the host directory must be created");
         let directory = bind_host(&host.0);
         assert_eq!(
-            directory.remove_file("sub"),
+            directory.vfs_unlink("sub"),
             Err(FilesystemError::IsADirectory),
-            "a host directory removed through Bind::remove_file must answer IsADirectory"
+            "a host directory beneath a Bind removed through vfs_unlink must answer EISDIR"
         );
     }
 
@@ -2371,13 +2359,13 @@ mod tests {
         let directory = bind_host(&host.0);
         let dir = directory.open_dir("dir").expect("the directory must open");
         assert_eq!(
-            (dir.read_link("up"), dir.read_link("sub")),
+            (dir.vfs_readlink("up"), dir.vfs_readlink("sub")),
             (
                 Ok("../secret".to_string()),
                 Err(FilesystemError::InvalidInput)
             ),
-            "Bind::read_link must answer where a link points as stored, and refuse a \
-             directory as invalid input"
+            "vfs_readlink beneath a Bind must answer where a link points as stored, and refuse \
+             a directory with EINVAL"
         );
     }
 
@@ -2417,13 +2405,13 @@ mod tests {
         let expected = fs::metadata(host.0.join("dir")).expect("the host must stat it");
         let directory = bind_host(&host.0);
         let reported = directory
-            .symlink_metadata("dir")
+            .vfs_lstat("dir")
             .expect("the directory must stand");
         assert_eq!(
             (reported.dev, reported.ino),
             (expected.dev(), expected.ino()),
-            "a host directory's metadata through Bind::metadata must carry the device and \
-             inode numbers the host reports"
+            "a host directory beneath a Bind looked up through vfs_lstat must carry the device \
+             and inode numbers the host reports"
         );
     }
 

@@ -1,6 +1,9 @@
 //! The lock a directory's calls run under, as Linux's `rw_semaphore` in
 //! `kernel/locking`: shared while a name in it is looked up, exclusive while
-//! one is made, removed, or moved.
+//! one is made, removed, or moved. The other locks beneath the VFS sit
+//! beside it.
+
+pub(crate) mod seqlock;
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::ThreadId;
