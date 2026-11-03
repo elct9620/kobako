@@ -94,7 +94,7 @@ impl Bind {
             recorded.is_none()
                 || dir
                     .dir_metadata()
-                    .is_ok_and(|found| Identity::of(&to_metadata(found)) == recorded)
+                    .is_ok_and(|found| Identity::of(&to_kstat(found)) == recorded)
         };
         let dir = walk::walk(&above, &names)?;
         if !stands(&dir) {
@@ -129,7 +129,7 @@ impl Bind {
         create: bool,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let file = self.at(dentry, |dir, name| open_in(dir, name, how, create))?;
-        let opened = to_metadata(cap_std::fs::Metadata::from_file(&file).map_err(to_error)?);
+        let opened = to_kstat(cap_std::fs::Metadata::from_file(&file).map_err(to_error)?);
         match dentry.inode().map(|inode| inode.identity()) {
             None => dentry.add(Some(Inode::new(
                 &opened,
@@ -174,7 +174,7 @@ impl Bind {
         });
         match (found, inode) {
             (Ok(found), Some(inode)) => {
-                let found = to_metadata(found);
+                let found = to_kstat(found);
                 Ok(Identity::of(&found) == inode.identity() && found.file_type == inode.kind())
             }
             (Ok(_), None) => Ok(false),
@@ -328,13 +328,13 @@ fn to_special_file_type(_host: cap_std::fs::FileType) -> FileType {
 /// What a host entry is, with the size the host reports. The host names
 /// its identity, link count, and times on unix; elsewhere a Bind reports
 /// none.
-fn to_metadata(metadata: cap_std::fs::Metadata) -> Kstat {
+fn to_kstat(metadata: cap_std::fs::Metadata) -> Kstat {
     let file_type = to_file_type(metadata.file_type());
-    let len = metadata.len();
+    let size = metadata.len();
     #[cfg(unix)]
     {
         use cap_std::fs::MetadataExt;
-        Kstat::new(file_type, len)
+        Kstat::new(file_type, size)
             .with_identity(metadata.dev(), metadata.ino())
             .with_nlink(metadata.nlink())
             .with_times(
@@ -344,7 +344,7 @@ fn to_metadata(metadata: cap_std::fs::Metadata) -> Kstat {
             )
     }
     #[cfg(not(unix))]
-    Kstat::new(file_type, len)
+    Kstat::new(file_type, size)
 }
 
 /// The time `seconds` and `nanoseconds` after the Unix epoch, as `stat`
@@ -441,7 +441,7 @@ impl FileSystemType for Bind {
     /// the attached fid, and a host that cannot answer makes no instance.
     fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
         sb.set_default_d_op(self.clone());
-        let root = to_metadata(self.root.dir_metadata().map_err(to_error)?);
+        let root = to_kstat(self.root.dir_metadata().map_err(to_error)?);
         sb.d_make_root(Inode::new(&root, self));
         Ok(())
     }
@@ -473,7 +473,7 @@ struct BindLink(Bind);
 /// What an entry standing at its name in the directory above reports.
 fn stat_at(bind: &Bind, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
     bind.at(dentry, |dir, name| {
-        Ok(to_metadata(dir.symlink_metadata(name).map_err(to_error)?))
+        Ok(to_kstat(dir.symlink_metadata(name).map_err(to_error)?))
     })
 }
 
@@ -482,7 +482,7 @@ impl InodeOperations for BindRegular {
     /// once its name is gone.
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         match v9fs_fid_find_inode(dentry, false) {
-            Some(file) => Ok(to_metadata(
+            Some(file) => Ok(to_kstat(
                 cap_std::fs::Metadata::from_file(&file).map_err(to_error)?,
             )),
             None => stat_at(&self.0, dentry),
@@ -547,7 +547,7 @@ impl InodeOperations for Bind {
     /// A directory answers from its own descriptor, which follows it wherever
     /// it moves and keeps its inode taken while it is open.
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        Ok(to_metadata(
+        Ok(to_kstat(
             self.fid_lookup(dentry)?.dir_metadata().map_err(to_error)?,
         ))
     }
@@ -573,7 +573,7 @@ impl InodeOperations for Bind {
             }
             match dir.symlink_metadata(name).map_err(to_error) {
                 Ok(found) => {
-                    let found = to_metadata(found);
+                    let found = to_kstat(found);
                     let ops: Arc<dyn InodeOperations> = match found.file_type {
                         FileType::Dir => Arc::new(self.clone()),
                         FileType::Symlink => Arc::new(BindLink(self.clone())),

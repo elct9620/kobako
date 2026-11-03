@@ -276,9 +276,9 @@ pub struct Inode {
 }
 
 impl Inode {
-    /// The entry `metadata` reports, answered for by `ops`.
-    pub fn new(metadata: &Kstat, ops: Arc<dyn InodeOperations>) -> Arc<Self> {
-        Self::of_kind(metadata.file_type, Identity::of(metadata), ops)
+    /// The entry `stat` reports, answered for by `ops`.
+    pub fn new(stat: &Kstat, ops: Arc<dyn InodeOperations>) -> Arc<Self> {
+        Self::of_kind(stat.file_type, Identity::of(stat), ops)
     }
 
     /// This entry answered for by `ops`, as a Filesystem wrapping another

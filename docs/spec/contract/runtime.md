@@ -793,11 +793,11 @@ pub struct Inode {}
 
 ## `Inode::new`
 
-The entry some metadata reports, answered for by its operations.
+The entry a `Kstat` reports, answered for by its operations.
 
 ```rust
 impl Inode {
-    pub fn new(metadata: &Kstat, ops: Arc<dyn InodeOperations>) -> Arc<Self> {}
+    pub fn new(stat: &Kstat, ops: Arc<dyn InodeOperations>) -> Arc<Self> {}
 }
 ```
 
