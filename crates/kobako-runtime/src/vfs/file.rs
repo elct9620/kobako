@@ -1257,10 +1257,15 @@ mod tests {
         let after_close = begin_listing(&mut second, 1);
         assert_eq!(
             (held, refused, read_whole, after_close),
-            (Ok(()), Err(FilesystemError::OutOfMemory), Ok(()), Ok(())),
-            "File::iterate_dir of a second listing stopped part way, past its caller's memory limit \
-             allows, must answer ENOMEM, one read whole must hold nothing, and closing the \
-             first must give its bytes back"
+            (
+                Ok(()),
+                Err(FilesystemError::OutOfMemory),
+                Err(FilesystemError::OutOfMemory),
+                Ok(())
+            ),
+            "File::iterate_dir of a second listing past its caller's memory limit, stopped part \
+             way or read whole, must answer ENOMEM, as ovl_cache_get allocates before dir_emit, \
+             and closing the first must give its bytes back"
         );
     }
 

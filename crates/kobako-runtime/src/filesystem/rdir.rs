@@ -13,7 +13,8 @@ pub struct Rdir(Option<Listing>);
 
 struct Listing {
     entries: Vec<DirEntry>,
-    charge: Charge,
+    /// Gives the entries' bytes back once the listing goes.
+    _charge: Charge,
 }
 
 /// Bytes a listing counts for as long as it holds them, as shmem pairs
@@ -44,30 +45,29 @@ impl Drop for Charge {
 impl Rdir {
     /// Hand `ctx` the directory from its position, `.` and `..` first. A listing
     /// from the start reads the directory through `read`, and one going on reads
-    /// what that listing began with. Those entries count against the caller until
-    /// the listing ends: past what a security module allows, a listing that must
-    /// stop answers out of memory, while one read whole holds nothing.
+    /// what that listing began with. Those entries count against the caller from
+    /// the moment they are read until the listing ends, as `ovl_cache_get` and
+    /// `v9fs_alloc_rdir_buf` allocate before the first `dir_emit`: past what a
+    /// security module allows, the listing answers out of memory before it hands
+    /// any entry.
     pub fn iterate(
         &mut self,
         dentry: &Dentry,
         ctx: &mut DirContext<'_>,
         read: impl FnOnce() -> Result<Vec<DirEntry>, FilesystemError>,
     ) -> Result<(), FilesystemError> {
-        let (mut entries, charge) = match self.0.take().filter(|_| ctx.pos() != 0) {
-            Some(held) => (held.entries, Some(held.charge)),
-            None => (read()?, None),
-        };
-        if dir_emit_entries(dentry, ctx, &entries) {
-            return Ok(());
-        }
-        let charge = match charge {
-            Some(charge) => charge,
+        let listing = match self.0.take().filter(|_| ctx.pos() != 0) {
+            Some(held) => held,
             None => {
+                let mut entries = read()?;
                 entries.shrink_to_fit();
-                Charge::of(ctx.cred(), &entries)?
+                let _charge = Charge::of(ctx.cred(), &entries)?;
+                Listing { entries, _charge }
             }
         };
-        self.0 = Some(Listing { entries, charge });
+        if !dir_emit_entries(dentry, ctx, &listing.entries) {
+            self.0 = Some(listing);
+        }
         Ok(())
     }
 }
