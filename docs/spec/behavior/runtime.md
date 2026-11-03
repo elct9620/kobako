@@ -1321,7 +1321,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a Bind Mount holding a FIFO |
-| When | the guest stats the FIFO and opens it |
+| When | the guest stats the FIFO and opens it to read |
 | Then | the stat answers an unknown filetype named once, and the open answers EACCES |
 
 ## `RT-128` A directory a guest opens carries no right to write
@@ -2197,7 +2197,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a Filesystem whose link would open if asked |
-| When | the guest opens the link following no link |
+| When | the guest opens the link to read, following no link |
 | Then | the open answers ELOOP, and the Filesystem is not asked |
 
 ## `RT-201` A time set through a descriptor is judged where it stands
@@ -3378,3 +3378,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose listing fails after it hands some entries |
 | When | the guest lists the directory, then lists on from where it stopped |
 | Then | the first call answers the entries, and the next the error, as `getdents64` does |
+
+## `RT-302` An open standing only for its path opens nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-297` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem, beneath a Policy, holding a file and a link |
+| When | the guest opens either without the right to read, list, or write, following no link |
+| Then | each open stands for the entry, and neither the Policy nor the Filesystem is asked, as Linux's `do_o_path` |
+
+## `RT-303` An open making or emptying a file without a right opens it to read
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-302` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the guest opens a file without any right, to make it or to empty it |
+| Then | the open makes or empties the file, and the descriptor reads it, as an `O_RDONLY` open does |

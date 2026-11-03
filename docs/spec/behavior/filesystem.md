@@ -1581,7 +1581,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest holding a Bind's directory open, and walks past the bound since |
+| Given | a guest holding a Bind's directory open to read, and walks past the bound since |
 | When | the host moves that directory |
 | Then | a call through the descriptor still reaches the directory it opened |
 

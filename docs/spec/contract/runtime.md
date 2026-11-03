@@ -1652,8 +1652,9 @@ impl OpenFlags {
 
 ## `build_open_flags`
 
-Refuse flags no open can mean, and make what the open asks. An ABI asks it once,
-before it reserves a descriptor.
+Refuse flags no open can mean, and make what the open asks. An open asking
+neither to read nor to write stands only for its path, as `O_PATH`. An ABI asks
+it once, before it reserves a descriptor.
 
 ```rust
 pub fn build_open_flags(how: &OpenHow) -> Result<OpenFlags, FilesystemError> {}
