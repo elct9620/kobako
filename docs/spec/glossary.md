@@ -271,10 +271,10 @@ permissive  <  hermetic
 
 ### Driver
 
-What drives one Engine, such as wasmtime, and encodes each ABI onto it. The answers come from the runtime beneath it, so a change to an answer is no Driver's.
+What drives one Engine, such as wasmtime, and encodes each ABI onto it. The runtime beneath it decides each answer. The Driver keeps only the checks a syscall entry makes itself, such as which descriptor a call takes.
 
 ```
-guest ──ABI──> Driver: decode, fd table, errno codes ──> runtime: the answer
+guest --ABI--> Driver: decode, fd table, errno codes, entry checks --> runtime: the answer
 ```
 
 ### Grant
