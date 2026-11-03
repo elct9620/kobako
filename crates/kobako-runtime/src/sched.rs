@@ -67,9 +67,10 @@ impl Task {
     }
 }
 
-/// A thread, and when the run it carries out is to stop.
+/// The task this thread carries out, as Linux's `current`, and when its run is
+/// to stop.
 #[derive(Default)]
-struct Running {
+struct Current {
     task: Task,
     deadline: Option<Instant>,
     /// How many runs the thread is inside, one within another where a
@@ -78,7 +79,7 @@ struct Running {
 }
 
 thread_local! {
-    static TASK: RefCell<Running> = RefCell::default();
+    static TASK: RefCell<Current> = RefCell::default();
 }
 
 /// Run `run` as a run that stops waiting once `deadline` passes or its thread

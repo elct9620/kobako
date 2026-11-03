@@ -14,8 +14,9 @@ use super::openat2::OpenHow;
 use super::path::Path;
 use super::{FileType, FilesystemError, Iattr, Kstat, PATH_MAX};
 
-/// The largest offset a file holds, where Linux's signed `loff_t` ends.
-const MAX_OFFSET: u64 = i64::MAX as u64;
+/// The largest offset a file holds, as Linux's `OFFSET_MAX` ends its signed
+/// `loff_t`.
+const OFFSET_MAX: u64 = i64::MAX as u64;
 
 /// The most one read or write takes, as Linux's `MAX_RW_COUNT`, the largest
 /// signed 32-bit count rounded down to a page.
@@ -174,7 +175,7 @@ pub fn generic_file_llseek(
         Whence::End => dentry.getattr()?.len,
     };
     base.checked_add_signed(offset)
-        .filter(|pos| *pos <= MAX_OFFSET)
+        .filter(|pos| *pos <= OFFSET_MAX)
         .ok_or(FilesystemError::InvalidInput)
 }
 
@@ -592,7 +593,7 @@ impl File {
         if self.kind() == Some(FileType::Fifo) {
             return Err(FilesystemError::NotSeekable);
         }
-        match len > MAX_OFFSET {
+        match len > OFFSET_MAX {
             true => Err(FilesystemError::InvalidInput),
             false => Ok(()),
         }
@@ -603,7 +604,7 @@ impl File {
     /// mode, a FIFO, a directory, and then anything but a regular file or a
     /// block device.
     pub fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
-        if offset > MAX_OFFSET || len == 0 || len > MAX_OFFSET {
+        if offset > OFFSET_MAX || len == 0 || len > OFFSET_MAX {
             return Err(FilesystemError::InvalidInput);
         }
         self.may_write()?;
@@ -613,7 +614,7 @@ impl File {
             Some(FileType::RegFile | FileType::Blkdev) | None => {}
             Some(_) => return Err(FilesystemError::NoSuchDevice),
         }
-        if offset + len > MAX_OFFSET {
+        if offset + len > OFFSET_MAX {
             return Err(FilesystemError::FileTooLarge);
         }
         self.ops.fallocate(offset, len)
@@ -677,7 +678,7 @@ impl File {
     }
 
     fn may_at(&self, pos: u64, mode: FMode) -> Result<(), FilesystemError> {
-        if pos > MAX_OFFSET {
+        if pos > OFFSET_MAX {
             return Err(FilesystemError::InvalidInput);
         }
         match self.mode.contains(mode) {
@@ -693,7 +694,7 @@ impl File {
             return Ok(());
         }
         match pos.checked_add(count as u64) {
-            Some(end) if end <= MAX_OFFSET => Ok(()),
+            Some(end) if end <= OFFSET_MAX => Ok(()),
             _ => Err(FilesystemError::InvalidInput),
         }
     }
@@ -757,7 +758,7 @@ impl File {
     /// refuses anything but a file open to write, and reaches `->setattr`.
     pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
         let regular = self.path.dentry().kind() == Ok(FileType::RegFile);
-        if !regular || !self.writable() || len > MAX_OFFSET {
+        if !regular || !self.writable() || len > OFFSET_MAX {
             return Err(FilesystemError::InvalidInput);
         }
         self.cred.security_file_truncate(&self.security)?;
@@ -1628,18 +1629,18 @@ mod tests {
     fn an_open_file_refuses_a_call_ending_past_the_largest_offset() {
         let mut buf = [0; 2];
         let mut file = open(true, true);
-        file.llseek(MAX_OFFSET as i64 - 1, Whence::Set)
+        file.llseek(OFFSET_MAX as i64 - 1, Whence::Set)
             .unwrap_or_else(|_| panic!("the largest offset must be one a file can stand at"));
         assert_eq!(
             (
                 file.read(&mut buf),
                 file.write(b"xy"),
-                file.pread(&mut buf, MAX_OFFSET - 1),
-                file.pwrite(b"xy", MAX_OFFSET - 1),
-                file.pread(&mut buf, MAX_OFFSET + 1),
-                file.pwrite(b"xy", MAX_OFFSET + 1),
-                file.truncate(MAX_OFFSET + 1),
-                file.pwrite(b"", MAX_OFFSET),
+                file.pread(&mut buf, OFFSET_MAX - 1),
+                file.pwrite(b"xy", OFFSET_MAX - 1),
+                file.pread(&mut buf, OFFSET_MAX + 1),
+                file.pwrite(b"xy", OFFSET_MAX + 1),
+                file.truncate(OFFSET_MAX + 1),
+                file.pwrite(b"", OFFSET_MAX),
             ),
             (
                 Err(FilesystemError::InvalidInput),

@@ -12,8 +12,9 @@ use crate::vfs::{
     SecurityOperations, SecurityPath, VfsMount, PATH_MAX,
 };
 
-/// What a Mount's Policy allowed a file as it opened, kept on the open file.
-struct Allowed(Access);
+/// What a Mount's Policy allowed a file as it opened, kept on the open file, as
+/// Landlock's file blob keeps `allowed_access`.
+struct AllowedAccess(Access);
 
 /// Whether each name from the root down to `path` still names what the runtime
 /// recorded, as gVisor's `revalidatePath` walks one. Linux asks only names a walk
@@ -157,7 +158,7 @@ impl SecurityOperations for MountPolicy {
         if !created {
             self.path_perm(path, access)?;
         }
-        Ok(Some(Arc::new(Allowed(access))))
+        Ok(Some(Arc::new(AllowedAccess(access))))
     }
 
     /// A truncate follows what the Policy allowed as the file opened, wherever
@@ -166,9 +167,9 @@ impl SecurityOperations for MountPolicy {
     fn file_truncate(&self, kept: &FileSecurity) -> Result<(), FilesystemError> {
         match kept
             .as_deref()
-            .and_then(|kept| kept.downcast_ref::<Allowed>())
+            .and_then(|kept| kept.downcast_ref::<AllowedAccess>())
         {
-            Some(Allowed(Access::Read)) => Err(FilesystemError::PermissionDenied),
+            Some(AllowedAccess(Access::Read)) => Err(FilesystemError::PermissionDenied),
             _ => Ok(()),
         }
     }
