@@ -1159,7 +1159,8 @@ mod tests {
         )
         .expect("/data is a guest path");
         let root = VfsPath::root(mount.mnt());
-        let cred = crate::security::prepare_creds([&mount]);
+        let cred =
+            crate::security::restrict_self(&crate::security::prepare_creds_within(None), [&mount]);
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -1226,7 +1227,7 @@ mod tests {
             ..OpenHow::default()
         };
         let opened = vfs::kern_path::filp_open(
-            &crate::security::prepare_creds([&mount]),
+            &crate::security::restrict_self(&crate::security::prepare_creds_within(None), [&mount]),
             &VfsPath::root(mount.mnt()),
             "public/x",
             &read,
@@ -1355,7 +1356,8 @@ mod tests {
             .expect("/data is a guest path")
             .with_policy(Arc::new(RefusesRefused));
         let root = vfs::Path::root(mount.mnt());
-        let cred = crate::security::prepare_creds([&mount]);
+        let cred =
+            crate::security::restrict_self(&crate::security::prepare_creds_within(None), [&mount]);
         let directory = OpenHow {
             directory: true,
             ..OpenHow::default()

@@ -52,7 +52,7 @@ mod tests {
         FileSystemType, FileType, Filesystem, InodeOperations, Kstat, SetTime, Tmpfs,
     };
     use crate::mount::{Access as MountAccess, Mount, Policy};
-    use crate::security::prepare_creds;
+    use crate::security::{prepare_creds_within, restrict_self};
     use crate::vfs::Dentry;
 
     fn times() -> Iattr {
@@ -221,7 +221,7 @@ mod tests {
     fn a_time_set_through_a_descriptor_is_judged_where_it_stands() {
         let policy = Arc::new(RecordsPaths::default());
         let mount = mount_of(tmpfs(), MountAccess::ReadWrite).with_policy(policy.clone());
-        let cred = prepare_creds([&mount]);
+        let cred = restrict_self(&prepare_creds_within(None), [&mount]);
         let root = Path::root(mount.mnt());
         let how = crate::vfs::OpenHow {
             read: true,
@@ -260,7 +260,11 @@ mod tests {
             mount_of(filesystem.clone(), MountAccess::ReadWrite).with_policy(Arc::new(RefusesAll));
         assert_eq!(
             (
-                vfs_utimes(&prepare_creds([&mount]), &Path::root(mount.mnt()), &times()),
+                vfs_utimes(
+                    &restrict_self(&prepare_creds_within(None), [&mount]),
+                    &Path::root(mount.mnt()),
+                    &times()
+                ),
                 *filesystem.0.lock().unwrap(),
             ),
             (Err(FilesystemError::PermissionDenied), None),

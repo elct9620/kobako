@@ -292,12 +292,6 @@ pub fn restrict_self<'a>(cred: &Cred, mounts: impl IntoIterator<Item = &'a Mount
     Cred::new(security)
 }
 
-/// The Cred an Invocation over `mounts` runs with, as `prepare_creds` makes
-/// one for a task: kobako's own rules, then each Mount's Policy.
-pub fn prepare_creds<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {
-    restrict_self(&Cred::new(vec![Arc::new(KobakoSecurity)]), mounts)
-}
-
 fn policies_of<'a>(
     mounts: impl IntoIterator<Item = &'a Mount>,
 ) -> Vec<Arc<dyn SecurityOperations>> {
@@ -357,7 +351,7 @@ mod tests {
             .with_policy(Arc::new(RefusesChangesInQ));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = prepare_creds([&guarded]);
+        let cred = restrict_self(&prepare_creds_within(None), [&guarded]);
         let write = OpenHow {
             write: true,
             ..Default::default()
@@ -366,8 +360,14 @@ mod tests {
             crate::vfs::kern_path::filp_open(&cred, &Path::root(guarded.mnt()), "p/f", &write)
                 .unwrap_or_else(|_| panic!("the file must open"));
         let root = Path::root(plain.mnt());
-        crate::vfs::filename_renameat2(&prepare_creds([]), &root, "p/f", &root, "q/f")
-            .expect("the move must land");
+        crate::vfs::filename_renameat2(
+            &restrict_self(&prepare_creds_within(None), []),
+            &root,
+            "p/f",
+            &root,
+            "q/f",
+        )
+        .expect("the move must land");
         assert_eq!(
             held.truncate(0),
             Ok(()),
@@ -393,7 +393,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let mount = prepare(mount);
-        let cred = prepare_creds([&mount]);
+        let cred = restrict_self(&prepare_creds_within(None), [&mount]);
         let root = Path::root(mount.mnt());
         let how = crate::vfs::OpenHow {
             directory: true,
@@ -474,7 +474,7 @@ mod tests {
             .with_policy(Arc::new(Counts::default()));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = prepare_creds([&guarded]);
+        let cred = restrict_self(&prepare_creds_within(None), [&guarded]);
         let how = crate::vfs::OpenHow {
             directory: true,
             ..Default::default()
@@ -505,8 +505,14 @@ mod tests {
                 .recv_timeout(crate::sched::testing::MAX_WAIT)
                 .expect("the call must ask revalidate");
             let root = Path::root(plain.mnt());
-            crate::vfs::filename_renameat2(&prepare_creds([]), &root, "p/d", &root, "q/d")
-                .expect("the move must land");
+            crate::vfs::filename_renameat2(
+                &restrict_self(&prepare_creds_within(None), []),
+                &root,
+                "p/d",
+                &root,
+                "q/d",
+            )
+            .expect("the move must land");
             crate::sched::testing::join_scoped("the call", first)
         });
         assert!(
@@ -550,7 +556,7 @@ mod tests {
                 let root = self.plain.get().expect("the plain Mount stands").clone();
                 std::thread::spawn(move || {
                     crate::vfs::filename_renameat2(
-                        &prepare_creds([]),
+                        &restrict_self(&prepare_creds_within(None), []),
                         &root,
                         &format!("{from}/d"),
                         &root,
@@ -614,7 +620,10 @@ mod tests {
             let start = held.path().clone();
             let refused = std::thread::scope(|scope| {
                 scope.spawn(|| {
-                    let (root, cred) = (Path::root(plain.mnt()), prepare_creds([]));
+                    let (root, cred) = (
+                        Path::root(plain.mnt()),
+                        restrict_self(&prepare_creds_within(None), []),
+                    );
                     while !stop.load(Ordering::SeqCst) {
                         for (from, to) in [("p/d", "q/d"), ("q/d", "p/d")] {
                             crate::vfs::filename_renameat2(&cred, &root, from, &root, to)
