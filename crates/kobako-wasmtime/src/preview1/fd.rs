@@ -425,15 +425,16 @@ pub(crate) fn readdir(
             }
         }
     };
-    dir.iterate_dir(&mut DirContext::new(0, &mut actor))?;
+    let listed = dir.iterate_dir(&mut DirContext::new(0, &mut actor));
     // The last entry written whole goes on from where the listing stopped,
     // as `getdents64` sets the last `d_off` from `f_pos`.
     if let Some(at) = last_whole {
         write_d_next(mem, start, at, dir.pos())?;
     }
-    // What was listed answers before a name the listing stopped at, which the
-    // next call meets first, as Linux's `getdents64` answers `buf.error`.
-    match failed {
+    // What was listed answers before what stopped the listing, which the next
+    // call meets first, as Linux's `getdents64` answers the bytes it wrote over
+    // `iterate_dir`'s error and `buf.error`.
+    match listed.err().map(Into::into).or(failed) {
         Some(error) if used == 0 => Err(error),
         _ => Ok(used),
     }

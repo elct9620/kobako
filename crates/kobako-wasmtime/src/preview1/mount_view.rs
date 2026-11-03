@@ -912,23 +912,84 @@ fn a_listing_goes_on_over_the_entries_it_began_with() {
     );
 }
 
-// The buffer takes only the dots, so the listing must hold the rest to go on;
-// the limit it is held against is the memory the guest was allotted.
+// A buffer of 51 takes only the dots, one of 4096 the whole listing; the limit
+// the listing is held against is the memory the guest was allotted, counted
+// from the moment the listing is read.
 // @behavior RT-237
 #[test]
 fn a_listing_it_cannot_hold_within_a_guests_memory_answers_enomem() {
     let dir = host_dir_with_a_file("holds");
-    let answer = |memory_limit| {
+    let answer = |memory_limit, len| {
         let bind = Arc::new(Bind::new(&dir).expect("the host directory must open"));
         let mut guest =
             Guest::with_memory_limit(memory_limit, &[grant(bind, Access::ReadWrite, None)]);
-        guest.call_list(0, 51)
+        let errno = guest.call_list(0, len);
+        let memory = guest
+            .instance
+            .get_memory(&mut guest.store, "memory")
+            .expect("probe exports its memory");
+        let used = u32::from_le_bytes(memory.data(&guest.store)[136..140].try_into().unwrap());
+        (errno, used)
     };
     assert_eq!(
-        (answer(1), answer(1 << 20)),
-        (ERRNO_NOMEM, 0),
-        "fd_readdir stopped part way through preview1, with more to hold than the guest's \
-         memory_limit, must answer ENOMEM, and within it succeed"
+        [answer(1, 51), answer(1, 4096), answer(1 << 20, 51)],
+        [(ERRNO_NOMEM, 0), (ERRNO_NOMEM, 0), (0, 51)],
+        "fd_readdir through preview1, with more to hold than the guest's memory_limit, must \
+         answer ENOMEM before it hands any entry, read part way or whole, and within it succeed"
+    );
+}
+
+/// A root whose listing hands `.` and `..`, then fails as a host read would.
+struct FailsPastTheDots;
+
+struct FailsPastTheDotsDir;
+
+impl FileOperations for FailsPastTheDotsDir {
+    fn iterate_shared(
+        &mut self,
+        dentry: &Dentry,
+        ctx: &mut vfs::DirContext<'_>,
+    ) -> Result<(), FilesystemError> {
+        if !vfs::dir_emit_dots(dentry, ctx) {
+            return Ok(());
+        }
+        Err(FilesystemError::Other("the host read failed".into()))
+    }
+}
+
+impl InodeOperations for FailsPastTheDots {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        Ok(Kstat::new(FileType::Dir, 0))
+    }
+
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _how: &OpenHow,
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        Ok(Box::new(FailsPastTheDotsDir))
+    }
+}
+
+impl FileSystemType for FailsPastTheDots {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        vfs::simple_fill_super(sb, self)
+    }
+}
+
+// The dots are written before the Filesystem fails, so only the call going on
+// from them meets the failure with nothing written.
+// @behavior RT-301
+#[test]
+fn a_listing_failing_once_it_has_handed_entries_answers_those_entries() {
+    let mut guest = Guest::new(&[grant(Arc::new(FailsPastTheDots), Access::Read, None)]);
+    let first = guest.list(0, 4096);
+    assert_eq!(
+        (first, guest.call_list(2, 4096)),
+        (vec![".".to_string(), "..".to_string()], ERRNO_IO),
+        "fd_readdir through preview1 of a Filesystem failing after it hands the dots must \
+         answer the dots, and the next call from them the error, as getdents64 answers the \
+         bytes it wrote over iterate_dir's error"
     );
 }
 
