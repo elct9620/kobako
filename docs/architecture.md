@@ -205,40 +205,41 @@ A new kind of Grant joins as a context beside Filesystem. It conforms to the sam
 The Filesystem context follows Linux's three layers: the Wasm Driver in the syscall's place, the VFS, and the Filesystem Drivers. A Policy and a Filesystem Driver's operations are hooks the VFS calls at fixed points, not layers of their own.
 
 ```
-┌───────────────────────────────────────────┐
-│ Wasm Driver   kobako-wasmtime             │
-│ decode · errno · fd table · rights        │
-└─────────────────────┬─────────────────────┘
-                      ▼
-┌───────────────────────────────────────────┐
-│ VFS        kobako-runtime::vfs            │
-│ namei · dentries · inodes · vfsmount      │
-│ open files · dentry cache                 │
-│                                           │
-│   ┌─────────────┐      ┌─────────────┐    │
-│   │ hook: cred  │      │ hook: i_op  │    │
-│   └──────┬──────┘      └──────┬──────┘    │
-└──────────┼────────────────────┼───────────┘
-           ▼                    ▼
-┌─────────────────────┐ ┌─────────────────────┐
-│ Security Module     │ │ Filesystem Driver   │
-│ Policy              │ │ Tmpfs · Bind        │
-│ (kobako_runtime::   │ │ Overlay · Ruby      │
-│  security)          │ │ pipefs              │
-└─────────────────────┘ └─────────────────────┘
++-------------------------------------------+
+| Wasm Driver   kobako-wasmtime             |
+| decode, errno, fd table, rights           |
+| syscall-entry checks                      |
++---------------------+---------------------+
+                      v
++-------------------------------------------+
+| VFS        kobako-runtime::vfs            |
+| namei, dentries, inodes, vfsmount         |
+| open files, dentry cache                  |
+|                                           |
+|   +-------------+      +-------------+    |
+|   | hook: cred  |      | hook: i_op  |    |
+|   +------+------+      +------+------+    |
++----------+--------------------+-----------+
+           v                    v
++---------------------+ +---------------------+
+| Security Module     | | Filesystem Driver   |
+| Policy              | | Tmpfs, Bind         |
+| (kobako_runtime::   | | Overlay, Ruby       |
+|  security)          | | pipefs              |
++---------------------+ +---------------------+
 
 beneath the VFS and every Filesystem Driver:
-┌───────────────────────────────────────────┐
-│ locking   rw_semaphore · seqlock          │
-│ sched     current · schedule ◀── frontend │
-└───────────────────────────────────────────┘
++-------------------------------------------+
+| locking   rw_semaphore, seqlock           |
+| sched     current, schedule <-- frontend  |
++-------------------------------------------+
 ```
 
 Each role keeps to its own work, so a change that crosses roles is a change in the wrong place. Only the Wasm Driver, a hook, and what a frontend registers hold kobako's own design, so the VFS's names follow Linux's.
 
 | Role | Owns |
 |---|---|
-| Wasm Driver | decoding, errno codes, the fd table, rights, the Cred, asking `WalkGuard` |
+| Wasm Driver | decoding, errno codes, the fd table, rights, the Cred, `WalkGuard`, syscall-entry checks |
 | VFS | the walk, dentries, inodes, open files, mounts, operation tables, what an entry lacks |
 | Security Module | whether a path may be reached or memory held, and `WalkGuard` |
 | Filesystem Driver | what one entry answers, and its own state on a dentry or inode |
