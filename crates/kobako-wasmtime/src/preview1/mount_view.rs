@@ -2853,6 +2853,31 @@ fn a_directory_a_guest_opens_carries_no_right_to_write() {
     );
 }
 
+// wasi-libc's `openat` asks only the rights its directory hands down, so a
+// write beneath a directory a guest opened needs `fd_write` among them.
+// @behavior RT-298
+#[test]
+fn a_directory_a_guest_opens_hands_down_the_right_to_write() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+    let errno = guest.call_dir_with((RIGHTS_FD_READ | RIGHTS_FD_READDIR) as i64, 9);
+    let memory = guest
+        .instance
+        .get_memory(&mut guest.store, "memory")
+        .expect("probe exports its memory");
+    let inheriting = u64::from_le_bytes(
+        memory.data(&guest.store)[400..408]
+            .try_into()
+            .expect("the rights are eight bytes"),
+    );
+    assert_eq!(
+        (errno, inheriting & RIGHTS_FD_WRITE),
+        (0, RIGHTS_FD_WRITE),
+        "fd_fdstat_get of a directory opened through path_open beneath a read-write Mount \
+         through preview1 must hand down fd_write, as Linux takes an open's mode from its \
+         flags alone"
+    );
+}
+
 // wasi-libc opens `O_SEARCH`, which glibc spells `O_PATH`, without `fd_read`,
 // `fd_readdir`, or `fd_write`; the poll answers the event's error, its call
 // succeeding. wasi-testsuite lists a directory opened with `fd_readdir` alone.

@@ -38,10 +38,12 @@ fn preopen_rights() -> Rights {
         | Rights::PATH_UNLINK_FILE
 }
 
-/// What a file opened beneath a preopen may hold. Reading and writing are
-/// both inherited whatever the Mount's access, since wasi-libc intersects
-/// them before asking: a read-only Mount answers a write itself, as `ROFS`.
-fn preopen_inheriting() -> Rights {
+/// What a file opened beneath a directory may hold. Reading and writing are
+/// both inherited whatever the Mount's access or the directory's own mode,
+/// since wasi-libc intersects them before asking and Linux takes an open's
+/// mode from its flags alone: a read-only Mount answers a write itself, as
+/// `ROFS`.
+fn directory_inheriting() -> Rights {
     preopen_rights()
         | Rights::FD_DATASYNC
         | Rights::FD_READ
@@ -186,7 +188,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
         rights.set(Rights::FD_WRITE, file.writable());
         (rights, rights)
     } else if descriptor.preopen.is_some() {
-        (preopen_rights(), preopen_inheriting())
+        (preopen_rights(), directory_inheriting())
     } else if file.is_directory() {
         let mut rights = Rights::all()
             - Rights::FD_WRITE
@@ -196,7 +198,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
         if !file.readable() {
             rights -= Rights::FD_READ | Rights::FD_READDIR;
         }
-        (rights, rights)
+        (rights, directory_inheriting())
     } else {
         let mut rights = Rights::all();
         if !file.readable() {
