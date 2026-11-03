@@ -2202,7 +2202,7 @@ mod tests {
             .expect("the host file must be written");
         let directory = bind_host(&host.0);
         assert_eq!(
-            directory.entries().map(drop),
+            directory.iterate_dir().map(drop),
             Err(FilesystemError::IllegalSequence),
             "a host name that is not UTF-8 listed through iterate_dir must fail as \
              IllegalSequence, not as an unnamed failure"
