@@ -2629,8 +2629,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a guest with a memory limit, its descriptors on a Bind holding listings up to that limit |
-| When | the guest stops another listing part way |
-| Then | the call answers ENOMEM, a listing read whole still succeeds, and closing a descriptor gives back what it held |
+| When | the guest begins another listing, to read it whole or part way |
+| Then | the call answers ENOMEM before it hands any entry, and closing a descriptor gives back what it held |
 
 ## `RT-238` An allocation past a Tmpfs's size answers ENOSPC
 
@@ -3366,3 +3366,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory the guest opened without the right to read, list, or write |
 | When | the guest stats the descriptor, or a name beneath it |
 | Then | each call succeeds, as Linux's `fdget_raw` takes `O_PATH` |
+
+## `RT-301` A listing failing once it has handed entries answers those entries
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-182`, `RT-237` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose listing fails after it hands some entries |
+| When | the guest lists the directory, then lists on from where it stopped |
+| Then | the first call answers the entries, and the next the error, as `getdents64` does |
