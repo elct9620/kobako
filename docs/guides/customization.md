@@ -286,7 +286,7 @@ the contract carries every frontend above it unchanged.
 | engine seams | `Runtime`, `DispatchHandler`, `Yielder` |
 | host ABI endpoint | `endpoint`, over a `GuestInstance` the engine implements |
 | files | `vfs`, with `File` answering what a guest may do with an open file |
-| declared posture | `Profile`, and `guest_metadata` for what a guest sees of an entry |
+| declared posture | `Profile`, and `guest_kstat` for what a guest sees of an entry |
 | per-invocation types | `Snapshot`, `Completion`, `Capture`, `Usage`, `Trap` |
 
 The Rust host SDK takes an engine at `Sandbox::with_runtime` and keeps the whole tier
