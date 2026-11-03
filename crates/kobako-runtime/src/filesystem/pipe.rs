@@ -131,6 +131,7 @@ pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
         File::new(
             PIPE_MNT.with_dentry(dentry.clone()),
             Box::new(AnonPipe(pipe.clone())),
+            FMode::of(&how),
             &how,
             &Arc::default(),
         )

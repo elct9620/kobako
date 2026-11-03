@@ -326,12 +326,13 @@ pub struct File {
 }
 
 impl File {
-    /// The file `ops` answers for, opened at `path` as `how` asks, with no
-    /// position where `ops` is a stream. It keeps the inode `path` names, as
-    /// `do_dentry_open` sets `f_inode` once.
+    /// The file `ops` answers for, opened at `path` for `mode` as `how` asks,
+    /// with no position where `ops` is a stream. It keeps the inode `path`
+    /// names, as `do_dentry_open` sets `f_inode` once.
     pub(crate) fn new(
         path: Path,
         ops: Box<dyn FileOperations>,
+        mode: FMode,
         how: &OpenHow,
         cred: &Arc<Cred>,
     ) -> Self {
@@ -340,8 +341,8 @@ impl File {
             .inode()
             .expect("a file opens only on a dentry naming an inode");
         let mode = match ops.is_stream() {
-            true => FMode::of(how).stream_open(),
-            false => FMode::of(how),
+            true => mode.stream_open(),
+            false => mode,
         };
         Self {
             path,
@@ -377,10 +378,10 @@ impl File {
             mnt: path.mnt(),
             name: &name,
         };
-        let (ops, security) = do_dentry_open(cred, at, kind, FMode::of(how), how, || {
-            path.dentry().open(how)
-        })?;
-        Ok(Self::new(path, ops, how, cred).with_security(security))
+        let mode = FMode::of(how);
+        let (ops, security) =
+            do_dentry_open(cred, at, kind, mode, how, || path.dentry().open(how))?;
+        Ok(Self::new(path, ops, mode, how, cred).with_security(security))
     }
 
     /// The root of `mnt` opened as a directory for `cred`. A Driver opens each
@@ -1720,7 +1721,14 @@ mod tests {
             (
                 open(true, false).fallocate(0, 0),
                 open(true, false).fallocate(0, 1),
-                File::new(path, Box::new(NoOperations), &how, &Arc::default()).fallocate(0, 1),
+                File::new(
+                    path,
+                    Box::new(NoOperations),
+                    FMode::of(&how),
+                    &how,
+                    &Arc::default()
+                )
+                .fallocate(0, 1),
                 pipe.fallocate(0, 1),
             ),
             (

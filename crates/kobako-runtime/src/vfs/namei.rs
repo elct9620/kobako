@@ -538,12 +538,11 @@ pub fn do_file_open(
     // Only a create reaches the last name with nothing there, as
     // `open_last_lookups` refuses it otherwise.
     let opened = match child.inode() {
-        None => lookup_open(&nd, &child, how)?,
-        Some(_) => Opened::default(),
+        None => lookup_open(&nd, &child, how, mode)?,
+        Some(_) => Opened { file: None, mode },
     };
     drop(held);
-    let (f_op, security) = do_open(&nd, &child, opened, op)?;
-    Ok(File::new(nd.path_to(child), f_op, how, cred).with_security(security))
+    do_open(&nd, child, opened, op)
 }
 
 /// Stand for what `nd` names without opening it, as Linux's `do_o_path` walks
@@ -557,50 +556,45 @@ fn do_o_path(nd: Nameidata, op: &OpenFlags) -> Result<File, FilesystemError> {
     let (f_op, security) = nd.on_path(|path| {
         do_dentry_open(&nd.cred, path, kind, FMode::PATH, how, || child.open(how))
     })?;
-    Ok(File::new(nd.path_to(child), f_op, how, &nd.cred).with_security(security))
+    Ok(File::new(nd.path_to(child), f_op, FMode::PATH, how, &nd.cred).with_security(security))
 }
 
 /// What `lookup_open` leaves `do_open`, as Linux's open `file` carries
 /// `FMODE_OPENED` and `FMODE_CREATED` out of it.
-#[derive(Default)]
 struct Opened {
     file: Option<(Box<dyn FileOperations>, Vec<FileSecurity>)>,
-    created: bool,
-}
-
-/// What an open of `how` is for, marked as made by it where it was, as
-/// `->atomic_open` and `lookup_open` set `FMODE_CREATED`.
-fn f_mode(how: &OpenHow, created: bool) -> FMode {
-    match created {
-        true => FMode::of(how).with(FMode::CREATED),
-        false => FMode::of(how),
-    }
+    mode: FMode,
 }
 
 /// Make the file an open names where nothing stands, as Linux's `lookup_open`
 /// asks the mount and `may_o_create` before `->atomic_open` or `->create`, under
 /// the directory's lock its caller holds. A Filesystem opening the file too
 /// finishes it through `do_dentry_open` here, as its `finish_open` does.
-fn lookup_open(nd: &Nameidata, child: &Dentry, how: &OpenHow) -> Result<Opened, FilesystemError> {
+fn lookup_open(
+    nd: &Nameidata,
+    child: &Dentry,
+    how: &OpenHow,
+    mode: FMode,
+) -> Result<Opened, FilesystemError> {
     nd.mnt.mnt_want_write()?;
     nd.on_path(|path| nd.cred.security_path_mknod(path))?;
     may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), child)?;
-    match atomic_open(nd.dentry(), child, how)? {
-        Finish::Open { file, created } => {
+    let (file, created) = match atomic_open(nd.dentry(), child, how)? {
+        Finish::Open { file, created } => (Some(file), created),
+        Finish::NoOpen { created } => (None, created),
+    };
+    let mode = match created {
+        true => mode.with(FMode::CREATED),
+        false => mode,
+    };
+    let file = match file {
+        Some(file) => {
             let kind = child.kind()?;
-            let mode = f_mode(how, created);
-            let opened =
-                nd.on_path(|path| do_dentry_open(&nd.cred, path, kind, mode, how, || Ok(file)))?;
-            Ok(Opened {
-                file: Some(opened),
-                created,
-            })
+            Some(nd.on_path(|path| do_dentry_open(&nd.cred, path, kind, mode, how, || Ok(file)))?)
         }
-        Finish::NoOpen { created } => Ok(Opened {
-            file: None,
-            created,
-        }),
-    }
+        None => None,
+    };
+    Ok(Opened { file, mode })
 }
 
 /// Open what the walk ended on once the directory's lock is gone, as Linux's
@@ -612,12 +606,13 @@ fn lookup_open(nd: &Nameidata, child: &Dentry, how: &OpenHow) -> Result<Opened, 
 /// `vfs_open`.
 fn do_open(
     nd: &Nameidata,
-    child: &Dentry,
+    child: Arc<Dentry>,
     opened: Opened,
     op: &OpenFlags,
-) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
+) -> Result<File, FilesystemError> {
     let how = op.open_flag();
-    let created = opened.created;
+    let mode = opened.mode;
+    let created = mode.contains(FMode::CREATED);
     if opened.file.is_none() && !created {
         nd.complete_walk()?;
     }
@@ -641,20 +636,19 @@ fn do_open(
     if truncate {
         nd.mnt.mnt_want_write()?;
     }
-    may_open(&nd.cred, nd.mnt.sb(), child, kind, acc_mode)?;
+    may_open(&nd.cred, nd.mnt.sb(), &child, kind, acc_mode)?;
     let (f_op, security) = match opened.file {
         Some(file) => file,
         None => {
-            let mode = f_mode(how, created);
             nd.on_path(|path| do_dentry_open(&nd.cred, path, kind, mode, how, || child.open(how)))?
         }
     };
     if truncate {
         nd.cred.security_file_truncate(&security)?;
         let held = child.inode_lock()?;
-        notify_change(child, &held, &Iattr::open_truncate())?;
+        notify_change(&child, &held, &Iattr::open_truncate())?;
     }
-    Ok((f_op, security))
+    Ok(File::new(nd.path_to(child), f_op, mode, how, &nd.cred).with_security(security))
 }
 
 /// Refuse to open what stands at the path as Linux's `may_open` does: a
@@ -3423,18 +3417,21 @@ mod tests {
             truncate: true,
             ..OpenHow::default()
         };
-        let opened = (
-            vfs::kern_path::filp_open(&cred, &root, "file", &truncate).is_ok(),
-            vfs::kern_path::filp_open(&cred, &root, "missing", &truncate).is_ok(),
-        );
+        let created = |name| {
+            vfs::kern_path::filp_open(&cred, &root, name, &truncate)
+                .map(|file| file.mode().contains(FMode::CREATED))
+                .ok()
+        };
+        let opened = (created("file"), created("missing"));
         assert_eq!(
             (opened, calls.0.lock().map(|calls| calls.clone()).ok()),
             (
-                (true, true),
+                (Some(false), Some(true)),
                 Some(vec!["open", "setattr(open)", "atomic_open"])
             ),
             "vfs::do_file_open with O_TRUNC of a file that stands must open it and then ask \
-             setattr marked as from an open, and of one it makes must ask neither"
+             setattr marked as from an open, and of one it makes must ask neither and hand \
+             back a file marked as made by the open"
         );
     }
 
