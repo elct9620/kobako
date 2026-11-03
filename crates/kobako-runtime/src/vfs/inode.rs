@@ -225,7 +225,7 @@ pub enum RenameFlag {
 
 /// What an entry without `open` opens as, as Linux's `empty_fops` is a file with
 /// no operations.
-struct EmptyFops;
+pub(super) struct EmptyFops;
 
 impl FileOperations for EmptyFops {}
 

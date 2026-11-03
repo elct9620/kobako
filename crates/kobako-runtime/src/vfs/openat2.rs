@@ -72,10 +72,24 @@ impl OpenFlags {
 /// Refuse flags no open can mean before any path is looked at, as Linux's
 /// `build_open_flags` refuses `O_DIRECTORY` with `O_CREAT`, and make what the
 /// open asks: `O_CREAT` with `O_EXCL` never follows a link at the end, and
-/// `O_SYNC` carries `O_DSYNC`, as Linux implements it as both. An ABI
-/// asks it once, before it reserves a descriptor, and hands what it made to
-/// `do_file_open`, as `do_sys_openat2` does.
+/// `O_SYNC` carries `O_DSYNC`, as Linux implements it as both. An open asking
+/// neither to read nor to write stands only for its path, as `O_PATH` keeps
+/// only `O_PATH_FLAGS` and asks nothing of the entry. An ABI asks it once,
+/// before it reserves a descriptor, and hands what it made to `do_file_open`,
+/// as `do_sys_openat2` does.
 pub fn build_open_flags(how: &OpenHow) -> Result<OpenFlags, FilesystemError> {
+    if !how.read && !how.write {
+        return Ok(OpenFlags {
+            open_flag: OpenHow {
+                directory: how.directory,
+                follow: how.follow,
+                ..OpenHow::default()
+            },
+            acc_mode: Mask::NONE,
+            lookup_follow: how.follow,
+            lookup_directory: how.directory,
+        });
+    }
     if how.directory && how.create {
         return Err(FilesystemError::InvalidInput);
     }

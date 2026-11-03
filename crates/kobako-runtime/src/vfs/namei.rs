@@ -500,7 +500,11 @@ pub(crate) fn filename_lookup(
     path: &str,
     follow: bool,
 ) -> Result<Nameidata, FilesystemError> {
-    let mut nd = set_nameidata(cred, start, path)?;
+    path_lookupat(set_nameidata(cred, start, path)?, follow)
+}
+
+/// Walk `nd` to what its path names, as Linux's `path_lookupat`.
+fn path_lookupat(mut nd: Nameidata, follow: bool) -> Result<Nameidata, FilesystemError> {
     nd.link_path_walk()?;
     nd.lookup_last(follow)?;
     nd.complete_walk()?;
@@ -524,6 +528,10 @@ pub fn do_file_open(
     let how = op.open_flag();
     let mut nd = set_nameidata(cred, start, path)?;
     nd.lookup_directory = op.lookup_directory();
+    let mode = FMode::of(how);
+    if mode.contains(FMode::PATH) {
+        return do_o_path(nd, op);
+    }
     nd.link_path_walk()?;
     let held = nd.open_last_lookups(op.lookup_follow(), how.create)?;
     let child = nd.path()?;
@@ -536,6 +544,19 @@ pub fn do_file_open(
     drop(held);
     let (f_op, security) = do_open(&nd, &child, opened, op)?;
     Ok(File::new(nd.path_to(child), f_op, how, cred).with_security(security))
+}
+
+/// Stand for what `nd` names without opening it, as Linux's `do_o_path` walks
+/// with `path_lookupat` and opens nothing: no permission is asked and nothing
+/// is made or emptied.
+fn do_o_path(nd: Nameidata, op: &OpenFlags) -> Result<File, FilesystemError> {
+    let how = op.open_flag();
+    let nd = path_lookupat(nd, op.lookup_follow())?;
+    let child = nd.path()?;
+    let kind = child.kind()?;
+    let (f_op, security) =
+        nd.on_path(|path| do_dentry_open(&nd.cred, path, &child, kind, FMode::PATH, how))?;
+    Ok(File::new(nd.path_to(child), f_op, how, &nd.cred).with_security(security))
 }
 
 /// What `lookup_open` leaves `do_open`, as Linux's open `file` carries
@@ -2758,12 +2779,37 @@ mod tests {
             Filesystem::new(Arc::new(OpensItsLinks(asked.clone())))
                 .expect("the instance must stand"),
         );
-        let answer = vfs::kern_path::filp_open(&Arc::default(), &root, "link", &OpenHow::default());
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let answer = vfs::kern_path::filp_open(&Arc::default(), &root, "link", &read);
         assert_eq!(
             (answer.err(), asked.load(Ordering::SeqCst)),
             (Some(FilesystemError::FilesystemLoop), 0),
-            "vfs::do_file_open of a link following none, over a Filesystem that would open it, \
-             must answer ELOOP and leave the Filesystem unasked"
+            "vfs::do_file_open of a link to read following none, over a Filesystem that would \
+             open it, must answer ELOOP and leave the Filesystem unasked"
+        );
+    }
+
+    // @behavior RT-302
+    #[test]
+    fn an_open_standing_for_a_path_opens_nothing() {
+        let asked = Arc::new(AtomicUsize::new(0));
+        let root = root_of(
+            Filesystem::new(Arc::new(OpensItsLinks(asked.clone())))
+                .expect("the instance must stand"),
+        );
+        let answer = vfs::kern_path::filp_open(&Arc::default(), &root, "link", &OpenHow::default());
+        assert_eq!(
+            (
+                answer.map(|file| file.is_path()),
+                asked.load(Ordering::SeqCst)
+            ),
+            (Ok(true), 0),
+            "vfs::do_file_open of a link asking neither to read nor to write, following none, \
+             must stand for the link itself and leave the Filesystem's open unasked, as Linux's \
+             do_o_path does"
         );
     }
 
@@ -2775,6 +2821,7 @@ mod tests {
 
     fn open_dir(start: &Path, path: &str) -> Path {
         let how = OpenHow {
+            read: true,
             directory: true,
             ..OpenHow::default()
         };

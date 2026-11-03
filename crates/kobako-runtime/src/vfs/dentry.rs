@@ -713,6 +713,7 @@ mod tests {
 
     fn open_dir(start: &Path, path: &str) -> Path {
         let how = OpenHow {
+            read: true,
             directory: true,
             ..OpenHow::default()
         };

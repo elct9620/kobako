@@ -3029,6 +3029,7 @@ mod tests {
         let root = Path::root(mount.mnt());
         let cred = Arc::default();
         let directory = OpenHow {
+            read: true,
             directory: true,
             ..OpenHow::default()
         };
@@ -3168,6 +3169,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let directory = OpenHow {
+            read: true,
             directory: true,
             ..OpenHow::default()
         };

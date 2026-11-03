@@ -8,7 +8,7 @@ use std::sync::Arc;
 use super::attr::notify_change;
 use super::cred::{Cred, FileSecurity, SecurityPath};
 use super::dentry::Dentry;
-use super::inode::Identity;
+use super::inode::{EmptyFops, Identity};
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
 use super::path::Path;
@@ -376,7 +376,9 @@ impl<'a> DirContext<'a> {
 }
 
 /// Open what `dentry` holds as `mode` and `how` ask for `cred`, as Linux's
-/// `do_dentry_open` asks the security modules before `f_op->open`.
+/// `do_dentry_open` asks the security modules before `f_op->open`. A file that
+/// stands only for its path asks neither and holds no operations, as
+/// `do_dentry_open` hands an `O_PATH` file `empty_fops`.
 pub(super) fn do_dentry_open(
     cred: &Cred,
     at: SecurityPath<'_>,
@@ -385,6 +387,9 @@ pub(super) fn do_dentry_open(
     mode: FMode,
     how: &OpenHow,
 ) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
+    if mode.contains(FMode::PATH) {
+        return Ok((Box::new(EmptyFops), Vec::new()));
+    }
     let security = cred.security_file_open(at, kind, mode, how)?;
     Ok((dentry.open(how)?, security))
 }

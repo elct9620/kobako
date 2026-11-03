@@ -390,12 +390,9 @@ fn open_in(
 ) -> Result<std::fs::File, FilesystemError> {
     let writes = how.write || how.truncate || create;
     let mut open = CapOpenOptions::new();
-    // The host refuses an open for neither reading nor writing, and one
-    // that creates or truncates without writing; the runtime decides
-    // what is read and written, so such opens read or write here.
-    open.read(how.read || !writes)
-        .write(writes)
-        .create_new(create);
+    // The host refuses one that creates or truncates without writing; the
+    // runtime decides what is written, so such opens write here.
+    open.read(how.read).write(writes).create_new(create);
     // Only a file or a directory opens: a FIFO would wait for a peer
     // and a device would act on being opened. The host could swap an
     // entry in between, so what opened is checked again before its
@@ -1261,6 +1258,7 @@ mod tests {
         let root = VfsPath::root(mount.mnt());
         let cred = Arc::default();
         let directory = OpenHow {
+            read: true,
             directory: true,
             ..OpenHow::default()
         };
@@ -1302,6 +1300,7 @@ mod tests {
             .expect("/data is a guest path");
         let root = vfs::Path::root(mount.mnt());
         let how = OpenHow {
+            read: true,
             directory: true,
             ..OpenHow::default()
         };
@@ -1359,6 +1358,7 @@ mod tests {
         let cred =
             crate::security::restrict_self(&crate::security::prepare_creds_within(None), [&mount]);
         let directory = OpenHow {
+            read: true,
             directory: true,
             ..OpenHow::default()
         };
@@ -1529,6 +1529,7 @@ mod tests {
         .expect("/data is a guest path");
         let root = vfs::Path::root(mount.mnt());
         let directory = OpenHow {
+            read: true,
             directory: true,
             ..OpenHow::default()
         };
@@ -1786,14 +1787,6 @@ mod tests {
             b"a,b",
             "a host file read through a Bind's open must read back its content"
         );
-    }
-
-    #[test]
-    fn an_open_for_neither_reading_nor_writing_still_opens() {
-        let host = HostDir::new("lookup");
-        fs::write(host.0.join("seen"), "x").expect("the host file must be written");
-        let directory = bind_host(&host.0);
-        assert!(directory.open("seen", &OpenHow::default()).is_ok());
     }
 
     // @behavior FS-006

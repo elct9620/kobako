@@ -376,6 +376,36 @@ mod tests {
         );
     }
 
+    // A Policy refusing nothing still counts each ask, so only an open asking
+    // no module leaves it at zero.
+    // @behavior RT-302
+    #[test]
+    fn an_open_standing_for_a_path_asks_no_policy() {
+        let policy = Arc::new(Counts::default());
+        let filesystem = Filesystem::new(Arc::new([("f", "x")].into_iter().collect::<Tmpfs>()))
+            .expect("the instance must stand");
+        let mount = Mount::new("/data", filesystem, Access::ReadWrite)
+            .expect("/data is a guest path")
+            .with_policy(policy.clone());
+        let cred = restrict_self(&prepare_creds_within(None), [&mount]);
+        let opened = crate::vfs::kern_path::filp_open(
+            &cred,
+            &Path::root(mount.mnt()),
+            "f",
+            &OpenHow::default(),
+        );
+        assert_eq!(
+            (
+                opened.map(|file| file.is_path()),
+                policy.0.load(std::sync::atomic::Ordering::SeqCst)
+            ),
+            (Ok(true), 0),
+            "vfs::do_file_open of a file asking neither to read nor to write, beneath a Policy, \
+             must stand for the file without asking the Policy, as Linux's do_o_path asks no \
+             security module"
+        );
+    }
+
     /// What making an entry answers through a directory moved past
     /// `PATH_MAX`, beneath a mount `prepare` finishes.
     fn made_past_the_limit(prepare: impl FnOnce(Mount) -> Mount) -> Result<(), FilesystemError> {
@@ -396,6 +426,7 @@ mod tests {
         let cred = restrict_self(&prepare_creds_within(None), [&mount]);
         let root = Path::root(mount.mnt());
         let how = crate::vfs::OpenHow {
+            read: true,
             directory: true,
             ..Default::default()
         };
@@ -476,6 +507,7 @@ mod tests {
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
         let cred = restrict_self(&prepare_creds_within(None), [&guarded]);
         let how = crate::vfs::OpenHow {
+            read: true,
             directory: true,
             ..Default::default()
         };
