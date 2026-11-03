@@ -3238,3 +3238,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation holding a file at one descriptor number and nothing at another |
 | When | the guest reads a link at an empty path from each number |
 | Then | the number naming nothing answers EBADF, and the file answers ENOENT |
+
+## `RT-290` A Mount's root opens for the guest before its Policy applies
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-080` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mount whose Policy refuses its root and allows a file beneath it |
+| When | the guest reads that file |
+| Then | the read succeeds, and the Policy is asked only about the file |
+
+## `RT-291` Opening a Mount's root asks the security modules
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-290` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a security module refusing to open a directory |
+| When | a Mount's root is opened for an Invocation |
+| Then | the open answers as the module refuses, as Linux's `dentry_open` asks it |
