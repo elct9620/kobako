@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
     simple_fill_super, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
-    InodeOperations, Kiocb, Lookup, Metadata, OpenHow, Tmpfs,
+    Finish, InodeOperations, Kiocb, Lookup, Metadata, OpenHow, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
@@ -622,13 +622,14 @@ where
         Ok(Box::new((self.wrap)(opened)))
     }
 
-    fn atomic_open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let made = self.inner.atomic_open(dentry, options)?;
-        Ok(Box::new((self.wrap)(made)))
+    /// Opens what it made, as a Filesystem ending in `finish_open` does, so the
+    /// new file is wrapped too.
+    fn atomic_open(&self, dentry: &Dentry, options: &OpenHow) -> Result<Finish, FilesystemError> {
+        let made = match self.inner.atomic_open(dentry, options)? {
+            Finish::Open(made) => made,
+            _ => self.inner.open(dentry, options)?,
+        };
+        Ok(Finish::Open(Box::new((self.wrap)(made))))
     }
 }
 

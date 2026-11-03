@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::Rdir;
 use kobako_runtime::filesystem::{
     simple_fill_super, DentryOperations, DirEntry, FileOperations, FileSystemType, FileType,
-    Filesystem, FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow,
+    Filesystem, FilesystemError, Finish, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow,
     RenameFlag,
 };
 use kobako_runtime::vfs::{
@@ -419,12 +419,8 @@ impl InodeOperations for RubyFilesystem {
         Ok(Box::new(RubyDir(*self, Rdir::default())))
     }
 
-    fn atomic_open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.open_at(dentry, options, true)
+    fn atomic_open(&self, dentry: &Dentry, options: &OpenHow) -> Result<Finish, FilesystemError> {
+        self.open_at(dentry, options, true).map(Finish::Open)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

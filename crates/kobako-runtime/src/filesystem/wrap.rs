@@ -6,7 +6,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use super::{
-    DentryOperations, FileOperations, FileSystemType, Filesystem, FilesystemError, Iattr,
+    DentryOperations, FileOperations, FileSystemType, Filesystem, FilesystemError, Finish, Iattr,
     InodeOperations, Lookup, Mask, Metadata, OpenHow, RenameFlag,
 };
 use crate::vfs::Dentry;
@@ -61,7 +61,7 @@ pub(crate) trait Hook: Send + Sync + 'static {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         options: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    ) -> Result<Finish, FilesystemError> {
         inner.atomic_open(dentry, options)
     }
 
@@ -184,11 +184,7 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
         self.hook.open(self.inner.as_ref(), dentry, options)
     }
 
-    fn atomic_open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn atomic_open(&self, dentry: &Dentry, options: &OpenHow) -> Result<Finish, FilesystemError> {
         self.hook.atomic_open(self.inner.as_ref(), dentry, options)
     }
 

@@ -563,7 +563,7 @@ mod tests {
     };
     use crate::mount::{Access, Mount};
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, File, Identity, Inode, OpenHow, Path};
+    use crate::vfs::{self, File, Finish, Identity, Inode, OpenHow, Path};
 
     /// A Filesystem answering each call by the path its dentry stands at,
     /// as one written in Ruby does, so a removed directory it opened
@@ -625,8 +625,10 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            self.root.create(&dentry.path_raw(), options)
+        ) -> Result<Finish, FilesystemError> {
+            self.root
+                .create(&dentry.path_raw(), options)
+                .map(Finish::Open)
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

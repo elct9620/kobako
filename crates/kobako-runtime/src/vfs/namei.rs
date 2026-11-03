@@ -16,7 +16,7 @@ use super::attr::notify_change;
 use super::cred::{Cred, FileSecurity, SecurityPath};
 use super::dentry::{Dentry, RENAME_LOCK};
 use super::file::{FMode, File, FileOperations};
-use super::inode::{Inode, Mask, RenameFlag};
+use super::inode::{Finish, Inode, Mask, RenameFlag};
 use super::mount::VfsMount;
 use super::openat2::{OpenFlags, OpenHow};
 use super::path::{Path, Start};
@@ -535,14 +535,19 @@ pub fn do_file_open(
         // before the directory's lock goes, so nothing made or removed in
         // between changes what the open decided. What it made is opened as
         // `do_open` opens a file `FMODE_CREATED` marks: it asks for nothing but
-        // the open, and is never walked again.
+        // the open, and is never walked again. One a Filesystem only made is
+        // opened once the modules allowed it, as `vfs_open` follows `may_open`.
         None => {
             let _held = held;
-            let f_op = lookup_open(&nd, &child, how)?;
+            let finish = lookup_open(&nd, &child, how)?;
             may_open(cred, nd.mnt.sb(), &child, FileType::File, Mask::OPEN)?;
             let mode = FMode::of(how).with(FMode::CREATED);
             let security =
                 nd.on_path(|path| cred.security_file_open(path, FileType::File, mode, how))?;
+            let f_op = match finish {
+                Finish::Open(f_op) => f_op,
+                Finish::NoOpen => child.open(how)?,
+            };
             (f_op, security)
         }
         Some(kind) => {
@@ -554,13 +559,9 @@ pub fn do_file_open(
     Ok(File::new(nd.path_to(child), f_op, how, cred).with_security(security))
 }
 
-/// Make the file an open names where nothing stands and open it, as Linux's
-/// `lookup_open` asks the mount and `may_o_create` before `->create`.
-fn lookup_open(
-    nd: &Nameidata,
-    child: &Dentry,
-    how: &OpenHow,
-) -> Result<Box<dyn FileOperations>, FilesystemError> {
+/// Make the file an open names where nothing stands, as Linux's `lookup_open`
+/// asks the mount and `may_o_create` before `->atomic_open` or `->create`.
+fn lookup_open(nd: &Nameidata, child: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
     nd.mnt.mnt_want_write()?;
     nd.on_path(|path| nd.cred.security_path_mknod(path))?;
     may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), child)?;
@@ -1026,14 +1027,14 @@ pub(crate) fn vfs_mkdir(
     dir.inode_ops()?.mkdir(child)
 }
 
-/// Make the file `child` in `dir` and open it as `how` asks, as Linux's
-/// `atomic_open` hands `open_flag` on once its caller holds `dir` and asked
-/// `may_o_create`.
+/// Make the file `child` in `dir`, opened as `how` asks where its Filesystem
+/// opens it too, as Linux's `atomic_open` hands `open_flag` on once its caller
+/// holds `dir` and asked `may_o_create`.
 pub(crate) fn atomic_open(
     dir: &Dentry,
     child: &Dentry,
     how: &OpenHow,
-) -> Result<Box<dyn FileOperations>, FilesystemError> {
+) -> Result<Finish, FilesystemError> {
     dir.inode_ops()?.atomic_open(child, how)
 }
 
@@ -1137,12 +1138,15 @@ mod tests {
     use crate::filesystem::wrap::{self, Wrap};
     use crate::filesystem::{
         DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
-        InodeOperations, Lookup, Metadata, Tmpfs,
+        Finish, InodeOperations, Lookup, Metadata, Tmpfs,
     };
     use crate::mount::{Access, Mount, Policy};
     use crate::sched::testing::count_waits;
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{self, Dentry, Inode, Mask, OpenHow, Path, RenameFlag};
+    use crate::vfs::{
+        self, Cred, Dentry, FMode, FileSecurity, Inode, Mask, OpenHow, Path, RenameFlag,
+        SecurityOperations, SecurityPath,
+    };
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
 
@@ -1679,6 +1683,50 @@ mod tests {
         );
     }
 
+    /// A security module refusing to open what an open made.
+    struct RefusesWhatWasMade;
+
+    impl SecurityOperations for RefusesWhatWasMade {
+        fn file_open(
+            &self,
+            _path: SecurityPath<'_>,
+            _kind: FileType,
+            mode: FMode,
+            _how: &OpenHow,
+        ) -> Result<FileSecurity, FilesystemError> {
+            match mode.contains(FMode::CREATED) {
+                true => Err(FilesystemError::PermissionDenied),
+                false => Ok(None),
+            }
+        }
+    }
+
+    // @behavior RT-288
+    #[test]
+    fn a_file_made_by_create_alone_opens_only_once_the_modules_allow_it() {
+        let filesystem = CreatesOnly::default();
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(filesystem.clone())).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let how = OpenHow {
+            write: true,
+            create: true,
+            ..OpenHow::default()
+        };
+        let cred = Cred::new(vec![Arc::new(RefusesWhatWasMade)]);
+        let answer = vfs::kern_path::filp_open(&cred, &Path::root(mount.mnt()), "made", &how);
+        assert_eq!(
+            (answer.err(), filesystem.opened.load(Ordering::SeqCst)),
+            (Some(FilesystemError::PermissionDenied), 0),
+            "vfs::do_file_open making a file on a Filesystem with no atomic_open, under a \
+             security module refusing the open, must never ask the Filesystem's open, as \
+             do_open asks security_file_open before vfs_open reaches f_op->open"
+        );
+    }
+
     /// A test's Filesystem recording each `->permission` it is asked, refusing
     /// any change once `refuse_writes` says.
     #[derive(Default)]
@@ -2176,7 +2224,7 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Finish, FilesystemError> {
             self.tmpfs.atomic_open(dentry, options)
         }
 
@@ -2291,8 +2339,8 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            self.root.create(&folded(dentry), options)
+        ) -> Result<Finish, FilesystemError> {
+            self.root.create(&folded(dentry), options).map(Finish::Open)
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -3114,11 +3162,11 @@ mod tests {
             &self,
             dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Finish, FilesystemError> {
             self.0.lock().expect("never poisoned").push("atomic_open");
             let file = Metadata::new(crate::filesystem::FileType::File, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
-            Ok(Box::new(RecordedFile))
+            Ok(Finish::Open(Box::new(RecordedFile)))
         }
     }
 
@@ -3276,11 +3324,11 @@ mod tests {
             &self,
             dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Finish, FilesystemError> {
             self.made.store(true, Ordering::SeqCst);
             let file = Metadata::new(crate::filesystem::FileType::File, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
-            Ok(Box::new(RecordedFile))
+            Ok(Finish::Open(Box::new(RecordedFile)))
         }
     }
 

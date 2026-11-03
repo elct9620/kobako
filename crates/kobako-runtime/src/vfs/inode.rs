@@ -11,6 +11,17 @@ use super::file::FileOperations;
 use super::{FileType, FilesystemError, Iattr, Metadata, OpenHow};
 use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
+/// What an `atomic_open` did with the file it made, as Linux's `->atomic_open`
+/// ends in `finish_open` or `finish_no_open`.
+#[non_exhaustive]
+pub enum Finish {
+    /// It opened the file too, as `finish_open` does.
+    Open(Box<dyn FileOperations>),
+    /// It only made the file, for the VFS to open as any open does, as
+    /// `finish_no_open` hands the dentry back.
+    NoOpen,
+}
+
 /// What one name in a directory turned out to be, as `->lookup` answers.
 pub enum Lookup {
     /// The entry standing at the name, for the runtime to record on the
@@ -103,15 +114,12 @@ pub trait InodeOperations: Any + Send + Sync {
     /// Make the file `dentry` names in this directory, recording it on `dentry`,
     /// and open it as `how` asks, as `->atomic_open` takes `open_flag` for a
     /// backend that must do both in one step. A directory without it makes the
-    /// file through `create` and opens what that recorded, as Linux's
-    /// `lookup_open` does.
-    fn atomic_open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    /// file through `create` and leaves the open to the VFS, which asks
+    /// `may_open` and the security modules first, as Linux's `lookup_open`
+    /// calls `->create` and `do_open` opens what it made.
+    fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
         self.create(dentry)?;
-        dentry.open(how)
+        Ok(Finish::NoOpen)
     }
 
     /// Make the directory `dentry` names in this one, recording it on `dentry`

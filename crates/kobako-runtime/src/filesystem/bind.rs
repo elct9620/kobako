@@ -24,7 +24,8 @@ use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 use super::rdir::Rdir;
 use super::{
     DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow, RenameFlag, SetTime,
+    FilesystemError, Finish, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow, RenameFlag,
+    SetTime,
 };
 use crate::vfs::{
     generic_file_llseek, generic_read_dir, Dentry, DirContext, Identity, Inode, Whence,
@@ -599,12 +600,8 @@ impl InodeOperations for Bind {
         Ok(Box::new(BindDir(fid, Rdir::default())))
     }
 
-    fn atomic_open(
-        &self,
-        dentry: &Dentry,
-        options: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.open_file(dentry, options, true)
+    fn atomic_open(&self, dentry: &Dentry, options: &OpenHow) -> Result<Finish, FilesystemError> {
+        self.open_file(dentry, options, true).map(Finish::Open)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

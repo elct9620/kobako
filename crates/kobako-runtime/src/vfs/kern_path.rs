@@ -17,7 +17,7 @@ use super::namei::{
 use super::path::{Path, Start};
 use super::{
     build_open_flags, DirEntry, File, FileOperations, FileSystemType, FileType, FilesystemError,
-    Iattr, Metadata, OpenHow, SuperBlock,
+    Finish, Iattr, Metadata, OpenHow, SuperBlock,
 };
 use crate::mount::{Access, Mount};
 
@@ -100,7 +100,10 @@ impl KernPath {
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let (nd, child) = self.parent(path)?;
         may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)?;
-        atomic_open(nd.dentry(), &child, options)
+        match atomic_open(nd.dentry(), &child, options)? {
+            Finish::Open(file) => Ok(file),
+            Finish::NoOpen => child.open(options),
+        }
     }
 
     /// Truncate or extend the file at `path`, as `->setattr` is asked.

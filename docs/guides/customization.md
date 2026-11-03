@@ -64,7 +64,7 @@ The types those seams carry, by grade:
 |---|---|
 | **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_runtime::{Tmpfs, Bind, Overlay, Mount, MountPathError}` · `kobako_runtime::filesystem::Filesystem` · `kobako_runtime::filesystem::{PipeInodeInfo, create_pipe_files}` · `kobako_runtime::vfs::{Dentry, File, Identity, Inode, Path, build_open_flags, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, vfs_fstatat, do_readlinkat, do_utimes, do_utimes_fd, verify_dirent_name, PATH_MAX, NAME_MAX}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
 | **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access}` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
-| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, Metadata, DirEntry}` · `kobako_runtime::filesystem::RenameFlag` · `kobako_runtime::vfs::{OpenHow, OpenFlags}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
+| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, Metadata, DirEntry}` · `kobako_runtime::filesystem::{RenameFlag, Finish}` · `kobako_runtime::vfs::{OpenHow, OpenFlags}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
@@ -379,7 +379,7 @@ These two calls follow from what the runtime does itself, so a Filesystem answer
 | `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
 | `open` | an entry opened to read, write, or list | opens with no operations |
 | `create` | a file made under the directory's lock and recorded on its `Dentry` | EACCES |
-| `atomic_open` | a file made and opened in one step, for a backend needing that | makes it through `create`, then opens it |
+| `atomic_open` | a file made and opened in one step, for a backend needing that | makes it through `create`; the runtime opens it once the Policy allows |
 | `setattr` | a file sized through what holds it, and times of the guest's choosing | EINVAL for a size, ENOTSUP for a time |
 | `link`, `symlink` | a name made under the directory's lock | EPERM |
 | `FileOperations::llseek`, answering `generic_file_llseek` | a seek counting from the start, the position, or the end `getattr` reports | ESPIPE |

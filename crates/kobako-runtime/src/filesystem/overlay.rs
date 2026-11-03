@@ -420,7 +420,7 @@ mod tests {
 
     use super::super::tmpfs::Tmpfs;
     use super::super::wrap::{Hook, Wrap};
-    use super::super::{FileType, Kiocb};
+    use super::super::{FileType, Finish, Kiocb};
     use super::*;
     use crate::vfs::kern_path::{kern_path, KernPath};
 
@@ -2434,8 +2434,8 @@ mod tests {
             &self,
             dentry: &Dentry,
             options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            self.root.create(&folded(dentry), options)
+        ) -> Result<Finish, FilesystemError> {
+            self.root.create(&folded(dentry), options).map(Finish::Open)
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

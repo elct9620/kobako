@@ -39,7 +39,7 @@ pub use file::{
     verify_dirent_name, DirContext, DirEmit, DirEntry, FMode, File, FileOperations, Kiocb,
     PollMask, Whence,
 };
-pub use inode::{Identity, Inode, InodeOperations, Lookup, Mask, RenameFlag};
+pub use inode::{Finish, Identity, Inode, InodeOperations, Lookup, Mask, RenameFlag};
 pub use mount::VfsMount;
 pub use namei::{
     do_file_open, filename_linkat, filename_mkdirat, filename_renameat2, filename_rmdir,

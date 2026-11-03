@@ -2010,12 +2010,12 @@ pub trait InodeOperations {
 ## `InodeOperations::atomic_open`
 
 Make the file a Dentry names in this directory, record it on that Dentry, and open
-it in one step. A directory without it makes the file through `create` and opens
-what that recorded.
+it in one step. A directory without it makes the file through `create`. The
+runtime then asks its security modules before it opens the file.
 
 ```rust
 pub trait InodeOperations {
-    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, FilesystemError>;
+    fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError>;
 }
 ```
 
@@ -2103,6 +2103,15 @@ swaps the two, or leaves a whiteout.
 
 ```rust
 pub enum RenameFlag {}
+```
+
+## `Finish`
+
+What `atomic_open` did with the file it made: opened it too, or left the open to
+the runtime.
+
+```rust
+pub enum Finish {}
 ```
 
 ## `Lookup`
