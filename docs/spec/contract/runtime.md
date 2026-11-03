@@ -1223,6 +1223,17 @@ impl File {
 }
 ```
 
+## `File::is_path`
+
+Whether it stands only for where it is, as Linux's `O_PATH` file, which
+`fdget` refuses.
+
+```rust
+impl File {
+    pub fn is_path(&self) -> bool {}
+}
+```
+
 ## `File::append`
 
 Whether each write lands at the end.
