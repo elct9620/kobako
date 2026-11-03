@@ -226,9 +226,16 @@ impl FMode {
     pub const STREAM: Self = Self(1 << 5);
     /// Made by the open that opened it, as `FMODE_CREATED`.
     pub const CREATED: Self = Self(1 << 6);
+    /// Stands only for where it is, as `FMODE_PATH`.
+    pub const PATH: Self = Self(1 << 7);
 
-    /// What an open of `how` is for, as `do_dentry_open` sets `f_mode`.
+    /// What an open of `how` is for, as `do_dentry_open` sets `f_mode`. An
+    /// open for neither reading nor writing stands only for its path, as only
+    /// `O_PATH` opens one on Linux, whose `O_RDONLY` always reads.
     pub(crate) fn of(how: &OpenHow) -> Self {
+        if !how.read && !how.write {
+            return Self::PATH;
+        }
         let mut mode = Self::LSEEK.0 | Self::PREAD.0 | Self::PWRITE.0;
         if how.read {
             mode |= Self::READ.0;
@@ -557,6 +564,13 @@ impl File {
     /// Whether it was opened to write.
     pub fn writable(&self) -> bool {
         self.mode.contains(FMode::WRITE)
+    }
+
+    /// Whether it stands only for where it is, so a call reaching it through
+    /// its descriptor is refused, as `fdget` refuses an `FMODE_PATH` file and
+    /// only `fdget_raw` takes one.
+    pub fn is_path(&self) -> bool {
+        self.mode.contains(FMode::PATH)
     }
 
     /// Whether each write lands at the end.
