@@ -163,6 +163,14 @@ const PROBE_WAT: &str = r#"
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $read (i32.load (i32.const 128)) (i32.const 64) (i32.const 1) (i32.const 132)))
 
+  ;; Open the path asking no right, with the given oflags, and read from it.
+  (func (export "read_unasked") (param $path i32) (param $len i32) (param $oflags i32) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
+      (local.get $oflags) (i64.const 0) (i64.const 0) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $read (i32.load (i32.const 128)) (i32.const 64) (i32.const 1) (i32.const 132)))
+
   ;; Open the path with read rights only, asking to truncate it.
   (func (export "truncate_file") (param $path i32) (param $len i32) (result i32)
     (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
@@ -2774,6 +2782,38 @@ fn what_stands_at_a_path_answers_before_a_read_only_mount_refuses() {
         (ERRNO_EXIST, ERRNO_ISDIR),
         "path_open with O_CREAT | O_EXCL of a file, and to write a directory, beneath a read-only \
          Mount through preview1 must answer EEXIST and EISDIR, as Linux does"
+    );
+}
+
+// wasi-testsuite makes a file asking no right, so only an open that reads
+// lets the descriptor read what it made or emptied.
+// @behavior RT-303
+#[test]
+fn an_open_making_or_emptying_a_file_with_no_right_opens_it_to_read() {
+    let tmpfs = file_and_directory();
+    let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)]);
+    let mut read_unasked = |path: (i32, i32), oflags: i32| {
+        guest
+            .instance
+            .get_typed_func::<(i32, i32, i32), i32>(&mut guest.store, "read_unasked")
+            .expect("probe export must resolve")
+            .call(&mut guest.store, (path.0, path.1, oflags))
+            .expect("probe call must not trap")
+    };
+    let answers = (
+        read_unasked(NEW, OFLAGS_CREAT),
+        read_unasked(FILE, OFLAGS_TRUNC),
+    );
+    assert_eq!(
+        (
+            answers,
+            contents(&host(&tmpfs), "new.txt"),
+            contents(&host(&tmpfs), "file.txt")
+        ),
+        ((0, 0), Some(Vec::new()), Some(Vec::new())),
+        "path_open asking no right with O_CREAT, or with O_TRUNC, of a Tmpfs beneath a read-write \
+         Mount through preview1 must make or empty the file and open it to read, as an O_RDONLY \
+         open does"
     );
 }
 

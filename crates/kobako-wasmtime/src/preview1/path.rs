@@ -126,14 +126,16 @@ pub(crate) fn open(
     let mut how = OpenHow::default();
     // wasi-libc asks `fd_read` and `fd_readdir` for `O_RDONLY` and neither for
     // `O_SEARCH`, which glibc spells `O_PATH`; wasi-testsuite lists a
-    // directory opened with `fd_readdir` alone.
-    how.read = flags
-        .rights_base
-        .intersects(types::Rights::FD_READ | types::Rights::FD_READDIR);
-    how.write = flags.rights_base.contains(types::Rights::FD_WRITE);
+    // directory opened with `fd_readdir` alone, and makes a file asking no
+    // right at all, which only an `O_RDONLY` open does.
     how.create = oflags.contains(types::Oflags::CREAT);
     how.exclusive = oflags.contains(types::Oflags::EXCL);
     how.truncate = oflags.contains(types::Oflags::TRUNC);
+    how.write = flags.rights_base.contains(types::Rights::FD_WRITE);
+    how.read = flags
+        .rights_base
+        .intersects(types::Rights::FD_READ | types::Rights::FD_READDIR)
+        || (!how.write && (how.create || how.truncate));
     how.directory = oflags.contains(types::Oflags::DIRECTORY);
     how.follow = flags.dirflags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     how.append = flags.fdflags.contains(types::Fdflags::APPEND);
