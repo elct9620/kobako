@@ -3389,7 +3389,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a Filesystem, beneath a Policy, holding a file and a link |
 | When | the guest opens either without the right to read, list, or write, following no link |
-| Then | each open stands for the entry, and neither the Policy nor the Filesystem is asked, as Linux's `do_o_path` |
+| Then | each open stands for the entry, asking neither the Policy nor the Filesystem |
 
 ## `RT-303` An open making or emptying a file without a right opens it to read
 
@@ -3401,7 +3401,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation handed a read-write Mount |
 | When | the guest opens a file without any right, to make it or to empty it |
-| Then | the open makes or empties the file, and the descriptor reads it, as an `O_RDONLY` open does |
+| Then | the open makes or empties the file, and the descriptor reads it |
 
 ## `RT-304` A listing of a directory its Filesystem cannot stat hands nothing
 
@@ -3425,7 +3425,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a directory of any Filesystem |
 | When | a caller lists the directory |
-| Then | `.` and `..` carry the inode numbers a stat of the directory and of its parent report |
+| Then | `.` and `..` carry the inode numbers a stat of each reports |
 
 ## `RT-306` A socket call refuses a descriptor standing only for its path
 
