@@ -611,14 +611,14 @@ impl File {
         Ok(self.pos)
     }
 
-    /// Take a hint about `len` bytes, as `generic_fadvise` refuses a FIFO and
-    /// a negative length and ignores the rest, an offset past the largest one
-    /// included, as Linux answers. Every Filesystem is still correct without one.
-    pub fn fadvise(&self, _offset: u64, len: u64) -> Result<(), FilesystemError> {
+    /// Take a hint about `len` bytes from `offset`, as `generic_fadvise`
+    /// refuses a FIFO, then a negative offset or length, and ignores the rest.
+    /// Every Filesystem is still correct without one.
+    pub fn fadvise(&self, offset: u64, len: u64) -> Result<(), FilesystemError> {
         if self.kind() == Some(FileType::Fifo) {
             return Err(FilesystemError::NotSeekable);
         }
-        match len > OFFSET_MAX {
+        match offset > OFFSET_MAX || len > OFFSET_MAX {
             true => Err(FilesystemError::InvalidInput),
             false => Ok(()),
         }

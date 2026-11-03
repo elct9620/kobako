@@ -2858,7 +2858,7 @@ fn a_write_ending_past_the_largest_signed_offset_is_invalid() {
 
 // @behavior RT-130
 #[test]
-fn an_advice_for_a_length_past_the_largest_signed_offset_is_invalid() {
+fn an_advice_reaching_past_the_largest_signed_offset_is_invalid() {
     let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
     assert_eq!(
         (
@@ -2866,9 +2866,9 @@ fn an_advice_for_a_length_past_the_largest_signed_offset_is_invalid() {
             guest.call_at("advise_for", 1 << 63),
             guest.call_at("advise_for", 0)
         ),
-        (0, ERRNO_INVAL, 0),
-        "fd_advise of a Tmpfs file beneath a Mount through preview1 must answer EINVAL for a \
-         length past the largest signed 64-bit offset, and succeed from any offset, as Linux's \
+        (ERRNO_INVAL, ERRNO_INVAL, 0),
+        "fd_advise of a Tmpfs file beneath a Mount through preview1 must answer EINVAL from an \
+         offset or for a length past the largest signed 64-bit offset, as Linux's \
          generic_fadvise does"
     );
 }
