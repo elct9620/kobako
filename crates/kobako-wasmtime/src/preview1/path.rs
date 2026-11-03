@@ -14,7 +14,7 @@ use super::types;
 use crate::descriptors::{Descriptor, Descriptors};
 
 /// The flags `path_open` takes besides the path itself.
-pub(crate) struct OpenFlags {
+pub(crate) struct PathOpen {
     pub(crate) dirflags: types::Lookupflags,
     pub(crate) oflags: types::Oflags,
     pub(crate) rights_base: types::Rights,
@@ -117,7 +117,7 @@ pub(crate) fn open(
     mem: &GuestMemory<'_, '_>,
     fd: u32,
     path: GuestPtr<str>,
-    flags: &OpenFlags,
+    flags: &PathOpen,
 ) -> Answer<types::Fd> {
     let oflags = flags.oflags;
     let mut how = OpenHow::default();
@@ -145,7 +145,7 @@ pub(crate) fn open(
     // before `do_file_open` answers for the name, so a full table answers
     // whatever the path names.
     let op = vfs::build_open_flags(&how)?;
-    let new = table.get_unused_fd().ok_or(Errno::Mfile)?;
+    let new = table.lowest_unused().ok_or(Errno::Mfile)?;
     let path = mem.path(path)?;
     let file = retry_eagain(|| vfs::do_file_open(table.cred(), &start_of(table, fd), &path, &op))?;
     table.place(new, Descriptor::for_file(file));

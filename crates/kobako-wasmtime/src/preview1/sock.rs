@@ -4,10 +4,10 @@
 //! through `fdget`.
 
 use super::errno::{Answer, Errno};
-use super::fd::open_file;
+use super::fd::file;
 use crate::descriptors::Descriptors;
 
 pub(crate) fn socket<T>(table: &Descriptors, fd: u32) -> Answer<T> {
-    open_file(table, fd)?;
+    file(table, fd)?;
     Err(Errno::Notsock.into())
 }

@@ -68,7 +68,7 @@ fn descriptor(table: &Descriptors, fd: u32) -> Answer<&Descriptor> {
 
 /// The open file `fd` stands for, refusing one that stands only for its path,
 /// as `fdget` does.
-pub(crate) fn open_file(table: &Descriptors, fd: u32) -> Answer<&File> {
+pub(crate) fn file(table: &Descriptors, fd: u32) -> Answer<&File> {
     match table.get(fd) {
         Some(descriptor) if !descriptor.file.is_path() => Ok(&descriptor.file),
         _ => Err(Errno::Badf.into()),
@@ -77,7 +77,7 @@ pub(crate) fn open_file(table: &Descriptors, fd: u32) -> Answer<&File> {
 
 /// The open file `fd` stands for, to change, refusing one that stands only for
 /// its path, as `fdget` does.
-fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
+fn file_mut(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
     match table.get_mut(fd) {
         Some(descriptor) if !descriptor.file.is_path() => Ok(&mut descriptor.file),
         _ => Err(Errno::Badf.into()),
@@ -87,7 +87,7 @@ fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
 /// The open file `fd` stands for, in a call about its position. wasi-testsuite
 /// has a directory refuse one, where Linux would seek it.
 fn seekable_file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
-    match file(table, fd)? {
+    match file_mut(table, fd)? {
         file if file.is_directory() => Err(Errno::Badf.into()),
         file => Ok(file),
     }
@@ -175,11 +175,11 @@ fn to_iattr(
 }
 
 pub(crate) fn advise(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
-    Ok(file(table, fd)?.fadvise(offset, len)?)
+    Ok(file_mut(table, fd)?.fadvise(offset, len)?)
 }
 
 pub(crate) fn allocate(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
-    Ok(file(table, fd)?.fallocate(offset, len)?)
+    Ok(file_mut(table, fd)?.fallocate(offset, len)?)
 }
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
@@ -187,7 +187,7 @@ pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn sync(table: &mut Descriptors, fd: u32, datasync: bool) -> Answer {
-    Ok(file(table, fd)?.fsync(datasync)?)
+    Ok(file_mut(table, fd)?.fsync(datasync)?)
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
@@ -234,7 +234,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
 }
 
 pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: Fdflags) -> Answer {
-    file(table, fd)?.setfl(
+    file_mut(table, fd)?.setfl(
         flags.contains(Fdflags::APPEND),
         flags.contains(Fdflags::NONBLOCK),
     );
@@ -257,11 +257,11 @@ pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> 
     if i64::try_from(size).is_err() {
         return Err(Errno::Inval.into());
     }
-    Ok(file(table, fd)?.truncate(size)?)
+    Ok(file_mut(table, fd)?.truncate(size)?)
 }
 
 pub(crate) fn filestat_set_times(table: &Descriptors, fd: u32, times: &Iattr) -> Answer {
-    let file = open_file(table, fd)?;
+    let file = file(table, fd)?;
     Ok(retry_eagain(|| {
         table.walk_guard().check(file.path())?;
         vfs::do_utimes_fd(table.cred(), file.path(), times)
@@ -276,7 +276,7 @@ pub(crate) fn pread(
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
-    let file = file(table, fd)?;
+    let file = file_mut(table, fd)?;
     file.may_pread(offset)?;
     Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
 }
@@ -317,7 +317,7 @@ pub(crate) fn pwrite(
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
-    let file = file(table, fd)?;
+    let file = file_mut(table, fd)?;
     file.may_pwrite(offset)?;
     Ok(file.pwrite(mem.bytes(buf)?, offset)? as u32)
 }
@@ -329,7 +329,7 @@ pub(crate) fn read(
     iovs: types::IovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
-    let file = file(table, fd)?;
+    let file = file_mut(table, fd)?;
     file.may_read()?;
     // Bounded before the file is asked, as a trap takes no bytes from a pipe.
     Ok(file.read(mem.bytes_mut(buf)?)? as u32)
@@ -400,7 +400,7 @@ pub(crate) fn readdir(
     cookie: u64,
 ) -> Answer<types::Size> {
     let profile = table.profile();
-    let dir = file(table, fd)?;
+    let dir = file_mut(table, fd)?;
     // preview1 names where a listing goes on by its cookie, as wasi-libc's
     // `seekdir` moves a directory's position before `getdents`; a listing going
     // on from where the last one stopped needs no seek.
@@ -487,7 +487,7 @@ pub(crate) fn write(
     ciovs: types::CiovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
-    let file = file(table, fd)?;
+    let file = file_mut(table, fd)?;
     file.may_write()?;
     Ok(file.write(mem.bytes(buf)?)? as u32)
 }
@@ -538,7 +538,7 @@ mod tests {
     use crate::preview1::memory::GuestMemory;
     use crate::preview1::path::{
         create_directory, filestat_set_times as path_set_times, open as path_open, readlink,
-        rename, symlink, OpenFlags,
+        rename, symlink, PathOpen,
     };
     use crate::preview1::types::{self, Rights, Whence};
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
@@ -958,7 +958,7 @@ mod tests {
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
-        let flags = OpenFlags {
+        let flags = PathOpen {
             dirflags: types::Lookupflags::empty(),
             oflags: types::Oflags::CREAT | types::Oflags::DIRECTORY,
             rights_base: Rights::FD_READ,
@@ -1000,7 +1000,7 @@ mod tests {
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
-        let flags = |oflags| OpenFlags {
+        let flags = |oflags| PathOpen {
             dirflags: types::Lookupflags::empty(),
             oflags,
             rights_base: Rights::FD_READ,
@@ -1175,7 +1175,7 @@ mod tests {
         let mut bytes = *b"a";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 1);
-        let flags = |oflags| OpenFlags {
+        let flags = |oflags| PathOpen {
             dirflags: types::Lookupflags::empty(),
             oflags,
             rights_base: Rights::FD_READ,

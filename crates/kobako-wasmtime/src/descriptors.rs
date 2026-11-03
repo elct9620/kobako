@@ -121,7 +121,7 @@ impl Descriptors {
     }
 
     /// Place `descriptor` at `fd`, a number the caller has just freed or
-    /// `get_unused_fd` found, as Linux's `fd_install` does.
+    /// `lowest_unused` found, as Linux's `fd_install` does.
     pub(crate) fn place(&mut self, fd: u32, descriptor: Descriptor) {
         self.free.remove(&fd);
         self.used.insert(fd, descriptor);
@@ -131,7 +131,7 @@ impl Descriptors {
     /// past the highest in use, as Linux's `get_unused_fd_flags` finds it;
     /// `None` when the table holds as many as it may. Nothing is placed
     /// until `place`, as `fd_install` fills what was found.
-    pub(crate) fn get_unused_fd(&self) -> Option<u32> {
+    pub(crate) fn lowest_unused(&self) -> Option<u32> {
         if self.limit.is_some_and(|limit| self.used.len() >= limit) {
             return None;
         }
@@ -144,11 +144,11 @@ impl Descriptors {
         }
     }
 
-    /// Add `descriptor` under the number `get_unused_fd` finds; `None` when
+    /// Add `descriptor` under the number `lowest_unused` finds; `None` when
     /// the table is full.
     #[cfg(test)]
     pub(crate) fn push(&mut self, descriptor: Descriptor) -> Option<u32> {
-        let fd = self.get_unused_fd()?;
+        let fd = self.lowest_unused()?;
         self.place(fd, descriptor);
         Some(fd)
     }

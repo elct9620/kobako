@@ -385,7 +385,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
                 mem,
                 fd.into(),
                 path,
-                &path::OpenFlags {
+                &path::PathOpen {
                     dirflags,
                     oflags,
                     rights_base: fs_rights_base,
