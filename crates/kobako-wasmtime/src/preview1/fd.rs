@@ -455,9 +455,8 @@ pub(crate) fn renumber(table: &mut Descriptors, from: u32, to: u32) -> Answer {
     if from == to {
         return Ok(());
     }
-    let (Some(moved), Some(replaced)) = (table.remove(from), table.remove(to)) else {
-        return Err(Errno::Badf.into());
-    };
+    let moved = table.remove(from).expect("found open above");
+    let replaced = table.remove(to).expect("found open above");
     table.place(to, moved);
     let _ = replaced.file.close();
     Ok(())
@@ -1442,6 +1441,24 @@ mod tests {
             "fd_renumber through preview1 onto a file whose Filesystem refuses the close must \
              succeed, the source now standing at the target and its own number free, as Linux's \
              do_dup2 ignores filp_close of the file it replaced"
+        );
+    }
+
+    // @behavior RT-309
+    #[test]
+    fn renumbering_onto_a_number_not_open_answers_ebadf_and_keeps_the_source() {
+        let mut table = standard_streams();
+        let from = table.push(open_file()).expect("a descriptor to move");
+        let to = from + 1;
+        assert_eq!(
+            (
+                errno(renumber(&mut table, from, to)),
+                table.get(from).is_some(),
+                table.get(to).is_none()
+            ),
+            (Some(Errno::Badf), true, true),
+            "fd_renumber through preview1 onto a number nothing stands at must answer EBADF and \
+             leave the source at its own number, as wasmtime-wasi replaces only an open one"
         );
     }
 }
