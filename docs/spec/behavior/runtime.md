@@ -1164,7 +1164,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | each takes a temporary file to write into |
 | Then | each holds a file of its own |
 
-## `RT-114` Moving a descriptor onto an open file closes that file first
+## `RT-114` Moving a descriptor onto an open file replaces that file
 
 | Attribute | Value |
 | --- | --- |
@@ -1174,7 +1174,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a guest holding two open files, the second on a Filesystem that refuses to close it |
 | When | the guest renumbers the first onto the second |
-| Then | the call answers that refusal and the second descriptor is closed |
+| Then | the call succeeds, the first now standing at the second's number, as Linux's `dup2` |
 
 ## `RT-115` A path climbing above the directory it is opened beneath is refused
 
