@@ -8,7 +8,7 @@ use std::sync::Arc;
 use super::attr::notify_change;
 use super::cred::{Cred, FileSecurity, SecurityPath};
 use super::dentry::Dentry;
-use super::inode::{EmptyFops, Identity};
+use super::inode::{EmptyFops, Identity, Inode};
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
 use super::path::Path;
@@ -448,6 +448,8 @@ pub struct File {
     /// Where it was opened, as `f_path`; it follows the name wherever it
     /// moves.
     path: Path,
+    /// What it was opened on, as `f_inode`.
+    inode: Arc<Inode>,
     /// What answers for it, as `f_op`.
     ops: Box<dyn FileOperations>,
     /// What it was opened for, as `f_mode`.
@@ -474,19 +476,25 @@ pub struct File {
 
 impl File {
     /// The file `ops` answers for, opened at `path` as `how` asks, with no
-    /// position where `ops` is a stream.
+    /// position where `ops` is a stream. It keeps the inode `path` names, as
+    /// `do_dentry_open` sets `f_inode` once.
     pub(crate) fn new(
         path: Path,
         ops: Box<dyn FileOperations>,
         how: &OpenHow,
         cred: &Arc<Cred>,
     ) -> Self {
+        let inode = path
+            .dentry()
+            .inode()
+            .expect("a file opens only on a dentry naming an inode");
         let mode = match ops.is_stream() {
             true => FMode::of(how).stream_open(),
             false => FMode::of(how),
         };
         Self {
             path,
+            inode,
             ops,
             mode,
             append: how.append,
@@ -545,12 +553,12 @@ impl File {
 
     /// Whether it is a directory, as `S_ISDIR(file_inode(file))`.
     pub fn is_directory(&self) -> bool {
-        self.kind() == Some(FileType::Dir)
+        self.kind() == FileType::Dir
     }
 
     /// What kind of entry it is, as `file_inode(file)->i_mode` says.
-    pub fn kind(&self) -> Option<FileType> {
-        self.path.dentry().inode().map(|inode| inode.kind())
+    pub fn kind(&self) -> FileType {
+        self.inode.kind()
     }
 
     /// What it was opened for.
@@ -618,7 +626,7 @@ impl File {
     /// refuses a FIFO, then a negative offset or length, and ignores the rest.
     /// Every Filesystem is still correct without one.
     pub fn fadvise(&self, offset: u64, len: u64) -> Result<(), FilesystemError> {
-        if self.kind() == Some(FileType::Fifo) {
+        if self.kind() == FileType::Fifo {
             return Err(FilesystemError::NotSeekable);
         }
         match offset > OFFSET_MAX || len > OFFSET_MAX {
@@ -637,10 +645,10 @@ impl File {
         }
         self.may_write()?;
         match self.kind() {
-            Some(FileType::Fifo) => return Err(FilesystemError::NotSeekable),
-            Some(FileType::Dir) => return Err(FilesystemError::IsADirectory),
-            Some(FileType::RegFile | FileType::Blkdev) | None => {}
-            Some(_) => return Err(FilesystemError::NoSuchDevice),
+            FileType::Fifo => return Err(FilesystemError::NotSeekable),
+            FileType::Dir => return Err(FilesystemError::IsADirectory),
+            FileType::RegFile | FileType::Blkdev => {}
+            _ => return Err(FilesystemError::NoSuchDevice),
         }
         if offset + len > OFFSET_MAX {
             return Err(FilesystemError::FileTooLarge);
@@ -785,8 +793,7 @@ impl File {
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
     /// refuses anything but a file open to write, and reaches `->setattr`.
     pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        let regular = self.path.dentry().kind() == Ok(FileType::RegFile);
-        if !regular || !self.writable() || len > OFFSET_MAX {
+        if self.kind() != FileType::RegFile || !self.writable() || len > OFFSET_MAX {
             return Err(FilesystemError::InvalidInput);
         }
         self.cred.security_file_truncate(&self.security)?;

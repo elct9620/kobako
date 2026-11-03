@@ -226,7 +226,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
         (rights, rights)
     };
     Ok(types::Fdstat {
-        fs_filetype: file.kind().map_or(Filetype::Unknown, to_filetype),
+        fs_filetype: to_filetype(file.kind()),
         fs_flags,
         fs_rights_base,
         fs_rights_inheriting,
