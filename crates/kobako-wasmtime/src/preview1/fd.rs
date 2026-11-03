@@ -3,6 +3,8 @@
 //! The runtime's open file decides each answer, so this keeps only what
 //! preview1 itself defines: which file a number stands for, its rights, a
 //! preopen's name, and what wasi-testsuite asks of a directory's position.
+//! It also keeps what a Linux syscall entry checks before the VFS: which
+//! descriptor a call takes, the order of its errors, and the caller's buffer.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

@@ -1,5 +1,7 @@
 //! The 10 `path_*` calls. Each hands the call to the runtime's VFS, which
-//! resolves the path, asks the Mount, and asks the Filesystem.
+//! resolves the path, asks the Mount, and asks the Filesystem. What a Linux
+//! syscall entry checks before the VFS stays here, such as the order of an
+//! open's errors.
 
 use kobako_runtime::filesystem::{FilesystemError, Iattr};
 use kobako_runtime::vfs::{self, OpenHow, Start};
