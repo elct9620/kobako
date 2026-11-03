@@ -218,7 +218,12 @@ pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filest
     Ok(to_filestat(table, descriptor(table, fd)?.file.getattr()?))
 }
 
+/// A size Linux's signed `loff_t` reads as negative answers before the
+/// descriptor is looked for, as `ksys_ftruncate` checks it before `fdget`.
 pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> Answer {
+    if i64::try_from(size).is_err() {
+        return Err(Errno::Inval.into());
+    }
     Ok(file(table, fd)?.truncate(size)?)
 }
 

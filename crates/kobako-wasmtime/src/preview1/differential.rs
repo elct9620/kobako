@@ -91,6 +91,7 @@ const PROBE_WAT: &str = r#"
   (func (export "fd_fdstat_set_rights") (param i32) (result i32) (call $fd_fdstat_set_rights (local.get 0) (i64.const 0) (i64.const 0)))
   (func (export "fd_filestat_get") (param i32) (result i32) (call $fd_filestat_get (local.get 0) (i32.const 256)))
   (func (export "fd_filestat_set_size") (param i32) (result i32) (call $fd_filestat_set_size (local.get 0) (i64.const 0)))
+  (func (export "fd_filestat_set_size_huge") (param i32) (result i32) (call $fd_filestat_set_size (local.get 0) (i64.const -1)))
   (func (export "fd_filestat_set_times") (param i32) (result i32) (call $fd_filestat_set_times (local.get 0) (i64.const 0) (i64.const 0) (i32.const 0)))
   (func (export "fd_pread") (param i32) (result i32) (call $fd_pread (local.get 0) (i32.const 64) (i32.const 1) (i64.const 0) (i32.const 128)))
   (func (export "fd_prestat_get") (param i32) (result i32) (call $fd_prestat_get (local.get 0) (i32.const 256)))
@@ -385,8 +386,9 @@ fn every_descriptor_call_answers_as_wasmtime_wasi_preview1() {
 /// outranks it. For a standard stream it answers as for a pipe: an offset, a
 /// sync, or a size is no pipe's, and a pipe is no directory to open beneath.
 /// Linux also takes `O_APPEND` on a pipe, reports one link where wasmtime-wasi
-/// reports none, and checks neither path nor descriptor for a call setting no
-/// time, as `utimensat` returns first.
+/// reports none, checks neither path nor descriptor for a call setting no
+/// time, as `utimensat` returns first, and reports a wait on a descriptor not
+/// open in its event, as `poll` marks it `POLLNVAL`.
 fn answered_as_linux(call: &str, fd: i32) -> Option<i32> {
     const ERRNO_SUCCESS: i32 = 0;
     const ERRNO_INVAL: i32 = 28;
@@ -394,6 +396,7 @@ fn answered_as_linux(call: &str, fd: i32) -> Option<i32> {
     const ERRNO_SPIPE: i32 = 70;
     match (call, fd) {
         ("fd_filestat_set_times" | "path_filestat_set_times", 3) => Some(ERRNO_SUCCESS),
+        ("poll_oneoff_read" | "poll_oneoff_write", 3) => Some(ERRNO_SUCCESS),
         ("fd_advise", 0..=2) => Some(ERRNO_SPIPE),
         ("fd_allocate" | "fd_sync" | "fd_datasync" | "fd_filestat_set_size", 0..=2) => {
             Some(ERRNO_INVAL)
@@ -423,6 +426,43 @@ fn answered_as_linux(call: &str, fd: i32) -> Option<i32> {
         ("fd_pwrite" | "fd_pwrite_far", 0) => Some(ERRNO_SPIPE),
         _ => None,
     }
+}
+
+// wasmtime-wasi fails the whole wait; the witx gives each event its own error,
+// and Linux's `do_pollfd` marks the descriptor `POLLNVAL`, which wasi-libc reads
+// back from an event's EBADF.
+// @behavior RT-295
+#[test]
+fn a_wait_on_a_descriptor_not_open_reports_it_in_its_event() {
+    let read = through_kobako("poll_oneoff_read", 3, None);
+    let write = through_kobako("poll_oneoff_write", 3, None);
+    let event = |seen: &Observation| {
+        (
+            seen.errno,
+            u64::from_le_bytes(seen.memory[896..904].try_into().expect("eight bytes")),
+            u16::from_le_bytes([seen.memory[904], seen.memory[905]]),
+            u32::from_le_bytes(seen.memory[128..132].try_into().expect("four bytes")),
+        )
+    };
+    assert_eq!(
+        (event(&read), event(&write)),
+        ((Some(0), 7, 8, 1), (Some(0), 7, 8, 1)),
+        "poll_oneoff on descriptor 3, not open, through kobako's preview1 imports must succeed \
+         with one event whose error is EBADF, as Linux's poll marks it POLLNVAL"
+    );
+}
+
+// Linux's `ksys_ftruncate` reads the length as a signed `loff_t` and refuses a
+// negative one before it looks for the descriptor.
+// @behavior RT-296
+#[test]
+fn a_size_no_file_can_take_answers_before_the_descriptor_is_found() {
+    assert_eq!(
+        through_kobako("fd_filestat_set_size_huge", 3, None).errno,
+        Some(28),
+        "fd_filestat_set_size of 2^64 - 1 on descriptor 3, not open, through kobako's preview1 \
+         imports must answer EINVAL, as ftruncate checks the length before the descriptor"
+    );
 }
 
 // wasmtime-wasi answers EBADF for the end a call cannot use; Linux reads

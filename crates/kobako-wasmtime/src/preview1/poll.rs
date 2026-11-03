@@ -19,10 +19,11 @@ use super::types::{self, Clockid, Eventrwflags, Eventtype, Subclockflags, Subscr
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
-/// One subscription as the guest wrote it.
+/// One subscription as the guest wrote it, and the error its event reports.
 struct Subscription {
     userdata: u64,
     kind: Kind,
+    error: Errno,
 }
 
 enum Kind {
@@ -66,7 +67,7 @@ pub(crate) fn poll_oneoff(
     for sub in &subscriptions {
         let (ready, nbytes) = match sub.kind {
             Kind::Clock(left) => (left <= waited, 0),
-            Kind::FdRead | Kind::FdWrite => (true, 1),
+            Kind::FdRead | Kind::FdWrite => (true, u64::from(sub.error == Errno::Success)),
         };
         if ready {
             mem.write(events.add(written)?, to_event(sub, nbytes))?;
@@ -82,38 +83,41 @@ fn read_subscription(
     sub: GuestPtr<types::Subscription>,
 ) -> Answer<Subscription> {
     let sub = mem.read(sub)?;
-    let kind = match sub.u {
-        SubscriptionU::Clock(clock) => read_clock(invocation, &clock)?,
-        SubscriptionU::FdRead(subscribed) => {
-            poll_descriptor(invocation, subscribed, PollMask::IN)?;
-            Kind::FdRead
-        }
-        SubscriptionU::FdWrite(subscribed) => {
-            poll_descriptor(invocation, subscribed, PollMask::OUT)?;
-            Kind::FdWrite
-        }
+    let (kind, error) = match sub.u {
+        SubscriptionU::Clock(clock) => (read_clock(invocation, &clock)?, Errno::Success),
+        SubscriptionU::FdRead(subscribed) => (
+            Kind::FdRead,
+            poll_descriptor(invocation, subscribed, PollMask::IN)?,
+        ),
+        SubscriptionU::FdWrite(subscribed) => (
+            Kind::FdWrite,
+            poll_descriptor(invocation, subscribed, PollMask::OUT)?,
+        ),
     };
     Ok(Subscription {
         userdata: sub.userdata,
         kind,
+        error,
     })
 }
 
-/// Hold a subscription to what its descriptor would find ready. A pipe's end
-/// is never ready for what the other end does, and nothing here would wake a
-/// wait on it, so that is `BADF` rather than a wait that never ends.
+/// Hold a subscription to what its descriptor would find ready, answering the
+/// error its event reports. A number no descriptor holds is reported in its
+/// event, as Linux's `do_pollfd` marks it `POLLNVAL` and the wait goes on. A
+/// pipe's end is never ready for what the other end does, and nothing here
+/// would wake a wait on it, so that is `BADF` rather than a wait that never
+/// ends.
 fn poll_descriptor(
     invocation: &Invocation,
     subscribed: types::SubscriptionFdReadwrite,
     event: PollMask,
-) -> Answer {
-    let descriptor = invocation
-        .wasi()
-        .descriptors()
-        .get(subscribed.file_descriptor.into())
-        .ok_or(Errno::Badf)?;
+) -> Answer<Errno> {
+    let descriptors = invocation.wasi().descriptors();
+    let Some(descriptor) = descriptors.get(subscribed.file_descriptor.into()) else {
+        return Ok(Errno::Badf);
+    };
     match descriptor.file.poll().contains(event) {
-        true => Ok(()),
+        true => Ok(Errno::Success),
         false => Err(Errno::Badf.into()),
     }
 }
@@ -157,7 +161,7 @@ fn wait(invocation: &Invocation, nanos: u64) -> Answer {
 fn to_event(sub: &Subscription, nbytes: u64) -> types::Event {
     types::Event {
         userdata: sub.userdata,
-        error: Errno::Success,
+        error: sub.error,
         type_: match sub.kind {
             Kind::Clock(_) => Eventtype::Clock,
             Kind::FdRead => Eventtype::FdRead,
