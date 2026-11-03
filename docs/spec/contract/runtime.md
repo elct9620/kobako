@@ -480,14 +480,14 @@ impl MemoryLimitExceeded {
 }
 ```
 
-## `Profile::guest_metadata`
+## `Profile::guest_kstat`
 
 What a Filesystem reports, as a Guest on one posture sees it, whichever ABI a
 Driver encodes it into. A Driver shows only this.
 
 ```rust
 impl Profile {
-    pub fn guest_metadata(self, metadata: Kstat) -> Kstat {}
+    pub fn guest_kstat(self, stat: Kstat) -> Kstat {}
 }
 ```
 
@@ -764,23 +764,22 @@ pub struct Identity {}
 
 ## `Identity::of`
 
-The identity some metadata names, none where its inode number of zero reports
-none.
+The identity a `Kstat` names, none where its inode number of zero reports none.
 
 ```rust
 impl Identity {
-    pub fn of(metadata: &Kstat) -> Option<Self> {}
+    pub fn of(stat: &Kstat) -> Option<Self> {}
 }
 ```
 
 ## `Identity::onto`
 
-The same metadata naming this identity, for an open file a Filesystem answers
+The same `Kstat` naming this identity, for an open file a Filesystem answers
 for apart from its path.
 
 ```rust
 impl Identity {
-    pub fn onto(self, metadata: Kstat) -> Kstat {}
+    pub fn onto(self, stat: Kstat) -> Kstat {}
 }
 ```
 
@@ -2414,7 +2413,7 @@ pub enum FileType {}
 
 ## `Kstat`
 
-What a path names, its length, and its identity.
+What a path names, its size, its identity, and its times.
 
 ```rust
 pub struct Kstat {}
@@ -2422,17 +2421,17 @@ pub struct Kstat {}
 
 ## `Kstat::new`
 
-What a path names and its length, as a Filesystem reports it.
+What a path names and its size, as a Filesystem reports it.
 
 ```rust
 impl Kstat {
-    pub fn new(file_type: FileType, len: u64) -> Self {}
+    pub fn new(file_type: FileType, size: u64) -> Self {}
 }
 ```
 
 ## `Kstat::with_identity`
 
-The same metadata naming the device and inode numbers a Filesystem gives what
+The same `Kstat` naming the device and inode numbers a Filesystem gives what
 the path holds.
 
 ```rust
@@ -2443,7 +2442,7 @@ impl Kstat {
 
 ## `Kstat::with_nlink`
 
-The same metadata counting the names a Filesystem gives the entry.
+The same `Kstat` counting the names a Filesystem gives the entry.
 
 ```rust
 impl Kstat {
@@ -2453,12 +2452,12 @@ impl Kstat {
 
 ## `Kstat::with_times`
 
-The same metadata recording when the entry was last read, written, and
+The same `Kstat` recording when the entry was last read, written, and
 changed.
 
 ```rust
 impl Kstat {
-    pub fn with_times(self, accessed: Option<SystemTime>, modified: Option<SystemTime>, changed: Option<SystemTime>) -> Self {}
+    pub fn with_times(self, atime: Option<SystemTime>, mtime: Option<SystemTime>, ctime: Option<SystemTime>) -> Self {}
 }
 ```
 
