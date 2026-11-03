@@ -2272,18 +2272,10 @@ impl DirEmit {
 ## `dir_emit_dots`
 
 Hand a listing the `.` and `..` it has yet to reach, answering whether to go on.
+Each names the inode its dentry holds.
 
 ```rust
 pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {}
-```
-
-## `dir_emit_entries`
-
-Hand a listing its dots, then entries by their index, answering whether it took
-them all.
-
-```rust
-pub fn dir_emit_entries(dentry: &Dentry, ctx: &mut DirContext<'_>, entries: &[DirEntry]) -> bool {}
 ```
 
 ## `generic_read_dir`
@@ -2304,9 +2296,11 @@ pub struct Rdir {}
 
 ## `Rdir::iterate`
 
-Hand a listing the directory from its position. A listing from the start reads it,
-and one going on reads what that listing began with. Those entries count against the
-caller until the listing ends.
+Hand a listing the directory from its position, counting what it holds until it
+ends. A fresh listing reads it, then stats it and its parent for `.` and `..`.
+
+Either failure answers before any entry. A listing going on reads what it began
+with.
 
 ```rust
 impl Rdir {

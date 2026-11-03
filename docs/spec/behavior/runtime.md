@@ -3402,3 +3402,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a read-write Mount |
 | When | the guest opens a file without any right, to make it or to empty it |
 | Then | the open makes or empties the file, and the descriptor reads it, as an `O_RDONLY` open does |
+
+## `RT-304` A listing of a directory its Filesystem cannot stat hands nothing
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-182`, `RT-237` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem reading a directory whole, unable to stat it or the directory above it |
+| When | the guest lists the directory |
+| Then | the listing answers that failure and hands no entry, as overlayfs does |
+
+## `RT-305` A listing names its dots as a stat of them does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-182` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory of any Filesystem |
+| When | a caller lists the directory |
+| Then | `.` and `..` carry the inode numbers a stat of the directory and of its parent report |
