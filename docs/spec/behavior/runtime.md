@@ -3438,3 +3438,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory the guest opened without the right to read, list, or write |
 | When | the guest makes a socket call through the descriptor |
 | Then | the call answers EBADF, as Linux's socket calls take theirs through `fdget` |
+
+## `RT-307` Sizing anything but a regular file answers EINVAL
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-137`, `RT-274` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a character device open to write, whose Filesystem sizes it like any file |
+| When | a caller sets its size |
+| Then | the call answers EINVAL, as Linux's `do_ftruncate` sizes only a regular file |
