@@ -142,6 +142,7 @@ const PROBE_WAT: &str = r#"
   (data (i32.const 1190) "dir/sub")
   (data (i32.const 1400) "dir/in/y")
   (data (i32.const 1420) "dir/sub/y")
+  (data (i32.const 1440) "\ff")
   ;; An iovec naming 16 bytes past the one page of memory.
   (data (i32.const 1140) "\00\00\02\00\10\00\00\00")
   (data (i32.const 64) "\00\02\00\00\40\00\00\00")
@@ -456,6 +457,7 @@ const LINK_DOT: (i32, i32) = (970, 10);
 #[cfg(unix)]
 const OUT_OF_LINK: (i32, i32) = (990, 20);
 const HOLDING_NUL: (i32, i32) = (1010, 9);
+const NOT_UTF8: (i32, i32) = (1440, 1);
 const DIR_FILE: (i32, i32) = (1030, 12);
 #[cfg(unix)]
 const DIR_AS_DIRECTORY: (i32, i32) = (1050, 4);
@@ -1413,8 +1415,8 @@ fn a_directory_without_an_identity_still_reports_itself_beneath_a_policy() {
 
 // The table holds the three standard descriptors and the preopen alone, so a
 // missing path, or one no call can take, could only answer EMFILE by asking
-// the table first. A path of `PATH_MAX` bytes is too long, and an empty one or
-// one holding a NUL names nothing.
+// the table first. A path of `PATH_MAX` bytes is too long, an empty one or one
+// holding a NUL names nothing, and one that is not UTF-8 is never decoded.
 // @behavior RT-190
 #[test]
 fn a_full_table_answers_emfile_whatever_the_path_names() {
@@ -1423,13 +1425,13 @@ fn a_full_table_answers_emfile_whatever_the_path_names() {
         &[grant(file_and_directory(), Access::ReadWrite, None)],
     );
     let too_long = (0, i32::try_from(PATH_MAX).expect("PATH_MAX fits an i32"));
-    let answers =
-        [THROUGH_MISSING, EMPTY, HOLDING_NUL, too_long].map(|path| guest.call("read_file", path));
+    let answers = [THROUGH_MISSING, EMPTY, HOLDING_NUL, too_long, NOT_UTF8]
+        .map(|path| guest.call("read_file", path));
     assert_eq!(
-        answers, [ERRNO_MFILE; 4],
-        "path_open of a missing, empty, NUL-holding, or too long path through preview1 with \
-         no descriptor left must answer EMFILE, as Linux's FD_ADD takes one before \
-         do_file_open answers for the name"
+        answers, [ERRNO_MFILE; 5],
+        "path_open of a missing, empty, NUL-holding, too long, or non-UTF-8 path through \
+         preview1 with no descriptor left must answer EMFILE, as Linux's FD_ADD takes one \
+         before do_file_open answers for the name"
     );
 }
 

@@ -145,8 +145,8 @@ pub(crate) fn open(
     // before `do_file_open` answers for the name, so a full table answers
     // whatever the path names.
     let op = vfs::build_open_flags(&how)?;
-    let path = mem.path(path)?;
     let new = table.get_unused_fd().ok_or(Errno::Mfile)?;
+    let path = mem.path(path)?;
     let file = retry_eagain(|| vfs::do_file_open(table.cred(), &start_of(table, fd), &path, &op))?;
     table.place(new, Descriptor::for_file(file));
     Ok(new.into())
