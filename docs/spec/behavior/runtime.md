@@ -1348,7 +1348,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest opens `file.txt` not to block, or sets an open one not to |
 | Then | each call succeeds and the descriptor reports it, as Linux takes it on a file |
 
-## `RT-130` An advice for a length past the largest signed offset is invalid
+## `RT-130` An advice reaching past the largest signed offset is invalid
 
 | Attribute | Value |
 | --- | --- |
@@ -1358,7 +1358,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | an invocation holding a file open beneath a Mount |
 | When | the guest advises on a length past the largest offset, or from past it |
-| Then | the first advice answers EINVAL, and the second succeeds, as Linux does |
+| Then | each advice answers EINVAL, as Linux does |
 
 ## `RT-131` A lone wait on a CPU-time clock is invalid
 

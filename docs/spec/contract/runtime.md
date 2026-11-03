@@ -1328,12 +1328,12 @@ impl File {
 
 ## `File::fadvise`
 
-Take a hint about a range, as `generic_fadvise` refuses a pipe and a negative
-length.
+Take a hint about a range, as `generic_fadvise` refuses a pipe, then a negative
+offset or length.
 
 ```rust
 impl File {
-    pub fn fadvise(&self, _offset: u64, len: u64) -> Result<(), FilesystemError> {}
+    pub fn fadvise(&self, offset: u64, len: u64) -> Result<(), FilesystemError> {}
 }
 ```
 
