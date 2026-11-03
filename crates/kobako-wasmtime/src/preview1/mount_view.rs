@@ -2882,6 +2882,8 @@ fn a_directory_a_guest_opens_hands_down_the_right_to_write() {
 // `fd_readdir`, or `fd_write`; the poll answers the event's error, its call
 // succeeding. wasi-testsuite lists a directory opened with `fd_readdir` alone.
 // @behavior RT-297
+// @behavior RT-299
+// @behavior RT-300
 #[test]
 fn a_directory_opened_for_neither_reading_nor_writing_stands_only_for_its_path() {
     let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
