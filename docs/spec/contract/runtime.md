@@ -1097,11 +1097,11 @@ pub trait SecurityOperations {
 
 ## `SecurityOperations::inode_readlink`
 
-Whether where a link points may be read.
+Whether where the link a Dentry names points may be read.
 
 ```rust
 pub trait SecurityOperations {
-    fn inode_readlink(&self) -> Result<(), FilesystemError>;
+    fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
 }
 ```
 

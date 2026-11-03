@@ -58,7 +58,7 @@ impl SecurityOperations for KobakoSecurity {
     }
 
     /// A guest never reads where a link points.
-    fn inode_readlink(&self) -> Result<(), FilesystemError> {
+    fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::Unsupported)
     }
 }

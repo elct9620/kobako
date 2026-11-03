@@ -108,8 +108,9 @@ pub trait SecurityOperations: Send + Sync {
         Ok(())
     }
 
-    /// Whether where a link points may be read.
-    fn inode_readlink(&self) -> Result<(), FilesystemError> {
+    /// Whether where the link `dentry` names points may be read, as
+    /// `security_inode_readlink` is handed the link.
+    fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Ok(())
     }
 
@@ -242,8 +243,8 @@ impl Cred {
         self.call_int_hook(|module| module.path_utimes(path))
     }
 
-    pub(crate) fn security_inode_readlink(&self) -> Result<(), FilesystemError> {
-        self.call_int_hook(|module| module.inode_readlink())
+    pub(crate) fn security_inode_readlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.call_int_hook(|module| module.inode_readlink(dentry))
     }
 
     pub(crate) fn security_vm_enough_memory(&self, bytes: usize) -> Result<(), FilesystemError> {

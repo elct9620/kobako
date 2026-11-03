@@ -147,6 +147,6 @@ pub fn do_readlinkat(
     if target.kind()? != FileType::Symlink {
         return Err(refusal);
     }
-    cred.security_inode_readlink()?;
+    cred.security_inode_readlink(&target)?;
     target.get_link()
 }
