@@ -926,11 +926,11 @@ impl FileSystemType for ReportsLen {
 
 impl InodeOperations for ReportsLen {
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        let mut metadata = self.0.getattr(dentry)?;
-        if metadata.file_type == FileType::RegFile {
-            metadata.len = self.1;
+        let mut stat = self.0.getattr(dentry)?;
+        if stat.file_type == FileType::RegFile {
+            stat.size = self.1;
         }
-        Ok(metadata)
+        Ok(stat)
     }
 
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {

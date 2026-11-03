@@ -26,10 +26,7 @@ use crate::vfs::{
 /// The change setting what `stat` reports of its times, as
 /// `ovl_set_timestamps` sets `ATTR_ATIME_SET` and `ATTR_MTIME_SET`.
 pub(super) fn timestamps(stat: &Kstat) -> Iattr {
-    Iattr::times(
-        stat.accessed.map(SetTime::At),
-        stat.modified.map(SetTime::At),
-    )
+    Iattr::times(stat.atime.map(SetTime::At), stat.mtime.map(SetTime::At))
 }
 
 /// The attribute marking a directory opaque, and its value, as
@@ -220,11 +217,11 @@ impl OverlayPath {
         }
     }
 
-    pub(super) fn metadata(&self) -> Result<Kstat, FilesystemError> {
+    pub(super) fn getattr(&self) -> Result<Kstat, FilesystemError> {
         self.dentry.getattr()
     }
 
-    pub(super) fn symlink_metadata(&self, name: &str) -> Result<Kstat, FilesystemError> {
+    pub(super) fn getattr_at(&self, name: &str) -> Result<Kstat, FilesystemError> {
         let _held = self.inode_lock_shared()?;
         self.lookup_real(name)?.getattr()
     }

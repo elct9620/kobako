@@ -36,12 +36,15 @@ impl FileType {
     }
 }
 
+/// What a Filesystem reports of an entry, as Linux's `struct kstat`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Kstat {
+    /// What the entry is, as the `S_IFMT` bits of `mode` say; the runtime
+    /// keeps no permission bits, so the kind stands alone.
     pub file_type: FileType,
     /// The length in bytes, of a directory what its Filesystem reports.
-    pub len: u64,
+    pub size: u64,
     /// The device and inode numbers naming what the path holds, as
     /// `st_dev` and `st_ino` do. An `ino` of zero reports none, so such a
     /// directory cannot be told from one made in its place.
@@ -53,48 +56,47 @@ pub struct Kstat {
     /// When the entry was last read, written, or changed, as `st_atime`,
     /// `st_mtime`, and `st_ctime` record; `None` where the Filesystem keeps
     /// no such time.
-    pub accessed: Option<SystemTime>,
-    pub modified: Option<SystemTime>,
-    pub changed: Option<SystemTime>,
+    pub atime: Option<SystemTime>,
+    pub mtime: Option<SystemTime>,
+    pub ctime: Option<SystemTime>,
 }
 
 impl Kstat {
-    /// Kstat named once, reporting no identity or time.
-    pub fn new(file_type: FileType, len: u64) -> Self {
+    /// What an entry is and its size, reporting no identity or time.
+    pub fn new(file_type: FileType, size: u64) -> Self {
         Self {
             file_type,
-            len,
+            size,
             dev: 0,
             ino: 0,
             nlink: 1,
-            accessed: None,
-            modified: None,
-            changed: None,
+            atime: None,
+            mtime: None,
+            ctime: None,
         }
     }
 
-    /// This metadata naming `dev` and `ino` as what the path holds.
+    /// The same, naming `dev` and `ino` as what the path holds.
     pub fn with_identity(self, dev: u64, ino: u64) -> Self {
         Self { dev, ino, ..self }
     }
 
-    /// This metadata counting `nlink` names.
+    /// The same, counting `nlink` names.
     pub fn with_nlink(self, nlink: u64) -> Self {
         Self { nlink, ..self }
     }
 
-    /// This metadata recording when the entry was last read, written, and
-    /// changed.
+    /// The same, recording when the entry was last read, written, and changed.
     pub fn with_times(
         self,
-        accessed: Option<SystemTime>,
-        modified: Option<SystemTime>,
-        changed: Option<SystemTime>,
+        atime: Option<SystemTime>,
+        mtime: Option<SystemTime>,
+        ctime: Option<SystemTime>,
     ) -> Self {
         Self {
-            accessed,
-            modified,
-            changed,
+            atime,
+            mtime,
+            ctime,
             ..self
         }
     }

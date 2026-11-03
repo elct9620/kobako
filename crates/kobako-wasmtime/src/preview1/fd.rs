@@ -102,17 +102,17 @@ fn to_filetype(file_type: FileType) -> Filetype {
 
 /// A `filestat` for what a Filesystem reports a path names, as the guest
 /// holding `table` sees it, at time zero where it keeps no time.
-pub(crate) fn to_filestat(table: &Descriptors, metadata: Kstat) -> types::Filestat {
-    let metadata = table.profile().guest_metadata(metadata);
+pub(crate) fn to_filestat(table: &Descriptors, stat: Kstat) -> types::Filestat {
+    let stat = table.profile().guest_kstat(stat);
     types::Filestat {
-        dev: metadata.dev,
-        ino: metadata.ino,
-        filetype: to_filetype(metadata.file_type),
-        nlink: metadata.nlink,
-        size: metadata.len,
-        atim: to_timestamp(metadata.accessed),
-        mtim: to_timestamp(metadata.modified),
-        ctim: to_timestamp(metadata.changed),
+        dev: stat.dev,
+        ino: stat.ino,
+        filetype: to_filetype(stat.file_type),
+        nlink: stat.nlink,
+        size: stat.size,
+        atim: to_timestamp(stat.atime),
+        mtim: to_timestamp(stat.mtime),
+        ctim: to_timestamp(stat.ctime),
     }
 }
 

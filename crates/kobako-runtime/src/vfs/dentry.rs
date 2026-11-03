@@ -804,7 +804,14 @@ mod tests {
         assert_eq!(
             (
                 vfs::filename_mkdirat(&Arc::default(), &dir, "made"),
-                File::directory(dir.clone(), &Arc::default())
+                File::dentry_open(
+                    dir.clone(),
+                    &OpenHow {
+                        read: true,
+                        ..OpenHow::default()
+                    },
+                    &Arc::default()
+                )
                     .expect("the directory must open")
                     .iterate_dir(&mut vfs::DirContext::new(0, &mut |_| true)),
                 kern_path(tmpfs.clone()).symlink_metadata("dir/made").err()

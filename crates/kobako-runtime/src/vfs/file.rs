@@ -172,7 +172,7 @@ pub fn generic_file_llseek(
     let base = match whence {
         Whence::Set => 0,
         Whence::Cur => pos,
-        Whence::End => dentry.getattr()?.len,
+        Whence::End => dentry.getattr()?.size,
     };
     base.checked_add_signed(offset)
         .filter(|pos| *pos <= OFFSET_MAX)
@@ -371,10 +371,7 @@ impl<'a> DirContext<'a> {
 /// What `dentry` reports it stands for, `None` where a Filesystem cannot answer,
 /// rather than failing the listing.
 fn identity_of(dentry: &Dentry) -> Option<Identity> {
-    dentry
-        .getattr()
-        .ok()
-        .and_then(|metadata| Identity::of(&metadata))
+    dentry.getattr().ok().and_then(|stat| Identity::of(&stat))
 }
 
 /// Hand `ctx` the `.` and `..` it has yet to reach, as Linux's `dir_emit_dots`
@@ -496,28 +493,34 @@ impl File {
         Self { security, ..self }
     }
 
-    /// The directory at `path`, opened to be listed for `cred`, as `dentry_open`
-    /// asks the security modules before `f_op->open` and walks no path.
-    pub(super) fn directory(path: Path, cred: &Arc<Cred>) -> Result<Self, FilesystemError> {
-        let how = OpenHow {
-            read: true,
-            ..OpenHow::default()
-        };
+    /// What stands at `path`, opened as `how` asks for `cred`, as Linux's
+    /// `dentry_open` asks the security modules before `f_op->open` and walks no
+    /// path.
+    pub(super) fn dentry_open(
+        path: Path,
+        how: &OpenHow,
+        cred: &Arc<Cred>,
+    ) -> Result<Self, FilesystemError> {
+        let kind = path.dentry().kind()?;
         let name = || path.dentry().path_raw();
         let at = SecurityPath {
             mnt: path.mnt(),
             name: &name,
         };
-        let security = cred.security_file_open(at, FileType::Dir, FMode::of(&how), &how)?;
-        let ops = path.dentry().inode_ops()?.open(path.dentry(), &how)?;
-        Ok(Self::new(path, ops, &how, cred).with_security(security))
+        let security = cred.security_file_open(at, kind, FMode::of(how), how)?;
+        let ops = path.dentry().inode_ops()?.open(path.dentry(), how)?;
+        Ok(Self::new(path, ops, how, cred).with_security(security))
     }
 
     /// The root of `mnt` opened as a directory for `cred`. A Driver opens each
     /// Mount's root with the Cred its Policies are added to afterwards, as a
     /// Linux task opens what it keeps before `landlock_restrict_self`.
     pub fn root(mnt: &Arc<VfsMount>, cred: &Arc<Cred>) -> Result<Self, FilesystemError> {
-        Self::directory(Path::root(mnt), cred)
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        Self::dentry_open(Path::root(mnt), &read, cred)
     }
 
     /// Where it was opened; a call relative to it starts here.

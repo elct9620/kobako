@@ -61,7 +61,7 @@ impl RubyFilesystem {
             FilesystemError::Unsupported,
             |_, fs| {
                 let stat: Value = fs.funcall("stat", (path,))?;
-                let metadata = Kstat::new(kind_of(stat)?, stat.funcall("size", ())?);
+                let kstat = Kstat::new(kind_of(stat)?, stat.funcall("size", ())?);
                 // A stat names its identity as `File::Stat` does; without a
                 // `dev` the Filesystem stands for a device of its own, so it
                 // shares an identity with no other Filesystem.
@@ -70,7 +70,7 @@ impl RubyFilesystem {
                 } else {
                     own_dev
                 };
-                with_stat_record(stat, metadata.with_identity(dev, stat.funcall("ino", ())?))
+                with_stat_record(stat, kstat.with_identity(dev, stat.funcall("ino", ())?))
             },
         )
     }
@@ -96,17 +96,17 @@ fn kind_of(stat: Value) -> Result<FileType, MagnusError> {
     })
 }
 
-/// `metadata` with the times and the count of names `stat` records.
-fn with_stat_record(stat: Value, metadata: Kstat) -> Result<Kstat, MagnusError> {
-    let metadata = metadata.with_times(
+/// `kstat` with the times and the count of names `stat` records.
+fn with_stat_record(stat: Value, kstat: Kstat) -> Result<Kstat, MagnusError> {
+    let kstat = kstat.with_times(
         time_of(stat, "atime")?,
         time_of(stat, "mtime")?,
         time_of(stat, "ctime")?,
     );
     Ok(if stat.respond_to("nlink", false)? {
-        metadata.with_nlink(stat.funcall("nlink", ())?)
+        kstat.with_nlink(stat.funcall("nlink", ())?)
     } else {
-        metadata
+        kstat
     })
 }
 

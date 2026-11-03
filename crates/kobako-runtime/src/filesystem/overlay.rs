@@ -275,7 +275,7 @@ impl FileSystemType for Overlay {
 impl InodeOperations for Overlay {
     /// It reports its merged Layers.
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        self.fs.dir_metadata(&self.fs.dir(dentry)?.level())
+        self.fs.dir_getattr(&self.fs.dir(dentry)?.level())
     }
 
     /// Copied up first, as `ovl_setattr` does for any entry, so a lower Layer
@@ -1606,7 +1606,7 @@ mod tests {
             .symlink_metadata("dir")
             .expect("the directory must stand");
         assert_eq!(
-            (found.ino, found.dev, found.nlink, found.len),
+            (found.ino, found.dev, found.nlink, found.size),
             (below.ino, below.dev, 1, 3 * 20),
             "a directory two Layers show, stated through an Overlay, must report the lower \
              Layer's identity, one name, and the size of the upper's directory holding one entry"
@@ -2156,10 +2156,8 @@ mod tests {
             )
             .expect("the open must copy the file up");
         assert_eq!(
-            overlay
-                .symlink_metadata("dir/file")
-                .map(|metadata| metadata.modified),
-            Ok(before.modified),
+            overlay.symlink_metadata("dir/file").map(|stat| stat.mtime),
+            Ok(before.mtime),
             "a lower file opened to write through Overlay::open, writing nothing, must keep the \
              lower file's modified time once copied up"
         );
@@ -2176,7 +2174,7 @@ mod tests {
         let before = overlay
             .symlink_metadata("dir")
             .expect("the directory must stand")
-            .modified;
+            .mtime;
         std::thread::sleep(Duration::from_millis(10));
         overlay
             .open(
@@ -2188,9 +2186,7 @@ mod tests {
             )
             .expect("the open must copy the file up");
         assert_eq!(
-            overlay
-                .symlink_metadata("dir")
-                .map(|metadata| metadata.modified),
+            overlay.symlink_metadata("dir").map(|stat| stat.mtime),
             Ok(before),
             "a lower file copied up through Overlay::open into a directory the upper holds must \
              leave that directory's modified time as it was"
@@ -3364,16 +3360,16 @@ mod tests {
             on(layer)
                 .symlink_metadata(path)
                 .expect("a Layer holds it")
-                .modified
+                .mtime
         };
         assert_eq!(
             (
                 merged.nlink,
-                merged.modified == modified(&upper, "upper/dir"),
-                merged.modified == modified(&lower, "dir"),
+                merged.mtime == modified(&upper, "upper/dir"),
+                merged.mtime == modified(&lower, "dir"),
             ),
             (1, true, false),
-            "Overlay::metadata of a directory two Layers hold, written last in the upper, must \
+            "Overlay::getattr of a directory two Layers hold, written last in the upper, must \
              count one name and report the upper Layer's times"
         );
     }

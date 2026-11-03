@@ -1257,7 +1257,7 @@ impl Hook for NamesNoIdentity {
         Ok(match inner.lookup(dentry)? {
             Lookup::Found(inode) => {
                 let found = inode.ops().getattr(dentry)?;
-                let bare = Kstat::new(found.file_type, found.len);
+                let bare = Kstat::new(found.file_type, found.size);
                 Lookup::Found(Inode::new(&bare, inode.ops().clone()))
             }
             other => other,
@@ -1933,7 +1933,7 @@ fn an_allocation_grows_a_file_to_where_its_room_ends_and_shortens_none() {
         let answer = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)])
             .call("allocate_file", FILE);
         let len = vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "file.txt", false)
-            .map(|metadata| metadata.len);
+            .map(|stat| stat.size);
         let held = contents(&host(&tmpfs), "file.txt").map(|head| head[7]);
         (answer, len.ok().map(|len| len as usize), held)
     };

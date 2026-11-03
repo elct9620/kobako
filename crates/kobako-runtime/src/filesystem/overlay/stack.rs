@@ -164,7 +164,7 @@ fn ovl_workdir_create(root: &OverlayPath, name: &str) -> Result<OverlayPath, Fil
 /// overlayfs's `ovl_cleanup` takes away what a change left in its
 /// workdir, so whatever another writer made in it meanwhile stays.
 fn ovl_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
-    match dir.symlink_metadata(name)?.file_type {
+    match dir.getattr_at(name)?.file_type {
         FileType::Dir => dir.do_rmdir(name),
         _ => dir.do_unlink(name),
     }
@@ -174,7 +174,7 @@ fn ovl_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
 /// else, as overlayfs's `ovl_cleanup_whiteouts` does before it removes
 /// one; anything else stands there leaves it holding that.
 fn ovl_cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
-    if dir.symlink_metadata(name)?.file_type != FileType::Dir {
+    if dir.getattr_at(name)?.file_type != FileType::Dir {
         return Ok(());
     }
     let inner = dir.open_dir(name)?;
@@ -191,7 +191,7 @@ fn ovl_cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), Filesystem
 fn ovl_workdir_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
     let mut pending = vec![(dir.clone(), name.to_string())];
     while let Some((dir, name)) = pending.last().cloned() {
-        if dir.symlink_metadata(&name)?.file_type != FileType::Dir {
+        if dir.getattr_at(&name)?.file_type != FileType::Dir {
             dir.do_unlink(&name)?;
             pending.pop();
             continue;

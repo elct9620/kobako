@@ -2213,7 +2213,7 @@ mod tests {
             after != Err(FilesystemError::WouldBlock)
         });
         assert_eq!(
-            (during.map(|_| ()), after.map(|metadata| metadata.len)),
+            (during.map(|_| ()), after.map(|stat| stat.size)),
             (Err(FilesystemError::WouldBlock), Ok(5)),
             "vfs_fstatat through `..` with a move landing during the walk must answer EAGAIN, \
              as handle_dots reads r_seq, and the call made again reaches where it stands now"

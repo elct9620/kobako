@@ -75,9 +75,9 @@ pub(crate) fn filestat_get(
 ) -> Answer<types::Filestat> {
     let path = mem.path(path)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
-    let metadata =
+    let stat =
         retry_eagain(|| vfs::vfs_fstatat(table.cred(), &start_of(table, fd), &path, follow))?;
-    Ok(to_filestat(table, metadata))
+    Ok(to_filestat(table, stat))
 }
 
 pub(crate) fn filestat_set_times(

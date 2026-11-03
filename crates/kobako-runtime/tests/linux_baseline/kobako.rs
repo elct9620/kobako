@@ -125,11 +125,11 @@ impl Kobako {
         }
     }
 
-    fn stat(&self, metadata: vfs::Kstat) -> String {
+    fn stat(&self, stat: vfs::Kstat) -> String {
         describe(
-            kind_name(metadata.file_type),
-            metadata.len,
-            metadata.nlink,
+            kind_name(stat.file_type),
+            stat.size,
+            stat.nlink,
             self.merged,
         )
     }
@@ -302,12 +302,12 @@ impl Kobako {
     /// When each entry beneath the root was last modified and changed.
     pub fn times(&self) -> Times<Option<SystemTime>> {
         let mut out = BTreeMap::new();
-        if let Ok(metadata) = vfs::vfs_fstatat(&self.cred, self.root.path(), ".", false) {
-            out.insert(".".to_string(), (metadata.modified, metadata.changed));
+        if let Ok(stat) = vfs::vfs_fstatat(&self.cred, self.root.path(), ".", false) {
+            out.insert(".".to_string(), (stat.mtime, stat.ctime));
         }
         self.walk(self.root.path(), "", &mut |dir, name, full| {
-            if let Ok(metadata) = vfs::vfs_fstatat(&self.cred, dir, name, false) {
-                out.insert(full.to_string(), (metadata.modified, metadata.changed));
+            if let Ok(stat) = vfs::vfs_fstatat(&self.cred, dir, name, false) {
+                out.insert(full.to_string(), (stat.mtime, stat.ctime));
             }
         });
         out

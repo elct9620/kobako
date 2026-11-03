@@ -863,7 +863,7 @@ mod tests {
                 .expect("the time must be set");
             vfs_fstatat(&Arc::default(), root, path, false)
                 .ok()
-                .and_then(|metadata| metadata.modified)
+                .and_then(|stat| stat.mtime)
         }
 
         /// When the host last changed what `path` holds.
@@ -959,7 +959,7 @@ mod tests {
             fs::write(&file, "y").expect("the host makes another");
             let other_before = host_modified(&file);
             let answer = do_utimes_fd(&Arc::default(), held.path(), &set_modified());
-            let held_time = held.getattr().ok().and_then(|metadata| metadata.modified);
+            let held_time = held.getattr().ok().and_then(|stat| stat.mtime);
             assert_eq!(
             (answer, held_time, host_modified(&file) == other_before),
             (Ok(()), Some(moment()), true),
@@ -1430,7 +1430,7 @@ mod tests {
             let mut buf = [0; 5];
             assert_eq!(
                 (
-                    file.getattr().map(|found| found.len).ok(),
+                    file.getattr().map(|found| found.size).ok(),
                     file.pread(&mut buf, 0),
                     &buf
                 ),
@@ -1458,7 +1458,10 @@ mod tests {
             };
             vfs::filename_unlinkat(&Arc::default(), &root, "f").expect("the name must go");
             assert_eq!(
-                (file.truncate(2), file.getattr().map(|found| found.len).ok()),
+                (
+                    file.truncate(2),
+                    file.getattr().map(|found| found.size).ok()
+                ),
                 (Ok(()), Some(2)),
                 "File::truncate of a file whose name vfs::filename_unlinkat removed on a {name} \
                  must size what it holds"
@@ -1487,9 +1490,9 @@ mod tests {
         assert_eq!(
             (
                 vfs::vfs_fstatat(&Arc::default(), &root, "f", true)
-                    .map(|found| found.len)
+                    .map(|found| found.size)
                     .ok(),
-                file.getattr().map(|found| found.len).ok()
+                file.getattr().map(|found| found.size).ok()
             ),
             (Some(7), Some(5)),
             "vfs::vfs_fstatat of a path the host replaced under an open File must answer the new \
@@ -2313,9 +2316,7 @@ mod tests {
         fs::write(host.0.join("sub/file"), "hello").expect("the host file must be written");
         let directory = bind_host(&host.0);
         assert_eq!(
-            directory
-                .symlink_metadata("sub")
-                .map(|metadata| metadata.len),
+            directory.symlink_metadata("sub").map(|stat| stat.size),
             Ok(fs::metadata(host.0.join("sub"))
                 .expect("the host directory must stand")
                 .len()),

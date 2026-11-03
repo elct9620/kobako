@@ -70,12 +70,12 @@ impl OverlayFs {
     /// reports a merged one: what its topmost Layer reports, under the identity
     /// of the topmost lower Layer showing it, as `ovl_path_lower` finds it, so
     /// copying it up leaves the identity as it was, and one name.
-    pub(in super::super) fn dir_metadata(&self, level: &Level) -> Result<Kstat, FilesystemError> {
+    pub(in super::super) fn dir_getattr(&self, level: &Level) -> Result<Kstat, FilesystemError> {
         let mut shown = level.iter().flatten();
-        let topmost = shown.next().ok_or(FilesystemError::NotFound)?.metadata()?;
+        let topmost = shown.next().ok_or(FilesystemError::NotFound)?.getattr()?;
         Ok(match shown.next() {
             Some(lower) => {
-                let lower = lower.metadata()?;
+                let lower = lower.getattr()?;
                 topmost.with_identity(lower.dev, lower.ino).with_nlink(1)
             }
             None => topmost,
@@ -108,7 +108,7 @@ impl OverlayFs {
                 let found = real.inode().ok_or(FilesystemError::NotFound)?;
                 found.with_ops(ops)
             }
-            _ => Inode::new(&self.dir_metadata(&merged)?, ops),
+            _ => Inode::new(&self.dir_getattr(&merged)?, ops),
         };
         ovl_inode_init(&inode, OverlayDirInode::new(merged));
         Ok(inode)

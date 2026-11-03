@@ -236,10 +236,9 @@ pub struct Identity {
 }
 
 impl Identity {
-    /// The identity `metadata` names, `None` where its inode of zero reports
-    /// none.
-    pub fn of(metadata: &Kstat) -> Option<Self> {
-        Self::from_numbers(metadata.dev, metadata.ino)
+    /// The identity `stat` names, `None` where its inode of zero reports none.
+    pub fn of(stat: &Kstat) -> Option<Self> {
+        Self::from_numbers(stat.dev, stat.ino)
     }
 
     /// The identity `dev` and `ino` name, `None` where an inode of zero
@@ -248,9 +247,9 @@ impl Identity {
         (ino != 0).then_some(Self { dev, ino })
     }
 
-    /// `metadata`, naming this identity.
-    pub fn onto(self, metadata: Kstat) -> Kstat {
-        metadata.with_identity(self.dev, self.ino)
+    /// `stat`, naming this identity.
+    pub fn onto(self, stat: Kstat) -> Kstat {
+        stat.with_identity(self.dev, self.ino)
     }
 }
 

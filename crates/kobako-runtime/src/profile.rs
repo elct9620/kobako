@@ -50,7 +50,7 @@ impl Profile {
         }
     }
 
-    /// `metadata` as a guest on this posture sees it, whichever ABI a Driver
+    /// `stat` as a guest on this posture sees it, whichever ABI a Driver
     /// encodes it into. A Filesystem records the host's real time whatever
     /// the invocation writing to it runs under, so one shared across
     /// invocations keeps one record; a hermetic guest sees every time at the
@@ -58,23 +58,19 @@ impl Profile {
     /// is no clock it can read. A link reports no size, so nothing of where it
     /// points reaches the guest, and an entry is told apart only by what
     /// `guest_ino` answers.
-    pub fn guest_metadata(self, metadata: Kstat) -> Kstat {
-        let ino = self.guest_ino(Identity::of(&metadata));
+    pub fn guest_kstat(self, stat: Kstat) -> Kstat {
+        let ino = self.guest_ino(Identity::of(&stat));
         let masked = match self {
-            Self::Permissive => metadata,
+            Self::Permissive => stat,
             Self::Hermetic => {
                 let epoch = |time: Option<SystemTime>| time.map(|_| UNIX_EPOCH);
-                metadata.with_times(
-                    epoch(metadata.accessed),
-                    epoch(metadata.modified),
-                    epoch(metadata.changed),
-                )
+                stat.with_times(epoch(stat.atime), epoch(stat.mtime), epoch(stat.ctime))
             }
         };
         Kstat {
-            len: match masked.file_type {
+            size: match masked.file_type {
                 FileType::Symlink => 0,
-                _ => masked.len,
+                _ => masked.size,
             },
             ..masked.with_identity(0, ino)
         }
@@ -94,23 +90,18 @@ mod tests {
             .with_identity(7, 9)
             .with_times(Some(SystemTime::now()), None, None);
         let (hermetic, permissive) = (
-            Profile::Hermetic.guest_metadata(reported),
-            Profile::Permissive.guest_metadata(reported),
+            Profile::Hermetic.guest_kstat(reported),
+            Profile::Permissive.guest_kstat(reported),
         );
         assert_eq!(
-            (
-                hermetic.len,
-                permissive.len,
-                hermetic.ino,
-                hermetic.accessed
-            ),
+            (hermetic.size, permissive.size, hermetic.ino, hermetic.atime),
             (0, 0, 0, Some(UNIX_EPOCH)),
-            "Profile::guest_metadata of a link must report no size on any posture, and at the \
+            "Profile::guest_kstat of a link must report no size on any posture, and at the \
              hermetic rung no inode number and every time at the Unix epoch"
         );
         assert!(
-            permissive.ino != 0 && permissive.ino != 9 && permissive.accessed == reported.accessed,
-            "Profile::guest_metadata at the permissive rung must hash the inode number and keep \
+            permissive.ino != 0 && permissive.ino != 9 && permissive.atime == reported.atime,
+            "Profile::guest_kstat at the permissive rung must hash the inode number and keep \
              the time"
         );
     }
@@ -123,9 +114,9 @@ mod tests {
         let reported = Kstat::new(FileType::RegFile, 1).with_identity(7, 9);
         assert_eq!(
             [Profile::Hermetic, Profile::Permissive]
-                .map(|profile| profile.guest_metadata(reported).dev),
+                .map(|profile| profile.guest_kstat(reported).dev),
             [0, 0],
-            "Profile::guest_metadata of an entry a Filesystem reports on device 7 must report \
+            "Profile::guest_kstat of an entry a Filesystem reports on device 7 must report \
              device 0 on either posture"
         );
     }
@@ -166,14 +157,14 @@ mod tests {
         let reported = Kstat::new(FileType::RegFile, 0);
         assert_eq!(
             (
-                Profile::Hermetic.guest_metadata(reported).nlink,
-                Profile::Permissive.guest_metadata(reported).nlink,
+                Profile::Hermetic.guest_kstat(reported).nlink,
+                Profile::Permissive.guest_kstat(reported).nlink,
                 Profile::Permissive
-                    .guest_metadata(reported.with_nlink(3))
+                    .guest_kstat(reported.with_nlink(3))
                     .nlink,
             ),
             (1, 1, 3),
-            "Profile::guest_metadata of an entry reporting no count must show one name on each \
+            "Profile::guest_kstat of an entry reporting no count must show one name on each \
              posture, and of one reporting three must show three"
         );
     }

@@ -61,13 +61,13 @@ impl OverlayFs {
             .flatten()
             .next()
             .ok_or(FilesystemError::NotFound)?
-            .metadata()?;
+            .getattr()?;
         let (work, temp) = self.tempname()?;
         work.do_mkdir(&temp)?;
         let made = work
             .open_dir(&temp)
             .and_then(|made| made.set_timestamps(&lower));
-        let parent_times = parent.metadata()?;
+        let parent_times = parent.getattr()?;
         let moved =
             made.and_then(|()| work.do_rename(&temp, parent, &name, Some(RenameFlag::NoReplace)));
         if let Err(err) = moved {
@@ -129,7 +129,7 @@ impl OverlayFs {
             copy_whole(source.as_mut(), &mut copy)?;
         }
         copy.setattr(&timestamps(&lower));
-        let parent_times = target_dir.metadata()?;
+        let parent_times = target_dir.getattr()?;
         let linked = target_dir.do_link(&copy, &name)?;
         let _ = target_dir.set_timestamps(&parent_times);
         inode.set_real(linked);

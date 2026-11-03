@@ -73,8 +73,8 @@ impl Node {
     fn touch_changed(&self) {
         let now = SystemTime::now();
         match self {
-            Self::File(data) => lock(data).times.changed = now,
-            Self::Directory(dir) => dir.state().times.changed = now,
+            Self::File(data) => lock(data).times.ctime = now,
+            Self::Directory(dir) => dir.state().times.ctime = now,
             Self::Whiteout { .. } => {}
         }
     }
@@ -201,26 +201,26 @@ impl State {
 /// together, and a change to its names or attributes `st_ctime` alone.
 #[derive(Clone, Copy)]
 struct Times {
-    accessed: SystemTime,
-    modified: SystemTime,
-    changed: SystemTime,
+    atime: SystemTime,
+    mtime: SystemTime,
+    ctime: SystemTime,
 }
 
 impl Times {
     fn now() -> Self {
         let now = SystemTime::now();
         Self {
-            accessed: now,
-            modified: now,
-            changed: now,
+            atime: now,
+            mtime: now,
+            ctime: now,
         }
     }
 
     /// Its content changed.
     fn touch(&mut self) {
         let now = SystemTime::now();
-        self.modified = now;
-        self.changed = now;
+        self.mtime = now;
+        self.ctime = now;
     }
 
     /// Set the times `attr` names, if it names any, as `shmem_setattr` takes them
@@ -231,16 +231,16 @@ impl Times {
             return;
         }
         if let Some(set) = attr.atime {
-            self.accessed = attr.time_of(set);
+            self.atime = attr.time_of(set);
         }
         if let Some(set) = attr.mtime {
-            self.modified = attr.time_of(set);
+            self.mtime = attr.time_of(set);
         }
-        self.changed = attr.time_of(SetTime::Now);
+        self.ctime = attr.time_of(SetTime::Now);
     }
 
-    fn report(self, metadata: Kstat) -> Kstat {
-        metadata.with_times(Some(self.accessed), Some(self.modified), Some(self.changed))
+    fn report(self, stat: Kstat) -> Kstat {
+        stat.with_times(Some(self.atime), Some(self.mtime), Some(self.ctime))
     }
 }
 
@@ -266,15 +266,15 @@ impl Dir {
     /// directory it holds, as a tmpfs counts `.` and each `..` beneath it,
     /// and a size of `BOGO_DIRENT_SIZE` for each of its entries and those
     /// two, as a tmpfs sizes a directory. One removed counts no name.
-    fn metadata(&self, dev: u64) -> Kstat {
+    fn getattr(&self, dev: u64) -> Kstat {
         let state = self.state();
-        let len = (2 + state.entries.len() as u64) * BOGO_DIRENT_SIZE;
+        let size = (2 + state.entries.len() as u64) * BOGO_DIRENT_SIZE;
         let nlink = match state.removed {
             true => 0,
             false => 2 + state.subdirectories,
         };
         state.times.report(
-            Kstat::new(FileType::Dir, len)
+            Kstat::new(FileType::Dir, size)
                 .with_identity(dev, self.ino)
                 .with_nlink(nlink),
         )
@@ -411,7 +411,7 @@ impl Content {
         }))
     }
 
-    fn metadata(&self) -> Kstat {
+    fn getattr(&self) -> Kstat {
         self.times.report(
             Kstat::new(FileType::RegFile, self.bytes.len() as u64)
                 .with_identity(self.dev, self.ino)
@@ -621,23 +621,23 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Tmpfs {
 impl Tmpfs {
     /// What `node`, an entry of this Tmpfs, reports of itself. A whiteout is
     /// a character device 0:0, as tmpfs makes one.
-    fn node_metadata(&self, node: &Node) -> Kstat {
+    fn node_getattr(&self, node: &Node) -> Kstat {
         match node {
-            Node::File(data) => lock(data).metadata(),
-            Node::Directory(dir) => dir.metadata(self.tree.dev),
+            Node::File(data) => lock(data).getattr(),
+            Node::Directory(dir) => dir.getattr(self.tree.dev),
             Node::Whiteout { .. } => Kstat::new(FileType::Chrdev, 0),
         }
     }
 
     /// The inode answering for `node`, an entry of this Tmpfs.
     fn inode_of(&self, node: Node) -> Arc<Inode> {
-        let metadata = self.node_metadata(&node);
+        let stat = self.node_getattr(&node);
         let ops: Arc<dyn InodeOperations> = match node {
             Node::Directory(dir) => Arc::new(self.beneath(dir)),
             Node::File(data) => Arc::new(TmpfsRegular { data }),
             Node::Whiteout { .. } => Arc::new(TmpfsWhiteout),
         };
-        Inode::new(&metadata, ops)
+        Inode::new(&stat, ops)
     }
 
     /// Put `node` at the name `dentry` carries and record it there, as
@@ -653,7 +653,7 @@ impl FileSystemType for Tmpfs {
     fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
         sb.set_default_d_op(Arc::new(TmpfsDentry));
         sb.set_dontcache();
-        sb.d_make_root(Inode::new(&self.dir.metadata(self.tree.dev), self));
+        sb.d_make_root(Inode::new(&self.dir.getattr(self.tree.dev), self));
         Ok(())
     }
 }
@@ -663,7 +663,7 @@ impl FileSystemType for Tmpfs {
 /// driver to open it, through `TmpfsWhiteout`.
 impl InodeOperations for Tmpfs {
     fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        Ok(self.dir.metadata(self.tree.dev))
+        Ok(self.dir.getattr(self.tree.dev))
     }
 
     fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
@@ -820,7 +820,7 @@ impl DentryOperations for TmpfsDentry {
         let Some(identity) = inode.identity() else {
             return Ok(true);
         };
-        Ok(found.is_some_and(|node| Identity::of(&dir.node_metadata(&node)) == Some(identity)))
+        Ok(found.is_some_and(|node| Identity::of(&dir.node_getattr(&node)) == Some(identity)))
     }
 }
 
@@ -831,7 +831,7 @@ struct TmpfsRegular {
 
 impl InodeOperations for TmpfsRegular {
     fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        Ok(lock(&self.data).metadata())
+        Ok(lock(&self.data).getattr())
     }
 
     fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
@@ -1723,7 +1723,7 @@ mod tests {
             .symlink_metadata("moved")
             .expect("the file must stand");
         assert!(
-            after.changed > before.changed && after.modified == before.modified,
+            after.ctime > before.ctime && after.mtime == before.mtime,
             "Tmpfs::rename of a file must move its changed time and leave its modified time"
         );
     }
@@ -1748,7 +1748,7 @@ mod tests {
             .expect("the times must be set");
         let set = tmpfs.symlink_metadata("file").expect("the file must stand");
         assert_eq!(
-            (set.accessed, set.modified, set.changed),
+            (set.atime, set.mtime, set.ctime),
             (Some(landed), Some(landed), Some(landed)),
             "Tmpfs::setattr setting both times to now must set them and its changed time to the \
              moment the change lands"
@@ -1811,7 +1811,7 @@ mod tests {
         assert_eq!(
             (
                 crate::vfs::filename_renameat2(&cred, &root(&from), "file", &root(&to), "file"),
-                crate::vfs::vfs_fstatat(&cred, &root(&from), "file", false).map(|found| found.len),
+                crate::vfs::vfs_fstatat(&cred, &root(&from), "file", false).map(|found| found.size),
             ),
             (Err(FilesystemError::CrossesDevices), Ok(1)),
             "vfs::filename_renameat2 into a directory of another Tmpfs must answer EXDEV and \
@@ -1846,9 +1846,9 @@ mod tests {
         let written = tmpfs.symlink_metadata("file").expect("the file must stand");
         assert_eq!(
             (
-                written.accessed == made.accessed,
-                written.modified > made.modified,
-                written.changed == written.modified,
+                written.atime == made.atime,
+                written.mtime > made.mtime,
+                written.ctime == written.mtime,
             ),
             (true, true, true),
             "Tmpfs::metadata of a file read and then written must keep its access time from \
@@ -1913,7 +1913,7 @@ mod tests {
             tmpfs
                 .symlink_metadata(path)
                 .expect("the directory must stand")
-                .len
+                .size
         };
         assert_eq!(
             (len("dir"), len("empty")),
