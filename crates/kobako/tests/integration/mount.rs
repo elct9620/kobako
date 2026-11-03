@@ -254,13 +254,13 @@ impl kobako_runtime::filesystem::FileSystemType for OneNote {
 
 impl InodeOperations for OneNote {
     fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        Ok(Kstat::new(FileType::Directory, 0))
+        Ok(Kstat::new(FileType::Dir, 0))
     }
 
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         Ok(match dentry.name().as_str() {
             "note.txt" => {
-                let found = Kstat::new(FileType::File, self.0.len() as u64);
+                let found = Kstat::new(FileType::RegFile, self.0.len() as u64);
                 Lookup::Found(Inode::new(&found, Arc::new(Note(self.0))))
             }
             _ => Lookup::Absent,
@@ -288,7 +288,7 @@ impl FileOperations for NoteDir {
         kobako_runtime::vfs::dir_emit_entries(
             dentry,
             ctx,
-            &[DirEntry::new("note.txt", FileType::File)],
+            &[DirEntry::new("note.txt", FileType::RegFile)],
         );
         Ok(())
     }
@@ -299,7 +299,7 @@ struct Note(&'static [u8]);
 
 impl InodeOperations for Note {
     fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        Ok(Kstat::new(FileType::File, self.0.len() as u64))
+        Ok(Kstat::new(FileType::RegFile, self.0.len() as u64))
     }
 
     fn open(

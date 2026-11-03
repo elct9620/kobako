@@ -293,9 +293,9 @@ fn to_file_type(host: cap_std::fs::FileType) -> FileType {
     if host.is_symlink() {
         FileType::Symlink
     } else if host.is_dir() {
-        FileType::Directory
+        FileType::Dir
     } else if host.is_file() {
-        FileType::File
+        FileType::RegFile
     } else {
         to_special_file_type(host)
     }
@@ -309,11 +309,11 @@ fn to_special_file_type(host: cap_std::fs::FileType) -> FileType {
     if host.is_fifo() {
         FileType::Fifo
     } else if host.is_socket() {
-        FileType::Socket
+        FileType::Sock
     } else if host.is_block_device() {
-        FileType::BlockDevice
+        FileType::Blkdev
     } else if host.is_char_device() {
-        FileType::CharDevice
+        FileType::Chrdev
     } else {
         FileType::Unknown
     }
@@ -414,8 +414,8 @@ fn open_in(
     }
     let file = dir.open_with(name, &open).map_err(to_error)?;
     match to_file_type(file.metadata().map_err(to_error)?.file_type()) {
-        FileType::File => {}
-        FileType::Directory => return Err(FilesystemError::IsADirectory),
+        FileType::RegFile => {}
+        FileType::Dir => return Err(FilesystemError::IsADirectory),
         _ => return Err(FilesystemError::PermissionDenied),
     }
     #[cfg(unix)]
@@ -575,7 +575,7 @@ impl InodeOperations for Bind {
                 Ok(found) => {
                     let found = to_metadata(found);
                     let ops: Arc<dyn InodeOperations> = match found.file_type {
-                        FileType::Directory => Arc::new(self.clone()),
+                        FileType::Dir => Arc::new(self.clone()),
                         FileType::Symlink => Arc::new(BindLink(self.clone())),
                         _ => Arc::new(BindRegular(self.clone())),
                     };
@@ -1127,7 +1127,7 @@ mod tests {
         let after = vfs::vfs_fstatat(&cred, &root, "made", false).map(|made| made.file_type);
         assert_eq!(
             (before, after),
-            (Some(FilesystemError::NotFound), Ok(FileType::Directory)),
+            (Some(FilesystemError::NotFound), Ok(FileType::Dir)),
             "vfs::filename_mkdirat at a name kept as absent must leave the next walk finding \
              the directory, as d_drop leaves a dentry nothing recorded on"
         );
@@ -1648,7 +1648,7 @@ mod tests {
         assert!(
             matches!(
                 filesystem.root().expect("the root stands").ops().lookup(&note),
-                Ok(Lookup::Found(inode)) if inode.kind() == FileType::File
+                Ok(Lookup::Found(inode)) if inode.kind() == FileType::RegFile
             ),
             "a name looked up through Bind in a directory not yet opened, once its dentry moved \
              with it, must be found where the dentry stands"
@@ -1746,7 +1746,7 @@ mod tests {
                 kind(bind_host(&host.0), "sock"),
                 kind(bind_host("/dev"), "null"),
             ),
-            (Ok(FileType::Socket), Ok(FileType::CharDevice)),
+            (Ok(FileType::Sock), Ok(FileType::Chrdev)),
             "Bind::symlink_metadata of a socket and of /dev/null must answer the kind the host \
              gives each"
         );
@@ -2112,7 +2112,7 @@ mod tests {
             .expect("the host directory's mode must be restored");
         assert_eq!(
             found.map(|metadata| metadata.file_type),
-            Ok(FileType::Directory),
+            Ok(FileType::Dir),
             "vfs::vfs_fstatat of a host directory only searchable must report it, as Linux's stat \
              needs no read permission on it"
         );

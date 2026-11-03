@@ -125,7 +125,7 @@ impl KernPath {
         let dentry = self.resolve(path)?.path()?;
         match dentry.kind()? {
             FileType::Symlink => Err(FilesystemError::FilesystemLoop),
-            FileType::Directory => {
+            FileType::Dir => {
                 dentry.getattr()?;
                 Ok(Self(self.0.with_dentry(dentry)))
             }

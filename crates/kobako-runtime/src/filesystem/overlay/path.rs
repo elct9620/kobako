@@ -103,7 +103,7 @@ impl OverlayPath {
     /// `ovl_is_whiteout` reads a dentry, a character device being one only in a
     /// Tmpfs, whose marks an Overlay reads.
     pub(super) fn is_whiteout_dentry(&self, dentry: &Dentry) -> bool {
-        dentry.kind() == Ok(FileType::CharDevice) && self.tmpfs().is_some()
+        dentry.kind() == Ok(FileType::Chrdev) && self.tmpfs().is_some()
     }
 
     /// Whether this directory hides the Layers below it.
@@ -213,7 +213,7 @@ impl OverlayPath {
         let dentry = self.lookup_real(name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
-            FileType::Directory => Ok(self.beneath(dentry)),
+            FileType::Dir => Ok(self.beneath(dentry)),
             FileType::Symlink => Err(FilesystemError::FilesystemLoop),
             _ => Err(FilesystemError::NotADirectory),
         }

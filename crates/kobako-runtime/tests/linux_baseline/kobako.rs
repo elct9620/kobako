@@ -31,8 +31,8 @@ fn ok_or_errno<T: Debug>(result: Result<T, FilesystemError>) -> String {
 
 fn kind_name(kind: FileType) -> &'static str {
     match kind {
-        FileType::File => "reg",
-        FileType::Directory => "dir",
+        FileType::RegFile => "reg",
+        FileType::Dir => "dir",
         FileType::Symlink => "lnk",
         _ => "oth",
     }
@@ -259,7 +259,7 @@ impl Kobako {
             }
             let full = format!("{prefix}{name}");
             visit(dir, &name, &full);
-            if kind == FileType::Directory {
+            if kind == FileType::Dir {
                 if let Ok(sub) = vfs::do_file_open(&self.cred, dir, &name, &directory_flags()) {
                     self.walk(sub.path(), &format!("{full}/"), visit);
                 }
@@ -276,7 +276,7 @@ impl Kobako {
                 Ok(metadata) => {
                     let kind = metadata.file_type;
                     let mut seen = self.stat(metadata);
-                    if kind == FileType::File {
+                    if kind == FileType::RegFile {
                         seen += &self.content(dir, name);
                     }
                     seen

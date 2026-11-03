@@ -181,7 +181,7 @@ impl Overlay {
     /// The operations an entry of `kind` answers through.
     fn ops_of(&self, kind: FileType) -> Arc<dyn InodeOperations> {
         match kind {
-            FileType::Directory => Arc::new(self.clone()),
+            FileType::Dir => Arc::new(self.clone()),
             FileType::Symlink => Arc::new(OverlayLink(self.clone())),
             _ => Arc::new(OverlayRegular(self.clone())),
         }
@@ -255,7 +255,7 @@ impl FileSystemType for Overlay {
         if !self.fs.has_upper() {
             sb.set_rdonly();
         }
-        let root = Kstat::new(FileType::Directory, 0);
+        let root = Kstat::new(FileType::Dir, 0);
         let root = match self.fs.root_identity() {
             Some(identity) => identity.onto(root),
             None => root,
@@ -872,7 +872,7 @@ mod tests {
                 Err(FilesystemError::IsADirectory),
                 Err(FilesystemError::NotADirectory),
                 Ok(FileType::Fifo),
-                Ok(FileType::Directory)
+                Ok(FileType::Dir)
             ),
             "a FIFO renamed onto a directory through an Overlay must be refused as a directory, \
              and a directory renamed onto a FIFO as no directory, leaving both in place"
@@ -892,15 +892,15 @@ mod tests {
     impl InodeOperations for KeepsTimes {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.name().as_str() {
-                "file" => Kstat::new(FileType::File, 0).with_identity(1, 2),
-                _ => Kstat::new(FileType::Directory, 0).with_identity(1, 1),
+                "file" => Kstat::new(FileType::RegFile, 0).with_identity(1, 2),
+                _ => Kstat::new(FileType::Dir, 0).with_identity(1, 1),
             })
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             Ok(match dentry.name().as_str() {
                 "file" => Lookup::Found(Inode::new(
-                    &Kstat::new(FileType::File, 0).with_identity(1, 2),
+                    &Kstat::new(FileType::RegFile, 0).with_identity(1, 2),
                     Arc::new(Self(self.0.clone())),
                 )),
                 _ => Lookup::Absent,
@@ -993,7 +993,7 @@ mod tests {
             .expect("the thread must not panic");
         assert_eq!(
             made,
-            Ok(FileType::Directory),
+            Ok(FileType::Dir),
             "a directory made 1500 directories deep in a lower Layer, through an Overlay on a \
              256 KiB stack, must copy every directory above it up and stand"
         );
@@ -1289,7 +1289,7 @@ mod tests {
             on(&upper)
                 .symlink_metadata("upper/dir/file")
                 .map(|metadata| metadata.file_type),
-            Ok(FileType::CharDevice),
+            Ok(FileType::Chrdev),
             "a lower Layer's file removed through Overlay::remove_file must leave a whiteout, a \
              device of no kind the guest opens, at its name in the upper"
         );
@@ -1475,7 +1475,7 @@ mod tests {
                     .symlink_metadata("device")
                     .map(|found| found.file_type)
             ),
-            (vec!["device".to_string()], Ok(FileType::CharDevice)),
+            (vec!["device".to_string()], Ok(FileType::Chrdev)),
             "a character device in a lower Layer that is no Tmpfs, listed and stated through an \
              Overlay, must be listed and found rather than read as a whiteout"
         );
@@ -1560,7 +1560,7 @@ mod tests {
                     .symlink_metadata("upper/long")
                     .map(|found| found.file_type)
             ),
-            (Ok(()), Ok(FileType::Directory)),
+            (Ok(()), Ok(FileType::Dir)),
             "a directory made through an Overlay at a name a lower Layer answers ENAMETOOLONG for \
              must land in the upper"
         );
@@ -1836,7 +1836,7 @@ mod tests {
             dentry: &Dentry,
             options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            if dentry.kind() == Ok(FileType::Directory) && dentry.parent().is_some() {
+            if dentry.kind() == Ok(FileType::Dir) && dentry.parent().is_some() {
                 self.start();
             }
             inner.open(dentry, options)
@@ -2424,7 +2424,7 @@ mod tests {
             dentry: &Dentry,
             options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            if dentry.kind() == Ok(FileType::Directory) {
+            if dentry.kind() == Ok(FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
             self.root.open(&folded(dentry), options)
@@ -2490,8 +2490,8 @@ mod tests {
                 kind(&overlay, "dir")
             ),
             (
-                Ok(FileType::File),
-                Ok(FileType::File),
+                Ok(FileType::RegFile),
+                Ok(FileType::RegFile),
                 Err(FilesystemError::NotFound)
             ),
             "files made through directories Overlay::open_dir opened before Overlay::rename moved \
@@ -2834,7 +2834,7 @@ mod tests {
                 if let Some(kind) = opened {
                     assert_eq!(
                         kind,
-                        Ok(FileType::File),
+                        Ok(FileType::RegFile),
                         "File::getattr of a file opened to write through an Overlay as it is \
                          removed must report a file"
                     );
@@ -2856,7 +2856,7 @@ mod tests {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.name().as_str() {
                 "pipe" => Kstat::new(FileType::Fifo, 0).with_identity(1, 2),
-                _ => Kstat::new(FileType::Directory, 0).with_identity(1, 1),
+                _ => Kstat::new(FileType::Dir, 0).with_identity(1, 1),
             })
         }
 
@@ -3214,7 +3214,7 @@ mod tests {
                 overlay.symlink_metadata("dir/sub").map(|metadata| metadata.file_type),
                 read(&overlay, "dir/sub/file")
             ),
-            (Ok(FileType::Directory), b"upper".to_vec()),
+            (Ok(FileType::Dir), b"upper".to_vec()),
             "a directory looked up through Overlay::metadata above a lower Layer holding a file on \
              its path must read as a directory, as its files open"
         );

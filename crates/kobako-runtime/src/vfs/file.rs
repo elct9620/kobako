@@ -381,7 +381,7 @@ fn identity_of(dentry: &Dentry) -> Option<Identity> {
 /// answers whether to go on.
 pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {
     if ctx.pos == 0 {
-        if !ctx.emit(".", FileType::Directory, identity_of(dentry)) {
+        if !ctx.emit(".", FileType::Dir, identity_of(dentry)) {
             return false;
         }
         ctx.pos = 1;
@@ -391,7 +391,7 @@ pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {
             Some(parent) => identity_of(&parent),
             None => identity_of(dentry),
         };
-        if !ctx.emit("..", FileType::Directory, above) {
+        if !ctx.emit("..", FileType::Dir, above) {
             return false;
         }
         ctx.pos = 2;
@@ -523,7 +523,7 @@ impl File {
 
     /// Whether it is a directory, as `S_ISDIR(file_inode(file))`.
     pub fn is_directory(&self) -> bool {
-        self.kind() == Some(FileType::Directory)
+        self.kind() == Some(FileType::Dir)
     }
 
     /// What kind of entry it is, as `file_inode(file)->i_mode` says.
@@ -609,8 +609,8 @@ impl File {
         self.may_write()?;
         match self.kind() {
             Some(FileType::Fifo) => return Err(FilesystemError::NotSeekable),
-            Some(FileType::Directory) => return Err(FilesystemError::IsADirectory),
-            Some(FileType::File | FileType::BlockDevice) | None => {}
+            Some(FileType::Dir) => return Err(FilesystemError::IsADirectory),
+            Some(FileType::RegFile | FileType::Blkdev) | None => {}
             Some(_) => return Err(FilesystemError::NoSuchDevice),
         }
         if offset + len > MAX_OFFSET {
@@ -756,7 +756,7 @@ impl File {
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
     /// refuses anything but a file open to write, and reaches `->setattr`.
     pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
-        let regular = self.path.dentry().kind() == Ok(FileType::File);
+        let regular = self.path.dentry().kind() == Ok(FileType::RegFile);
         if !regular || !self.writable() || len > MAX_OFFSET {
             return Err(FilesystemError::InvalidInput);
         }
@@ -843,11 +843,11 @@ mod tests {
 
     impl InodeOperations for Opens {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::File, 0))
+            Ok(Kstat::new(FileType::RegFile, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Kstat::new(FileType::File, 0);
+            let found = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(Self(self.0)))))
         }
 
@@ -948,13 +948,13 @@ mod tests {
     impl InodeOperations for OpensNothing {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::File, 0),
-                None => Kstat::new(FileType::Directory, 0),
+                Some(_) => Kstat::new(FileType::RegFile, 0),
+                None => Kstat::new(FileType::Dir, 0),
             })
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Kstat::new(FileType::File, 0);
+            let found = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
         }
     }
@@ -1127,8 +1127,8 @@ mod tests {
         ) -> Result<(), FilesystemError> {
             self.0.iterate(dentry, ctx, || {
                 Ok(vec![
-                    DirEntry::new("a", FileType::File),
-                    DirEntry::new("b", FileType::File),
+                    DirEntry::new("a", FileType::RegFile),
+                    DirEntry::new("b", FileType::RegFile),
                 ])
             })
         }
@@ -1142,7 +1142,7 @@ mod tests {
 
     impl InodeOperations for ReadsWhole {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::Directory, 0))
+            Ok(Kstat::new(FileType::Dir, 0))
         }
 
         fn open(
@@ -1372,13 +1372,13 @@ mod tests {
     impl InodeOperations for RecordsCalls {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::File, 0),
-                None => Kstat::new(FileType::Directory, 0),
+                Some(_) => Kstat::new(FileType::RegFile, 0),
+                None => Kstat::new(FileType::Dir, 0),
             })
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Kstat::new(FileType::File, 0);
+            let found = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone()))))
         }
 
@@ -1474,11 +1474,11 @@ mod tests {
 
     impl InodeOperations for HoldsCountsSyncs {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::Directory, 0))
+            Ok(Kstat::new(FileType::Dir, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let found = Kstat::new(FileType::File, 0);
+            let found = Kstat::new(FileType::RegFile, 0);
             let ops = Arc::new(Self(self.0.clone()));
             Ok(Lookup::Found(Inode::new(&found, ops)))
         }

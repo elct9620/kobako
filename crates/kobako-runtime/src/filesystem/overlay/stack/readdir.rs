@@ -27,7 +27,7 @@ fn read_merged(level: &Level) -> Result<Merged, FilesystemError> {
         for entry in dir.entries()? {
             // A whiteout lists as a device, as overlayfs's `ovl_fill_merge`
             // reads `DT_CHR` before asking.
-            let whiteout = entry.file_type == FileType::CharDevice && dir.is_whiteout(&entry.name);
+            let whiteout = entry.file_type == FileType::Chrdev && dir.is_whiteout(&entry.name);
             merged.upper_whiteouts |= whiteout && index == UPPER;
             if taken.insert(entry.name.clone()) && !whiteout {
                 merged.entries.push(entry);

@@ -117,7 +117,7 @@ impl OverlayFs {
             return Ok(());
         }
         let lower = real.getattr()?;
-        if lower.file_type != FileType::File {
+        if lower.file_type != FileType::RegFile {
             return Err(FilesystemError::PermissionDenied);
         }
         let mut copy = target_dir.do_tmpfile()?;

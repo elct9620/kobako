@@ -615,7 +615,7 @@ where
         let opened = self.inner.open(dentry, options)?;
         if dentry
             .inode()
-            .is_none_or(|inode| inode.kind() == kobako_runtime::filesystem::FileType::Directory)
+            .is_none_or(|inode| inode.kind() == kobako_runtime::filesystem::FileType::Dir)
         {
             return Ok(opened);
         }
@@ -923,7 +923,7 @@ impl FileSystemType for ReportsLen {
 impl InodeOperations for ReportsLen {
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         let mut metadata = self.0.getattr(dentry)?;
-        if metadata.file_type == FileType::File {
+        if metadata.file_type == FileType::RegFile {
             metadata.len = self.1;
         }
         Ok(metadata)

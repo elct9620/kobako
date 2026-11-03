@@ -52,7 +52,7 @@ impl SecurityOperations for KobakoSecurity {
         _how: &OpenHow,
     ) -> Result<FileSecurity, FilesystemError> {
         match kind {
-            FileType::File | FileType::Directory => Ok(None),
+            FileType::RegFile | FileType::Dir => Ok(None),
             _ => Err(FilesystemError::PermissionDenied),
         }
     }
@@ -191,7 +191,7 @@ impl SecurityOperations for MountPolicy {
         self.path_perm(old, Access::ReadWrite)?;
         self.path_perm(new, Access::ReadWrite)?;
         let moves_dir =
-            old_dentry.kind() == Ok(FileType::Directory) && !Arc::ptr_eq(old_dentry, new_dentry);
+            old_dentry.kind() == Ok(FileType::Dir) && !Arc::ptr_eq(old_dentry, new_dentry);
         match moves_dir && self.guards(old.mnt) {
             true => Err(FilesystemError::CrossesDevices),
             false => Ok(()),
@@ -654,13 +654,13 @@ mod tests {
         };
         assert_eq!(
             [
-                FileType::File,
-                FileType::Directory,
+                FileType::RegFile,
+                FileType::Dir,
                 FileType::Symlink,
                 FileType::Fifo,
-                FileType::Socket,
-                FileType::BlockDevice,
-                FileType::CharDevice,
+                FileType::Sock,
+                FileType::Blkdev,
+                FileType::Chrdev,
                 FileType::Unknown,
             ]
             .map(judged),

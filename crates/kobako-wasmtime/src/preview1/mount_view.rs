@@ -1498,7 +1498,7 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
             vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "dir/secret", false)
                 .map(|m| m.file_type)
         ),
-        (ERRNO_XDEV, Ok(FileType::File)),
+        (ERRNO_XDEV, Ok(FileType::RegFile)),
         "path_rename of a directory beneath a Mount with a Policy through preview1 must \
          answer EXDEV and move nothing"
     );

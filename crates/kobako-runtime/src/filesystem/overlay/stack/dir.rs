@@ -183,12 +183,12 @@ impl OverlayFs {
     /// alone holds it, a file always, once copied up, and anything else only from
     /// the upper.
     fn can_move(&self, moved: &Dentry, moving: FileType) -> Result<bool, FilesystemError> {
-        if moving == FileType::Directory {
+        if moving == FileType::Dir {
             let level = self.dir(moved)?.level();
             let lower = level.iter().skip(UPPER + 1).flatten().next().is_some();
             return Ok(level[UPPER].is_some() && !lower);
         }
-        Ok(moving == FileType::File || self.upper_holds(moved))
+        Ok(moving == FileType::RegFile || self.upper_holds(moved))
     }
 
     /// A directory moves only when the upper alone holds it; moving one
@@ -211,21 +211,21 @@ impl OverlayFs {
         let from_level = from.level();
         let moving = moved.kind()?;
         let to_level = to.level();
-        let is_dir = moving == FileType::Directory;
+        let is_dir = moving == FileType::Dir;
         // What cannot move answers first, as `ovl_rename_start` asks
         // `ovl_can_move` before it looks at what would be replaced.
         if !self.can_move(moved, moving)? {
             return Err(FilesystemError::CrossesDevices);
         }
         // Only an empty directory is replaced.
-        let upper_whiteouts = match target.kind() == Ok(FileType::Directory) {
+        let upper_whiteouts = match target.kind() == Ok(FileType::Dir) {
             true => self
                 .check_empty_dir(target)?
                 .ok_or(FilesystemError::DirectoryNotEmpty)?,
             false => false,
         };
         let shown_below = ovl_lower_positive(&from_level, from_name);
-        if moving == FileType::File {
+        if moving == FileType::RegFile {
             self.copy_up_file(from, moved, false)?;
         }
         let target_dir = self.upper_dir(to)?;

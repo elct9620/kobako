@@ -626,7 +626,7 @@ mod tests {
             dentry: &Dentry,
             options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            if dentry.kind() == Ok(FileType::Directory) {
+            if dentry.kind() == Ok(FileType::Dir) {
                 return Ok(Box::new(ByPathDir(self.root.clone())));
             }
             self.root.open(&dentry.path_raw(), options)
@@ -760,8 +760,8 @@ mod tests {
     fn a_dentry_keeps_what_a_lookup_first_found_there() {
         let ops: Arc<dyn InodeOperations> = Arc::new(Tmpfs::new());
         let (first, second) = (
-            Kstat::new(FileType::Directory, 0).with_identity(1, 2),
-            Kstat::new(FileType::Directory, 0).with_identity(1, 3),
+            Kstat::new(FileType::Dir, 0).with_identity(1, 2),
+            Kstat::new(FileType::Dir, 0).with_identity(1, 3),
         );
         let dentries = Dentries::new(None);
         let dentry = dentries.alloc_parallel(&dentries.root(), "dir");

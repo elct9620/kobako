@@ -120,7 +120,7 @@ mod tests {
     // @behavior RT-283
     #[test]
     fn a_guest_sees_one_device_for_every_entry() {
-        let reported = Kstat::new(FileType::File, 1).with_identity(7, 9);
+        let reported = Kstat::new(FileType::RegFile, 1).with_identity(7, 9);
         assert_eq!(
             [Profile::Hermetic, Profile::Permissive]
                 .map(|profile| profile.guest_metadata(reported).dev),
@@ -138,7 +138,7 @@ mod tests {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let reported = Kstat::new(FileType::File, 0).with_identity(7, 9);
+        let reported = Kstat::new(FileType::RegFile, 0).with_identity(7, 9);
         let identity = Identity::of(&reported);
         let mut unkeyed = DefaultHasher::new();
         identity
@@ -163,7 +163,7 @@ mod tests {
     // @behavior RT-193
     #[test]
     fn an_entry_whose_filesystem_keeps_no_count_is_named_once() {
-        let reported = Kstat::new(FileType::File, 0);
+        let reported = Kstat::new(FileType::RegFile, 0);
         assert_eq!(
             (
                 Profile::Hermetic.guest_metadata(reported).nlink,

@@ -90,12 +90,12 @@ fn refuse_stream(table: &Descriptors, fd: u32) -> Answer {
 /// for the one kind `st_mode` names a socket.
 fn to_filetype(file_type: FileType) -> Filetype {
     match file_type {
-        FileType::Directory => Filetype::Directory,
+        FileType::Dir => Filetype::Directory,
         FileType::Symlink => Filetype::SymbolicLink,
-        FileType::File => Filetype::RegularFile,
-        FileType::Socket => Filetype::SocketStream,
-        FileType::BlockDevice => Filetype::BlockDevice,
-        FileType::CharDevice => Filetype::CharacterDevice,
+        FileType::RegFile => Filetype::RegularFile,
+        FileType::Sock => Filetype::SocketStream,
+        FileType::Blkdev => Filetype::BlockDevice,
+        FileType::Chrdev => Filetype::CharacterDevice,
         _ => Filetype::Unknown,
     }
 }
@@ -476,9 +476,9 @@ mod tests {
     fn a_special_files_kind_reads_as_preview1_names_it() {
         assert_eq!(
             [
-                FileType::Socket,
-                FileType::BlockDevice,
-                FileType::CharDevice,
+                FileType::Sock,
+                FileType::Blkdev,
+                FileType::Chrdev,
                 FileType::Fifo,
                 FileType::Unknown,
             ]
@@ -584,7 +584,7 @@ mod tests {
     struct Holds(FileType, fn() -> Box<dyn FileOperations>);
 
     /// A directory holding a file its Filesystem refuses to close.
-    const HOLDS_REFUSES_CLOSE: Holds = Holds(FileType::File, || Box::new(RefusesClose));
+    const HOLDS_REFUSES_CLOSE: Holds = Holds(FileType::RegFile, || Box::new(RefusesClose));
 
     impl kobako_runtime::filesystem::FileSystemType for Holds {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
@@ -594,7 +594,7 @@ mod tests {
 
     impl InodeOperations for Holds {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::Directory, 0))
+            Ok(Kstat::new(FileType::Dir, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
@@ -684,7 +684,10 @@ mod tests {
         how.read = true;
         how.write = true;
         let fd = table
-            .push(open_held(Holds(FileType::File, || Box::new(Stream)), &how))
+            .push(open_held(
+                Holds(FileType::RegFile, || Box::new(Stream)),
+                &how,
+            ))
             .expect("a descriptor to set");
         assert!(
             fdstat_set_flags(&mut table, fd, Fdflags::APPEND | Fdflags::NONBLOCK).is_ok(),
@@ -711,7 +714,7 @@ mod tests {
         how.read = true;
         let fd = table
             .push(open_held(
-                Holds(FileType::CharDevice, || Box::new(RefusesClose)),
+                Holds(FileType::Chrdev, || Box::new(RefusesClose)),
                 &how,
             ))
             .expect("a descriptor to ask about");
@@ -1191,7 +1194,7 @@ mod tests {
 
     impl InodeOperations for ListsNames {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::Directory, 0))
+            Ok(Kstat::new(FileType::Dir, 0))
         }
 
         fn open(
@@ -1210,8 +1213,8 @@ mod tests {
             ctx: &mut vfs::DirContext<'_>,
         ) -> Result<(), FilesystemError> {
             let entries = [
-                vfs::DirEntry::new("ok", FileType::File),
-                vfs::DirEntry::new(self.0, FileType::File),
+                vfs::DirEntry::new("ok", FileType::RegFile),
+                vfs::DirEntry::new(self.0, FileType::RegFile),
             ];
             vfs::dir_emit_entries(dentry, ctx, &entries);
             Ok(())
@@ -1346,7 +1349,7 @@ mod tests {
 
     impl InodeOperations for MakesLinks {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::Directory, 0))
+            Ok(Kstat::new(FileType::Dir, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {

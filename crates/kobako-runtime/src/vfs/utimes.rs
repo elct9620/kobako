@@ -122,7 +122,7 @@ mod tests {
 
     impl InodeOperations for NoSetattr {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::Directory, 0))
+            Ok(Kstat::new(FileType::Dir, 0))
         }
     }
 
@@ -149,7 +149,7 @@ mod tests {
 
     impl InodeOperations for KeepsTimes {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::Directory, 0))
+            Ok(Kstat::new(FileType::Dir, 0))
         }
 
         fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {

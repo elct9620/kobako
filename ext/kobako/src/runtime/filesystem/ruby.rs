@@ -80,19 +80,19 @@ impl RubyFilesystem {
 /// says so through `ftype`, so it is judged as what it is rather than opened.
 fn kind_of(stat: Value) -> Result<FileType, MagnusError> {
     if stat.funcall::<_, _, bool>("directory?", ())? {
-        return Ok(FileType::Directory);
+        return Ok(FileType::Dir);
     }
     if !stat.respond_to("ftype", false)? {
-        return Ok(FileType::File);
+        return Ok(FileType::RegFile);
     }
     let ftype: String = stat.funcall("ftype", ())?;
     Ok(match ftype.as_str() {
         "link" => FileType::Symlink,
         "fifo" => FileType::Fifo,
-        "socket" => FileType::Socket,
-        "blockSpecial" => FileType::BlockDevice,
-        "characterSpecial" => FileType::CharDevice,
-        _ => FileType::File,
+        "socket" => FileType::Sock,
+        "blockSpecial" => FileType::Blkdev,
+        "characterSpecial" => FileType::Chrdev,
+        _ => FileType::RegFile,
     })
 }
 
@@ -331,7 +331,7 @@ impl InodeOperations for RubyRegular {
             "size",
             FilesystemError::Unsupported,
             |_, file| {
-                let metadata = Kstat::new(FileType::File, file.funcall("size", ())?);
+                let metadata = Kstat::new(FileType::RegFile, file.funcall("size", ())?);
                 if file.respond_to("stat", false)? {
                     with_stat_record(file.funcall("stat", ())?, metadata)
                 } else {
@@ -398,7 +398,7 @@ impl InodeOperations for RubyFilesystem {
         match self.stat(dentry.path_raw()) {
             Ok(found) => {
                 let ops: Arc<dyn InodeOperations> = match found.file_type {
-                    FileType::Directory => Arc::new(*self),
+                    FileType::Dir => Arc::new(*self),
                     FileType::Symlink => Arc::new(RubyLink(*self)),
                     _ => Arc::new(RubyRegular(*self)),
                 };

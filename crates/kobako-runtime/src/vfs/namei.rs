@@ -241,7 +241,7 @@ impl Nameidata {
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
             FileType::Symlink => self.pick_link(&dentry),
-            FileType::Directory => {
+            FileType::Dir => {
                 self.dir = dentry;
                 Ok(())
             }
@@ -436,7 +436,7 @@ fn sb_permission(sb: &SuperBlock, dentry: &Dentry, mask: Mask) -> Result<(), Fil
         return Ok(());
     }
     match dentry.kind()? {
-        FileType::File | FileType::Directory | FileType::Symlink => {
+        FileType::RegFile | FileType::Dir | FileType::Symlink => {
             Err(FilesystemError::ReadOnlyFilesystem)
         }
         _ => Ok(()),
@@ -457,7 +457,7 @@ fn set_nameidata(
         return Err(FilesystemError::Escape);
     }
     let start = start.path_init()?;
-    if start.dentry().kind()? != FileType::Directory {
+    if start.dentry().kind()? != FileType::Dir {
         return Err(FilesystemError::NotADirectory);
     }
     Ok(Nameidata {
@@ -505,7 +505,7 @@ pub(crate) fn filename_lookup(
     nd.lookup_last(follow)?;
     nd.complete_walk()?;
     let kind = nd.kind()?;
-    if nd.lookup_directory && kind != FileType::Directory {
+    if nd.lookup_directory && kind != FileType::Dir {
         return Err(FilesystemError::NotADirectory);
     }
     Ok(nd)
@@ -540,10 +540,10 @@ pub fn do_file_open(
         None => {
             let _held = held;
             let finish = lookup_open(&nd, &child, how)?;
-            may_open(cred, nd.mnt.sb(), &child, FileType::File, Mask::OPEN)?;
+            may_open(cred, nd.mnt.sb(), &child, FileType::RegFile, Mask::OPEN)?;
             let mode = FMode::of(how).with(FMode::CREATED);
             let security =
-                nd.on_path(|path| cred.security_file_open(path, FileType::File, mode, how))?;
+                nd.on_path(|path| cred.security_file_open(path, FileType::RegFile, mode, how))?;
             let f_op = match finish {
                 Finish::Open(f_op) => f_op,
                 Finish::NoOpen => child.open(how)?,
@@ -582,15 +582,15 @@ fn do_open(
     let how = &op.open_flag;
     let refusal = match kind {
         _ if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
-        FileType::Directory if how.create => Some(FilesystemError::IsADirectory),
-        FileType::Directory => None,
+        FileType::Dir if how.create => Some(FilesystemError::IsADirectory),
+        FileType::Dir => None,
         _ if nd.lookup_directory => Some(FilesystemError::NotADirectory),
         _ => None,
     };
     if let Some(error) = refusal {
         return Err(error);
     }
-    let truncate = how.truncate && kind == FileType::File;
+    let truncate = how.truncate && kind == FileType::RegFile;
     if truncate {
         nd.mnt.mnt_want_write()?;
     }
@@ -620,9 +620,7 @@ fn may_open(
 ) -> Result<(), FilesystemError> {
     match kind {
         FileType::Symlink => return Err(FilesystemError::FilesystemLoop),
-        FileType::Directory if mask.contains(Mask::WRITE) => {
-            return Err(FilesystemError::IsADirectory)
-        }
+        FileType::Dir if mask.contains(Mask::WRITE) => return Err(FilesystemError::IsADirectory),
         _ => {}
     }
     inode_permission(cred, sb, child, mask)
@@ -751,7 +749,7 @@ pub fn filename_unlinkat(
     let (_held, child) = start_dirop(&mut nd)?;
     if nd.trailing_slash {
         return Err(match child.kind() {
-            Ok(FileType::Directory) => FilesystemError::IsADirectory,
+            Ok(FileType::Dir) => FilesystemError::IsADirectory,
             _ => FilesystemError::NotADirectory,
         });
     }
@@ -791,7 +789,7 @@ pub fn filename_renameat2(
     target.name = rd.new_dentry.name();
     // Unless the source is a directory, a trailing `/` on either side is
     // refused, as `filename_renameat2` refuses it.
-    let is_dir = rd.old_dentry.kind()? == FileType::Directory;
+    let is_dir = rd.old_dentry.kind()? == FileType::Dir;
     if !is_dir && (source.trailing_slash || target.trailing_slash) {
         return Err(FilesystemError::NotADirectory);
     }
@@ -935,17 +933,13 @@ pub(crate) fn vfs_rename(
     if Arc::ptr_eq(old, new) || old.names_the_entry_of(new) {
         return Ok(());
     }
-    let is_dir = moving == Some(FileType::Directory);
+    let is_dir = moving == Some(FileType::Dir);
     may_delete_dentry(cred, sb, old_dir, moving, is_dir)?;
     match (target, flag) {
         (None, _) => may_create_dentry(cred, sb, new_dir, new)?,
-        (target, Some(RenameFlag::Exchange)) => may_delete_dentry(
-            cred,
-            sb,
-            new_dir,
-            target,
-            target == Some(FileType::Directory),
-        )?,
+        (target, Some(RenameFlag::Exchange)) => {
+            may_delete_dentry(cred, sb, new_dir, target, target == Some(FileType::Dir))?
+        }
         (target, _) => may_delete_dentry(cred, sb, new_dir, target, is_dir)?,
     }
     // A directory changing its parent changes its `..`, so it is asked to change.
@@ -953,13 +947,13 @@ pub(crate) fn vfs_rename(
         if is_dir {
             inode_permission(cred, sb, old, Mask::WRITE)?;
         }
-        if flag == Some(RenameFlag::Exchange) && target == Some(FileType::Directory) {
+        if flag == Some(RenameFlag::Exchange) && target == Some(FileType::Dir) {
             inode_permission(cred, sb, new, Mask::WRITE)?;
         }
     }
     let _held = lock_moved(
         (old, is_dir),
-        (new, target == Some(FileType::Directory)),
+        (new, target == Some(FileType::Dir)),
         Arc::ptr_eq(old_dir, new_dir),
         flag,
     )?;
@@ -971,7 +965,7 @@ pub(crate) fn vfs_rename(
         dentries.exchange(old, new);
         return Ok(());
     }
-    if target == Some(FileType::Directory) {
+    if target == Some(FileType::Dir) {
         new.mark_dead();
     }
     dentries.unhash(new);
@@ -1061,7 +1055,7 @@ fn vfs_link(
     child: &Dentry,
 ) -> Result<(), FilesystemError> {
     may_create_dentry(cred, sb, dir, child)?;
-    if old.kind()? == FileType::Directory {
+    if old.kind()? == FileType::Dir {
         return Err(FilesystemError::NotPermitted);
     }
     let _held = old.inode_lock()?;
@@ -1116,7 +1110,7 @@ fn may_delete_dentry(
         return Err(FilesystemError::NotFound);
     };
     inode_permission(cred, sb, dir, Mask::WRITE | Mask::EXEC)?;
-    match (is_dir, victim == FileType::Directory) {
+    match (is_dir, victim == FileType::Dir) {
         (true, false) => return Err(FilesystemError::NotADirectory),
         (false, true) => return Err(FilesystemError::IsADirectory),
         _ => {}
@@ -1182,8 +1176,8 @@ mod tests {
     impl InodeOperations for LinksFile {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::File, 0).with_nlink(self.names),
-                None => Kstat::new(FileType::Directory, 0),
+                Some(_) => Kstat::new(FileType::RegFile, 0).with_nlink(self.names),
+                None => Kstat::new(FileType::Dir, 0),
             })
         }
 
@@ -1191,7 +1185,7 @@ mod tests {
             if dentry.name() != "file" {
                 return Ok(Lookup::Absent);
             }
-            let file = Kstat::new(FileType::File, 0);
+            let file = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
         }
 
@@ -1255,14 +1249,14 @@ mod tests {
 
     impl InodeOperations for AskedOfAbsent {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::Directory, 0))
+            Ok(Kstat::new(FileType::Dir, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             self.lookups.fetch_add(1, Ordering::SeqCst);
             Ok(match self.stands {
                 true => {
-                    let file = Kstat::new(FileType::File, 0);
+                    let file = Kstat::new(FileType::RegFile, 0);
                     Lookup::Found(Inode::new(&file, Arc::new(self.clone())))
                 }
                 false => Lookup::Absent,
@@ -1491,7 +1485,7 @@ mod tests {
 
     impl FileSystemType for NamesItsRoot {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            let root = Kstat::new(FileType::Directory, 0).with_identity(7, 11);
+            let root = Kstat::new(FileType::Dir, 0).with_identity(7, 11);
             sb.d_make_root(Inode::new(&root, self));
             Ok(())
         }
@@ -1529,7 +1523,7 @@ mod tests {
 
     impl InodeOperations for NamesItsRoot {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::Directory, 0))
+            Ok(Kstat::new(FileType::Dir, 0))
         }
     }
 
@@ -1546,7 +1540,7 @@ mod tests {
             let inode = Path::root(mount.mnt()).dentry().inode();
             inode.and_then(|inode| inode.identity())
         };
-        let reported = Kstat::new(FileType::Directory, 0).with_identity(7, 11);
+        let reported = Kstat::new(FileType::Dir, 0).with_identity(7, 11);
         assert_eq!(
             (
                 identity(Arc::new(NamesItsRoot)),
@@ -1570,11 +1564,11 @@ mod tests {
 
     impl InodeOperations for SharesInode {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(FileType::File, 0))
+            Ok(Kstat::new(FileType::RegFile, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let file = Kstat::new(FileType::File, 0);
+            let file = Kstat::new(FileType::RegFile, 0);
             let inode = self
                 .0
                 .get_or_init(|| Inode::new(&file, Arc::new(self.clone())));
@@ -1629,8 +1623,8 @@ mod tests {
     impl InodeOperations for CreatesOnly {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::File, 0),
-                None => Kstat::new(FileType::Directory, 0),
+                Some(_) => Kstat::new(FileType::RegFile, 0),
+                None => Kstat::new(FileType::Dir, 0),
             })
         }
 
@@ -1639,7 +1633,7 @@ mod tests {
         }
 
         fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            let made = Kstat::new(FileType::File, 0);
+            let made = Kstat::new(FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&made, Arc::new(self.clone()))));
             Ok(())
         }
@@ -1677,7 +1671,7 @@ mod tests {
                 file.getattr().map(|made| made.file_type),
                 filesystem.opened.load(Ordering::SeqCst)
             ),
-            (Ok(FileType::File), 1),
+            (Ok(FileType::RegFile), 1),
             "vfs::do_file_open making a file on a Filesystem with no atomic_open must open \
              what create recorded, as lookup_open does"
         );
@@ -1897,13 +1891,13 @@ mod tests {
     impl InodeOperations for ReadOnlyRefusingWrites {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::File, 0),
-                None => Kstat::new(FileType::Directory, 0),
+                Some(_) => Kstat::new(FileType::RegFile, 0),
+                None => Kstat::new(FileType::Dir, 0),
             })
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let file = Kstat::new(FileType::File, 0);
+            let file = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&file, Arc::new(Self))))
         }
 
@@ -2329,7 +2323,7 @@ mod tests {
             dentry: &Dentry,
             options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            if dentry.kind() == Ok(crate::filesystem::FileType::Directory) {
+            if dentry.kind() == Ok(crate::filesystem::FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
             self.root.open(&folded(dentry), options)
@@ -2508,11 +2502,11 @@ mod tests {
 
     impl InodeOperations for OneEntry {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(crate::filesystem::FileType::Directory, 0))
+            Ok(Kstat::new(crate::filesystem::FileType::Dir, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let entry = Kstat::new(crate::filesystem::FileType::File, 0).with_identity(1, 2);
+            let entry = Kstat::new(crate::filesystem::FileType::RegFile, 0).with_identity(1, 2);
             Ok(Lookup::Found(Inode::new(
                 &entry,
                 Arc::new(Self(self.0.clone())),
@@ -3059,15 +3053,15 @@ mod tests {
     impl InodeOperations for CountsLookups {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             let kind = match dentry.parent() {
-                Some(_) => crate::filesystem::FileType::File,
-                None => crate::filesystem::FileType::Directory,
+                Some(_) => crate::filesystem::FileType::RegFile,
+                None => crate::filesystem::FileType::Dir,
             };
             Ok(Kstat::new(kind, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             self.looked_up.fetch_add(1, Ordering::SeqCst);
-            let file = Kstat::new(crate::filesystem::FileType::File, 0);
+            let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
         }
     }
@@ -3124,14 +3118,14 @@ mod tests {
 
     impl InodeOperations for RecordsCalls {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(crate::filesystem::FileType::Directory, 0))
+            Ok(Kstat::new(crate::filesystem::FileType::Dir, 0))
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             if dentry.name() == "missing" {
                 return Ok(Lookup::Absent);
             }
-            let file = Kstat::new(crate::filesystem::FileType::File, 0);
+            let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
         }
 
@@ -3164,7 +3158,7 @@ mod tests {
             _options: &OpenHow,
         ) -> Result<Finish, FilesystemError> {
             self.0.lock().expect("never poisoned").push("atomic_open");
-            let file = Kstat::new(crate::filesystem::FileType::File, 0);
+            let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
             Ok(Finish::Open(Box::new(RecordedFile)))
         }
@@ -3212,13 +3206,13 @@ mod tests {
     impl InodeOperations for KeepsChanges {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::File, 0),
-                None => Kstat::new(FileType::Directory, 0),
+                Some(_) => Kstat::new(FileType::RegFile, 0),
+                None => Kstat::new(FileType::Dir, 0),
             })
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            let file = Kstat::new(FileType::File, 0);
+            let file = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&file, Arc::new(self.clone()))))
         }
 
@@ -3294,7 +3288,7 @@ mod tests {
 
     impl InodeOperations for Holds {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(crate::filesystem::FileType::Directory, 0))
+            Ok(Kstat::new(crate::filesystem::FileType::Dir, 0))
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
@@ -3326,7 +3320,7 @@ mod tests {
             _options: &OpenHow,
         ) -> Result<Finish, FilesystemError> {
             self.made.store(true, Ordering::SeqCst);
-            let file = Kstat::new(crate::filesystem::FileType::File, 0);
+            let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
             Ok(Finish::Open(Box::new(RecordedFile)))
         }
@@ -3390,7 +3384,7 @@ mod tests {
         let mount = Mount::new(
             "/data",
             Filesystem::new(Arc::new(Holds::of(
-                crate::filesystem::FileType::CharDevice,
+                crate::filesystem::FileType::Chrdev,
                 Mask::EXEC,
             )))
             .expect("the instance must stand"),
@@ -3420,7 +3414,7 @@ mod tests {
             write: true,
             ..OpenHow::default()
         };
-        let file = crate::filesystem::FileType::File;
+        let file = crate::filesystem::FileType::RegFile;
         let fifo = crate::filesystem::FileType::Fifo;
         assert_eq!(
             (
@@ -3446,7 +3440,7 @@ mod tests {
             truncate: true,
             ..OpenHow::default()
         };
-        let file = crate::filesystem::FileType::File;
+        let file = crate::filesystem::FileType::RegFile;
         assert_eq!(
             open_beneath(Holds::of(file, Mask::WRITE), Access::Read, "f", &truncate),
             Some(FilesystemError::ReadOnlyFilesystem),
@@ -3458,7 +3452,7 @@ mod tests {
     // @behavior RT-262
     #[test]
     fn an_open_asks_to_open_what_it_just_made() {
-        let holds = Holds::of(crate::filesystem::FileType::File, Mask::OPEN);
+        let holds = Holds::of(crate::filesystem::FileType::RegFile, Mask::OPEN);
         let made = holds.made.clone();
         let create = OpenHow {
             write: true,
@@ -3491,7 +3485,7 @@ mod tests {
 
     impl InodeOperations for HoldsLookup {
         fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(Kstat::new(crate::filesystem::FileType::Directory, 0))
+            Ok(Kstat::new(crate::filesystem::FileType::Dir, 0))
         }
 
         fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
@@ -3526,8 +3520,8 @@ mod tests {
     impl InodeOperations for AsksItsOwnName {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
             Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::File, 0),
-                None => Kstat::new(FileType::Directory, 0),
+                Some(_) => Kstat::new(FileType::RegFile, 0),
+                None => Kstat::new(FileType::Dir, 0),
             })
         }
 
@@ -3536,7 +3530,7 @@ mod tests {
                 let root = self.root.get().expect("the root is set before any walk");
                 vfs::vfs_fstatat(&Arc::default(), root, "x", false)?;
             }
-            let file = Kstat::new(FileType::File, 0);
+            let file = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&file, Arc::new(Self::default()))))
         }
     }
@@ -3555,7 +3549,7 @@ mod tests {
         });
         assert_eq!(
             (answer, filesystem.asked.load(Ordering::SeqCst)),
-            (Ok(FileType::File), 2),
+            (Ok(FileType::RegFile), 2),
             "vfs_fstatat of a name whose lookup asks the runtime about that name must ask the \
              Filesystem again within the lookup and answer, rather than wait on itself"
         );
@@ -3632,7 +3626,7 @@ mod tests {
             use crate::filesystem::FileType;
             let kind = match dentry.name().as_str() {
                 "e" => FileType::Symlink,
-                "f" => FileType::File,
+                "f" => FileType::RegFile,
                 _ => return Ok(Lookup::Absent),
             };
             let found = Kstat::new(kind, 0);
@@ -3651,7 +3645,7 @@ mod tests {
     fn a_link_pointing_nowhere_leaves_the_walk_where_it_stands() {
         use crate::filesystem::FileType;
         let root = root_of(
-            Filesystem::new(Arc::new(PointsNowhere(FileType::Directory)))
+            Filesystem::new(Arc::new(PointsNowhere(FileType::Dir)))
                 .expect("the instance must stand"),
         );
         let kind = |path: &str| {
@@ -3659,7 +3653,7 @@ mod tests {
         };
         assert_eq!(
             (kind("e"), kind("e/f")),
-            (Ok(FileType::Directory), Ok(FileType::File)),
+            (Ok(FileType::Dir), Ok(FileType::RegFile)),
             "vfs::vfs_fstatat following a link that points nowhere must reach the directory \
              holding it, at the end of a path and in its middle"
         );

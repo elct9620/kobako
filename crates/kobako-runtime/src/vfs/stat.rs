@@ -10,20 +10,20 @@ use super::namei::filename_lookup;
 use super::path::Start;
 use super::FilesystemError;
 
-/// What a path names.
+/// What a path names, as Linux's file types `FT_*` name each kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FileType {
-    File,
-    Directory,
+    RegFile,
+    Dir,
     /// A link, as only a stat that does not follow it and a listing report one.
     Symlink,
     /// A FIFO a host holds, or a pipe of the runtime's own.
     Fifo,
-    Socket,
-    BlockDevice,
+    Sock,
+    Blkdev,
     /// A character device a host holds, or a whiteout, as Linux makes one.
-    CharDevice,
+    Chrdev,
     /// What a platform names no kind for.
     Unknown,
 }
@@ -32,10 +32,7 @@ impl FileType {
     /// Whether it is a device, a FIFO, or a socket, as Linux's `special_file`
     /// names what an open for writing takes no write access to its mount for.
     pub(crate) fn is_special(self) -> bool {
-        matches!(
-            self,
-            Self::CharDevice | Self::BlockDevice | Self::Fifo | Self::Socket
-        )
+        matches!(self, Self::Chrdev | Self::Blkdev | Self::Fifo | Self::Sock)
     }
 }
 

@@ -81,9 +81,9 @@ impl Node {
 
     fn file_type(&self) -> FileType {
         match self {
-            Self::File(_) => FileType::File,
-            Self::Directory(_) => FileType::Directory,
-            Self::Whiteout { .. } => FileType::CharDevice,
+            Self::File(_) => FileType::RegFile,
+            Self::Directory(_) => FileType::Dir,
+            Self::Whiteout { .. } => FileType::Chrdev,
         }
     }
 
@@ -274,7 +274,7 @@ impl Dir {
             false => 2 + state.subdirectories,
         };
         state.times.report(
-            Kstat::new(FileType::Directory, len)
+            Kstat::new(FileType::Dir, len)
                 .with_identity(dev, self.ino)
                 .with_nlink(nlink),
         )
@@ -413,7 +413,7 @@ impl Content {
 
     fn metadata(&self) -> Kstat {
         self.times.report(
-            Kstat::new(FileType::File, self.bytes.len() as u64)
+            Kstat::new(FileType::RegFile, self.bytes.len() as u64)
                 .with_identity(self.dev, self.ino)
                 .with_nlink(self.names),
         )
@@ -625,7 +625,7 @@ impl Tmpfs {
         match node {
             Node::File(data) => lock(data).metadata(),
             Node::Directory(dir) => dir.metadata(self.tree.dev),
-            Node::Whiteout { .. } => Kstat::new(FileType::CharDevice, 0),
+            Node::Whiteout { .. } => Kstat::new(FileType::Chrdev, 0),
         }
     }
 
@@ -860,7 +860,7 @@ struct TmpfsWhiteout;
 
 impl InodeOperations for TmpfsWhiteout {
     fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        Ok(Kstat::new(FileType::CharDevice, 0))
+        Ok(Kstat::new(FileType::Chrdev, 0))
     }
 }
 
@@ -1656,7 +1656,7 @@ mod tests {
                 tmpfs.symlink_metadata("moved/made").map(|m| m.file_type),
                 tmpfs.symlink_metadata("dir/made").map(|m| m.file_type)
             ),
-            (Ok(FileType::File), Err(FilesystemError::NotFound)),
+            (Ok(FileType::RegFile), Err(FilesystemError::NotFound)),
             "a file made through a directory Tmpfs::open_dir opened before Tmpfs::rename moved \
              it must stand beneath the directory's new path"
         );
@@ -1680,7 +1680,7 @@ mod tests {
                 Err(FilesystemError::NotFound),
                 Err(FilesystemError::NotFound),
                 Ok(0),
-                Ok(FileType::Directory)
+                Ok(FileType::Dir)
             ),
             "a directory Tmpfs::open_dir opened, once Tmpfs::remove_dir removed it, must make \
              nothing, list nothing, and still stat as a directory"
@@ -1701,7 +1701,7 @@ mod tests {
                 tmpfs.rename("a", &inner, "a"),
                 tmpfs.symlink_metadata("a/b").map(|m| m.file_type)
             ),
-            (Err(FilesystemError::InvalidInput), Ok(FileType::Directory)),
+            (Err(FilesystemError::InvalidInput), Ok(FileType::Dir)),
             "Tmpfs::rename of a directory into one opened beneath it must answer InvalidInput \
              and move nothing"
         );

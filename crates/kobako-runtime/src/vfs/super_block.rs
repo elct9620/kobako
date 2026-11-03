@@ -24,7 +24,7 @@ pub fn simple_fill_super(
     sb: &mut SuperBlock,
     root: Arc<dyn InodeOperations>,
 ) -> Result<(), FilesystemError> {
-    sb.d_make_root(Inode::new(&Kstat::new(FileType::Directory, 0), root));
+    sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), root));
     Ok(())
 }
 
