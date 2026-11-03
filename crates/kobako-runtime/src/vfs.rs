@@ -19,6 +19,7 @@ mod mount;
 mod namei;
 mod openat2;
 mod path;
+mod readdir;
 mod stat;
 mod super_block;
 mod utimes;
@@ -34,8 +35,7 @@ pub use cred::{Cred, FileSecurity, SecurityOperations, SecurityPath};
 pub use dentry::{Dentry, DentryOperations};
 pub use errno::FilesystemError;
 pub use file::{
-    dir_emit_dots, generic_file_llseek, generic_read_dir, generic_write_sync, verify_dirent_name,
-    DirContext, DirEmit, DirEntry, FMode, File, FileOperations, Kiocb, PollMask, Whence,
+    generic_file_llseek, generic_write_sync, FMode, File, FileOperations, Kiocb, PollMask, Whence,
 };
 pub use inode::{Finish, Identity, Inode, InodeOperations, Lookup, Mask, RenameFlag};
 pub use mount::VfsMount;
@@ -45,6 +45,9 @@ pub use namei::{
 };
 pub use openat2::{build_open_flags, OpenFlags, OpenHow};
 pub use path::{Path, Start};
+pub use readdir::{
+    dir_emit_dots, generic_read_dir, verify_dirent_name, DirContext, DirEmit, DirEntry,
+};
 pub use stat::{do_readlinkat, vfs_fstatat, FileType, Kstat};
 pub use super_block::{simple_fill_super, FileSystemType, SuperBlock};
 pub use utimes::{do_utimes_fd, do_utimes_path};

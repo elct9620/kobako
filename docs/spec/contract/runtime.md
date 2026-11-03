@@ -38,6 +38,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/vfs/namei.rs`
 - `crates/kobako-runtime/src/vfs/openat2.rs`
 - `crates/kobako-runtime/src/vfs/path.rs`
+- `crates/kobako-runtime/src/vfs/readdir.rs`
 - `crates/kobako-runtime/src/vfs/stat.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-runtime/src/yielder.rs`
