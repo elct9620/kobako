@@ -965,15 +965,6 @@ impl Cred {
 }
 ```
 
-## `prepare_creds`
-
-The Cred an Invocation over these Mounts runs with: kobako's own rules, then each
-Mount's Policy.
-
-```rust
-pub fn prepare_creds<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {}
-```
-
 ## `SecurityOperations`
 
 What a security module answers. A hook a module lacks allows the call, and a
