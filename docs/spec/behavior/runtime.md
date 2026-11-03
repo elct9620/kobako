@@ -3318,3 +3318,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding no descriptor at some number |
 | When | it sets the size at that number to one past the largest offset |
 | Then | the call answers EINVAL, as Linux's `ftruncate` checks the length before it finds the descriptor |
+
+## `RT-297` A descriptor opened for neither reading nor writing stands only for its path
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-235` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory the guest opened without the right to read, list, or write |
+| When | the guest lists, syncs, advises, sizes, or sets the times or flags of the descriptor, or waits on it |
+| Then | each call answers EBADF, as Linux's `fdget` refuses `O_PATH`, and a stat or a walk from it succeeds |
