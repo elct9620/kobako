@@ -3298,3 +3298,23 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose `atomic_open` finds a file at the name and makes nothing |
 | When | a call opens that name, asking to create it alone |
 | Then | the open answers EEXIST, as Linux's `do_open` refuses `O_EXCL` without `FMODE_CREATED` |
+
+## `RT-295` A wait on a descriptor not open reports it in its event
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-285` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding no descriptor at some number |
+| When | it waits for that number to be ready |
+| Then | the wait succeeds, and the event answers EBADF, as Linux's `poll` marks the descriptor `POLLNVAL` |
+
+## `RT-296` A size no file can take answers before the descriptor is found
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding no descriptor at some number |
+| When | it sets the size at that number to one past the largest offset |
+| Then | the call answers EINVAL, as Linux's `ftruncate` checks the length before it finds the descriptor |
