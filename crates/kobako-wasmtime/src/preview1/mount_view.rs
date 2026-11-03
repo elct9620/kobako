@@ -424,10 +424,10 @@ const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
 
 /// The default `OpenHow` with `set` applied.
-fn build_options(set: impl FnOnce(&mut OpenHow)) -> OpenHow {
-    let mut options = OpenHow::default();
-    set(&mut options);
-    options
+fn build_how(set: impl FnOnce(&mut OpenHow)) -> OpenHow {
+    let mut how = OpenHow::default();
+    set(&mut how);
+    how
 }
 
 fn grant(
@@ -1542,10 +1542,10 @@ impl Hook for AppendedMeanwhile {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let writes = build_options(|options| options.write = true);
-        let file = inner.open(dentry, options)?;
+        let writes = build_how(|how| how.write = true);
+        let file = inner.open(dentry, how)?;
         let other = inner.open(dentry, &writes)?;
         Ok(Box::new(AppendedMeanwhileFile {
             file,
@@ -2672,9 +2672,9 @@ impl InodeOperations for ChangesNothing {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.0.open(dentry, options)
+        self.0.open(dentry, how)
     }
 }
 

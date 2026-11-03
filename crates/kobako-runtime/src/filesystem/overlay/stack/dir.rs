@@ -119,20 +119,20 @@ impl OverlayFs {
         &self,
         dir: &ViewDir,
         child: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let inode = child.inode().ok_or(FilesystemError::NotFound)?;
         let kept = OverlayFileInode::of(&inode).ok_or(FilesystemError::IsADirectory)?;
         let real = kept.real();
         if self.is_in_upper(&real) {
-            return real.open(options);
+            return real.open(how);
         }
-        if !(options.write || options.truncate) {
-            let file = real.open(options)?;
+        if !(how.write || how.truncate) {
+            let file = real.open(how)?;
             return Ok(ovl_file(file, real, kept));
         }
-        self.copy_up_file(dir, child, options.truncate)?;
-        kept.real().open(options)
+        self.copy_up_file(dir, child, how.truncate)?;
+        kept.real().open(how)
     }
 
     /// Make the file `name`, where the view shows nothing, in the upper.

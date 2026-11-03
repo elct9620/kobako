@@ -226,10 +226,10 @@ impl InodeOperations for OverlayRegular {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let fs = &self.0.fs;
-        fs.open(&fs.parent(dentry)?, dentry, options)
+        fs.open(&fs.parent(dentry)?, dentry, how)
     }
 }
 
@@ -307,7 +307,7 @@ impl InodeOperations for Overlay {
     fn open(
         &self,
         dentry: &Dentry,
-        _options: &OpenHow,
+        _how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let _real = self
             .fs
@@ -565,11 +565,11 @@ mod tests {
     /// Write at the start of what stands at `path`, so a copy up brings its
     /// bytes along.
     fn write_over(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
-        let options = OpenHow {
+        let how = OpenHow {
             write: true,
             ..OpenHow::default()
         };
-        fs.open(path, &options)?
+        fs.open(path, &how)?
             .write_iter(&mut Kiocb::at(0), contents)
             .map(drop)
     }
@@ -915,7 +915,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenHow,
+            _how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             struct Empty;
             impl FileOperations for Empty {
@@ -1834,12 +1834,12 @@ mod tests {
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-            options: &OpenHow,
+            how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(FileType::Dir) && dentry.parent().is_some() {
                 self.start();
             }
-            inner.open(dentry, options)
+            inner.open(dentry, how)
         }
     }
 
@@ -2422,20 +2422,16 @@ mod tests {
         fn open(
             &self,
             dentry: &Dentry,
-            options: &OpenHow,
+            how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
-            self.root.open(&folded(dentry), options)
+            self.root.open(&folded(dentry), how)
         }
 
-        fn atomic_open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenHow,
-        ) -> Result<Finish, FilesystemError> {
-            self.root.create(&folded(dentry), options).map(Finish::Open)
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+            self.root.create(&folded(dentry), how).map(Finish::Open)
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -2556,9 +2552,9 @@ mod tests {
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-            options: &OpenHow,
+            how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            let opened = inner.open(dentry, options);
+            let opened = inner.open(dentry, how);
             let run = self.0.lock().expect("never poisoned").take();
             if let Some(run) = run {
                 crate::sched::testing::join("the writer", thread::spawn(run));
@@ -2873,7 +2869,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenHow,
+            _how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(FilesystemError::Interrupted)
@@ -3144,7 +3140,7 @@ mod tests {
             &self,
             _inner: &dyn InodeOperations,
             _dentry: &Dentry,
-            _options: &OpenHow,
+            _how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Err(FilesystemError::PermissionDenied)
         }
@@ -3283,12 +3279,12 @@ mod tests {
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-            options: &OpenHow,
+            how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if !self.opening.swap(true, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }
-            inner.open(dentry, options)
+            inner.open(dentry, how)
         }
     }
 

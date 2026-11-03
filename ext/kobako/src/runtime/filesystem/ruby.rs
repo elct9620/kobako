@@ -181,15 +181,15 @@ fn to_error(err: MagnusError) -> FilesystemError {
     named.unwrap_or_else(|| FilesystemError::Other(err.to_string()))
 }
 
-/// `File::Constants` flags for `options`, read from Ruby since their
+/// `File::Constants` flags for `how`, read from Ruby since their
 /// values differ by platform.
-fn to_flags(ruby: &Ruby, options: &OpenHow, create: bool) -> Result<i64, MagnusError> {
+fn to_flags(ruby: &Ruby, how: &OpenHow, create: bool) -> Result<i64, MagnusError> {
     let constants: RModule = ruby
         .class_object()
         .const_get::<_, RClass>("File")?
         .const_get("Constants")?;
     let flag = |name| constants.const_get::<_, i64>(name);
-    let mut flags = match (options.read, options.write || options.truncate) {
+    let mut flags = match (how.read, how.write || how.truncate) {
         (_, false) => flag("RDONLY")?,
         (false, true) => flag("WRONLY")?,
         (true, true) => flag("RDWR")?,
@@ -197,7 +197,7 @@ fn to_flags(ruby: &Ruby, options: &OpenHow, create: bool) -> Result<i64, MagnusE
     if create {
         flags |= flag("CREAT")? | flag("EXCL")?;
     }
-    if options.truncate {
+    if how.truncate {
         flags |= flag("TRUNC")?;
     }
     // The runtime follows a link itself, so no open follows one, wherever
@@ -237,7 +237,7 @@ impl RubyFilesystem {
     fn open_at(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
         create: bool,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let path = dentry.path_raw();
@@ -246,7 +246,7 @@ impl RubyFilesystem {
             "open",
             FilesystemError::Unsupported,
             |ruby, fs| {
-                let file: Value = fs.funcall("open", (path, to_flags(ruby, options, create)?))?;
+                let file: Value = fs.funcall("open", (path, to_flags(ruby, how, create)?))?;
                 Ok(RubyFile::pin(ruby, file))
             },
         )?;
@@ -367,9 +367,9 @@ impl InodeOperations for RubyRegular {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.0.open_at(dentry, options, false)
+        self.0.open_at(dentry, how, false)
     }
 }
 
@@ -414,13 +414,13 @@ impl InodeOperations for RubyFilesystem {
     fn open(
         &self,
         _dentry: &Dentry,
-        _options: &OpenHow,
+        _how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         Ok(Box::new(RubyDir(*self, Rdir::default())))
     }
 
-    fn atomic_open(&self, dentry: &Dentry, options: &OpenHow) -> Result<Finish, FilesystemError> {
-        self.open_at(dentry, options, true).map(Finish::Open)
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+        self.open_at(dentry, how, true).map(Finish::Open)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

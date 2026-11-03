@@ -610,9 +610,9 @@ where
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let opened = self.inner.open(dentry, options)?;
+        let opened = self.inner.open(dentry, how)?;
         if dentry
             .inode()
             .is_none_or(|inode| inode.kind() == kobako_runtime::filesystem::FileType::Dir)
@@ -624,10 +624,10 @@ where
 
     /// Opens what it made, as a Filesystem ending in `finish_open` does, so the
     /// new file is wrapped too.
-    fn atomic_open(&self, dentry: &Dentry, options: &OpenHow) -> Result<Finish, FilesystemError> {
-        let made = match self.inner.atomic_open(dentry, options)? {
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+        let made = match self.inner.atomic_open(dentry, how)? {
             Finish::Open(made) => made,
-            _ => self.inner.open(dentry, options)?,
+            _ => self.inner.open(dentry, how)?,
         };
         Ok(Finish::Open(Box::new((self.wrap)(made))))
     }
@@ -941,9 +941,9 @@ impl InodeOperations for ReportsLen {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.0.open(dentry, options)
+        self.0.open(dentry, how)
     }
 }
 

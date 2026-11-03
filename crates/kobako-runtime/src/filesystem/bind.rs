@@ -125,10 +125,10 @@ impl Bind {
     fn open_file(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
         create: bool,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let file = self.at(dentry, |dir, name| open_in(dir, name, options, create))?;
+        let file = self.at(dentry, |dir, name| open_in(dir, name, how, create))?;
         let opened = to_metadata(cap_std::fs::Metadata::from_file(&file).map_err(to_error)?);
         match dentry.inode().map(|inode| inode.identity()) {
             None => dentry.add(Some(Inode::new(
@@ -152,7 +152,7 @@ impl Bind {
         if let Ok(fids) = kept.downcast::<OpenFids>() {
             let mut fids = fids.0.lock().unwrap_or_else(PoisonError::into_inner);
             fids.retain(|(fid, _)| fid.strong_count() > 0);
-            fids.push((Arc::downgrade(&file), options.write || options.truncate));
+            fids.push((Arc::downgrade(&file), how.write || how.truncate));
         }
         Ok(Box::new(BindFile { file }))
     }
@@ -380,20 +380,20 @@ fn v9fs_fid_find_inode(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::F
         .find_map(|(fid, _)| fid.upgrade())
 }
 
-/// Open `name` in `dir` as `options` asks, made first where `create` says,
+/// Open `name` in `dir` as `how` asks, made first where `create` says,
 /// refusing one that already stands.
 fn open_in(
     dir: &Dir,
     name: &str,
-    options: &OpenHow,
+    how: &OpenHow,
     create: bool,
 ) -> Result<std::fs::File, FilesystemError> {
-    let writes = options.write || options.truncate || create;
+    let writes = how.write || how.truncate || create;
     let mut open = CapOpenOptions::new();
     // The host refuses an open for neither reading nor writing, and one
     // that creates or truncates without writing; the runtime decides
     // what is read and written, so such opens read or write here.
-    open.read(options.read || !writes)
+    open.read(how.read || !writes)
         .write(writes)
         .create_new(create);
     // Only a file or a directory opens: a FIFO would wait for a peer
@@ -517,9 +517,9 @@ impl InodeOperations for BindRegular {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.0.open_file(dentry, options, false)
+        self.0.open_file(dentry, how, false)
     }
 }
 
@@ -590,18 +590,18 @@ impl InodeOperations for Bind {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let fid = self.fid_lookup(dentry)?;
-        if options.read {
+        if how.read {
             may_read_dir(&fid)?;
         }
         OpenDirFid::set(dentry, &fid);
         Ok(Box::new(BindDir(fid, Rdir::default())))
     }
 
-    fn atomic_open(&self, dentry: &Dentry, options: &OpenHow) -> Result<Finish, FilesystemError> {
-        self.open_file(dentry, options, true).map(Finish::Open)
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+        self.open_file(dentry, how, true).map(Finish::Open)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -2443,12 +2443,12 @@ mod tests {
             .map(|byte| {
                 let directory = directory.clone();
                 std::thread::spawn(move || {
-                    let options = OpenHow {
+                    let how = OpenHow {
                         write: true,
                         ..OpenHow::default()
                     };
                     let mut file = directory
-                        .open("log.txt", &options)
+                        .open("log.txt", &how)
                         .expect("the host file must open to write");
                     for _ in 0..10_000 {
                         file.write_iter(&mut Kiocb::at(0).with_append(), byte)

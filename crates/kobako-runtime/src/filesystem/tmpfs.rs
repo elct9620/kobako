@@ -694,7 +694,7 @@ impl InodeOperations for Tmpfs {
     fn open(
         &self,
         _dentry: &Dentry,
-        _options: &OpenHow,
+        _how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         Ok(Box::new(TmpfsDir {
             dir: self.dir.clone(),
@@ -847,7 +847,7 @@ impl InodeOperations for TmpfsRegular {
     fn open(
         &self,
         _dentry: &Dentry,
-        _options: &OpenHow,
+        _how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         Ok(Box::new(TmpfsFile {
             data: self.data.clone(),
@@ -1079,12 +1079,12 @@ mod tests {
     #[test]
     fn a_name_past_its_limit_is_too_long_for_a_tmpfs() {
         let fs = kern_path(Arc::new(Tmpfs::new()));
-        let options = OpenHow {
+        let how = OpenHow {
             write: true,
             ..OpenHow::default()
         };
         assert!(
-            fs.create(&"x".repeat(NAME_MAX), &options).is_ok()
+            fs.create(&"x".repeat(NAME_MAX), &how).is_ok()
                 && matches!(
                     fs.symlink_metadata(&"x".repeat(NAME_MAX + 1)),
                     Err(FilesystemError::InvalidFilename)
@@ -1825,13 +1825,13 @@ mod tests {
     #[test]
     fn a_tmpfs_keeps_a_files_times_as_a_tmpfs_mounted_noatime_does() {
         let tmpfs = at(Tmpfs::new());
-        let options = OpenHow {
+        let how = OpenHow {
             read: true,
             write: true,
             ..OpenHow::default()
         };
         let mut file = tmpfs
-            .open_or_create("file", &options)
+            .open_or_create("file", &how)
             .expect("the file must be made");
         file.write_iter(&mut Kiocb::at(0), b"ab")
             .expect("the file must take a write");

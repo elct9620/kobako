@@ -62,15 +62,15 @@ impl KernPath {
     pub(crate) fn open(
         &self,
         path: &str,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let child = self.resolve(path)?.path()?;
         // A link opens as itself nowhere, as `may_open` refuses one first.
         if child.kind() == Ok(FileType::Symlink) {
             return Err(FilesystemError::FilesystemLoop);
         }
-        let file = child.open(options)?;
-        if options.truncate {
+        let file = child.open(how)?;
+        if how.truncate {
             child
                 .inode()
                 .ok_or(FilesystemError::NotFound)?
@@ -84,11 +84,11 @@ impl KernPath {
     pub(crate) fn open_or_create(
         &self,
         path: &str,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         match self.symlink_metadata(path) {
-            Err(FilesystemError::NotFound) => self.create(path, options),
-            _ => self.open(path, options),
+            Err(FilesystemError::NotFound) => self.create(path, how),
+            _ => self.open(path, how),
         }
     }
 
@@ -96,13 +96,13 @@ impl KernPath {
     pub(crate) fn create(
         &self,
         path: &str,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let (nd, child) = self.parent(path)?;
         may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)?;
-        match atomic_open(nd.dentry(), &child, options)? {
+        match atomic_open(nd.dentry(), &child, how)? {
             Finish::Open(file) => Ok(file),
-            Finish::NoOpen => child.open(options),
+            Finish::NoOpen => child.open(how),
         }
     }
 

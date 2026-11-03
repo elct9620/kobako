@@ -624,22 +624,16 @@ mod tests {
         fn open(
             &self,
             dentry: &Dentry,
-            options: &OpenHow,
+            how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(FileType::Dir) {
                 return Ok(Box::new(ByPathDir(self.root.clone())));
             }
-            self.root.open(&dentry.path_raw(), options)
+            self.root.open(&dentry.path_raw(), how)
         }
 
-        fn atomic_open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenHow,
-        ) -> Result<Finish, FilesystemError> {
-            self.root
-                .create(&dentry.path_raw(), options)
-                .map(Finish::Open)
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+            self.root.create(&dentry.path_raw(), how).map(Finish::Open)
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

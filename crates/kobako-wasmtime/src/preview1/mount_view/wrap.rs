@@ -42,18 +42,18 @@ pub(super) trait Hook: Send + Sync + 'static {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        inner.open(dentry, options)
+        inner.open(dentry, how)
     }
 
     fn atomic_open(
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Finish, FilesystemError> {
-        inner.atomic_open(dentry, options)
+        inner.atomic_open(dentry, how)
     }
 
     fn mkdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -166,13 +166,13 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenHow,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        self.hook.open(self.inner.as_ref(), dentry, options)
+        self.hook.open(self.inner.as_ref(), dentry, how)
     }
 
-    fn atomic_open(&self, dentry: &Dentry, options: &OpenHow) -> Result<Finish, FilesystemError> {
-        self.hook.atomic_open(self.inner.as_ref(), dentry, options)
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+        self.hook.atomic_open(self.inner.as_ref(), dentry, how)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
