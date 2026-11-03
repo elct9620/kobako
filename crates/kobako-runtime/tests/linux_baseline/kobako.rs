@@ -162,9 +162,9 @@ impl Kobako {
                 how.append = open.append;
                 how.directory = open.directory;
                 how.follow = !open.nofollow;
-                let opened = vfs::build_open_flags(&how).and_then(|op| {
-                    vfs::do_file_open(&self.cred, start!(open.base), &open.path, &op)
-                });
+                let start = start!(open.base);
+                let opened = vfs::build_open_flags(&how)
+                    .and_then(|op| vfs::do_file_open(&self.cred, start, &open.path, &op));
                 answer(opened, |file| {
                     self.slots[open.slot] = Some(file);
                     "ok".to_string()
