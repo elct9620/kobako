@@ -308,13 +308,14 @@ pub(crate) fn read(
     Ok(file.read(mem.bytes_mut(buf)?)? as u32)
 }
 
-/// The `dirent` header ahead of one entry's name.
+/// The `dirent` header ahead of one entry's name, its `d_next` left for the
+/// listing to fill in once it knows it.
 fn to_dirent_header(emit: &DirEmit<'_>, d_ino: u64) -> Answer<Vec<u8>> {
     let mut header = vec![0; types::Dirent::guest_size() as usize];
     WitxMemory::Unshared(&mut header).write(
         GuestPtr::new(0),
         types::Dirent {
-            d_next: emit.next,
+            d_next: 0,
             d_ino,
             d_namlen: emit.name.len() as u32,
             d_type: to_filetype(emit.file_type),
@@ -324,16 +325,18 @@ fn to_dirent_header(emit: &DirEmit<'_>, d_ino: u64) -> Answer<Vec<u8>> {
 }
 
 /// One entry as a preview1 `dirent` at `used` bytes into the buffer, cut off
-/// where it ends, answering whether the buffer has room left.
+/// where it ends, answering where its header stands when it fit whole.
 fn write_dirent(
     mem: &mut GuestMemory<'_, '_>,
     buf: (GuestPtr<u8>, u32),
     used: &mut u32,
     profile: Profile,
     emit: &DirEmit<'_>,
-) -> Answer<bool> {
+) -> Answer<Option<u32>> {
     let (start, capacity) = buf;
+    let at = *used;
     let header = to_dirent_header(emit, profile.guest_ino(emit.identity))?;
+    let mut whole = true;
     for part in [&header[..], emit.name.as_bytes()] {
         let room = (capacity - *used) as usize;
         let take = part.len().min(room);
@@ -341,11 +344,22 @@ fn write_dirent(
             mem.write_bytes(start.add(*used)?, &part[..take])?;
         }
         *used += take as u32;
-        if *used == capacity {
-            return Ok(false);
-        }
+        whole &= take == part.len();
     }
-    Ok(true)
+    Ok(whole.then_some(at))
+}
+
+/// Where a listing goes on from past the entry whose header stands at `at`,
+/// as `filldir64` writes `prev->d_off` once the next entry or the listing's end
+/// says, `d_next` leading each header.
+fn write_d_next(
+    mem: &mut GuestMemory<'_, '_>,
+    start: GuestPtr<u8>,
+    at: u32,
+    d_next: u64,
+) -> Answer {
+    mem.write_bytes(start.add(at)?, &d_next.to_le_bytes())?;
+    Ok(())
 }
 
 /// A directory's entries from the `cookie`th on, cut off where the buffer
@@ -369,12 +383,20 @@ pub(crate) fn readdir(
     }
     let mut used: u32 = 0;
     let mut failed = None;
+    let mut last_whole = None;
     let mut actor = |emit: &DirEmit<'_>| {
         let written = verify_dirent_name(emit.name)
             .map_err(Into::into)
+            .and_then(|()| match last_whole.take() {
+                Some(at) => write_d_next(mem, start, at, emit.offset),
+                None => Ok(()),
+            })
             .and_then(|()| write_dirent(mem, (start, capacity), &mut used, profile, emit));
         match written {
-            Ok(room) => room,
+            Ok(whole) => {
+                last_whole = whole;
+                whole.is_some()
+            }
             Err(error) => {
                 failed = Some(error);
                 false
@@ -382,6 +404,11 @@ pub(crate) fn readdir(
         }
     };
     dir.iterate_dir(&mut DirContext::new(0, &mut actor))?;
+    // The last entry written whole goes on from where the listing stopped,
+    // as `getdents64` sets the last `d_off` from `f_pos`.
+    if let Some(at) = last_whole {
+        write_d_next(mem, start, at, dir.pos())?;
+    }
     // What was listed answers before a name the listing stopped at, which the
     // next call meets first, as Linux's `getdents64` answers `buf.error`.
     match failed {
@@ -486,7 +513,7 @@ mod tests {
     use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::profile::Profile;
     use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path, PATH_MAX};
-    use wiggle::GuestPtr;
+    use wiggle::{GuestPtr, GuestType};
 
     /// What `do_file_open` takes for an open `how` asks.
     fn flags_of(how: &OpenHow) -> vfs::OpenFlags {
@@ -1189,6 +1216,76 @@ mod tests {
             vfs::dir_emit_entries(dentry, ctx, &entries);
             Ok(())
         }
+    }
+
+    /// Each whole `dirent` in `bytes`, as its name and its `d_next`.
+    fn dirents(bytes: &[u8]) -> Vec<(String, u64)> {
+        let header = types::Dirent::guest_size() as usize;
+        let mut seen = Vec::new();
+        let mut at = 0;
+        while at + header <= bytes.len() {
+            let field = |from: usize, len: usize| &bytes[at + from..at + from + len];
+            let d_next = u64::from_le_bytes(field(0, 8).try_into().expect("eight bytes"));
+            let namlen = u32::from_le_bytes(field(16, 4).try_into().expect("four bytes")) as usize;
+            if at + header + namlen > bytes.len() {
+                break;
+            }
+            let name = String::from_utf8_lossy(field(header, namlen)).into_owned();
+            seen.push((name, d_next));
+            at += header + namlen;
+        }
+        seen
+    }
+
+    // The first buffer holds `.` and `..` exactly, so `..` learns where the
+    // listing goes on only from the entry refused after it, as `filldir64`
+    // writes `prev->d_off`, and the last entry of the second from where the
+    // listing stopped, as `getdents64` sets it from `f_pos`.
+    // @behavior RT-182
+    #[test]
+    fn each_listed_entry_names_where_the_listing_goes_on() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(ListsNames("bb"))).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let mut table = Descriptors::new(
+            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            create_pipe_files(&PipeInodeInfo::new(1)).1,
+            vec![mount],
+            None,
+            None,
+            Profile::Hermetic,
+        )
+        .unwrap_or_else(|_| panic!("the table must make"));
+        let header = types::Dirent::guest_size();
+        let dots = 2 * header + 3;
+        let mut bytes = vec![0u8; 256];
+        let used = {
+            let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+            let mut mem = GuestMemory::new(&mut memory, 256);
+            let first = readdir(&mut table, &mut mem, 3, GuestPtr::new(0), dots, 0);
+            let rest = readdir(&mut table, &mut mem, 3, GuestPtr::new(128), 128, 2);
+            (first.ok(), rest.ok())
+        };
+        let entry = |name: &str, d_next| (name.to_string(), d_next);
+        assert_eq!(
+            (
+                used,
+                dirents(&bytes[..dots as usize]),
+                dirents(&bytes[128..128 + 2 * (header as usize + 2)])
+            ),
+            (
+                (Some(dots), Some(2 * (header + 2))),
+                vec![entry(".", 1), entry("..", 2)],
+                vec![entry("ok", 3), entry("bb", 4)],
+            ),
+            "fd_readdir through preview1 must give each whole entry the cookie a listing goes on \
+             from past it, the one filling the buffer included, and the last the position the \
+             listing stopped at"
+        );
     }
 
     // A built-in Filesystem cannot hold such a name, so only one that hands it

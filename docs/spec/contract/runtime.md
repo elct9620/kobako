@@ -2225,14 +2225,24 @@ impl DirContext {
 ```
 
 
-## `DirContext::dir_emit`
+## `DirContext::set_pos`
 
-Hand the actor an entry, standing at a position once it took it, answering whether
-to go on.
+Move the listing to where the next entry stands, or past the last.
 
 ```rust
 impl DirContext {
-    pub fn dir_emit(&mut self, entry: &DirEntry, next: u64) -> bool {}
+    pub fn set_pos(&mut self, pos: u64) {}
+}
+```
+
+## `DirContext::dir_emit`
+
+Hand the actor an entry standing where the listing stands, answering whether to
+go on. The Filesystem moves the listing past what the actor took.
+
+```rust
+impl DirContext {
+    pub fn dir_emit(&mut self, entry: &DirEntry) -> bool {}
 }
 ```
 

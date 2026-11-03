@@ -782,9 +782,11 @@ impl FileOperations for TmpfsDir {
             let Some((offset, entry)) = found else {
                 return Ok(());
             };
-            if !ctx.dir_emit(&entry, offset + 1) {
+            ctx.set_pos(offset);
+            if !ctx.dir_emit(&entry) {
                 return Ok(());
             }
+            ctx.set_pos(offset + 1);
         }
     }
 
@@ -978,15 +980,18 @@ mod tests {
         let list = |dir: &mut File, pos, room: usize| {
             let mut seen = Vec::new();
             let mut actor = |emit: &crate::vfs::DirEmit<'_>| {
-                seen.push((emit.name.to_string(), emit.next));
-                seen.len() < room
+                let took = seen.len() < room;
+                if took {
+                    seen.push(emit.name.to_string());
+                }
+                took
             };
             let pos: u64 = pos;
             dir.llseek(pos as i64, crate::vfs::Whence::Set)
                 .expect("the directory seeks");
             dir.iterate_dir(&mut DirContext::new(0, &mut actor))
                 .expect("the directory lists");
-            seen
+            (seen, dir.pos())
         };
         let first = list(&mut dir, 2, 1);
         let root = Path::root(mount.mnt());
@@ -998,12 +1003,9 @@ mod tests {
             ..crate::vfs::OpenHow::default()
         };
         crate::vfs::kern_path::filp_open(&cred, &root, "d", &how).expect("the name is made");
-        let names = |seen: Vec<(String, u64)>| -> Vec<String> {
-            seen.into_iter().map(|(name, _)| name).collect()
-        };
-        let next = first[0].1;
+        let (first, next) = first;
         assert_eq!(
-            (names(first), names(list(&mut dir, next, usize::MAX))),
+            (first, list(&mut dir, next, usize::MAX).0),
             (
                 vec!["a".to_string()],
                 vec!["c".to_string(), "d".to_string()]

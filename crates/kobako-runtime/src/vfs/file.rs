@@ -294,8 +294,9 @@ pub struct DirEmit<'a> {
     pub file_type: FileType,
     /// What the entry is, `None` where its Filesystem names no inode number.
     pub identity: Option<Identity>,
-    /// The position a listing going on from just after this entry starts at.
-    pub next: u64,
+    /// Where the entry stands, as `dir_emit` hands `ctx->pos`, so a listing
+    /// from there reaches it first.
+    pub offset: u64,
 }
 
 impl DirEmit<'_> {
@@ -341,32 +342,28 @@ impl<'a> DirContext<'a> {
         &self.cred
     }
 
-    /// Hand the actor `entry`, standing at `next` once it took it, answering
-    /// whether to go on, as `dir_emit` does. The actor judges the name, as
-    /// `filldir64` asks `verify_dirent_name`.
-    pub fn dir_emit(&mut self, entry: &DirEntry, next: u64) -> bool {
-        let identity = Identity::from_numbers(entry.dev, entry.ino);
-        self.emit(&entry.name, entry.file_type, identity, next)
+    /// Move the listing to `pos`, as a Filesystem sets `ctx->pos` to where its
+    /// next entry stands, or past its last.
+    pub fn set_pos(&mut self, pos: u64) {
+        self.pos = pos;
     }
 
-    fn emit(
-        &mut self,
-        name: &str,
-        file_type: FileType,
-        identity: Option<Identity>,
-        next: u64,
-    ) -> bool {
-        let emit = DirEmit {
+    /// Hand the actor `entry`, standing where the listing stands, answering
+    /// whether to go on, as `dir_emit` does. The Filesystem moves the listing
+    /// past what the actor took. The actor judges the name, as `filldir64` asks
+    /// `verify_dirent_name`.
+    pub fn dir_emit(&mut self, entry: &DirEntry) -> bool {
+        let identity = Identity::from_numbers(entry.dev, entry.ino);
+        self.emit(&entry.name, entry.file_type, identity)
+    }
+
+    fn emit(&mut self, name: &str, file_type: FileType, identity: Option<Identity>) -> bool {
+        (self.actor)(&DirEmit {
             name,
             file_type,
             identity,
-            next,
-        };
-        let goes_on = (self.actor)(&emit);
-        if goes_on {
-            self.pos = next;
-        }
-        goes_on
+            offset: self.pos,
+        })
     }
 }
 
@@ -383,15 +380,21 @@ fn identity_of(dentry: &Dentry) -> Option<Identity> {
 /// does, `..` naming what stands above `dentry`, or itself at the root. It
 /// answers whether to go on.
 pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {
-    if ctx.pos == 0 && !ctx.emit(".", FileType::Directory, identity_of(dentry), 1) {
-        return false;
+    if ctx.pos == 0 {
+        if !ctx.emit(".", FileType::Directory, identity_of(dentry)) {
+            return false;
+        }
+        ctx.pos = 1;
     }
     if ctx.pos == 1 {
         let above = match dentry.parent() {
             Some(parent) => identity_of(&parent),
             None => identity_of(dentry),
         };
-        return ctx.emit("..", FileType::Directory, above, 2);
+        if !ctx.emit("..", FileType::Directory, above) {
+            return false;
+        }
+        ctx.pos = 2;
     }
     true
 }
@@ -403,11 +406,13 @@ pub fn dir_emit_entries(dentry: &Dentry, ctx: &mut DirContext<'_>, entries: &[Di
         return false;
     }
     let skip = usize::try_from(ctx.pos - 2).unwrap_or(usize::MAX);
-    entries
-        .iter()
-        .enumerate()
-        .skip(skip)
-        .all(|(index, entry)| ctx.dir_emit(entry, index as u64 + 3))
+    entries.iter().skip(skip).all(|entry| {
+        let took = ctx.dir_emit(entry);
+        if took {
+            ctx.pos += 1;
+        }
+        took
+    })
 }
 
 /// What a directory's read answers, as Linux's `generic_read_dir` is every
@@ -1081,18 +1086,22 @@ mod tests {
     }
 
     /// What a listing of the root from `pos` hands an actor taking `room`
-    /// entries, as the name and the position after each.
-    fn list(file: &mut File, pos: u64, room: usize) -> Vec<(String, u64)> {
+    /// entries, as the name and the position of each, and where the directory
+    /// stands once the actor refused the next.
+    fn list(file: &mut File, pos: u64, room: usize) -> (Vec<(String, u64)>, u64) {
         let mut seen = Vec::new();
         let mut actor = |emit: &DirEmit<'_>| {
-            seen.push((emit.name.to_string(), emit.next));
-            seen.len() < room
+            let took = seen.len() < room;
+            if took {
+                seen.push((emit.name.to_string(), emit.offset));
+            }
+            took
         };
         file.llseek(pos as i64, Whence::Set)
             .unwrap_or_else(|_| panic!("the directory must seek"));
         file.iterate_dir(&mut DirContext::new(0, &mut actor))
             .unwrap_or_else(|_| panic!("the directory must list"));
-        seen
+        (seen, file.pos())
     }
 
     /// A directory reading its two entries at once, as a Bind does.
@@ -1275,21 +1284,22 @@ mod tests {
         .expect("/data is a guest path");
         let mut root = File::root(mount.mnt(), &Arc::default())
             .unwrap_or_else(|_| panic!("the root must open"));
-        let entry = |name: &str, next| (name.to_string(), next);
+        let entry = |name: &str, at| (name.to_string(), at);
         assert_eq!(
             (list(&mut root, 0, 3), list(&mut root, 2, 9)),
             (
-                vec![entry(".", 1), entry("..", 2), entry("a", 3)],
-                vec![entry("a", 3), entry("b", 4)],
+                (vec![entry(".", 0), entry("..", 1), entry("a", 2)], 3),
+                (vec![entry("a", 2), entry("b", 3)], 4),
             ),
-            "File::iterate_dir must hand `.` and `..` ahead of the entries, each with the \
-             position after it, and go on from any of those positions"
+            "File::iterate_dir must hand `.` and `..` ahead of the entries, each at its own \
+             position as dir_emit hands ctx->pos, stand past the last one taken, and go on \
+             from any of those positions"
         );
     }
 
     // @behavior RT-182
     #[test]
-    fn a_listing_read_whole_hands_each_entry_the_position_after_it() {
+    fn a_listing_read_whole_goes_on_past_the_last_entry_taken() {
         let mount = Mount::new(
             "/data",
             Filesystem::new(Arc::new(ReadsWhole)).expect("the instance must stand"),
@@ -1298,15 +1308,16 @@ mod tests {
         .expect("/data is a guest path");
         let mut root = File::root(mount.mnt(), &Arc::default())
             .unwrap_or_else(|_| panic!("the root must open"));
-        let entry = |name: &str, next| (name.to_string(), next);
+        let entry = |name: &str, at| (name.to_string(), at);
         assert_eq!(
             (list(&mut root, 0, 3), list(&mut root, 3, 9)),
             (
-                vec![entry(".", 1), entry("..", 2), entry("a", 3)],
-                vec![entry("b", 4)],
+                (vec![entry(".", 0), entry("..", 1), entry("a", 2)], 3),
+                (vec![entry("b", 3)], 4),
             ),
-            "File::iterate_dir over a Filesystem listing through Rdir must hand each entry the \
-             position after it, so a listing going on from there repeats nothing"
+            "File::iterate_dir over a Filesystem listing through Rdir must hand each entry its \
+             own position and stand past the last one taken, so a listing going on from there \
+             repeats nothing"
         );
     }
 
