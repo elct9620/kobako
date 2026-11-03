@@ -12,7 +12,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::security::{prepare_creds_within, WalkGuard};
+use kobako_runtime::security::{prepare_creds_within, restrict_self, WalkGuard};
 use kobako_runtime::vfs::{Cred, File};
 
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
@@ -64,17 +64,21 @@ impl Descriptors {
             (1, Descriptor::for_file(stdout)),
             (2, Descriptor::for_file(stderr)),
         ]);
-        let cred = prepare_creds_within(&mounts, memory_limit);
-        let walk_guard = WalkGuard::new(&mounts);
+        // Each Mount's root opens before its Policy applies, as a Linux task
+        // opens what it keeps and then calls `landlock_restrict_self`, so a
+        // Policy judges only what the guest asks for.
+        let opener = prepare_creds_within(memory_limit);
         for (fd, mount) in (3..).zip(&mounts) {
             used.insert(
                 fd,
                 Descriptor {
-                    file: File::root(mount.mnt(), &cred)?,
+                    file: File::root(mount.mnt(), &opener)?,
                     preopen: Some(mount.at().to_string()),
                 },
             );
         }
+        let cred = restrict_self(&opener, &mounts);
+        let walk_guard = WalkGuard::new(&mounts);
         Ok(Self {
             used,
             free: BTreeSet::new(),

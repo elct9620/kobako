@@ -6,7 +6,7 @@ use std::ops::BitOr;
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::{Cred, FileSecurity};
+use super::cred::{Cred, FileSecurity, SecurityPath};
 use super::dentry::Dentry;
 use super::inode::Identity;
 use super::mount::VfsMount;
@@ -497,17 +497,25 @@ impl File {
     }
 
     /// The directory at `path`, opened to be listed for `cred`, as `dentry_open`
-    /// calls `f_op->open`.
+    /// asks the security modules before `f_op->open` and walks no path.
     pub(super) fn directory(path: Path, cred: &Arc<Cred>) -> Result<Self, FilesystemError> {
         let how = OpenHow {
             read: true,
             ..OpenHow::default()
         };
+        let name = || path.dentry().path_raw();
+        let at = SecurityPath {
+            mnt: path.mnt(),
+            name: &name,
+        };
+        let security = cred.security_file_open(at, FileType::Dir, FMode::of(&how), &how)?;
         let ops = path.dentry().inode_ops()?.open(path.dentry(), &how)?;
-        Ok(Self::new(path, ops, &how, cred))
+        Ok(Self::new(path, ops, &how, cred).with_security(security))
     }
 
-    /// The root of `mnt` opened as a directory for `cred`.
+    /// The root of `mnt` opened as a directory for `cred`. A Driver opens each
+    /// Mount's root with the Cred its Policies are added to afterwards, as a
+    /// Linux task opens what it keeps before `landlock_restrict_self`.
     pub fn root(mnt: &Arc<VfsMount>, cred: &Arc<Cred>) -> Result<Self, FilesystemError> {
         Self::directory(Path::root(mnt), cred)
     }
@@ -1165,6 +1173,44 @@ mod tests {
         }))
     }
 
+    /// A security module refusing to open any directory.
+    struct RefusesDirectories;
+
+    impl crate::vfs::SecurityOperations for RefusesDirectories {
+        fn file_open(
+            &self,
+            _path: crate::vfs::SecurityPath<'_>,
+            kind: FileType,
+            _mode: FMode,
+            _how: &OpenHow,
+        ) -> Result<FileSecurity, FilesystemError> {
+            match kind {
+                FileType::Dir => Err(FilesystemError::PermissionDenied),
+                _ => Ok(None),
+            }
+        }
+    }
+
+    // A root opened without the modules would hand a descriptor out whatever
+    // they say, so only the hook dentry_open asks refuses it.
+    // @behavior RT-291
+    #[test]
+    fn opening_a_mounts_root_asks_the_security_modules() {
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(Tmpfs::default())).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let cred = Cred::new(vec![Arc::new(RefusesDirectories)]);
+        assert_eq!(
+            File::root(mount.mnt(), &cred).err(),
+            Some(FilesystemError::PermissionDenied),
+            "File::root under a security module refusing to open a directory must answer as \
+             the module refuses, as dentry_open asks security_file_open"
+        );
+    }
+
     // Every descriptor holds a listing of its own, so only counting them together
     // keeps a guest from multiplying a directory by its open files.
     // @behavior RT-237
@@ -1177,10 +1223,14 @@ mod tests {
         )
         .expect("/data is a guest path");
         let one_listing = 2 * size_of::<DirEntry>() + 2;
-        let cred = crate::security::prepare_creds_within([], Some(one_listing));
-        let open =
-            || File::root(mount.mnt(), &cred).unwrap_or_else(|_| panic!("the root must open"));
-        let (mut first, mut second, mut whole) = (open(), open(), open());
+        let cred = crate::security::prepare_creds_within(Some(one_listing));
+        // A Driver opens the root before the Policies apply and lists through
+        // the Cred they were added to, so both must count against one limit.
+        let restricted = crate::security::restrict_self(&cred, [&mount]);
+        let open = |cred: &Arc<Cred>| {
+            File::root(mount.mnt(), cred).unwrap_or_else(|_| panic!("the root must open"))
+        };
+        let (mut first, mut second, mut whole) = (open(&cred), open(&restricted), open(&cred));
         let held = begin_listing(&mut first, 1);
         let refused = begin_listing(&mut second, 1);
         let read_whole = begin_listing(&mut whole, usize::MAX);

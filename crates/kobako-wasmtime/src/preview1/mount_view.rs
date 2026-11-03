@@ -2600,6 +2600,41 @@ fn a_policy_is_asked_once_for_an_open_that_may_create_as_what_it_does() {
     );
 }
 
+/// A Policy refusing the Mount's root and allowing what lies beneath it,
+/// keeping each path it is asked.
+#[derive(Default)]
+struct RefusesTheRoot(std::sync::Mutex<Vec<String>>);
+
+impl Policy for RefusesTheRoot {
+    fn allows(&self, path: &str, _access: Access) -> bool {
+        self.0.lock().unwrap().push(path.to_owned());
+        path != "/data"
+    }
+}
+
+// A Policy opening its Mount's root itself would refuse the invocation before
+// the guest runs, so only a root opened before the Policy applies lets the
+// read through.
+// @behavior RT-290
+#[test]
+fn a_mount_whose_policy_refuses_its_root_still_reads_beneath_it() {
+    let policy = Arc::new(RefusesTheRoot::default());
+    let mut guest = Guest::new(&[grant(
+        file_and_directory(),
+        Access::Read,
+        Some(policy.clone() as Arc<dyn Policy>),
+    )]);
+    let read = guest.call("read_file", FILE);
+    let asked = policy.0.lock().unwrap().clone();
+    assert_eq!(
+        (read, asked),
+        (0, vec!["/data/file.txt".to_owned()]),
+        "path_open of a file beneath a Mount whose Policy refuses its root, through preview1, \
+         must read the file and ask the Policy only about it, as a Linux task opens what it \
+         keeps before landlock_restrict_self"
+    );
+}
+
 // The open asks to write a path nothing stands at, so only the lookup
 // before the Mount judges it answers ENOENT, as Linux does on a read-only
 // mount, rather than the EROFS the same open of a file answers.

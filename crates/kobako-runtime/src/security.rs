@@ -268,13 +268,12 @@ impl SecurityOperations for MemoryLimit {
     }
 }
 
-/// The Cred an Invocation over `mounts` runs with, its Filesystems holding at most
-/// `memory_limit` bytes on its behalf, or without bound for `None`.
-pub fn prepare_creds_within<'a>(
-    mounts: impl IntoIterator<Item = &'a Mount>,
-    memory_limit: Option<usize>,
-) -> Arc<Cred> {
-    let mut security = modules_for(mounts);
+/// The Cred an Invocation opens its Mounts' roots with, its Filesystems holding at
+/// most `memory_limit` bytes on its behalf, or without bound for `None`: kobako's
+/// own rules, before any Mount's Policy applies, as a Linux task opens the files
+/// it keeps before `landlock_restrict_self`.
+pub fn prepare_creds_within(memory_limit: Option<usize>) -> Arc<Cred> {
+    let mut security: Vec<Arc<dyn SecurityOperations>> = vec![Arc::new(KobakoSecurity)];
     if let Some(limit) = memory_limit {
         security.push(Arc::new(MemoryLimit {
             limit,
@@ -284,26 +283,35 @@ pub fn prepare_creds_within<'a>(
     Cred::new(security)
 }
 
+/// `cred` with each Mount's Policy added, the modules it held shared, so what
+/// either Cred charges counts against one limit, as `landlock_restrict_self`
+/// adds a domain to the task's Cred.
+pub fn restrict_self<'a>(cred: &Cred, mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {
+    let mut security = cred.security().to_vec();
+    security.extend(policies_of(mounts));
+    Cred::new(security)
+}
+
 /// The Cred an Invocation over `mounts` runs with, as `prepare_creds` makes
 /// one for a task: kobako's own rules, then each Mount's Policy.
 pub fn prepare_creds<'a>(mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {
-    Cred::new(modules_for(mounts))
+    restrict_self(&Cred::new(vec![Arc::new(KobakoSecurity)]), mounts)
 }
 
-fn modules_for<'a>(
+fn policies_of<'a>(
     mounts: impl IntoIterator<Item = &'a Mount>,
 ) -> Vec<Arc<dyn SecurityOperations>> {
-    let mut security: Vec<Arc<dyn SecurityOperations>> = vec![Arc::new(KobakoSecurity)];
-    for mount in mounts {
-        if let Some(policy) = mount.policy() {
-            security.push(Arc::new(MountPolicy {
+    mounts
+        .into_iter()
+        .filter_map(|mount| {
+            let policy = mount.policy()?;
+            Some(Arc::new(MountPolicy {
                 mnt: mount.mnt().clone(),
                 at: mount.at().to_string(),
                 policy: policy.clone(),
-            }));
-        }
-    }
-    security
+            }) as Arc<dyn SecurityOperations>)
+        })
+        .collect()
 }
 
 #[cfg(test)]

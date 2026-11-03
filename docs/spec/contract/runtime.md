@@ -2333,11 +2333,20 @@ pub trait SecurityOperations {
 
 ## `prepare_creds_within`
 
-The caller an Invocation over its Mounts runs as, whose Filesystems hold at most this
-many bytes on its behalf.
+The caller an Invocation opens its Mounts' roots as, before any Policy applies.
+Its Filesystems hold at most this many bytes on its behalf.
 
 ```rust
-pub fn prepare_creds_within<'a>(mounts: impl IntoIterator<Item = &'a Mount>, memory_limit: Option<usize>) -> Arc<Cred> {}
+pub fn prepare_creds_within(memory_limit: Option<usize>) -> Arc<Cred> {}
+```
+
+## `restrict_self`
+
+A Cred with each Mount's Policy added, sharing the limit of the one it extends,
+as `landlock_restrict_self` adds a domain.
+
+```rust
+pub fn restrict_self<'a>(cred: &Cred, mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {}
 ```
 
 ## `FileOperations::fallocate`

@@ -139,6 +139,11 @@ impl Cred {
         Arc::new(Self { security })
     }
 
+    /// The modules registered for it, in the order each is asked.
+    pub(crate) fn security(&self) -> &[Arc<dyn SecurityOperations>] {
+        &self.security
+    }
+
     /// Ask each module in turn, the first refusal answering, as `call_int_hook`.
     fn call_int_hook(
         &self,
