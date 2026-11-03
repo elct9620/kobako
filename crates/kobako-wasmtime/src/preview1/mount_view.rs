@@ -107,6 +107,7 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "poll_oneoff" (func $poll (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_sync" (func $sync (param i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_filestat_set_times" (func $set_times (param i32 i64 i64 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "sock_shutdown" (func $shutdown (param i32 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
   (data (i32.const 760) "missing/../file.txt")
@@ -337,6 +338,7 @@ const PROBE_WAT: &str = r#"
     (if (i32.eq (local.get $call) (i32.const 8)) (then (return
       (call $stat (local.get $fd) (i32.const 0) (i32.const 960) (i32.const 5) (i32.const 384)))))
     (if (i32.eq (local.get $call) (i32.const 9)) (then (return (call $fdstat (local.get $fd) (i32.const 384)))))
+    (if (i32.eq (local.get $call) (i32.const 10)) (then (return (call $shutdown (local.get $fd) (i32.const 3)))))
     (i32.store8 (i32.const 1208) (i32.const 1))
     (i32.store (i32.const 1216) (local.get $fd))
     (local.set $errno (call $poll (i32.const 1200) (i32.const 1264) (i32.const 1) (i32.const 1296)))
@@ -3022,6 +3024,26 @@ fn a_directory_opened_for_neither_reading_nor_writing_stands_only_for_its_path()
          must report no fd_readdir, as it lists nothing"
     );
 }
+
+// A directory opened to list answers NOTSOCK, so only a socket call taking its
+// descriptor through fdget answers EBADF for one standing only for its path.
+// @behavior RT-306
+#[test]
+fn a_socket_call_refuses_a_descriptor_standing_only_for_its_path() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+    assert_eq!(
+        (
+            guest.call_dir_with(0, 10),
+            guest.call_dir_with(RIGHTS_FD_READDIR as i64, 10)
+        ),
+        (ERRNO_BADF, ERRNO_NOTSOCK),
+        "sock_shutdown through preview1 of a directory opened without fd_read or fd_write must \
+         answer EBADF, as Linux's socket calls take theirs through fdget, and of one opened to \
+         list ENOTSOCK"
+    );
+}
+
+const ERRNO_NOTSOCK: i32 = 57;
 
 // @behavior RT-105
 #[test]

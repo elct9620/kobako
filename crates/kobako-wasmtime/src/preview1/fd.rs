@@ -66,7 +66,7 @@ fn descriptor(table: &Descriptors, fd: u32) -> Answer<&Descriptor> {
 
 /// The open file `fd` stands for, refusing one that stands only for its path,
 /// as `fdget` does.
-fn open_file(table: &Descriptors, fd: u32) -> Answer<&File> {
+pub(crate) fn open_file(table: &Descriptors, fd: u32) -> Answer<&File> {
     match table.get(fd) {
         Some(descriptor) if !descriptor.file.is_path() => Ok(&descriptor.file),
         _ => Err(Errno::Badf.into()),
