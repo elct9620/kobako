@@ -173,8 +173,8 @@ pub trait InodeOperations: Any + Send + Sync {
 }
 
 /// What a call asks of an entry, as Linux's `MAY_*` bits in the mask
-/// `inode_permission` takes. The default asks nothing.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// `inode_permission` takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Mask(u8);
 
 impl Mask {

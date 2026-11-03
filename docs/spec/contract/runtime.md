@@ -1632,11 +1632,21 @@ pub struct OpenHow {}
 
 ## `OpenFlags`
 
-What an open was found to ask, as Linux's `struct open_flags`. A Filesystem
-reads its `open_flag`.
+What an open was found to ask, as Linux's `struct open_flags`. Only
+`build_open_flags` makes one, so what it asks always matches its flags.
 
 ```rust
 pub struct OpenFlags {}
+```
+
+## `OpenFlags::open_flag`
+
+The flags the open was made with.
+
+```rust
+impl OpenFlags {
+    pub fn open_flag(&self) -> &OpenHow {}
+}
 ```
 
 ## `build_open_flags`

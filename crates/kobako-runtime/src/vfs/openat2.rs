@@ -33,17 +33,22 @@ pub struct OpenHow {
 }
 
 /// What an open was found to ask, as Linux's `struct open_flags` holds what
-/// `build_open_flags` made of an `open_how`. A Filesystem reads `open_flag`,
-/// as `->atomic_open` takes it and `->open` reads `f_flags`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
+/// `build_open_flags` made of an `open_how`, which alone makes one, so what
+/// it asks of the entry always matches the flags. A Filesystem reads
+/// `open_flag`, as `->atomic_open` takes it and `->open` reads `f_flags`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OpenFlags {
-    pub open_flag: OpenHow,
+    open_flag: OpenHow,
     acc_mode: Mask,
     lookup_follow: bool,
 }
 
 impl OpenFlags {
+    /// The flags the open was made with, as `open_flag` keeps them.
+    pub fn open_flag(&self) -> &OpenHow {
+        &self.open_flag
+    }
+
     /// What the open asks of what it opens, as `acc_mode` carries it.
     pub(crate) fn acc_mode(&self) -> Mask {
         self.acc_mode

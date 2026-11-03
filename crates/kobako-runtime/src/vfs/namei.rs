@@ -521,7 +521,7 @@ pub fn do_file_open(
     path: &str,
     op: &OpenFlags,
 ) -> Result<File, FilesystemError> {
-    let how = &op.open_flag;
+    let how = op.open_flag();
     let mut nd = set_nameidata(cred, start, path)?;
     nd.lookup_directory = how.directory;
     nd.link_path_walk()?;
@@ -579,7 +579,7 @@ fn do_open(
     kind: FileType,
     op: &OpenFlags,
 ) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
-    let how = &op.open_flag;
+    let how = op.open_flag();
     let refusal = match kind {
         _ if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
         FileType::Dir if how.create => Some(FilesystemError::IsADirectory),
@@ -1641,7 +1641,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenHow,
+            _how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.opened.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(NoOperations))
@@ -2214,20 +2214,16 @@ mod tests {
             self.tmpfs.lookup(dentry)
         }
 
-        fn atomic_open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenHow,
-        ) -> Result<Finish, FilesystemError> {
-            self.tmpfs.atomic_open(dentry, options)
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+            self.tmpfs.atomic_open(dentry, how)
         }
 
         fn open(
             &self,
             dentry: &Dentry,
-            options: &OpenHow,
+            how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            self.tmpfs.open(dentry, options)
+            self.tmpfs.open(dentry, how)
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -2321,20 +2317,16 @@ mod tests {
         fn open(
             &self,
             dentry: &Dentry,
-            options: &OpenHow,
+            how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(crate::filesystem::FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
-            self.root.open(&folded(dentry), options)
+            self.root.open(&folded(dentry), how)
         }
 
-        fn atomic_open(
-            &self,
-            dentry: &Dentry,
-            options: &OpenHow,
-        ) -> Result<Finish, FilesystemError> {
-            self.root.create(&folded(dentry), options).map(Finish::Open)
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+            self.root.create(&folded(dentry), how).map(Finish::Open)
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -2385,7 +2377,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenHow,
+            _how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             struct OpenLink;
             impl FileOperations for OpenLink {}
@@ -3146,17 +3138,13 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenHow,
+            _how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.0.lock().expect("never poisoned").push("open");
             Ok(Box::new(RecordedFile))
         }
 
-        fn atomic_open(
-            &self,
-            dentry: &Dentry,
-            _options: &OpenHow,
-        ) -> Result<Finish, FilesystemError> {
+        fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
             self.0.lock().expect("never poisoned").push("atomic_open");
             let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
@@ -3309,16 +3297,12 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenHow,
+            _how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Ok(Box::new(RecordedFile))
         }
 
-        fn atomic_open(
-            &self,
-            dentry: &Dentry,
-            _options: &OpenHow,
-        ) -> Result<Finish, FilesystemError> {
+        fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
             self.made.store(true, Ordering::SeqCst);
             let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
