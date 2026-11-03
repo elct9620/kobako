@@ -3450,3 +3450,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a character device open to write, whose Filesystem sizes it like any file |
 | When | a caller sets its size |
 | Then | the call answers EINVAL, as Linux's `do_ftruncate` sizes only a regular file |
+
+## `RT-308` A file `atomic_open` makes and opens answers as the security modules do
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-288` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose `atomic_open` makes and opens the file, and a security module refusing the open |
+| When | a guest opens a name where nothing stands, asking to create it |
+| Then | the Filesystem makes the file and the open answers EACCES, as Linux's `finish_open` reaches `security_file_open` |
