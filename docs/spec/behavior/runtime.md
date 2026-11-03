@@ -3426,3 +3426,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory of any Filesystem |
 | When | a caller lists the directory |
 | Then | `.` and `..` carry the inode numbers a stat of the directory and of its parent report |
+
+## `RT-306` A socket call refuses a descriptor standing only for its path
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-297` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory the guest opened without the right to read, list, or write |
+| When | the guest makes a socket call through the descriptor |
+| Then | the call answers EBADF, as Linux's socket calls take theirs through `fdget` |
