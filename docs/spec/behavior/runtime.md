@@ -2149,7 +2149,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a Bind Mount holding a socket |
-| When | the guest stats the socket and opens it |
+| When | the guest stats the socket and opens it to read |
 | Then | the stat answers a stream socket, and the open answers EACCES |
 
 ## `RT-197` Only a file or a directory opens, whatever a Filesystem allows
