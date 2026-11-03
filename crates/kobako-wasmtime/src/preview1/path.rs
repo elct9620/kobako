@@ -142,14 +142,10 @@ pub(crate) fn open(
     // whatever the path names.
     let op = vfs::build_open_flags(&how)?;
     let path = mem.path(path)?;
-    if table.is_full() {
-        return Err(Errno::Mfile.into());
-    }
+    let new = table.get_unused_fd().ok_or(Errno::Mfile)?;
     let file = retry_eagain(|| vfs::do_file_open(table.cred(), &start_of(table, fd), &path, &op))?;
-    Ok(table
-        .push(Descriptor::for_file(file))
-        .ok_or(Errno::Mfile)?
-        .into())
+    table.place(new, Descriptor::for_file(file));
+    Ok(new.into())
 }
 
 pub(crate) fn readlink(
