@@ -614,7 +614,7 @@ fn do_open(
         return Err(error);
     }
     let (acc_mode, truncate) = match created {
-        true => (Mask::OPEN, false),
+        true => (Mask::NONE, false),
         false => (op.acc_mode(), how.truncate && kind == FileType::RegFile),
     };
     if truncate {
@@ -655,7 +655,7 @@ fn may_open(
         FileType::Dir if mask.contains(Mask::WRITE) => return Err(FilesystemError::IsADirectory),
         _ => {}
     }
-    inode_permission(cred, sb, child, mask)
+    inode_permission(cred, sb, child, Mask::OPEN | mask)
 }
 
 /// Give what `old_path` beneath `old_start` names another name at `new_path`

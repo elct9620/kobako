@@ -183,6 +183,8 @@ pub trait InodeOperations: Any + Send + Sync {
 pub struct Mask(u8);
 
 impl Mask {
+    /// Asking nothing, as an `acc_mode` of 0.
+    pub(crate) const NONE: Self = Self(0);
     /// Passing through a directory, as `MAY_EXEC`.
     pub const EXEC: Self = Self(1);
     /// Changing it, as `MAY_WRITE`.

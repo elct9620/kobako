@@ -50,7 +50,8 @@ impl OpenFlags {
         &self.open_flag
     }
 
-    /// What the open asks of what it opens, as `acc_mode` carries it.
+    /// What the open asks of what it opens, as `acc_mode` carries it;
+    /// `may_open` adds `MAY_OPEN` when it asks.
     pub(crate) fn acc_mode(&self) -> Mask {
         self.acc_mode
     }
@@ -78,7 +79,7 @@ pub fn build_open_flags(how: &OpenHow) -> Result<OpenFlags, FilesystemError> {
     if how.directory && how.create {
         return Err(FilesystemError::InvalidInput);
     }
-    let mut acc_mode = Mask::OPEN;
+    let mut acc_mode = Mask::NONE;
     if how.read {
         acc_mode = acc_mode | Mask::READ;
     }
