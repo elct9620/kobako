@@ -3319,7 +3319,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it sets the size at that number to one past the largest offset |
 | Then | the call answers EINVAL, as Linux's `ftruncate` checks the length before it finds the descriptor |
 
-## `RT-297` A descriptor opened for neither reading nor writing stands only for its path
+## `RT-297` A descriptor opened for neither reading nor writing refuses each call through it
 
 | Attribute | Value |
 | --- | --- |
@@ -3328,8 +3328,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a directory the guest opened without the right to read, list, or write |
-| When | the guest lists, syncs, advises, sizes, or sets the times or flags of the descriptor, or waits on it |
-| Then | each call answers EBADF, as Linux's `fdget` refuses `O_PATH`, and a stat or a walk from it succeeds |
+| When | the guest lists, syncs, advises, sizes, or waits on the descriptor |
+| Then | each answers EBADF, a wait in its event, as `fdget` refuses `O_PATH` |
 
 ## `RT-298` A directory a guest opens hands down the right to write
 
@@ -3342,3 +3342,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation handed a read-write Mount holding a directory |
 | When | the guest opens the directory and reads the rights its descriptor hands down |
 | Then | those rights hold `fd_write`, as Linux takes an open's mode from its flags alone |
+
+## `RT-299` A descriptor standing only for its path keeps its times and flags
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-297` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory the guest opened without the right to read, list, or write |
+| When | the guest sets the times or the flags of the descriptor |
+| Then | the call answers EBADF, as Linux's `fdget` refuses `O_PATH` |
+
+## `RT-300` A descriptor standing only for its path still names where it stands
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-297` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory the guest opened without the right to read, list, or write |
+| When | the guest stats the descriptor, or a name beneath it |
+| Then | each call succeeds, as Linux's `fdget_raw` takes `O_PATH` |
