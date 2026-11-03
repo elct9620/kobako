@@ -85,13 +85,21 @@ struct State {
     /// What the name stands for once a lookup found it, `None` while the
     /// dentry is negative.
     inode: Option<Arc<Inode>>,
-    /// Whether a lookup answered for the name, so a negative dentry says nothing
-    /// stands there rather than that nobody asked, as `d_add` leaves one hashed
-    /// where `d_alloc` left it waiting for its `->lookup`.
-    looked_up: bool,
-    /// The walk asking the Filesystem what stands here, while it asks, as
-    /// `DCACHE_PAR_LOOKUP` marks a dentry `d_alloc_parallel` handed out.
-    in_lookup: Option<ThreadId>,
+    /// Where the lookup of the name stands, so a negative dentry says nothing
+    /// stands there rather than that nobody asked.
+    asked: Asked,
+}
+
+/// Where the lookup of a name stands, as `DCACHE_PAR_LOOKUP` marks a dentry a
+/// walk is asking its Filesystem about and `d_add` ends that.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    /// No lookup asked for the name yet.
+    Not,
+    /// The walk asking the Filesystem what stands here, while it asks.
+    By(ThreadId),
+    /// A lookup answered for the name, or a call made what stands there.
+    Answered,
 }
 
 impl Dentry {
@@ -105,8 +113,7 @@ impl Dentry {
                 parent,
                 name: name.to_string(),
                 inode: None,
-                looked_up: false,
-                in_lookup: None,
+                asked: Asked::Not,
             }),
             this: this.clone(),
             fsdata: OnceLock::new(),
@@ -224,7 +231,7 @@ impl Dentry {
     /// must see.
     pub fn add(&self, inode: Option<Arc<Inode>>) {
         let mut state = self.state();
-        state.looked_up = true;
+        state.asked = Asked::Answered;
         if state.inode.is_none() {
             state.inode = inode;
         }
@@ -253,7 +260,7 @@ impl Dentry {
     /// Whether a lookup answered for the name, so there is something to ask
     /// `revalidate` of, as `d_in_lookup` tells a dentry still waiting for one.
     pub(crate) fn looked_up(&self) -> bool {
-        self.state().looked_up
+        self.state().asked == Asked::Answered
     }
 
     /// Ask the directory `dir` what stands here where no lookup answered yet, and
@@ -295,16 +302,16 @@ impl Dentry {
         let current = sched::current();
         loop {
             let mut state = self.state();
-            match state.in_lookup {
-                Some(walk) if walk == current => return Ok(InLookup::Within),
-                Some(_) if sched::fatal_signal_pending() => {
+            match state.asked {
+                Asked::By(walk) if walk == current => return Ok(InLookup::Within),
+                Asked::By(_) if sched::fatal_signal_pending() => {
                     return Err(FilesystemError::Interrupted)
                 }
-                Some(_) => {
+                Asked::By(_) => {
                     drop(state);
                     sched::schedule(&mut || {
                         let state = self.state();
-                        if state.in_lookup.is_some() {
+                        if matches!(state.asked, Asked::By(_)) {
                             drop(
                                 self.lookup_done
                                     .wait_timeout(state, sched::sleep_slice())
@@ -313,9 +320,9 @@ impl Dentry {
                         }
                     });
                 }
-                None if state.looked_up => return Ok(InLookup::Answered),
-                None => {
-                    state.in_lookup = Some(current);
+                Asked::Answered => return Ok(InLookup::Answered),
+                Asked::Not => {
+                    state.asked = Asked::By(current);
                     return Ok(InLookup::Begun);
                 }
             }
@@ -325,7 +332,11 @@ impl Dentry {
     /// End this walk's lookup, waking every walk waiting on it, as
     /// `d_lookup_done` does.
     fn d_lookup_done(&self) {
-        self.state().in_lookup = None;
+        let mut state = self.state();
+        if matches!(state.asked, Asked::By(_)) {
+            state.asked = Asked::Not;
+        }
+        drop(state);
         self.lookup_done.notify_all();
     }
 
