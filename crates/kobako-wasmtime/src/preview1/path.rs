@@ -124,7 +124,12 @@ pub(crate) fn open(
 ) -> Answer<types::Fd> {
     let oflags = flags.oflags;
     let mut how = OpenHow::default();
-    how.read = flags.rights_base.contains(types::Rights::FD_READ);
+    // wasi-libc asks `fd_read` and `fd_readdir` for `O_RDONLY` and neither for
+    // `O_SEARCH`, which glibc spells `O_PATH`; wasi-testsuite lists a
+    // directory opened with `fd_readdir` alone.
+    how.read = flags
+        .rights_base
+        .intersects(types::Rights::FD_READ | types::Rights::FD_READDIR);
     how.write = flags.rights_base.contains(types::Rights::FD_WRITE);
     how.create = oflags.contains(types::Oflags::CREAT);
     how.exclusive = oflags.contains(types::Oflags::EXCL);

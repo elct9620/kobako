@@ -56,15 +56,27 @@ fn preopen_inheriting() -> Rights {
         | Rights::POLL_FD_READWRITE
 }
 
+/// What `fd` stands for, a file that stands only for its path included, as
+/// `fdget_raw` takes one.
 fn descriptor(table: &Descriptors, fd: u32) -> Answer<&Descriptor> {
     table.get(fd).ok_or_else(|| Errno::Badf.into())
 }
 
-/// The open file `fd` stands for.
+/// The open file `fd` stands for, refusing one that stands only for its path,
+/// as `fdget` does.
+fn open_file(table: &Descriptors, fd: u32) -> Answer<&File> {
+    match table.get(fd) {
+        Some(descriptor) if !descriptor.file.is_path() => Ok(&descriptor.file),
+        _ => Err(Errno::Badf.into()),
+    }
+}
+
+/// The open file `fd` stands for, to change, refusing one that stands only for
+/// its path, as `fdget` does.
 fn file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
     match table.get_mut(fd) {
-        Some(descriptor) => Ok(&mut descriptor.file),
-        None => Err(Errno::Badf.into()),
+        Some(descriptor) if !descriptor.file.is_path() => Ok(&mut descriptor.file),
+        _ => Err(Errno::Badf.into()),
     }
 }
 
@@ -176,11 +188,14 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
     } else if descriptor.preopen.is_some() {
         (preopen_rights(), preopen_inheriting())
     } else if file.is_directory() {
-        let rights = Rights::all()
+        let mut rights = Rights::all()
             - Rights::FD_WRITE
             - Rights::FD_SEEK
             - Rights::FD_FILESTAT_SET_SIZE
             - Rights::PATH_FILESTAT_SET_SIZE;
+        if !file.readable() {
+            rights -= Rights::FD_READ | Rights::FD_READDIR;
+        }
         (rights, rights)
     } else {
         let mut rights = Rights::all();
@@ -239,7 +254,7 @@ pub(crate) fn filestat_set_times(
     let Some(times) = to_iattr(atim, mtim, flags)? else {
         return Ok(());
     };
-    let file = &descriptor(table, fd)?.file;
+    let file = open_file(table, fd)?;
     Ok(retry_eagain(|| {
         table.walk_guard().check(file.path())?;
         vfs::do_utimes_fd(table.cred(), file.path(), &times)

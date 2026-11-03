@@ -105,6 +105,8 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "fd_fdstat_get" (func $fdstat (param i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_fdstat_set_flags" (func $set_flags (param i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "poll_oneoff" (func $poll (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_sync" (func $sync (param i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_filestat_set_times" (func $set_times (param i32 i64 i64 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 740) ".")
   (data (i32.const 760) "missing/../file.txt")
@@ -300,9 +302,38 @@ const PROBE_WAT: &str = r#"
   (func (export "dir_fdstat") (result i32)
     (local $errno i32)
     (local.set $errno (call $open (i32.const 3) (i32.const 0) (i32.const 930) (i32.const 3)
-      (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
+      (i32.const 2) (i64.const 0x4002) (i64.const 2) (i32.const 0) (i32.const 128)))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $fdstat (i32.load (i32.const 128)) (i32.const 384)))
+  ;; Open `dir` as a directory with `rights`, then make call `$call` of it:
+  ;; list, sync, advise, set its flags, size, or times, wait on it with its
+  ;; event at 1264, stat it, stat `inner` from it, or read its fdstat into
+  ;; 384.
+  (func (export "dir_with") (param $rights i64) (param $call i32) (result i32)
+    (local $errno i32)
+    (local $fd i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (i32.const 930) (i32.const 3)
+      (i32.const 2) (local.get $rights) (i64.const 0) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (local.set $fd (i32.load (i32.const 128)))
+    (if (i32.eq (local.get $call) (i32.const 0)) (then (return
+      (call $readdir (local.get $fd) (i32.const 2048) (i32.const 64) (i64.const 0) (i32.const 136)))))
+    (if (i32.eq (local.get $call) (i32.const 1)) (then (return (call $sync (local.get $fd)))))
+    (if (i32.eq (local.get $call) (i32.const 2)) (then (return
+      (call $advise (local.get $fd) (i64.const 0) (i64.const 0) (i32.const 0)))))
+    (if (i32.eq (local.get $call) (i32.const 3)) (then (return (call $set_flags (local.get $fd) (i32.const 0)))))
+    (if (i32.eq (local.get $call) (i32.const 4)) (then (return (call $set_size (local.get $fd) (i64.const 0)))))
+    (if (i32.eq (local.get $call) (i32.const 5)) (then (return
+      (call $set_times (local.get $fd) (i64.const 0) (i64.const 0) (i32.const 2)))))
+    (if (i32.eq (local.get $call) (i32.const 7)) (then (return (call $fstat (local.get $fd) (i32.const 384)))))
+    (if (i32.eq (local.get $call) (i32.const 8)) (then (return
+      (call $stat (local.get $fd) (i32.const 0) (i32.const 960) (i32.const 5) (i32.const 384)))))
+    (if (i32.eq (local.get $call) (i32.const 9)) (then (return (call $fdstat (local.get $fd) (i32.const 384)))))
+    (i32.store8 (i32.const 1208) (i32.const 1))
+    (i32.store (i32.const 1216) (local.get $fd))
+    (local.set $errno (call $poll (i32.const 1200) (i32.const 1264) (i32.const 1) (i32.const 1296)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (i32.load16_u (i32.const 1272)))
   ;; Size `file.txt` to `offset` bytes.
   (func (export "size_at") (param $offset i64) (result i32)
     (local $errno i32)
@@ -352,7 +383,7 @@ const PROBE_WAT: &str = r#"
   (func (export "open_beneath_dir") (param $path i32) (param $len i32) (result i32)
     (local $errno i32)
     (local.set $errno (call $open (i32.const 3) (i32.const 0) (i32.const 930) (i32.const 3)
-      (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
+      (i32.const 2) (i64.const 0x4002) (i64.const 2) (i32.const 0) (i32.const 128)))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $open (i32.load (i32.const 128)) (i32.const 0) (local.get $path) (local.get $len)
       (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 132)))
@@ -379,7 +410,7 @@ const PROBE_WAT: &str = r#"
   ;; Open `dir` as a directory into 128.
   (func $open_dir (export "open_dir") (result i32)
     (call $open (i32.const 3) (i32.const 0) (i32.const 930) (i32.const 3)
-      (i32.const 2) (i64.const 0) (i64.const 2) (i32.const 0) (i32.const 128)))
+      (i32.const 2) (i64.const 0x4002) (i64.const 2) (i32.const 0) (i32.const 128)))
   ;; Stat the directory opened into 128 itself.
   (func (export "fstat_dir") (result i32)
     (call $fstat (i32.load (i32.const 128)) (i32.const 384)))
@@ -541,6 +572,15 @@ impl Guest {
             .get_typed_func::<i64, i32>(&mut self.store, name)
             .expect("probe export must resolve")
             .call(&mut self.store, offset as i64)
+            .expect("probe call must not trap")
+    }
+
+    /// Open `dir` with `rights` and make call `call` of it.
+    fn call_dir_with(&mut self, rights: i64, call: i32) -> i32 {
+        self.instance
+            .get_typed_func::<(i64, i32), i32>(&mut self.store, "dir_with")
+            .expect("probe export must resolve")
+            .call(&mut self.store, (rights, call))
             .expect("probe call must not trap")
     }
 
@@ -2810,6 +2850,48 @@ fn a_directory_a_guest_opens_carries_no_right_to_write() {
         (0, 0, RIGHTS_FD_READDIR),
         "fd_fdstat_get of a directory opened through path_open beneath a read-write Mount \
          through preview1 must report its rights without fd_write, as wasmtime-wasi does"
+    );
+}
+
+// wasi-libc opens `O_SEARCH`, which glibc spells `O_PATH`, without `fd_read`,
+// `fd_readdir`, or `fd_write`; the poll answers the event's error, its call
+// succeeding. wasi-testsuite lists a directory opened with `fd_readdir` alone.
+// @behavior RT-297
+#[test]
+fn a_directory_opened_for_neither_reading_nor_writing_stands_only_for_its_path() {
+    let mut guest = Guest::new(&[grant(file_and_directory(), Access::ReadWrite, None)]);
+    assert_eq!(
+        guest.call_dir_with(RIGHTS_FD_READDIR as i64, 0),
+        0,
+        "fd_readdir of a directory opened with fd_readdir alone through preview1 must list it"
+    );
+    let answers: Vec<i32> = (0..9).map(|call| guest.call_dir_with(0, call)).collect();
+    assert_eq!(
+        answers,
+        [
+            ERRNO_BADF, ERRNO_BADF, ERRNO_BADF, ERRNO_BADF, ERRNO_BADF, ERRNO_BADF, ERRNO_BADF, 0,
+            0
+        ],
+        "fd_readdir, fd_sync, fd_advise, fd_fdstat_set_flags, fd_filestat_set_size, \
+         fd_filestat_set_times, and poll_oneoff of a directory opened without fd_read or \
+         fd_write beneath a read-write Mount through preview1 must answer EBADF, as fdget \
+         refuses O_PATH, while fd_filestat_get and path_filestat_get from it succeed"
+    );
+    let errno = guest.call_dir_with(0, 9);
+    let memory = guest
+        .instance
+        .get_memory(&mut guest.store, "memory")
+        .expect("probe exports its memory");
+    let rights = u64::from_le_bytes(
+        memory.data(&guest.store)[392..400]
+            .try_into()
+            .expect("the rights are eight bytes"),
+    );
+    assert_eq!(
+        (errno, rights & RIGHTS_FD_READDIR),
+        (0, 0),
+        "fd_fdstat_get of a directory opened without fd_read or fd_write through preview1 \
+         must report no fd_readdir, as it lists nothing"
     );
 }
 
