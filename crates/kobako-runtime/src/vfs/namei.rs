@@ -15,7 +15,7 @@ use std::sync::Arc;
 use super::attr::notify_change;
 use super::cred::{Cred, FileSecurity, SecurityPath};
 use super::dentry::{Dentry, RENAME_LOCK};
-use super::file::{FMode, File, FileOperations};
+use super::file::{do_dentry_open, FMode, File, FileOperations};
 use super::inode::{Finish, Inode, Mask, RenameFlag};
 use super::mount::VfsMount;
 use super::openat2::{OpenFlags, OpenHow};
@@ -628,8 +628,7 @@ fn do_open(
                 nd.mnt.mnt_want_write()?;
             }
             let mode = f_mode(how, created);
-            let security = nd.on_path(|path| nd.cred.security_file_open(path, kind, mode, how))?;
-            (child.open(how)?, security)
+            nd.on_path(|path| do_dentry_open(&nd.cred, path, child, kind, mode, how))?
         }
     };
     if truncate {

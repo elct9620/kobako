@@ -375,6 +375,20 @@ impl<'a> DirContext<'a> {
     }
 }
 
+/// Open what `dentry` holds as `mode` and `how` ask for `cred`, as Linux's
+/// `do_dentry_open` asks the security modules before `f_op->open`.
+pub(super) fn do_dentry_open(
+    cred: &Cred,
+    at: SecurityPath<'_>,
+    dentry: &Dentry,
+    kind: FileType,
+    mode: FMode,
+    how: &OpenHow,
+) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
+    let security = cred.security_file_open(at, kind, mode, how)?;
+    Ok((dentry.open(how)?, security))
+}
+
 /// What `dentry` reports it stands for, `None` where a Filesystem cannot answer,
 /// rather than failing the listing.
 fn identity_of(dentry: &Dentry) -> Option<Identity> {
@@ -514,8 +528,7 @@ impl File {
             mnt: path.mnt(),
             name: &name,
         };
-        let security = cred.security_file_open(at, kind, FMode::of(how), how)?;
-        let ops = path.dentry().inode_ops()?.open(path.dentry(), how)?;
+        let (ops, security) = do_dentry_open(cred, at, path.dentry(), kind, FMode::of(how), how)?;
         Ok(Self::new(path, ops, how, cred).with_security(security))
     }
 
