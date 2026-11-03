@@ -10,8 +10,7 @@ use std::time::SystemTime;
 use super::path::{ancestors, name, normalize_seed};
 use super::{
     DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
-    SetTime,
+    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow, RenameFlag, SetTime,
 };
 use crate::vfs::{dir_emit_dots, generic_file_llseek, generic_read_dir, DirContext, Whence};
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
@@ -695,7 +694,7 @@ impl InodeOperations for Tmpfs {
     fn open(
         &self,
         _dentry: &Dentry,
-        _options: &OpenOptions,
+        _options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         Ok(Box::new(TmpfsDir {
             dir: self.dir.clone(),
@@ -846,7 +845,7 @@ impl InodeOperations for TmpfsRegular {
     fn open(
         &self,
         _dentry: &Dentry,
-        _options: &OpenOptions,
+        _options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         Ok(Box::new(TmpfsFile {
             data: self.data.clone(),
@@ -998,7 +997,7 @@ mod tests {
             create: true,
             ..crate::vfs::OpenHow::default()
         };
-        crate::vfs::do_file_open(&cred, &root, "d", &how).expect("the name is made");
+        crate::vfs::kern_path::filp_open(&cred, &root, "d", &how).expect("the name is made");
         let names = |seen: Vec<(String, u64)>| -> Vec<String> {
             seen.into_iter().map(|(name, _)| name).collect()
         };
@@ -1078,9 +1077,9 @@ mod tests {
     #[test]
     fn a_name_past_its_limit_is_too_long_for_a_tmpfs() {
         let fs = kern_path(Arc::new(Tmpfs::new()));
-        let options = OpenOptions {
+        let options = OpenHow {
             write: true,
-            ..OpenOptions::default()
+            ..OpenHow::default()
         };
         assert!(
             fs.create(&"x".repeat(NAME_MAX), &options).is_ok()
@@ -1160,9 +1159,9 @@ mod tests {
         let mut file = fs
             .open(
                 path,
-                &OpenOptions {
+                &OpenHow {
                     read: true,
-                    ..OpenOptions::default()
+                    ..OpenHow::default()
                 },
             )
             .expect("the file must open");
@@ -1254,9 +1253,9 @@ mod tests {
         let mut file = tmpfs
             .open_or_create(
                 "notes.txt",
-                &OpenOptions {
+                &OpenHow {
                     write: true,
-                    ..OpenOptions::default()
+                    ..OpenHow::default()
                 },
             )
             .expect("a new file must be created");
@@ -1301,9 +1300,9 @@ mod tests {
     fn writable(fs: &KernPath, path: &str) -> Box<dyn FileOperations> {
         fs.open_or_create(
             path,
-            &OpenOptions {
+            &OpenHow {
                 write: true,
-                ..OpenOptions::default()
+                ..OpenHow::default()
             },
         )
         .expect("the file must open")
@@ -1420,9 +1419,9 @@ mod tests {
     fn create(fs: &KernPath, path: &str) -> Result<(), FilesystemError> {
         fs.open_or_create(
             path,
-            &OpenOptions {
+            &OpenHow {
                 write: true,
-                ..OpenOptions::default()
+                ..OpenHow::default()
             },
         )
         .map(drop)
@@ -1773,7 +1772,7 @@ mod tests {
             read: true,
             ..Default::default()
         };
-        let Ok(open) = crate::vfs::do_file_open(&cred, &root, "held", &how) else {
+        let Ok(open) = crate::vfs::kern_path::filp_open(&cred, &root, "held", &how) else {
             panic!("the directory must open");
         };
         crate::vfs::filename_rmdir(&cred, &root, "held").expect("the directory must be removed");
@@ -1824,10 +1823,10 @@ mod tests {
     #[test]
     fn a_tmpfs_keeps_a_files_times_as_a_tmpfs_mounted_noatime_does() {
         let tmpfs = at(Tmpfs::new());
-        let options = OpenOptions {
+        let options = OpenHow {
             read: true,
             write: true,
-            ..OpenOptions::default()
+            ..OpenHow::default()
         };
         let mut file = tmpfs
             .open_or_create("file", &options)
@@ -1971,7 +1970,7 @@ mod tests {
                 read: true,
                 ..Default::default()
             };
-            let held = crate::vfs::do_file_open(&Arc::default(), &root, "a", &how)
+            let held = crate::vfs::kern_path::filp_open(&Arc::default(), &root, "a", &how)
                 .unwrap_or_else(|_| panic!("the file must open"));
             let stop = AtomicBool::new(false);
             let nameless = std::thread::scope(|scope| {

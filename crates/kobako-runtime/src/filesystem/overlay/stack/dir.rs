@@ -4,7 +4,7 @@
 //! in the workdir and exchanged into place, so it lands whole or not at
 //! all.
 
-use super::super::super::{FileOperations, FileType, FilesystemError, OpenOptions};
+use super::super::super::{FileOperations, FileType, FilesystemError, OpenHow};
 use super::super::file::ovl_file;
 use super::super::inode::{OverlayDirInode, OverlayFileInode};
 use super::super::path::OverlayPath;
@@ -129,7 +129,7 @@ impl OverlayFs {
         &self,
         dir: &ViewDir,
         child: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let inode = child.inode().ok_or(FilesystemError::NotFound)?;
         let kept = OverlayFileInode::of(&inode).ok_or(FilesystemError::IsADirectory)?;

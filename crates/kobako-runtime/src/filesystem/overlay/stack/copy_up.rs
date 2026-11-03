@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use super::super::super::{FileType, FilesystemError, OpenOptions};
+use super::super::super::{FileType, FilesystemError, OpenHow};
 use super::super::inode::OverlayFileInode;
 use super::super::path::{timestamps, OverlayPath};
 use super::{copy_whole, OverlayFs, ViewDir, UPPER};
@@ -122,9 +122,9 @@ impl OverlayFs {
         }
         let mut copy = target_dir.do_tmpfile()?;
         if !truncate {
-            let mut source = real.open(&OpenOptions {
+            let mut source = real.open(&OpenHow {
                 read: true,
-                ..OpenOptions::default()
+                ..OpenHow::default()
             })?;
             copy_whole(source.as_mut(), &mut copy)?;
         }

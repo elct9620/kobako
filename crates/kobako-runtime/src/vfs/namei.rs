@@ -18,7 +18,7 @@ use super::dentry::{Dentry, RENAME_LOCK};
 use super::file::{FMode, File, FileOperations};
 use super::inode::{Inode, Mask, RenameFlag};
 use super::mount::VfsMount;
-use super::openat2::{build_open_flags, OpenHow, OpenOptions};
+use super::openat2::{OpenFlags, OpenHow};
 use super::path::{Path, Start};
 use super::super_block::SuperBlock;
 use super::{FileType, FilesystemError, Iattr, Metadata};
@@ -401,9 +401,9 @@ impl Nameidata {
 /// Refuse a path no call can take, as Linux's `getname` does before any call
 /// looks at it: an empty one names nothing, one past `PATH_MAX` with its
 /// terminating NUL is too long, and one holding a NUL names nothing a
-/// Filesystem can hold. An ABI asks it before it looks up where a walk starts,
-/// as Linux's syscalls take the name before `path_init` takes the descriptor.
-pub fn getname(path: &str) -> Result<(), FilesystemError> {
+/// Filesystem can hold. It answers before a walk looks up where it starts, as
+/// Linux's syscalls take the name before `path_init` takes the descriptor.
+fn getname(path: &str) -> Result<(), FilesystemError> {
     if path.is_empty() {
         return Err(FilesystemError::NotFound);
     }
@@ -511,48 +511,44 @@ pub(crate) fn filename_lookup(
     Ok(nd)
 }
 
-/// Open `path` beneath `start` as `how` asks, as Linux's `do_file_open`
+/// Open `path` beneath `start` as `op` asks, as Linux's `do_file_open`
 /// walks to the last name and `do_open` opens it. It hands no descriptor out,
 /// as whoever holds a table of them reserves one first, as Linux's `FD_ADD`
-/// does.
+/// does, so a path no call can take answers only once a descriptor is held.
 pub fn do_file_open(
     cred: &Arc<Cred>,
     start: &impl Start,
     path: &str,
-    how: &OpenHow,
+    op: &OpenFlags,
 ) -> Result<File, FilesystemError> {
-    let follow = build_open_flags(how)?;
+    let how = &op.open_flag;
     let mut nd = set_nameidata(cred, start, path)?;
     nd.lookup_directory = how.directory;
     nd.link_path_walk()?;
-    let held = nd.open_last_lookups(follow, how.create)?;
+    let held = nd.open_last_lookups(op.lookup_follow(), how.create)?;
     let child = nd.path()?;
-    let options = OpenOptions {
-        read: how.read,
-        write: how.write,
-        truncate: how.truncate,
-    };
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
     let (f_op, security) = match child.inode().map(|inode| inode.kind()) {
-        // A file is made and opened before the directory's lock goes, so nothing
-        // made or removed in between changes what the open decided. What it made
-        // is opened as `do_open` opens a file `FMODE_CREATED` marks: it asks for
-        // nothing but the open, and is never walked again.
-        None if how.create => {
+        // Only a create reaches the last name with nothing there, as
+        // `open_last_lookups` refuses it otherwise. A file is made and opened
+        // before the directory's lock goes, so nothing made or removed in
+        // between changes what the open decided. What it made is opened as
+        // `do_open` opens a file `FMODE_CREATED` marks: it asks for nothing but
+        // the open, and is never walked again.
+        None => {
             let _held = held;
-            let f_op = lookup_open(&nd, &child, &options)?;
+            let f_op = lookup_open(&nd, &child, how)?;
             may_open(cred, nd.mnt.sb(), &child, FileType::File, Mask::OPEN)?;
             let mode = FMode::of(how).with(FMode::CREATED);
             let security =
                 nd.on_path(|path| cred.security_file_open(path, FileType::File, mode, how))?;
             (f_op, security)
         }
-        None => return Err(FilesystemError::NotFound),
         Some(kind) => {
             drop(held);
             nd.complete_walk()?;
-            do_open(&nd, &child, kind, how, &options)?
+            do_open(&nd, &child, kind, op)?
         }
     };
     Ok(File::new(nd.path_to(child), f_op, how, cred).with_security(security))
@@ -563,12 +559,12 @@ pub fn do_file_open(
 fn lookup_open(
     nd: &Nameidata,
     child: &Dentry,
-    options: &OpenOptions,
+    how: &OpenHow,
 ) -> Result<Box<dyn FileOperations>, FilesystemError> {
     nd.mnt.mnt_want_write()?;
     nd.on_path(|path| nd.cred.security_path_mknod(path))?;
     may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), child)?;
-    atomic_open(nd.dentry(), child, options)
+    atomic_open(nd.dentry(), child, how)
 }
 
 /// Open what stood at the path, as Linux's `do_open`: what stands answers
@@ -580,9 +576,9 @@ fn do_open(
     nd: &Nameidata,
     child: &Dentry,
     kind: FileType,
-    how: &OpenHow,
-    options: &OpenOptions,
+    op: &OpenFlags,
 ) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
+    let how = &op.open_flag;
     let refusal = match kind {
         _ if how.create && how.exclusive => Some(FilesystemError::AlreadyExists),
         FileType::Directory if how.create => Some(FilesystemError::IsADirectory),
@@ -597,13 +593,13 @@ fn do_open(
     if truncate {
         nd.mnt.mnt_want_write()?;
     }
-    may_open(&nd.cred, nd.mnt.sb(), child, kind, open_mask(how))?;
+    may_open(&nd.cred, nd.mnt.sb(), child, kind, op.acc_mode())?;
     if how.write && !kind.is_special() {
         nd.mnt.mnt_want_write()?;
     }
     let security =
         nd.on_path(|path| nd.cred.security_file_open(path, kind, FMode::of(how), how))?;
-    let f_op = child.open(options)?;
+    let f_op = child.open(how)?;
     if truncate {
         nd.cred.security_file_truncate(&security)?;
         notify_change(child, &Iattr::open_truncate())?;
@@ -629,18 +625,6 @@ fn may_open(
         _ => {}
     }
     inode_permission(cred, sb, child, mask)
-}
-
-/// What an open asks of what it opens, as `build_open_flags` makes `acc_mode`.
-fn open_mask(how: &OpenHow) -> Mask {
-    let mut mask = Mask::OPEN;
-    if how.read {
-        mask = mask | Mask::READ;
-    }
-    if how.write || how.truncate {
-        mask = mask | Mask::WRITE;
-    }
-    mask
 }
 
 /// Give what `old_path` beneath `old_start` names another name at `new_path`
@@ -1042,14 +1026,15 @@ pub(crate) fn vfs_mkdir(
     dir.inode_ops()?.mkdir(child)
 }
 
-/// Make the file `child` in `dir` and open it as `options` asks, as Linux's
-/// `atomic_open` does once its caller holds `dir` and asked `may_o_create`.
+/// Make the file `child` in `dir` and open it as `how` asks, as Linux's
+/// `atomic_open` hands `open_flag` on once its caller holds `dir` and asked
+/// `may_o_create`.
 pub(crate) fn atomic_open(
     dir: &Dentry,
     child: &Dentry,
-    options: &OpenOptions,
+    how: &OpenHow,
 ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-    dir.inode_ops()?.atomic_open(child, options)
+    dir.inode_ops()?.atomic_open(child, how)
 }
 
 /// Make the file `child` in `dir`, as Linux's `vfs_create` does once its caller
@@ -1152,7 +1137,7 @@ mod tests {
     use crate::filesystem::wrap::{self, Wrap};
     use crate::filesystem::{
         DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
-        InodeOperations, Lookup, Metadata, OpenOptions, Tmpfs,
+        InodeOperations, Lookup, Metadata, Tmpfs,
     };
     use crate::mount::{Access, Mount, Policy};
     use crate::sched::testing::count_waits;
@@ -1442,8 +1427,9 @@ mod tests {
         };
         vfs::filename_mkdirat(&cred, &root, "d").expect("mkdir");
         vfs::filename_rmdir(&cred, &root, "d").expect("rmdir");
-        vfs::do_file_open(&cred, &root, "f", &write).expect("the file is made");
-        let mut file = vfs::do_file_open(&cred, &root, "f", &reopen).expect("the file opens");
+        vfs::kern_path::filp_open(&cred, &root, "f", &write).expect("the file is made");
+        let mut file =
+            vfs::kern_path::filp_open(&cred, &root, "f", &reopen).expect("the file opens");
         file.truncate(0).expect("truncate");
         vfs::filename_renameat2(&cred, &root, "f", &root, "g").expect("rename");
         vfs::filename_unlinkat(&cred, &root, "g").expect("unlink");
@@ -1607,8 +1593,9 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let open =
-            |name| vfs::do_file_open(&Arc::default(), &root, name, &read).expect("the name opens");
+        let open = |name| {
+            vfs::kern_path::filp_open(&Arc::default(), &root, name, &read).expect("the name opens")
+        };
         let (first, second) = (open("first"), open("second"));
         let inode = |file: &vfs::File| file.path().dentry().inode().expect("the file stands");
         assert!(
@@ -1656,7 +1643,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.opened.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(NoOperations))
@@ -1678,8 +1665,9 @@ mod tests {
             create: true,
             ..OpenHow::default()
         };
-        let file = vfs::do_file_open(&Arc::default(), &Path::root(mount.mnt()), "made", &how)
-            .expect("a Filesystem with create makes the file");
+        let file =
+            vfs::kern_path::filp_open(&Arc::default(), &Path::root(mount.mnt()), "made", &how)
+                .expect("a Filesystem with create makes the file");
         assert_eq!(
             (
                 file.getattr().map(|made| made.file_type),
@@ -1742,7 +1730,7 @@ mod tests {
         let make = |name: &str| {
             (
                 vfs::filename_mkdirat(&cred, &root, &format!("{name}-dir")),
-                vfs::do_file_open(&cred, &root, &format!("{name}-file"), &how).map(drop),
+                vfs::kern_path::filp_open(&cred, &root, &format!("{name}-file"), &how).map(drop),
             )
         };
         let allowed = make("made");
@@ -1813,7 +1801,7 @@ mod tests {
         };
         assert!(
             asks(&|| {
-                vfs::do_file_open(&cred, &root, "a/d", &read).expect("the directory opens");
+                vfs::kern_path::filp_open(&cred, &root, "a/d", &read).expect("the directory opens");
             })
             .ends_with(&[name("d", Mask::OPEN | Mask::READ)]),
             "vfs::do_file_open must ask of what it opens for what the open asks, as may_open"
@@ -1895,7 +1883,8 @@ mod tests {
             ..OpenHow::default()
         };
         assert_eq!(
-            vfs::do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &how).err(),
+            vfs::kern_path::filp_open(&Arc::default(), &Path::root(mount.mnt()), "file", &how)
+                .err(),
             Some(FilesystemError::ReadOnlyFilesystem),
             "vfs::do_file_open to write a file of a read-only Filesystem whose permission refuses \
              writes must answer EROFS, as sb_permission answers before ->permission"
@@ -2028,7 +2017,7 @@ mod tests {
             ..OpenHow::default()
         };
         let cred = Arc::default();
-        let start = vfs::do_file_open(&cred, &root, "a", &how).expect("a opens");
+        let start = vfs::kern_path::filp_open(&cred, &root, "a", &how).expect("a opens");
         let ended = vfs::vfs_fstatat(&cred, start.path(), "b/l/k", false);
         assert_eq!(
             ended.err(),
@@ -2051,14 +2040,14 @@ mod tests {
                 directory: true,
                 ..OpenHow::default()
             };
-            vfs::do_file_open(&cred, &root, "a", &how).expect("a opens")
+            vfs::kern_path::filp_open(&cred, &root, "a", &how).expect("a opens")
         };
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
         };
         let stat = vfs::vfs_fstatat(&cred, start().path(), "b/l/missing", false);
-        let open = vfs::do_file_open(&cred, start().path(), "b/l/missing", &read);
+        let open = vfs::kern_path::filp_open(&cred, start().path(), "b/l/missing", &read);
         assert_eq!(
             (stat.err(), open.err()),
             (
@@ -2122,11 +2111,12 @@ mod tests {
         let made_dir = asked(&|| vfs::filename_mkdirat(&cred, &root, "dir").expect("mkdir"));
         let made_file = asked(&|| {
             assert!(
-                vfs::do_file_open(&cred, &root, "file", &how).is_ok(),
+                vfs::kern_path::filp_open(&cred, &root, "file", &how).is_ok(),
                 "the file must be made"
             );
         });
-        let _held = vfs::do_file_open(&cred, &root, "file", &how).expect("the file must stand");
+        let _held =
+            vfs::kern_path::filp_open(&cred, &root, "file", &how).expect("the file must stand");
         let moved = asked(&|| {
             vfs::filename_renameat2(&cred, &root, "file", &root, "moved").expect("the move")
         });
@@ -2185,7 +2175,7 @@ mod tests {
         fn atomic_open(
             &self,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.tmpfs.atomic_open(dentry, options)
         }
@@ -2193,7 +2183,7 @@ mod tests {
         fn open(
             &self,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.tmpfs.open(dentry, options)
         }
@@ -2289,7 +2279,7 @@ mod tests {
         fn open(
             &self,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(crate::filesystem::FileType::Directory) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
@@ -2300,7 +2290,7 @@ mod tests {
         fn atomic_open(
             &self,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.root.create(&folded(dentry), options)
         }
@@ -2353,7 +2343,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             struct OpenLink;
             impl FileOperations for OpenLink {}
@@ -2556,7 +2546,7 @@ mod tests {
             Filesystem::new(Arc::new(OpensItsLinks(asked.clone())))
                 .expect("the instance must stand"),
         );
-        let answer = vfs::do_file_open(&Arc::default(), &root, "link", &OpenHow::default());
+        let answer = vfs::kern_path::filp_open(&Arc::default(), &root, "link", &OpenHow::default());
         assert_eq!(
             (answer.err(), asked.load(Ordering::SeqCst)),
             (Some(FilesystemError::FilesystemLoop), 0),
@@ -2576,7 +2566,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        match vfs::do_file_open(&Arc::default(), start, path, &how) {
+        match vfs::kern_path::filp_open(&Arc::default(), start, path, &how) {
             Ok(dir) => dir.path().clone(),
             Err(_) => panic!("{path} must open as a directory"),
         }
@@ -2599,7 +2589,7 @@ mod tests {
             ..OpenHow::default()
         };
         assert_eq!(
-            vfs::do_file_open(&crate::security::prepare_creds([]), &root, "w", &how).err(),
+            vfs::kern_path::filp_open(&crate::security::prepare_creds([]), &root, "w", &how).err(),
             Some(FilesystemError::PermissionDenied),
             "a character device through vfs::do_file_open must answer PermissionDenied"
         );
@@ -2717,7 +2707,7 @@ mod tests {
                     create: true,
                     ..OpenHow::default()
                 };
-                vfs::do_file_open(&cred, &root, "f", &how).map(drop)
+                vfs::kern_path::filp_open(&cred, &root, "f", &how).map(drop)
             })
         };
         reaching
@@ -3114,7 +3104,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.0.lock().expect("never poisoned").push("open");
             Ok(Box::new(RecordedFile))
@@ -3123,7 +3113,7 @@ mod tests {
         fn atomic_open(
             &self,
             dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.0.lock().expect("never poisoned").push("atomic_open");
             let file = Metadata::new(crate::filesystem::FileType::File, 0);
@@ -3146,8 +3136,8 @@ mod tests {
             ..OpenHow::default()
         };
         let opened = (
-            vfs::do_file_open(&cred, &root, "file", &truncate).is_ok(),
-            vfs::do_file_open(&cred, &root, "missing", &truncate).is_ok(),
+            vfs::kern_path::filp_open(&cred, &root, "file", &truncate).is_ok(),
+            vfs::kern_path::filp_open(&cred, &root, "missing", &truncate).is_ok(),
         );
         assert_eq!(
             (opened, calls.0.lock().map(|calls| calls.clone()).ok()),
@@ -3206,13 +3196,14 @@ mod tests {
             write: true,
             ..OpenHow::default()
         };
-        let mut file = vfs::do_file_open(&cred, &root, "file", &write).expect("the file must open");
+        let mut file =
+            vfs::kern_path::filp_open(&cred, &root, "file", &write).expect("the file must open");
         file.truncate(3).expect("the truncate must land");
         let truncate = OpenHow {
             truncate: true,
             ..write
         };
-        vfs::do_file_open(&cred, &root, "file", &truncate).expect("the file must open");
+        vfs::kern_path::filp_open(&cred, &root, "file", &truncate).expect("the file must open");
         let named = changes
             .0
             .lock()
@@ -3276,7 +3267,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Ok(Box::new(RecordedFile))
         }
@@ -3284,7 +3275,7 @@ mod tests {
         fn atomic_open(
             &self,
             dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.made.store(true, Ordering::SeqCst);
             let file = Metadata::new(crate::filesystem::FileType::File, 0);
@@ -3306,7 +3297,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let cred = crate::security::prepare_creds([&mount]);
-        vfs::do_file_open(&cred, &Path::root(mount.mnt()), path, how).err()
+        vfs::kern_path::filp_open(&cred, &Path::root(mount.mnt()), path, how).err()
     }
 
     // Linux's `vfs_fallocate` and `generic_fadvise` read what the file is, so a
@@ -3329,8 +3320,9 @@ mod tests {
             write: true,
             ..OpenHow::default()
         };
-        let mut fifo = vfs::do_file_open(&Arc::default(), &Path::root(mount.mnt()), "f", &write)
-            .unwrap_or_else(|_| panic!("the FIFO must open"));
+        let mut fifo =
+            vfs::kern_path::filp_open(&Arc::default(), &Path::root(mount.mnt()), "f", &write)
+                .unwrap_or_else(|_| panic!("the FIFO must open"));
         assert_eq!(
             (fifo.fallocate(0, 1).err(), fifo.fadvise(0, 1).err()),
             (
@@ -3361,8 +3353,9 @@ mod tests {
             write: true,
             ..OpenHow::default()
         };
-        let mut device = vfs::do_file_open(&Arc::default(), &Path::root(mount.mnt()), "f", &write)
-            .unwrap_or_else(|_| panic!("the device must open"));
+        let mut device =
+            vfs::kern_path::filp_open(&Arc::default(), &Path::root(mount.mnt()), "f", &write)
+                .unwrap_or_else(|_| panic!("the device must open"));
         assert_eq!(
             device.fallocate(0, 1).err(),
             Some(FilesystemError::NoSuchDevice),

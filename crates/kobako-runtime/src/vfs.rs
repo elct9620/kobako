@@ -43,9 +43,9 @@ pub use inode::{Identity, Inode, InodeOperations, Lookup, Mask, RenameFlag};
 pub use mount::VfsMount;
 pub use namei::{
     do_file_open, filename_linkat, filename_mkdirat, filename_renameat2, filename_rmdir,
-    filename_symlinkat, filename_unlinkat, getname,
+    filename_symlinkat, filename_unlinkat,
 };
-pub use openat2::{build_open_flags, OpenHow, OpenOptions};
+pub use openat2::{build_open_flags, OpenFlags, OpenHow};
 pub use path::{Path, Start};
 pub use stat::{do_readlinkat, vfs_fstatat, FileType, Metadata};
 pub use super_block::{simple_fill_super, FileSystemType, SuperBlock};

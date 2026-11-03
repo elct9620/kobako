@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
     DentryOperations, FileOperations, FileSystemType, Filesystem, FilesystemError, InodeOperations,
-    Lookup, Metadata, OpenOptions, RenameFlag,
+    Lookup, Metadata, OpenHow, RenameFlag,
 };
 use kobako_runtime::vfs::Dentry;
 
@@ -42,7 +42,7 @@ pub(super) trait Hook: Send + Sync + 'static {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         inner.open(dentry, options)
     }
@@ -51,7 +51,7 @@ pub(super) trait Hook: Send + Sync + 'static {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         inner.atomic_open(dentry, options)
     }
@@ -166,7 +166,7 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.hook.open(self.inner.as_ref(), dentry, options)
     }
@@ -174,7 +174,7 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
     fn atomic_open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.hook.atomic_open(self.inner.as_ref(), dentry, options)
     }

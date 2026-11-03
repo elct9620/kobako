@@ -21,6 +21,6 @@ pub use tmpfs::{SeedError, Tmpfs};
 
 pub use crate::vfs::{
     simple_fill_super, DentryOperations, DirEntry, FileOperations, FileSystemType, FileType,
-    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Mask, Metadata, OpenOptions,
-    RenameFlag, SetTime, SuperBlock as Filesystem,
+    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Mask, Metadata, OpenHow, RenameFlag,
+    SetTime, SuperBlock as Filesystem,
 };

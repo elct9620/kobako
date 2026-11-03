@@ -16,7 +16,7 @@ use lru::LruCache;
 use super::file::FileOperations;
 use super::inode::{Inode, InodeOperations, Lookup};
 use super::seqlock::SeqLock;
-use super::{FileType, FilesystemError, Metadata, OpenOptions};
+use super::{FileType, FilesystemError, Metadata, OpenHow};
 use crate::hashtable::Hashtable;
 use crate::locking::RwSemaphoreGuard;
 use crate::sched;
@@ -346,14 +346,11 @@ impl Dentry {
         }
     }
 
-    /// Open the file this records as `options` asks, as `vfs_open` finds
+    /// Open the file this records as `how` asks, as `vfs_open` finds
     /// `f_op->open` on the inode a dentry holds.
-    pub(crate) fn open(
-        &self,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    pub(crate) fn open(&self, how: &OpenHow) -> Result<Box<dyn FileOperations>, FilesystemError> {
         match self.inode() {
-            Some(inode) => inode.ops().open(self, options),
+            Some(inode) => inode.ops().open(self, how),
             None => Err(FilesystemError::NotFound),
         }
     }
@@ -562,7 +559,7 @@ mod tests {
     use super::{Dentries, Dentry};
     use crate::filesystem::{
         FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup, Metadata,
-        OpenOptions, Tmpfs,
+        Tmpfs,
     };
     use crate::mount::{Access, Mount};
     use crate::vfs::kern_path::{kern_path, KernPath};
@@ -616,7 +613,7 @@ mod tests {
         fn open(
             &self,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(FileType::Directory) {
                 return Ok(Box::new(ByPathDir(self.root.clone())));
@@ -627,7 +624,7 @@ mod tests {
         fn atomic_open(
             &self,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.root.create(&dentry.path_raw(), options)
         }
@@ -695,7 +692,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        match vfs::do_file_open(&Arc::default(), start, path, &how) {
+        match vfs::kern_path::filp_open(&Arc::default(), start, path, &how) {
             Ok(dir) => dir.path().clone(),
             Err(_) => panic!("{path} must open as a directory"),
         }

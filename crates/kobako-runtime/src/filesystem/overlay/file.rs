@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use super::super::{FileOperations, FilesystemError, Kiocb, OpenOptions};
+use super::super::{FileOperations, FilesystemError, Kiocb, OpenHow};
 use super::inode::OverlayFileInode;
 use crate::vfs::{generic_file_llseek, Dentry, Whence};
 
@@ -40,9 +40,9 @@ impl OverlayFile {
         if self.upper.is_none() {
             let real = self.inode.real();
             if !Arc::ptr_eq(&real, &self.real) {
-                let read = OpenOptions {
+                let read = OpenHow {
                     read: true,
-                    ..OpenOptions::default()
+                    ..OpenHow::default()
                 };
                 self.upper = Some(real.open(&read)?);
             }

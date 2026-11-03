@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::Rdir;
 use kobako_runtime::filesystem::{
     simple_fill_super, DentryOperations, DirEntry, FileOperations, FileSystemType, FileType,
-    Filesystem, FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions,
+    Filesystem, FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow,
     RenameFlag,
 };
 use kobako_runtime::vfs::{
@@ -183,7 +183,7 @@ fn to_error(err: MagnusError) -> FilesystemError {
 
 /// `File::Constants` flags for `options`, read from Ruby since their
 /// values differ by platform.
-fn to_flags(ruby: &Ruby, options: &OpenOptions, create: bool) -> Result<i64, MagnusError> {
+fn to_flags(ruby: &Ruby, options: &OpenHow, create: bool) -> Result<i64, MagnusError> {
     let constants: RModule = ruby
         .class_object()
         .const_get::<_, RClass>("File")?
@@ -237,7 +237,7 @@ impl RubyFilesystem {
     fn open_at(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
         create: bool,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let path = dentry.path_raw();
@@ -367,7 +367,7 @@ impl InodeOperations for RubyRegular {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.0.open_at(dentry, options, false)
     }
@@ -414,7 +414,7 @@ impl InodeOperations for RubyFilesystem {
     fn open(
         &self,
         _dentry: &Dentry,
-        _options: &OpenOptions,
+        _options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         Ok(Box::new(RubyDir(*self, Rdir::default())))
     }
@@ -422,7 +422,7 @@ impl InodeOperations for RubyFilesystem {
     fn atomic_open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.open_at(dentry, options, true)
     }

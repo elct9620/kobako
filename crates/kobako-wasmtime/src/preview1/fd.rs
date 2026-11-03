@@ -482,12 +482,16 @@ mod tests {
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
     use kobako_runtime::filesystem::{
         FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Lookup, Metadata,
-        OpenOptions,
     };
     use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::profile::Profile;
     use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path, PATH_MAX};
     use wiggle::GuestPtr;
+
+    /// What `do_file_open` takes for an open `how` asks.
+    fn flags_of(how: &OpenHow) -> vfs::OpenFlags {
+        vfs::build_open_flags(how).expect("the flags must mean an open")
+    }
 
     /// A table holding only the three standard streams.
     fn standard_streams() -> Descriptors {
@@ -577,7 +581,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Ok((self.1)())
         }
@@ -598,7 +602,7 @@ mod tests {
         .expect("/data is a guest path");
         let start = Path::root(mount.mnt());
         Descriptor::for_file(
-            vfs::do_file_open(&Arc::default(), &start, "file", how)
+            vfs::do_file_open(&Arc::default(), &start, "file", &flags_of(how))
                 .unwrap_or_else(|_| panic!("the file must open")),
         )
     }
@@ -753,7 +757,7 @@ mod tests {
             how.write = true;
             how.dsync = dsync;
             how.sync = sync;
-            let opened = vfs::do_file_open(&cred, &root, "f", &how)
+            let opened = vfs::do_file_open(&cred, &root, "f", &flags_of(&how))
                 .unwrap_or_else(|_| panic!("the file must open"));
             let fd = table
                 .push(Descriptor::for_file(opened))
@@ -814,7 +818,7 @@ mod tests {
         let cred = table.cred().clone();
         let mut read = OpenHow::default();
         read.read = true;
-        let opened = vfs::do_file_open(&cred, &root, "f", &read)
+        let opened = vfs::do_file_open(&cred, &root, "f", &flags_of(&read))
             .unwrap_or_else(|_| panic!("the file must open"));
         let fd = table
             .push(Descriptor::for_file(opened))
@@ -1135,7 +1139,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Ok(Box::new(Self(self.0)))
         }

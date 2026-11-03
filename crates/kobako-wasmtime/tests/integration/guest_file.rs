@@ -9,11 +9,11 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
     simple_fill_super, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
-    InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, Tmpfs,
+    InodeOperations, Kiocb, Lookup, Metadata, OpenHow, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
-use kobako_runtime::vfs::{self, Dentry, OpenHow, Path};
+use kobako_runtime::vfs::{self, Dentry, Path};
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 
@@ -68,7 +68,8 @@ fn host<F: FileSystemType>(filesystem: &Arc<F>) -> Path {
 fn contents<F: FileSystemType>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(mut file) = vfs::do_file_open(&Arc::default(), &host(filesystem), path, &how) else {
+    let op = vfs::build_open_flags(&how).expect("a read means an open");
+    let Ok(mut file) = vfs::do_file_open(&Arc::default(), &host(filesystem), path, &op) else {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];
@@ -609,7 +610,7 @@ where
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let opened = self.inner.open(dentry, options)?;
         if dentry
@@ -624,7 +625,7 @@ where
     fn atomic_open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let made = self.inner.atomic_open(dentry, options)?;
         Ok(Box::new((self.wrap)(made)))
@@ -939,7 +940,7 @@ impl InodeOperations for ReportsLen {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.0.open(dentry, options)
     }

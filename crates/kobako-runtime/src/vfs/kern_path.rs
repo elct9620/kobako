@@ -8,17 +8,30 @@
 
 use std::sync::Arc;
 
+use super::cred::Cred;
 use super::dentry::Dentry;
 use super::namei::{
-    atomic_open, filename_lookup, filename_parentat, lookup_one_qstr_excl, may_create_dentry,
-    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata, RenameData,
+    atomic_open, do_file_open, filename_lookup, filename_parentat, lookup_one_qstr_excl,
+    may_create_dentry, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Nameidata, RenameData,
 };
-use super::path::Path;
+use super::path::{Path, Start};
 use super::{
-    DirEntry, File, FileOperations, FileSystemType, FileType, FilesystemError, Iattr, Metadata,
-    OpenOptions, SuperBlock,
+    build_open_flags, DirEntry, File, FileOperations, FileSystemType, FileType, FilesystemError,
+    Iattr, Metadata, OpenHow, SuperBlock,
 };
 use crate::mount::{Access, Mount};
+
+/// Open `path` beneath `start` for `cred` as `how` asks, as kernel code opens a
+/// file by name through `filp_open`, which builds the flags `do_file_open`
+/// takes.
+pub(crate) fn filp_open(
+    cred: &Arc<Cred>,
+    start: &impl Start,
+    path: &str,
+    how: &OpenHow,
+) -> Result<File, FilesystemError> {
+    do_file_open(cred, start, path, &build_open_flags(how)?)
+}
 
 /// A directory of a Filesystem reached through the VFS.
 #[derive(Clone)]
@@ -49,7 +62,7 @@ impl KernPath {
     pub(crate) fn open(
         &self,
         path: &str,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let child = self.resolve(path)?.path()?;
         // A link opens as itself nowhere, as `may_open` refuses one first.
@@ -71,7 +84,7 @@ impl KernPath {
     pub(crate) fn open_or_create(
         &self,
         path: &str,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         match self.symlink_metadata(path) {
             Err(FilesystemError::NotFound) => self.create(path, options),
@@ -83,7 +96,7 @@ impl KernPath {
     pub(crate) fn create(
         &self,
         path: &str,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let (nd, child) = self.parent(path)?;
         may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)?;

@@ -137,16 +137,15 @@ pub(crate) fn open(
     how.sync = flags
         .fdflags
         .intersects(types::Fdflags::RSYNC | types::Fdflags::SYNC);
-    // Linux's `do_sys_openat2` reads the flags, then the name, then reserves a
-    // descriptor, so a full table answers whatever the path names, and only then
-    // looks at where the walk starts.
-    vfs::build_open_flags(&how)?;
+    // Linux's `do_sys_openat2` builds the flags, then reserves a descriptor
+    // before `do_file_open` answers for the name, so a full table answers
+    // whatever the path names.
+    let op = vfs::build_open_flags(&how)?;
     let path = mem.path(path)?;
-    vfs::getname(&path)?;
     if table.is_full() {
         return Err(Errno::Mfile.into());
     }
-    let file = retry_eagain(|| vfs::do_file_open(table.cred(), &start_of(table, fd), &path, &how))?;
+    let file = retry_eagain(|| vfs::do_file_open(table.cred(), &start_of(table, fd), &path, &op))?;
     Ok(table
         .push(Descriptor::for_file(file))
         .ok_or(Errno::Mfile)?

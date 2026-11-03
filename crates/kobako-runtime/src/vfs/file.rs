@@ -10,7 +10,7 @@ use super::cred::{Cred, FileSecurity};
 use super::dentry::Dentry;
 use super::inode::Identity;
 use super::mount::VfsMount;
-use super::openat2::{OpenHow, OpenOptions};
+use super::openat2::OpenHow;
 use super::path::Path;
 use super::{FileType, FilesystemError, Iattr, Metadata, PATH_MAX};
 
@@ -493,15 +493,11 @@ impl File {
     /// The directory at `path`, opened to be listed for `cred`, as `dentry_open`
     /// calls `f_op->open`.
     pub(super) fn directory(path: Path, cred: &Arc<Cred>) -> Result<Self, FilesystemError> {
-        let options = OpenOptions {
-            read: true,
-            ..OpenOptions::default()
-        };
-        let ops = path.dentry().inode_ops()?.open(path.dentry(), &options)?;
         let how = OpenHow {
             read: true,
             ..OpenHow::default()
         };
+        let ops = path.dentry().inode_ops()?.open(path.dentry(), &how)?;
         Ok(Self::new(path, ops, &how, cred))
     }
 
@@ -805,7 +801,8 @@ impl File {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{do_file_open, vfs_fstatat};
+    use super::super::kern_path::filp_open;
+    use super::super::vfs_fstatat;
     use super::*;
     use crate::filesystem::{create_pipe_files, PipeInodeInfo};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -852,7 +849,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Ok((self.0)())
         }
@@ -871,8 +868,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &read)
-            .expect("the file opens")
+        filp_open(&Arc::default(), &Path::root(mount.mnt()), "file", &read).expect("the file opens")
     }
 
     /// A file its Filesystem opens with no position.
@@ -974,7 +970,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(mut dir) = do_file_open(&Arc::default(), &Path::root(mount.mnt()), "d", &how) else {
+        let Ok(mut dir) = filp_open(&Arc::default(), &Path::root(mount.mnt()), "d", &how) else {
             panic!("the directory must open");
         };
         assert_eq!(
@@ -1002,8 +998,7 @@ mod tests {
             append: true,
             ..OpenHow::default()
         };
-        let Ok(mut file) = do_file_open(&Arc::default(), &Path::root(mount.mnt()), "log", &how)
-        else {
+        let Ok(mut file) = filp_open(&Arc::default(), &Path::root(mount.mnt()), "log", &how) else {
             panic!("the file must be made");
         };
         file.write(b"hello").expect("the write must land");
@@ -1032,7 +1027,7 @@ mod tests {
             ..OpenHow::default()
         };
         let cred = Arc::default();
-        let read = do_file_open(&cred, &Path::root(mount.mnt()), "file", &how)
+        let read = filp_open(&cred, &Path::root(mount.mnt()), "file", &how)
             .map_err(|_| "the open was refused")
             .map(|mut file| file.read(&mut [0; 1]));
         assert_eq!(
@@ -1057,7 +1052,7 @@ mod tests {
             write,
             ..OpenHow::default()
         };
-        do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file.txt", &how)
+        filp_open(&Arc::default(), &Path::root(mount.mnt()), "file.txt", &how)
             .unwrap_or_else(|_| panic!("file.txt must open"))
     }
 
@@ -1144,7 +1139,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Ok(Box::new(ReadsWholeDir(crate::filesystem::Rdir::default())))
         }
@@ -1379,7 +1374,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Ok(Box::new(self.clone()))
         }
@@ -1393,7 +1388,7 @@ mod tests {
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &how)
+        filp_open(&Arc::default(), &Path::root(mount.mnt()), "file", &how)
             .unwrap_or_else(|_| panic!("the file must open"))
     }
 
@@ -1480,7 +1475,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Ok(Box::new(CountsSyncs(self.0.clone())))
         }
@@ -1503,7 +1498,7 @@ mod tests {
                 sync,
                 ..OpenHow::default()
             };
-            do_file_open(&Arc::default(), &Path::root(mount.mnt()), "file", &how)
+            filp_open(&Arc::default(), &Path::root(mount.mnt()), "file", &how)
                 .unwrap_or_else(|_| panic!("the file must open"))
         };
         let mut plain = open(false);
@@ -1539,7 +1534,7 @@ mod tests {
             sync: true,
             ..OpenHow::default()
         };
-        let dir = do_file_open(&Arc::default(), &Path::root(mount.mnt()), "dir", &how)
+        let dir = filp_open(&Arc::default(), &Path::root(mount.mnt()), "dir", &how)
             .unwrap_or_else(|_| panic!("the directory must open"));
         assert_eq!(
             (dir.nonblock(), dir.sync()),

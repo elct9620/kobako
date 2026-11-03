@@ -8,7 +8,7 @@ use std::sync::{Arc, OnceLock};
 
 use super::dentry::Dentry;
 use super::file::FileOperations;
-use super::{FileType, FilesystemError, Iattr, Metadata, OpenOptions};
+use super::{FileType, FilesystemError, Iattr, Metadata, OpenHow};
 use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
 /// What one name in a directory turned out to be, as `->lookup` answers.
@@ -79,15 +79,16 @@ pub trait InodeOperations: Any + Send + Sync {
         Err(FilesystemError::InvalidInput)
     }
 
-    /// Open this entry, which `dentry` names, as `options` asks, as
-    /// `f_op->open` makes the open file. The VFS empties a file an open asks to
-    /// truncate through `setattr` afterwards, and refuses a link before it
-    /// asks. An entry without it opens as Linux's opens with no `f_op->open`,
-    /// answering each call on the open file as `FileOperations` does by default.
+    /// Open this entry, which `dentry` names, as `how` asks, as `f_op->open`
+    /// makes the open file reading its `f_flags`. The VFS empties a file an
+    /// open asks to truncate through `setattr` afterwards, and refuses a link
+    /// before it asks. An entry without it opens as Linux's opens with no
+    /// `f_op->open`, answering each call on the open file as `FileOperations`
+    /// does by default.
     fn open(
         &self,
         _dentry: &Dentry,
-        _options: &OpenOptions,
+        _how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         Ok(Box::new(EmptyFops))
     }
@@ -100,16 +101,17 @@ pub trait InodeOperations: Any + Send + Sync {
     }
 
     /// Make the file `dentry` names in this directory, recording it on `dentry`,
-    /// and open it as `options` asks, as `->atomic_open` does for a backend that
-    /// must do both in one step. A directory without it makes the file through
-    /// `create` and opens what that recorded, as Linux's `lookup_open` does.
+    /// and open it as `how` asks, as `->atomic_open` takes `open_flag` for a
+    /// backend that must do both in one step. A directory without it makes the
+    /// file through `create` and opens what that recorded, as Linux's
+    /// `lookup_open` does.
     fn atomic_open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.create(dentry)?;
-        dentry.open(options)
+        dentry.open(how)
     }
 
     /// Make the directory `dentry` names in this one, recording it on `dentry`
@@ -163,8 +165,8 @@ pub trait InodeOperations: Any + Send + Sync {
 }
 
 /// What a call asks of an entry, as Linux's `MAY_*` bits in the mask
-/// `inode_permission` takes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// `inode_permission` takes. The default asks nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Mask(u8);
 
 impl Mask {

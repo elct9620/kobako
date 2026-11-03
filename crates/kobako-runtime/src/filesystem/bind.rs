@@ -24,8 +24,7 @@ use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 use super::rdir::Rdir;
 use super::{
     DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenOptions, RenameFlag,
-    SetTime,
+    FilesystemError, Iattr, InodeOperations, Kiocb, Lookup, Metadata, OpenHow, RenameFlag, SetTime,
 };
 use crate::vfs::{
     generic_file_llseek, generic_read_dir, Dentry, DirContext, Identity, Inode, Whence,
@@ -125,7 +124,7 @@ impl Bind {
     fn open_file(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
         create: bool,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let file = self.at(dentry, |dir, name| open_in(dir, name, options, create))?;
@@ -385,7 +384,7 @@ fn v9fs_fid_find_inode(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::F
 fn open_in(
     dir: &Dir,
     name: &str,
-    options: &OpenOptions,
+    options: &OpenHow,
     create: bool,
 ) -> Result<std::fs::File, FilesystemError> {
     let writes = options.write || options.truncate || create;
@@ -517,7 +516,7 @@ impl InodeOperations for BindRegular {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.0.open_file(dentry, options, false)
     }
@@ -590,7 +589,7 @@ impl InodeOperations for Bind {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let fid = self.fid_lookup(dentry)?;
         if options.read {
@@ -603,7 +602,7 @@ impl InodeOperations for Bind {
     fn atomic_open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.open_file(dentry, options, true)
     }
@@ -822,9 +821,8 @@ mod tests {
         use super::*;
         use crate::filesystem::{Overlay, Tmpfs};
         use crate::mount::{Access, Mount};
-        use crate::vfs::{
-            do_file_open, do_utimes, do_utimes_fd, vfs_fstatat, OpenHow, Path as VfsPath,
-        };
+        use crate::vfs::kern_path::filp_open;
+        use crate::vfs::{do_utimes, do_utimes_fd, vfs_fstatat, OpenHow, Path as VfsPath};
 
         /// One second past the Unix epoch, which no clock is at.
         fn moment() -> std::time::SystemTime {
@@ -953,7 +951,7 @@ mod tests {
                 read: true,
                 ..OpenHow::default()
             };
-            let held = do_file_open(&Arc::default(), &root, "dir/file.txt", &how)
+            let held = filp_open(&Arc::default(), &root, "dir/file.txt", &how)
                 .unwrap_or_else(|_| panic!("the file must open"));
             let file = host.0.join("dir/file.txt");
             fs::remove_file(&file).expect("the host removes the file");
@@ -1029,7 +1027,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let opened = vfs::do_file_open(&Arc::default(), &root, &file, &read);
+        let opened = vfs::kern_path::filp_open(&Arc::default(), &root, &file, &read);
         assert!(
             opened.is_ok() && bind.fids.len() <= 64,
             "vfs::do_file_open 200 directories beneath a Bind must land and keep at most 64 of \
@@ -1165,7 +1163,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let open = || vfs::do_file_open(&cred, &root, "x/secret", &read).err();
+        let open = || vfs::kern_path::filp_open(&cred, &root, "x/secret", &read).err();
         let before = open();
         fs::rename(host.0.join("m/x"), host.0.join("outside/x")).expect("the host must move it");
         assert_eq!(
@@ -1226,7 +1224,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let opened = vfs::do_file_open(
+        let opened = vfs::kern_path::filp_open(
             &crate::security::prepare_creds([&mount]),
             &VfsPath::root(mount.mnt()),
             "public/x",
@@ -1264,7 +1262,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(held) = vfs::do_file_open(&cred, &root, "held", &directory) else {
+        let Ok(held) = vfs::kern_path::filp_open(&cred, &root, "held", &directory) else {
             panic!("the directory must open");
         };
         let read = OpenHow {
@@ -1272,7 +1270,7 @@ mod tests {
             ..OpenHow::default()
         };
         assert!(
-            vfs::do_file_open(&cred, &root, &file, &read).is_ok(),
+            vfs::kern_path::filp_open(&cred, &root, &file, &read).is_ok(),
             "the deep file must open"
         );
         fs::rename(host.0.join("held"), host.0.join("moved")).expect("the host must move it");
@@ -1305,7 +1303,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(opened) = vfs::do_file_open(&Arc::default(), &root, "a", &how) else {
+        let Ok(opened) = vfs::kern_path::filp_open(&Arc::default(), &root, "a", &how) else {
             panic!("the directory must open");
         };
         let held = opened.path();
@@ -1361,7 +1359,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(_held) = vfs::do_file_open(&cred, &root, "a/d", &directory) else {
+        let Ok(_held) = vfs::kern_path::filp_open(&cred, &root, "a/d", &directory) else {
             panic!("a/d must open");
         };
         fs::rename(host.0.join("a"), host.0.join("refused/a")).expect("the host must move a");
@@ -1371,7 +1369,7 @@ mod tests {
             ..OpenHow::default()
         };
         assert_eq!(
-            vfs::do_file_open(&cred, &root, "a/d/secret", &read).err(),
+            vfs::kern_path::filp_open(&cred, &root, "a/d/secret", &read).err(),
             Some(FilesystemError::NotFound),
             "vfs::do_file_open beneath a Bind Mount with a Policy, through a directory the host moved \
              beneath a refused path while a descriptor beneath it was held, must answer NotFound"
@@ -1424,7 +1422,7 @@ mod tests {
             ..OpenHow::default()
         };
         for (name, root) in each_holding_five_bytes(&host) {
-            let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "f", &read) else {
+            let Ok(mut file) = vfs::kern_path::filp_open(&Arc::default(), &root, "f", &read) else {
                 panic!("{name}'s f must open");
             };
             vfs::filename_unlinkat(&Arc::default(), &root, "f").expect("the name must go");
@@ -1453,7 +1451,8 @@ mod tests {
             ..OpenHow::default()
         };
         for (name, root) in each_holding_five_bytes(&host) {
-            let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "f", &write) else {
+            let Ok(mut file) = vfs::kern_path::filp_open(&Arc::default(), &root, "f", &write)
+            else {
                 panic!("{name}'s f must open");
             };
             vfs::filename_unlinkat(&Arc::default(), &root, "f").expect("the name must go");
@@ -1479,7 +1478,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let Ok(file) = vfs::do_file_open(&Arc::default(), &root, "f", &read) else {
+        let Ok(file) = vfs::kern_path::filp_open(&Arc::default(), &root, "f", &read) else {
             panic!("f must open");
         };
         fs::rename(host.0.join("f"), host.0.join("aside")).expect("the host must move f");
@@ -1527,7 +1526,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(_held) = vfs::do_file_open(&Arc::default(), &root, "a", &directory) else {
+        let Ok(_held) = vfs::kern_path::filp_open(&Arc::default(), &root, "a", &directory) else {
             panic!("a must open");
         };
         fs::rename(host.0.join("a"), host.0.join("aside")).expect("the host must move a");
@@ -1537,7 +1536,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let Ok(mut file) = vfs::do_file_open(&Arc::default(), &root, "a/f", &read) else {
+        let Ok(mut file) = vfs::kern_path::filp_open(&Arc::default(), &root, "a/f", &read) else {
             panic!("a/f must open through the directory the host remade");
         };
         let mut buf = [0; 3];
@@ -1569,7 +1568,7 @@ mod tests {
         let answer = dir
             .inode_ops()
             .expect("the name records its directory")
-            .open(&dir, &OpenOptions::default());
+            .open(&dir, &OpenHow::default());
         assert_eq!(
             answer.err(),
             Some(FilesystemError::NotFound),
@@ -1683,9 +1682,9 @@ mod tests {
         let devices = bind_host("/dev");
         let (sender, answered) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let read = OpenOptions {
+            let read = OpenHow {
                 read: true,
-                ..OpenOptions::default()
+                ..OpenHow::default()
             };
             let _ = sender.send([
                 fifo.open("pipe", &read).err(),
@@ -1766,9 +1765,9 @@ mod tests {
         let mut file = directory
             .open(
                 "data.csv",
-                &OpenOptions {
+                &OpenHow {
                     read: true,
-                    ..OpenOptions::default()
+                    ..OpenHow::default()
                 },
             )
             .expect("the host file must open");
@@ -1788,7 +1787,7 @@ mod tests {
         let host = HostDir::new("lookup");
         fs::write(host.0.join("seen"), "x").expect("the host file must be written");
         let directory = bind_host(&host.0);
-        assert!(directory.open("seen", &OpenOptions::default()).is_ok());
+        assert!(directory.open("seen", &OpenHow::default()).is_ok());
     }
 
     // @behavior FS-006
@@ -1799,9 +1798,9 @@ mod tests {
         directory
             .open_or_create(
                 "out.txt",
-                &OpenOptions {
+                &OpenHow {
                     write: true,
-                    ..OpenOptions::default()
+                    ..OpenHow::default()
                 },
             )
             .expect("a new file must be created")
@@ -1826,9 +1825,9 @@ mod tests {
         let mut file = directory
             .open(
                 "f",
-                &OpenOptions {
+                &OpenHow {
                     write: true,
-                    ..OpenOptions::default()
+                    ..OpenHow::default()
                 },
             )
             .expect("the host file must open");
@@ -1855,7 +1854,7 @@ mod tests {
         let directory = bind_host(&host.0);
         assert!(
             matches!(
-                directory.open(r"d\f", &OpenOptions::default()),
+                directory.open(r"d\f", &OpenHow::default()),
                 Err(FilesystemError::InvalidInput)
             ),
             "a path holding a backslash opened through a Bind on Windows must be refused as \
@@ -1909,7 +1908,7 @@ mod tests {
             ["secret.", "secret:stream", "CON"]
                 .iter()
                 .all(|name| matches!(
-                    directory.open(name, &OpenOptions::default()),
+                    directory.open(name, &OpenHow::default()),
                     Err(FilesystemError::InvalidInput)
                 )),
             "a name Windows reads as another, opened through a Bind on Windows, must be refused \
@@ -1926,9 +1925,9 @@ mod tests {
         let directory = bind_host(&host.0);
         let created = directory.open_or_create(
             &"x".repeat(300),
-            &OpenOptions {
+            &OpenHow {
                 write: true,
-                ..OpenOptions::default()
+                ..OpenHow::default()
             },
         );
         assert_eq!(
@@ -2052,7 +2051,7 @@ mod tests {
             directory: true,
             ..Default::default()
         };
-        let answer = crate::vfs::do_file_open(&Arc::default(), &root, "sealed", &how).err();
+        let answer = crate::vfs::kern_path::filp_open(&Arc::default(), &root, "sealed", &how).err();
         fs::set_permissions(&dir, mode(0o755)).expect("the host directory's mode must be restored");
         if enforced {
             assert_eq!(
@@ -2233,9 +2232,9 @@ mod tests {
         fs::set_permissions(host.0.join("note"), fs::Permissions::from_mode(0o444))
             .expect("the host file must become read-only");
         let directory = bind_host(&host.0);
-        let creates = OpenOptions {
+        let creates = OpenHow {
             read: true,
-            ..OpenOptions::default()
+            ..OpenHow::default()
         };
         assert_eq!(
             (
@@ -2261,9 +2260,9 @@ mod tests {
         let opened = bind_host(&host.0)
             .open(
                 "link",
-                &OpenOptions {
+                &OpenHow {
                     read: true,
-                    ..OpenOptions::default()
+                    ..OpenHow::default()
                 },
             )
             .map(drop);
@@ -2400,9 +2399,9 @@ mod tests {
             directory
                 .open(
                     "escape",
-                    &OpenOptions {
+                    &OpenHow {
                         read: true,
-                        ..OpenOptions::default()
+                        ..OpenHow::default()
                     }
                 )
                 .is_err(),
@@ -2447,9 +2446,9 @@ mod tests {
             .map(|byte| {
                 let directory = directory.clone();
                 std::thread::spawn(move || {
-                    let options = OpenOptions {
+                    let options = OpenHow {
                         write: true,
-                        ..OpenOptions::default()
+                        ..OpenHow::default()
                     };
                     let mut file = directory
                         .open("log.txt", &options)
@@ -2541,9 +2540,9 @@ mod tests {
         fs::rename(host.0.join("dir"), host.0.join("moved")).expect("the host must move it");
         dir.open_or_create(
             "made",
-            &OpenOptions {
+            &OpenHow {
                 write: true,
-                ..OpenOptions::default()
+                ..OpenHow::default()
             },
         )
         .expect("the file must be made");

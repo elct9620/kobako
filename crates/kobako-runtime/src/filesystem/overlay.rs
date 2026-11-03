@@ -20,7 +20,7 @@ use std::sync::Arc;
 use super::rdir::Rdir;
 use super::{
     DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, Iattr,
-    InodeOperations, Lookup, Metadata, OpenOptions, RenameFlag, Tmpfs,
+    InodeOperations, Lookup, Metadata, OpenHow, RenameFlag, Tmpfs,
 };
 use crate::vfs::{
     generic_file_llseek, generic_read_dir, notify_change, Dentry, DirContext, Inode, Whence,
@@ -226,7 +226,7 @@ impl InodeOperations for OverlayRegular {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let fs = &self.0.fs;
         fs.open(&fs.parent(dentry)?, dentry, options)
@@ -307,7 +307,7 @@ impl InodeOperations for Overlay {
     fn open(
         &self,
         dentry: &Dentry,
-        _options: &OpenOptions,
+        _options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let _real = self
             .fs
@@ -528,9 +528,9 @@ mod tests {
     fn open_to_read(fs: &KernPath, path: &str) -> Box<dyn FileOperations> {
         fs.open(
             path,
-            &OpenOptions {
+            &OpenHow {
                 read: true,
-                ..OpenOptions::default()
+                ..OpenHow::default()
             },
         )
         .expect("the file must open to read")
@@ -552,10 +552,10 @@ mod tests {
     fn write(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
         fs.open_or_create(
             path,
-            &OpenOptions {
+            &OpenHow {
                 write: true,
                 truncate: true,
-                ..OpenOptions::default()
+                ..OpenHow::default()
             },
         )?
         .write_iter(&mut Kiocb::at(0), contents)
@@ -565,9 +565,9 @@ mod tests {
     /// Write at the start of what stands at `path`, so a copy up brings its
     /// bytes along.
     fn write_over(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
-        let options = OpenOptions {
+        let options = OpenHow {
             write: true,
-            ..OpenOptions::default()
+            ..OpenHow::default()
         };
         fs.open(path, &options)?
             .write_iter(&mut Kiocb::at(0), contents)
@@ -915,7 +915,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             struct Empty;
             impl FileOperations for Empty {
@@ -1032,9 +1032,9 @@ mod tests {
             overlay
                 .open(
                     "dangling",
-                    &OpenOptions {
+                    &OpenHow {
                         read: true,
-                        ..OpenOptions::default()
+                        ..OpenHow::default()
                     }
                 )
                 .map(drop),
@@ -1162,9 +1162,9 @@ mod tests {
     fn an_overlay_finds_a_dangling_link_where_a_new_entry_would_go() {
         let host = LinkTree::new("dangling");
         let overlay = host.overlay();
-        let exclusive = OpenOptions {
+        let exclusive = OpenHow {
             write: true,
-            ..OpenOptions::default()
+            ..OpenHow::default()
         };
         assert_eq!(
             (
@@ -1518,7 +1518,7 @@ mod tests {
             write: true,
             ..Default::default()
         };
-        let written = crate::vfs::do_file_open(&Arc::default(), &root, "dir/file", &how);
+        let written = crate::vfs::kern_path::filp_open(&Arc::default(), &root, "dir/file", &how);
         assert_eq!(
             (written.err(), mount.mnt().is_readonly()),
             (Some(FilesystemError::ReadOnlyFilesystem), true),
@@ -1814,7 +1814,8 @@ mod tests {
                     create: true,
                     ..crate::vfs::OpenHow::default()
                 };
-                let _ = crate::vfs::do_file_open(&Arc::default(), &overlay, "dir/new", &how);
+                let _ =
+                    crate::vfs::kern_path::filp_open(&Arc::default(), &overlay, "dir/new", &how);
                 marker.store(1, Ordering::SeqCst);
             });
             let deadline = Instant::now() + Duration::from_millis(200);
@@ -1833,7 +1834,7 @@ mod tests {
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(FileType::Directory) && dentry.parent().is_some() {
                 self.start();
@@ -2145,9 +2146,9 @@ mod tests {
         overlay
             .open(
                 "dir/file",
-                &OpenOptions {
+                &OpenHow {
                     write: true,
-                    ..OpenOptions::default()
+                    ..OpenHow::default()
                 },
             )
             .expect("the open must copy the file up");
@@ -2177,9 +2178,9 @@ mod tests {
         overlay
             .open(
                 "dir/b",
-                &OpenOptions {
+                &OpenHow {
                     write: true,
-                    ..OpenOptions::default()
+                    ..OpenHow::default()
                 },
             )
             .expect("the open must copy the file up");
@@ -2421,7 +2422,7 @@ mod tests {
         fn open(
             &self,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if dentry.kind() == Ok(FileType::Directory) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
@@ -2432,7 +2433,7 @@ mod tests {
         fn atomic_open(
             &self,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.root.create(&folded(dentry), options)
         }
@@ -2555,7 +2556,7 @@ mod tests {
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             let opened = inner.open(dentry, options);
             let run = self.0.lock().expect("never poisoned").take();
@@ -2621,10 +2622,10 @@ mod tests {
                 ..OpenHow::default()
             },
         );
-        let held = vfs::do_file_open(&cred, &root, "file", &read)
+        let held = vfs::kern_path::filp_open(&cred, &root, "file", &read)
             .unwrap_or_else(|_| panic!("the file must open"));
         vfs::filename_unlinkat(&cred, &root, "file").expect("the file must be removed");
-        drop(vfs::do_file_open(&cred, &root, "file", &create));
+        drop(vfs::kern_path::filp_open(&cred, &root, "file", &create));
         let answer = vfs::do_utimes_fd(
             &cred,
             held.path(),
@@ -2663,7 +2664,7 @@ mod tests {
             read: true,
             ..OpenHow::default()
         };
-        let held = vfs::do_file_open(&cred, &root, "d/f", &read)
+        let held = vfs::kern_path::filp_open(&cred, &root, "d/f", &read)
             .unwrap_or_else(|_| panic!("the file must open"));
         vfs::filename_unlinkat(&cred, &root, "d/f").expect("the file must be removed");
         vfs::filename_rmdir(&cred, &root, "d").expect("the directory must be removed");
@@ -2740,8 +2741,8 @@ mod tests {
         hook.0.store(true, Ordering::SeqCst);
         let opened = thread::scope(|scope| {
             let (first, second) = (
-                scope.spawn(|| vfs::do_file_open(&cred, &root, "d/e/f", &write).map(drop)),
-                scope.spawn(|| vfs::do_file_open(&cred, &root, "d/e/g", &write).map(drop)),
+                scope.spawn(|| vfs::kern_path::filp_open(&cred, &root, "d/e/f", &write).map(drop)),
+                scope.spawn(|| vfs::kern_path::filp_open(&cred, &root, "d/e/g", &write).map(drop)),
             );
             (
                 crate::sched::testing::join_scoped("the first open", first),
@@ -2791,7 +2792,7 @@ mod tests {
                     crate::sched::testing::wait_until("the removal starting", || {
                         ready.load(Ordering::SeqCst)
                     });
-                    vfs::do_file_open(&cred, &root, "d/f", &write)
+                    vfs::kern_path::filp_open(&cred, &root, "d/f", &write)
                         .ok()
                         .map(|file| file.getattr().map(|metadata| metadata.file_type))
                 });
@@ -2872,7 +2873,7 @@ mod tests {
         fn open(
             &self,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(FilesystemError::Interrupted)
@@ -2988,7 +2989,7 @@ mod tests {
             truncate: true,
             ..OpenHow::default()
         };
-        let opened = vfs::do_file_open(&cred, &root, "file", &how);
+        let opened = vfs::kern_path::filp_open(&cred, &root, "file", &how);
         assert!(
             opened.is_ok_and(|mut file| file.read(&mut [0; 8]) == Ok(0)),
             "vfs::do_file_open with O_TRUNC of a lower file past what the upper holds must land \
@@ -3032,7 +3033,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let Ok(held) = vfs::do_file_open(&cred, &root, "held", &directory) else {
+        let Ok(held) = vfs::kern_path::filp_open(&cred, &root, "held", &directory) else {
             panic!("the directory must open");
         };
         vfs::vfs_fstatat(&cred, &root, &vec!["d"; 100].join("/"), false)
@@ -3143,7 +3144,7 @@ mod tests {
             &self,
             _inner: &dyn InodeOperations,
             _dentry: &Dentry,
-            _options: &OpenOptions,
+            _options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             Err(FilesystemError::PermissionDenied)
         }
@@ -3171,7 +3172,7 @@ mod tests {
             directory: true,
             ..OpenHow::default()
         };
-        let answer = vfs::do_file_open(
+        let answer = vfs::kern_path::filp_open(
             &Arc::default(),
             &vfs::Path::root(mount.mnt()),
             "top",
@@ -3282,7 +3283,7 @@ mod tests {
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
-            options: &OpenOptions,
+            options: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
             if !self.opening.swap(true, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));

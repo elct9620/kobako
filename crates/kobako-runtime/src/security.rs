@@ -353,8 +353,9 @@ mod tests {
             write: true,
             ..Default::default()
         };
-        let mut held = crate::vfs::do_file_open(&cred, &Path::root(guarded.mnt()), "p/f", &write)
-            .unwrap_or_else(|_| panic!("the file must open"));
+        let mut held =
+            crate::vfs::kern_path::filp_open(&cred, &Path::root(guarded.mnt()), "p/f", &write)
+                .unwrap_or_else(|_| panic!("the file must open"));
         let root = Path::root(plain.mnt());
         crate::vfs::filename_renameat2(&prepare_creds([]), &root, "p/f", &root, "q/f")
             .expect("the move must land");
@@ -389,7 +390,7 @@ mod tests {
             directory: true,
             ..Default::default()
         };
-        let held = crate::vfs::do_file_open(&cred, &root, &format!("c0/{deep}"), &how)
+        let held = crate::vfs::kern_path::filp_open(&cred, &root, &format!("c0/{deep}"), &how)
             .unwrap_or_else(|_| panic!("the directory must open"));
         crate::vfs::filename_renameat2(
             &Arc::default(),
@@ -469,7 +470,7 @@ mod tests {
             directory: true,
             ..Default::default()
         };
-        let held = crate::vfs::do_file_open(&cred, &Path::root(guarded.mnt()), "p/d", &how)
+        let held = crate::vfs::kern_path::filp_open(&cred, &Path::root(guarded.mnt()), "p/d", &how)
             .unwrap_or_else(|_| panic!("the directory must open"));
         (cred, held, plain, WalkGuard::new([&guarded]))
     }

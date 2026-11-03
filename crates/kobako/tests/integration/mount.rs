@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::common::real_sandbox;
 use kobako::filesystem::{
     DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Lookup, Metadata,
-    OpenOptions, Tmpfs,
+    OpenHow, Tmpfs,
 };
 use kobako::msgpack::Value;
 use kobako::{Access, Dentry, Error, Filesystem, Inode, Policy, Profile, Sandbox};
@@ -270,7 +270,7 @@ impl InodeOperations for OneNote {
     fn open(
         &self,
         _dentry: &Dentry,
-        _options: &OpenOptions,
+        _options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         Ok(Box::new(NoteDir))
     }
@@ -305,7 +305,7 @@ impl InodeOperations for Note {
     fn open(
         &self,
         _dentry: &Dentry,
-        _options: &OpenOptions,
+        _options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         Ok(Box::new(NoteFile(self.0)))
     }

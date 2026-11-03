@@ -15,7 +15,7 @@ use std::sync::Arc;
 use super::super::tmpfs::TmpfsFile;
 use super::super::{
     DirEntry, FileOperations, FileType, Filesystem, FilesystemError, Iattr, InodeOperations,
-    Lookup, Metadata, OpenOptions, SetTime, Tmpfs,
+    Lookup, Metadata, OpenHow, SetTime, Tmpfs,
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
@@ -231,18 +231,18 @@ impl OverlayPath {
     /// This directory opened, kept open for whoever holds it, as overlayfs's
     /// `ovl_dir_open` opens the real directory.
     pub(super) fn open_real(&self) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let options = OpenOptions {
+        let options = OpenHow {
             read: true,
-            ..OpenOptions::default()
+            ..OpenHow::default()
         };
         self.dentry.inode_ops()?.open(&self.dentry, &options)
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.inode_lock_shared()?;
-        let options = OpenOptions {
+        let options = OpenHow {
             read: true,
-            ..OpenOptions::default()
+            ..OpenHow::default()
         };
         let mut entries = Vec::new();
         let mut actor = |emit: &DirEmit<'_>| {

@@ -1630,31 +1630,32 @@ How to open a path, as `openat2` takes its flags.
 pub struct OpenHow {}
 ```
 
-## `getname`
+## `OpenFlags`
 
-Refuse a path no call can take. An ABI asks it before it looks up where a walk
-starts, as Linux takes the name before the descriptor.
+What an open was found to ask, as Linux's `struct open_flags`. A Filesystem
+reads its `open_flag`.
 
 ```rust
-pub fn getname(path: &str) -> Result<(), FilesystemError> {}
+pub struct OpenFlags {}
 ```
 
 ## `build_open_flags`
 
-Refuse flags no open can mean, and answer whether the walk follows a link at the
-end. An ABI asks it before it reserves a descriptor.
+Refuse flags no open can mean, and make what the open asks. An ABI asks it once,
+before it reserves a descriptor.
 
 ```rust
-pub fn build_open_flags(how: &OpenHow) -> Result<bool, FilesystemError> {}
+pub fn build_open_flags(how: &OpenHow) -> Result<OpenFlags, FilesystemError> {}
 ```
 
 ## `do_file_open`
 
 Open a path beneath a directory, as Linux's `do_file_open` serves `openat`.
-It hands no descriptor out, so a caller holding a table reserves one first.
+It hands no descriptor out, so a caller holding a table reserves one first. A
+path no call can take answers here.
 
 ```rust
-pub fn do_file_open(cred: &Arc<Cred>, start: &impl Start, path: &str, how: &OpenHow) -> Result<File, FilesystemError> {}
+pub fn do_file_open(cred: &Arc<Cred>, start: &impl Start, path: &str, op: &OpenFlags) -> Result<File, FilesystemError> {}
 ```
 
 ## `filename_linkat`
@@ -1991,7 +1992,7 @@ it opens with no operations.
 
 ```rust
 pub trait InodeOperations {
-    fn open(&self, _dentry: &Dentry, _options: &OpenOptions) -> Result<Box<dyn FileOperations>, FilesystemError>;
+    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, FilesystemError>;
 }
 ```
 
@@ -2014,7 +2015,7 @@ what that recorded.
 
 ```rust
 pub trait InodeOperations {
-    fn atomic_open(&self, dentry: &Dentry, options: &OpenOptions) -> Result<Box<dyn FileOperations>, FilesystemError>;
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, FilesystemError>;
 }
 ```
 
@@ -2362,14 +2363,6 @@ default takes a position.
 pub trait FileOperations {
     fn is_stream(&self) -> bool;
 }
-```
-
-## `OpenOptions`
-
-How a file is opened: for reading, writing, or truncating.
-
-```rust
-pub struct OpenOptions {}
 ```
 
 ## `FileType`

@@ -201,7 +201,7 @@ mod tests {
             read: true,
             ..Default::default()
         };
-        let file = crate::vfs::do_file_open(&cred, &root, "file.txt", &how)
+        let file = crate::vfs::kern_path::filp_open(&cred, &root, "file.txt", &how)
             .unwrap_or_else(|_| panic!("the file must open"));
         crate::vfs::filename_unlinkat(&cred, &root, "file.txt").expect("the name must go");
         policy.0.lock().unwrap().clear();

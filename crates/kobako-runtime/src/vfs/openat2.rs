@@ -1,16 +1,7 @@
 //! What an open asks for, as Linux's `openat2` takes an `open_how`.
 
+use super::inode::Mask;
 use super::FilesystemError;
-
-/// How `InodeOperations::open` opens a file.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct OpenOptions {
-    pub read: bool,
-    pub write: bool,
-    /// Empty the file once it is open.
-    pub truncate: bool,
-}
 
 /// How to open a path, as Linux's `struct open_how` carries `openat2`'s
 /// flags.
@@ -41,13 +32,49 @@ pub struct OpenHow {
     pub sync: bool,
 }
 
-/// Refuse flags no open can mean before any path is looked at, as Linux's
-/// `build_open_flags` refuses `O_DIRECTORY` with `O_CREAT`, and answer whether
-/// the walk follows a link at the end, which `O_CREAT` with `O_EXCL` never does.
-/// An ABI asks it before it reserves a descriptor, as `do_sys_openat2` does.
-pub fn build_open_flags(how: &OpenHow) -> Result<bool, FilesystemError> {
-    match how.directory && how.create {
-        true => Err(FilesystemError::InvalidInput),
-        false => Ok(how.follow && !(how.create && how.exclusive)),
+/// What an open was found to ask, as Linux's `struct open_flags` holds what
+/// `build_open_flags` made of an `open_how`. A Filesystem reads `open_flag`,
+/// as `->atomic_open` takes it and `->open` reads `f_flags`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct OpenFlags {
+    pub open_flag: OpenHow,
+    acc_mode: Mask,
+    lookup_follow: bool,
+}
+
+impl OpenFlags {
+    /// What the open asks of what it opens, as `acc_mode` carries it.
+    pub(crate) fn acc_mode(&self) -> Mask {
+        self.acc_mode
     }
+
+    /// Whether the walk follows a link at the end, as `LOOKUP_FOLLOW` in
+    /// `lookup_flags` asks.
+    pub(crate) fn lookup_follow(&self) -> bool {
+        self.lookup_follow
+    }
+}
+
+/// Refuse flags no open can mean before any path is looked at, as Linux's
+/// `build_open_flags` refuses `O_DIRECTORY` with `O_CREAT`, and make what the
+/// open asks: `O_CREAT` with `O_EXCL` never follows a link at the end. An ABI
+/// asks it once, before it reserves a descriptor, and hands what it made to
+/// `do_file_open`, as `do_sys_openat2` does.
+pub fn build_open_flags(how: &OpenHow) -> Result<OpenFlags, FilesystemError> {
+    if how.directory && how.create {
+        return Err(FilesystemError::InvalidInput);
+    }
+    let mut acc_mode = Mask::OPEN;
+    if how.read {
+        acc_mode = acc_mode | Mask::READ;
+    }
+    if how.write || how.truncate {
+        acc_mode = acc_mode | Mask::WRITE;
+    }
+    Ok(OpenFlags {
+        open_flag: *how,
+        acc_mode,
+        lookup_follow: how.follow && !(how.create && how.exclusive),
+    })
 }

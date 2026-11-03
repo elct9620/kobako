@@ -12,12 +12,12 @@ use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
     FileOperations, FileSystemType, FileType, FilesystemError, InodeOperations, Kiocb, Lookup,
-    Metadata, OpenOptions, Overlay, RenameFlag, Tmpfs,
+    Metadata, OpenHow, Overlay, RenameFlag, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path};
+use kobako_runtime::vfs::{self, Dentry, Inode, Path, PATH_MAX};
 use wasmtime::{Instance, Module, Store};
 
 use crate::cache::shared_engine;
@@ -423,9 +423,9 @@ const GONE_AS_DIRECTORY: (i32, i32) = (1060, 5);
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
 
-/// The default `OpenOptions` with `set` applied.
-fn build_options(set: impl FnOnce(&mut OpenOptions)) -> OpenOptions {
-    let mut options = OpenOptions::default();
+/// The default `OpenHow` with `set` applied.
+fn build_options(set: impl FnOnce(&mut OpenHow)) -> OpenHow {
+    let mut options = OpenHow::default();
     set(&mut options);
     options
 }
@@ -636,10 +636,15 @@ impl Guest {
     }
 }
 
+/// What `do_file_open` takes for an open `how` asks.
+fn flags_of(how: &OpenHow) -> vfs::OpenFlags {
+    vfs::build_open_flags(how).expect("the flags must mean an open")
+}
+
 fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(mut file) = vfs::do_file_open(&Arc::default(), root, path, &how) else {
+    let Ok(mut file) = vfs::do_file_open(&Arc::default(), root, path, &flags_of(&how)) else {
         return None;
     };
     let mut buf = vec![0; 64];
@@ -653,7 +658,7 @@ fn overwrite(root: &Path, path: &str) {
     let mut how = OpenHow::default();
     (how.write, how.create) = (true, true);
     assert!(
-        vfs::do_file_open(&Arc::default(), root, path, &how).is_ok(),
+        vfs::do_file_open(&Arc::default(), root, path, &flags_of(&how)).is_ok(),
         "the file must be made"
     );
 }
@@ -1296,7 +1301,9 @@ fn a_directory_without_an_identity_still_reports_itself_beneath_a_policy() {
 }
 
 // The table holds the three standard descriptors and the preopen alone, so a
-// missing path could only answer EMFILE by asking the table first.
+// missing path, or one no call can take, could only answer EMFILE by asking
+// the table first. A path of `PATH_MAX` bytes is too long, and an empty one or
+// one holding a NUL names nothing.
 // @behavior RT-190
 #[test]
 fn a_full_table_answers_emfile_whatever_the_path_names() {
@@ -1304,11 +1311,14 @@ fn a_full_table_answers_emfile_whatever_the_path_names() {
         Some(4),
         &[grant(file_and_directory(), Access::ReadWrite, None)],
     );
+    let too_long = (0, i32::try_from(PATH_MAX).expect("PATH_MAX fits an i32"));
+    let answers =
+        [THROUGH_MISSING, EMPTY, HOLDING_NUL, too_long].map(|path| guest.call("read_file", path));
     assert_eq!(
-        guest.call("read_file", THROUGH_MISSING),
-        ERRNO_MFILE,
-        "path_open of a missing path through preview1 with no descriptor left must answer \
-         EMFILE, as Linux's FD_ADD takes one first"
+        answers, [ERRNO_MFILE; 4],
+        "path_open of a missing, empty, NUL-holding, or too long path through preview1 with \
+         no descriptor left must answer EMFILE, as Linux's FD_ADD takes one before \
+         do_file_open answers for the name"
     );
 }
 
@@ -1532,7 +1542,7 @@ impl Hook for AppendedMeanwhile {
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let writes = build_options(|options| options.write = true);
         let file = inner.open(dentry, options)?;
@@ -2380,7 +2390,12 @@ fn an_exclusive_create_follows_no_link_at_the_end() {
     how.create = true;
     how.exclusive = true;
     how.follow = true;
-    let answer = vfs::do_file_open(&Arc::default(), &bind_root(&host.0), "gone", &how);
+    let answer = vfs::do_file_open(
+        &Arc::default(),
+        &bind_root(&host.0),
+        "gone",
+        &flags_of(&how),
+    );
     assert_eq!(
         (answer.err(), host.0.join("nowhere").exists()),
         (Some(FilesystemError::AlreadyExists), false),
@@ -2657,7 +2672,7 @@ impl InodeOperations for ChangesNothing {
     fn open(
         &self,
         dentry: &Dentry,
-        options: &OpenOptions,
+        options: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         self.0.open(dentry, options)
     }

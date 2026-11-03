@@ -9,7 +9,7 @@ use kobako_runtime::filesystem::{Filesystem, FilesystemError, Iattr, SetTime};
 use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::security::prepare_creds;
 use kobako_runtime::vfs::{
-    self, Cred, DirContext, DirEmit, File, FileType, OpenHow, VfsMount, Whence,
+    self, Cred, DirContext, DirEmit, File, FileType, OpenFlags, OpenHow, VfsMount, Whence,
 };
 
 use crate::calls::{payload, Call, SLOTS, UTIME_SECONDS};
@@ -38,11 +38,11 @@ fn kind_name(kind: FileType) -> &'static str {
     }
 }
 
-fn directory_how() -> OpenHow {
+fn directory_flags() -> OpenFlags {
     let mut how = OpenHow::default();
     how.read = true;
     how.directory = true;
-    how
+    vfs::build_open_flags(&how).expect("a directory read means an open")
 }
 
 /// The names `file` lists from its start, kinds included, `.` and `..` among
@@ -162,7 +162,9 @@ impl Kobako {
                 how.append = open.append;
                 how.directory = open.directory;
                 how.follow = !open.nofollow;
-                let opened = vfs::do_file_open(&self.cred, start!(open.base), &open.path, &how);
+                let opened = vfs::build_open_flags(&how).and_then(|op| {
+                    vfs::do_file_open(&self.cred, start!(open.base), &open.path, &op)
+                });
                 answer(opened, |file| {
                     self.slots[open.slot] = Some(file);
                     "ok".to_string()
@@ -248,7 +250,7 @@ impl Kobako {
 
     /// Visit every entry beneath the root, directories before what they hold.
     fn walk(&self, dir: &vfs::Path, prefix: &str, visit: &mut dyn FnMut(&vfs::Path, &str, &str)) {
-        let Ok(mut opened) = vfs::do_file_open(&self.cred, dir, ".", &directory_how()) else {
+        let Ok(mut opened) = vfs::do_file_open(&self.cred, dir, ".", &directory_flags()) else {
             return;
         };
         for (name, kind) in entries(&mut opened).unwrap_or_default() {
@@ -258,7 +260,7 @@ impl Kobako {
             let full = format!("{prefix}{name}");
             visit(dir, &name, &full);
             if kind == FileType::Directory {
-                if let Ok(sub) = vfs::do_file_open(&self.cred, dir, &name, &directory_how()) {
+                if let Ok(sub) = vfs::do_file_open(&self.cred, dir, &name, &directory_flags()) {
                     self.walk(sub.path(), &format!("{full}/"), visit);
                 }
             }
@@ -288,7 +290,8 @@ impl Kobako {
     fn content(&self, dir: &vfs::Path, name: &str) -> String {
         let mut how = OpenHow::default();
         how.read = true;
-        let Ok(mut file) = vfs::do_file_open(&self.cred, dir, name, &how) else {
+        let op = vfs::build_open_flags(&how).expect("a read means an open");
+        let Ok(mut file) = vfs::do_file_open(&self.cred, dir, name, &op) else {
             return " unreadable".to_string();
         };
         let mut buf = [0; 64];
