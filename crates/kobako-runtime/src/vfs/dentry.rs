@@ -94,10 +94,14 @@ struct State {
 /// walk is asking its Filesystem about and `d_add` ends that.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Asked {
-    /// No lookup asked for the name yet.
+    /// No lookup asked for the name yet, or the one that did was handed another
+    /// spelling.
     Not,
-    /// The walk asking the Filesystem what stands here, while it asks.
+    /// In lookup for the walk that made the dentry, which has yet to ask, as
+    /// `d_alloc_parallel` marks the dentry it makes.
     By(ThreadId),
+    /// The walk asking the Filesystem what stands here, while it asks.
+    Asking(ThreadId),
     /// A lookup answered for the name, or a call made what stands there.
     Answered,
 }
@@ -294,8 +298,9 @@ impl Dentry {
         found
     }
 
-    /// Mark this in lookup for the calling walk, waiting while another walk's
-    /// lookup of it is under way, until the walk's run is to stop. A Filesystem
+    /// Begin the lookup the calling walk holds the dentry in lookup for, or one
+    /// nobody asked yet, waiting while another walk holds it, until the walk's
+    /// run is to stop. A Filesystem
     /// asking the runtime about the name its own lookup is answering asks it again
     /// within that lookup, as it would otherwise wait on itself.
     fn d_in_lookup(&self) -> Result<InLookup, FilesystemError> {
@@ -303,15 +308,19 @@ impl Dentry {
         loop {
             let mut state = self.state();
             match state.asked {
-                Asked::By(walk) if walk == current => return Ok(InLookup::Within),
-                Asked::By(_) if sched::fatal_signal_pending() => {
+                Asked::Asking(walk) if walk == current => return Ok(InLookup::Within),
+                Asked::By(walk) if walk == current => {
+                    state.asked = Asked::Asking(current);
+                    return Ok(InLookup::Begun);
+                }
+                Asked::By(_) | Asked::Asking(_) if sched::fatal_signal_pending() => {
                     return Err(FilesystemError::Interrupted)
                 }
-                Asked::By(_) => {
+                Asked::By(_) | Asked::Asking(_) => {
                     drop(state);
                     sched::schedule(&mut || {
                         let state = self.state();
-                        if matches!(state.asked, Asked::By(_)) {
+                        if matches!(state.asked, Asked::By(_) | Asked::Asking(_)) {
                             drop(
                                 self.lookup_done
                                     .wait_timeout(state, sched::sleep_slice())
@@ -322,7 +331,7 @@ impl Dentry {
                 }
                 Asked::Answered => return Ok(InLookup::Answered),
                 Asked::Not => {
-                    state.asked = Asked::By(current);
+                    state.asked = Asked::Asking(current);
                     return Ok(InLookup::Begun);
                 }
             }
@@ -333,7 +342,7 @@ impl Dentry {
     /// `d_lookup_done` does.
     fn d_lookup_done(&self) {
         let mut state = self.state();
-        if matches!(state.asked, Asked::By(_)) {
+        if matches!(state.asked, Asked::By(_) | Asked::Asking(_)) {
             state.asked = Asked::Not;
         }
         drop(state);
@@ -478,10 +487,14 @@ impl Dentries {
     }
 
     /// The dentry of `name` in `parent`, the one held there or a new one, as
-    /// `d_alloc_parallel` finds or makes one, so each caller shares it.
+    /// `d_alloc_parallel` finds or makes one, so each caller shares it. One it
+    /// makes is in lookup for the calling walk, as `d_alloc_parallel` marks it,
+    /// so every other walk reaching the name waits for that walk to ask.
     pub(crate) fn alloc_parallel(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
         self.hashtable().get_or_insert_with(key(parent, name), || {
-            Dentry::new(Some(parent.clone()), name, self.ops.clone())
+            let made = Dentry::new(Some(parent.clone()), name, self.ops.clone());
+            made.state().asked = Asked::By(sched::current());
+            made
         })
     }
 

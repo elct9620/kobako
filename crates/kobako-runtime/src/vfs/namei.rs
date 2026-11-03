@@ -3592,6 +3592,69 @@ mod tests {
         );
     }
 
+    /// A directory finding nothing at any name, keeping which walk asked.
+    #[derive(Default)]
+    struct RecordsAsker(Mutex<Vec<thread::ThreadId>>);
+
+    impl FileSystemType for RecordsAsker {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for RecordsAsker {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Dir, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            self.0
+                .lock()
+                .expect("never poisoned")
+                .push(thread::current().id());
+            Ok(Lookup::Absent)
+        }
+    }
+
+    // A walk reaching a name first would ask itself were the dentry marked only
+    // once someone asks, so only marking it as it is made leaves the asking to
+    // the walk that made it.
+    // @behavior RT-264
+    #[test]
+    fn the_walk_that_makes_a_dentry_is_the_one_that_asks() {
+        let filesystem = Arc::new(RecordsAsker::default());
+        let root = root_of(Filesystem::new(filesystem.clone()).expect("the instance must stand"));
+        let dir = root.dentry().clone();
+        let made = root.mnt().sb().dentries().alloc_parallel(&dir, "x");
+        let (counted, counting) = mpsc::channel();
+        let other = {
+            let (made, dir) = (made.clone(), dir.clone());
+            thread::spawn(move || {
+                counted.send(count_waits()).ok();
+                made.lookup_inode(&dir).map(drop)
+            })
+        };
+        let waits = counting
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the other walk must start");
+        crate::sched::testing::wait_until("the other walk waiting", || {
+            waits.load(Ordering::SeqCst) > 0
+        });
+        let own = made.lookup_inode(&dir).map(drop);
+        let others = crate::sched::testing::join("the other walk", other);
+        assert_eq!(
+            (
+                own,
+                others,
+                filesystem.0.lock().map(|asked| asked.clone()).ok()
+            ),
+            (Ok(()), Ok(()), Some(vec![thread::current().id()])),
+            "Dentries::alloc_parallel must mark the dentry it makes in lookup for its walk, so \
+             another walk reaching it waits and the Filesystem's lookup is asked once, by the \
+             walk that made it, as d_alloc_parallel marks DCACHE_PAR_LOOKUP"
+        );
+    }
+
     /// A directory holding the link `e`, pointing nowhere, and the file `f`.
     struct PointsNowhere(crate::filesystem::FileType);
 
