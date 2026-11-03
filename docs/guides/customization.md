@@ -223,11 +223,11 @@ is not mruby calls `kobako_core::proxy::dispatch` directly and states the
 guest counts every Call it has open, block or not, from `0` at the outermost.
 
 ```text
-  gem ──► dispatch(target, method, Option<Proc>, payload) ──► Service
-           │                                                    │
-           └─ block parks for the call ◄── yield ───────────────┘
-              (a yield downcall re-enters while the dispatch
-               frame is still on the stack)
+  gem ---> dispatch(target, method, Option<Proc>, payload) ---> Service
+            |                                                    |
+            +- block parks for the call <--- yield --------------+
+               (a yield downcall re-enters while the dispatch
+                frame is still on the stack)
 ```
 
 That tier carries no payload codec, so the gem still names its own schema. It
@@ -341,9 +341,9 @@ Filesystem acts on it. It follows a link itself, so a Filesystem only answers on
 name in a directory it already found.
 
 ```
-guest path ─▶ runtime: walk name by name, follow links, check the Policy ─▶ Filesystem
-                              ▲                                               │
-                              └── lookup: the entry at a name ────────────────┘
+guest path --> runtime: walk name by name, follow links, check the Policy --> Filesystem
+                               ^                                                |
+                               +--- lookup: the entry at a name ----------------+
 ```
 
 Each entry answers for itself: a `lookup` finds an `Inode`, which holds that entry's
