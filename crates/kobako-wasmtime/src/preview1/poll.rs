@@ -14,6 +14,7 @@ use kobako_runtime::vfs::PollMask;
 use wiggle::{GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
+use super::fd::open_file;
 use super::memory::GuestMemory;
 use super::types::{self, Clockid, Eventrwflags, Eventtype, Subclockflags, SubscriptionU};
 use crate::invocation::Invocation;
@@ -114,13 +115,10 @@ fn poll_descriptor(
     event: PollMask,
 ) -> Answer<Errno> {
     let descriptors = invocation.wasi().descriptors();
-    let Some(descriptor) = descriptors
-        .get(subscribed.file_descriptor.into())
-        .filter(|descriptor| !descriptor.file.is_path())
-    else {
+    let Ok(file) = open_file(descriptors, subscribed.file_descriptor.into()) else {
         return Ok(Errno::Badf);
     };
-    match descriptor.file.poll().contains(event) {
+    match file.poll().contains(event) {
         true => Ok(Errno::Success),
         false => Err(Errno::Badf.into()),
     }
