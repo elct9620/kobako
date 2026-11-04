@@ -2051,10 +2051,10 @@ pub trait InodeOperations {
 
 ## `Iattr`
 
-What a change sets of an entry.
+What a change sets of an entry, and the open file a truncate is made through.
 
 ```rust
-pub struct Iattr {}
+pub struct Iattr<'a> {}
 ```
 
 ## `Iattr::size`
@@ -2125,10 +2125,11 @@ pub enum Lookup {}
 
 What one open file answers, as Linux's `file_operations`. The runtime keeps its
 position, so each read and write names its offset. An operation a file lacks
-answers as Linux's VFS answers for a NULL in the table.
+answers as Linux's VFS answers for a NULL in the table. Any thread may hold it,
+and a change made through it hands it to its Filesystem.
 
 ```rust
-pub trait FileOperations {}
+pub trait FileOperations: Any + Send + Sync {}
 ```
 
 ## `Kiocb`

@@ -3716,3 +3716,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Driver built with a security module refusing every directory made, and a Mount allowing every change |
 | When | a guest makes a directory beneath the Mount |
 | Then | the call answers EACCES and nothing is made, as an LSM stacked at boot refuses `security_path_mkdir` |
+
+## `RT-330` A truncate made through an open hands the Filesystem that open
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-281` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file opened to write, and an open asking to truncate it |
+| When | each truncates the file |
+| Then | the Filesystem's `setattr` is handed the open file each truncate is made through, as Linux's `do_truncate` sets `ATTR_FILE` |
