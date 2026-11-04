@@ -574,12 +574,18 @@ impl File {
         }
     }
 
-    /// Refuse a call of `count` bytes from where it lands if it would end past
-    /// the largest offset, as `rw_verify_area` does; a stream lands nowhere.
-    fn rw_verify_area(&self, pos: u64, count: usize) -> Result<(), FilesystemError> {
-        if self.is_stream() {
+    /// Where a read or write at the file's position lands, none for a stream,
+    /// as Linux's `file_ppos` answers.
+    fn file_ppos(&self) -> Option<u64> {
+        (!self.is_stream()).then_some(self.pos)
+    }
+
+    /// Refuse a call of `count` bytes from `ppos` if it would end past the
+    /// largest offset, as `rw_verify_area` does; a call landing nowhere passes.
+    fn rw_verify_area(&self, ppos: Option<u64>, count: usize) -> Result<(), FilesystemError> {
+        let Some(pos) = ppos else {
             return Ok(());
-        }
+        };
         match pos.checked_add(count as u64) {
             Some(end) if end <= OFFSET_MAX => Ok(()),
             _ => Err(FilesystemError::InvalidInput),
@@ -587,35 +593,41 @@ impl File {
     }
 
     /// Read from its position, moving it past what was read, as `vfs_read`
-    /// does.
+    /// does; a stream starts from no position and keeps none, as
+    /// `new_sync_read` hands it `ki_pos` 0.
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         self.may_read()?;
-        self.rw_verify_area(self.pos, buf.len())?;
-        let mut iocb = self.kiocb(self.pos);
+        let ppos = self.file_ppos();
+        self.rw_verify_area(ppos, buf.len())?;
+        let mut iocb = self.kiocb(ppos.unwrap_or(0));
         let count = buf.len().min(MAX_RW_COUNT);
         let read = self.ops.read_iter(&mut iocb, &mut buf[..count])?;
-        self.pos = iocb.pos;
+        if ppos.is_some() {
+            self.pos = iocb.pos;
+        }
         Ok(read)
     }
 
     /// Read from `pos`, leaving its position, as `pread` does.
     pub fn pread(&mut self, buf: &mut [u8], pos: u64) -> Result<usize, FilesystemError> {
         self.may_pread(pos)?;
-        self.rw_verify_area(pos, buf.len())?;
+        self.rw_verify_area(Some(pos), buf.len())?;
         let count = buf.len().min(MAX_RW_COUNT);
         self.ops.read_iter(&mut self.kiocb(pos), &mut buf[..count])
     }
 
     /// Write at its position, moving it past what was written, as `vfs_write`
-    /// does.
+    /// does; a stream starts from no position and keeps none, as
+    /// `new_sync_write` hands it `ki_pos` 0.
     pub fn write(&mut self, buf: &[u8]) -> Result<usize, FilesystemError> {
         self.may_write()?;
-        self.rw_verify_area(self.pos, buf.len())?;
-        let mut iocb = self.kiocb(self.pos);
+        let ppos = self.file_ppos();
+        self.rw_verify_area(ppos, buf.len())?;
+        let mut iocb = self.kiocb(ppos.unwrap_or(0));
         let written = self
             .ops
             .write_iter(&mut iocb, &buf[..buf.len().min(MAX_RW_COUNT)])?;
-        if written > 0 {
+        if written > 0 && ppos.is_some() {
             self.pos = iocb.pos;
         }
         Ok(written)
@@ -625,7 +637,7 @@ impl File {
     /// append, it lands at the end whatever `pos` says.
     pub fn pwrite(&mut self, buf: &[u8], pos: u64) -> Result<usize, FilesystemError> {
         self.may_pwrite(pos)?;
-        self.rw_verify_area(pos, buf.len())?;
+        self.rw_verify_area(Some(pos), buf.len())?;
         self.ops
             .write_iter(&mut self.kiocb(pos), &buf[..buf.len().min(MAX_RW_COUNT)])
     }
@@ -765,13 +777,44 @@ mod tests {
         filp_open(&Arc::default(), &Path::root(mount.mnt()), "file", &read).expect("the file opens")
     }
 
-    /// A file its Filesystem opens with no position.
+    /// A file its Filesystem opens with no position, whose reads answer the
+    /// position they were handed and move it past what they took.
     struct Stream;
 
     impl FileOperations for Stream {
         fn is_stream(&self) -> bool {
             true
         }
+
+        fn read_iter(
+            &mut self,
+            iocb: &mut Kiocb,
+            buf: &mut [u8],
+        ) -> Result<usize, FilesystemError> {
+            buf[0] = iocb.pos as u8;
+            iocb.pos += buf.len() as u64;
+            Ok(buf.len())
+        }
+    }
+
+    // The stream's own read moves the position handed to it, so only handing
+    // none and keeping none leaves each read at 0, as file_ppos answers NULL
+    // for FMODE_STREAM.
+    // @behavior RT-328
+    #[test]
+    fn a_stream_read_keeps_no_position() {
+        let mut file = open_one(|| Box::new(Stream));
+        let mut read = || {
+            let mut buf = [9; 4];
+            file.read(&mut buf).map(|_| buf[0])
+        };
+        let (first, second) = (read(), read());
+        assert_eq!(
+            (first, second, file.pos()),
+            (Ok(0), Ok(0), 0),
+            "File::read on a stream must hand each read position 0 and leave the file's position \
+             where it was, as new_sync_read keeps no ki_pos for FMODE_STREAM"
+        );
     }
 
     // A file a Filesystem opens as a stream would otherwise seek as any file
