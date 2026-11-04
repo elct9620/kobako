@@ -3,9 +3,8 @@
 //! Filesystem of that kind.
 //!
 //! A kind kobako ships runs in Rust; Ruby only picks it and the access.
-//! Ruby is asked again while the guest runs through a mount's block, at
-//! most once per open or change, and through a Filesystem written in
-//! Ruby, once per call.
+//! Ruby is asked again while the guest runs, through a mount's block and
+//! through a Filesystem written in Ruby.
 
 mod grants;
 mod ruby;
