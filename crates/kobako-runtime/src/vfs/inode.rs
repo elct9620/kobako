@@ -124,7 +124,8 @@ pub trait InodeOperations: Any + Send + Sync {
     /// `->atomic_open` takes `open_flag` for a backend that does it at once. The
     /// VFS asks it for a `dentry` still in lookup, which is looked up first, and
     /// for a negative one an open may make; `how` asks to make a file only
-    /// where the open may. A directory without it looks the name up, then makes
+    /// where the open may, and for a directory where the name ends in a slash,
+    /// as Linux adds `O_DIRECTORY` for `LOOKUP_DIRECTORY`. A directory without it looks the name up, then makes
     /// the file through `create` and leaves the open to the VFS, which asks
     /// `may_open` and the security modules first, as Linux's `lookup_open` calls
     /// `->lookup`, then `->create`, and `do_open` opens what it made.

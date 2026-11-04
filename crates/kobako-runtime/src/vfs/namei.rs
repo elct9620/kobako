@@ -454,6 +454,7 @@ impl Nameidata {
                 create_error = self.may_o_create(&given).err();
                 how.create = create_error.is_none();
             }
+            how.directory |= self.lookup_directory;
             finish(atomic_open(&dir, &given, &how)?, &given)
         };
         let asked = match given.lookup_by(&mut ask) {
@@ -2006,9 +2007,10 @@ mod tests {
 
     /// A Filesystem looking a name up and opening it in one step, as NFS opens
     /// with one call to its server, counting what it is asked: its `lookup`,
-    /// then its `atomic_open`.
+    /// then its `atomic_open`, and whether that asked for a directory, which
+    /// the file it holds refuses.
     #[derive(Clone, Default)]
-    struct OpensAtOnce(Arc<(AtomicUsize, AtomicUsize)>);
+    struct OpensAtOnce(Arc<(AtomicUsize, AtomicUsize, AtomicBool)>);
 
     impl FileSystemType for OpensAtOnce {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
@@ -2026,8 +2028,12 @@ mod tests {
             Ok(Lookup::Absent)
         }
 
-        fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
             self.0 .1.fetch_add(1, Ordering::SeqCst);
+            if how.directory {
+                self.0 .2.store(true, Ordering::SeqCst);
+                return Err(FilesystemError::NotADirectory);
+            }
             let found = Kstat::new(FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&found, Arc::new(self.clone()))));
             Ok(Finish::Open {
@@ -2058,6 +2064,26 @@ mod tests {
             (true, 0, 1),
             "vfs::do_file_open to read a name no walk looked up must ask atomic_open in place of \
              lookup, as lookup_open does, and open what it found"
+        );
+    }
+
+    // Asked for a file, a Filesystem that opens in one step would open what
+    // the trailing slash refuses before the VFS answers ENOTDIR.
+    // @behavior RT-314
+    #[test]
+    fn a_name_with_a_trailing_slash_asks_atomic_open_for_a_directory() {
+        let fs = OpensAtOnce::default();
+        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let answer = vfs::kern_path::filp_open(&Arc::default(), &root, "file/", &read);
+        assert_eq!(
+            (answer.err(), fs.0 .2.load(Ordering::SeqCst)),
+            (Some(FilesystemError::NotADirectory), true),
+            "vfs::do_file_open of `file/` over a Filesystem opening in one step must ask its \
+             atomic_open for a directory and answer ENOTDIR, as lookup_open adds O_DIRECTORY"
         );
     }
 
