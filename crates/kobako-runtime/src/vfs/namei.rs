@@ -140,9 +140,9 @@ impl Nameidata {
 }
 
 /// Whether `dentry`, which a lookup answered for, still names what stands at its
-/// name in `dir`, whose lock the caller holds, so no move lands between the
-/// question and the answer. One that does not is let go of with the names kept
-/// beneath it, as `d_invalidate` does.
+/// name in `dir`, asked with or without `dir`'s lock as Linux's `lookup_fast`
+/// and `lookup_open` ask `d_revalidate`. One that does not is let go of with the
+/// names kept beneath it, as `d_invalidate` does.
 pub(crate) fn d_revalidate(
     sb: &SuperBlock,
     dir: &Dentry,
@@ -215,6 +215,40 @@ fn d_alloc_parallel(
     }
 }
 
+/// The dentry a lookup answered for `name` in `parent` that still names what
+/// stands there, found without holding `parent`, as Linux's `lookup_fast` asks
+/// `d_revalidate` of what the dcache holds; none where no walk found the name or
+/// it no longer names it, which leaves the walk to `lookup_slow`.
+fn lookup_fast(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<Option<Arc<Dentry>>, FilesystemError> {
+    let Some(dentry) = sb.dentries().lookup(parent, name) else {
+        return Ok(None);
+    };
+    if !d_revalidate(sb, parent, &dentry)? {
+        return Ok(None);
+    }
+    retain(sb, &dentry);
+    Ok(Some(dentry))
+}
+
+/// The dentry of `name` in `parent` for a walk passing through, the one the
+/// dcache holds or, failing that, one found holding that directory's lock
+/// shared, as Linux's `walk_component` tries `lookup_fast` before
+/// `lookup_slow`.
+fn lookup_dentry(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<Arc<Dentry>, FilesystemError> {
+    match lookup_fast(sb, parent, name)? {
+        Some(dentry) => Ok(dentry),
+        None => lookup_slow(sb, parent, name),
+    }
+}
+
 /// The dentry of `name` in `parent` for a walk passing through, holding that
 /// directory's lock shared only to find it, as Linux's `lookup_slow` does.
 fn lookup_slow(
@@ -234,7 +268,7 @@ fn parts(path: &str) -> VecDeque<String> {
 impl Nameidata {
     /// Step into the directory `name` names, or follow the link standing there.
     fn walk_component(&mut self, name: &str) -> Result<(), FilesystemError> {
-        let dentry = lookup_slow(self.mnt.sb(), self.dentry(), name)?;
+        let dentry = lookup_dentry(self.mnt.sb(), self.dentry(), name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
             FileType::Symlink => self.pick_link(&dentry),
@@ -346,10 +380,9 @@ impl Nameidata {
                 follow = true;
                 self.lookup_directory = true;
             }
-            let parent = self.dentry().clone();
-            let held = parent.inode_lock_shared()?;
-            let child = self.lookup_last_locked()?;
-            drop(held);
+            let child = lookup_dentry(self.mnt.sb(), self.dentry(), &self.name)?;
+            self.name = child.name();
+            self.path = Some(child.clone());
             if child.inode().is_none() {
                 return Err(FilesystemError::NotFound);
             }
@@ -384,7 +417,17 @@ impl Nameidata {
                 follow = true;
                 self.lookup_directory = true;
             }
-            let (child, opened) = self.lookup_open(how, mode)?;
+            let (child, opened) = match self.lookup_fast_for_open(how)? {
+                Some(child) => {
+                    self.name = child.name();
+                    self.path = Some(child.clone());
+                    if child.inode().is_none() {
+                        return Err(FilesystemError::NotFound);
+                    }
+                    (child, Open { file: None, mode })
+                }
+                None => self.lookup_open(how, mode)?,
+            };
             let finished = opened.file.is_some() || opened.mode.contains(FMode::CREATED);
             if finished || !follow || child.kind() != Ok(FileType::Symlink) {
                 return Ok(opened);
@@ -392,6 +435,18 @@ impl Nameidata {
             self.pick_link(&child)?;
             self.link_path_walk()?;
         }
+    }
+
+    /// The dentry the dcache holds for the last name of an open, as Linux's
+    /// `lookup_fast_for_open` takes it without the directory's lock: none for
+    /// an exclusive make, or where nothing stands at a name the open may make,
+    /// as only `lookup_open` makes one.
+    fn lookup_fast_for_open(&self, how: &OpenHow) -> Result<Option<Arc<Dentry>>, FilesystemError> {
+        if how.create && how.exclusive {
+            return Ok(None);
+        }
+        let found = lookup_fast(self.mnt.sb(), self.dentry(), &self.name)?;
+        Ok(found.filter(|child| !how.create || child.inode().is_some()))
     }
 
     /// The last name of an open and what became of it, as Linux's
@@ -442,7 +497,7 @@ impl Nameidata {
         };
         let asked = match given.ask_in_lookup(&mut ask) {
             Ok(Some(asked)) => Ok(asked),
-            Ok(None) if given.inode().is_some() || !how.create => Ok(AtomicOpen {
+            Ok(None) if given.inode().is_some() => Ok(AtomicOpen {
                 file: None,
                 created: false,
                 spliced: None,
@@ -3874,6 +3929,37 @@ mod tests {
             "vfs::vfs_fstatat walking through the directory an outer vfs::filename_mkdirat holds \
              must answer Deadlock, as it holds that directory to find the name"
         );
+    }
+
+    // The outer make holds the root, so only taking the dentry the dcache
+    // holds without the root's lock lets the inner walk answer rather than
+    // meet the make.
+    // @behavior RT-326
+    #[test]
+    fn a_walk_to_a_name_a_lookup_answered_waits_on_no_directory() {
+        let root = Arc::new(OnceLock::<Path>::new());
+        let hooked = HookedTmpfs {
+            tmpfs: [("kept/x", "x")].into_iter().collect(),
+            making: Some(Box::new({
+                let root = root.clone();
+                move || {
+                    let start = root.get().expect("the root is set");
+                    vfs::vfs_fstatat(&Arc::default(), start, "kept", false).map(|_| ())
+                }
+            })),
+            ..HookedTmpfs::default()
+        };
+        let path = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
+        let kept = open_dir(&path, "kept");
+        root.set(path.clone()).ok();
+        assert_eq!(
+            vfs::filename_mkdirat(&Arc::default(), &path, "made"),
+            Ok(()),
+            "vfs::vfs_fstatat of a name a held dentry stands at, through the directory an outer \
+             vfs::filename_mkdirat holds, must answer without waiting on it, as lookup_fast takes \
+             the dcache's dentry"
+        );
+        drop(kept);
     }
 
     // The make starts from a descriptor already standing in `b`, so only the
