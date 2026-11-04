@@ -3632,3 +3632,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem answering ESTALE every time it is asked about a name |
 | When | an open walks a path to that name |
 | Then | the open answers ESTALE after asking the Filesystem twice, as the second walk sets `LOOKUP_REVAL`, which `retry_estale` does not retry |
+
+## `RT-323` An open asking to truncate where the mount takes no write hands `atomic_open` no truncation
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-311` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-only mount of a Filesystem opening in one step |
+| When | an open asks to truncate a name no walk looked up |
+| Then | its `atomic_open` is asked for no truncation, as Linux's `lookup_open` clears `O_TRUNC` without `got_write` |
+
+## `RT-324` An exclusive create hands `atomic_open` no truncation
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-311` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem opening in one step |
+| When | an open asks to make a name exclusively and to truncate it |
+| Then | its `atomic_open` is asked for no truncation, as Linux's `lookup_open` clears `O_TRUNC` for `O_EXCL` |
