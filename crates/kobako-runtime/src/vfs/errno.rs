@@ -52,6 +52,9 @@ pub enum FilesystemError {
     /// A call the kind of file it reached cannot take, as a device that
     /// allocates nothing.
     NoSuchDevice,
+    /// A directory a lookup found standing elsewhere, which could not be moved
+    /// to the name it was found under.
+    StaleNetworkFileHandle,
     /// Any other failure, with what the Filesystem knows of it.
     Other(String),
 }
@@ -59,7 +62,7 @@ pub enum FilesystemError {
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, FilesystemError); 28] = [
+const POSIX_NAMES: [(&str, FilesystemError); 29] = [
     ("EAGAIN", FilesystemError::WouldBlock),
     ("ENOENT", FilesystemError::NotFound),
     ("EEXIST", FilesystemError::AlreadyExists),
@@ -88,6 +91,7 @@ const POSIX_NAMES: [(&str, FilesystemError); 28] = [
     ("EOVERFLOW", FilesystemError::ValueTooLarge),
     ("ESPIPE", FilesystemError::NotSeekable),
     ("ENODEV", FilesystemError::NoSuchDevice),
+    ("ESTALE", FilesystemError::StaleNetworkFileHandle),
 ];
 
 impl From<DownError> for FilesystemError {

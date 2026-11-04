@@ -1063,7 +1063,9 @@ mod tests {
             .expect("the two must swap");
         let nlink = |name| {
             let dentry = dentries.alloc_parallel(&root, name);
-            dentry.lookup_inode(&root).expect("the name must be found");
+            dentry
+                .lookup_inode(&filesystem, &root)
+                .expect("the name must be found");
             dentry.getattr().map(|metadata| metadata.nlink)
         };
         assert_eq!(

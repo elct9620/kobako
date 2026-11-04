@@ -1591,7 +1591,8 @@ mod tests {
         let dentries = filesystem.dentries();
         let root = dentries.root();
         let dir = dentries.alloc_parallel(&root, "a");
-        dir.lookup_inode(&root).expect("the name must be found");
+        dir.lookup_inode(&filesystem, &root)
+            .expect("the name must be found");
         fs::remove_dir(host.0.join("a")).expect("the host must remove it");
         let answer = dir
             .inode_ops()
@@ -1619,7 +1620,8 @@ mod tests {
         let dentries = filesystem.dentries();
         let root = dentries.root();
         let dir = dentries.alloc_parallel(&root, "a");
-        dir.lookup_inode(&root).expect("the name must be found");
+        dir.lookup_inode(&filesystem, &root)
+            .expect("the name must be found");
         fs::rename(host.0.join("a"), host.0.join("moved")).expect("the host must move it");
         fs::create_dir(host.0.join("a")).expect("the host must make another");
         assert_eq!(

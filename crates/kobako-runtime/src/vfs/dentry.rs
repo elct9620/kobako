@@ -15,10 +15,10 @@ use lru::LruCache;
 
 use super::file::FileOperations;
 use super::inode::{Inode, InodeOperations, Lookup};
-use super::{FileType, FilesystemError, Kstat, OpenHow};
+use super::{FileType, FilesystemError, Kstat, OpenHow, SuperBlock};
 use crate::hashtable::Hashtable;
 use crate::locking::seqlock::SeqLock;
-use crate::locking::RwSemaphoreGuard;
+use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 use crate::sched;
 
 /// What a Filesystem answers about a name rather than an entry, as Linux's
@@ -66,6 +66,19 @@ pub struct Dentry {
     /// Wakes the walks waiting while another looks this name up, as Linux's
     /// `d_wait` does.
     lookup_done: Condvar,
+}
+
+/// Which dentry a lookup's answer stands at, as Linux's `d_splice_alias`
+/// hands back the dentry to use in place of the one asked about.
+pub(crate) enum Splice {
+    /// The dentry asked about, which records the answer.
+    Here,
+    /// The entry, stored under another spelling, for the caller to record on
+    /// that spelling's dentry.
+    Spelled(String, Arc<Inode>),
+    /// The dentry the directory found already stood at, moved to the name
+    /// asked about.
+    Alias(Arc<Dentry>),
 }
 
 /// Where a walk asking for a lookup stands, as `d_alloc_parallel` answers.
@@ -237,6 +250,9 @@ impl Dentry {
         let mut state = self.state();
         state.asked = Asked::Answered;
         if state.inode.is_none() {
+            if let Some(inode) = &inode {
+                inode.add_dir_alias(&self.this);
+            }
             state.inode = inode;
         }
     }
@@ -268,20 +284,20 @@ impl Dentry {
         self.state().asked != Asked::Answered
     }
 
-    /// Ask the directory `dir` what stands here where no lookup answered yet, and
-    /// record it, as Linux's `lookup_fast` keeps a dentry, a negative one too, and
-    /// `__lookup_slow` asks `->lookup` for one just made. A directory holding
-    /// the entry under another spelling hands back that spelling and the entry,
-    /// for the caller to record on that spelling's dentry.
+    /// Ask the directory `dir` of `sb` what stands here where no lookup answered
+    /// yet, and record it, as Linux's `lookup_fast` keeps a dentry, a negative
+    /// one too, and `__lookup_slow` asks `->lookup` for one just made. What
+    /// stands elsewhere is handed back as `d_splice_alias` leaves it.
     pub(crate) fn lookup_inode(
         &self,
+        sb: &SuperBlock,
         dir: &Dentry,
-    ) -> Result<Option<(String, Arc<Inode>)>, FilesystemError> {
+    ) -> Result<Splice, FilesystemError> {
         let asked = self.lookup_by(|| {
             let found = dir.inode_ops()?.lookup(self)?;
-            Ok(self.d_splice_alias(found))
+            self.d_splice_alias(sb, found)
         })?;
-        Ok(asked.flatten())
+        Ok(asked.unwrap_or(Splice::Here))
     }
 
     /// What `ask` answers for this name where no lookup answered yet, none where
@@ -304,16 +320,37 @@ impl Dentry {
         asked.map(Some)
     }
 
-    /// Record what a lookup found at this name, as Linux's `d_splice_alias`
-    /// does. An entry stored under another spelling is handed back with that
-    /// spelling instead, for the caller to record there, as `d_add_ci` does.
-    pub(crate) fn d_splice_alias(&self, found: Lookup) -> Option<(String, Arc<Inode>)> {
-        match found {
-            Lookup::Found(inode) => self.add(Some(inode)),
-            Lookup::Absent => self.add(None),
-            Lookup::Spelled { name, inode } => return Some((name, inode)),
+    /// Record what a lookup found at this name of `sb`, as Linux's
+    /// `d_splice_alias` does. A directory already standing at another dentry
+    /// keeps that one, moved here, as a directory has one dentry: a move that
+    /// would put it beneath itself answers ELOOP, and one whose locks another
+    /// call holds answers ESTALE. An entry stored under another spelling is
+    /// handed back with that spelling instead, for the caller to record there,
+    /// as `d_add_ci` does.
+    pub(crate) fn d_splice_alias(
+        &self,
+        sb: &SuperBlock,
+        found: Lookup,
+    ) -> Result<Splice, FilesystemError> {
+        let inode = match found {
+            Lookup::Found(inode) => inode,
+            Lookup::Absent => {
+                self.add(None);
+                return Ok(Splice::Here);
+            }
+            Lookup::Spelled { name, inode } => return Ok(Splice::Spelled(name, inode)),
+        };
+        let this = self.get();
+        match inode.dir_alias() {
+            Some(alias) if !Arc::ptr_eq(&alias, &this) => {
+                sb.dentries().d_unalias(sb.rename_mutex(), &this, &alias)?;
+                Ok(Splice::Alias(alias))
+            }
+            _ => {
+                self.add(Some(inode));
+                Ok(Splice::Here)
+            }
         }
-        None
     }
 
     /// Begin the lookup the calling walk holds the dentry in lookup for, or one
@@ -572,6 +609,55 @@ impl Dentries {
             state.parent = Some(to.clone());
             state.name = to_name.to_string();
         });
+    }
+
+    /// `alias`, where a directory stands, moved to the name `dentry` was
+    /// looked up under, taking its place, as Linux's `__d_unalias` moves it
+    /// under `rename_lock`. One that would stand beneath itself answers ELOOP,
+    /// as `d_ancestor` refuses it. A move out of another directory takes that
+    /// directory's lock and the instance's `rename_mutex` without waiting,
+    /// since the caller holds the lock of the one it looks the name up in, and
+    /// answers ESTALE where another call holds either.
+    pub(crate) fn d_unalias(
+        &self,
+        rename_mutex: &Arc<RwSemaphore>,
+        dentry: &Arc<Dentry>,
+        alias: &Arc<Dentry>,
+    ) -> Result<(), FilesystemError> {
+        let (parent, name) = dentry
+            .parent_and_name()
+            .ok_or(FilesystemError::FilesystemLoop)?;
+        let mut table = self.hashtable();
+        RENAME_LOCK.write(|| {
+            let mut at = Some(dentry.clone());
+            while let Some(above) = at {
+                if Arc::ptr_eq(&above, alias) {
+                    return Err(FilesystemError::FilesystemLoop);
+                }
+                at = above.state().parent.clone();
+            }
+            let Some((old_parent, old_name)) = alias.parent_and_name() else {
+                return Err(FilesystemError::FilesystemLoop);
+            };
+            let _held = match Arc::ptr_eq(&old_parent, &parent) {
+                true => None,
+                false => {
+                    let stale = || FilesystemError::StaleNetworkFileHandle;
+                    let rename = rename_mutex.down_write_trylock().ok_or_else(stale)?;
+                    let dir = old_parent.inode().and_then(|dir| dir.trylock_shared());
+                    Some((rename, dir.ok_or_else(stale)?))
+                }
+            };
+            let at = key(&old_parent, &old_name);
+            if table.get(&at).is_some_and(|held| Arc::ptr_eq(&held, alias)) {
+                table.remove(&at);
+            }
+            table.insert(key(&parent, &name), alias);
+            let mut state = alias.state();
+            state.parent = Some(parent.clone());
+            state.name = name.clone();
+            Ok(())
+        })
     }
 
     /// `first` and `second` trade the names they stand at, as Linux's

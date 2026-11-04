@@ -14,9 +14,9 @@ use std::sync::Arc;
 
 use super::attr::notify_change;
 use super::cred::{Cred, FileSecurity, SecurityPath};
-use super::dentry::{Dentry, RENAME_LOCK};
+use super::dentry::{Dentry, Splice, RENAME_LOCK};
 use super::file::{do_dentry_open, FMode, File, FileOperations};
-use super::inode::{Finish, Inode, Mask, RenameFlag};
+use super::inode::{Finish, Inode, Lookup, Mask, RenameFlag};
 use super::mount::VfsMount;
 use super::openat2::{OpenFlags, OpenHow};
 use super::path::{Path, Start};
@@ -198,8 +198,8 @@ fn __lookup_slow(
         return Err(FilesystemError::NotFound);
     }
     let given = d_alloc_parallel(sb, parent, name)?;
-    let spelled = given.lookup_inode(parent)?;
-    d_add_ci(sb, parent, name, given, spelled)
+    let spliced = given.lookup_inode(sb, parent)?;
+    d_add_ci(sb, parent, name, given, spliced)
 }
 
 /// The dentry held for `name` in `parent`, or one made in lookup for the
@@ -215,27 +215,28 @@ fn d_alloc_parallel(
     }
 }
 
-/// The spelling and dentry a lookup of `name` leaves: `given`, or, where the
-/// entry found is stored under another spelling, that spelling's dentry with
-/// the entry recorded on it, as Linux's `d_add_ci` splices the inode found
-/// rather than asking again. The dentry stays for the next walk unless its
-/// Filesystem keeps none.
+/// The spelling and dentry a lookup of `name` leaves: `given`, the dentry a
+/// directory found already stood at, or, where the entry found is stored
+/// under another spelling, that spelling's dentry with the entry spliced on
+/// it, as Linux's `d_add_ci` splices the inode found rather than asking
+/// again. The dentry stays for the next walk unless its Filesystem keeps none.
 fn d_add_ci(
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
     given: Arc<Dentry>,
-    spelled: Option<(String, Arc<Inode>)>,
+    spliced: Splice,
 ) -> Result<(String, Arc<Dentry>), FilesystemError> {
-    let (stored, dentry) = match spelled {
-        None => (name.to_string(), given),
-        Some((stored, inode)) => {
+    let (stored, dentry) = match spliced {
+        Splice::Here => (name.to_string(), given),
+        Splice::Alias(alias) => (name.to_string(), alias),
+        Splice::Spelled(stored, inode) => {
             let dentry = d_alloc_parallel(sb, parent, &stored)?;
-            dentry.lookup_by(|| {
-                dentry.add(Some(inode));
-                Ok(())
-            })?;
-            (stored, dentry)
+            let spliced = dentry.lookup_by(|| dentry.d_splice_alias(sb, Lookup::Found(inode)))?;
+            match spliced {
+                Some(Splice::Alias(alias)) => (stored, alias),
+                _ => (stored, dentry),
+            }
         }
     };
     if !sb.dontcache() {
@@ -455,19 +456,19 @@ impl Nameidata {
                 how.create = create_error.is_none();
             }
             how.directory |= self.lookup_directory;
-            finish(atomic_open(&dir, &given, &how)?, &given)
+            finish(mnt.sb(), atomic_open(&dir, &given, &how)?, &given)
         };
         let asked = match given.lookup_by(&mut ask) {
             Ok(Some(asked)) => Ok(asked),
-            Ok(None) if given.inode().is_some() || !how.create => Ok((None, false, None)),
+            Ok(None) if given.inode().is_some() || !how.create => Ok((None, false, Splice::Here)),
             Ok(None) => ask(),
             Err(err) => Err(err),
         };
-        let (file, created, spelled) = match (asked, &create_error) {
+        let (file, created, spliced) = match (asked, &create_error) {
             (Err(FilesystemError::NotFound), Some(refused)) => return Err(refused.clone()),
             (asked, _) => asked?,
         };
-        let (stored, child) = d_add_ci(mnt.sb(), &dir, &self.name, given, spelled)?;
+        let (stored, child) = d_add_ci(mnt.sb(), &dir, &self.name, given, spliced)?;
         self.name = stored;
         self.path = Some(child.clone());
         if child.inode().is_none() {
@@ -499,24 +500,20 @@ impl Nameidata {
     }
 }
 
-/// What an `atomic_open` on `dentry` left: the file it opened, whether it made
-/// it, and another spelling where its lookup found the entry stored under one,
-/// with what it found recorded on `dentry` otherwise, as Linux's `atomic_open`
-/// takes the dentry `finish_no_open` hands back.
-fn finish(finished: Finish, dentry: &Dentry) -> Result<Finished, FilesystemError> {
+/// What an `atomic_open` on `dentry` of `sb` left: the file it opened, whether
+/// it made it, and where what its lookup found stands, spliced as a lookup's
+/// answer is, as Linux's `atomic_open` takes the dentry `finish_no_open` hands
+/// back.
+fn finish(sb: &SuperBlock, finished: Finish, dentry: &Dentry) -> Result<Finished, FilesystemError> {
     Ok(match finished {
-        Finish::Open { file, created } => (Some(file), created, None),
-        Finish::NoOpen { created } => (None, created, None),
-        Finish::Lookup(found) => (None, false, dentry.d_splice_alias(found)),
+        Finish::Open { file, created } => (Some(file), created, Splice::Here),
+        Finish::NoOpen { created } => (None, created, Splice::Here),
+        Finish::Lookup(found) => (None, false, dentry.d_splice_alias(sb, found)?),
     })
 }
 
 /// What `finish` reads out of an `atomic_open`.
-type Finished = (
-    Option<Box<dyn FileOperations>>,
-    bool,
-    Option<(String, Arc<Inode>)>,
-);
+type Finished = (Option<Box<dyn FileOperations>>, bool, Splice);
 
 /// Refuse a path no call can take, as Linux's `getname` does before any call
 /// looks at it: an empty one names nothing, one past `PATH_MAX` with its
@@ -1740,6 +1737,106 @@ mod tests {
             Arc::ptr_eq(&inode(&first), &inode(&second)),
             "vfs::do_file_open of two names a Filesystem hands one inode for must record that \
              inode on both, as d_splice_alias records what iget5_locked found"
+        );
+    }
+
+    /// A Filesystem handing one directory's inode for `a` and `b` in its root,
+    /// for `loop` inside it, and for `d` inside the directory `c`, as a backend
+    /// naming one directory from several places.
+    #[derive(Clone, Default)]
+    struct SharesDirectory(Arc<OnceLock<Arc<Inode>>>);
+
+    impl FileSystemType for SharesDirectory {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for SharesDirectory {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Dir, 0))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let dir = Kstat::new(FileType::Dir, 0);
+            let above = dentry
+                .parent()
+                .map(|parent| parent.name())
+                .unwrap_or_default();
+            Ok(match (above.as_str(), dentry.name().as_str()) {
+                ("", "a" | "b") | ("a" | "b", "loop") | ("c", "d") => {
+                    let shared = self
+                        .0
+                        .get_or_init(|| Inode::new(&dir, Arc::new(self.clone())));
+                    Lookup::Found(shared.clone())
+                }
+                ("", "c") => Lookup::Found(Inode::new(&dir, Arc::new(self.clone()))),
+                _ => Lookup::Absent,
+            })
+        }
+    }
+
+    fn reach(root: &Path, path: &str) -> Result<Arc<Dentry>, FilesystemError> {
+        super::filename_lookup(&Arc::default(), root, path, false)?.path()
+    }
+
+    // Two dentries for one directory would give it two locks, which a move
+    // between its two names could take in either order.
+    // @behavior RT-315
+    #[test]
+    fn a_directory_found_under_a_second_name_moves_its_dentry_there() {
+        let root = root_of(
+            Filesystem::new(Arc::new(SharesDirectory::default())).expect("the instance must stand"),
+        );
+        let first = reach(&root, "a").expect("a is reached");
+        let second = reach(&root, "b").expect("b is reached");
+        assert_eq!(
+            (Arc::ptr_eq(&first, &second), first.name()),
+            (true, "b".to_string()),
+            "a walk reaching `b` after `a` over a Filesystem handing one directory inode for \
+             both must find the dentry of `a` moved to `b`, as d_splice_alias moves the alias"
+        );
+    }
+
+    // @behavior RT-316
+    #[test]
+    fn a_directory_found_beneath_itself_answers_eloop() {
+        let root = root_of(
+            Filesystem::new(Arc::new(SharesDirectory::default())).expect("the instance must stand"),
+        );
+        let (answered, answer) = mpsc::channel();
+        thread::spawn(move || answered.send(reach(&root, "a/loop").err()).ok());
+        let answer = answer
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("a walk through a directory moved beneath itself would never end");
+        assert_eq!(
+            answer,
+            Some(FilesystemError::FilesystemLoop),
+            "a walk reaching `a/loop` over a Filesystem handing `a`'s own inode for it must \
+             answer ELOOP, as d_splice_alias refuses an alias that is an ancestor"
+        );
+    }
+
+    // Waiting for the rename lock while the walk holds the directory's lock
+    // would take the two in the order a rename does not.
+    // @behavior RT-317
+    #[test]
+    fn a_directory_whose_move_another_call_holds_up_answers_estale() {
+        let root = root_of(
+            Filesystem::new(Arc::new(SharesDirectory::default())).expect("the instance must stand"),
+        );
+        reach(&root, "a").expect("a is reached");
+        let _renaming = root
+            .mnt()
+            .sb()
+            .rename_mutex()
+            .down_write()
+            .expect("nothing else holds the rename lock");
+        assert_eq!(
+            reach(&root, "c/d").err(),
+            Some(FilesystemError::StaleNetworkFileHandle),
+            "a walk reaching `c/d`, the directory standing at `a`, while a call holds the \
+             rename lock must answer ESTALE, as __d_unalias only tries the lock"
         );
     }
 
@@ -4234,10 +4331,10 @@ mod tests {
         let made = root.mnt().sb().dentries().alloc_parallel(&dir, "x");
         let (counted, counting) = mpsc::channel();
         let other = {
-            let (made, dir) = (made.clone(), dir.clone());
+            let (made, dir, mnt) = (made.clone(), dir.clone(), root.mnt().clone());
             thread::spawn(move || {
                 counted.send(count_waits()).ok();
-                made.lookup_inode(&dir).map(drop)
+                made.lookup_inode(mnt.sb(), &dir).map(drop)
             })
         };
         let waits = counting
@@ -4246,7 +4343,7 @@ mod tests {
         crate::sched::testing::wait_until("the other walk waiting", || {
             waits.load(Ordering::SeqCst) > 0
         });
-        let own = made.lookup_inode(&dir).map(drop);
+        let own = made.lookup_inode(root.mnt().sb(), &dir).map(drop);
         let others = crate::sched::testing::join("the other walk", other);
         assert_eq!(
             (

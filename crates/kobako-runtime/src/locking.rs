@@ -92,6 +92,38 @@ impl RwSemaphore {
         })
     }
 
+    /// Hold it shared where nobody holds or waits to hold it exclusive, without
+    /// waiting, as `down_read_trylock` fails on a writer or a waiter.
+    pub(crate) fn down_read_trylock(self: &Arc<Self>) -> Option<RwSemaphoreGuard> {
+        let current = sched::current();
+        let mut holders = self.holders();
+        if holders.writer.is_some() || holders.writers_waiting > 0 {
+            return None;
+        }
+        holders.readers.push(current);
+        Some(self.guard(current, false))
+    }
+
+    /// Hold it exclusive where nobody holds it, without waiting, as
+    /// `down_write_trylock`.
+    pub(crate) fn down_write_trylock(self: &Arc<Self>) -> Option<RwSemaphoreGuard> {
+        let current = sched::current();
+        let mut holders = self.holders();
+        if holders.writer.is_some() || !holders.readers.is_empty() {
+            return None;
+        }
+        holders.writer = Some(current);
+        Some(self.guard(current, true))
+    }
+
+    fn guard(self: &Arc<Self>, holder: ThreadId, exclusive: bool) -> RwSemaphoreGuard {
+        RwSemaphoreGuard {
+            semaphore: self.clone(),
+            holder,
+            exclusive,
+        }
+    }
+
     /// Whether a thread waits to hold it exclusive, for a test to see one queued.
     #[cfg(test)]
     pub(crate) fn writer_waits(&self) -> bool {
@@ -110,11 +142,7 @@ impl RwSemaphore {
             drop(holders);
             self.down_slowpath(exclusive, &mut take)?;
         }
-        Ok(RwSemaphoreGuard {
-            semaphore: self.clone(),
-            holder,
-            exclusive,
-        })
+        Ok(self.guard(holder, exclusive))
     }
 
     /// Wait for a release and ask again, as `rwsem_down_read_slowpath` and

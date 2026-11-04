@@ -4,7 +4,7 @@
 use std::any::Any;
 use std::ops::BitOr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
 use super::dentry::Dentry;
 use super::file::FileOperations;
@@ -289,6 +289,9 @@ pub struct Inode {
     /// Whether the directory was removed or replaced through the VFS, as
     /// Linux sets `S_DEAD` in `i_flags`.
     dead: AtomicBool,
+    /// The dentry a directory stands at, as Linux keeps a directory's one
+    /// dentry in `i_dentry`.
+    alias: Mutex<Weak<Dentry>>,
 }
 
 impl Inode {
@@ -315,7 +318,35 @@ impl Inode {
             private: OnceLock::new(),
             rwsem: Arc::default(),
             dead: AtomicBool::new(false),
+            alias: Mutex::default(),
         })
+    }
+
+    /// The dentry this directory stands at, as `__d_find_dir_alias` finds it.
+    pub(super) fn dir_alias(&self) -> Option<Arc<Dentry>> {
+        match self.kind {
+            FileType::Dir => self.alias().upgrade(),
+            _ => None,
+        }
+    }
+
+    /// Record `dentry` as where this directory stands, unless another still
+    /// does, as `__d_add` hangs a dentry on `i_dentry`.
+    pub(super) fn add_dir_alias(&self, dentry: &Weak<Dentry>) {
+        let mut alias = self.alias();
+        if self.kind == FileType::Dir && alias.strong_count() == 0 {
+            *alias = dentry.clone();
+        }
+    }
+
+    fn alias(&self) -> MutexGuard<'_, Weak<Dentry>> {
+        self.alias.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Hold it shared where nothing holds it exclusive, without waiting, as
+    /// Linux's `inode_trylock_shared`.
+    pub(super) fn trylock_shared(&self) -> Option<RwSemaphoreGuard> {
+        self.rwsem.down_read_trylock()
     }
 
     /// Hold it shared, as Linux's `inode_lock_shared` holds the directory it
