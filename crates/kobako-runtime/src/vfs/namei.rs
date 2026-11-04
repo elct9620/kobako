@@ -601,10 +601,25 @@ pub(crate) fn filename_parentat(
     start: &impl Start,
     path: &str,
 ) -> Result<Nameidata, FilesystemError> {
-    let mut nd = set_nameidata(cred, start, path)?;
-    nd.link_path_walk()?;
-    nd.complete_walk()?;
-    Ok(nd)
+    retry_estale(|| {
+        let mut nd = set_nameidata(cred, start, path)?;
+        nd.link_path_walk()?;
+        nd.complete_walk()?;
+        Ok(nd)
+    })
+}
+
+/// What `call` answers, called once more where it answers ESTALE, as Linux's
+/// callers walk again with `LOOKUP_REVAL` where `retry_estale` allows, so a
+/// directory found moving meanwhile is reached where it went. Every walk
+/// asks `revalidate` of what it holds already, so the second takes no flag.
+pub(super) fn retry_estale<T>(
+    mut call: impl FnMut() -> Result<T, FilesystemError>,
+) -> Result<T, FilesystemError> {
+    match call() {
+        Err(FilesystemError::StaleNetworkFileHandle) => call(),
+        answered => answered,
+    }
 }
 
 /// `path` beneath `start`, walked to what it names, as Linux's `filename_lookup`.
@@ -617,7 +632,7 @@ pub(crate) fn filename_lookup(
     path: &str,
     follow: bool,
 ) -> Result<Nameidata, FilesystemError> {
-    path_lookupat(set_nameidata(cred, start, path)?, follow)
+    retry_estale(|| path_lookupat(set_nameidata(cred, start, path)?, follow))
 }
 
 /// Walk `nd` to what its path names, as Linux's `path_lookupat`.
@@ -642,8 +657,13 @@ pub fn do_file_open(
     path: &str,
     op: &OpenFlags,
 ) -> Result<File, FilesystemError> {
+    retry_estale(|| path_openat(set_nameidata(cred, start, path)?, op))
+}
+
+/// Walk `nd` to its last name and open it as `op` asks, as Linux's
+/// `path_openat`.
+fn path_openat(mut nd: Nameidata, op: &OpenFlags) -> Result<File, FilesystemError> {
     let how = op.open_flag();
-    let mut nd = set_nameidata(cred, start, path)?;
     nd.lookup_directory = op.lookup_directory();
     let mode = FMode::of(how);
     if mode.contains(FMode::PATH) {
@@ -775,15 +795,17 @@ pub fn filename_linkat(
     new_path: &str,
     follow: bool,
 ) -> Result<(), FilesystemError> {
-    let old = filename_lookup(cred, old_start, old_path, follow)?;
-    let target = old.path()?;
-    let mut new = filename_parentat(cred, new_start, new_path)?;
-    let (_held, child) = filename_create(&mut new, false)?;
-    if !Arc::ptr_eq(&old.mnt, &new.mnt) {
-        return Err(FilesystemError::CrossesDevices);
-    }
-    old.on_path(|old| new.on_path(|new| cred.security_path_link(old, new)))?;
-    vfs_link(cred, new.mnt.sb(), &target, new.dentry(), &child)
+    retry_estale(|| {
+        let old = filename_lookup(cred, old_start, old_path, follow)?;
+        let target = old.path()?;
+        let mut new = filename_parentat(cred, new_start, new_path)?;
+        let (_held, child) = filename_create(&mut new, false)?;
+        if !Arc::ptr_eq(&old.mnt, &new.mnt) {
+            return Err(FilesystemError::CrossesDevices);
+        }
+        old.on_path(|old| new.on_path(|new| cred.security_path_link(old, new)))?;
+        vfs_link(cred, new.mnt.sb(), &target, new.dentry(), &child)
+    })
 }
 
 /// Make the link `path` beneath `start` names, pointing at `target`, as
@@ -795,10 +817,12 @@ pub fn filename_symlinkat(
     path: &str,
 ) -> Result<(), FilesystemError> {
     getname(target)?;
-    let mut nd = filename_parentat(cred, start, path)?;
-    let (_held, child) = filename_create(&mut nd, false)?;
-    nd.on_path(|path| cred.security_path_symlink(path))?;
-    vfs_symlink(cred, nd.mnt.sb(), nd.dentry(), &child, target)
+    retry_estale(|| {
+        let mut nd = filename_parentat(cred, start, path)?;
+        let (_held, child) = filename_create(&mut nd, false)?;
+        nd.on_path(|path| cred.security_path_symlink(path))?;
+        vfs_symlink(cred, nd.mnt.sb(), nd.dentry(), &child, target)
+    })
 }
 
 /// Hold the directory a name is made in and take the name's dentry, as
@@ -844,10 +868,12 @@ pub fn filename_mkdirat(
     start: &impl Start,
     path: &str,
 ) -> Result<(), FilesystemError> {
-    let mut nd = filename_parentat(cred, start, path)?;
-    let (_held, child) = filename_create(&mut nd, true)?;
-    nd.on_path(|path| cred.security_path_mkdir(path))?;
-    vfs_mkdir(cred, nd.mnt.sb(), nd.dentry(), &child)
+    retry_estale(|| {
+        let mut nd = filename_parentat(cred, start, path)?;
+        let (_held, child) = filename_create(&mut nd, true)?;
+        nd.on_path(|path| cred.security_path_mkdir(path))?;
+        vfs_mkdir(cred, nd.mnt.sb(), nd.dentry(), &child)
+    })
 }
 
 /// Remove the empty directory `path` beneath `start`, as Linux's
@@ -857,16 +883,18 @@ pub fn filename_rmdir(
     start: &impl Start,
     path: &str,
 ) -> Result<(), FilesystemError> {
-    let mut nd = filename_parentat(cred, start, path)?;
-    match nd.last_type {
-        LastType::Norm => {}
-        LastType::Dot => return Err(FilesystemError::InvalidInput),
-        LastType::DotDot => return Err(FilesystemError::DirectoryNotEmpty),
-    }
-    nd.mnt.mnt_want_write()?;
-    let (_held, child) = start_dirop(&mut nd)?;
-    nd.on_path(|path| cred.security_path_rmdir(path))?;
-    vfs_rmdir(cred, nd.mnt.sb(), nd.dentry(), &child)
+    retry_estale(|| {
+        let mut nd = filename_parentat(cred, start, path)?;
+        match nd.last_type {
+            LastType::Norm => {}
+            LastType::Dot => return Err(FilesystemError::InvalidInput),
+            LastType::DotDot => return Err(FilesystemError::DirectoryNotEmpty),
+        }
+        nd.mnt.mnt_want_write()?;
+        let (_held, child) = start_dirop(&mut nd)?;
+        nd.on_path(|path| cred.security_path_rmdir(path))?;
+        vfs_rmdir(cred, nd.mnt.sb(), nd.dentry(), &child)
+    })
 }
 
 /// Remove the file `path` beneath `start`, as Linux's `filename_unlinkat` does.
@@ -877,20 +905,22 @@ pub fn filename_unlinkat(
     start: &impl Start,
     path: &str,
 ) -> Result<(), FilesystemError> {
-    let mut nd = filename_parentat(cred, start, path)?;
-    if nd.last_type != LastType::Norm {
-        return Err(FilesystemError::IsADirectory);
-    }
-    nd.mnt.mnt_want_write()?;
-    let (_held, child) = start_dirop(&mut nd)?;
-    if nd.trailing_slash {
-        return Err(match child.kind() {
-            Ok(FileType::Dir) => FilesystemError::IsADirectory,
-            _ => FilesystemError::NotADirectory,
-        });
-    }
-    nd.on_path(|path| cred.security_path_unlink(path))?;
-    vfs_unlink(cred, nd.mnt.sb(), nd.dentry(), &child)
+    retry_estale(|| {
+        let mut nd = filename_parentat(cred, start, path)?;
+        if nd.last_type != LastType::Norm {
+            return Err(FilesystemError::IsADirectory);
+        }
+        nd.mnt.mnt_want_write()?;
+        let (_held, child) = start_dirop(&mut nd)?;
+        if nd.trailing_slash {
+            return Err(match child.kind() {
+                Ok(FileType::Dir) => FilesystemError::IsADirectory,
+                _ => FilesystemError::NotADirectory,
+            });
+        }
+        nd.on_path(|path| cred.security_path_unlink(path))?;
+        vfs_unlink(cred, nd.mnt.sb(), nd.dentry(), &child)
+    })
 }
 
 /// Move `from_path` beneath `from` to `to_path` beneath `to`. A rename
@@ -904,35 +934,39 @@ pub fn filename_renameat2(
     to: &impl Start,
     to_path: &str,
 ) -> Result<(), FilesystemError> {
-    let mut source = filename_parentat(cred, from, from_path)?;
-    let mut target = filename_parentat(cred, to, to_path)?;
-    if !Arc::ptr_eq(&source.mnt, &target.mnt) {
-        return Err(FilesystemError::CrossesDevices);
-    }
-    if source.last_type != LastType::Norm || target.last_type != LastType::Norm {
-        return Err(FilesystemError::ResourceBusy);
-    }
-    source.mnt.mnt_want_write()?;
-    let mnt = source.mnt.clone();
-    let sb = mnt.sb();
-    let rd = __start_renaming(
-        sb,
-        (source.dentry(), &source.name),
-        (target.dentry(), &target.name),
-        None,
-    )?;
-    source.name = rd.old_dentry.name();
-    target.name = rd.new_dentry.name();
-    // Unless the source is a directory, a trailing `/` on either side is
-    // refused, as `filename_renameat2` refuses it.
-    let is_dir = rd.old_dentry.kind()? == FileType::Dir;
-    if !is_dir && (source.trailing_slash || target.trailing_slash) {
-        return Err(FilesystemError::NotADirectory);
-    }
-    source.on_path(|old| {
-        target.on_path(|new| cred.security_path_rename(old, new, (&rd.old_dentry, &rd.new_dentry)))
-    })?;
-    vfs_rename(cred, sb, &rd)
+    retry_estale(|| {
+        let mut source = filename_parentat(cred, from, from_path)?;
+        let mut target = filename_parentat(cred, to, to_path)?;
+        if !Arc::ptr_eq(&source.mnt, &target.mnt) {
+            return Err(FilesystemError::CrossesDevices);
+        }
+        if source.last_type != LastType::Norm || target.last_type != LastType::Norm {
+            return Err(FilesystemError::ResourceBusy);
+        }
+        source.mnt.mnt_want_write()?;
+        let mnt = source.mnt.clone();
+        let sb = mnt.sb();
+        let rd = __start_renaming(
+            sb,
+            (source.dentry(), &source.name),
+            (target.dentry(), &target.name),
+            None,
+        )?;
+        source.name = rd.old_dentry.name();
+        target.name = rd.new_dentry.name();
+        // Unless the source is a directory, a trailing `/` on either side is
+        // refused, as `filename_renameat2` refuses it.
+        let is_dir = rd.old_dentry.kind()? == FileType::Dir;
+        if !is_dir && (source.trailing_slash || target.trailing_slash) {
+            return Err(FilesystemError::NotADirectory);
+        }
+        source.on_path(|old| {
+            target.on_path(|new| {
+                cred.security_path_rename(old, new, (&rd.old_dentry, &rd.new_dentry))
+            })
+        })?;
+        vfs_rename(cred, sb, &rd)
+    })
 }
 
 /// Hold both directories a move between them changes exclusive, as Linux's
@@ -1971,6 +2005,184 @@ mod tests {
             "{what} reaching `b` while another walk looks it up, over a Filesystem handing \
              `a`'s directory inode for it, must hold `a`'s dentry moved there without asking \
              the Filesystem again, as d_alloc_parallel retries a dentry __d_move unhashed"
+        );
+    }
+
+    /// A test's Filesystem answering ESTALE when asked to look up `stale`,
+    /// once each time `armed` is set, or every time where `always`, counting
+    /// each ask about it.
+    #[derive(Default)]
+    struct AnswersStale {
+        stale: Mutex<String>,
+        armed: AtomicBool,
+        always: bool,
+        asked: AtomicUsize,
+    }
+
+    impl AnswersStale {
+        fn arm(&self, name: &str) {
+            *self.stale.lock().expect("unpoisoned") = name.to_string();
+            self.asked.store(0, Ordering::SeqCst);
+            self.armed.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl wrap::Hook for AnswersStale {
+        fn lookup(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<Lookup, FilesystemError> {
+            if *self.stale.lock().expect("unpoisoned") == dentry.name() {
+                self.asked.fetch_add(1, Ordering::SeqCst);
+                if self.armed.swap(self.always, Ordering::SeqCst) {
+                    return Err(FilesystemError::StaleNetworkFileHandle);
+                }
+            }
+            inner.lookup(dentry)
+        }
+    }
+
+    /// The root of a Tmpfs of `dir/file` and `dir/empty/`, whose lookups
+    /// `hook` answers. The directory is made through another instance, so the
+    /// root's walks find no dentry kept and ask about each name.
+    fn stale_root(hook: &Arc<AnswersStale>) -> Path {
+        let tmpfs: Tmpfs = [("dir/file", "x")].into_iter().collect();
+        let wrapped = Arc::new(Wrap::new(Arc::new(tmpfs), hook.clone()));
+        let instance = || Filesystem::new(wrapped.clone()).expect("the instance must stand");
+        vfs::filename_mkdirat(&Arc::default(), &root_of(instance()), "dir/empty")
+            .expect("dir/empty is made");
+        root_of(instance())
+    }
+
+    type StaleCall = fn(&Arc<Cred>, &Path) -> Result<(), FilesystemError>;
+
+    // Without walking again, a directory found moving meanwhile would fail the
+    // call where Linux reaches it where it went. A Tmpfs makes no link, so the
+    // calls making one answer EPERM once they walk past the stale name.
+    // @behavior RT-321
+    #[test]
+    fn a_call_answered_estale_walks_its_path_once_more() {
+        use FilesystemError::{InvalidInput, NotPermitted};
+        let calls: [(&str, &str, StaleCall, Result<(), FilesystemError>); 11] = [
+            (
+                "vfs_fstatat",
+                "dir",
+                |cred, root| vfs::vfs_fstatat(cred, root, "dir/file", false).map(drop),
+                Ok(()),
+            ),
+            (
+                "vfs_fstatat",
+                "file",
+                |cred, root| vfs::vfs_fstatat(cred, root, "dir/file", false).map(drop),
+                Ok(()),
+            ),
+            (
+                "do_file_open",
+                "file",
+                |cred, root| {
+                    let how = OpenHow {
+                        read: true,
+                        ..OpenHow::default()
+                    };
+                    vfs::kern_path::filp_open(cred, root, "dir/file", &how).map(drop)
+                },
+                Ok(()),
+            ),
+            (
+                "filename_mkdirat",
+                "new",
+                |cred, root| vfs::filename_mkdirat(cred, root, "dir/new"),
+                Ok(()),
+            ),
+            (
+                "filename_symlinkat",
+                "made",
+                |cred, root| vfs::filename_symlinkat(cred, "file", root, "dir/made"),
+                Err(NotPermitted),
+            ),
+            (
+                "filename_linkat",
+                "linked",
+                |cred, root| {
+                    vfs::filename_linkat(cred, root, "dir/file", root, "dir/linked", false)
+                },
+                Err(NotPermitted),
+            ),
+            (
+                "filename_rmdir",
+                "empty",
+                |cred, root| vfs::filename_rmdir(cred, root, "dir/empty"),
+                Ok(()),
+            ),
+            (
+                "filename_unlinkat",
+                "file",
+                |cred, root| vfs::filename_unlinkat(cred, root, "dir/file"),
+                Ok(()),
+            ),
+            (
+                "filename_renameat2",
+                "moved",
+                |cred, root| vfs::filename_renameat2(cred, root, "dir/file", root, "dir/moved"),
+                Ok(()),
+            ),
+            (
+                "do_readlinkat",
+                "file",
+                |cred, root| vfs::do_readlinkat(cred, root, "dir/file").map(drop),
+                Err(InvalidInput),
+            ),
+            (
+                "do_utimes_path",
+                "file",
+                |cred, root| {
+                    let times = vfs::Iattr::times(None, Some(crate::filesystem::SetTime::Now));
+                    vfs::do_utimes_path(cred, root, "dir/file", false, &times)
+                },
+                Ok(()),
+            ),
+        ];
+        for (call, name, run, answer) in calls {
+            let hook = Arc::new(AnswersStale::default());
+            let root = stale_root(&hook);
+            hook.arm(name);
+            assert_eq!(
+                (
+                    run(&Arc::default(), &root),
+                    hook.asked.load(Ordering::SeqCst) > 1
+                ),
+                (answer, true),
+                "vfs::{call} over a Filesystem answering ESTALE the first time it is asked \
+                 about `{name}` must ask again and answer as that walk does, as Linux retries \
+                 where retry_estale allows"
+            );
+        }
+    }
+
+    // A walk retrying every ESTALE would never end over a Filesystem that
+    // always answers it.
+    // @behavior RT-322
+    #[test]
+    fn a_call_answered_estale_twice_answers_estale() {
+        let hook = Arc::new(AnswersStale {
+            always: true,
+            ..AnswersStale::default()
+        });
+        let root = stale_root(&hook);
+        hook.arm("file");
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        assert_eq!(
+            (
+                vfs::kern_path::filp_open(&Arc::default(), &root, "dir/file", &read).err(),
+                hook.asked.load(Ordering::SeqCst)
+            ),
+            (Some(FilesystemError::StaleNetworkFileHandle), 2),
+            "vfs::do_file_open of `dir/file` over a Filesystem always answering ESTALE about \
+             `file` must answer ESTALE after asking twice, as the second walk sets LOOKUP_REVAL"
         );
     }
 

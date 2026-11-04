@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use super::cred::Cred;
-use super::namei::filename_lookup;
+use super::namei::{filename_lookup, retry_estale};
 use super::path::Start;
 use super::FilesystemError;
 
@@ -121,7 +121,7 @@ pub fn vfs_fstatat(
     path: &str,
     follow: bool,
 ) -> Result<Kstat, FilesystemError> {
-    filename_lookup(cred, start, path, follow)?.getattr()
+    retry_estale(|| filename_lookup(cred, start, path, follow)?.getattr())
 }
 
 /// Where the link at `path` beneath `start` points, as Linux's `do_readlinkat`
@@ -134,19 +134,21 @@ pub fn do_readlinkat(
     start: &impl Start,
     path: &str,
 ) -> Result<String, FilesystemError> {
-    let (target, refusal) = match path.is_empty() {
-        true => (
-            start.path_init()?.dentry().clone(),
-            FilesystemError::NotFound,
-        ),
-        false => (
-            filename_lookup(cred, start, path, false)?.path()?,
-            FilesystemError::InvalidInput,
-        ),
-    };
-    if target.kind()? != FileType::Symlink {
-        return Err(refusal);
-    }
-    cred.security_inode_readlink(&target)?;
-    target.get_link()
+    retry_estale(|| {
+        let (target, refusal) = match path.is_empty() {
+            true => (
+                start.path_init()?.dentry().clone(),
+                FilesystemError::NotFound,
+            ),
+            false => (
+                filename_lookup(cred, start, path, false)?.path()?,
+                FilesystemError::InvalidInput,
+            ),
+        };
+        if target.kind()? != FileType::Symlink {
+            return Err(refusal);
+        }
+        cred.security_inode_readlink(&target)?;
+        target.get_link()
+    })
 }

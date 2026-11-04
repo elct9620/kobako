@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::attr::notify_change;
 use super::cred::{Cred, SecurityPath};
-use super::namei::filename_lookup;
+use super::namei::{filename_lookup, retry_estale};
 use super::path::{Path, Start};
 use super::{FilesystemError, Iattr};
 
@@ -38,8 +38,10 @@ pub fn do_utimes_path(
     follow: bool,
     times: &Iattr,
 ) -> Result<(), FilesystemError> {
-    let nd = filename_lookup(cred, start, path, follow)?;
-    vfs_utimes(cred, &nd.path_to(nd.path()?), times)
+    retry_estale(|| {
+        let nd = filename_lookup(cred, start, path, follow)?;
+        vfs_utimes(cred, &nd.path_to(nd.path()?), times)
+    })
 }
 
 #[cfg(test)]
