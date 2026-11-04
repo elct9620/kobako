@@ -3692,3 +3692,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a path through thirty links to a name whose first lookup answers ESTALE |
 | When | a call walks the path, following its last link |
 | Then | the walk made again counts both walks' links toward one budget of forty, and answers ELOOP |
+
+## `RT-328` A stream read keeps no position
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-273` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file its Filesystem opens as a stream, whose read moves the position it is handed |
+| When | the file is read twice |
+| Then | each read is handed position 0, and the file's position stays 0, as Linux's `file_ppos` answers none for a stream |
