@@ -330,21 +330,26 @@ impl Inode {
         })
     }
 
-    /// The dentry this directory stands at, as `__d_find_dir_alias` finds it.
-    pub(super) fn dir_alias(&self) -> Option<Arc<Dentry>> {
-        match self.kind {
-            FileType::Dir => self.alias().upgrade(),
-            _ => None,
+    /// The dentry other than `dentry` this directory already stands at, as
+    /// `__d_find_dir_alias` finds it, or none with this entry recorded on
+    /// `dentry`, as `__d_add` records it. Both run under one lock, as
+    /// `d_splice_alias` holds `i_lock`, so two lookups of one directory never
+    /// each find none.
+    pub(super) fn find_alias_or_add(self: &Arc<Self>, dentry: &Dentry) -> Option<Arc<Dentry>> {
+        let mut alias = self.alias();
+        if let Some(found) = alias.upgrade() {
+            if !std::ptr::eq(found.as_ref(), dentry) {
+                return Some(found);
+            }
         }
+        dentry.instantiate(self.clone(), &mut alias);
+        None
     }
 
-    /// Record `dentry` as where this directory stands, unless another still
-    /// does, as `__d_add` hangs a dentry on `i_dentry`.
-    pub(super) fn add_dir_alias(&self, dentry: &Weak<Dentry>) {
-        let mut alias = self.alias();
-        if self.kind == FileType::Dir && alias.strong_count() == 0 {
-            *alias = dentry.clone();
-        }
+    /// Record this entry on `dentry`, as `d_instantiate` hangs a dentry on
+    /// `i_dentry`.
+    pub(super) fn add_to(self: &Arc<Self>, dentry: &Dentry) {
+        dentry.instantiate(self.clone(), &mut self.alias());
     }
 
     fn alias(&self) -> MutexGuard<'_, Weak<Dentry>> {

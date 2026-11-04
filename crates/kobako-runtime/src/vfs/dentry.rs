@@ -18,7 +18,7 @@ use super::inode::{Inode, InodeOperations, Lookup};
 use super::{FileType, FilesystemError, Kstat, OpenHow, SuperBlock};
 use crate::hashtable::Hashtable;
 use crate::locking::seqlock::SeqLock;
-use crate::locking::{RwSemaphore, RwSemaphoreGuard};
+use crate::locking::RwSemaphoreGuard;
 use crate::sched;
 
 /// What a Filesystem answers about a name rather than an entry, as Linux's
@@ -247,13 +247,24 @@ impl Dentry {
     /// dentry once, so a later lookup never hides a change `d_revalidate`
     /// must see.
     pub fn add(&self, inode: Option<Arc<Inode>>) {
+        match inode {
+            Some(inode) => inode.add_to(self),
+            None => self.state().asked = LookupState::Answered,
+        }
+    }
+
+    /// Record `inode` here unless the dentry already names something, a
+    /// directory's `alias` pointing here from then on, as `__d_instantiate`
+    /// hangs the dentry on `i_dentry`. The caller holds `alias`, the inode's
+    /// lock.
+    pub(super) fn instantiate(&self, inode: Arc<Inode>, alias: &mut Weak<Dentry>) {
         let mut state = self.state();
         state.asked = LookupState::Answered;
         if state.inode.is_none() {
-            if let Some(inode) = &inode {
-                inode.add_dir_alias(&self.this);
+            if inode.kind() == FileType::Dir {
+                *alias = self.this.clone();
             }
-            state.inode = inode;
+            state.inode = Some(inode);
         }
     }
 
@@ -294,10 +305,24 @@ impl Dentry {
         dir: &Dentry,
     ) -> Result<Splice, FilesystemError> {
         let asked = self.ask_in_lookup(|| {
+            if let Some(moved) = self.moved_onto(sb) {
+                return Ok(Splice::Alias(moved));
+            }
             let found = dir.inode_ops()?.lookup(self)?;
             self.splice_alias(sb, found)
         })?;
         Ok(asked.unwrap_or(Splice::Here))
+    }
+
+    /// The directory's dentry a move put at this name of `sb` while this one
+    /// was in lookup, as a walk waiting in `d_alloc_parallel` finds it once
+    /// `__d_move` unhashed the dentry it waited on, rather than asking the
+    /// Filesystem again.
+    pub(crate) fn moved_onto(&self, sb: &SuperBlock) -> Option<Arc<Dentry>> {
+        let (parent, name) = self.parent_and_name()?;
+        sb.dentries()
+            .lookup(&parent, &name)
+            .filter(|held| !std::ptr::eq(held.as_ref(), self) && !held.in_lookup())
     }
 
     /// What `ask` answers for this name where no lookup answered yet, none where
@@ -340,17 +365,61 @@ impl Dentry {
             }
             Lookup::Spelled { name, inode } => return Ok(Splice::Spelled(name, inode)),
         };
-        let this = self.get();
-        match inode.dir_alias() {
-            Some(alias) if !Arc::ptr_eq(&alias, &this) => {
-                sb.dentries().d_unalias(sb.rename_mutex(), &this, &alias)?;
+        match inode.find_alias_or_add(self) {
+            None => Ok(Splice::Here),
+            Some(alias) => {
+                self.get().unalias(sb, &alias)?;
                 Ok(Splice::Alias(alias))
             }
-            _ => {
-                self.add(Some(inode));
-                Ok(Splice::Here)
-            }
         }
+    }
+
+    /// `alias`, where a directory of `sb` stands, moved to this dentry's name,
+    /// taking its place, as Linux's `__d_unalias` moves it under `rename_lock`.
+    /// One that would stand beneath itself answers ELOOP, as `d_ancestor`
+    /// refuses it; so does a root, which only a Filesystem handing one inode
+    /// to two instances reaches. A move out of another directory takes that
+    /// directory's lock and the instance's `rename_mutex` without waiting,
+    /// since the caller holds the lock of the one it looks the name up in,
+    /// and answers ESTALE where another call holds either.
+    fn unalias(
+        self: &Arc<Self>,
+        sb: &SuperBlock,
+        alias: &Arc<Dentry>,
+    ) -> Result<(), FilesystemError> {
+        let (parent, name) = self
+            .parent_and_name()
+            .expect("a dentry in lookup stands in a directory");
+        let mut table = sb.dentries().hashtable();
+        RENAME_LOCK.write(|| {
+            if d_ancestor(alias, self) {
+                return Err(FilesystemError::FilesystemLoop);
+            }
+            let Some((old_parent, old_name)) = alias.parent_and_name() else {
+                return Err(FilesystemError::FilesystemLoop);
+            };
+            let _held = match Arc::ptr_eq(&old_parent, &parent) {
+                true => None,
+                false => {
+                    let stale = || FilesystemError::StaleNetworkFileHandle;
+                    let rename = sb.rename_mutex().down_write_trylock().ok_or_else(stale)?;
+                    let dir = old_parent
+                        .inode()
+                        .expect("a directory holding a dentry names its inode")
+                        .trylock_shared();
+                    Some((rename, dir.ok_or_else(stale)?))
+                }
+            };
+            let at = key(&old_parent, &old_name);
+            if table.get(&at).is_some_and(|held| Arc::ptr_eq(&held, alias)) {
+                table.remove(&at);
+            }
+            table.insert(key(&parent, &name), alias);
+            let mut state = alias.state();
+            state.parent = Some(parent.clone());
+            state.name = name.clone();
+            Ok(())
+        })
     }
 
     /// Begin the lookup the calling walk holds the dentry in lookup for, or one
@@ -442,17 +511,21 @@ impl Dentry {
     /// Whether this dentry is `ancestor` or stands beneath it, as Linux's
     /// `is_subdir` answers.
     pub(crate) fn is_subdir(self: &Arc<Self>, ancestor: &Arc<Dentry>) -> bool {
-        RENAME_LOCK.read(|| {
-            let mut at = Some(self.clone());
-            while let Some(dentry) = at {
-                if Arc::ptr_eq(&dentry, ancestor) {
-                    return true;
-                }
-                at = dentry.state().parent.clone();
-            }
-            false
-        })
+        Arc::ptr_eq(self, ancestor) || RENAME_LOCK.read(|| d_ancestor(ancestor, self))
     }
+}
+
+/// Whether `ancestor` stands above `dentry`, as Linux's `d_ancestor` answers.
+/// The caller holds `RENAME_LOCK`, so no move lands during the walk up.
+fn d_ancestor(ancestor: &Arc<Dentry>, dentry: &Arc<Dentry>) -> bool {
+    let mut at = dentry.parent();
+    while let Some(above) = at {
+        if Arc::ptr_eq(&above, ancestor) {
+            return true;
+        }
+        at = above.parent();
+    }
+    false
 }
 
 /// A dentry holds the one above it, and moves can stack them as deep as a
@@ -609,55 +682,6 @@ impl Dentries {
             state.parent = Some(to.clone());
             state.name = to_name.to_string();
         });
-    }
-
-    /// `alias`, where a directory stands, moved to the name `dentry` was
-    /// looked up under, taking its place, as Linux's `__d_unalias` moves it
-    /// under `rename_lock`. One that would stand beneath itself answers ELOOP,
-    /// as `d_ancestor` refuses it. A move out of another directory takes that
-    /// directory's lock and the instance's `rename_mutex` without waiting,
-    /// since the caller holds the lock of the one it looks the name up in, and
-    /// answers ESTALE where another call holds either.
-    pub(crate) fn d_unalias(
-        &self,
-        rename_mutex: &Arc<RwSemaphore>,
-        dentry: &Arc<Dentry>,
-        alias: &Arc<Dentry>,
-    ) -> Result<(), FilesystemError> {
-        let (parent, name) = dentry
-            .parent_and_name()
-            .ok_or(FilesystemError::FilesystemLoop)?;
-        let mut table = self.hashtable();
-        RENAME_LOCK.write(|| {
-            let mut at = Some(dentry.clone());
-            while let Some(above) = at {
-                if Arc::ptr_eq(&above, alias) {
-                    return Err(FilesystemError::FilesystemLoop);
-                }
-                at = above.state().parent.clone();
-            }
-            let Some((old_parent, old_name)) = alias.parent_and_name() else {
-                return Err(FilesystemError::FilesystemLoop);
-            };
-            let _held = match Arc::ptr_eq(&old_parent, &parent) {
-                true => None,
-                false => {
-                    let stale = || FilesystemError::StaleNetworkFileHandle;
-                    let rename = rename_mutex.down_write_trylock().ok_or_else(stale)?;
-                    let dir = old_parent.inode().and_then(|dir| dir.trylock_shared());
-                    Some((rename, dir.ok_or_else(stale)?))
-                }
-            };
-            let at = key(&old_parent, &old_name);
-            if table.get(&at).is_some_and(|held| Arc::ptr_eq(&held, alias)) {
-                table.remove(&at);
-            }
-            table.insert(key(&parent, &name), alias);
-            let mut state = alias.state();
-            state.parent = Some(parent.clone());
-            state.name = name.clone();
-            Ok(())
-        })
     }
 
     /// `first` and `second` trade the names they stand at, as Linux's

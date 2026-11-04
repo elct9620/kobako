@@ -450,6 +450,13 @@ impl Nameidata {
         let given = d_alloc_parallel(mnt.sb(), &dir, &self.name)?;
         let mut create_error = None;
         let mut ask = || {
+            if let Some(moved) = given.moved_onto(mnt.sb()) {
+                return Ok(AtomicOpen {
+                    file: None,
+                    created: false,
+                    splice: Splice::Alias(moved),
+                });
+            }
             let mut how = *how;
             if how.create {
                 let got_write = self.mnt.mnt_want_write();
@@ -1852,6 +1859,118 @@ mod tests {
             Some(FilesystemError::StaleNetworkFileHandle),
             "a walk reaching `c/d`, the directory standing at `a`, while a call holds the \
              rename lock must answer ESTALE, as __d_unalias only tries the lock"
+        );
+    }
+
+    /// A Filesystem handing one directory's inode for `a` and `b` in its root,
+    /// whose lookup of `b` answers once the test lets it, counting each.
+    #[derive(Clone, Default)]
+    struct HoldsSharedLookup {
+        shared: Arc<OnceLock<Arc<Inode>>>,
+        asked: Arc<AtomicUsize>,
+        answers: Arc<AtomicBool>,
+    }
+
+    impl FileSystemType for HoldsSharedLookup {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for HoldsSharedLookup {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Dir, 0))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let name = dentry.name();
+            if name == "b" {
+                self.asked.fetch_add(1, Ordering::SeqCst);
+                crate::sched::testing::wait_until("the test letting `b` answer", || {
+                    self.answers.load(Ordering::SeqCst)
+                });
+            }
+            Ok(match name.as_str() {
+                "a" | "b" => {
+                    let dir = Kstat::new(FileType::Dir, 0);
+                    let shared = self
+                        .shared
+                        .get_or_init(|| Inode::new(&dir, Arc::new(self.clone())));
+                    Lookup::Found(shared.clone())
+                }
+                _ => Lookup::Absent,
+            })
+        }
+    }
+
+    // Waking to the dentry it waited on, the second walk would ask the
+    // Filesystem about a name the move already answered.
+    // @behavior RT-320
+    #[test]
+    fn a_walk_waiting_on_a_name_a_directory_moved_onto_asks_no_lookup() {
+        waits_on_a_name_a_directory_moved_onto("a walk", reach);
+    }
+
+    // @behavior RT-320
+    #[test]
+    fn an_open_waiting_on_a_name_a_directory_moved_onto_asks_no_lookup() {
+        waits_on_a_name_a_directory_moved_onto("an open", |root, path| {
+            let read = OpenHow {
+                read: true,
+                ..OpenHow::default()
+            };
+            vfs::kern_path::filp_open(&Arc::default(), root, path, &read)
+                .map(|file| file.path().dentry().clone())
+        });
+    }
+
+    /// Reach `b` by `second` while the first walk looks it up over
+    /// `HoldsSharedLookup`, asserting it holds `a`'s dentry moved there and the
+    /// Filesystem was asked about `b` once.
+    fn waits_on_a_name_a_directory_moved_onto(
+        what: &str,
+        second: fn(&Path, &str) -> Result<Arc<Dentry>, FilesystemError>,
+    ) {
+        let fs = HoldsSharedLookup::default();
+        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let first = reach(&root, "a").expect("a is reached");
+        let looking = {
+            let root = root.clone();
+            thread::spawn(move || reach(&root, "b"))
+        };
+        crate::sched::testing::wait_until("the first walk asking about `b`", || {
+            fs.asked.load(Ordering::SeqCst) == 1
+        });
+        let (counted, counts) = mpsc::channel();
+        let waiting = {
+            let root = root.clone();
+            thread::spawn(move || {
+                counted.send(count_waits()).ok();
+                crate::sched::testing::bounded(|| second(&root, "b"))
+            })
+        };
+        let counts = counts
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the second walk must start");
+        crate::sched::testing::wait_until("the second walk waiting on `b`", || {
+            counts.load(Ordering::SeqCst) > 0
+        });
+        fs.answers.store(true, Ordering::SeqCst);
+        let held = [
+            crate::sched::testing::join("the first walk on b", looking),
+            crate::sched::testing::join("the second walk on b", waiting),
+        ];
+        assert_eq!(
+            (
+                held.iter()
+                    .map(|held| held.as_ref().is_ok_and(|held| Arc::ptr_eq(held, &first)))
+                    .collect::<Vec<_>>(),
+                fs.asked.load(Ordering::SeqCst)
+            ),
+            (vec![true, true], 1),
+            "{what} reaching `b` while another walk looks it up, over a Filesystem handing \
+             `a`'s directory inode for it, must hold `a`'s dentry moved there without asking \
+             the Filesystem again, as d_alloc_parallel retries a dentry __d_move unhashed"
         );
     }
 
@@ -4664,5 +4783,90 @@ mod tests {
             "vfs::filename_renameat2 of `a/x` that waited while another writer renamed it must \
              answer ENOENT and leave `a/moved`, which the Policy refuses, where it stands"
         );
+    }
+
+    /// Witnesses of a race, each run only by `rake crates:stress`: the race
+    /// lands a few times in many tries, and only an optimized build makes
+    /// that many in seconds.
+    mod stress {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, OnceLock};
+        use std::thread;
+
+        use super::{reach, root_of};
+        use crate::filesystem::{
+            FileType, Filesystem, FilesystemError, InodeOperations, Kstat, Lookup,
+        };
+        use crate::vfs::{self, Dentry, FileSystemType, Inode};
+
+        /// A Filesystem handing one directory's inode for `a` in its root and
+        /// `d` in its directory `c`, whose two lookups answer only once both
+        /// are under way.
+        #[derive(Clone, Default)]
+        struct AnswersAtOnce {
+            shared: Arc<OnceLock<Arc<Inode>>>,
+            asking: Arc<AtomicUsize>,
+        }
+
+        impl FileSystemType for AnswersAtOnce {
+            fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+                vfs::simple_fill_super(sb, self)
+            }
+        }
+
+        impl InodeOperations for AnswersAtOnce {
+            fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+                Ok(Kstat::new(FileType::Dir, 0))
+            }
+
+            fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+                let dir = Kstat::new(FileType::Dir, 0);
+                Ok(match dentry.name().as_str() {
+                    "a" | "d" => {
+                        self.asking.fetch_add(1, Ordering::SeqCst);
+                        crate::sched::testing::wait_until("both lookups under way", || {
+                            self.asking.load(Ordering::SeqCst) == 2
+                        });
+                        let shared = self
+                            .shared
+                            .get_or_init(|| Inode::new(&dir, Arc::new(self.clone())));
+                        Lookup::Found(shared.clone())
+                    }
+                    "c" => Lookup::Found(Inode::new(&dir, Arc::new(self.clone()))),
+                    _ => Lookup::Absent,
+                })
+            }
+        }
+
+        // Each walk finding no alias would record the directory on its own
+        // dentry, giving it two dentries and so two locks.
+        // @behavior RT-319
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn two_walks_finding_one_directory_under_two_names_at_once_hold_one_dentry() {
+            let split = (0..20_000)
+                .filter(|_| {
+                    let root = root_of(
+                        Filesystem::new(Arc::new(AnswersAtOnce::default()))
+                            .expect("the instance must stand"),
+                    );
+                    reach(&root, "c").expect("c is reached");
+                    let walks = ["a", "c/d"].map(|path| {
+                        let root = root.clone();
+                        thread::spawn(move || reach(&root, path))
+                    });
+                    let [first, second] = walks.map(|walk| {
+                        crate::sched::testing::join("a walk", walk).expect("the walk must reach")
+                    });
+                    !Arc::ptr_eq(&first, &second)
+                })
+                .count();
+            assert_eq!(
+                split, 0,
+                "two walks reaching `a` and `c/d` at once over a Filesystem handing one \
+                 directory inode for both must hold one dentry, as d_splice_alias finds the \
+                 alias and adds the dentry under one i_lock"
+            );
+        }
     }
 }
