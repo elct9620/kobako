@@ -135,11 +135,7 @@ pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {
         ctx.pos = 1;
     }
     if ctx.pos == 1 {
-        let above = match dentry.parent() {
-            Some(parent) => i_ino(&parent),
-            None => i_ino(dentry),
-        };
-        if !ctx.emit("..", FileType::Dir, above) {
+        if !ctx.emit("..", FileType::Dir, i_ino(&dentry.parent())) {
             return false;
         }
         ctx.pos = 2;

@@ -63,7 +63,7 @@ impl Bind {
 
     /// The host directory kept for `dentry`, if one is.
     fn find_fid(&self, dentry: &Dentry) -> Option<Arc<Dir>> {
-        if dentry.parent().is_none() {
+        if dentry.is_root() {
             return Some(self.root.clone());
         }
         OpenDirFid::get(dentry).or_else(|| self.fids.get(dentry))
@@ -81,12 +81,11 @@ impl Bind {
         let mut names = vec![dentry.name()];
         let mut at = dentry.parent();
         let above = loop {
-            let parent = at.expect("a dentry stands beneath its root, which is always held");
-            if let Some(held) = self.find_fid(&parent) {
+            if let Some(held) = self.find_fid(&at) {
                 break held;
             }
-            names.push(parent.name());
-            at = parent.parent();
+            names.push(at.name());
+            at = at.parent();
         };
         names.reverse();
         let recorded = dentry.inode().and_then(|inode| inode.identity());
@@ -112,9 +111,7 @@ impl Bind {
         dentry: &Dentry,
         call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
     ) -> Result<T, FilesystemError> {
-        let (parent, name) = dentry
-            .parent_and_name()
-            .expect("an entry the runtime names stands in a directory");
+        let (parent, name) = dentry.parent_and_name();
         call(&*self.fid_lookup(&parent)?, to_host_name(&name)?)
     }
 

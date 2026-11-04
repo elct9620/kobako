@@ -852,9 +852,9 @@ mod tests {
 
     impl InodeOperations for OpensNothing {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::RegFile, 0),
-                None => Kstat::new(FileType::Dir, 0),
+            Ok(match dentry.is_root() {
+                false => Kstat::new(FileType::RegFile, 0),
+                true => Kstat::new(FileType::Dir, 0),
             })
         }
 
@@ -1496,9 +1496,9 @@ mod tests {
 
     impl InodeOperations for RecordsCalls {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::RegFile, 0),
-                None => Kstat::new(FileType::Dir, 0),
+            Ok(match dentry.is_root() {
+                false => Kstat::new(FileType::RegFile, 0),
+                true => Kstat::new(FileType::Dir, 0),
             })
         }
 

@@ -113,9 +113,9 @@ fn real_of(dentry: &Dentry) -> Option<(Arc<Dentry>, Arc<Inode>)> {
 /// Whether `real`, a Layer's dentry, still names what it recorded, as
 /// `ovl_revalidate_real` asks it.
 fn ovl_revalidate_real(real: &Dentry) -> Result<bool, FilesystemError> {
-    match (real.ops(), real.parent()) {
-        (Some(ops), Some(parent)) => ops.revalidate(parent.inode_ops()?.as_ref(), real),
-        _ => Ok(true),
+    match real.ops() {
+        Some(ops) => ops.revalidate(real.parent().inode_ops()?.as_ref(), real),
+        None => Ok(true),
     }
 }
 
@@ -1831,7 +1831,7 @@ mod tests {
             dentry: &Dentry,
             how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            if dentry.kind() == Ok(FileType::Dir) && dentry.parent().is_some() {
+            if dentry.kind() == Ok(FileType::Dir) && !dentry.is_root() {
                 self.start();
             }
             inner.open(dentry, how)

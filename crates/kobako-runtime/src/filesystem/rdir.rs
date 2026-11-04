@@ -80,10 +80,7 @@ impl Rdir {
 /// `..` naming `dentry` itself at the root.
 fn dots(dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
     let dot = dentry.getattr()?;
-    let dotdot = match dentry.parent() {
-        Some(parent) => parent.getattr()?,
-        None => dot,
-    };
+    let dotdot = dentry.parent().getattr()?;
     Ok(vec![
         DirEntry::new(".", FileType::Dir).with_identity(dot.dev, dot.ino),
         DirEntry::new("..", FileType::Dir).with_identity(dotdot.dev, dotdot.ino),

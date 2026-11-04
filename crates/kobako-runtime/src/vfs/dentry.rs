@@ -79,7 +79,8 @@ enum InLookup {
 }
 
 struct State {
-    /// The directory above, `None` for the root.
+    /// The directory above, `None` where the dentry is a root, which stands as
+    /// its own parent, as Linux's `d_parent == self`, held without a cycle.
     parent: Option<Arc<Dentry>>,
     name: String,
     /// What the name stands for once a lookup found it, `None` while the
@@ -132,18 +133,25 @@ impl Dentry {
         self.ops.as_ref()
     }
 
-    /// The directory above, `None` for the root, as Linux's `dget_parent`
-    /// takes it.
-    pub(crate) fn parent(&self) -> Option<Arc<Dentry>> {
-        self.state().parent.clone()
+    /// The directory above, this dentry itself at a root, as Linux's
+    /// `dget_parent` takes it.
+    pub(crate) fn parent(&self) -> Arc<Dentry> {
+        self.parent_and_name().0
     }
 
-    /// The directory above and the name there, read together, `None` for the
-    /// root, so a move landing meanwhile cannot pair one's parent with the
-    /// other's name, as 9p holds `rename_sem` to read both.
-    pub(crate) fn parent_and_name(&self) -> Option<(Arc<Dentry>, String)> {
+    /// Whether this dentry is a root, standing as its own parent, as Linux's
+    /// `IS_ROOT` answers.
+    pub(crate) fn is_root(&self) -> bool {
+        self.state().parent.is_none()
+    }
+
+    /// The directory above and the name there, read together, so a move
+    /// landing meanwhile cannot pair one's parent with the other's name, as 9p
+    /// holds `rename_sem` to read both.
+    pub(crate) fn parent_and_name(&self) -> (Arc<Dentry>, String) {
         let state = self.state();
-        Some((state.parent.clone()?, state.name.clone()))
+        let parent = state.parent.clone().unwrap_or_else(|| self.get());
+        (parent, state.name.clone())
     }
 
     /// This dentry, kept for as long as the caller holds it, as Linux's
@@ -169,22 +177,18 @@ impl Dentry {
         self.names().join("/")
     }
 
-    /// Each name from the Filesystem's root down to this directory.
+    /// Each name from the Filesystem's root down to this directory, as Linux's
+    /// `__dentry_path` walks up until `IS_ROOT`.
     pub(crate) fn names(&self) -> Vec<String> {
         RENAME_LOCK.read(|| {
             let mut names = Vec::new();
-            let mut at = {
-                let state = self.state();
-                names.push(state.name.clone());
-                state.parent.clone()
-            };
-            while let Some(dentry) = at {
-                let state = dentry.state();
-                names.push(state.name.clone());
-                at = state.parent.clone();
+            let mut at = self.get();
+            while !at.is_root() {
+                let (parent, name) = at.parent_and_name();
+                names.push(name);
+                at = parent;
             }
             names.reverse();
-            names.retain(|name| !name.is_empty());
             names
         })
     }
@@ -307,7 +311,7 @@ impl Dentry {
     /// `__d_move` unhashed the dentry it waited on, rather than asking the
     /// Filesystem again.
     pub(crate) fn moved_onto(&self, sb: &SuperBlock) -> Option<Arc<Dentry>> {
-        let (parent, name) = self.parent_and_name()?;
+        let (parent, name) = self.parent_and_name();
         sb.dentries()
             .lookup(&parent, &name)
             .filter(|held| !std::ptr::eq(held.as_ref(), self) && !held.in_lookup())
@@ -374,10 +378,7 @@ impl Dentry {
         name: &str,
         inode: Arc<Inode>,
     ) -> Result<Arc<Dentry>, FilesystemError> {
-        let parent = self
-            .parent()
-            .expect("a dentry in lookup stands in a directory");
-        let found = sb.dentries().alloc_parallel(&parent, name);
+        let found = sb.dentries().alloc_parallel(&self.parent(), name);
         let spliced = found.ask_in_lookup(|| found.splice_alias(sb, Lookup::Found(inode)))?;
         Ok(spliced.flatten().unwrap_or(found))
     }
@@ -395,17 +396,13 @@ impl Dentry {
         sb: &SuperBlock,
         alias: &Arc<Dentry>,
     ) -> Result<(), FilesystemError> {
-        let (parent, name) = self
-            .parent_and_name()
-            .expect("a dentry in lookup stands in a directory");
+        let (parent, name) = self.parent_and_name();
         let mut table = sb.dentries().hashtable();
         RENAME_LOCK.write(|| {
-            if d_ancestor(alias, self) {
+            if d_ancestor(alias, self) || alias.is_root() {
                 return Err(FilesystemError::FilesystemLoop);
             }
-            let Some((old_parent, old_name)) = alias.parent_and_name() else {
-                return Err(FilesystemError::FilesystemLoop);
-            };
+            let (old_parent, old_name) = alias.parent_and_name();
             let _held = match Arc::ptr_eq(&old_parent, &parent) {
                 true => None,
                 false => {
@@ -534,12 +531,12 @@ impl Dentry {
 /// Whether `ancestor` stands above `dentry`, as Linux's `d_ancestor` answers.
 /// The caller holds `RENAME_LOCK`, so no move lands during the walk up.
 fn d_ancestor(ancestor: &Arc<Dentry>, dentry: &Arc<Dentry>) -> bool {
-    let mut at = dentry.parent();
-    while let Some(above) = at {
-        if Arc::ptr_eq(&above, ancestor) {
+    let mut at = dentry.clone();
+    while !at.is_root() {
+        at = at.parent();
+        if Arc::ptr_eq(&at, ancestor) {
             return true;
         }
-        at = above.parent();
     }
     false
 }
@@ -624,10 +621,10 @@ impl Dentries {
         self.root.clone()
     }
 
-    /// A dentry no walk reaches, standing beneath the root under no name, as
+    /// A dentry no walk reaches, a root of its own under no name, as
     /// `d_alloc_pseudo` makes one for what is only ever open.
     pub(crate) fn alloc_pseudo(&self) -> Arc<Dentry> {
-        Dentry::new(Some(self.root.clone()), "", self.ops.clone())
+        Dentry::new(None, "", self.ops.clone())
     }
 
     /// The dentry of `name` in `parent`, the one held there or a new one, as
@@ -648,15 +645,15 @@ impl Dentries {
     }
 
     /// Whether `dentry` was taken out of the table, as Linux's
-    /// `d_unlinked` answers for one no longer reached by its name.
+    /// `d_unlinked` answers for one no longer reached by its name; a root never
+    /// is.
     pub(crate) fn unlinked(&self, dentry: &Arc<Dentry>) -> bool {
+        let (parent, name) = dentry.parent_and_name();
         let table = self.hashtable();
-        let Some(parent) = dentry.parent() else {
-            return false;
-        };
-        !table
-            .get(&key(&parent, &dentry.name()))
-            .is_some_and(|held| Arc::ptr_eq(&held, dentry))
+        !dentry.is_root()
+            && !table
+                .get(&key(&parent, &name))
+                .is_some_and(|held| Arc::ptr_eq(&held, dentry))
     }
 
     /// Take `dentry` out of the table, so the next lookup of its name makes
@@ -665,11 +662,9 @@ impl Dentries {
     pub(crate) fn unhash(&self, dentry: &Arc<Dentry>) {
         let kept = self.lru().pop(&(Arc::as_ptr(dentry) as usize));
         drop(kept);
+        let (parent, name) = dentry.parent_and_name();
         let mut table = self.hashtable();
-        let Some(parent) = dentry.state().parent.clone() else {
-            return;
-        };
-        let at = key(&parent, &dentry.name());
+        let at = key(&parent, &name);
         if table
             .get(&at)
             .is_some_and(|held| Arc::ptr_eq(&held, dentry))
@@ -711,10 +706,8 @@ impl Dentries {
             std::mem::swap(&mut one.name, &mut other.name);
         });
         for dentry in [first, second] {
-            let state = dentry.state();
-            if let Some(parent) = &state.parent {
-                table.insert(key(parent, &state.name), dentry);
-            }
+            let (parent, name) = dentry.parent_and_name();
+            table.insert(key(&parent, &name), dentry);
         }
     }
 }

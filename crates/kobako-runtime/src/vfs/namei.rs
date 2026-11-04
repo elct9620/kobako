@@ -284,10 +284,10 @@ impl Nameidata {
     /// walk started from, or the mount's root, no `..` holds a capability, as
     /// `RESOLVE_BENEATH` refuses a caller's and a link's alike.
     fn follow_dotdot(&mut self) -> Result<(), FilesystemError> {
-        if Arc::ptr_eq(&self.dir, &self.root) {
+        if Arc::ptr_eq(&self.dir, &self.root) || self.dir.is_root() {
             return Err(FilesystemError::Escape);
         }
-        self.dir = self.dir.parent().ok_or(FilesystemError::Escape)?;
+        self.dir = self.dir.parent();
         // A move along the way may have carried `..` above where the walk started,
         // so the caller makes the call again, as `handle_dots` answers a scoped walk.
         if RENAME_LOCK.read_seqretry(self.r_seq) {
@@ -1362,9 +1362,9 @@ mod tests {
 
     impl InodeOperations for LinksFile {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::RegFile, 0).with_nlink(self.names),
-                None => Kstat::new(FileType::Dir, 0),
+            Ok(match dentry.is_root() {
+                false => Kstat::new(FileType::RegFile, 0).with_nlink(self.names),
+                true => Kstat::new(FileType::Dir, 0),
             })
         }
 
@@ -1809,10 +1809,7 @@ mod tests {
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let dir = Kstat::new(FileType::Dir, 0);
-            let above = dentry
-                .parent()
-                .map(|parent| parent.name())
-                .unwrap_or_default();
+            let above = dentry.parent().name();
             Ok(match (above.as_str(), dentry.name().as_str()) {
                 ("", "a" | "b") | ("a" | "b", "loop") | ("c", "d") => {
                     let shared = self
@@ -2199,9 +2196,9 @@ mod tests {
 
     impl InodeOperations for CreatesOnly {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::RegFile, 0),
-                None => Kstat::new(FileType::Dir, 0),
+            Ok(match dentry.is_root() {
+                false => Kstat::new(FileType::RegFile, 0),
+                true => Kstat::new(FileType::Dir, 0),
             })
         }
 
@@ -2356,8 +2353,7 @@ mod tests {
             dentry: &Dentry,
             how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            let parent = dentry.parent().expect("a made file has a directory");
-            let _held = parent.inode_lock()?;
+            let _held = dentry.parent().inode_lock()?;
             self.0.open(dentry, how)
         }
     }
@@ -2895,9 +2891,9 @@ mod tests {
 
     impl InodeOperations for ReadOnlyRefusingWrites {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::RegFile, 0),
-                None => Kstat::new(FileType::Dir, 0),
+            Ok(match dentry.is_root() {
+                false => Kstat::new(FileType::RegFile, 0),
+                true => Kstat::new(FileType::Dir, 0),
             })
         }
 
@@ -4181,9 +4177,9 @@ mod tests {
 
     impl InodeOperations for CountsLookups {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            let kind = match dentry.parent() {
-                Some(_) => crate::filesystem::FileType::RegFile,
-                None => crate::filesystem::FileType::Dir,
+            let kind = match dentry.is_root() {
+                false => crate::filesystem::FileType::RegFile,
+                true => crate::filesystem::FileType::Dir,
             };
             Ok(Kstat::new(kind, 0))
         }
@@ -4383,9 +4379,9 @@ mod tests {
 
     impl InodeOperations for KeepsChanges {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::RegFile, 0),
-                None => Kstat::new(FileType::Dir, 0),
+            Ok(match dentry.is_root() {
+                false => Kstat::new(FileType::RegFile, 0),
+                true => Kstat::new(FileType::Dir, 0),
             })
         }
 
@@ -4478,7 +4474,7 @@ mod tests {
         }
 
         fn permission(&self, dentry: &Dentry, mask: Mask) -> Result<(), FilesystemError> {
-            match dentry.parent().is_some() && mask.contains(self.refuses) {
+            match !dentry.is_root() && mask.contains(self.refuses) {
                 true => Err(FilesystemError::PermissionDenied),
                 false => Ok(()),
             }
@@ -4739,9 +4735,9 @@ mod tests {
 
     impl InodeOperations for AsksItsOwnName {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Ok(match dentry.parent() {
-                Some(_) => Kstat::new(FileType::RegFile, 0),
-                None => Kstat::new(FileType::Dir, 0),
+            Ok(match dentry.is_root() {
+                false => Kstat::new(FileType::RegFile, 0),
+                true => Kstat::new(FileType::Dir, 0),
             })
         }
 

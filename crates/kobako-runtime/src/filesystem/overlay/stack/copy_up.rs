@@ -26,11 +26,7 @@ impl OverlayFs {
             if let Some(held) = at.level()[UPPER].clone() {
                 break held;
             }
-            let above = at
-                .dentry
-                .parent()
-                .ok_or(FilesystemError::ReadOnlyFilesystem)?;
-            let next = self.dir(&above)?;
+            let next = self.dir(&at.dentry.parent())?;
             unmade.push(at);
             at = next;
         };
@@ -83,8 +79,9 @@ impl OverlayFs {
     /// Whether `real`, a Layer's dentry, stands in the upper Tmpfs, in its
     /// workdir too, where a removal leaves a file something still holds.
     pub(in super::super) fn is_in_upper(&self, real: &Arc<Dentry>) -> bool {
-        let root = self.work.as_ref().and_then(|work| work.dentry().parent());
-        root.is_some_and(|root| real.is_subdir(&root))
+        self.work
+            .as_ref()
+            .is_some_and(|work| real.is_subdir(&work.dentry().parent()))
     }
 
     /// Copy the file `child` names in `dir` up from the Layer its inode keeps,

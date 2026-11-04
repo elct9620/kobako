@@ -282,10 +282,7 @@ impl OverlayFs {
 
     /// The directory holding the entry `dentry` names.
     pub(super) fn parent(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
-        let parent = dentry
-            .parent()
-            .expect("an entry the runtime names stands in a directory");
-        self.dir(&parent)
+        self.dir(&dentry.parent())
     }
 
     /// The workdir and a name in it no change has taken, as overlayfs's

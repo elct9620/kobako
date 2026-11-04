@@ -23,13 +23,14 @@ struct AllowedAccess(Access);
 /// met, and the caller makes the call again.
 fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
     let mut chain = vec![path.dentry().clone()];
-    while let Some(above) = chain.last().and_then(|at| at.parent()) {
+    while let Some(at) = chain.last().filter(|at| !at.is_root()) {
+        let above = at.parent();
         chain.push(above);
     }
     for pair in chain.windows(2).rev() {
         let [name, above] = pair else { continue };
         let _held = above.inode_lock_shared()?;
-        if !name.parent().is_some_and(|now| Arc::ptr_eq(&now, above)) {
+        if !Arc::ptr_eq(&name.parent(), above) {
             return Err(FilesystemError::WouldBlock);
         }
         if !d_revalidate(path.mnt().sb(), above, name)? {
@@ -232,7 +233,7 @@ impl WalkGuard {
             return Ok(());
         }
         let dentry = path.dentry();
-        if dentry.parent().is_none() {
+        if dentry.is_root() {
             return Ok(());
         }
         let told_apart = dentry
