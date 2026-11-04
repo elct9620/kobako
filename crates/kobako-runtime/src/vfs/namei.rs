@@ -9,7 +9,9 @@
 //! started from, as `openat2`'s `RESOLVE_BENEATH` keeps a resolution: one
 //! leading out of it, or to an absolute path, escapes it.
 
+use std::cell::Cell;
 use std::collections::VecDeque;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use super::attr::notify_change;
@@ -52,7 +54,9 @@ pub(crate) struct Nameidata {
     /// The directory the walk stands in, which holds the last name.
     dir: Arc<Dentry>,
     pending: VecDeque<String>,
-    links: usize,
+    /// The links followed through every walk of one call, as Linux's
+    /// `total_link_count` carries into a walk made again for ESTALE.
+    links: Rc<Cell<usize>>,
     /// The last name, as Linux's `nd->last`, empty unless it is a `Norm` one.
     pub(crate) name: String,
     last_type: LastType,
@@ -283,8 +287,8 @@ impl Nameidata {
     /// Walk on through where the link `dentry` names points, before
     /// whatever is left of the path.
     fn pick_link(&mut self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.links += 1;
-        if self.links > MAXSYMLINKS {
+        self.links.set(self.links.get() + 1);
+        if self.links.get() > MAXSYMLINKS {
             return Err(FilesystemError::FilesystemLoop);
         }
         let target = dentry.get_link()?;
@@ -594,10 +598,12 @@ fn sb_permission(sb: &SuperBlock, dentry: &Dentry, mask: Mask) -> Result<(), Fil
 /// `set_nameidata` and `path_init` make one. A path no call can take answers
 /// first, wherever it starts; an absolute one is not the caller's to reach, so
 /// no start is looked for; and a walk starts from nothing but a directory.
+/// Each walk of one call counts its links toward `links`.
 fn set_nameidata(
     cred: &Arc<Cred>,
     start: &impl Start,
     path: &str,
+    links: &Rc<Cell<usize>>,
 ) -> Result<Nameidata, FilesystemError> {
     getname(path)?;
     if path.starts_with('/') {
@@ -614,7 +620,7 @@ fn set_nameidata(
         r_seq: RENAME_LOCK.read_seqbegin(),
         dir: start.dentry().clone(),
         pending: parts(path),
-        links: 0,
+        links: links.clone(),
         name: String::new(),
         last_type: LastType::Dot,
         trailing_slash: false,
@@ -631,8 +637,9 @@ pub(crate) fn filename_parentat(
     start: &impl Start,
     path: &str,
 ) -> Result<Nameidata, FilesystemError> {
+    let links = Rc::default();
     retry_estale(|| {
-        let mut nd = set_nameidata(cred, start, path)?;
+        let mut nd = set_nameidata(cred, start, path, &links)?;
         nd.link_path_walk()?;
         nd.complete_walk()?;
         Ok(nd)
@@ -662,7 +669,8 @@ pub(crate) fn filename_lookup(
     path: &str,
     follow: bool,
 ) -> Result<Nameidata, FilesystemError> {
-    retry_estale(|| path_lookupat(set_nameidata(cred, start, path)?, follow))
+    let links = Rc::default();
+    retry_estale(|| path_lookupat(set_nameidata(cred, start, path, &links)?, follow))
 }
 
 /// Walk `nd` to what its path names, as Linux's `path_lookupat`.
@@ -687,7 +695,8 @@ pub fn do_file_open(
     path: &str,
     op: &OpenFlags,
 ) -> Result<File, FilesystemError> {
-    retry_estale(|| path_openat(set_nameidata(cred, start, path)?, op))
+    let links = Rc::default();
+    retry_estale(|| path_openat(set_nameidata(cred, start, path, &links)?, op))
 }
 
 /// Walk `nd` to its last name and open it as `op` asks, as Linux's
@@ -4989,6 +4998,68 @@ mod tests {
         fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
             Ok(String::new())
         }
+    }
+
+    /// Thirty links, `l0` through `l29`, each pointing at the next and the last
+    /// at the file `f`, whose first lookup answers ESTALE.
+    #[derive(Default)]
+    struct StaleBehindLinks {
+        answered_stale: AtomicBool,
+    }
+
+    impl FileSystemType for StaleBehindLinks {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for StaleBehindLinks {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(
+                dentry.inode().map_or(FileType::Dir, |inode| inode.kind()),
+                0,
+            ))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let kind = match dentry.name().as_str() {
+                "f" if !self.answered_stale.swap(true, Ordering::SeqCst) => {
+                    return Err(FilesystemError::StaleNetworkFileHandle)
+                }
+                "f" => FileType::RegFile,
+                _ => FileType::Symlink,
+            };
+            Ok(Lookup::Found(Inode::new(
+                &Kstat::new(kind, 0),
+                Arc::new(Self::default()),
+            )))
+        }
+
+        fn get_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+            let at: usize = dentry.name()[1..].parse().expect("a link is named l<n>");
+            Ok(match at {
+                29 => "f".to_string(),
+                _ => format!("l{}", at + 1),
+            })
+        }
+    }
+
+    // Each walk follows thirty links, within the budget of one, so only
+    // counting both walks toward one budget reaches the limit.
+    // @behavior RT-327
+    #[test]
+    fn a_walk_made_again_for_estale_counts_the_links_the_first_followed() {
+        let root = root_of(
+            Filesystem::new(Arc::new(StaleBehindLinks::default()))
+                .expect("the instance must stand"),
+        );
+        assert_eq!(
+            vfs::vfs_fstatat(&Arc::default(), &root, "l0", true).map(|found| found.file_type),
+            Err(FilesystemError::FilesystemLoop),
+            "vfs::vfs_fstatat following thirty links to a name that answers ESTALE once must \
+             count the links of both walks toward one budget of forty and answer ELOOP, as \
+             Linux's total_link_count carries into the walk made again"
+        );
     }
 
     // Only a host's or a Ruby Filesystem's link can point nowhere, as Linux
