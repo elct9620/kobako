@@ -213,13 +213,15 @@ impl InodeOperations for OverlayRegular {
             .copy_up_file(&overlay.fs.parent(dentry)?, dentry, false)?;
         let (real, _) = real_of(dentry).ok_or(FilesystemError::NotFound)?;
         // The open's truncate never reached the upper's open, so the upper must
-        // empty the file itself, as `ovl_setattr` clears `ATTR_OPEN`.
+        // empty the file itself, and the view's open file is none of the upper's,
+        // as `ovl_setattr` clears `ATTR_OPEN` and `ATTR_FILE`.
         let held = real.inode_lock()?;
         notify_change(
             &real,
             &held,
             &Iattr {
                 open: false,
+                file: None,
                 ..*attr
             },
         )

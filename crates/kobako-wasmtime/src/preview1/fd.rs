@@ -162,7 +162,7 @@ fn to_iattr(
     atim: types::Timestamp,
     mtim: types::Timestamp,
     flags: Fstflags,
-) -> Answer<Option<Iattr>> {
+) -> Answer<Option<Iattr<'static>>> {
     let time = |at, set, now| match (flags.contains(set), flags.contains(now)) {
         (true, true) => Err(Errno::Inval),
         (true, false) => Ok(Some(SetTime::At(UNIX_EPOCH + Duration::from_nanos(at)))),

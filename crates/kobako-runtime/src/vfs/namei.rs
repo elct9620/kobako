@@ -828,7 +828,11 @@ fn do_open(
     if truncate {
         nd.cred.security_file_truncate(&security)?;
         let held = child.inode_lock()?;
-        notify_change(&child, &held, &Iattr::open_truncate())?;
+        notify_change(
+            &child,
+            &held,
+            &Iattr::open_truncate().through(f_op.as_ref()),
+        )?;
     }
     Ok(File::new(
         nd.path_to(child),
@@ -4561,9 +4565,9 @@ mod tests {
     }
 
     /// A directory holding a file at every name, keeping each change `setattr`
-    /// is handed.
+    /// is handed and whether it came through an open file.
     #[derive(Clone, Default)]
-    struct KeepsChanges(Arc<Mutex<Vec<crate::filesystem::Iattr>>>);
+    struct KeepsChanges(Arc<Mutex<Vec<(crate::filesystem::Iattr<'static>, bool)>>>);
 
     impl FileSystemType for KeepsChanges {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
@@ -4593,7 +4597,17 @@ mod tests {
             _dentry: &Dentry,
             attr: &crate::filesystem::Iattr,
         ) -> Result<(), FilesystemError> {
-            self.0.lock().expect("never poisoned").push(*attr);
+            self.0.lock().expect("never poisoned").push((
+                crate::filesystem::Iattr {
+                    size: attr.size,
+                    atime: attr.atime,
+                    mtime: attr.mtime,
+                    open: attr.open,
+                    ctime: attr.ctime,
+                    file: None,
+                },
+                attr.file.is_some(),
+            ));
             Ok(())
         }
     }
@@ -4623,13 +4637,49 @@ mod tests {
             .lock()
             .expect("never poisoned")
             .iter()
-            .map(|attr| (attr.size, attr.mtime))
+            .map(|(attr, _)| (attr.size, attr.mtime))
             .collect::<Vec<_>>();
         assert_eq!(
             named,
             [(Some(3), Some(SetTime::Now)), (Some(0), Some(SetTime::Now))],
             "File::truncate and vfs::do_file_open with O_TRUNC must hand setattr the size and a \
              modification time of now, as do_truncate names ATTR_MTIME"
+        );
+    }
+
+    // The Filesystem finds no open file of its own to act through, so only the
+    // change carrying the one it was made through tells it which.
+    // @behavior RT-330
+    #[test]
+    fn a_truncate_made_through_an_open_hands_setattr_that_open() {
+        let changes = KeepsChanges::default();
+        let root =
+            root_of(Filesystem::new(Arc::new(changes.clone())).expect("the instance must stand"));
+        let cred = Arc::default();
+        let write = OpenHow {
+            write: true,
+            ..OpenHow::default()
+        };
+        let mut file =
+            vfs::kern_path::filp_open(&cred, &root, "file", &write).expect("the file must open");
+        file.truncate(3).expect("the truncate must land");
+        let truncate = OpenHow {
+            truncate: true,
+            ..write
+        };
+        vfs::kern_path::filp_open(&cred, &root, "file", &truncate).expect("the file must open");
+        let through = changes
+            .0
+            .lock()
+            .expect("never poisoned")
+            .iter()
+            .map(|(_, through)| *through)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            through,
+            [true, true],
+            "File::truncate and vfs::do_file_open with O_TRUNC must hand setattr the open file \
+             the truncate is made through, as do_truncate sets ATTR_FILE"
         );
     }
 

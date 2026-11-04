@@ -1,9 +1,11 @@
 //! What a change sets of an entry, as Linux's `fs/attr.c` takes a
 //! `struct iattr`.
 
+use std::fmt;
 use std::time::SystemTime;
 
 use super::dentry::Dentry;
+use super::file::FileOperations;
 use super::FilesystemError;
 use crate::locking::RwSemaphoreGuard;
 
@@ -33,9 +35,9 @@ pub(crate) fn notify_change(
 
 /// What a change sets of an entry, as Linux's `struct iattr`; a field left
 /// `None` is one `ia_valid` does not name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 #[non_exhaustive]
-pub struct Iattr {
+pub struct Iattr<'a> {
     /// The length to truncate or extend a file to, extending with zeros.
     pub size: Option<u64>,
     /// The access and modification times to set.
@@ -47,9 +49,13 @@ pub struct Iattr {
     /// The moment the change lands, which `notify_change` sets, as Linux's
     /// `ia_ctime`: what a time set to now reads, and the entry's change time.
     pub ctime: Option<SystemTime>,
+    /// The open file a truncate is made through, as `ATTR_FILE` names
+    /// `ia_file`, so a Filesystem acts through what that open holds, as 9p
+    /// takes its fid.
+    pub file: Option<&'a dyn FileOperations>,
 }
 
-impl Iattr {
+impl Iattr<'static> {
     /// A change truncating or extending a file to `len`, moving its modification
     /// time to the moment it lands, as Linux's `do_truncate` names `ATTR_MTIME`
     /// with `ATTR_SIZE`.
@@ -60,6 +66,7 @@ impl Iattr {
             mtime: Some(SetTime::Now),
             open: false,
             ctime: None,
+            file: None,
         }
     }
 
@@ -79,6 +86,21 @@ impl Iattr {
             mtime,
             open: false,
             ctime: None,
+            file: None,
+        }
+    }
+}
+
+impl<'a> Iattr<'a> {
+    /// This change made through the open file `file`, as `do_truncate` sets
+    /// `ATTR_FILE`.
+    pub(crate) fn through<'b>(self, file: &'b dyn FileOperations) -> Iattr<'b>
+    where
+        'a: 'b,
+    {
+        Iattr {
+            file: Some(file),
+            ..self
         }
     }
 
@@ -88,6 +110,46 @@ impl Iattr {
             SetTime::Now => self.ctime.unwrap_or_else(SystemTime::now),
             SetTime::At(time) => time,
         }
+    }
+}
+
+/// Two changes compare equal through the same open file.
+impl PartialEq for Iattr<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        let file = |attr: &Self| {
+            attr.file
+                .map(|file| file as *const dyn FileOperations as *const ())
+        };
+        (
+            self.size,
+            self.atime,
+            self.mtime,
+            self.open,
+            self.ctime,
+            file(self),
+        ) == (
+            other.size,
+            other.atime,
+            other.mtime,
+            other.open,
+            other.ctime,
+            file(other),
+        )
+    }
+}
+
+impl Eq for Iattr<'_> {}
+
+impl fmt::Debug for Iattr<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Iattr")
+            .field("size", &self.size)
+            .field("atime", &self.atime)
+            .field("mtime", &self.mtime)
+            .field("open", &self.open)
+            .field("ctime", &self.ctime)
+            .field("file", &self.file.is_some())
+            .finish()
     }
 }
 

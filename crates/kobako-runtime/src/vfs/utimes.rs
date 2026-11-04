@@ -57,7 +57,7 @@ mod tests {
     use crate::security::{prepare_creds_within, restrict_self};
     use crate::vfs::Dentry;
 
-    fn times() -> Iattr {
+    fn times() -> Iattr<'static> {
         Iattr::times(Some(SetTime::Now), Some(SetTime::At(UNIX_EPOCH)))
     }
 
@@ -171,7 +171,7 @@ mod tests {
 
     /// A Filesystem keeping what it was last asked to set.
     #[derive(Default)]
-    struct KeepsTimes(Mutex<Option<Iattr>>);
+    struct KeepsTimes(Mutex<Option<Iattr<'static>>>);
 
     impl FileSystemType for KeepsTimes {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
@@ -189,7 +189,14 @@ mod tests {
         }
 
         fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
-            *self.0.lock().unwrap() = Some(*attr);
+            *self.0.lock().unwrap() = Some(Iattr {
+                size: attr.size,
+                atime: attr.atime,
+                mtime: attr.mtime,
+                open: attr.open,
+                ctime: attr.ctime,
+                file: None,
+            });
             Ok(())
         }
     }

@@ -490,7 +490,14 @@ impl InodeOperations for BindRegular {
 
     fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
         if let Some(len) = attr.size {
-            return match v9fs_fid_find_inode(dentry, true) {
+            // A truncate made through an open takes that open's descriptor, as
+            // 9p takes `ia_file`'s fid; one made by name, one open to write
+            // elsewhere.
+            let through = attr
+                .file
+                .and_then(|file| (file as &dyn Any).downcast_ref::<BindFile>())
+                .map(|opened| opened.file.clone());
+            return match through.or_else(|| v9fs_fid_find_inode(dentry, true)) {
                 Some(file) => file.set_len(len).map_err(to_error),
                 None => Err(FilesystemError::InvalidInput),
             };
@@ -845,7 +852,7 @@ mod tests {
             std::time::UNIX_EPOCH + std::time::Duration::from_secs(1)
         }
 
-        fn set_modified() -> Iattr {
+        fn set_modified() -> Iattr<'static> {
             Iattr::times(None, Some(SetTime::At(moment())))
         }
 

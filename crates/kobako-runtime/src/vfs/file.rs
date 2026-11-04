@@ -2,6 +2,7 @@
 //! for it, and what each descriptor of it shares, so any ABI above holds the
 //! same open file.
 
+use std::any::Any;
 use std::ops::BitOr;
 use std::sync::Arc;
 
@@ -80,8 +81,10 @@ pub fn generic_write_sync<F: FileOperations + ?Sized>(
 }
 
 /// One open file. The runtime keeps its position and hands each call where it
-/// lands.
-pub trait FileOperations: Send {
+/// lands. Its Filesystem reaches what it holds through a change made through it,
+/// as Linux's `ia_file->private_data`, and any thread may hold it, as a
+/// `struct file` is shared.
+pub trait FileOperations: Any + Send + Sync {
     /// Where a seek by `offset` from `whence` leaves this file, which `dentry`
     /// names and whose position stands at `pos`, as `f_op->llseek` answers. A file
     /// without it takes no seek, as Linux clears `FMODE_LSEEK` for one; one that
@@ -702,7 +705,7 @@ impl File {
         self.cred.security_file_truncate(&self.security)?;
         let dentry = self.path.dentry();
         let held = dentry.inode_lock()?;
-        notify_change(dentry, &held, &Iattr::size(len))
+        notify_change(dentry, &held, &Iattr::size(len).through(self.ops.as_ref()))
     }
 
     /// Hand `ctx` the entries of the directory from where it stands until the
