@@ -1310,9 +1310,8 @@ mod tests {
         let overlay = Arc::new(over(lower.clone(), Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
         let root = filesystem.dentries().root();
-        let dir = lookup_one_qstr_excl(&filesystem, &root, "dir")
-            .expect("the directory must be found")
-            .1;
+        let dir =
+            lookup_one_qstr_excl(&filesystem, &root, "dir").expect("the directory must be found");
         let layer = on(&lower);
         layer
             .rename("dir", &layer, "moved")
@@ -1351,12 +1350,9 @@ mod tests {
         let overlay = Arc::new(over(lower, Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
         let root = filesystem.dentries().root();
-        let dir = lookup_one_qstr_excl(&filesystem, &root, "dir")
-            .expect("the directory must be found")
-            .1;
-        let file = lookup_one_qstr_excl(&filesystem, &dir, "file")
-            .expect("the file must be found")
-            .1;
+        let dir =
+            lookup_one_qstr_excl(&filesystem, &root, "dir").expect("the directory must be found");
+        let file = lookup_one_qstr_excl(&filesystem, &dir, "file").expect("the file must be found");
         vfs_unlink(&Default::default(), &filesystem, &dir, &file)
             .expect("the file must be removed");
         let upper_root = overlay.fs.dir(&root).expect("the root must stand").level()[0]
@@ -1367,8 +1363,7 @@ mod tests {
             .clear_empty(&upper_root, "dir")
             .expect("the directory must be exchanged");
         let walked = lookup_one_qstr_excl(&filesystem, &root, "dir")
-            .expect("the directory must be found again")
-            .1;
+            .expect("the directory must be found again");
         let names = overlay.fs.dir_read_merged(
             &overlay
                 .fs

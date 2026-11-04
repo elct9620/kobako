@@ -68,7 +68,7 @@ impl OverlayPath {
     /// The dentry of `name` as this directory stores it, what stands there
     /// recorded on it. The caller holds this directory's lock.
     fn lookup_real(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        Ok(lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)?.1)
+        lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)
     }
 
     fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
@@ -181,8 +181,8 @@ impl OverlayPath {
         name: &str,
     ) -> Result<Option<(String, Arc<Dentry>)>, FilesystemError> {
         let _held = self.inode_lock_shared()?;
-        let (stored, dentry) = lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)?;
-        Ok(dentry.inode().is_some().then_some((stored, dentry)))
+        let dentry = lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)?;
+        Ok(dentry.inode().is_some().then(|| (dentry.name(), dentry)))
     }
 
     /// The directory `dentry` names beneath this one.

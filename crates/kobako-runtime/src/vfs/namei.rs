@@ -14,9 +14,9 @@ use std::sync::Arc;
 
 use super::attr::notify_change;
 use super::cred::{Cred, FileSecurity, SecurityPath};
-use super::dentry::{Dentry, Splice, RENAME_LOCK};
+use super::dentry::{Dentry, RENAME_LOCK};
 use super::file::{do_dentry_open, FMode, File, FileOperations};
-use super::inode::{Finish, Inode, Lookup, Mask, RenameFlag};
+use super::inode::{Finish, Inode, Mask, RenameFlag};
 use super::mount::VfsMount;
 use super::openat2::{OpenFlags, OpenHow};
 use super::path::{Path, Start};
@@ -100,8 +100,8 @@ impl Nameidata {
     /// Find the last name afresh and keep what stands there, as a call looks
     /// its name up once it holds the directory's lock.
     fn lookup_last_locked(&mut self) -> Result<Arc<Dentry>, FilesystemError> {
-        let (stored, child) = lookup_one_qstr_excl(self.mnt.sb(), self.dentry(), &self.name)?;
-        self.name = stored;
+        let child = lookup_one_qstr_excl(self.mnt.sb(), self.dentry(), &self.name)?;
+        self.name = child.name();
         self.path = Some(child.clone());
         Ok(child)
     }
@@ -172,34 +172,44 @@ pub(crate) fn d_revalidate(
     Ok(valid)
 }
 
-/// `name` in `parent` as that directory stores it, and its dentry, for a call
-/// holding that directory's lock to change the name, as Linux's
+/// The dentry of `name` in `parent`, named as that directory stores it, for a
+/// call holding that directory's lock to change the name, as Linux's
 /// `lookup_one_qstr_excl` does.
 pub(crate) fn lookup_one_qstr_excl(
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
-) -> Result<(String, Arc<Dentry>), FilesystemError> {
+) -> Result<Arc<Dentry>, FilesystemError> {
     __lookup_slow(sb, parent, name)
 }
 
-/// `name` in `parent` as that directory stores it, and the dentry of that
-/// spelling with what stands there recorded on it, as Linux's `__lookup_slow`
-/// asks `->lookup` once among the walks holding the directory's lock shared, and
-/// a case-insensitive filesystem answers through `d_add_ci`: every spelling
+/// The dentry of `name` in `parent`, named as that directory stores it, with
+/// what stands there recorded on it, as Linux's `__lookup_slow` asks
+/// `->lookup` once among the walks holding the directory's lock shared, and a
+/// case-insensitive filesystem answers through `d_add_ci`: every spelling
 /// reaching one entry shares its dentry, and so its lock. A directory removed
-/// through the VFS is asked about no name, as Linux refuses a dead one.
+/// through the VFS is asked about no name, as Linux refuses a dead one. The
+/// dentry stays for the next walk unless its Filesystem keeps none.
 fn __lookup_slow(
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
-) -> Result<(String, Arc<Dentry>), FilesystemError> {
+) -> Result<Arc<Dentry>, FilesystemError> {
     if parent.is_deaddir() {
         return Err(FilesystemError::NotFound);
     }
     let given = d_alloc_parallel(sb, parent, name)?;
-    let spliced = given.lookup_inode(sb, parent)?;
-    d_add_ci(sb, parent, name, given, spliced)
+    let dentry = given.lookup_inode(sb, parent)?.unwrap_or(given);
+    retain(sb, &dentry);
+    Ok(dentry)
+}
+
+/// Keep `dentry` for the next walk unless its Filesystem keeps none, as
+/// `dput` leaves a dentry on the LRU.
+fn retain(sb: &SuperBlock, dentry: &Arc<Dentry>) {
+    if !sb.dontcache() {
+        sb.dentries().retain(dentry);
+    }
 }
 
 /// The dentry held for `name` in `parent`, or one made in lookup for the
@@ -215,36 +225,6 @@ fn d_alloc_parallel(
     }
 }
 
-/// The spelling and dentry a lookup of `name` leaves: `given`, the dentry a
-/// directory found already stood at, or, where the entry found is stored
-/// under another spelling, that spelling's dentry with the entry spliced on
-/// it, as Linux's `d_add_ci` splices the inode found rather than asking
-/// again. The dentry stays for the next walk unless its Filesystem keeps none.
-fn d_add_ci(
-    sb: &SuperBlock,
-    parent: &Arc<Dentry>,
-    name: &str,
-    given: Arc<Dentry>,
-    spliced: Splice,
-) -> Result<(String, Arc<Dentry>), FilesystemError> {
-    let (stored, dentry) = match spliced {
-        Splice::Here => (name.to_string(), given),
-        Splice::Alias(alias) => (name.to_string(), alias),
-        Splice::Spelled(stored, inode) => {
-            let dentry = d_alloc_parallel(sb, parent, &stored)?;
-            let spliced = dentry.ask_in_lookup(|| dentry.splice_alias(sb, Lookup::Found(inode)))?;
-            match spliced {
-                Some(Splice::Alias(alias)) => (stored, alias),
-                _ => (stored, dentry),
-            }
-        }
-    };
-    if !sb.dontcache() {
-        sb.dentries().retain(&dentry);
-    }
-    Ok((stored, dentry))
-}
-
 /// The dentry of `name` in `parent` for a walk passing through, holding that
 /// directory's lock shared only to find it, as Linux's `lookup_slow` does.
 fn lookup_slow(
@@ -253,7 +233,7 @@ fn lookup_slow(
     name: &str,
 ) -> Result<Arc<Dentry>, FilesystemError> {
     let _held = parent.inode_lock_shared()?;
-    Ok(__lookup_slow(sb, parent, name)?.1)
+    __lookup_slow(sb, parent, name)
 }
 
 /// Each name of `path`, empty between two slashes and after a last one.
@@ -461,7 +441,7 @@ impl Nameidata {
                 return Ok(AtomicOpen {
                     file: None,
                     created: false,
-                    splice: Splice::Alias(moved),
+                    spliced: Some(moved),
                 });
             }
             let mut how = *how;
@@ -482,7 +462,7 @@ impl Nameidata {
             Ok(None) if given.inode().is_some() || !how.create => Ok(AtomicOpen {
                 file: None,
                 created: false,
-                splice: Splice::Here,
+                spliced: None,
             }),
             Ok(None) => ask(),
             Err(err) => Err(err),
@@ -490,13 +470,14 @@ impl Nameidata {
         let AtomicOpen {
             file,
             created,
-            splice,
+            spliced,
         } = match (asked, &create_error) {
             (Err(FilesystemError::NotFound), Some(refused)) => return Err(refused.clone()),
             (asked, _) => asked?,
         };
-        let (stored, child) = d_add_ci(mnt.sb(), &dir, &self.name, given, splice)?;
-        self.name = stored;
+        let child = spliced.unwrap_or(given);
+        retain(mnt.sb(), &child);
+        self.name = child.name();
         self.path = Some(child.clone());
         if child.inode().is_none() {
             return Err(create_error.unwrap_or(FilesystemError::NotFound));
@@ -1028,9 +1009,9 @@ pub(crate) fn __start_renaming(
     flag: Option<RenameFlag>,
 ) -> Result<RenameData, FilesystemError> {
     let _held = lock_rename(sb, old_dir, new_dir)?;
-    let old_dentry = lookup_one_qstr_excl(sb, old_dir, old_name)?.1;
+    let old_dentry = lookup_one_qstr_excl(sb, old_dir, old_name)?;
     old_dentry.kind()?;
-    let new_dentry = lookup_one_qstr_excl(sb, new_dir, new_name)?.1;
+    let new_dentry = lookup_one_qstr_excl(sb, new_dir, new_name)?;
     match (flag, new_dentry.inode().is_some()) {
         (Some(RenameFlag::Exchange), false) => return Err(FilesystemError::NotFound),
         (Some(RenameFlag::NoReplace), true) => return Err(FilesystemError::AlreadyExists),
@@ -1203,13 +1184,13 @@ pub(crate) fn vfs_mkdir(
 }
 
 /// What an `atomic_open` left: the file it opened, whether it made it, and
-/// where what it found stands, as Linux's `atomic_open` leaves
-/// `FMODE_OPENED` and `FMODE_CREATED` on the file and hands back the dentry
-/// to use.
+/// the dentry to use in place of the one asked about, none where that one
+/// records what it found, as Linux's `atomic_open` leaves `FMODE_OPENED` and
+/// `FMODE_CREATED` on the file and hands back the dentry to use.
 pub(crate) struct AtomicOpen {
     pub(crate) file: Option<Box<dyn FileOperations>>,
     pub(crate) created: bool,
-    pub(crate) splice: Splice,
+    pub(crate) spliced: Option<Arc<Dentry>>,
 }
 
 /// Look `child` in `dir` of `sb` up, make it where `how` may, and open it
@@ -1223,16 +1204,18 @@ pub(crate) fn atomic_open(
     child: &Dentry,
     how: &OpenHow,
 ) -> Result<AtomicOpen, FilesystemError> {
-    let (file, created, splice) = match dir.inode_ops()?.atomic_open(child, how)? {
-        Finish::Open { file, created } => (Some(file), created, Splice::Here),
-        Finish::Spelled { file, name, inode } => (Some(file), false, Splice::Spelled(name, inode)),
-        Finish::NoOpen { created } => (None, created, Splice::Here),
+    let (file, created, spliced) = match dir.inode_ops()?.atomic_open(child, how)? {
+        Finish::Open { file, created } => (Some(file), created, None),
+        Finish::Spelled { file, name, inode } => {
+            (Some(file), false, Some(child.add_ci(sb, &name, inode)?))
+        }
+        Finish::NoOpen { created } => (None, created, None),
         Finish::Lookup(found) => (None, false, child.splice_alias(sb, found)?),
     };
     Ok(AtomicOpen {
         file,
         created,
-        splice,
+        spliced,
     })
 }
 
@@ -4062,17 +4045,31 @@ mod tests {
     }
 
     /// A test's Filesystem reporting each name it holds as stored in upper
-    /// case, handing back the entry found, and counting what it is asked.
+    /// case, handing back the entry found, and counting what it is asked to
+    /// look up and to revalidate.
     #[derive(Default)]
-    struct ReportsUpperCase(AtomicUsize);
+    struct ReportsUpperCase {
+        asked: AtomicUsize,
+        revalidated: AtomicUsize,
+    }
 
     impl wrap::Hook for ReportsUpperCase {
+        fn revalidate(
+            &self,
+            ops: &dyn DentryOperations,
+            dir: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<bool, FilesystemError> {
+            self.revalidated.fetch_add(1, Ordering::SeqCst);
+            ops.revalidate(dir, dentry)
+        }
+
         fn lookup(
             &self,
             inner: &dyn InodeOperations,
             dentry: &Dentry,
         ) -> Result<Lookup, FilesystemError> {
-            self.0.fetch_add(1, Ordering::SeqCst);
+            self.asked.fetch_add(1, Ordering::SeqCst);
             let stored = dentry.name().to_uppercase();
             Ok(match inner.lookup(dentry)? {
                 Lookup::Found(inode) if stored != dentry.name() => Lookup::Spelled {
@@ -4096,10 +4093,34 @@ mod tests {
         let walked = super::filename_lookup(&Arc::default(), &root, "f", false)
             .and_then(|nd| Ok((nd.path()?.name(), nd.kind()?)));
         assert_eq!(
-            (walked, hook.0.load(Ordering::SeqCst)),
+            (walked, hook.asked.load(Ordering::SeqCst)),
             (Ok(("F".to_string(), FileType::RegFile)), 1),
             "vfs::filename_lookup of `f` over a Filesystem storing it as `F` must ask its lookup \
              once and hold the dentry of `F`, as d_add_ci records the entry found"
+        );
+    }
+
+    // The dentry of `F` stands for what the Filesystem just found under it, so
+    // asking about it again would only cost the Filesystem another question.
+    // @behavior RT-325
+    #[test]
+    fn a_name_found_under_another_spelling_takes_that_spellings_dentry_as_it_stands() {
+        let tmpfs: Tmpfs = [("f", "x")].into_iter().collect();
+        let hook = Arc::new(ReportsUpperCase::default());
+        let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
+        let root = root_of(Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"));
+        let first = reach(&root, "f").expect("f is reached");
+        hook.revalidated.store(0, Ordering::SeqCst);
+        let second = reach(&root, "f").expect("f is reached again");
+        assert_eq!(
+            (
+                Arc::ptr_eq(&first, &second),
+                hook.revalidated.load(Ordering::SeqCst)
+            ),
+            (true, 0),
+            "a second walk reaching `f` over a Filesystem storing it as `F` must hold the \
+             dentry of `F` without asking revalidate about it, as d_add_ci finds it through \
+             d_hash_and_lookup"
         );
     }
 

@@ -68,19 +68,6 @@ pub struct Dentry {
     wait: Condvar,
 }
 
-/// Which dentry a lookup's answer stands at, as Linux's `d_splice_alias`
-/// hands back the dentry to use in place of the one asked about.
-pub(crate) enum Splice {
-    /// The dentry asked about, which records the answer.
-    Here,
-    /// The entry, stored under another spelling, for the caller to record on
-    /// that spelling's dentry.
-    Spelled(String, Arc<Inode>),
-    /// The dentry the directory found already stood at, moved to the name
-    /// asked about.
-    Alias(Arc<Dentry>),
-}
-
 /// Where a walk asking for a lookup stands, as `d_alloc_parallel` answers.
 enum InLookup {
     /// A lookup already answered for the name.
@@ -297,21 +284,22 @@ impl Dentry {
 
     /// Ask the directory `dir` of `sb` what stands here where no lookup answered
     /// yet, and record it, as Linux's `lookup_fast` keeps a dentry, a negative
-    /// one too, and `__lookup_slow` asks `->lookup` for one just made. What
-    /// stands elsewhere is handed back as `d_splice_alias` leaves it.
+    /// one too, and `__lookup_slow` asks `->lookup` for one just made. The
+    /// dentry to use in place of this one is handed back as `d_splice_alias`
+    /// hands it, none where this one records the answer.
     pub(crate) fn lookup_inode(
         &self,
         sb: &SuperBlock,
         dir: &Dentry,
-    ) -> Result<Splice, FilesystemError> {
+    ) -> Result<Option<Arc<Dentry>>, FilesystemError> {
         let asked = self.ask_in_lookup(|| {
             if let Some(moved) = self.moved_onto(sb) {
-                return Ok(Splice::Alias(moved));
+                return Ok(Some(moved));
             }
             let found = dir.inode_ops()?.lookup(self)?;
             self.splice_alias(sb, found)
         })?;
-        Ok(asked.unwrap_or(Splice::Here))
+        Ok(asked.flatten())
     }
 
     /// The directory's dentry a move put at this name of `sb` while this one
@@ -346,32 +334,52 @@ impl Dentry {
     }
 
     /// Record what a lookup found at this name of `sb`, as Linux's
-    /// `d_splice_alias` does. A directory already standing at another dentry
-    /// keeps that one, moved here, as a directory has one dentry: a move that
-    /// would put it beneath itself answers ELOOP, and one whose locks another
-    /// call holds answers ESTALE. An entry stored under another spelling is
-    /// handed back with that spelling instead, for the caller to record there,
-    /// as `d_add_ci` does.
+    /// `d_splice_alias` does, handing back the dentry to use in place of this
+    /// one, none where this one records it. A directory already standing at
+    /// another dentry keeps that one, moved here, as a directory has one
+    /// dentry: a move that would put it beneath itself answers ELOOP, and one
+    /// whose locks another call holds answers ESTALE. An entry stored under
+    /// another spelling is recorded on that spelling's dentry, as `d_add_ci`
+    /// does.
     pub(crate) fn splice_alias(
         &self,
         sb: &SuperBlock,
         found: Lookup,
-    ) -> Result<Splice, FilesystemError> {
+    ) -> Result<Option<Arc<Dentry>>, FilesystemError> {
         let inode = match found {
             Lookup::Found(inode) => inode,
             Lookup::Absent => {
                 self.add(None);
-                return Ok(Splice::Here);
+                return Ok(None);
             }
-            Lookup::Spelled { name, inode } => return Ok(Splice::Spelled(name, inode)),
+            Lookup::Spelled { name, inode } => return self.add_ci(sb, &name, inode).map(Some),
         };
         match inode.find_alias_or_add(self) {
-            None => Ok(Splice::Here),
+            None => Ok(None),
             Some(alias) => {
                 self.get().unalias(sb, &alias)?;
-                Ok(Splice::Alias(alias))
+                Ok(Some(alias))
             }
         }
+    }
+
+    /// The dentry of `name`, the spelling the directory above stores the
+    /// entry under, with `inode` spliced on it, as Linux's `d_add_ci` finds
+    /// that spelling's dentry, or makes one, rather than asking the
+    /// Filesystem again. One already held there is taken as it stands, as
+    /// `d_hash_and_lookup` asks no `d_revalidate`.
+    pub(crate) fn add_ci(
+        &self,
+        sb: &SuperBlock,
+        name: &str,
+        inode: Arc<Inode>,
+    ) -> Result<Arc<Dentry>, FilesystemError> {
+        let parent = self
+            .parent()
+            .expect("a dentry in lookup stands in a directory");
+        let found = sb.dentries().alloc_parallel(&parent, name);
+        let spliced = found.ask_in_lookup(|| found.splice_alias(sb, Lookup::Found(inode)))?;
+        Ok(spliced.flatten().unwrap_or(found))
     }
 
     /// `alias`, where a directory of `sb` stands, moved to this dentry's name,
