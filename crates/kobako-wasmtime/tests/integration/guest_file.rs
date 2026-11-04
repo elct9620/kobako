@@ -640,7 +640,14 @@ where
             Finish::Open { file, created } => (file, created),
             Finish::NoOpen { created } => (self.inner.open(dentry, how)?, created),
             Finish::Lookup(found) => return Ok(Finish::Lookup(self.wrap_found(found))),
-            _ => unreachable!("Finish has only these three ends"),
+            Finish::Spelled { file, name, inode } => {
+                let Lookup::Found(inode) = self.wrap_found(Lookup::Found(inode)) else {
+                    unreachable!("a found entry stays found once wrapped");
+                };
+                let file = Box::new((self.wrap)(file));
+                return Ok(Finish::Spelled { file, name, inode });
+            }
+            _ => unreachable!("Finish has no other end"),
         };
         Ok(Finish::Open {
             file: Box::new((self.wrap)(made)),
