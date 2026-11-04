@@ -209,6 +209,7 @@ The Filesystem context follows Linux's three layers: the Wasm Driver in the sysc
 | Wasm Driver   kobako-wasmtime             |
 | decode, errno, fd table, rights           |
 | Cred, syscall-entry checks                |
+| the Security Modules it is built with     |
 +---------------------+---------------------+
                       v
 +-------------------------------------------+
@@ -239,9 +240,9 @@ Each role keeps to its own work, so a change that crosses roles is a change in t
 
 | Role | Owns |
 |---|---|
-| Wasm Driver | decoding, errno codes, the fd table, rights, the Cred, asking `WalkGuard`, syscall-entry checks |
-| VFS | the walk, dentries, inodes, open files, mounts, operation tables, what an entry lacks |
-| Security Module | whether a path may be reached or memory held, and `WalkGuard` |
+| Wasm Driver | decoding, errno, fd table, rights, the Cred and its modules, `WalkGuard`, syscall-entry checks |
+| VFS | the walk, dentries, inodes, open files, mounts, operation tables, what an entry lacks, Cred memory |
+| Security Module | whether a path may be reached, and `WalkGuard` |
 | Filesystem Driver | what one entry answers, and its own state on a dentry or inode |
 | locking, sched | whether a wait can end, who asks, and the frontend's way to wait |
 
