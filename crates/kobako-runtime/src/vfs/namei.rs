@@ -427,17 +427,24 @@ impl Nameidata {
     /// The last name of an open and what became of it, as Linux's
     /// `lookup_open` finds it under the directory's lock, shared unless the open
     /// may make a file. A name no lookup answered yet, or a negative one the
-    /// open may make, is handed to `atomic_open` in place of `->lookup`, and
-    /// what it looked up is recorded as a lookup's answer is. An open that may
-    /// make a file asks `may_o_create` first; a refusal clears its wish to make
-    /// one and answers only where nothing stands, as `create_error` does. A
-    /// Filesystem opening the file too finishes it through `do_dentry_open`
-    /// here, as its `finish_open` does.
+    /// open may make, is handed to `atomic_open` in place of `->lookup`, as
+    /// `lookup_fast_for_open` leaves only those, and what it looked up is
+    /// recorded as a lookup's answer is. An open that may change the file takes
+    /// a write on the mount first; without one it truncates nothing there, and
+    /// neither does an exclusive make. An open that may make a file asks
+    /// `may_o_create` first; a refusal clears its wish to make one and answers
+    /// only where nothing stands, as `create_error` does. A Filesystem opening
+    /// the file too finishes it through `do_dentry_open` here, as its
+    /// `finish_open` does.
     fn lookup_open(
         &mut self,
         how: &OpenHow,
         mode: FMode,
     ) -> Result<(Arc<Dentry>, Open), FilesystemError> {
+        let got_write = match how.create || how.truncate || how.write {
+            true => self.mnt.mnt_want_write(),
+            false => Err(FilesystemError::ReadOnlyFilesystem),
+        };
         let dir = self.dentry().clone();
         let _held = match how.create {
             true => dir.inode_lock()?,
@@ -458,9 +465,13 @@ impl Nameidata {
                 });
             }
             let mut how = *how;
+            how.truncate &= got_write.is_ok();
             if how.create {
-                let got_write = self.mnt.mnt_want_write();
-                create_error = got_write.and_then(|()| self.may_o_create(&given)).err();
+                how.truncate &= !how.exclusive;
+                create_error = got_write
+                    .clone()
+                    .and_then(|()| self.may_o_create(&given))
+                    .err();
                 how.create = create_error.is_none();
             }
             how.directory |= self.lookup_directory;
@@ -2484,6 +2495,99 @@ mod tests {
                 created: false,
             })
         }
+    }
+
+    /// A Filesystem holding the file `file`, which finds and makes a name in
+    /// one step, as a backend opening with one call, recording whether its
+    /// `atomic_open` was asked to truncate.
+    #[derive(Clone, Default)]
+    struct RecordsTruncate(Arc<Mutex<Option<bool>>>);
+
+    impl FileSystemType for RecordsTruncate {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for RecordsTruncate {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Dir, 0))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            let file = Kstat::new(FileType::RegFile, 0);
+            Ok(match dentry.name().as_str() {
+                "file" => Lookup::Found(Inode::new(&file, Arc::new(self.clone()))),
+                _ => Lookup::Absent,
+            })
+        }
+
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+            *self.0.lock().expect("unpoisoned") = Some(how.truncate);
+            let found = self.lookup(dentry)?;
+            if !how.create || !matches!(found, Lookup::Absent) {
+                return Ok(Finish::Lookup(found));
+            }
+            let file = Kstat::new(FileType::RegFile, 0);
+            dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
+            Ok(Finish::NoOpen { created: true })
+        }
+    }
+
+    // A Filesystem truncating in its `atomic_open`, as FUSE's atomic_o_trunc
+    // lets one, would empty a file beneath a mount that refuses any change.
+    // @behavior RT-323
+    #[test]
+    fn an_open_truncating_where_the_mount_takes_no_write_asks_no_truncation() {
+        let fs = RecordsTruncate::default();
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let truncating = OpenHow {
+            read: true,
+            truncate: true,
+            ..OpenHow::default()
+        };
+        let answer = vfs::kern_path::filp_open(
+            &Arc::default(),
+            &Path::root(mount.mnt()),
+            "file",
+            &truncating,
+        );
+        assert_eq!(
+            (answer.err(), *fs.0.lock().expect("unpoisoned")),
+            (Some(FilesystemError::ReadOnlyFilesystem), Some(false)),
+            "vfs::do_file_open truncating `file` beneath a read-only mount must ask the \
+             Filesystem's atomic_open for no truncation and answer EROFS, as lookup_open \
+             clears O_TRUNC without got_write"
+        );
+    }
+
+    // An exclusive make finds nothing to truncate, and a Filesystem truncating
+    // what it found would empty a file the make then refuses as standing.
+    // @behavior RT-324
+    #[test]
+    fn an_exclusive_create_asks_no_truncation() {
+        let fs = RecordsTruncate::default();
+        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let making = OpenHow {
+            write: true,
+            create: true,
+            exclusive: true,
+            truncate: true,
+            ..OpenHow::default()
+        };
+        let answer = vfs::kern_path::filp_open(&Arc::default(), &root, "new", &making);
+        assert_eq!(
+            (answer.is_ok(), *fs.0.lock().expect("unpoisoned")),
+            (true, Some(false)),
+            "vfs::do_file_open making `new` exclusively and truncating it must ask the \
+             Filesystem's atomic_open for no truncation, as lookup_open clears O_TRUNC for \
+             O_EXCL"
+        );
     }
 
     // A walk asking `lookup` first would cost a Filesystem that opens in one
