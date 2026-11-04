@@ -3,6 +3,7 @@
 //! where Linux does and knows nothing of what they decide.
 
 use std::any::Any;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::dentry::Dentry;
@@ -113,35 +114,59 @@ pub trait SecurityOperations: Send + Sync {
     fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Ok(())
     }
+}
 
-    /// Whether `bytes` more may be held for this caller, as
-    /// `security_vm_enough_memory_mm` is asked before a Filesystem such as shmem
-    /// holds memory on one's behalf.
-    fn vm_enough_memory(&self, _bytes: usize) -> Result<(), FilesystemError> {
-        Ok(())
+/// How many bytes Filesystems hold on one caller's behalf between calls, and the
+/// most they may, as Linux's `__vm_enough_memory` weighs what `vm_committed_as`
+/// counts against its limit, so a guest's descriptors cannot multiply a directory
+/// past what it was allotted.
+pub(crate) struct VmCommitted {
+    limit: usize,
+    used: AtomicUsize,
+}
+
+impl VmCommitted {
+    pub(crate) fn new(limit: usize) -> Arc<Self> {
+        Arc::new(Self {
+            limit,
+            used: AtomicUsize::new(0),
+        })
     }
-
-    /// `bytes` allowed earlier are held no more, as `vm_unacct_memory` gives them
-    /// back.
-    fn vm_unacct_memory(&self, _bytes: usize) {}
 }
 
 /// Who a call is made for, holding the security modules registered for it, as
-/// `cred->security` holds a Landlock domain.
+/// `cred->security` holds a Landlock domain, and the memory held on its behalf,
+/// which every Cred restricted from it shares, as a task's memory cgroup does.
 #[derive(Default)]
 pub struct Cred {
     security: Vec<Arc<dyn SecurityOperations>>,
+    committed: Option<Arc<VmCommitted>>,
 }
 
 impl Cred {
     /// One with `security` registered.
     pub fn new(security: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
-        Arc::new(Self { security })
+        Self::within(security, None)
     }
 
-    /// The modules registered for it, in the order each is asked.
-    pub(crate) fn security(&self) -> &[Arc<dyn SecurityOperations>] {
-        &self.security
+    /// One with `security` registered and the memory held on its behalf counted
+    /// in `committed`, without bound where none.
+    pub(crate) fn within(
+        security: Vec<Arc<dyn SecurityOperations>>,
+        committed: Option<Arc<VmCommitted>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            security,
+            committed,
+        })
+    }
+
+    /// This Cred with `more` modules registered after its own, sharing the
+    /// memory held on its behalf, as `landlock_restrict_self` adds a domain.
+    pub(crate) fn restricted(&self, more: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
+        let mut security = self.security.clone();
+        security.extend(more);
+        Self::within(security, self.committed.clone())
     }
 
     /// Ask each module in turn, the first refusal answering, as `call_int_hook`.
@@ -258,13 +283,27 @@ impl Cred {
         self.call_int_hook(|module| module.inode_readlink(dentry))
     }
 
+    /// Count `bytes` more held on this caller's behalf, refusing them past its
+    /// limit, as `security_vm_enough_memory_mm` ends in `__vm_enough_memory`.
     pub(crate) fn security_vm_enough_memory(&self, bytes: usize) -> Result<(), FilesystemError> {
-        self.call_int_hook(|module| module.vm_enough_memory(bytes))
+        let Some(committed) = &self.committed else {
+            return Ok(());
+        };
+        committed
+            .used
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                used.checked_add(bytes)
+                    .filter(|&total| total <= committed.limit)
+            })
+            .map(|_| ())
+            .map_err(|_| FilesystemError::OutOfMemory)
     }
 
+    /// `bytes` counted earlier are held no more, as `vm_unacct_memory` gives
+    /// them back.
     pub(crate) fn vm_unacct_memory(&self, bytes: usize) {
-        self.security
-            .iter()
-            .for_each(|module| module.vm_unacct_memory(bytes));
+        if let Some(committed) = &self.committed {
+            committed.used.fetch_sub(bytes, Ordering::Relaxed);
+        }
     }
 }

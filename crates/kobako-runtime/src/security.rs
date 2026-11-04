@@ -3,13 +3,12 @@
 //! answer through the hooks it leaves for such modules, and the VFS never
 //! learns what they decide.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::mount::{Access, Mount, Policy};
 use crate::vfs::{
     d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, FilesystemError, OpenHow, Path,
-    SecurityOperations, SecurityPath, VfsMount, PATH_MAX,
+    SecurityOperations, SecurityPath, VfsMount, VmCommitted, PATH_MAX,
 };
 
 /// What a Mount's Policy allowed a file as it opened, kept on the open file, as
@@ -246,51 +245,22 @@ impl WalkGuard {
     }
 }
 
-/// How many bytes a Filesystem holds on one caller's behalf between calls, so a
-/// guest's descriptors cannot multiply a directory past what it was allotted, as
-/// `__vm_enough_memory` weighs what `vm_committed_as` counts.
-struct MemoryLimit {
-    limit: usize,
-    used: AtomicUsize,
-}
-
-impl SecurityOperations for MemoryLimit {
-    fn vm_enough_memory(&self, bytes: usize) -> Result<(), FilesystemError> {
-        self.used
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
-                used.checked_add(bytes).filter(|&total| total <= self.limit)
-            })
-            .map(|_| ())
-            .map_err(|_| FilesystemError::OutOfMemory)
-    }
-
-    fn vm_unacct_memory(&self, bytes: usize) {
-        self.used.fetch_sub(bytes, Ordering::Relaxed);
-    }
-}
-
 /// The Cred an Invocation opens its Mounts' roots with, its Filesystems holding at
 /// most `memory_limit` bytes on its behalf, or without bound for `None`: kobako's
 /// own rules, before any Mount's Policy applies, as a Linux task opens the files
 /// it keeps before `landlock_restrict_self`.
 pub fn prepare_creds_within(memory_limit: Option<usize>) -> Arc<Cred> {
-    let mut security: Vec<Arc<dyn SecurityOperations>> = vec![Arc::new(KobakoSecurity)];
-    if let Some(limit) = memory_limit {
-        security.push(Arc::new(MemoryLimit {
-            limit,
-            used: AtomicUsize::new(0),
-        }));
-    }
-    Cred::new(security)
+    Cred::within(
+        vec![Arc::new(KobakoSecurity)],
+        memory_limit.map(VmCommitted::new),
+    )
 }
 
-/// `cred` with each Mount's Policy added, the modules it held shared, so what
-/// either Cred charges counts against one limit, as `landlock_restrict_self`
-/// adds a domain to the task's Cred.
+/// `cred` with each Mount's Policy added, the modules it held and the memory
+/// held on its behalf shared, so what either Cred charges counts against one
+/// limit, as `landlock_restrict_self` adds a domain to the task's Cred.
 pub fn restrict_self<'a>(cred: &Cred, mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {
-    let mut security = cred.security().to_vec();
-    security.extend(policies_of(mounts));
-    Cred::new(security)
+    cred.restricted(policies_of(mounts))
 }
 
 fn policies_of<'a>(
