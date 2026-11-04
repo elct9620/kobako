@@ -135,6 +135,9 @@ pub trait InodeOperations: Any + Send + Sync {
                 return Ok(Finish::Lookup(found));
             }
         }
+        if !how.create {
+            return Ok(Finish::NoOpen { created: false });
+        }
         self.create(dentry)?;
         Ok(Finish::NoOpen { created: true })
     }

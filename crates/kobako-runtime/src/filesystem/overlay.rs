@@ -2435,6 +2435,9 @@ mod tests {
                     return Ok(Finish::Lookup(found));
                 }
             }
+            if !how.create {
+                return Ok(Finish::NoOpen { created: false });
+            }
             let file = self.root.create(&folded(dentry), how)?;
             Ok(Finish::Open {
                 file,

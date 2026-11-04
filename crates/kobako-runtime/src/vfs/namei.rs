@@ -425,13 +425,13 @@ impl Nameidata {
 
     /// The last name of an open and what became of it, as Linux's
     /// `lookup_open` finds it under the directory's lock, shared unless the open
-    /// may make a file. An open making nothing hands a name no lookup answered
-    /// yet to `atomic_open` in place of `->lookup`, and what it looked up is
-    /// recorded as a lookup's answer is. An open that may make a file looks the
-    /// name up first and asks to make it only where nothing stands, so a Policy
-    /// is asked once for it, before `atomic_open` makes it. A Filesystem opening
-    /// the file too finishes it through `do_dentry_open` here, as its
-    /// `finish_open` does.
+    /// may make a file. A name no lookup answered yet, or a negative one the
+    /// open may make, is handed to `atomic_open` in place of `->lookup`, and
+    /// what it looked up is recorded as a lookup's answer is. An open that may
+    /// make a file asks `may_o_create` first; a refusal clears its wish to make
+    /// one and answers only where nothing stands, as `create_error` does. A
+    /// Filesystem opening the file too finishes it through `do_dentry_open`
+    /// here, as its `finish_open` does.
     fn lookup_open(
         &mut self,
         how: &OpenHow,
@@ -447,22 +447,30 @@ impl Nameidata {
         }
         let mnt = self.mnt.clone();
         let given = d_alloc_parallel(mnt.sb(), &dir, &self.name)?;
-        let (mut file, mut created, spelled) = match how.create {
-            true => (None, false, given.lookup_inode(&dir)?),
-            false => {
-                let asked = given.lookup_by(|| finish(atomic_open(&dir, &given, how)?, &given))?;
-                asked.unwrap_or((None, false, None))
+        let mut create_error = None;
+        let mut ask = || {
+            let mut how = *how;
+            if how.create {
+                create_error = self.may_o_create(&given).err();
+                how.create = create_error.is_none();
             }
+            finish(atomic_open(&dir, &given, &how)?, &given)
+        };
+        let asked = match given.lookup_by(&mut ask) {
+            Ok(Some(asked)) => Ok(asked),
+            Ok(None) if given.inode().is_some() || !how.create => Ok((None, false, None)),
+            Ok(None) => ask(),
+            Err(err) => Err(err),
+        };
+        let (file, created, spelled) = match (asked, &create_error) {
+            (Err(FilesystemError::NotFound), Some(refused)) => return Err(refused.clone()),
+            (asked, _) => asked?,
         };
         let (stored, child) = d_add_ci(mnt.sb(), &dir, &self.name, given, spelled)?;
         self.name = stored;
         self.path = Some(child.clone());
-        if child.inode().is_none() && how.create {
-            self.may_o_create(&child)?;
-            (file, created, _) = finish(atomic_open(&dir, &child, how)?, &child)?;
-        }
         if child.inode().is_none() {
-            return Err(FilesystemError::NotFound);
+            return Err(create_error.unwrap_or(FilesystemError::NotFound));
         }
         let mode = match created {
             true => mode.with(FMode::CREATED),
@@ -1275,7 +1283,8 @@ mod tests {
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
 
-    /// A test's Filesystem counting what it is asked to look up.
+    /// A test's Filesystem counting what it is asked to look up, by `lookup` or
+    /// by the `atomic_open` an open asks in its place.
     #[derive(Default)]
     struct CountsAsks(AtomicUsize);
 
@@ -1287,6 +1296,16 @@ mod tests {
         ) -> Result<Lookup, FilesystemError> {
             self.0.fetch_add(1, Ordering::SeqCst);
             inner.lookup(dentry)
+        }
+
+        fn atomic_open(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+            how: &OpenHow,
+        ) -> Result<Finish, FilesystemError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            inner.atomic_open(dentry, how)
         }
     }
 
@@ -2713,6 +2732,9 @@ mod tests {
                     return Ok(Finish::Lookup(found));
                 }
             }
+            if !how.create {
+                return Ok(Finish::NoOpen { created: false });
+            }
             let file = self.root.create(&folded(dentry), how)?;
             Ok(Finish::Open {
                 file,
@@ -3621,6 +3643,9 @@ mod tests {
                     return Ok(Finish::Lookup(found));
                 }
             }
+            if !how.create {
+                return Ok(Finish::NoOpen { created: false });
+            }
             self.0.lock().expect("never poisoned").push("atomic_open");
             let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
@@ -3659,6 +3684,44 @@ mod tests {
             "vfs::do_file_open with O_TRUNC of a file that stands must open it and then ask \
              setattr marked as from an open, and of one it makes must ask neither and hand \
              back a file marked as made by the open"
+        );
+    }
+
+    // A walk already found the name missing, so the open hands `atomic_open` a
+    // negative dentry; a Filesystem reading only that it is no longer in lookup
+    // would make the file the Mount refused.
+    // @behavior RT-313
+    #[test]
+    fn a_file_a_read_only_mount_refuses_to_make_is_made_nowhere() {
+        let calls = RecordsCalls::default();
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new(calls.clone())).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        let cred = Arc::default();
+        let found = vfs::vfs_fstatat(&cred, &root, "missing", false).err();
+        let create = OpenHow {
+            read: true,
+            create: true,
+            ..OpenHow::default()
+        };
+        let opened = vfs::kern_path::filp_open(&cred, &root, "missing", &create).err();
+        assert_eq!(
+            (
+                found,
+                opened,
+                calls.0.lock().map(|calls| calls.clone()).ok()
+            ),
+            (
+                Some(FilesystemError::NotFound),
+                Some(FilesystemError::ReadOnlyFilesystem),
+                Some(Vec::new())
+            ),
+            "vfs::do_file_open with O_CREAT of a name a walk found missing, beneath a read-only \
+             Mount, must answer EROFS and make nothing, as create_error clears O_CREAT"
         );
     }
 
@@ -3794,6 +3857,9 @@ mod tests {
                 if !how.create || !matches!(found, Lookup::Absent) {
                     return Ok(Finish::Lookup(found));
                 }
+            }
+            if !how.create {
+                return Ok(Finish::NoOpen { created: false });
             }
             self.made.store(true, Ordering::SeqCst);
             let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);

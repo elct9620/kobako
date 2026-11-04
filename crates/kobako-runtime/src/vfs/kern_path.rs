@@ -100,9 +100,13 @@ impl KernPath {
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         let (nd, child) = self.parent(path)?;
         may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)?;
-        match atomic_open(nd.dentry(), &child, how)? {
+        let how = OpenHow {
+            create: true,
+            ..*how
+        };
+        match atomic_open(nd.dentry(), &child, &how)? {
             Finish::Open { file, .. } => Ok(file),
-            Finish::NoOpen { .. } | Finish::Lookup(_) => child.open(how),
+            Finish::NoOpen { .. } | Finish::Lookup(_) => child.open(&how),
         }
     }
 

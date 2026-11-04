@@ -2750,11 +2750,12 @@ fn a_mount_whose_policy_decides_may_be_written() {
     );
 }
 
-// Each open asks without the right to write, so only its CREAT, where
-// nothing stands yet, makes it a change.
+// Each open asks without the right to write, so only its CREAT makes it a
+// change; that is asked before the walk knows the file stands, as Linux's
+// `may_o_create` is, and the open of the file then asks as a read.
 // @behavior RT-146
 #[test]
-fn a_policy_is_asked_once_for_an_open_that_may_create_as_what_it_does() {
+fn an_open_that_may_create_asks_to_make_the_file_before_it_finds_what_stands() {
     let open = |path| {
         let policy = Arc::new(RecordsAsks::default());
         let errno = Guest::new(&[grant(
@@ -2770,11 +2771,17 @@ fn a_policy_is_asked_once_for_an_open_that_may_create_as_what_it_does() {
         (open(NEW), open(FILE)),
         (
             (0, vec![("/data/new.txt".to_owned(), Access::ReadWrite)]),
-            (0, vec![("/data/file.txt".to_owned(), Access::Read)]),
+            (
+                0,
+                vec![
+                    ("/data/file.txt".to_owned(), Access::ReadWrite),
+                    ("/data/file.txt".to_owned(), Access::Read),
+                ]
+            ),
         ),
         "path_open with O_CREAT and no write of a missing path and of an existing file beneath \
-         a Mount whose Policy allows every change through preview1 must ask the Policy once for \
-         each, as a change where it creates and as a read where the file stands"
+         a Mount whose Policy allows every change through preview1 must ask the Policy a change \
+         for each, then a read for the file, as lookup_open asks may_o_create first"
     );
 }
 

@@ -606,8 +606,8 @@ impl InodeOperations for Bind {
         Ok(Box::new(BindDir(fid, Rdir::default())))
     }
 
-    /// A name still in lookup is looked up first, and left to the VFS unless
-    /// the open may make it and nothing stands there, as 9p's
+    /// A name still in lookup is looked up first, and any name is left to the
+    /// VFS unless the open may make it and nothing stands there, as 9p's
     /// `v9fs_vfs_atomic_open_dotl` asks its server before it creates.
     fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
         if dentry.in_lookup() {
@@ -615,6 +615,9 @@ impl InodeOperations for Bind {
             if !how.create || !matches!(found, Lookup::Absent) {
                 return Ok(Finish::Lookup(found));
             }
+        }
+        if !how.create {
+            return Ok(Finish::NoOpen { created: false });
         }
         let file = self.open_file(dentry, how, true)?;
         Ok(Finish::Open {
