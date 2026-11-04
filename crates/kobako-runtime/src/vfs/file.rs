@@ -215,7 +215,14 @@ impl FMode {
         if !how.read && !how.write {
             return Self::PATH;
         }
-        let mut mode = Self::LSEEK.0 | Self::PREAD.0 | Self::PWRITE.0;
+        Self::open_fmode(how).with(Self(Self::PREAD.0 | Self::PWRITE.0))
+    }
+
+    /// What a file `alloc_file` makes is for, as Linux's `OPEN_FMODE` sets
+    /// `f_mode` from `how` and `file_init_path` adds `FMODE_LSEEK`: only
+    /// `do_dentry_open` lets a file read or write at a position.
+    fn open_fmode(how: &OpenHow) -> Self {
+        let mut mode = Self::LSEEK.0;
         if how.read {
             mode |= Self::READ.0;
         }
@@ -356,7 +363,7 @@ impl File {
         File::new(
             path,
             ops,
-            FMode::of(how),
+            FMode::open_fmode(how),
             how,
             cred,
             cred.security_file_alloc(),
@@ -1809,6 +1816,32 @@ mod tests {
             ),
             "File calls on a directory must answer as Linux answers one open to read: EISDIR to \
              read, EBADF to write or allocate, EINVAL to truncate, and success to sync or advise"
+        );
+    }
+
+    // A pipe's ends are streams, which clear the position on their own, so only
+    // a pseudo file that is none shows what `alloc_file` itself gives.
+    #[test]
+    fn a_pseudo_file_reads_and_writes_at_no_position() {
+        struct NoOperations;
+        impl FileOperations for NoOperations {}
+        let how = OpenHow {
+            read: true,
+            write: true,
+            ..OpenHow::default()
+        };
+        let inode = Inode::new(&Kstat::new(FileType::RegFile, 0), Arc::new(OpensNothing));
+        let mnt = open(true, false).path().mnt().clone();
+        let mut file =
+            alloc_file_pseudo(inode, &mnt, &how, Box::new(NoOperations), &Arc::default());
+        assert_eq!(
+            (file.pread(&mut [0], 0), file.pwrite(b"x", 0)),
+            (
+                Err(FilesystemError::NotSeekable),
+                Err(FilesystemError::NotSeekable)
+            ),
+            "File::pread and File::pwrite on a file alloc_file_pseudo made must answer ESPIPE, \
+             as file_init_path gives no FMODE_PREAD or FMODE_PWRITE"
         );
     }
 
