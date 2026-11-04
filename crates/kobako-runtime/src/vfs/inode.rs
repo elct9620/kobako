@@ -334,7 +334,7 @@ impl Inode {
     /// `__d_find_dir_alias` finds it, or none with this entry recorded on
     /// `dentry`, as `__d_add` records it. Both run under one lock, as
     /// `d_splice_alias` holds `i_lock`, so two lookups of one directory never
-    /// each find none.
+    /// each find none, and none finds `dentry` before a walk can.
     pub(super) fn find_alias_or_add(self: &Arc<Self>, dentry: &Dentry) -> Option<Arc<Dentry>> {
         let mut held = self.dentry();
         if let Some(found) = held.upgrade() {
@@ -343,12 +343,21 @@ impl Inode {
             }
         }
         dentry.instantiate(self.clone(), &mut held);
+        dentry.rehash();
         None
     }
 
-    /// Record this entry on `dentry`, as `d_instantiate` hangs a dentry on
-    /// `i_dentry`.
-    pub(super) fn add_to(self: &Arc<Self>, dentry: &Dentry) {
+    /// Record this entry on `dentry` and let a walk find it by its name, as
+    /// `d_add` does under `i_lock`.
+    pub(super) fn add_hashed(self: &Arc<Self>, dentry: &Dentry) {
+        let mut held = self.dentry();
+        dentry.instantiate(self.clone(), &mut held);
+        dentry.rehash();
+    }
+
+    /// Record this entry on `dentry`, which no walk finds by a name, as
+    /// `d_instantiate` hangs a root or a pseudo dentry on `i_dentry`.
+    pub(crate) fn add_to(self: &Arc<Self>, dentry: &Dentry) {
         dentry.instantiate(self.clone(), &mut self.dentry());
     }
 

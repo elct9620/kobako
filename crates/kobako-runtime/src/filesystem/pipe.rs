@@ -126,7 +126,7 @@ impl FileOperations for AnonPipe {
 pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
     let dentry = PIPE_MNT.mnt().sb().dentries().alloc_pseudo();
     let found = Kstat::new(FileType::Fifo, 0);
-    dentry.add(Some(Inode::new(&found, Arc::new(PipeFs))));
+    Inode::new(&found, Arc::new(PipeFs)).add_to(&dentry);
     let cred = Arc::<Cred>::default();
     let end = |how: OpenHow| {
         File::new(

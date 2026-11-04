@@ -139,30 +139,16 @@ impl Nameidata {
     }
 }
 
-/// The dentry held for `name` in `parent`, as Linux's `lookup_dcache` finds one:
-/// it is asked whether it still names what stands there, as `d_revalidate`
-/// answers, and let go of where it does not.
-fn lookup_dcache(
-    sb: &SuperBlock,
-    parent: &Arc<Dentry>,
-    name: &str,
-) -> Result<Option<Arc<Dentry>>, FilesystemError> {
-    let dentries = sb.dentries();
-    let Some(held) = dentries.lookup(parent, name) else {
-        return Ok(None);
-    };
-    Ok(d_revalidate(sb, parent, &held)?.then_some(held))
-}
-
-/// Whether `dentry` still names what stands at its name in `dir`, whose lock the
-/// caller holds, so no move lands between the question and the answer. One that
-/// does not is let go of, as `d_invalidate` unhashes it.
+/// Whether `dentry`, which a lookup answered for, still names what stands at its
+/// name in `dir`, whose lock the caller holds, so no move lands between the
+/// question and the answer. One that does not is let go of, as `d_invalidate`
+/// unhashes it.
 pub(crate) fn d_revalidate(
     sb: &SuperBlock,
     dir: &Dentry,
     dentry: &Arc<Dentry>,
 ) -> Result<bool, FilesystemError> {
-    let valid = match dentry.ops().filter(|_| !dentry.in_lookup()) {
+    let valid = match dentry.ops() {
         Some(ops) => ops.revalidate(dir.inode_ops()?.as_ref(), dentry)?,
         None => true,
     };
@@ -212,16 +198,20 @@ fn retain(sb: &SuperBlock, dentry: &Arc<Dentry>) {
     }
 }
 
-/// The dentry held for `name` in `parent`, or one made in lookup for the
-/// calling walk, as Linux's `d_alloc_parallel` hands back one already hashed.
+/// The dentry of `name` in `parent` still naming what stands there, or one in
+/// lookup for the calling walk, as Linux's `__lookup_slow` and `lookup_open`
+/// take what `d_alloc_parallel` hands back: one a lookup answered is asked
+/// `d_revalidate`, and where it no longer names the entry the walk looks again.
 fn d_alloc_parallel(
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<Arc<Dentry>, FilesystemError> {
-    match lookup_dcache(sb, parent, name)? {
-        Some(held) => Ok(held),
-        None => Ok(sb.dentries().alloc_parallel(parent, name)),
+    loop {
+        let dentry = sb.dentries().alloc_parallel(parent, name)?;
+        if dentry.in_lookup() || d_revalidate(sb, parent, &dentry)? {
+            return Ok(dentry);
+        }
     }
 }
 
@@ -437,13 +427,6 @@ impl Nameidata {
         let given = d_alloc_parallel(mnt.sb(), &dir, &self.name)?;
         let mut create_error = None;
         let mut ask = || {
-            if let Some(moved) = given.moved_onto(mnt.sb()) {
-                return Ok(AtomicOpen {
-                    file: None,
-                    created: false,
-                    spliced: Some(moved),
-                });
-            }
             let mut how = *how;
             how.truncate &= got_write.is_ok();
             if how.create {
@@ -1130,9 +1113,7 @@ pub(crate) fn vfs_rename(
     if target == Some(FileType::Dir) {
         new.mark_dead();
     }
-    dentries.unhash(new);
-    let (old_name, new_name) = (old.name(), new.name());
-    dentries.move_dentry(old_dir, &old_name, new_dir, &new_name);
+    dentries.move_dentry(old, new);
     Ok(())
 }
 
@@ -4857,7 +4838,12 @@ mod tests {
         let filesystem = Arc::new(RecordsAsker::default());
         let root = root_of(Filesystem::new(filesystem.clone()).expect("the instance must stand"));
         let dir = root.dentry().clone();
-        let made = root.mnt().sb().dentries().alloc_parallel(&dir, "x");
+        let made = root
+            .mnt()
+            .sb()
+            .dentries()
+            .alloc_parallel(&dir, "x")
+            .expect("no other walk holds the name");
         let (counted, counting) = mpsc::channel();
         let other = {
             let (made, dir, mnt) = (made.clone(), dir.clone(), root.mnt().clone());

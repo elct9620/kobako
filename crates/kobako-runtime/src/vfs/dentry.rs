@@ -57,6 +57,9 @@ pub struct Dentry {
     /// This dentry, for whoever is handed it to keep, as Linux's `dget`
     /// takes a reference to any dentry it is handed.
     this: Weak<Dentry>,
+    /// The tables of its Filesystem instance a walk finds it in, as `d_sb`
+    /// reaches the instance a dentry belongs to.
+    hashtables: Arc<Hashtables>,
     /// What the Filesystem keeps on the name, set once, as Linux's
     /// `d_fsdata` holds a filesystem's own state for a dentry.
     fsdata: OnceLock<Arc<dyn Any + Send + Sync>>,
@@ -89,14 +92,17 @@ struct State {
     /// Where the lookup of the name stands, so a negative dentry says nothing
     /// stands there rather than that nobody asked.
     asked: LookupState,
+    /// Whether a walk finds it by its name, as Linux's `d_hash` links it into
+    /// `dentry_hashtable`; one still in lookup, or let go of, is not.
+    hashed: bool,
 }
 
 /// Where the lookup of a name stands, as `DCACHE_PAR_LOOKUP` marks a dentry a
 /// walk is asking its Filesystem about and `d_add` ends that.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LookupState {
-    /// No lookup asked for the name yet, or the one that did was handed another
-    /// spelling.
+    /// No lookup answered for the name: none asked yet, or the one that did
+    /// ended without an answer here, as `d_lookup_done` leaves a dentry.
     Unasked,
     /// In lookup for the walk that made the dentry, which has yet to ask, as
     /// `d_alloc_parallel` marks the dentry it makes.
@@ -112,6 +118,7 @@ impl Dentry {
         parent: Option<Arc<Dentry>>,
         name: &str,
         ops: Option<Arc<dyn DentryOperations>>,
+        hashtables: &Arc<Hashtables>,
     ) -> Arc<Self> {
         Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
@@ -119,8 +126,10 @@ impl Dentry {
                 name: name.to_string(),
                 inode: None,
                 asked: LookupState::Unasked,
+                hashed: false,
             }),
             this: this.clone(),
+            hashtables: hashtables.clone(),
             fsdata: OnceLock::new(),
             ops,
             wait: Condvar::new(),
@@ -239,9 +248,41 @@ impl Dentry {
     /// must see.
     pub fn add(&self, inode: Option<Arc<Inode>>) {
         match inode {
-            Some(inode) => inode.add_to(self),
-            None => self.state().asked = LookupState::Answered,
+            Some(inode) => inode.add_hashed(self),
+            None => self.rehash(),
         }
+    }
+
+    /// End the lookup of this name with an answer, and let a walk find it by
+    /// its name from now on, waking every walk waiting on it, as Linux's
+    /// `__d_add` takes it out of `in_lookup_hashtable` and `__d_rehash`es it.
+    pub(super) fn rehash(&self) {
+        {
+            let mut table = self.hashtables.dentry_hashtable();
+            let mut in_lookup = self.hashtables.in_lookup_hashtable();
+            let (parent, name) = self.parent_and_name();
+            let at = key(&parent, &name);
+            let this = self.get();
+            if in_lookup
+                .get(&at)
+                .is_some_and(|held| Arc::ptr_eq(&held, &this))
+            {
+                in_lookup.remove(&at);
+            }
+            let mut state = self.state();
+            state.asked = LookupState::Answered;
+            if !state.hashed {
+                table.insert(at, &this);
+                state.hashed = true;
+            }
+        }
+        self.wait.notify_all();
+    }
+
+    /// Whether a walk finds this dentry by its name, as Linux's `!d_unhashed`
+    /// answers.
+    pub(super) fn hashed(&self) -> bool {
+        self.state().hashed
     }
 
     /// Record `inode` here unless the dentry already names something, a
@@ -250,7 +291,6 @@ impl Dentry {
     /// `held`, the inode's lock on the dentry it keeps.
     pub(super) fn instantiate(&self, inode: Arc<Inode>, held: &mut Weak<Dentry>) {
         let mut state = self.state();
-        state.asked = LookupState::Answered;
         if state.inode.is_none() {
             if inode.kind() == FileType::Dir {
                 *held = self.this.clone();
@@ -279,11 +319,13 @@ impl Dentry {
         identity(self).is_some() && identity(self) == identity(other)
     }
 
-    /// Whether no lookup has answered for the name yet, as Linux's `d_in_lookup`
-    /// tells a Filesystem's `atomic_open` the dentry it must look up first. Only
-    /// one that answered has something to ask `revalidate` of.
+    /// Whether a walk is still looking the name up, as Linux's `d_in_lookup`
+    /// tells a Filesystem's `atomic_open` the dentry it must look up first.
     pub fn in_lookup(&self) -> bool {
-        self.state().asked != LookupState::Answered
+        matches!(
+            self.state().asked,
+            LookupState::Allocated(_) | LookupState::Asking(_)
+        )
     }
 
     /// Ask the directory `dir` of `sb` what stands here where no lookup answered
@@ -297,35 +339,20 @@ impl Dentry {
         dir: &Dentry,
     ) -> Result<Option<Arc<Dentry>>, FilesystemError> {
         let asked = self.ask_in_lookup(|| {
-            if let Some(moved) = self.moved_onto(sb) {
-                return Ok(Some(moved));
-            }
             let found = dir.inode_ops()?.lookup(self)?;
             self.splice_alias(sb, found)
         })?;
         Ok(asked.flatten())
     }
 
-    /// The directory's dentry a move put at this name of `sb` while this one
-    /// was in lookup, as a walk waiting in `d_alloc_parallel` finds it once
-    /// `__d_move` unhashed the dentry it waited on, rather than asking the
-    /// Filesystem again.
-    pub(crate) fn moved_onto(&self, sb: &SuperBlock) -> Option<Arc<Dentry>> {
-        let (parent, name) = self.parent_and_name();
-        sb.dentries()
-            .lookup(&parent, &name)
-            .filter(|held| !std::ptr::eq(held.as_ref(), self) && !held.in_lookup())
-    }
-
     /// What `ask` answers for this name where no lookup answered yet, none where
-    /// one did. One walk asks while any other reaching the name waits for its
-    /// answer, as `d_alloc_parallel` marks the dentry in lookup, `d_wait_lookup`
-    /// waits on it, and `d_lookup_done` ends it.
+    /// one did. The walk `d_alloc_parallel` made the dentry for asks, as it
+    /// holds the dentry in lookup, and `d_lookup_done` ends that.
     pub(crate) fn ask_in_lookup<T>(
         &self,
         ask: impl FnOnce() -> Result<T, FilesystemError>,
     ) -> Result<Option<T>, FilesystemError> {
-        let ends = match self.wait_lookup()? {
+        let ends = match self.begin_lookup()? {
             InLookup::Answered => return Ok(None),
             InLookup::Begun => true,
             InLookup::Within => false,
@@ -378,7 +405,7 @@ impl Dentry {
         name: &str,
         inode: Arc<Inode>,
     ) -> Result<Arc<Dentry>, FilesystemError> {
-        let found = sb.dentries().alloc_parallel(&self.parent(), name);
+        let found = sb.dentries().alloc_parallel(&self.parent(), name)?;
         let spliced = found.ask_in_lookup(|| found.splice_alias(sb, Lookup::Found(inode)))?;
         Ok(spliced.flatten().unwrap_or(found))
     }
@@ -397,7 +424,7 @@ impl Dentry {
         alias: &Arc<Dentry>,
     ) -> Result<(), FilesystemError> {
         let (parent, name) = self.parent_and_name();
-        let mut table = sb.dentries().hashtable();
+        let mut table = self.hashtables.dentry_hashtable();
         RENAME_LOCK.write(|| {
             if d_ancestor(alias, self) || alias.is_root() {
                 return Err(FilesystemError::FilesystemLoop);
@@ -415,12 +442,12 @@ impl Dentry {
                     Some((rename, dir.ok_or_else(stale)?))
                 }
             };
-            let at = key(&old_parent, &old_name);
-            if table.get(&at).is_some_and(|held| Arc::ptr_eq(&held, alias)) {
-                table.remove(&at);
+            let mut state = alias.state();
+            if state.hashed {
+                table.remove(&key(&old_parent, &old_name));
             }
             table.insert(key(&parent, &name), alias);
-            let mut state = alias.state();
+            state.hashed = true;
             state.parent = Some(parent.clone());
             state.name = name.clone();
             Ok(())
@@ -428,19 +455,32 @@ impl Dentry {
     }
 
     /// Begin the lookup the calling walk holds the dentry in lookup for, or one
-    /// nobody asked yet, waiting while another walk holds it, until the walk's
-    /// run is to stop. A Filesystem
-    /// asking the runtime about the name its own lookup is answering asks it again
-    /// within that lookup, as it would otherwise wait on itself.
-    fn wait_lookup(&self) -> Result<InLookup, FilesystemError> {
+    /// nobody asked yet, once no other walk holds it. A Filesystem asking the
+    /// runtime about the name its own lookup is answering asks it again within
+    /// that lookup, as it would otherwise wait on itself.
+    fn begin_lookup(&self) -> Result<InLookup, FilesystemError> {
+        self.wait_lookup()?;
+        let mut state = self.state();
+        Ok(match state.asked {
+            LookupState::Asking(_) => InLookup::Within,
+            LookupState::Answered => InLookup::Answered,
+            LookupState::Allocated(_) | LookupState::Unasked => {
+                state.asked = LookupState::Asking(sched::current());
+                InLookup::Begun
+            }
+        })
+    }
+
+    /// Wait while another walk holds this name in lookup, until the walk's run
+    /// is to stop, as Linux's `d_wait_lookup` does, answering whether the
+    /// calling walk holds it in lookup itself.
+    fn wait_lookup(&self) -> Result<bool, FilesystemError> {
         let current = sched::current();
         loop {
-            let mut state = self.state();
+            let state = self.state();
             match state.asked {
-                LookupState::Asking(walk) if walk == current => return Ok(InLookup::Within),
-                LookupState::Allocated(walk) if walk == current => {
-                    state.asked = LookupState::Asking(current);
-                    return Ok(InLookup::Begun);
+                LookupState::Allocated(walk) | LookupState::Asking(walk) if walk == current => {
+                    return Ok(true)
                 }
                 LookupState::Allocated(_) | LookupState::Asking(_)
                     if sched::fatal_signal_pending() =>
@@ -463,26 +503,33 @@ impl Dentry {
                         }
                     });
                 }
-                LookupState::Answered => return Ok(InLookup::Answered),
-                LookupState::Unasked => {
-                    state.asked = LookupState::Asking(current);
-                    return Ok(InLookup::Begun);
-                }
+                LookupState::Unasked | LookupState::Answered => return Ok(false),
             }
         }
     }
 
-    /// End this walk's lookup, waking every walk waiting on it, as
-    /// `d_lookup_done` does.
+    /// End this walk's lookup where no answer did, taking the dentry out of
+    /// `in_lookup_hashtable` and waking every walk waiting on it, as
+    /// `d_lookup_done` does; each of them looks the name up again.
     fn lookup_done(&self) {
-        let mut state = self.state();
-        if matches!(
-            state.asked,
-            LookupState::Allocated(_) | LookupState::Asking(_)
-        ) {
-            state.asked = LookupState::Unasked;
+        {
+            let mut in_lookup = self.hashtables.in_lookup_hashtable();
+            let (parent, name) = self.parent_and_name();
+            let at = key(&parent, &name);
+            let mut state = self.state();
+            if matches!(
+                state.asked,
+                LookupState::Allocated(_) | LookupState::Asking(_)
+            ) {
+                if in_lookup
+                    .get(&at)
+                    .is_some_and(|held| std::ptr::eq(held.as_ref(), self))
+                {
+                    in_lookup.remove(&at);
+                }
+                state.asked = LookupState::Unasked;
+            }
         }
-        drop(state);
         self.wait.notify_all();
     }
 
@@ -561,29 +608,59 @@ impl Drop for Dentry {
     }
 }
 
+/// The directory above a name, by its address, and the name there.
+type Key = (usize, String);
+
+fn key(parent: &Arc<Dentry>, name: &str) -> Key {
+    (Arc::as_ptr(parent) as usize, name.to_string())
+}
+
+/// The dentries of one Filesystem a walk finds by the directory above and the
+/// name there.
+struct Hashtables {
+    /// Those a lookup answered, as Linux's `dentry_hashtable`.
+    dentry_hashtable: Mutex<Hashtable<Key, Dentry>>,
+    /// Those a walk is still looking up, as Linux's `in_lookup_hashtable`, so
+    /// any other walk reaching the name waits for that answer.
+    in_lookup_hashtable: Mutex<Hashtable<Key, Dentry>>,
+}
+
+impl Hashtables {
+    fn dentry_hashtable(&self) -> MutexGuard<'_, Hashtable<Key, Dentry>> {
+        self.dentry_hashtable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Taken after `dentry_hashtable` where a call holds both.
+    fn in_lookup_hashtable(&self) -> MutexGuard<'_, Hashtable<Key, Dentry>> {
+        self.in_lookup_hashtable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 /// Every name of one Filesystem something still holds, by the directory
 /// above it and its name there.
 pub(crate) struct Dentries {
     root: Arc<Dentry>,
     ops: Option<Arc<dyn DentryOperations>>,
-    /// The directories held, by the directory above and the name there, as
-    /// Linux's `dentry_hashtable` keeps them.
-    hashtable: Mutex<Hashtable<(usize, String), Dentry>>,
+    hashtables: Arc<Hashtables>,
     /// The names kept for the next walk, most recently found last, as Linux's
     /// `d_lru`, each by its address.
     lru: Mutex<LruCache<usize, Arc<Dentry>>>,
 }
 
-fn key(parent: &Arc<Dentry>, name: &str) -> (usize, String) {
-    (Arc::as_ptr(parent) as usize, name.to_string())
-}
-
 impl Dentries {
     pub(crate) fn new(ops: Option<Arc<dyn DentryOperations>>) -> Self {
+        let hashtables = Arc::new(Hashtables {
+            dentry_hashtable: Mutex::default(),
+            in_lookup_hashtable: Mutex::default(),
+        });
         Self {
-            root: Dentry::new(None, "", ops.clone()),
+            root: Dentry::new(None, "", ops.clone(), &hashtables),
             ops,
-            hashtable: Mutex::default(),
+            hashtables,
             lru: Mutex::new(LruCache::new(MAX_CACHED_DENTRIES)),
         }
     }
@@ -611,12 +688,6 @@ impl Dentries {
         drop(pushed_out);
     }
 
-    fn hashtable(&self) -> MutexGuard<'_, Hashtable<(usize, String), Dentry>> {
-        self.hashtable
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-    }
-
     pub(crate) fn root(&self) -> Arc<Dentry> {
         self.root.clone()
     }
@@ -624,74 +695,93 @@ impl Dentries {
     /// A dentry no walk reaches, a root of its own under no name, as
     /// `d_alloc_pseudo` makes one for what is only ever open.
     pub(crate) fn alloc_pseudo(&self) -> Arc<Dentry> {
-        Dentry::new(None, "", self.ops.clone())
+        Dentry::new(None, "", self.ops.clone(), &self.hashtables)
     }
 
-    /// The dentry of `name` in `parent`, the one held there or a new one, as
-    /// `d_alloc_parallel` finds or makes one, so each caller shares it. One it
-    /// makes is in lookup for the calling walk, as `d_alloc_parallel` marks it,
-    /// so every other walk reaching the name waits for that walk to ask.
-    pub(crate) fn alloc_parallel(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
-        self.hashtable().get_or_insert_with(key(parent, name), || {
-            let made = Dentry::new(Some(parent.clone()), name, self.ops.clone());
-            made.state().asked = LookupState::Allocated(sched::current());
-            made
-        })
+    /// The dentry a lookup answered for `name` in `parent`, or a new one in
+    /// lookup for the calling walk, as Linux's `d_alloc_parallel` finds or
+    /// makes one. A walk finding the name in lookup by another waits for that
+    /// walk's answer, until its run is to stop, and takes the dentry where the
+    /// answer left it at the name, or looks again, as `d_alloc_parallel`
+    /// retries on a mismatch.
+    pub(crate) fn alloc_parallel(
+        &self,
+        parent: &Arc<Dentry>,
+        name: &str,
+    ) -> Result<Arc<Dentry>, FilesystemError> {
+        let at = key(parent, name);
+        loop {
+            let waited = {
+                let table = self.hashtables.dentry_hashtable();
+                if let Some(found) = table.get(&at) {
+                    return Ok(found);
+                }
+                let mut in_lookup = self.hashtables.in_lookup_hashtable();
+                match in_lookup.get(&at) {
+                    Some(waited) => waited,
+                    None => {
+                        let made = Dentry::new(
+                            Some(parent.clone()),
+                            name,
+                            self.ops.clone(),
+                            &self.hashtables,
+                        );
+                        made.state().asked = LookupState::Allocated(sched::current());
+                        in_lookup.insert(at, &made);
+                        return Ok(made);
+                    }
+                }
+            };
+            if waited.wait_lookup()? {
+                return Ok(waited);
+            }
+            let (above, called) = waited.parent_and_name();
+            if waited.hashed() && Arc::ptr_eq(&above, parent) && called == name {
+                return Ok(waited);
+            }
+        }
     }
 
-    /// The dentry held for `name` in `parent`, as `d_lookup` finds one.
+    /// The dentry a lookup answered for `name` in `parent`, as `d_lookup` finds
+    /// one.
     pub(crate) fn lookup(&self, parent: &Arc<Dentry>, name: &str) -> Option<Arc<Dentry>> {
-        self.hashtable().get(&key(parent, name))
+        self.hashtables.dentry_hashtable().get(&key(parent, name))
     }
 
-    /// Whether `dentry` was taken out of the table, as Linux's
-    /// `d_unlinked` answers for one no longer reached by its name; a root never
-    /// is.
+    /// Whether `dentry` was let go of from its name, as Linux's `d_unlinked`
+    /// answers; a root never is.
     pub(crate) fn unlinked(&self, dentry: &Arc<Dentry>) -> bool {
-        let (parent, name) = dentry.parent_and_name();
-        let table = self.hashtable();
-        !dentry.is_root()
-            && !table
-                .get(&key(&parent, &name))
-                .is_some_and(|held| Arc::ptr_eq(&held, dentry))
+        !dentry.is_root() && !dentry.hashed()
     }
 
-    /// Take `dentry` out of the table, so the next lookup of its name makes
+    /// Let go of `dentry` from its name, so the next lookup of the name makes
     /// another and whoever holds this one keeps it, as Linux's `d_drop` unhashes
     /// one for `d_invalidate` and for a `d_delete` of one still in use.
     pub(crate) fn unhash(&self, dentry: &Arc<Dentry>) {
         let kept = self.lru().pop(&(Arc::as_ptr(dentry) as usize));
         drop(kept);
-        let (parent, name) = dentry.parent_and_name();
-        let mut table = self.hashtable();
-        let at = key(&parent, &name);
-        if table
-            .get(&at)
-            .is_some_and(|held| Arc::ptr_eq(&held, dentry))
-        {
-            table.remove(&at);
-        }
+        let mut table = self.hashtables.dentry_hashtable();
+        drop_hashed(&mut table, dentry);
     }
 
-    /// The entry `from_name` in `from` moved to `to_name` in `to`, taking
-    /// the directory held there, and every one beneath it, along, as
-    /// Linux's does.
-    pub(crate) fn move_dentry(
-        &self,
-        from: &Arc<Dentry>,
-        from_name: &str,
-        to: &Arc<Dentry>,
-        to_name: &str,
-    ) {
-        let mut table = self.hashtable();
-        let Some(moved) = table.remove(&key(from, from_name)) else {
-            return;
-        };
-        table.insert(key(to, to_name), &moved);
+    /// `dentry` moved to the name `target` stands at, taking every one beneath
+    /// it along, and `target` let go of, as Linux's `d_move` follows a rename.
+    /// A walk finding `dentry` by a name reaches it throughout, so it is never
+    /// taken for unlinked.
+    pub(crate) fn move_dentry(&self, dentry: &Arc<Dentry>, target: &Arc<Dentry>) {
+        self.unhash(target);
+        let mut table = self.hashtables.dentry_hashtable();
+        let (parent, name) = target.parent_and_name();
+        let (from, from_name) = dentry.parent_and_name();
         RENAME_LOCK.write(|| {
-            let mut state = moved.state();
-            state.parent = Some(to.clone());
-            state.name = to_name.to_string();
+            let mut state = dentry.state();
+            if state.hashed {
+                table.remove(&key(&from, &from_name));
+            }
+            table.insert(key(&parent, &name), dentry);
+            state.hashed = true;
+            state.parent = Some(parent.clone());
+            state.name = name.clone();
         });
     }
 
@@ -699,16 +789,31 @@ impl Dentries {
     /// `d_exchange` follows an exchange, so whoever holds either reaches
     /// it where it went.
     pub(crate) fn exchange(&self, first: &Arc<Dentry>, second: &Arc<Dentry>) {
-        let mut table = self.hashtable();
+        let mut table = self.hashtables.dentry_hashtable();
+        let (first_at, second_at) = (first.parent_and_name(), second.parent_and_name());
         RENAME_LOCK.write(|| {
             let (mut one, mut other) = (first.state(), second.state());
+            for (state, (parent, name)) in [(&one, &first_at), (&other, &second_at)] {
+                if state.hashed {
+                    table.remove(&key(parent, name));
+                }
+            }
+            table.insert(key(&second_at.0, &second_at.1), first);
+            table.insert(key(&first_at.0, &first_at.1), second);
             std::mem::swap(&mut one.parent, &mut other.parent);
             std::mem::swap(&mut one.name, &mut other.name);
+            (one.hashed, other.hashed) = (true, true);
         });
-        for dentry in [first, second] {
-            let (parent, name) = dentry.parent_and_name();
-            table.insert(key(&parent, &name), dentry);
-        }
+    }
+}
+
+/// Take `dentry` out of `table` where it is hashed, as Linux's `___d_drop`.
+fn drop_hashed(table: &mut Hashtable<Key, Dentry>, dentry: &Arc<Dentry>) {
+    let (parent, name) = dentry.parent_and_name();
+    let mut state = dentry.state();
+    if state.hashed {
+        table.remove(&key(&parent, &name));
+        state.hashed = false;
     }
 }
 
@@ -725,6 +830,16 @@ mod tests {
     use crate::mount::{Access, Mount};
     use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, File, Finish, Identity, Inode, OpenHow, Path};
+
+    /// The dentry of `name` in `parent`, a lookup having answered that nothing
+    /// stands there, so a walk finds it by its name.
+    fn negative(dentries: &Dentries, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
+        let made = dentries
+            .alloc_parallel(parent, name)
+            .expect("no other walk holds the name");
+        made.add(None);
+        made
+    }
 
     /// A Filesystem answering each call by the path its dentry stands at,
     /// as one written in Ruby does, so a removed directory it opened
@@ -921,8 +1036,7 @@ mod tests {
             Kstat::new(FileType::Dir, 0).with_identity(1, 3),
         );
         let dentries = Dentries::new(None);
-        let dentry = dentries.alloc_parallel(&dentries.root(), "dir");
-        dentry.add(None);
+        let dentry = negative(&dentries, &dentries.root(), "dir");
         dentry.add(Some(Inode::new(&first, ops.clone())));
         dentry.add(Some(Inode::new(&second, ops)));
         assert_eq!(
@@ -1000,7 +1114,9 @@ mod tests {
         let dentries = Dentries::new(None);
         let mut leaf = dentries.root();
         for _ in 0..200_000 {
-            leaf = dentries.alloc_parallel(&leaf, "a");
+            leaf = dentries
+                .alloc_parallel(&leaf, "a")
+                .expect("no other walk holds the name");
         }
         let released = std::thread::Builder::new()
             .stack_size(64 * 1024)
@@ -1018,14 +1134,16 @@ mod tests {
     fn an_exchange_swaps_two_dentries() {
         let dentries = super::Dentries::new(None);
         let root = dentries.root();
-        let a = dentries.alloc_parallel(&root, "a");
-        let b = dentries.alloc_parallel(&dentries.alloc_parallel(&root, "d"), "b");
+        let a = negative(&dentries, &root, "a");
+        let b = negative(&dentries, &negative(&dentries, &root, "d"), "b");
         dentries.exchange(&a, &b);
         assert_eq!(
             (
                 a.path_raw(),
                 b.path_raw(),
-                Arc::ptr_eq(&dentries.alloc_parallel(&root, "a"), &b)
+                dentries
+                    .lookup(&root, "a")
+                    .is_some_and(|found| Arc::ptr_eq(&found, &b))
             ),
             ("d/b".to_string(), "a".to_string(), true),
             "Dentries::exchange must hand each dentry the other's name, and find each by its new \
@@ -1041,7 +1159,15 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        use super::super::Dentries;
+        use super::super::{Dentries, Dentry};
+        use super::negative;
+
+        /// The dentry a rename onto `name` in `dir` replaces.
+        fn target(dentries: &Dentries, dir: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
+            dentries
+                .alloc_parallel(dir, name)
+                .expect("no other walk holds the name")
+        }
 
         // `x` is named `z` only while `b` stands beneath `y`, so `z/b/leaf`
         // is a path `leaf` never stood at: only a read taking `b`'s parent
@@ -1053,20 +1179,21 @@ mod tests {
             let dentries = Arc::new(Dentries::new(None));
             let root = dentries.root();
             let (x, y) = (
-                dentries.alloc_parallel(&root, "x"),
-                dentries.alloc_parallel(&root, "y"),
+                negative(&dentries, &root, "x"),
+                negative(&dentries, &root, "y"),
             );
-            let leaf = dentries.alloc_parallel(&dentries.alloc_parallel(&x, "b"), "leaf");
+            let b = negative(&dentries, &x, "b");
+            let leaf = negative(&dentries, &b, "leaf");
             let stop = Arc::new(AtomicBool::new(false));
             let moving = {
                 let (dentries, stop) = (dentries.clone(), stop.clone());
                 thread::spawn(move || {
                     let root = dentries.root();
                     while !stop.load(Ordering::SeqCst) {
-                        dentries.move_dentry(&x, "b", &y, "b");
-                        dentries.move_dentry(&root, "x", &root, "z");
-                        dentries.move_dentry(&root, "z", &root, "x");
-                        dentries.move_dentry(&y, "b", &x, "b");
+                        dentries.move_dentry(&b, &target(&dentries, &y, "b"));
+                        dentries.move_dentry(&x, &target(&dentries, &root, "z"));
+                        dentries.move_dentry(&x, &target(&dentries, &root, "x"));
+                        dentries.move_dentry(&b, &target(&dentries, &x, "b"));
                     }
                 })
             };
@@ -1091,17 +1218,17 @@ mod tests {
             let dentries = Arc::new(Dentries::new(None));
             let root = dentries.root();
             let (x, y) = (
-                dentries.alloc_parallel(&root, "x"),
-                dentries.alloc_parallel(&root, "y"),
+                negative(&dentries, &root, "x"),
+                negative(&dentries, &root, "y"),
             );
-            let moved = dentries.alloc_parallel(&x, "a");
+            let moved = negative(&dentries, &x, "a");
             let stop = Arc::new(AtomicBool::new(false));
             let moving = {
-                let (dentries, stop) = (dentries.clone(), stop.clone());
+                let (dentries, stop, moved) = (dentries.clone(), stop.clone(), moved.clone());
                 thread::spawn(move || {
                     while !stop.load(Ordering::SeqCst) {
-                        dentries.move_dentry(&x, "a", &y, "b");
-                        dentries.move_dentry(&y, "b", &x, "a");
+                        dentries.move_dentry(&moved, &target(&dentries, &y, "b"));
+                        dentries.move_dentry(&moved, &target(&dentries, &x, "a"));
                     }
                 })
             };

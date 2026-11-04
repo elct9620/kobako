@@ -1587,7 +1587,9 @@ mod tests {
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let dir = dentries.alloc_parallel(&root, "a");
+        let dir = dentries
+            .alloc_parallel(&root, "a")
+            .expect("no other walk holds the name");
         dir.lookup_inode(&filesystem, &root)
             .expect("the name must be found");
         fs::remove_dir(host.0.join("a")).expect("the host must remove it");
@@ -1616,7 +1618,9 @@ mod tests {
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let dir = dentries.alloc_parallel(&root, "a");
+        let dir = dentries
+            .alloc_parallel(&root, "a")
+            .expect("no other walk holds the name");
         dir.lookup_inode(&filesystem, &root)
             .expect("the name must be found");
         fs::rename(host.0.join("a"), host.0.join("moved")).expect("the host must move it");
@@ -1643,10 +1647,15 @@ mod tests {
         let dentries = filesystem.dentries();
         let root = dentries.root();
         let dir = filesystem.root().expect("the root stands").ops();
+        let at = |name| {
+            dentries
+                .alloc_parallel(&root, name)
+                .expect("no other walk holds the name")
+        };
         let answer = dir.rename(
-            &dentries.alloc_parallel(&root, "a"),
+            &at("a"),
             dir.as_ref(),
-            &dentries.alloc_parallel(&root, "b"),
+            &at("b"),
             Some(RenameFlag::NoReplace),
         );
         assert_eq!(
@@ -1671,10 +1680,15 @@ mod tests {
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let a = dentries.alloc_parallel(&root, "a");
+        let at = |dir: &Arc<Dentry>, name| {
+            dentries
+                .alloc_parallel(dir, name)
+                .expect("no other walk holds the name")
+        };
+        let a = at(&root, "a");
         fs::rename(host.0.join("a"), host.0.join("x")).expect("the host must move it");
-        dentries.move_dentry(&root, "a", &root, "x");
-        let note = dentries.alloc_parallel(&a, "note");
+        dentries.move_dentry(&a, &at(&root, "x"));
+        let note = at(&a, "note");
         assert!(
             matches!(
                 filesystem.root().expect("the root stands").ops().lookup(&note),

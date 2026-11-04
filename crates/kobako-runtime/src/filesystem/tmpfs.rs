@@ -1054,15 +1054,17 @@ mod tests {
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let (first, second) = (
-            dentries.alloc_parallel(&root, "a"),
-            dentries.alloc_parallel(&root, "b"),
-        );
+        let at = |name| {
+            dentries
+                .alloc_parallel(&root, name)
+                .expect("no other walk holds the name")
+        };
+        let (first, second) = (at("a"), at("b"));
         let dir = filesystem.root().expect("the root stands").ops();
         dir.rename(&first, dir.as_ref(), &second, Some(RenameFlag::Exchange))
             .expect("the two must swap");
         let nlink = |name| {
-            let dentry = dentries.alloc_parallel(&root, name);
+            let dentry = at(name);
             dentry
                 .lookup_inode(&filesystem, &root)
                 .expect("the name must be found");

@@ -28,16 +28,6 @@ impl<K: Hash + Eq, V> Hashtable<K, V> {
         self.entries.get(key).and_then(Weak::upgrade)
     }
 
-    /// The object at `key`, or the one `make` makes, kept there from now on.
-    pub(crate) fn get_or_insert_with(&mut self, key: K, make: impl FnOnce() -> Arc<V>) -> Arc<V> {
-        if let Some(held) = self.get(&key) {
-            return held;
-        }
-        let made = make();
-        self.insert(key, &made);
-        made
-    }
-
     pub(crate) fn insert(&mut self, key: K, value: &Arc<V>) {
         if self.entries.len() >= self.sweep_at {
             self.entries.retain(|_, held| held.strong_count() > 0);

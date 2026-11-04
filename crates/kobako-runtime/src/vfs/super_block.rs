@@ -61,7 +61,7 @@ impl SuperBlock {
         };
         fs.fill_super(&mut sb)?;
         let root = sb.root.clone().ok_or(FilesystemError::InvalidInput)?;
-        sb.dentries.root().add(Some(root));
+        root.add_to(&sb.dentries.root());
         Ok(Arc::new(sb))
     }
 
