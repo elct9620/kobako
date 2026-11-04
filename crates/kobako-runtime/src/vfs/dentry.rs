@@ -762,6 +762,38 @@ impl Dentries {
         !dentry.is_root() && !dentry.hashed()
     }
 
+    /// Let go of `dentry`, which no longer names what stands at its name, and
+    /// of the names kept beneath it, as Linux's `d_invalidate` drops it and
+    /// shrinks what is below a positive one.
+    pub(crate) fn invalidate(&self, dentry: &Arc<Dentry>) {
+        if !dentry.hashed() {
+            return;
+        }
+        self.unhash(dentry);
+        if dentry.inode().is_some() {
+            self.shrink_dcache_parent(dentry);
+        }
+    }
+
+    /// Let go of the names kept for the next walk beneath `parent`, as Linux's
+    /// `shrink_dcache_parent` frees the unused dentries below one; one something
+    /// still holds stays with its holder. They are found through the LRU, the
+    /// only place keeping a dentry nothing else holds, rather than a list of
+    /// children.
+    pub(crate) fn shrink_dcache_parent(&self, parent: &Arc<Dentry>) {
+        let kept: Vec<Arc<Dentry>> = self.lru().iter().map(|(_, held)| held.clone()).collect();
+        let beneath = kept
+            .iter()
+            .filter(|held| !Arc::ptr_eq(held, parent) && held.is_subdir(parent))
+            .map(|held| Arc::as_ptr(held) as usize);
+        let let_go: Vec<_> = {
+            let mut lru = self.lru();
+            beneath.filter_map(|at| lru.pop(&at)).collect()
+        };
+        drop(let_go);
+        drop(kept);
+    }
+
     /// Let go of `dentry` from its name, so the next lookup of the name makes
     /// another and whoever holds this one keeps it, as Linux's `d_drop` unhashes
     /// one for `d_invalidate` and for a `d_delete` of one still in use.
@@ -1134,6 +1166,36 @@ mod tests {
             released.is_ok(),
             "a dentry 200000 directories deep, dropped on a 64 KiB stack, must go without \
              overflowing it"
+        );
+    }
+
+    // Only a name kept beneath the invalidated directory is let go of: a name
+    // beside it stays for the next walk.
+    #[test]
+    fn a_directory_let_go_of_takes_the_names_kept_beneath_it() {
+        let dentries = Dentries::new(None);
+        let root = dentries.root();
+        let ops: Arc<dyn InodeOperations> = Arc::new(Tmpfs::new());
+        let dir = dentries
+            .alloc_parallel(&root, "dir")
+            .expect("no other walk holds the name");
+        dir.add(Some(Inode::new(&Kstat::new(FileType::Dir, 0), ops)));
+        let kept = |dentry: Arc<Dentry>| {
+            dentries.retain(&dentry);
+            Arc::downgrade(&dentry)
+        };
+        let beneath = kept(negative(
+            &dentries,
+            &negative(&dentries, &dir, "sub"),
+            "leaf",
+        ));
+        let beside = kept(negative(&dentries, &root, "other"));
+        dentries.invalidate(&dir);
+        assert_eq!(
+            (beneath.upgrade().is_some(), beside.upgrade().is_some()),
+            (false, true),
+            "Dentries::invalidate of a directory must let go of the names kept beneath it and \
+             keep the others, as d_invalidate calls shrink_dcache_parent"
         );
     }
 

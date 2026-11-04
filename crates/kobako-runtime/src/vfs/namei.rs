@@ -141,8 +141,8 @@ impl Nameidata {
 
 /// Whether `dentry`, which a lookup answered for, still names what stands at its
 /// name in `dir`, whose lock the caller holds, so no move lands between the
-/// question and the answer. One that does not is let go of, as `d_invalidate`
-/// unhashes it.
+/// question and the answer. One that does not is let go of with the names kept
+/// beneath it, as `d_invalidate` does.
 pub(crate) fn d_revalidate(
     sb: &SuperBlock,
     dir: &Dentry,
@@ -153,7 +153,7 @@ pub(crate) fn d_revalidate(
         None => true,
     };
     if !valid {
-        sb.dentries().unhash(dentry);
+        sb.dentries().invalidate(dentry);
     }
     Ok(valid)
 }
@@ -1111,6 +1111,7 @@ pub(crate) fn vfs_rename(
         return Ok(());
     }
     if target == Some(FileType::Dir) {
+        dentries.shrink_dcache_parent(new);
         new.mark_dead();
     }
     dentries.move_dentry(old, new);
@@ -1129,6 +1130,7 @@ pub(crate) fn vfs_rmdir(
     may_delete_dentry(cred, sb, dir, victim.kind().ok(), true)?;
     let _victim = victim.inode_lock()?;
     dir.inode_ops()?.rmdir(victim)?;
+    sb.dentries().shrink_dcache_parent(victim);
     victim.mark_dead();
     sb.dentries().unhash(victim);
     Ok(())
