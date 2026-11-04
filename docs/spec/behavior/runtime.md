@@ -1545,7 +1545,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | another writer swaps the allowed directory for a link as the Policy judges |
 | Then | the read reaches the directory the walk held, and nothing the Policy refused |
 
-## `RT-146` A Policy is asked once for an open that may create, as what it does
+## `RT-146` An open that may create asks to make the file before it finds what stands
 
 | Attribute | Value |
 | --- | --- |
@@ -1556,7 +1556,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a Mount whose Policy records each access it is asked |
 | When | the guest opens a missing path and an existing file to create, without the right to write |
-| Then | the Policy was asked once per open: as a change for the missing path, as a read for the file |
+| Then | the Policy is asked a change for each, then a read for the file, as Linux's `lookup_open` asks `may_o_create` first |
 
 ## `RT-147` An open of a missing path that makes nothing answers ENOENT
 
@@ -3511,3 +3511,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose `atomic_open` finds the name stored as `F` |
 | When | a guest opens `f`, asking to create nothing |
 | Then | the open holds the dentry of `F`, as `finish_no_open` hands Linux's VFS what `d_add_ci` returned |
+
+## `RT-313` A file a read-only Mount refuses to make is made nowhere
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-311` |
+| relates | `RT-148` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a read-only Mount, and a name a walk already found missing |
+| When | a guest opens that name, asking to create it |
+| Then | the open answers EROFS and the Filesystem makes nothing, as `create_error` clears `O_CREAT` |
