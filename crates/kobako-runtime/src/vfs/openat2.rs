@@ -46,7 +46,7 @@ pub struct OpenFlags {
 
 impl OpenFlags {
     /// The flags the open was made with, as `open_flag` keeps them.
-    pub fn open_flag(&self) -> &OpenHow {
+    pub(crate) fn open_flag(&self) -> &OpenHow {
         &self.open_flag
     }
 

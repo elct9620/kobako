@@ -15,7 +15,7 @@ pub struct VfsMount {
 
 impl VfsMount {
     /// `sb` mounted, allowing only reads where `read_only` says.
-    pub fn new(sb: Arc<SuperBlock>, read_only: bool) -> Arc<Self> {
+    pub(crate) fn new(sb: Arc<SuperBlock>, read_only: bool) -> Arc<Self> {
         Arc::new(Self { sb, read_only })
     }
 
