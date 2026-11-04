@@ -2429,6 +2429,12 @@ mod tests {
         }
 
         fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+            if dentry.in_lookup() {
+                let found = self.lookup(dentry)?;
+                if !how.create || !matches!(found, Lookup::Absent) {
+                    return Ok(Finish::Lookup(found));
+                }
+            }
             let file = self.root.create(&folded(dentry), how)?;
             Ok(Finish::Open {
                 file,

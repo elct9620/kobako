@@ -390,39 +390,124 @@ impl Nameidata {
         }
     }
 
-    /// Find the last name of an open, as Linux's `open_last_lookups` does. One
-    /// that makes no file finds it as any call does. One that may make it finds
-    /// it under the directory's lock it makes the file under, and is handed that
-    /// lock, as `lookup_open` holds it; a trailing `/` refuses what it would make,
-    /// as `lookup_fast_for_open` does.
+    /// Find the last name of an open, as Linux's `open_last_lookups` does,
+    /// through `lookup_open`. A trailing `/` refuses what the open would make,
+    /// and otherwise follows a link there and asks for a directory, as
+    /// `lookup_fast_for_open` does. A link followed leaves another last name to
+    /// find; what the open made or opened is not followed.
     fn open_last_lookups(
         &mut self,
-        follow: bool,
-        create: bool,
-    ) -> Result<Option<RwSemaphoreGuard>, FilesystemError> {
-        if !create {
-            self.lookup_last(follow)?;
-            return Ok(None);
-        }
+        how: &OpenHow,
+        mode: FMode,
+        mut follow: bool,
+    ) -> Result<Opened, FilesystemError> {
         loop {
             if self.last_type != LastType::Norm {
                 self.handle_dots()?;
-                return Ok(None);
+                return Ok(Opened { file: None, mode });
             }
             if self.trailing_slash {
-                return Err(FilesystemError::IsADirectory);
+                if how.create {
+                    return Err(FilesystemError::IsADirectory);
+                }
+                follow = true;
+                self.lookup_directory = true;
             }
-            let held = self.dentry().inode_lock()?;
-            let child = self.lookup_last_locked()?;
-            if !follow || child.kind() != Ok(FileType::Symlink) {
-                return Ok(Some(held));
+            let (child, opened) = self.lookup_open(how, mode)?;
+            let finished = opened.file.is_some() || opened.mode.contains(FMode::CREATED);
+            if finished || !follow || child.kind() != Ok(FileType::Symlink) {
+                return Ok(opened);
             }
-            drop(held);
             self.pick_link(&child)?;
             self.link_path_walk()?;
         }
     }
+
+    /// The last name of an open and what became of it, as Linux's
+    /// `lookup_open` finds it under the directory's lock, shared unless the open
+    /// may make a file. An open making nothing hands a name no lookup answered
+    /// yet to `atomic_open` in place of `->lookup`, and what it looked up is
+    /// recorded as a lookup's answer is. An open that may make a file looks the
+    /// name up first and asks to make it only where nothing stands, so a Policy
+    /// is asked once for it, before `atomic_open` makes it. A Filesystem opening
+    /// the file too finishes it through `do_dentry_open` here, as its
+    /// `finish_open` does.
+    fn lookup_open(
+        &mut self,
+        how: &OpenHow,
+        mode: FMode,
+    ) -> Result<(Arc<Dentry>, Opened), FilesystemError> {
+        let dir = self.dentry().clone();
+        let _held = match how.create {
+            true => dir.inode_lock()?,
+            false => dir.inode_lock_shared()?,
+        };
+        if dir.is_deaddir() {
+            return Err(FilesystemError::NotFound);
+        }
+        let mnt = self.mnt.clone();
+        let given = d_alloc_parallel(mnt.sb(), &dir, &self.name)?;
+        let (mut file, mut created, spelled) = match how.create {
+            true => (None, false, given.lookup_inode(&dir)?),
+            false => {
+                let asked = given.lookup_by(|| finish(atomic_open(&dir, &given, how)?, &given))?;
+                asked.unwrap_or((None, false, None))
+            }
+        };
+        let (stored, child) = d_add_ci(mnt.sb(), &dir, &self.name, given, spelled)?;
+        self.name = stored;
+        self.path = Some(child.clone());
+        if child.inode().is_none() && how.create {
+            self.may_o_create(&child)?;
+            (file, created, _) = finish(atomic_open(&dir, &child, how)?, &child)?;
+        }
+        if child.inode().is_none() {
+            return Err(FilesystemError::NotFound);
+        }
+        let mode = match created {
+            true => mode.with(FMode::CREATED),
+            false => mode,
+        };
+        let file = match file {
+            Some(file) => {
+                let kind = child.kind()?;
+                let opened = self.on_path(|path| {
+                    do_dentry_open(&self.cred, path, kind, mode, how, || Ok(file))
+                })?;
+                Some(opened)
+            }
+            None => None,
+        };
+        Ok((child, Opened { file, mode }))
+    }
+
+    /// Whether the open may make the file `child` names here, as Linux's
+    /// `may_o_create` asks once the mount takes a write.
+    fn may_o_create(&self, child: &Dentry) -> Result<(), FilesystemError> {
+        self.mnt.mnt_want_write()?;
+        self.on_path(|path| self.cred.security_path_mknod(path))?;
+        may_create_dentry(&self.cred, self.mnt.sb(), self.dentry(), child)
+    }
 }
+
+/// What an `atomic_open` on `dentry` left: the file it opened, whether it made
+/// it, and another spelling where its lookup found the entry stored under one,
+/// with what it found recorded on `dentry` otherwise, as Linux's `atomic_open`
+/// takes the dentry `finish_no_open` hands back.
+fn finish(finished: Finish, dentry: &Dentry) -> Result<Finished, FilesystemError> {
+    Ok(match finished {
+        Finish::Open { file, created } => (Some(file), created, None),
+        Finish::NoOpen { created } => (None, created, None),
+        Finish::Lookup(found) => (None, false, dentry.d_splice_alias(found)),
+    })
+}
+
+/// What `finish` reads out of an `atomic_open`.
+type Finished = (
+    Option<Box<dyn FileOperations>>,
+    bool,
+    Option<(String, Arc<Inode>)>,
+);
 
 /// Refuse a path no call can take, as Linux's `getname` does before any call
 /// looks at it: an empty one names nothing, one past `PATH_MAX` with its
@@ -559,15 +644,8 @@ pub fn do_file_open(
         return do_o_path(nd, op);
     }
     nd.link_path_walk()?;
-    let held = nd.open_last_lookups(op.lookup_follow(), how.create)?;
+    let opened = nd.open_last_lookups(how, mode, op.lookup_follow())?;
     let child = nd.path()?;
-    // Only a create reaches the last name with nothing there, as
-    // `open_last_lookups` refuses it otherwise.
-    let opened = match child.inode() {
-        None => lookup_open(&nd, &child, how, mode)?,
-        Some(_) => Opened { file: None, mode },
-    };
-    drop(held);
     do_open(&nd, child, opened, op)
 }
 
@@ -597,37 +675,6 @@ fn do_o_path(nd: Nameidata, op: &OpenFlags) -> Result<File, FilesystemError> {
 struct Opened {
     file: Option<(Box<dyn FileOperations>, Vec<FileSecurity>)>,
     mode: FMode,
-}
-
-/// Make the file an open names where nothing stands, as Linux's `lookup_open`
-/// asks the mount and `may_o_create` before `->atomic_open` or `->create`, under
-/// the directory's lock its caller holds. A Filesystem opening the file too
-/// finishes it through `do_dentry_open` here, as its `finish_open` does.
-fn lookup_open(
-    nd: &Nameidata,
-    child: &Dentry,
-    how: &OpenHow,
-    mode: FMode,
-) -> Result<Opened, FilesystemError> {
-    nd.mnt.mnt_want_write()?;
-    nd.on_path(|path| nd.cred.security_path_mknod(path))?;
-    may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), child)?;
-    let (file, created) = match atomic_open(nd.dentry(), child, how)? {
-        Finish::Open { file, created } => (Some(file), created),
-        Finish::NoOpen { created } => (None, created),
-    };
-    let mode = match created {
-        true => mode.with(FMode::CREATED),
-        false => mode,
-    };
-    let file = match file {
-        Some(file) => {
-            let kind = child.kind()?;
-            Some(nd.on_path(|path| do_dentry_open(&nd.cred, path, kind, mode, how, || Ok(file)))?)
-        }
-        None => None,
-    };
-    Ok(Opened { file, mode })
 }
 
 /// Open what the walk ended on once the directory's lock is gone, as Linux's
@@ -1948,6 +1995,88 @@ mod tests {
         );
     }
 
+    /// A Filesystem looking a name up and opening it in one step, as NFS opens
+    /// with one call to its server, counting what it is asked: its `lookup`,
+    /// then its `atomic_open`.
+    #[derive(Clone, Default)]
+    struct OpensAtOnce(Arc<(AtomicUsize, AtomicUsize)>);
+
+    impl FileSystemType for OpensAtOnce {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for OpensAtOnce {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Dir, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            self.0 .0.fetch_add(1, Ordering::SeqCst);
+            Ok(Lookup::Absent)
+        }
+
+        fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
+            self.0 .1.fetch_add(1, Ordering::SeqCst);
+            let found = Kstat::new(FileType::RegFile, 0);
+            dentry.add(Some(Inode::new(&found, Arc::new(self.clone()))));
+            Ok(Finish::Open {
+                file: Box::new(NoOperations),
+                created: false,
+            })
+        }
+    }
+
+    // A walk asking `lookup` first would cost a Filesystem that opens in one
+    // step a second call to its backend for every file it opens.
+    // @behavior RT-311
+    #[test]
+    fn an_open_of_a_name_no_walk_looked_up_asks_atomic_open() {
+        let fs = OpensAtOnce::default();
+        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let opened = vfs::kern_path::filp_open(&Arc::default(), &root, "file", &read);
+        assert_eq!(
+            (
+                opened.is_ok(),
+                fs.0 .0.load(Ordering::SeqCst),
+                fs.0 .1.load(Ordering::SeqCst)
+            ),
+            (true, 0, 1),
+            "vfs::do_file_open to read a name no walk looked up must ask atomic_open in place of \
+             lookup, as lookup_open does, and open what it found"
+        );
+    }
+
+    // A dentry of the spelling the guest asked for would give one entry two
+    // dentries, two locks, and a spelling the security hooks never judge.
+    // @behavior RT-312
+    #[test]
+    fn a_name_atomic_open_finds_under_another_spelling_opens_as_that_spelling() {
+        let tmpfs: Tmpfs = [("F", "x")].into_iter().collect();
+        let folds = FoldsToUpper {
+            root: kern_path(Arc::new(tmpfs)),
+            renaming: Arc::new(Box::new(|| Ok(()))),
+        };
+        let root = root_of(Filesystem::new(Arc::new(folds)).expect("the instance must stand"));
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let opened = vfs::kern_path::filp_open(&Arc::default(), &root, "f", &read)
+            .map(|file| file.path().dentry().name());
+        assert_eq!(
+            opened,
+            Ok("F".to_string()),
+            "vfs::do_file_open of `f` over a Filesystem whose atomic_open finds it stored as `F` \
+             must hold the dentry of `F`, as finish_no_open hands back what d_add_ci returned"
+        );
+    }
+
     /// A test's Filesystem recording each `->permission` it is asked, refusing
     /// any change once `refuse_writes` says.
     #[derive(Default)]
@@ -2577,6 +2706,12 @@ mod tests {
         }
 
         fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+            if dentry.in_lookup() {
+                let found = self.lookup(dentry)?;
+                if !how.create || !matches!(found, Lookup::Absent) {
+                    return Ok(Finish::Lookup(found));
+                }
+            }
             let file = self.root.create(&folded(dentry), how)?;
             Ok(Finish::Open {
                 file,
@@ -3478,7 +3613,13 @@ mod tests {
             Ok(Box::new(RecordedFile))
         }
 
-        fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+            if dentry.in_lookup() {
+                let found = self.lookup(dentry)?;
+                if !how.create || !matches!(found, Lookup::Absent) {
+                    return Ok(Finish::Lookup(found));
+                }
+            }
             self.0.lock().expect("never poisoned").push("atomic_open");
             let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));
@@ -3646,7 +3787,13 @@ mod tests {
             Ok(())
         }
 
-        fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+            if dentry.in_lookup() {
+                let found = self.lookup(dentry)?;
+                if !how.create || !matches!(found, Lookup::Absent) {
+                    return Ok(Finish::Lookup(found));
+                }
+            }
             self.made.store(true, Ordering::SeqCst);
             let file = Kstat::new(crate::filesystem::FileType::RegFile, 0);
             dentry.add(Some(Inode::new(&file, Arc::new(self.clone()))));

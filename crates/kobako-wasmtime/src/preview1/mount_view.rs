@@ -11,8 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
-    FileOperations, FileSystemType, FileType, FilesystemError, InodeOperations, Kiocb, Kstat,
-    Lookup, OpenHow, Overlay, RenameFlag, Tmpfs,
+    FileOperations, FileSystemType, FileType, FilesystemError, Finish, InodeOperations, Kiocb,
+    Kstat, Lookup, OpenHow, Overlay, RenameFlag, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
@@ -920,6 +920,27 @@ fn host_dir_with_a_file(name: &str) -> std::path::PathBuf {
     dir
 }
 
+// The VFS hands a Bind every name no walk looked up, so a Bind making what
+// any open asks for would leave a file on the host for a guest that only
+// tried to write one standing.
+// @behavior RT-311
+#[test]
+fn a_bind_opens_a_name_no_walk_looked_up_and_makes_nothing() {
+    let dir = host_dir_with_a_file("opens-unlooked");
+    std::fs::write(dir.join("file.txt"), "granted").expect("the host file must be written");
+    let bind = Arc::new(Bind::new(&dir).expect("the host directory must open"));
+    let mut guest = Guest::new(&[grant(bind, Access::ReadWrite, None)]);
+    let read = guest.call("read_file", FILE);
+    let content = guest.read_back();
+    let appended = guest.call("append_file", NEW);
+    assert_eq!(
+        (read, content, appended, dir.join("new.txt").exists()),
+        (0, b"granted".to_vec(), ERRNO_NOENT, false),
+        "path_open of a file no walk looked up beneath a Bind through preview1 must read it, \
+         and of a missing path without O_CREAT must answer ENOENT and make nothing on the host"
+    );
+}
+
 // The first listing fills its buffer with `.` and `..` exactly, so it has
 // not reached its end when the file is made.
 // @behavior RT-107
@@ -1385,18 +1406,37 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
 /// stat names no inode.
 struct NamesNoIdentity;
 
+impl NamesNoIdentity {
+    /// `found` with the entry it names stripped of its identity.
+    fn bare(found: Lookup, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        Ok(match found {
+            Lookup::Found(inode) => {
+                let found = inode.ops().getattr(dentry)?;
+                let bare = Kstat::new(found.file_type, found.size);
+                Lookup::Found(Inode::new(&bare, inode.ops().clone()))
+            }
+            other => other,
+        })
+    }
+}
+
 impl Hook for NamesNoIdentity {
     fn lookup(
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<Lookup, FilesystemError> {
-        Ok(match inner.lookup(dentry)? {
-            Lookup::Found(inode) => {
-                let found = inode.ops().getattr(dentry)?;
-                let bare = Kstat::new(found.file_type, found.size);
-                Lookup::Found(Inode::new(&bare, inode.ops().clone()))
-            }
+        Self::bare(inner.lookup(dentry)?, dentry)
+    }
+
+    fn atomic_open(
+        &self,
+        inner: &dyn InodeOperations,
+        dentry: &Dentry,
+        how: &OpenHow,
+    ) -> Result<Finish, FilesystemError> {
+        Ok(match inner.atomic_open(dentry, how)? {
+            Finish::Lookup(found) => Finish::Lookup(Self::bare(found, dentry)?),
             other => other,
         })
     }

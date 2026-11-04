@@ -102,7 +102,7 @@ impl KernPath {
         may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)?;
         match atomic_open(nd.dentry(), &child, how)? {
             Finish::Open { file, .. } => Ok(file),
-            Finish::NoOpen { .. } => child.open(how),
+            Finish::NoOpen { .. } | Finish::Lookup(_) => child.open(how),
         }
     }
 

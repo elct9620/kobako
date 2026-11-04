@@ -570,6 +570,23 @@ impl<W> WrapsFiles<W> {
     }
 }
 
+impl<W, F> WrapsFiles<W>
+where
+    W: Fn(Box<dyn FileOperations>) -> F + Send + Sync + 'static,
+    F: FileOperations + 'static,
+{
+    /// `found` with the entry it names handing its files through `wrap` too.
+    fn wrap_found(&self, found: Lookup) -> Lookup {
+        match found {
+            Lookup::Found(inode) => Lookup::Found(inode.with_ops(Arc::new(Self {
+                inner: inode.ops().clone(),
+                wrap: self.wrap.clone(),
+            }))),
+            other => other,
+        }
+    }
+}
+
 impl<W, F> FileSystemType for WrapsFiles<W>
 where
     W: Fn(Box<dyn FileOperations>) -> F + Send + Sync + 'static,
@@ -598,13 +615,7 @@ where
     }
 
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-        Ok(match self.inner.lookup(dentry)? {
-            Lookup::Found(inode) => Lookup::Found(inode.with_ops(Arc::new(Self {
-                inner: inode.ops().clone(),
-                wrap: self.wrap.clone(),
-            }))),
-            other => other,
-        })
+        Ok(self.wrap_found(self.inner.lookup(dentry)?))
     }
 
     fn open(
@@ -623,12 +634,13 @@ where
     }
 
     /// Opens what it made, as a Filesystem ending in `finish_open` does, so the
-    /// new file is wrapped too.
+    /// new file is wrapped too; what it only looked up is handed back wrapped.
     fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
         let (made, created) = match self.inner.atomic_open(dentry, how)? {
             Finish::Open { file, created } => (file, created),
             Finish::NoOpen { created } => (self.inner.open(dentry, how)?, created),
-            _ => unreachable!("Finish has only these two ends"),
+            Finish::Lookup(found) => return Ok(Finish::Lookup(self.wrap_found(found))),
+            _ => unreachable!("Finish has only these three ends"),
         };
         Ok(Finish::Open {
             file: Box::new((self.wrap)(made)),

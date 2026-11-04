@@ -197,7 +197,12 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
     }
 
     fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
-        self.hook.atomic_open(self.inner.as_ref(), dentry, how)
+        Ok(
+            match self.hook.atomic_open(self.inner.as_ref(), dentry, how)? {
+                Finish::Lookup(found) => Finish::Lookup(self.wrap(found)),
+                other => other,
+            },
+        )
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {

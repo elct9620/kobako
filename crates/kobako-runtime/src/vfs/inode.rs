@@ -25,6 +25,10 @@ pub enum Finish {
     },
     /// It left the open to the VFS, as `finish_no_open` hands the dentry back.
     NoOpen { created: bool },
+    /// It looked the name up and left the rest to the VFS, as `finish_no_open`
+    /// hands back the dentry a lookup returned, for the VFS to record as it
+    /// records what `lookup` answers.
+    Lookup(Lookup),
 }
 
 /// What one name in a directory turned out to be, as `->lookup` answers.
@@ -116,13 +120,21 @@ pub trait InodeOperations: Any + Send + Sync {
         Err(FilesystemError::PermissionDenied)
     }
 
-    /// Make the file `dentry` names in this directory, recording it on `dentry`,
-    /// and open it as `how` asks, as `->atomic_open` takes `open_flag` for a
-    /// backend that must do both in one step. A directory without it makes the
-    /// file through `create` and leaves the open to the VFS, which asks
-    /// `may_open` and the security modules first, as Linux's `lookup_open`
-    /// calls `->create` and `do_open` opens what it made.
-    fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
+    /// Look up, make, and open the last name of an open in one step, as
+    /// `->atomic_open` takes `open_flag` for a backend that does it at once. The
+    /// VFS asks it for a `dentry` still in lookup, which is looked up first, and
+    /// for a negative one an open may make; `how` asks to make a file only
+    /// where the open may. A directory without it looks the name up, then makes
+    /// the file through `create` and leaves the open to the VFS, which asks
+    /// `may_open` and the security modules first, as Linux's `lookup_open` calls
+    /// `->lookup`, then `->create`, and `do_open` opens what it made.
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+        if dentry.in_lookup() {
+            let found = self.lookup(dentry)?;
+            if !how.create || !matches!(found, Lookup::Absent) {
+                return Ok(Finish::Lookup(found));
+            }
+        }
         self.create(dentry)?;
         Ok(Finish::NoOpen { created: true })
     }
