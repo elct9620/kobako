@@ -3728,3 +3728,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file opened to write, and an open asking to truncate it |
 | When | each truncates the file |
 | Then | the Filesystem's `setattr` is handed the open file each truncate is made through, as Linux's `do_truncate` sets `ATTR_FILE` |
+
+## `RT-331` A name kept while the names beneath its directory go waits on neither
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-172` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a name beneath a directory, kept for the next walk over and over |
+| When | the names kept beneath that directory are let go of over and over at once |
+| Then | both go on and finish, neither waiting on what the other holds |
