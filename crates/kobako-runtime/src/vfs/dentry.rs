@@ -261,41 +261,59 @@ impl Dentry {
         identity(self).is_some() && identity(self) == identity(other)
     }
 
-    /// Whether a lookup answered for the name, so there is something to ask
-    /// `revalidate` of, as `d_in_lookup` tells a dentry still waiting for one.
-    pub(crate) fn looked_up(&self) -> bool {
-        self.state().asked == Asked::Answered
+    /// Whether no lookup has answered for the name yet, as Linux's `d_in_lookup`
+    /// tells a Filesystem's `atomic_open` the dentry it must look up first. Only
+    /// one that answered has something to ask `revalidate` of.
+    pub fn in_lookup(&self) -> bool {
+        self.state().asked != Asked::Answered
     }
 
     /// Ask the directory `dir` what stands here where no lookup answered yet, and
     /// record it, as Linux's `lookup_fast` keeps a dentry, a negative one too, and
-    /// `__lookup_slow` asks `->lookup` for one just made. One walk asks while any
-    /// other reaching the name waits for its answer, as `d_alloc_parallel` marks
-    /// the dentry in lookup and `d_wait_lookup` waits on it. A directory holding
-    /// the entry under another spelling answers that spelling, for the caller to
-    /// take that dentry instead.
-    pub(crate) fn lookup_inode(&self, dir: &Dentry) -> Result<Option<String>, FilesystemError> {
-        let ends = match self.d_in_lookup()? {
+    /// `__lookup_slow` asks `->lookup` for one just made. A directory holding
+    /// the entry under another spelling hands back that spelling and the entry,
+    /// for the caller to record on that spelling's dentry.
+    pub(crate) fn lookup_inode(
+        &self,
+        dir: &Dentry,
+    ) -> Result<Option<(String, Arc<Inode>)>, FilesystemError> {
+        let asked = self.lookup_by(|| {
+            let found = dir.inode_ops()?.lookup(self)?;
+            Ok(self.d_splice_alias(found))
+        })?;
+        Ok(asked.flatten())
+    }
+
+    /// What `ask` answers for this name where no lookup answered yet, none where
+    /// one did. One walk asks while any other reaching the name waits for its
+    /// answer, as `d_alloc_parallel` marks the dentry in lookup, `d_wait_lookup`
+    /// waits on it, and `d_lookup_done` ends it.
+    pub(crate) fn lookup_by<T>(
+        &self,
+        ask: impl FnOnce() -> Result<T, FilesystemError>,
+    ) -> Result<Option<T>, FilesystemError> {
+        let ends = match self.d_wait_lookup()? {
             InLookup::Answered => return Ok(None),
             InLookup::Begun => true,
             InLookup::Within => false,
         };
-        let found = dir.inode_ops().and_then(|ops| ops.lookup(self));
-        let found = found.map(|found| match found {
-            Lookup::Found(inode) => {
-                self.add(Some(inode));
-                None
-            }
-            Lookup::Absent => {
-                self.add(None);
-                None
-            }
-            Lookup::Spelled(stored) => Some(stored),
-        });
+        let asked = ask();
         if ends {
             self.d_lookup_done();
         }
-        found
+        asked.map(Some)
+    }
+
+    /// Record what a lookup found at this name, as Linux's `d_splice_alias`
+    /// does. An entry stored under another spelling is handed back with that
+    /// spelling instead, for the caller to record there, as `d_add_ci` does.
+    pub(crate) fn d_splice_alias(&self, found: Lookup) -> Option<(String, Arc<Inode>)> {
+        match found {
+            Lookup::Found(inode) => self.add(Some(inode)),
+            Lookup::Absent => self.add(None),
+            Lookup::Spelled { name, inode } => return Some((name, inode)),
+        }
+        None
     }
 
     /// Begin the lookup the calling walk holds the dentry in lookup for, or one
@@ -303,7 +321,7 @@ impl Dentry {
     /// run is to stop. A Filesystem
     /// asking the runtime about the name its own lookup is answering asks it again
     /// within that lookup, as it would otherwise wait on itself.
-    fn d_in_lookup(&self) -> Result<InLookup, FilesystemError> {
+    fn d_wait_lookup(&self) -> Result<InLookup, FilesystemError> {
         let current = sched::current();
         loop {
             let mut state = self.state();

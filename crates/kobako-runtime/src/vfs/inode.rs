@@ -36,11 +36,11 @@ pub enum Lookup {
     Found(Arc<Inode>),
     /// Nothing stands at the name, as a negative dentry records.
     Absent,
-    /// The entry the name reaches is stored under this other spelling, as
-    /// `d_add_ci` is handed the case-exact name, so a name a host reaches by
-    /// more than one spelling has one dentry, one lock, and one spelling a
-    /// security hook judges.
-    Spelled(String),
+    /// The entry the name reaches, stored under the other spelling `name`, as
+    /// `d_add_ci` is handed the inode found and the case-exact name, so a name
+    /// a host reaches by more than one spelling has one dentry, one lock, and
+    /// one spelling a security hook judges.
+    Spelled { name: String, inode: Arc<Inode> },
 }
 
 /// What one entry of a Filesystem answers: a directory for the names in it,

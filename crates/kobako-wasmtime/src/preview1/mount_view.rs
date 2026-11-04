@@ -731,28 +731,54 @@ impl Policy for AllowsAll {
     }
 }
 
-/// A Tmpfs holding only upper-case names, reaching each by any case, as
-/// a host storing every name in upper case and folding case does; each
-/// directory it opens folds case too.
-struct StoresUpperCase;
+/// A Filesystem holding the files `files`, each path stored in upper case and
+/// reached by any case, as a host storing every name in upper case and
+/// folding case does; a lookup hands back the entry it found under its stored
+/// spelling.
+#[derive(Clone)]
+struct StoresUpperCase(&'static [&'static str]);
 
 impl StoresUpperCase {
-    fn over(tmpfs: Tmpfs) -> Arc<Wrap<Self>> {
-        Wrap::new(Arc::new(tmpfs), Arc::new(Self))
+    /// What stands at `path` once folded: a file it holds, a directory above
+    /// one, or nothing, each with an identity of its stored path, so a Policy
+    /// can tell it from another.
+    fn stat(&self, path: &str) -> Option<Kstat> {
+        let path = path.to_uppercase();
+        let beneath = format!("{path}/");
+        let kind = self.0.iter().find_map(|file| match *file {
+            file if file == path => Some(FileType::RegFile),
+            file if path.is_empty() || file.starts_with(&beneath) => Some(FileType::Dir),
+            _ => None,
+        })?;
+        let ino = path.bytes().fold(1, |ino: u64, byte| {
+            ino.wrapping_mul(31).wrapping_add(u64::from(byte))
+        });
+        Some(Kstat::new(kind, 0).with_identity(1, ino))
     }
 }
 
-impl Hook for StoresUpperCase {
-    fn lookup(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<Lookup, FilesystemError> {
-        let stored = dentry.name().to_uppercase();
-        if stored != dentry.name() {
-            return Ok(Lookup::Spelled(stored));
-        }
-        inner.lookup(dentry)
+impl FileSystemType for StoresUpperCase {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        vfs::simple_fill_super(sb, self)
+    }
+}
+
+impl InodeOperations for StoresUpperCase {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        self.stat(&dentry.path_raw())
+            .ok_or(FilesystemError::NotFound)
+    }
+
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        let Some(found) = self.stat(&dentry.path_raw()) else {
+            return Ok(Lookup::Absent);
+        };
+        let inode = Inode::new(&found, Arc::new(self.clone()));
+        let name = dentry.name().to_uppercase();
+        Ok(match name == dentry.name() {
+            true => Lookup::Found(inode),
+            false => Lookup::Spelled { name, inode },
+        })
     }
 }
 
@@ -761,10 +787,9 @@ impl Hook for StoresUpperCase {
 // @behavior RT-120
 #[test]
 fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
-    let tmpfs: Tmpfs = [("FILE.TXT", "granted")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/FILE.TXT"));
     let mut guest = Guest::new(&[grant(
-        StoresUpperCase::over(tmpfs),
+        Arc::new(StoresUpperCase(&["FILE.TXT"])),
         Access::Read,
         Some(policy),
     )]);
@@ -782,10 +807,9 @@ fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
 #[test]
 fn a_policy_judges_a_path_beneath_an_opened_directory_as_its_filesystem_stores_it() {
     const INNER: (i32, i32) = (960, 5);
-    let tmpfs: Tmpfs = [("DIR/INNER", "x")].into_iter().collect();
     let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/DIR/INNER"));
     let mut guest = Guest::new(&[grant(
-        StoresUpperCase::over(tmpfs),
+        Arc::new(StoresUpperCase(&["DIR/INNER"])),
         Access::Read,
         Some(policy),
     )]);

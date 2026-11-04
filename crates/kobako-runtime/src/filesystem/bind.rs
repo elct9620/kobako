@@ -570,10 +570,7 @@ impl InodeOperations for Bind {
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         self.at(dentry, |dir, name| {
             let stored = lookup::lookup(dir, name)?;
-            if stored != name {
-                return Ok(Lookup::Spelled(stored));
-            }
-            match dir.symlink_metadata(name).map_err(to_error) {
+            match dir.symlink_metadata(&stored).map_err(to_error) {
                 Ok(found) => {
                     let found = to_kstat(found);
                     let ops: Arc<dyn InodeOperations> = match found.file_type {
@@ -581,7 +578,14 @@ impl InodeOperations for Bind {
                         FileType::Symlink => Arc::new(BindLink(self.clone())),
                         _ => Arc::new(BindRegular(self.clone())),
                     };
-                    Ok(Lookup::Found(Inode::new(&found, ops)))
+                    let inode = Inode::new(&found, ops);
+                    match stored == name {
+                        true => Ok(Lookup::Found(inode)),
+                        false => Ok(Lookup::Spelled {
+                            name: stored,
+                            inode,
+                        }),
+                    }
                 }
                 Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),

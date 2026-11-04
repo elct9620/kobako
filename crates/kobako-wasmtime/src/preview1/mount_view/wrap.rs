@@ -10,7 +10,7 @@ use kobako_runtime::filesystem::{
     DentryOperations, FileOperations, FileSystemType, Filesystem, FilesystemError, Finish,
     InodeOperations, Kstat, Lookup, OpenHow, RenameFlag,
 };
-use kobako_runtime::vfs::Dentry;
+use kobako_runtime::vfs::{Dentry, Inode};
 
 /// What a test changes of the Filesystem beneath it.
 pub(super) trait Hook: Send + Sync + 'static {
@@ -118,6 +118,27 @@ struct WrapInode<H> {
     hook: Arc<H>,
 }
 
+impl<H: Hook> WrapInode<H> {
+    /// `found` with the entry it names wrapped too.
+    fn wrap(&self, found: Lookup) -> Lookup {
+        let wrapped = |inode: Arc<Inode>| {
+            let ops = Self {
+                inner: inode.ops().clone(),
+                hook: self.hook.clone(),
+            };
+            inode.with_ops(Arc::new(ops))
+        };
+        match found {
+            Lookup::Found(inode) => Lookup::Found(wrapped(inode)),
+            Lookup::Spelled { name, inode } => Lookup::Spelled {
+                name,
+                inode: wrapped(inode),
+            },
+            Lookup::Absent => Lookup::Absent,
+        }
+    }
+}
+
 /// `ops`, handed the directory a `WrapInode<H>` wraps.
 struct WrapDentry<H> {
     ops: Arc<dyn DentryOperations>,
@@ -151,16 +172,7 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
     }
 
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-        Ok(match self.hook.lookup(self.inner.as_ref(), dentry)? {
-            Lookup::Found(inode) => {
-                let wrapped = Self {
-                    inner: inode.ops().clone(),
-                    hook: self.hook.clone(),
-                };
-                Lookup::Found(inode.with_ops(Arc::new(wrapped)))
-            }
-            other => other,
-        })
+        Ok(self.wrap(self.hook.lookup(self.inner.as_ref(), dentry)?))
     }
 
     fn open(

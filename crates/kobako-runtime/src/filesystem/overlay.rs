@@ -298,13 +298,17 @@ impl InodeOperations for Overlay {
         let Some(found) = self.fs.lookup_layer(&level, &name)? else {
             return Ok(Lookup::Absent);
         };
-        if found.1.stored() != name {
-            return Ok(Lookup::Spelled(found.1.stored().to_string()));
-        }
+        let stored = found.1.stored().to_string();
         let inode = self
             .fs
-            .lookup(&level, &name, found, |kind| self.ops_of(kind))?;
-        Ok(Lookup::Found(inode))
+            .lookup(&level, &stored, found, |kind| self.ops_of(kind))?;
+        match stored == name {
+            true => Ok(Lookup::Found(inode)),
+            false => Ok(Lookup::Spelled {
+                name: stored,
+                inode,
+            }),
+        }
     }
 
     fn open(
@@ -2403,7 +2407,10 @@ mod tests {
             let name = dentry.name();
             let lower = name.to_lowercase();
             match self.root.vfs_lstat(&folded(dentry)) {
-                Ok(_) if lower != name => Ok(Lookup::Spelled(lower)),
+                Ok(found) if lower != name => Ok(Lookup::Spelled {
+                    name: lower,
+                    inode: Inode::new(&found, Arc::new(self.clone())),
+                }),
                 Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
                 Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),

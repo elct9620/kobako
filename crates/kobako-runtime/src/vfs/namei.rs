@@ -162,7 +162,7 @@ pub(crate) fn d_revalidate(
     dir: &Dentry,
     dentry: &Arc<Dentry>,
 ) -> Result<bool, FilesystemError> {
-    let valid = match dentry.ops().filter(|_| dentry.looked_up()) {
+    let valid = match dentry.ops().filter(|_| !dentry.in_lookup()) {
         Some(ops) => ops.revalidate(dir.inode_ops()?.as_ref(), dentry)?,
         None => true,
     };
@@ -197,18 +197,44 @@ fn __lookup_slow(
     if parent.is_deaddir() {
         return Err(FilesystemError::NotFound);
     }
-    let dentry_of = |name: &str| -> Result<Arc<Dentry>, FilesystemError> {
-        match lookup_dcache(sb, parent, name)? {
-            Some(held) => Ok(held),
-            None => Ok(sb.dentries().alloc_parallel(parent, name)),
-        }
-    };
-    let given = dentry_of(name)?;
-    let (stored, dentry) = match given.lookup_inode(parent)? {
+    let given = d_alloc_parallel(sb, parent, name)?;
+    let spelled = given.lookup_inode(parent)?;
+    d_add_ci(sb, parent, name, given, spelled)
+}
+
+/// The dentry held for `name` in `parent`, or one made in lookup for the
+/// calling walk, as Linux's `d_alloc_parallel` hands back one already hashed.
+fn d_alloc_parallel(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<Arc<Dentry>, FilesystemError> {
+    match lookup_dcache(sb, parent, name)? {
+        Some(held) => Ok(held),
+        None => Ok(sb.dentries().alloc_parallel(parent, name)),
+    }
+}
+
+/// The spelling and dentry a lookup of `name` leaves: `given`, or, where the
+/// entry found is stored under another spelling, that spelling's dentry with
+/// the entry recorded on it, as Linux's `d_add_ci` splices the inode found
+/// rather than asking again. The dentry stays for the next walk unless its
+/// Filesystem keeps none.
+fn d_add_ci(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+    given: Arc<Dentry>,
+    spelled: Option<(String, Arc<Inode>)>,
+) -> Result<(String, Arc<Dentry>), FilesystemError> {
+    let (stored, dentry) = match spelled {
         None => (name.to_string(), given),
-        Some(stored) => {
-            let dentry = dentry_of(&stored)?;
-            dentry.lookup_inode(parent)?;
+        Some((stored, inode)) => {
+            let dentry = d_alloc_parallel(sb, parent, &stored)?;
+            dentry.lookup_by(|| {
+                dentry.add(Some(inode));
+                Ok(())
+            })?;
             (stored, dentry)
         }
     };
@@ -2529,7 +2555,10 @@ mod tests {
             let name = dentry.name();
             let upper = name.to_uppercase();
             match self.root.vfs_lstat(&folded(dentry)) {
-                Ok(_) if upper != name => Ok(Lookup::Spelled(upper)),
+                Ok(found) if upper != name => Ok(Lookup::Spelled {
+                    name: upper,
+                    inode: Inode::new(&found, Arc::new(self.clone())),
+                }),
                 Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
                 Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),
@@ -3247,6 +3276,48 @@ mod tests {
             ),
             "vfs::filename_unlinkat of `DIR/F` while vfs::filename_renameat2 moves `dir/f`, over a Filesystem \
              storing both as `DIR/F`, must wait for the move and then find nothing"
+        );
+    }
+
+    /// A test's Filesystem reporting each name it holds as stored in upper
+    /// case, handing back the entry found, and counting what it is asked.
+    #[derive(Default)]
+    struct ReportsUpperCase(AtomicUsize);
+
+    impl wrap::Hook for ReportsUpperCase {
+        fn lookup(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<Lookup, FilesystemError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            let stored = dentry.name().to_uppercase();
+            Ok(match inner.lookup(dentry)? {
+                Lookup::Found(inode) if stored != dentry.name() => Lookup::Spelled {
+                    name: stored,
+                    inode,
+                },
+                other => other,
+            })
+        }
+    }
+
+    // Asking again for the stored spelling would cost the Filesystem a second
+    // lookup and could find another entry than the one the first one found.
+    // @behavior RT-310
+    #[test]
+    fn a_name_stored_under_another_spelling_asks_its_filesystem_once() {
+        let tmpfs: Tmpfs = [("f", "x")].into_iter().collect();
+        let hook = Arc::new(ReportsUpperCase::default());
+        let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
+        let root = root_of(Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"));
+        let walked = super::filename_lookup(&Arc::default(), &root, "f", false)
+            .and_then(|nd| Ok((nd.path()?.name(), nd.kind()?)));
+        assert_eq!(
+            (walked, hook.0.load(Ordering::SeqCst)),
+            (Ok(("F".to_string(), FileType::RegFile)), 1),
+            "vfs::filename_lookup of `f` over a Filesystem storing it as `F` must ask its lookup \
+             once and hold the dentry of `F`, as d_add_ci records the entry found"
         );
     }
 
