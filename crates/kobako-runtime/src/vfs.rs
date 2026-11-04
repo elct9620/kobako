@@ -25,9 +25,8 @@ mod super_block;
 mod utimes;
 
 pub(crate) use namei::{
-    __start_renaming, d_revalidate, lookup_noperm_unlocked, may_create_dentry,
-    start_creating_noperm, start_removing_noperm, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir,
-    vfs_unlink,
+    __start_renaming, d_revalidate, inode_permission, lookup_one_unlocked, may_create_dentry,
+    start_creating, start_removing, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
 };
 
 pub(crate) use attr::notify_change;

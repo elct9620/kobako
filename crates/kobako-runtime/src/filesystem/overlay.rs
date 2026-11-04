@@ -432,6 +432,7 @@ mod tests {
     use super::super::{FileType, Finish, Kiocb};
     use super::*;
     use crate::vfs::kern_path::{kern_path, KernPath};
+    use crate::vfs::Mask;
 
     /// `filesystem` reached through the VFS.
     fn at(filesystem: impl FileSystemType) -> KernPath {
@@ -1308,13 +1309,13 @@ mod tests {
     // @behavior FS-165
     #[test]
     fn a_directory_found_stands_for_the_layers_it_was_found_in() {
-        use crate::vfs::lookup_noperm_unlocked;
+        use crate::vfs::lookup_one_unlocked;
         let lower = Arc::new([("dir/old", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower.clone(), Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
         let root = filesystem.dentries().root();
-        let dir =
-            lookup_noperm_unlocked(&filesystem, &root, "dir").expect("the directory must be found");
+        let dir = lookup_one_unlocked(&Default::default(), &filesystem, &root, "dir")
+            .expect("the directory must be found");
         let layer = on(&lower);
         layer
             .rename("dir", &layer, "moved")
@@ -1348,15 +1349,15 @@ mod tests {
     // @behavior FS-164
     #[test]
     fn a_directory_emptied_for_its_removal_stays_empty_should_the_removal_fail() {
-        use crate::vfs::{lookup_noperm_unlocked, vfs_unlink};
+        use crate::vfs::{lookup_one_unlocked, vfs_unlink};
         let lower = Arc::new([("dir/file", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower, Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
         let root = filesystem.dentries().root();
-        let dir =
-            lookup_noperm_unlocked(&filesystem, &root, "dir").expect("the directory must be found");
-        let file =
-            lookup_noperm_unlocked(&filesystem, &dir, "file").expect("the file must be found");
+        let dir = lookup_one_unlocked(&Default::default(), &filesystem, &root, "dir")
+            .expect("the directory must be found");
+        let file = lookup_one_unlocked(&Default::default(), &filesystem, &dir, "file")
+            .expect("the file must be found");
         vfs_unlink(&Default::default(), &filesystem, &dir, &file)
             .expect("the file must be removed");
         let upper_root = overlay.fs.dir(&root).expect("the root must stand").level()[0]
@@ -1366,7 +1367,7 @@ mod tests {
             .fs
             .clear_empty(&upper_root, "dir")
             .expect("the directory must be exchanged");
-        let walked = lookup_noperm_unlocked(&filesystem, &root, "dir")
+        let walked = lookup_one_unlocked(&Default::default(), &filesystem, &root, "dir")
             .expect("the directory must be found again");
         let names = overlay.fs.dir_read_merged(
             &overlay
@@ -3397,5 +3398,66 @@ mod tests {
             "a directory two Layers hold, looked up through vfs_lstat, must \
              report the identity vfs_lstat does"
         );
+    }
+
+    /// A Layer whose `permission` refuses `mask` of what stands at `name`.
+    struct RefusesOf {
+        name: &'static str,
+        mask: Mask,
+    }
+
+    impl Hook for RefusesOf {
+        fn permission(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+            mask: Mask,
+        ) -> Result<(), FilesystemError> {
+            if dentry.name() == self.name && mask.contains(self.mask) {
+                return Err(FilesystemError::PermissionDenied);
+            }
+            inner.permission(dentry, mask)
+        }
+    }
+
+    type LayerCall = fn(&KernPath) -> Result<(), FilesystemError>;
+
+    // Only a Layer of the Host App's own answers `permission`, so each call is
+    // made over a lower Layer refusing just the one ask that call makes of it.
+    // @behavior FS-206
+    #[test]
+    fn an_overlay_asks_a_layers_permission_where_overlayfs_does() {
+        let calls: [(&str, &str, Mask, LayerCall); 4] = [
+            ("finding a name", "dir", Mask::EXEC, |view| {
+                view.vfs_lstat("dir/file").map(drop)
+            }),
+            ("opening a file", "file", Mask::OPEN, |view| {
+                let read = OpenHow {
+                    read: true,
+                    ..OpenHow::default()
+                };
+                view.open("dir/file", &read).map(drop)
+            }),
+            ("listing a directory", "dir", Mask::OPEN, |view| {
+                view.open_dir("dir")?.iterate_dir().map(drop)
+            }),
+            ("copying a file up", "file", Mask::OPEN, |view| {
+                write_over(view, "dir/file", b"y")
+            }),
+        ];
+        for (call, name, mask, run) in calls {
+            let lower = Wrap::new(
+                tmpfs_with("dir/file", "x"),
+                Arc::new(RefusesOf { name, mask }),
+            );
+            let view = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
+            assert_eq!(
+                run(&view),
+                Err(FilesystemError::PermissionDenied),
+                "{call} through an Overlay over a Layer whose permission refuses {mask:?} of \
+                 `{name}` must answer that refusal, as overlayfs asks inode_permission of the \
+                 real inode"
+            );
+        }
     }
 }

@@ -98,7 +98,8 @@ impl OverlayFs {
         let ops = ops_of(kind);
         if kind != FileType::Dir {
             let inode = self.file_inode(index, &found.dentry, ops)?;
-            ovl_inode_init(&inode, OverlayFileInode::new(found.dentry));
+            let real = layer_dir(&level[index])?.beneath(found.dentry);
+            ovl_inode_init(&inode, OverlayFileInode::new(real));
             return Ok(inode);
         }
         let merged = self.lookup_layers(level, name, (index, found))?;

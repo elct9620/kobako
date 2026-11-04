@@ -28,10 +28,10 @@ pub(super) struct OverlayDirInode {
 
 /// A file of the view, or anything else that is no directory.
 pub(super) struct OverlayFileInode {
-    /// The Layer's dentry a lookup found it at, or a copy up made, as `struct
-    /// ovl_entry` holds the real dentries, so it answers from there even once its
-    /// name is gone from the view.
-    real: Mutex<Arc<Dentry>>,
+    /// The Layer and its dentry a lookup found it at, or a copy up made, as
+    /// `struct ovl_entry` holds each real dentry with its layer, so it answers
+    /// from there even once its name is gone from the view.
+    real: Mutex<OverlayPath>,
     /// The lock a copy up of it holds, as overlayfs's `ovl_inode_lock`.
     pub(super) lock: Arc<RwSemaphore>,
 }
@@ -68,7 +68,7 @@ impl OverlayDirInode {
 
 impl OverlayFileInode {
     /// An entry answering through `real`, as `ovl_inode_params` carries it.
-    pub(super) fn new(real: Arc<Dentry>) -> Self {
+    pub(super) fn new(real: OverlayPath) -> Self {
         Self {
             real: Mutex::new(real),
             lock: Arc::default(),
@@ -82,12 +82,18 @@ impl OverlayFileInode {
 
     /// The Layer's dentry this answers through.
     pub(super) fn real(&self) -> Arc<Dentry> {
+        lock(&self.real).dentry().clone()
+    }
+
+    /// The Layer and its dentry this answers through, as `ovl_path_real` finds
+    /// the real path.
+    pub(super) fn path_real(&self) -> OverlayPath {
         lock(&self.real).clone()
     }
 
     /// This file's data now stands at `real`, in the upper, as
     /// `ovl_dentry_set_upper_alias` records a copy up.
-    pub(super) fn set_real(&self, real: Arc<Dentry>) {
+    pub(super) fn set_real(&self, real: OverlayPath) {
         *lock(&self.real) = real;
     }
 }

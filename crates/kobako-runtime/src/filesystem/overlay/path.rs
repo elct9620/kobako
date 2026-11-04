@@ -1,12 +1,13 @@
 //! One Layer's directory as an Overlay holds it: the directory and its
 //! dentry in the Layer's Filesystem, as overlayfs's `ovl_path` pairs a
 //! layer with its dentry. A name is found, and the directory held while one
-//! is made, removed, or moved, through the VFS's `lookup_noperm_unlocked`,
-//! `start_creating_noperm`, `start_removing_noperm`, and `__start_renaming`,
-//! and an entry made, removed, or moved through its `vfs_mkdir`, `vfs_create`,
-//! `vfs_rmdir`, `vfs_unlink`, and `vfs_rename`, as overlayfs's are, so the VFS
-//! checks what stands there and the Layer's dentries follow each change. The
-//! Layer's own permission is not asked, as the view's caller was asked.
+//! is made, removed, or moved, through the VFS's `lookup_one_unlocked`,
+//! `start_creating`, `start_removing`, and `__start_renaming`, and an entry
+//! made, removed, or moved through its `vfs_mkdir`, `vfs_create`, `vfs_rmdir`,
+//! `vfs_unlink`, and `vfs_rename`, as overlayfs's are, so the VFS checks what
+//! stands there and the Layer's dentries follow each change. Each Layer is
+//! asked its own permission as the Overlay's creator, as overlayfs asks
+//! `inode_permission` of the real inode before it searches or opens one.
 
 use std::any::Any;
 use std::sync::Arc;
@@ -18,9 +19,9 @@ use super::super::{
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    __start_renaming, lookup_noperm_unlocked, may_create_dentry, notify_change,
-    start_creating_noperm, start_removing_noperm, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir,
-    vfs_unlink, Cred, Dentry, DirContext, DirEmit, RenameFlag,
+    __start_renaming, inode_permission, lookup_one_unlocked, may_create_dentry, notify_change,
+    start_creating, start_removing, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Cred,
+    Dentry, DirContext, DirEmit, Mask, RenameFlag,
 };
 
 /// The change setting what `stat` reports of its times, as
@@ -68,7 +69,7 @@ impl OverlayPath {
     /// The dentry of `name` as this directory stores it, what stands there
     /// recorded on it.
     fn lookup_real(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        lookup_noperm_unlocked(&self.filesystem, &self.dentry, name)
+        lookup_one_unlocked(&self.creator_cred, &self.filesystem, &self.dentry, name)
     }
 
     /// This directory held for making `name`, and its dentry.
@@ -76,7 +77,7 @@ impl OverlayPath {
         &self,
         name: &str,
     ) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
-        start_creating_noperm(&self.filesystem, &self.dentry, name)
+        start_creating(&self.creator_cred, &self.filesystem, &self.dentry, name)
     }
 
     /// This directory held for removing what stands at `name`, and its dentry.
@@ -84,7 +85,7 @@ impl OverlayPath {
         &self,
         name: &str,
     ) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
-        start_removing_noperm(&self.filesystem, &self.dentry, name)
+        start_removing(&self.creator_cred, &self.filesystem, &self.dentry, name)
     }
 
     fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
@@ -231,27 +232,38 @@ impl OverlayPath {
     /// This directory opened, kept open for whoever holds it, as overlayfs's
     /// `ovl_dir_open` opens the real directory.
     pub(super) fn open_real(&self) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let how = OpenHow {
+        self.open_realfile(&OpenHow {
             read: true,
             ..OpenHow::default()
-        };
-        self.dentry.inode_ops()?.open(&self.dentry, &how)
+        })
+    }
+
+    /// What this dentry names opened as `how` asks, once its Layer lets the
+    /// Overlay's creator open it so, as `ovl_open_realfile` asks
+    /// `inode_permission` for `MAY_OPEN` and the access before it opens.
+    pub(super) fn open_realfile(
+        &self,
+        how: &OpenHow,
+    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        let mut mask = Mask::OPEN;
+        if how.read {
+            mask = mask | Mask::READ;
+        }
+        if how.write {
+            mask = mask | Mask::WRITE;
+        }
+        inode_permission(&self.creator_cred, &self.filesystem, &self.dentry, mask)?;
+        self.dentry.open(how)
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, FilesystemError> {
         let _held = self.inode_lock_shared()?;
-        let how = OpenHow {
-            read: true,
-            ..OpenHow::default()
-        };
         let mut entries = Vec::new();
         let mut actor = |emit: &DirEmit<'_>| {
             entries.push(emit.to_dir_entry());
             true
         };
-        self.dentry
-            .inode_ops()?
-            .open(&self.dentry, &how)?
+        self.open_real()?
             .iterate_shared(&self.dentry, &mut DirContext::new(2, &mut actor))?;
         Ok(entries)
     }

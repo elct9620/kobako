@@ -107,10 +107,10 @@ impl OverlayFs {
             .and_then(OverlayFileInode::of)
             .ok_or(FilesystemError::NotFound)?;
         let _held = inode.lock.down_write()?;
-        let real = inode.real();
+        let real = inode.path_real();
         // Another call may have copied it up while this one waited, as
         // overlayfs's `ovl_already_copied_up_locked` checks.
-        if self.is_in_upper(&real) {
+        if self.is_in_upper(real.dentry()) {
             return Ok(());
         }
         let lower = real.getattr()?;
@@ -119,7 +119,7 @@ impl OverlayFs {
         }
         let mut copy = target_dir.do_tmpfile()?;
         if !truncate {
-            let mut source = real.open(&OpenHow {
+            let mut source = real.open_realfile(&OpenHow {
                 read: true,
                 ..OpenHow::default()
             })?;
@@ -129,7 +129,7 @@ impl OverlayFs {
         let parent_times = target_dir.getattr()?;
         let linked = target_dir.do_link(&copy, &name)?;
         let _ = target_dir.set_timestamps(&parent_times);
-        inode.set_real(linked);
+        inode.set_real(target_dir.beneath(linked));
         Ok(())
     }
 }

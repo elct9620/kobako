@@ -253,39 +253,57 @@ fn lookup_dentry(
     }
 }
 
+/// Whether `cred` may look `name` up in `parent`, as Linux's `lookup_one_common`
+/// refuses a name no single entry has, then asks to search the directory.
+fn lookup_one_common(
+    cred: &Cred,
+    sb: &SuperBlock,
+    parent: &Dentry,
+    name: &str,
+) -> Result<(), FilesystemError> {
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\0']) {
+        return Err(FilesystemError::PermissionDenied);
+    }
+    inode_permission(cred, sb, parent, Mask::EXEC)
+}
+
 /// The dentry of `name` in `parent`, standing or not, for a Filesystem stacked
-/// on another that already asked what it must, as Linux's
-/// `lookup_noperm_unlocked` finds it the way a walk does.
-pub(crate) fn lookup_noperm_unlocked(
+/// on another, as Linux's `lookup_one_unlocked` asks to search the directory
+/// and then finds the name the way a walk does.
+pub(crate) fn lookup_one_unlocked(
+    cred: &Cred,
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<Arc<Dentry>, FilesystemError> {
+    lookup_one_common(cred, sb, parent, name)?;
     lookup_dentry(sb, parent, name)
 }
 
 /// `parent` held exclusive and the dentry of `name` in it, standing or not, for
 /// a Filesystem stacked on another to make an entry there, as Linux's
-/// `start_creating_noperm` takes both for a caller that already asked what it
-/// must.
-pub(crate) fn start_creating_noperm(
+/// `start_creating` asks to search the directory before it takes both.
+pub(crate) fn start_creating(
+    cred: &Cred,
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
+    lookup_one_common(cred, sb, parent, name)?;
     let held = parent.inode_lock()?;
     Ok((held, __lookup_slow(sb, parent, name)?))
 }
 
 /// `parent` held exclusive and the dentry of what stands at `name` in it, for a
 /// Filesystem stacked on another to remove it, ENOENT where nothing stands, as
-/// Linux's `start_removing_noperm`.
-pub(crate) fn start_removing_noperm(
+/// Linux's `start_removing`.
+pub(crate) fn start_removing(
+    cred: &Cred,
     sb: &SuperBlock,
     parent: &Arc<Dentry>,
     name: &str,
 ) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
-    let (held, child) = start_creating_noperm(sb, parent, name)?;
+    let (held, child) = start_creating(cred, sb, parent, name)?;
     child.inode().ok_or(FilesystemError::NotFound)?;
     Ok((held, child))
 }
@@ -606,7 +624,7 @@ fn getname(path: &str) -> Result<(), FilesystemError> {
 
 /// Whether `cred` may do what `mask` asks of what `dentry` names, as Linux's
 /// `inode_permission` asks `->permission` and then the security modules.
-fn inode_permission(
+pub(crate) fn inode_permission(
     cred: &Cred,
     sb: &SuperBlock,
     dentry: &Dentry,
@@ -2359,6 +2377,22 @@ mod tests {
                 "vfs::{call} over a Filesystem answering ESTALE the first time it is asked \
                  about `{name}` must answer ESTALE after asking once, as filename_create's \
                  error returns before retry_estale"
+            );
+        }
+    }
+
+    // A stacked Filesystem hands over one name at a time, so a name no single
+    // entry has is refused before any directory is searched.
+    #[test]
+    fn a_stacked_lookup_refuses_a_name_no_single_entry_has() {
+        let filesystem = Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand");
+        let root = filesystem.dentries().root();
+        for name in ["", ".", "..", "a/b", "a\0b"] {
+            assert_eq!(
+                super::lookup_one_unlocked(&Cred::default(), &filesystem, &root, name).err(),
+                Some(FilesystemError::PermissionDenied),
+                "lookup_one_unlocked of {name:?} must answer EACCES, as lookup_noperm_common \
+                 refuses a name no single entry has"
             );
         }
     }

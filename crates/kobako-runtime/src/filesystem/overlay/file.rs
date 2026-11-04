@@ -38,13 +38,13 @@ impl OverlayFile {
     /// The file holding the data now, as `ovl_real_file_path` finds it.
     fn real_file(&mut self) -> Result<&mut dyn FileOperations, FilesystemError> {
         if self.upper.is_none() {
-            let real = self.inode.real();
-            if !Arc::ptr_eq(&real, &self.real) {
+            let real = self.inode.path_real();
+            if !Arc::ptr_eq(real.dentry(), &self.real) {
                 let read = OpenHow {
                     read: true,
                     ..OpenHow::default()
                 };
-                self.upper = Some(real.open(&read)?);
+                self.upper = Some(real.open_realfile(&read)?);
             }
         }
         Ok(match &mut self.upper {
