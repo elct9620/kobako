@@ -11,8 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
-    FileOperations, FileSystemType, FileType, FilesystemError, Finish, InodeOperations, Kiocb,
-    Kstat, Lookup, OpenHow, Overlay, RenameFlag, Tmpfs,
+    FileOperations, FileSystemType, FileType, FilesystemError, InodeOperations, Kiocb, Kstat,
+    Lookup, OpenHow, Overlay, RenameFlag, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
@@ -1406,37 +1406,18 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
 /// stat names no inode.
 struct NamesNoIdentity;
 
-impl NamesNoIdentity {
-    /// `found` with the entry it names stripped of its identity.
-    fn bare(found: Lookup, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-        Ok(match found {
-            Lookup::Found(inode) => {
-                let found = inode.ops().getattr(dentry)?;
-                let bare = Kstat::new(found.file_type, found.size);
-                Lookup::Found(Inode::new(&bare, inode.ops().clone()))
-            }
-            other => other,
-        })
-    }
-}
-
 impl Hook for NamesNoIdentity {
     fn lookup(
         &self,
         inner: &dyn InodeOperations,
         dentry: &Dentry,
     ) -> Result<Lookup, FilesystemError> {
-        Self::bare(inner.lookup(dentry)?, dentry)
-    }
-
-    fn atomic_open(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Finish, FilesystemError> {
-        Ok(match inner.atomic_open(dentry, how)? {
-            Finish::Lookup(found) => Finish::Lookup(Self::bare(found, dentry)?),
+        Ok(match inner.lookup(dentry)? {
+            Lookup::Found(inode) => {
+                let found = inode.ops().getattr(dentry)?;
+                let bare = Kstat::new(found.file_type, found.size);
+                Lookup::Found(Inode::new(&bare, inode.ops().clone()))
+            }
             other => other,
         })
     }

@@ -1283,8 +1283,7 @@ mod tests {
 
     type Hook = Box<dyn Fn() -> Result<(), FilesystemError> + Send + Sync>;
 
-    /// A test's Filesystem counting what it is asked to look up, by `lookup` or
-    /// by the `atomic_open` an open asks in its place.
+    /// A test's Filesystem counting what it is asked to look up.
     #[derive(Default)]
     struct CountsAsks(AtomicUsize);
 
@@ -1296,16 +1295,6 @@ mod tests {
         ) -> Result<Lookup, FilesystemError> {
             self.0.fetch_add(1, Ordering::SeqCst);
             inner.lookup(dentry)
-        }
-
-        fn atomic_open(
-            &self,
-            inner: &dyn InodeOperations,
-            dentry: &Dentry,
-            how: &OpenHow,
-        ) -> Result<Finish, FilesystemError> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            inner.atomic_open(dentry, how)
         }
     }
 
@@ -2612,8 +2601,8 @@ mod tests {
             self.tmpfs.lookup(dentry)
         }
 
-        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
-            self.tmpfs.atomic_open(dentry, how)
+        fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+            self.tmpfs.create(dentry)
         }
 
         fn open(

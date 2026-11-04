@@ -1,14 +1,16 @@
 //! A test's Filesystem over another: every call forwards to the entry it
 //! wraps unless its `Hook` steps in, and every entry a lookup finds is
-//! wrapped too, as a Filesystem wrapping another must.
+//! wrapped too, as a Filesystem wrapping another must. It makes a file
+//! through `create` and leaves the open to the VFS, as overlayfs does, so an
+//! open's lookup reaches the `Hook` as any lookup does.
 
 use std::any::Any;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    DentryOperations, FileOperations, FileSystemType, Filesystem, FilesystemError, Finish,
-    InodeOperations, Kstat, Lookup, OpenHow, RenameFlag,
+    DentryOperations, FileOperations, FileSystemType, Filesystem, FilesystemError, InodeOperations,
+    Kstat, Lookup, OpenHow, RenameFlag,
 };
 use kobako_runtime::vfs::{Dentry, Inode};
 
@@ -45,15 +47,6 @@ pub(super) trait Hook: Send + Sync + 'static {
         how: &OpenHow,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
         inner.open(dentry, how)
-    }
-
-    fn atomic_open(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Finish, FilesystemError> {
-        inner.atomic_open(dentry, how)
     }
 
     fn mkdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
@@ -183,13 +176,8 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
         self.hook.open(self.inner.as_ref(), dentry, how)
     }
 
-    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
-        Ok(
-            match self.hook.atomic_open(self.inner.as_ref(), dentry, how)? {
-                Finish::Lookup(found) => Finish::Lookup(self.wrap(found)),
-                other => other,
-            },
-        )
+    fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        self.inner.create(dentry)
     }
 
     fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
