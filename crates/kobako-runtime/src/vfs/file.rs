@@ -225,7 +225,7 @@ impl FMode {
     /// This mode with no position, as `stream_open` clears `FMODE_LSEEK`,
     /// `FMODE_PREAD`, and `FMODE_PWRITE` and sets `FMODE_STREAM`.
     fn stream_open(self) -> Self {
-        Self(self.0 & (Self::READ.0 | Self::WRITE.0) | Self::STREAM.0)
+        Self(self.0 & !(Self::LSEEK.0 | Self::PREAD.0 | Self::PWRITE.0) | Self::STREAM.0)
     }
 
     /// This mode with `mode` added.
@@ -796,6 +796,22 @@ mod tests {
             ),
             "File::llseek and File::pread on a file its Filesystem's open marks a stream must \
              answer ESPIPE, as stream_open clears FMODE_LSEEK and FMODE_PREAD"
+        );
+    }
+
+    // A stream loses only its position, so an open that made the file still
+    // reports it made it.
+    #[test]
+    fn a_stream_keeps_what_its_open_made() {
+        let made = FMode::WRITE
+            .with(FMode::LSEEK)
+            .with(FMode::PWRITE)
+            .with(FMode::CREATED);
+        assert_eq!(
+            made.stream_open(),
+            FMode::WRITE.with(FMode::STREAM).with(FMode::CREATED),
+            "FMode::stream_open on a file its open made must keep FMODE_CREATED, as stream_open \
+             clears only FMODE_LSEEK, FMODE_PREAD, and FMODE_PWRITE"
         );
     }
 
