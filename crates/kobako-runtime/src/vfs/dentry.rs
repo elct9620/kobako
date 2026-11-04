@@ -675,16 +675,24 @@ impl Dentries {
     }
 
     /// Keep `dentry`, which a lookup answered for, standing or not, for the next
-    /// walk, unless its Filesystem lets it go, as `retain_dentry` adds a dentry
-    /// `d_delete` allows to the LRU. What this pushes out goes once the table is
-    /// let go of, as its release may reach another Filesystem.
+    /// walk, unless no walk finds it by its name any more or its Filesystem lets
+    /// it go, as `retain_dentry` adds a hashed dentry `d_delete` allows to the
+    /// LRU. What this pushes out goes once the table is let go of, as its
+    /// release may reach another Filesystem.
+    /// The check and the keeping run under the dentry's lock, which `unhash`
+    /// takes too, as both hold `d_lock`.
     pub(crate) fn retain(&self, dentry: &Arc<Dentry>) {
         if dentry.goes_when_unused() {
+            return;
+        }
+        let state = dentry.state();
+        if !state.hashed {
             return;
         }
         let pushed_out = self
             .lru()
             .push(Arc::as_ptr(dentry) as usize, dentry.clone());
+        drop(state);
         drop(pushed_out);
     }
 
@@ -758,10 +766,9 @@ impl Dentries {
     /// another and whoever holds this one keeps it, as Linux's `d_drop` unhashes
     /// one for `d_invalidate` and for a `d_delete` of one still in use.
     pub(crate) fn unhash(&self, dentry: &Arc<Dentry>) {
+        drop_hashed(&mut self.hashtables.dentry_hashtable(), dentry);
         let kept = self.lru().pop(&(Arc::as_ptr(dentry) as usize));
         drop(kept);
-        let mut table = self.hashtables.dentry_hashtable();
-        drop_hashed(&mut table, dentry);
     }
 
     /// `dentry` moved to the name `target` stands at, taking every one beneath
@@ -1127,6 +1134,24 @@ mod tests {
             released.is_ok(),
             "a dentry 200000 directories deep, dropped on a 64 KiB stack, must go without \
              overflowing it"
+        );
+    }
+
+    // A walk let go of the dentry while another still held it, so only
+    // refusing the unhashed one keeps that walk's retain from keeping a dentry
+    // no walk can find, whose Filesystem state may be stale.
+    #[test]
+    fn a_dentry_let_go_of_is_not_kept_for_the_next_walk() {
+        let dentries = Dentries::new(None);
+        let dentry = negative(&dentries, &dentries.root(), "gone");
+        dentries.unhash(&dentry);
+        dentries.retain(&dentry);
+        let held = Arc::downgrade(&dentry);
+        drop(dentry);
+        assert!(
+            held.upgrade().is_none(),
+            "Dentries::retain of a dentry Dentries::unhash let go of must not keep it, as \
+             retain_dentry refuses an unhashed one"
         );
     }
 
