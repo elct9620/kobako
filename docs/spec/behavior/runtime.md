@@ -3608,3 +3608,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a walk looking a name up, and a second walk waiting for that lookup |
 | When | the lookup finds a directory standing at another dentry, and that dentry moves to the name |
 | Then | the second walk holds the moved dentry without asking the Filesystem, as `d_alloc_parallel` retries a dentry `__d_move` unhashed |
+
+## `RT-321` A call answered ESTALE walks its path once more
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-317` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem answering ESTALE the first time it is asked about a name |
+| When | a call that walks a path reaches that name |
+| Then | the call walks the path again and answers as that walk does, as Linux's callers retry once where `retry_estale` allows |
+
+## `RT-322` A call answered ESTALE twice answers ESTALE
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-321` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem answering ESTALE every time it is asked about a name |
+| When | an open walks a path to that name |
+| Then | the open answers ESTALE after asking the Filesystem twice, as the second walk sets `LOOKUP_REVAL`, which `retry_estale` does not retry |
