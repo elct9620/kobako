@@ -3609,7 +3609,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the lookup finds a directory standing at another dentry, and that dentry moves to the name |
 | Then | the second walk holds the moved dentry without asking the Filesystem, as `d_alloc_parallel` retries a dentry `__d_move` unhashed |
 
-## `RT-321` A call answered ESTALE walks its path once more
+## `RT-321` A walk answered ESTALE walks its path once more
 
 | Attribute | Value |
 | --- | --- |
@@ -3618,10 +3618,10 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a Filesystem answering ESTALE the first time it is asked about a name |
-| When | a call that walks a path reaches that name |
-| Then | the call walks the path again and answers as that walk does, as Linux's callers retry once where `retry_estale` allows |
+| When | a call's walk reaches that name |
+| Then | the walk is made again and the call answers as that walk does, as `filename_lookup` walks again with `LOOKUP_REVAL` |
 
-## `RT-322` A call answered ESTALE twice answers ESTALE
+## `RT-322` A walk answered ESTALE twice answers ESTALE
 
 | Attribute | Value |
 | --- | --- |
@@ -3630,8 +3630,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a Filesystem answering ESTALE every time it is asked about a name |
-| When | an open walks a path to that name |
-| Then | the open answers ESTALE after asking the Filesystem twice, as the second walk sets `LOOKUP_REVAL`, which `retry_estale` does not retry |
+| When | a call's walk reaches that name |
+| Then | the call answers ESTALE after asking the Filesystem twice, as no caller makes a walk's error again |
 
 ## `RT-323` An open asking to truncate where the mount takes no write hands `atomic_open` no truncation
 
@@ -3740,3 +3740,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a name beneath a directory, kept for the next walk over and over |
 | When | the names kept beneath that directory are let go of over and over at once |
 | Then | both go on and finish, neither waiting on what the other holds |
+
+## `RT-332` A call answered ESTALE after its walk is made once more
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-321` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem answering ESTALE the first time it is asked about a name |
+| When | a removal or a rename reaches that name once its walk ended |
+| Then | the call is made again, walk and all, and answers as that call does, as `retry_estale` allows once |
+
+## `RT-333` A name a call makes answered ESTALE answers ESTALE
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-332` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem answering ESTALE the first time it is asked about a name |
+| When | a mkdir, a symlink, or a link looks up that name to make it |
+| Then | the call answers ESTALE after asking once, as `filename_create`'s error returns before `retry_estale` |
