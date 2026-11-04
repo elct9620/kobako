@@ -2,7 +2,10 @@
 //! wraps unless its `Hook` steps in, and every entry a lookup finds is
 //! wrapped too, as a Filesystem wrapping another must. It makes a file
 //! through `create` and leaves the open to the VFS, as overlayfs does, so an
-//! open's lookup reaches the `Hook` as any lookup does.
+//! open's lookup reaches the `Hook` as any lookup does. It hands the
+//! Filesystem beneath the dentry it is handed, where overlayfs hands a real
+//! one, so what that Filesystem makes is recorded unwrapped and later calls
+//! on it reach that Filesystem past the `Hook`.
 
 use std::any::Any;
 use std::sync::Arc;
