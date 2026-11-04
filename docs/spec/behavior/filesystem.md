@@ -2222,3 +2222,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind of a host that folds case, holding `a` |
 | When | a caller renames `a` to `A` |
 | Then | `a` keeps its spelling, as `vfs_rename` finds one entry; a host tying no spelling to it, as Windows, answers EACCES |
+
+## `FS-206` An Overlay asks a Layer's permission where overlayfs does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-242`, `FS-198` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay over a Layer whose `permission` refuses |
+| When | a call through the Overlay finds a name in that Layer, opens or lists its entry, or copies it up |
+| Then | the call answers that refusal, as overlayfs asks `inode_permission` of the real inode |
