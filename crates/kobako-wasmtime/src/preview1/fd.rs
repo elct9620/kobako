@@ -958,7 +958,7 @@ mod tests {
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
-        let args = PathOpen {
+        let call = PathOpen {
             dirflags: types::Lookupflags::empty(),
             oflags: types::Oflags::CREAT | types::Oflags::DIRECTORY,
             rights_base: Rights::FD_READ,
@@ -967,7 +967,7 @@ mod tests {
         let path = |len| GuestPtr::new((0, len));
         assert_eq!(
             (
-                errno(path_open(&mut table, &mem, fd, path(1), &args)),
+                errno(path_open(&mut table, &mem, fd, path(1), &call)),
                 errno(create_directory(&table, &mem, fd, path(0))),
                 errno(create_directory(&table, &mem, fd, path(PATH_MAX as u32))),
                 errno(utimensat(0, 0, Fstflags::empty(), |times| path_set_times(
@@ -1000,7 +1000,7 @@ mod tests {
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
-        let args = |oflags| PathOpen {
+        let call = |oflags| PathOpen {
             dirflags: types::Lookupflags::empty(),
             oflags,
             rights_base: Rights::FD_READ,
@@ -1008,7 +1008,7 @@ mod tests {
         };
         let path = |len| GuestPtr::new((0, len));
         let unopened = 99;
-        let create_dir = args(types::Oflags::CREAT | types::Oflags::DIRECTORY);
+        let create_dir = call(types::Oflags::CREAT | types::Oflags::DIRECTORY);
         assert_eq!(
             (
                 errno(path_open(&mut table, &mem, unopened, path(1), &create_dir)),
@@ -1175,7 +1175,7 @@ mod tests {
         let mut bytes = *b"a";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 1);
-        let args = |oflags| PathOpen {
+        let call = |oflags| PathOpen {
             dirflags: types::Lookupflags::empty(),
             oflags,
             rights_base: Rights::FD_READ,
@@ -1190,14 +1190,14 @@ mod tests {
                     &mem,
                     unopened,
                     path,
-                    &args(types::Oflags::CREAT | types::Oflags::DIRECTORY)
+                    &call(types::Oflags::CREAT | types::Oflags::DIRECTORY)
                 )),
                 errno(path_open(
                     &mut table,
                     &mem,
                     unopened,
                     path,
-                    &args(types::Oflags::empty())
+                    &call(types::Oflags::empty())
                 )),
             ),
             (Some(Errno::Inval), Some(Errno::Mfile)),
