@@ -304,7 +304,7 @@ The compile cache is `$XDG_CACHE_HOME/kobako`, else `~/.cache/kobako`. A Bind of
 
 ### Mount Blocks
 
-A block decides each open and each change by path, at most once for each. Allow what the guest needs
+A block decides each open and each change by path. An open that may create is asked a change first, then what it opens for, as Linux asks its security modules. Allow what the guest needs
 rather than refusing what it must not reach: a denylist misses a path you did not
 foresee. The block judges paths, so nothing may reach a path it never judged:
 
@@ -315,8 +315,9 @@ foresee. The block judges paths, so nothing may reach a path it never judged:
 | a link another writer swaps in after the block judges | never followed; the call reaches the directory it walked to |
 | another case or Unicode form of a name | the block judges the spelling the host stores |
 
-A call that what stands at the path refuses, such as `Errno::ENOENT` or
-`Errno::EEXIST`, fails before the block is asked.
+A call that what stands at the path refuses, such as `Errno::ENOENT`, fails
+before the block is asked. An open that may create asks its change first, so
+its `Errno::EEXIST` comes after the block.
 
 ```ruby
 sandbox.mount("/data", fs) { |path, _access| path.start_with?("/data/public/") }
