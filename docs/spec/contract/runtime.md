@@ -928,16 +928,6 @@ A Filesystem as the runtime walks it, knowing nothing of where a guest finds it.
 pub struct VfsMount {}
 ```
 
-## `VfsMount::new`
-
-A Filesystem mounted, allowing only reads where asked.
-
-```rust
-impl VfsMount {
-    pub fn new(sb: Arc<SuperBlock>, read_only: bool) -> Arc<Self> {}
-}
-```
-
 ## `VfsMount::sb`
 
 The Filesystem instance mounted.
@@ -1649,16 +1639,6 @@ What an open was found to ask, as Linux's `struct open_flags`. Only
 
 ```rust
 pub struct OpenFlags {}
-```
-
-## `OpenFlags::open_flag`
-
-The flags the open was made with.
-
-```rust
-impl OpenFlags {
-    pub fn open_flag(&self) -> &OpenHow {}
-}
 ```
 
 ## `build_open_flags`
