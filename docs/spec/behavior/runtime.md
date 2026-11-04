@@ -2524,7 +2524,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the runtime asks whether it was removed |
 | Then | the answer is no |
 
-## `RT-229` A walk passing through a directory holds it to find a name
+## `RT-229` A walk to a name no lookup answered holds the directory to find it
 
 | Attribute | Value |
 | --- | --- |
@@ -2532,7 +2532,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Filesystem whose make calls the runtime to walk through the same directory |
+| Given | a Filesystem whose make calls the runtime to walk through the same directory to a name no lookup answered |
 | When | a directory is made through the runtime |
 | Then | the inner walk answers EDEADLK |
 
@@ -3668,3 +3668,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem storing `f` as `F`, and a walk that already holds the dentry of `F` |
 | When | a walk reaches `f` |
 | Then | it holds the dentry of `F` without asking `revalidate` about it, as Linux's `d_add_ci` finds it through `d_hash_and_lookup` |
+
+## `RT-326` A walk to a name a lookup answered waits on no directory
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-229` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose make calls the runtime to walk to a name a held dentry stands at |
+| When | a directory is made through the runtime in the same directory |
+| Then | the inner walk answers without waiting, as Linux's `lookup_fast` takes the dcache's dentry |
