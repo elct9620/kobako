@@ -1,13 +1,12 @@
 //! One Layer's directory as an Overlay holds it: the directory and its
 //! dentry in the Layer's Filesystem, as overlayfs's `ovl_path` pairs a
-//! layer with its dentry. Each call holds that directory's lock as the
-//! VFS helpers overlayfs calls do: shared while a name is looked up, as
-//! `lookup_one_unlocked`, and exclusive while one is made, removed, or
-//! moved, as `start_creating`, `start_removing`, and `start_renaming`. A
-//! name is found through the VFS's `lookup_one_qstr_excl`, and an entry made,
-//! removed, or moved through its `vfs_mkdir`, `vfs_create`, `vfs_rmdir`,
-//! `vfs_unlink`, and `vfs_rename`, as overlayfs's are, so the VFS checks
-//! what stands there and the Layer's dentries follow each change.
+//! layer with its dentry. A name is found, and the directory held while one
+//! is made, removed, or moved, through the VFS's `lookup_noperm_unlocked`,
+//! `start_creating_noperm`, `start_removing_noperm`, and `__start_renaming`,
+//! and an entry made, removed, or moved through its `vfs_mkdir`, `vfs_create`,
+//! `vfs_rmdir`, `vfs_unlink`, and `vfs_rename`, as overlayfs's are, so the VFS
+//! checks what stands there and the Layer's dentries follow each change. The
+//! Layer's own permission is not asked, as the view's caller was asked.
 
 use std::any::Any;
 use std::sync::Arc;
@@ -19,8 +18,9 @@ use super::super::{
 };
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
-    __start_renaming, lookup_one_qstr_excl, may_create_dentry, notify_change, vfs_create,
-    vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Cred, Dentry, DirContext, DirEmit, RenameFlag,
+    __start_renaming, lookup_noperm_unlocked, may_create_dentry, notify_change,
+    start_creating_noperm, start_removing_noperm, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir,
+    vfs_unlink, Cred, Dentry, DirContext, DirEmit, RenameFlag,
 };
 
 /// The change setting what `stat` reports of its times, as
@@ -66,9 +66,25 @@ impl OverlayPath {
     }
 
     /// The dentry of `name` as this directory stores it, what stands there
-    /// recorded on it. The caller holds this directory's lock.
+    /// recorded on it.
     fn lookup_real(&self, name: &str) -> Result<Arc<Dentry>, FilesystemError> {
-        lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)
+        lookup_noperm_unlocked(&self.filesystem, &self.dentry, name)
+    }
+
+    /// This directory held for making `name`, and its dentry.
+    fn start_creating(
+        &self,
+        name: &str,
+    ) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
+        start_creating_noperm(&self.filesystem, &self.dentry, name)
+    }
+
+    /// This directory held for removing what stands at `name`, and its dentry.
+    fn start_removing(
+        &self,
+        name: &str,
+    ) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
+        start_removing_noperm(&self.filesystem, &self.dentry, name)
     }
 
     fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
@@ -116,13 +132,8 @@ impl OverlayPath {
     }
 
     pub(super) fn do_whiteout(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.inode_lock()?;
-        may_create_dentry(
-            &self.creator_cred,
-            &self.filesystem,
-            &self.dentry,
-            &*self.lookup_real(name)?,
-        )?;
+        let (_held, dentry) = self.start_creating(name)?;
+        may_create_dentry(&self.creator_cred, &self.filesystem, &self.dentry, &dentry)?;
         self.upper()?.whiteout(name)
     }
 
@@ -156,8 +167,7 @@ impl OverlayPath {
         file: &TmpfsFile,
         name: &str,
     ) -> Result<Arc<Dentry>, FilesystemError> {
-        let _held = self.inode_lock()?;
-        let dentry = self.lookup_real(name)?;
+        let (_held, dentry) = self.start_creating(name)?;
         may_create_dentry(&self.creator_cred, &self.filesystem, &self.dentry, &dentry)?;
         let upper = self.upper()?;
         upper.link(file, name)?;
@@ -180,8 +190,7 @@ impl OverlayPath {
         &self,
         name: &str,
     ) -> Result<Option<(String, Arc<Dentry>)>, FilesystemError> {
-        let _held = self.inode_lock_shared()?;
-        let dentry = lookup_one_qstr_excl(&self.filesystem, &self.dentry, name)?;
+        let dentry = self.lookup_real(name)?;
         Ok(dentry.inode().is_some().then(|| (dentry.name(), dentry)))
     }
 
@@ -195,19 +204,13 @@ impl OverlayPath {
 
     /// Make the file `name`, holding the directory, as `ovl_do_create` does.
     pub(super) fn do_create(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.inode_lock()?;
-        vfs_create(
-            &self.creator_cred,
-            &self.filesystem,
-            &self.dentry,
-            &*self.lookup_real(name)?,
-        )
+        let (_held, child) = self.start_creating(name)?;
+        vfs_create(&self.creator_cred, &self.filesystem, &self.dentry, &child)
     }
 
     /// The directory standing at `name`, a link there refused as a loop, as
     /// `ovl_lookup` follows no link in a Layer.
     pub(super) fn open_dir(&self, name: &str) -> Result<Self, FilesystemError> {
-        let _held = self.inode_lock_shared()?;
         let dentry = self.lookup_real(name)?;
         let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
         match inode.kind() {
@@ -222,7 +225,6 @@ impl OverlayPath {
     }
 
     pub(super) fn getattr_at(&self, name: &str) -> Result<Kstat, FilesystemError> {
-        let _held = self.inode_lock_shared()?;
         self.lookup_real(name)?.getattr()
     }
 
@@ -255,28 +257,17 @@ impl OverlayPath {
     }
 
     pub(super) fn do_mkdir(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.inode_lock()?;
-        let child = self.lookup_real(name)?;
+        let (_held, child) = self.start_creating(name)?;
         vfs_mkdir(&self.creator_cred, &self.filesystem, &self.dentry, &child)
     }
 
     pub(super) fn do_rmdir(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.inode_lock()?;
-        vfs_rmdir(
-            &self.creator_cred,
-            &self.filesystem,
-            &self.dentry,
-            &self.lookup_real(name)?,
-        )
+        let (_held, victim) = self.start_removing(name)?;
+        vfs_rmdir(&self.creator_cred, &self.filesystem, &self.dentry, &victim)
     }
 
     pub(super) fn do_unlink(&self, name: &str) -> Result<(), FilesystemError> {
-        let _held = self.inode_lock()?;
-        vfs_unlink(
-            &self.creator_cred,
-            &self.filesystem,
-            &self.dentry,
-            &self.lookup_real(name)?,
-        )
+        let (_held, victim) = self.start_removing(name)?;
+        vfs_unlink(&self.creator_cred, &self.filesystem, &self.dentry, &victim)
     }
 }

@@ -1305,13 +1305,13 @@ mod tests {
     // @behavior FS-165
     #[test]
     fn a_directory_found_stands_for_the_layers_it_was_found_in() {
-        use crate::vfs::lookup_one_qstr_excl;
+        use crate::vfs::lookup_noperm_unlocked;
         let lower = Arc::new([("dir/old", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower.clone(), Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
         let root = filesystem.dentries().root();
         let dir =
-            lookup_one_qstr_excl(&filesystem, &root, "dir").expect("the directory must be found");
+            lookup_noperm_unlocked(&filesystem, &root, "dir").expect("the directory must be found");
         let layer = on(&lower);
         layer
             .rename("dir", &layer, "moved")
@@ -1345,14 +1345,15 @@ mod tests {
     // @behavior FS-164
     #[test]
     fn a_directory_emptied_for_its_removal_stays_empty_should_the_removal_fail() {
-        use crate::vfs::{lookup_one_qstr_excl, vfs_unlink};
+        use crate::vfs::{lookup_noperm_unlocked, vfs_unlink};
         let lower = Arc::new([("dir/file", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower, Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
         let root = filesystem.dentries().root();
         let dir =
-            lookup_one_qstr_excl(&filesystem, &root, "dir").expect("the directory must be found");
-        let file = lookup_one_qstr_excl(&filesystem, &dir, "file").expect("the file must be found");
+            lookup_noperm_unlocked(&filesystem, &root, "dir").expect("the directory must be found");
+        let file =
+            lookup_noperm_unlocked(&filesystem, &dir, "file").expect("the file must be found");
         vfs_unlink(&Default::default(), &filesystem, &dir, &file)
             .expect("the file must be removed");
         let upper_root = overlay.fs.dir(&root).expect("the root must stand").level()[0]
@@ -1362,7 +1363,7 @@ mod tests {
             .fs
             .clear_empty(&upper_root, "dir")
             .expect("the directory must be exchanged");
-        let walked = lookup_one_qstr_excl(&filesystem, &root, "dir")
+        let walked = lookup_noperm_unlocked(&filesystem, &root, "dir")
             .expect("the directory must be found again");
         let names = overlay.fs.dir_read_merged(
             &overlay

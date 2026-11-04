@@ -253,6 +253,43 @@ fn lookup_dentry(
     }
 }
 
+/// The dentry of `name` in `parent`, standing or not, for a Filesystem stacked
+/// on another that already asked what it must, as Linux's
+/// `lookup_noperm_unlocked` finds it the way a walk does.
+pub(crate) fn lookup_noperm_unlocked(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<Arc<Dentry>, FilesystemError> {
+    lookup_dentry(sb, parent, name)
+}
+
+/// `parent` held exclusive and the dentry of `name` in it, standing or not, for
+/// a Filesystem stacked on another to make an entry there, as Linux's
+/// `start_creating_noperm` takes both for a caller that already asked what it
+/// must.
+pub(crate) fn start_creating_noperm(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
+    let held = parent.inode_lock()?;
+    Ok((held, __lookup_slow(sb, parent, name)?))
+}
+
+/// `parent` held exclusive and the dentry of what stands at `name` in it, for a
+/// Filesystem stacked on another to remove it, ENOENT where nothing stands, as
+/// Linux's `start_removing_noperm`.
+pub(crate) fn start_removing_noperm(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<(RwSemaphoreGuard, Arc<Dentry>), FilesystemError> {
+    let (held, child) = start_creating_noperm(sb, parent, name)?;
+    child.inode().ok_or(FilesystemError::NotFound)?;
+    Ok((held, child))
+}
+
 /// The dentry of `name` in `parent` for a walk passing through, holding that
 /// directory's lock shared only to find it, as Linux's `lookup_slow` does.
 fn lookup_slow(
