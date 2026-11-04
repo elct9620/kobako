@@ -1151,9 +1151,10 @@ pub(crate) fn vfs_mkdir(
     dir.inode_ops()?.mkdir(child)
 }
 
-/// Make the file `child` in `dir`, opened as `how` asks where its Filesystem
-/// opens it too, as Linux's `atomic_open` hands `open_flag` on once its caller
-/// holds `dir` and asked `may_o_create`.
+/// Look `child` in `dir` up, make it where `how` may, and open it where its
+/// Filesystem opens it too, as Linux's `atomic_open` hands `open_flag` on once
+/// its caller holds `dir`, and asked `may_o_create` for an open that may make
+/// a file.
 pub(crate) fn atomic_open(
     dir: &Dentry,
     child: &Dentry,
