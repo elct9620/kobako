@@ -782,13 +782,16 @@ impl Dentries {
     /// children.
     pub(crate) fn shrink_dcache_parent(&self, parent: &Arc<Dentry>) {
         let kept: Vec<Arc<Dentry>> = self.lru().iter().map(|(_, held)| held.clone()).collect();
-        let beneath = kept
+        // Decided before the LRU's lock is taken, as `retain` holds a name's lock
+        // while it takes the LRU's.
+        let beneath: Vec<usize> = kept
             .iter()
             .filter(|held| !Arc::ptr_eq(held, parent) && held.is_subdir(parent))
-            .map(|held| Arc::as_ptr(held) as usize);
+            .map(|held| Arc::as_ptr(held) as usize)
+            .collect();
         let let_go: Vec<_> = {
             let mut lru = self.lru();
-            beneath.filter_map(|at| lru.pop(&at)).collect()
+            beneath.iter().filter_map(|at| lru.pop(at)).collect()
         };
         drop(let_go);
         drop(kept);
@@ -1294,6 +1297,45 @@ mod tests {
                 torn, 0,
                 "Dentry::path_raw while Dentries::move_dentry moves the directories above it must \
                  answer only a path the dentry stood at"
+            );
+        }
+
+        // `retain` holds the name's lock before the LRU's, so only deciding what
+        // stands beneath the directory before taking the LRU's keeps the two
+        // from each holding what the other waits on.
+        // @behavior RT-331
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn a_name_kept_while_the_names_beneath_its_directory_go_waits_on_neither() {
+            let dentries = Arc::new(Dentries::new(None));
+            let dir = negative(&dentries, &dentries.root(), "dir");
+            let leaf = negative(&dentries, &dir, "leaf");
+            let stop = Arc::new(AtomicBool::new(false));
+            let keeping = {
+                let (dentries, stop, leaf) = (dentries.clone(), stop.clone(), leaf.clone());
+                thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        dentries.retain(&leaf);
+                    }
+                })
+            };
+            let shrinking = {
+                let (dentries, stop) = (dentries.clone(), stop.clone());
+                thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        dentries.shrink_dcache_parent(&dir);
+                    }
+                })
+            };
+            thread::sleep(std::time::Duration::from_secs(2));
+            stop.store(true, Ordering::SeqCst);
+            crate::sched::testing::join(
+                "Dentries::retain racing Dentries::shrink_dcache_parent",
+                keeping,
+            );
+            crate::sched::testing::join(
+                "Dentries::shrink_dcache_parent racing Dentries::retain",
+                shrinking,
             );
         }
 
