@@ -100,13 +100,13 @@ struct State {
     inode: Option<Arc<Inode>>,
     /// Where the lookup of the name stands, so a negative dentry says nothing
     /// stands there rather than that nobody asked.
-    asked: Asked,
+    asked: LookupState,
 }
 
 /// Where the lookup of a name stands, as `DCACHE_PAR_LOOKUP` marks a dentry a
 /// walk is asking its Filesystem about and `d_add` ends that.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Asked {
+enum LookupState {
     /// No lookup asked for the name yet, or the one that did was handed another
     /// spelling.
     Not,
@@ -130,7 +130,7 @@ impl Dentry {
                 parent,
                 name: name.to_string(),
                 inode: None,
-                asked: Asked::Not,
+                asked: LookupState::Not,
             }),
             this: this.clone(),
             fsdata: OnceLock::new(),
@@ -248,7 +248,7 @@ impl Dentry {
     /// must see.
     pub fn add(&self, inode: Option<Arc<Inode>>) {
         let mut state = self.state();
-        state.asked = Asked::Answered;
+        state.asked = LookupState::Answered;
         if state.inode.is_none() {
             if let Some(inode) = &inode {
                 inode.add_dir_alias(&self.this);
@@ -281,7 +281,7 @@ impl Dentry {
     /// tells a Filesystem's `atomic_open` the dentry it must look up first. Only
     /// one that answered has something to ask `revalidate` of.
     pub fn in_lookup(&self) -> bool {
-        self.state().asked != Asked::Answered
+        self.state().asked != LookupState::Answered
     }
 
     /// Ask the directory `dir` of `sb` what stands here where no lookup answered
@@ -363,19 +363,19 @@ impl Dentry {
         loop {
             let mut state = self.state();
             match state.asked {
-                Asked::Asking(walk) if walk == current => return Ok(InLookup::Within),
-                Asked::By(walk) if walk == current => {
-                    state.asked = Asked::Asking(current);
+                LookupState::Asking(walk) if walk == current => return Ok(InLookup::Within),
+                LookupState::By(walk) if walk == current => {
+                    state.asked = LookupState::Asking(current);
                     return Ok(InLookup::Begun);
                 }
-                Asked::By(_) | Asked::Asking(_) if sched::fatal_signal_pending() => {
+                LookupState::By(_) | LookupState::Asking(_) if sched::fatal_signal_pending() => {
                     return Err(FilesystemError::Interrupted)
                 }
-                Asked::By(_) | Asked::Asking(_) => {
+                LookupState::By(_) | LookupState::Asking(_) => {
                     drop(state);
                     sched::schedule(&mut || {
                         let state = self.state();
-                        if matches!(state.asked, Asked::By(_) | Asked::Asking(_)) {
+                        if matches!(state.asked, LookupState::By(_) | LookupState::Asking(_)) {
                             drop(
                                 self.lookup_done
                                     .wait_timeout(state, sched::sleep_slice())
@@ -384,9 +384,9 @@ impl Dentry {
                         }
                     });
                 }
-                Asked::Answered => return Ok(InLookup::Answered),
-                Asked::Not => {
-                    state.asked = Asked::Asking(current);
+                LookupState::Answered => return Ok(InLookup::Answered),
+                LookupState::Not => {
+                    state.asked = LookupState::Asking(current);
                     return Ok(InLookup::Begun);
                 }
             }
@@ -397,8 +397,8 @@ impl Dentry {
     /// `d_lookup_done` does.
     fn d_lookup_done(&self) {
         let mut state = self.state();
-        if matches!(state.asked, Asked::By(_) | Asked::Asking(_)) {
-            state.asked = Asked::Not;
+        if matches!(state.asked, LookupState::By(_) | LookupState::Asking(_)) {
+            state.asked = LookupState::Not;
         }
         drop(state);
         self.lookup_done.notify_all();
@@ -548,7 +548,7 @@ impl Dentries {
     pub(crate) fn alloc_parallel(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
         self.hashtable().get_or_insert_with(key(parent, name), || {
             let made = Dentry::new(Some(parent.clone()), name, self.ops.clone());
-            made.state().asked = Asked::By(sched::current());
+            made.state().asked = LookupState::By(sched::current());
             made
         })
     }

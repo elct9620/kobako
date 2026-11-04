@@ -17,7 +17,7 @@ use super::namei::{
 use super::path::{Path, Start};
 use super::{
     build_open_flags, DirEntry, File, FileOperations, FileSystemType, FileType, FilesystemError,
-    Finish, Iattr, Kstat, OpenHow, SuperBlock,
+    Iattr, Kstat, OpenHow, SuperBlock,
 };
 use crate::mount::{Access, Mount};
 
@@ -104,9 +104,9 @@ impl KernPath {
             create: true,
             ..*how
         };
-        match atomic_open(nd.dentry(), &child, &how)? {
-            Finish::Open { file, .. } | Finish::Spelled { file, .. } => Ok(file),
-            Finish::NoOpen { .. } | Finish::Lookup(_) => child.open(&how),
+        match atomic_open(nd.mnt.sb(), nd.dentry(), &child, &how)?.file {
+            Some(file) => Ok(file),
+            None => child.open(&how),
         }
     }
 

@@ -401,11 +401,11 @@ impl Nameidata {
         how: &OpenHow,
         mode: FMode,
         mut follow: bool,
-    ) -> Result<Opened, FilesystemError> {
+    ) -> Result<Open, FilesystemError> {
         loop {
             if self.last_type != LastType::Norm {
                 self.handle_dots()?;
-                return Ok(Opened { file: None, mode });
+                return Ok(Open { file: None, mode });
             }
             if self.trailing_slash {
                 if how.create {
@@ -437,7 +437,7 @@ impl Nameidata {
         &mut self,
         how: &OpenHow,
         mode: FMode,
-    ) -> Result<(Arc<Dentry>, Opened), FilesystemError> {
+    ) -> Result<(Arc<Dentry>, Open), FilesystemError> {
         let dir = self.dentry().clone();
         let _held = match how.create {
             true => dir.inode_lock()?,
@@ -452,23 +452,32 @@ impl Nameidata {
         let mut ask = || {
             let mut how = *how;
             if how.create {
-                create_error = self.may_o_create(&given).err();
+                let got_write = self.mnt.mnt_want_write();
+                create_error = got_write.and_then(|()| self.may_o_create(&given)).err();
                 how.create = create_error.is_none();
             }
             how.directory |= self.lookup_directory;
-            finish(mnt.sb(), atomic_open(&dir, &given, &how)?, &given)
+            atomic_open(mnt.sb(), &dir, &given, &how)
         };
         let asked = match given.lookup_by(&mut ask) {
             Ok(Some(asked)) => Ok(asked),
-            Ok(None) if given.inode().is_some() || !how.create => Ok((None, false, Splice::Here)),
+            Ok(None) if given.inode().is_some() || !how.create => Ok(AtomicOpen {
+                file: None,
+                created: false,
+                splice: Splice::Here,
+            }),
             Ok(None) => ask(),
             Err(err) => Err(err),
         };
-        let (file, created, spliced) = match (asked, &create_error) {
+        let AtomicOpen {
+            file,
+            created,
+            splice,
+        } = match (asked, &create_error) {
             (Err(FilesystemError::NotFound), Some(refused)) => return Err(refused.clone()),
             (asked, _) => asked?,
         };
-        let (stored, child) = d_add_ci(mnt.sb(), &dir, &self.name, given, spliced)?;
+        let (stored, child) = d_add_ci(mnt.sb(), &dir, &self.name, given, splice)?;
         self.name = stored;
         self.path = Some(child.clone());
         if child.inode().is_none() {
@@ -488,33 +497,16 @@ impl Nameidata {
             }
             None => None,
         };
-        Ok((child, Opened { file, mode }))
+        Ok((child, Open { file, mode }))
     }
 
     /// Whether the open may make the file `child` names here, as Linux's
-    /// `may_o_create` asks once the mount takes a write.
+    /// `may_o_create` asks once the mount took a write.
     fn may_o_create(&self, child: &Dentry) -> Result<(), FilesystemError> {
-        self.mnt.mnt_want_write()?;
         self.on_path(|path| self.cred.security_path_mknod(path))?;
         may_create_dentry(&self.cred, self.mnt.sb(), self.dentry(), child)
     }
 }
-
-/// What an `atomic_open` on `dentry` of `sb` left: the file it opened, whether
-/// it made it, and where what its lookup found stands, spliced as a lookup's
-/// answer is, as Linux's `atomic_open` takes the dentry `finish_no_open` hands
-/// back.
-fn finish(sb: &SuperBlock, finished: Finish, dentry: &Dentry) -> Result<Finished, FilesystemError> {
-    Ok(match finished {
-        Finish::Open { file, created } => (Some(file), created, Splice::Here),
-        Finish::Spelled { file, name, inode } => (Some(file), false, Splice::Spelled(name, inode)),
-        Finish::NoOpen { created } => (None, created, Splice::Here),
-        Finish::Lookup(found) => (None, false, dentry.d_splice_alias(sb, found)?),
-    })
-}
-
-/// What `finish` reads out of an `atomic_open`.
-type Finished = (Option<Box<dyn FileOperations>>, bool, Splice);
 
 /// Refuse a path no call can take, as Linux's `getname` does before any call
 /// looks at it: an empty one names nothing, one past `PATH_MAX` with its
@@ -679,7 +671,7 @@ fn do_o_path(nd: Nameidata, op: &OpenFlags) -> Result<File, FilesystemError> {
 
 /// What `lookup_open` leaves `do_open`, as Linux's open `file` carries
 /// `FMODE_OPENED` and `FMODE_CREATED` out of it.
-struct Opened {
+struct Open {
     file: Option<(Box<dyn FileOperations>, Vec<FileSecurity>)>,
     mode: FMode,
 }
@@ -694,7 +686,7 @@ struct Opened {
 fn do_open(
     nd: &Nameidata,
     child: Arc<Dentry>,
-    opened: Opened,
+    opened: Open,
     op: &OpenFlags,
 ) -> Result<File, FilesystemError> {
     let how = op.open_flag();
@@ -1158,16 +1150,38 @@ pub(crate) fn vfs_mkdir(
     dir.inode_ops()?.mkdir(child)
 }
 
-/// Look `child` in `dir` up, make it where `how` may, and open it where its
-/// Filesystem opens it too, as Linux's `atomic_open` hands `open_flag` on once
-/// its caller holds `dir`, and asked `may_o_create` for an open that may make
-/// a file.
+/// What an `atomic_open` left: the file it opened, whether it made it, and
+/// where what it found stands, as Linux's `atomic_open` leaves
+/// `FMODE_OPENED` and `FMODE_CREATED` on the file and hands back the dentry
+/// to use.
+pub(crate) struct AtomicOpen {
+    pub(crate) file: Option<Box<dyn FileOperations>>,
+    pub(crate) created: bool,
+    pub(crate) splice: Splice,
+}
+
+/// Look `child` in `dir` of `sb` up, make it where `how` may, and open it
+/// where its Filesystem opens it too, as Linux's `atomic_open` hands
+/// `open_flag` on once its caller holds `dir`, and asked `may_o_create` for an
+/// open that may make a file. What its lookup found is spliced as a lookup's
+/// answer is, as `atomic_open` takes the dentry `finish_no_open` hands back.
 pub(crate) fn atomic_open(
+    sb: &SuperBlock,
     dir: &Dentry,
     child: &Dentry,
     how: &OpenHow,
-) -> Result<Finish, FilesystemError> {
-    dir.inode_ops()?.atomic_open(child, how)
+) -> Result<AtomicOpen, FilesystemError> {
+    let (file, created, splice) = match dir.inode_ops()?.atomic_open(child, how)? {
+        Finish::Open { file, created } => (Some(file), created, Splice::Here),
+        Finish::Spelled { file, name, inode } => (Some(file), false, Splice::Spelled(name, inode)),
+        Finish::NoOpen { created } => (None, created, Splice::Here),
+        Finish::Lookup(found) => (None, false, child.d_splice_alias(sb, found)?),
+    };
+    Ok(AtomicOpen {
+        file,
+        created,
+        splice,
+    })
 }
 
 /// Make the file `child` in `dir`, as Linux's `vfs_create` does once its caller
