@@ -3584,3 +3584,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose `atomic_open` finds the name stored as `F` and opens it |
 | When | a guest opens `f`, asking to create nothing |
 | Then | the open holds the dentry of `F`, as Linux's `atomic_open` takes the dentry `finish_open` was handed |
+
+## `RT-319` Two walks finding one directory under two names at once leave it one dentry
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-315` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem handing the same directory inode for names in two directories |
+| When | two walks reach the two names at the same time |
+| Then | both walks hold one dentry, as `d_splice_alias` finds the alias and adds the dentry under one `i_lock` |
+
+## `RT-320` A walk waiting on a name a directory moved onto asks no lookup
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-315` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a walk looking a name up, and a second walk waiting for that lookup |
+| When | the lookup finds a directory standing at another dentry, and that dentry moves to the name |
+| Then | the second walk holds the moved dentry without asking the Filesystem, as `d_alloc_parallel` retries a dentry `__d_move` unhashed |
