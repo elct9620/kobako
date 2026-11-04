@@ -3680,3 +3680,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose make calls the runtime to walk to a name a held dentry stands at |
 | When | a directory is made through the runtime in the same directory |
 | Then | the inner walk answers without waiting, as Linux's `lookup_fast` takes the dcache's dentry |
+
+## `RT-327` A walk made again for ESTALE counts the links the first one followed
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-321` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a path through thirty links to a name whose first lookup answers ESTALE |
+| When | a call walks the path, following its last link |
+| Then | the walk made again counts both walks' links toward one budget of forty, and answers ELOOP |
