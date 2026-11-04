@@ -299,7 +299,7 @@ pub struct Inode {
     dead: AtomicBool,
     /// The dentry a directory stands at, as Linux keeps a directory's one
     /// dentry in `i_dentry`.
-    alias: Mutex<Weak<Dentry>>,
+    dentry: Mutex<Weak<Dentry>>,
 }
 
 impl Inode {
@@ -326,7 +326,7 @@ impl Inode {
             private: OnceLock::new(),
             rwsem: Arc::default(),
             dead: AtomicBool::new(false),
-            alias: Mutex::default(),
+            dentry: Mutex::default(),
         })
     }
 
@@ -336,24 +336,24 @@ impl Inode {
     /// `d_splice_alias` holds `i_lock`, so two lookups of one directory never
     /// each find none.
     pub(super) fn find_alias_or_add(self: &Arc<Self>, dentry: &Dentry) -> Option<Arc<Dentry>> {
-        let mut alias = self.alias();
-        if let Some(found) = alias.upgrade() {
+        let mut held = self.dentry();
+        if let Some(found) = held.upgrade() {
             if !std::ptr::eq(found.as_ref(), dentry) {
                 return Some(found);
             }
         }
-        dentry.instantiate(self.clone(), &mut alias);
+        dentry.instantiate(self.clone(), &mut held);
         None
     }
 
     /// Record this entry on `dentry`, as `d_instantiate` hangs a dentry on
     /// `i_dentry`.
     pub(super) fn add_to(self: &Arc<Self>, dentry: &Dentry) {
-        dentry.instantiate(self.clone(), &mut self.alias());
+        dentry.instantiate(self.clone(), &mut self.dentry());
     }
 
-    fn alias(&self) -> MutexGuard<'_, Weak<Dentry>> {
-        self.alias.lock().unwrap_or_else(PoisonError::into_inner)
+    fn dentry(&self) -> MutexGuard<'_, Weak<Dentry>> {
+        self.dentry.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Hold it shared where nothing holds it exclusive, without waiting, as

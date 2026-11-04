@@ -64,7 +64,7 @@ pub struct Dentry {
     /// super block.
     ops: Option<Arc<dyn DentryOperations>>,
     /// Wakes the walks waiting while another looks this name up, as Linux's
-    /// `d_wait` does.
+    /// `d_wait_lookup` waits for `DCACHE_PAR_LOOKUP` to clear.
     wait: Condvar,
 }
 
@@ -96,10 +96,10 @@ struct State {
 enum LookupState {
     /// No lookup asked for the name yet, or the one that did was handed another
     /// spelling.
-    Not,
+    Unasked,
     /// In lookup for the walk that made the dentry, which has yet to ask, as
     /// `d_alloc_parallel` marks the dentry it makes.
-    By(ThreadId),
+    Allocated(ThreadId),
     /// The walk asking the Filesystem what stands here, while it asks.
     Asking(ThreadId),
     /// A lookup answered for the name, or a call made what stands there.
@@ -117,7 +117,7 @@ impl Dentry {
                 parent,
                 name: name.to_string(),
                 inode: None,
-                asked: LookupState::Not,
+                asked: LookupState::Unasked,
             }),
             this: this.clone(),
             fsdata: OnceLock::new(),
@@ -241,15 +241,15 @@ impl Dentry {
     }
 
     /// Record `inode` here unless the dentry already names something, a
-    /// directory's `alias` pointing here from then on, as `__d_instantiate`
-    /// hangs the dentry on `i_dentry`. The caller holds `alias`, the inode's
-    /// lock.
-    pub(super) fn instantiate(&self, inode: Arc<Inode>, alias: &mut Weak<Dentry>) {
+    /// directory's `held` dentry being this one from then on, as
+    /// `__d_instantiate` hangs the dentry on `i_dentry`. The caller holds
+    /// `held`, the inode's lock on the dentry it keeps.
+    pub(super) fn instantiate(&self, inode: Arc<Inode>, held: &mut Weak<Dentry>) {
         let mut state = self.state();
         state.asked = LookupState::Answered;
         if state.inode.is_none() {
             if inode.kind() == FileType::Dir {
-                *alias = self.this.clone();
+                *held = self.this.clone();
             }
             state.inode = Some(inode);
         }
@@ -441,18 +441,23 @@ impl Dentry {
             let mut state = self.state();
             match state.asked {
                 LookupState::Asking(walk) if walk == current => return Ok(InLookup::Within),
-                LookupState::By(walk) if walk == current => {
+                LookupState::Allocated(walk) if walk == current => {
                     state.asked = LookupState::Asking(current);
                     return Ok(InLookup::Begun);
                 }
-                LookupState::By(_) | LookupState::Asking(_) if sched::fatal_signal_pending() => {
+                LookupState::Allocated(_) | LookupState::Asking(_)
+                    if sched::fatal_signal_pending() =>
+                {
                     return Err(FilesystemError::Interrupted)
                 }
-                LookupState::By(_) | LookupState::Asking(_) => {
+                LookupState::Allocated(_) | LookupState::Asking(_) => {
                     drop(state);
                     sched::schedule(&mut || {
                         let state = self.state();
-                        if matches!(state.asked, LookupState::By(_) | LookupState::Asking(_)) {
+                        if matches!(
+                            state.asked,
+                            LookupState::Allocated(_) | LookupState::Asking(_)
+                        ) {
                             drop(
                                 self.wait
                                     .wait_timeout(state, sched::sleep_slice())
@@ -462,7 +467,7 @@ impl Dentry {
                     });
                 }
                 LookupState::Answered => return Ok(InLookup::Answered),
-                LookupState::Not => {
+                LookupState::Unasked => {
                     state.asked = LookupState::Asking(current);
                     return Ok(InLookup::Begun);
                 }
@@ -474,8 +479,11 @@ impl Dentry {
     /// `d_lookup_done` does.
     fn lookup_done(&self) {
         let mut state = self.state();
-        if matches!(state.asked, LookupState::By(_) | LookupState::Asking(_)) {
-            state.asked = LookupState::Not;
+        if matches!(
+            state.asked,
+            LookupState::Allocated(_) | LookupState::Asking(_)
+        ) {
+            state.asked = LookupState::Unasked;
         }
         drop(state);
         self.wait.notify_all();
@@ -629,7 +637,7 @@ impl Dentries {
     pub(crate) fn alloc_parallel(&self, parent: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
         self.hashtable().get_or_insert_with(key(parent, name), || {
             let made = Dentry::new(Some(parent.clone()), name, self.ops.clone());
-            made.state().asked = LookupState::By(sched::current());
+            made.state().asked = LookupState::Allocated(sched::current());
             made
         })
     }
