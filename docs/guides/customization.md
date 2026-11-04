@@ -356,7 +356,7 @@ tell a directory from one made in its place.
 
 ### Filesystem Obligations
 
-`fill_super` makes the root, through `simple_fill_super` where nothing else needs setting up.
+`fill_super` makes the root through `d_make_root`, as a Linux driver's does.
 `getattr` answers for an entry an open file still holds once its name is
 gone, so a Filesystem keeps what that takes on the `Inode`. An operation an entry lacks answers
 by default as Linux's VFS answers a NULL in `inode_operations`. One wrapping another forwards
