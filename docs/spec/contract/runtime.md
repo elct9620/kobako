@@ -2044,7 +2044,7 @@ runtime asks its security modules before it opens the file.
 
 ```rust
 pub trait InodeOperations {
-    fn atomic_open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError>;
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError>;
 }
 ```
 
