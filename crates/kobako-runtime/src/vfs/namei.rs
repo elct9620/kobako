@@ -556,7 +556,14 @@ fn do_o_path(nd: Nameidata, op: &OpenFlags) -> Result<File, FilesystemError> {
     let (f_op, security) = nd.on_path(|path| {
         do_dentry_open(&nd.cred, path, kind, FMode::PATH, how, || child.open(how))
     })?;
-    Ok(File::new(nd.path_to(child), f_op, FMode::PATH, how, &nd.cred).with_security(security))
+    Ok(File::new(
+        nd.path_to(child),
+        f_op,
+        FMode::PATH,
+        how,
+        &nd.cred,
+        security,
+    ))
 }
 
 /// What `lookup_open` leaves `do_open`, as Linux's open `file` carries
@@ -648,7 +655,14 @@ fn do_open(
         let held = child.inode_lock()?;
         notify_change(&child, &held, &Iattr::open_truncate())?;
     }
-    Ok(File::new(nd.path_to(child), f_op, mode, how, &nd.cred).with_security(security))
+    Ok(File::new(
+        nd.path_to(child),
+        f_op,
+        mode,
+        how,
+        &nd.cred,
+        security,
+    ))
 }
 
 /// Refuse to open what stands at the path as Linux's `may_open` does: a

@@ -6,7 +6,7 @@
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::vfs::{
-    simple_fill_super, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
+    simple_fill_super, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
     FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, Path, PollMask, SuperBlock,
     VfsMount,
 };
@@ -127,13 +127,15 @@ pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
     let dentry = PIPE_MNT.mnt().sb().dentries().alloc_pseudo();
     let found = Kstat::new(FileType::Fifo, 0);
     dentry.add(Some(Inode::new(&found, Arc::new(PipeFs))));
+    let cred = Arc::<Cred>::default();
     let end = |how: OpenHow| {
         File::new(
             PIPE_MNT.with_dentry(dentry.clone()),
             Box::new(AnonPipe(pipe.clone())),
             FMode::of(&how),
             &how,
-            &Arc::default(),
+            &cred,
+            cred.security_file_alloc(),
         )
     };
     (

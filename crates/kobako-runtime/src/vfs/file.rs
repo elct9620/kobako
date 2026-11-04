@@ -285,7 +285,7 @@ pub(super) fn do_dentry_open(
     open: impl FnOnce() -> Result<Box<dyn FileOperations>, FilesystemError>,
 ) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
     if mode.contains(FMode::PATH) {
-        return Ok((Box::new(EmptyFops), Vec::new()));
+        return Ok((Box::new(EmptyFops), cred.security_file_alloc()));
     }
     if mode.contains(FMode::WRITE) && !special_file(kind) {
         at.mnt.mnt_want_write()?;
@@ -327,14 +327,16 @@ pub struct File {
 
 impl File {
     /// The file `ops` answers for, opened at `path` for `mode` as `how` asks,
-    /// with no position where `ops` is a stream. It keeps the inode `path`
-    /// names, as `do_dentry_open` sets `f_inode` once.
+    /// with no position where `ops` is a stream, holding what each of `cred`'s
+    /// security modules kept on it. It keeps the inode `path` names, as
+    /// `do_dentry_open` sets `f_inode` once.
     pub(crate) fn new(
         path: Path,
         ops: Box<dyn FileOperations>,
         mode: FMode,
         how: &OpenHow,
         cred: &Arc<Cred>,
+        security: Vec<FileSecurity>,
     ) -> Self {
         let inode = path
             .dentry()
@@ -355,13 +357,8 @@ impl File {
             sync: how.sync,
             pos: 0,
             cred: cred.clone(),
-            security: Vec::new(),
+            security,
         }
-    }
-
-    /// This file holding what its security modules kept on it as it opened.
-    pub(crate) fn with_security(self, security: Vec<FileSecurity>) -> Self {
-        Self { security, ..self }
     }
 
     /// What stands at `path`, opened as `how` asks for `cred`, as Linux's
@@ -381,7 +378,7 @@ impl File {
         let mode = FMode::of(how);
         let (ops, security) =
             do_dentry_open(cred, at, kind, mode, how, || path.dentry().open(how))?;
-        Ok(Self::new(path, ops, mode, how, cred).with_security(security))
+        Ok(Self::new(path, ops, mode, how, cred, security))
     }
 
     /// The root of `mnt` opened as a directory for `cred`. A Driver opens each
@@ -1742,7 +1739,8 @@ mod tests {
                     Box::new(NoOperations),
                     FMode::of(&how),
                     &how,
-                    &Arc::default()
+                    &Arc::default(),
+                    Vec::new()
                 )
                 .fallocate(0, 1),
                 pipe.fallocate(0, 1),

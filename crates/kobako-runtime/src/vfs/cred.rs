@@ -214,6 +214,12 @@ impl Cred {
         self.call_int_hook(|module| module.path_rename(old, new, dentries))
     }
 
+    /// A file's room for what each module keeps on it, empty until an open
+    /// fills it, as `security_file_alloc` gives every file one blob per module.
+    pub(crate) fn security_file_alloc(&self) -> Vec<FileSecurity> {
+        vec![None; self.security.len()]
+    }
+
     /// Ask each module about the open, keeping what each keeps on the file in
     /// the order the modules stand, as `security_file_open` fills `f_security`.
     pub(crate) fn security_file_open(
@@ -237,7 +243,7 @@ impl Cred {
     ) -> Result<(), FilesystemError> {
         self.security
             .iter()
-            .zip(kept.iter().chain(std::iter::repeat(&None)))
+            .zip(kept)
             .try_for_each(|(module, kept)| module.file_truncate(kept))
     }
 
