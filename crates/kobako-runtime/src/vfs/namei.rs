@@ -507,6 +507,7 @@ impl Nameidata {
 fn finish(sb: &SuperBlock, finished: Finish, dentry: &Dentry) -> Result<Finished, FilesystemError> {
     Ok(match finished {
         Finish::Open { file, created } => (Some(file), created, Splice::Here),
+        Finish::Spelled { file, name, inode } => (Some(file), false, Splice::Spelled(name, inode)),
         Finish::NoOpen { created } => (None, created, Splice::Here),
         Finish::Lookup(found) => (None, false, dentry.d_splice_alias(sb, found)?),
     })
@@ -2181,6 +2182,68 @@ mod tests {
             (Some(FilesystemError::NotADirectory), true),
             "vfs::do_file_open of `file/` over a Filesystem opening in one step must ask its \
              atomic_open for a directory and answer ENOTDIR, as lookup_open adds O_DIRECTORY"
+        );
+    }
+
+    /// A Filesystem storing one file as `F` and reaching it by any case, which
+    /// finds and opens it in one step, as a case-insensitive backend opening
+    /// with one call, counting its `lookup`.
+    #[derive(Clone, Default)]
+    struct OpensSpelled(Arc<AtomicUsize>);
+
+    impl FileSystemType for OpensSpelled {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+            vfs::simple_fill_super(sb, self)
+        }
+    }
+
+    impl InodeOperations for OpensSpelled {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+            Ok(Kstat::new(FileType::Dir, 0))
+        }
+
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(Lookup::Absent)
+        }
+
+        fn atomic_open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Finish, FilesystemError> {
+            let file = Kstat::new(FileType::RegFile, 0);
+            Ok(Finish::Spelled {
+                file: Box::new(NoOperations),
+                name: "F".to_string(),
+                inode: Inode::new(&file, Arc::new(self.clone())),
+            })
+        }
+    }
+
+    // A Filesystem opening in one step could otherwise only record the file on
+    // the guest's spelling, giving one entry two dentries, or open it twice.
+    // @behavior RT-318
+    #[test]
+    fn a_file_atomic_open_opens_under_another_spelling_opens_as_that_spelling() {
+        let fs = OpensSpelled::default();
+        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let opened = vfs::kern_path::filp_open(&Arc::default(), &root, "f", &read)
+            .map(|file| file.path().dentry().clone());
+        let stored = root.mnt().sb().dentries().lookup(root.dentry(), "F");
+        assert_eq!(
+            (
+                opened.as_ref().map(|dentry| dentry.name()).ok(),
+                opened
+                    .ok()
+                    .zip(stored)
+                    .map(|(opened, stored)| Arc::ptr_eq(&opened, &stored)),
+                fs.0.load(Ordering::SeqCst)
+            ),
+            (Some("F".to_string()), Some(true), 0),
+            "vfs::do_file_open of `f` over a Filesystem whose atomic_open opens it stored as `F` \
+             must hold the dentry of `F` without asking lookup, as atomic_open takes the dentry \
+             finish_open was handed"
         );
     }
 

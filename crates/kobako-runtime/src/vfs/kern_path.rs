@@ -105,7 +105,7 @@ impl KernPath {
             ..*how
         };
         match atomic_open(nd.dentry(), &child, &how)? {
-            Finish::Open { file, .. } => Ok(file),
+            Finish::Open { file, .. } | Finish::Spelled { file, .. } => Ok(file),
             Finish::NoOpen { .. } | Finish::Lookup(_) => child.open(&how),
         }
     }

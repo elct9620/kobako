@@ -23,6 +23,14 @@ pub enum Finish {
         file: Box<dyn FileOperations>,
         created: bool,
     },
+    /// It found the entry stored under the other spelling `name` and opened
+    /// it, as `finish_open` is handed the dentry `d_add_ci` returned, for the
+    /// VFS to record `inode` on that spelling's dentry.
+    Spelled {
+        file: Box<dyn FileOperations>,
+        name: String,
+        inode: Arc<Inode>,
+    },
     /// It left the open to the VFS, as `finish_no_open` hands the dentry back.
     NoOpen { created: bool },
     /// It looked the name up and left the rest to the VFS, as `finish_no_open`
