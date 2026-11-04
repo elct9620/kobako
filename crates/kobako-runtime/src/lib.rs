@@ -34,10 +34,7 @@ pub mod yielder;
 pub use dispatch::DispatchHandler;
 pub use endpoint::{Calls, GuestInstance};
 pub use error::{InvokeError, SetupError, Trap};
-pub use filesystem::{
-    Bind, DentryOperations, DirEntry, FileOperations, FileType, FilesystemError, Iattr,
-    InodeOperations, Kiocb, Kstat, Lookup, OpenHow, Overlay, SeedError, Tmpfs,
-};
+pub use filesystem::{Bind, DirEntry, FileType, FilesystemError, Kstat, Overlay, SeedError, Tmpfs};
 pub use grant::{Grant, GrantKind};
 pub use mount::{Access, Mount, MountPathError, Policy};
 pub use profile::Profile;
