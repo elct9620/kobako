@@ -2316,10 +2316,11 @@ impl Rdir {
 ## `prepare_creds_within`
 
 The caller an Invocation opens its Mounts' roots as, before any Policy applies.
-Its Filesystems hold at most this many bytes on its behalf.
+It is judged by kobako's own rules, then by each given module in order. Its
+Filesystems hold at most this many bytes on its behalf.
 
 ```rust
-pub fn prepare_creds_within(memory_limit: Option<usize>) -> Arc<Cred> {}
+pub fn prepare_creds_within(modules: &[Arc<dyn SecurityOperations>], memory_limit: Option<usize>) -> Arc<Cred> {}
 ```
 
 ## `restrict_self`

@@ -3704,3 +3704,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file its Filesystem opens as a stream, whose read moves the position it is handed |
 | When | the file is read twice |
 | Then | each read is handed position 0, and the file's position stays 0, as Linux's `file_ppos` answers none for a stream |
+
+## `RT-329` A security module the Driver is built with judges every guest call
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Driver built with a security module refusing every directory made, and a Mount allowing every change |
+| When | a guest makes a directory beneath the Mount |
+| Then | the call answers EACCES and nothing is made, as an LSM stacked at boot refuses `security_path_mkdir` |

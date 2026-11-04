@@ -11,7 +11,8 @@ by name only how to build one.
 
 ## `Config`
 
-The caps and the isolation profile a Frontend asks the engine for.
+The caps, the isolation profile, and the security modules a Frontend asks the
+engine for.
 
 ```rust
 pub struct Config {}
