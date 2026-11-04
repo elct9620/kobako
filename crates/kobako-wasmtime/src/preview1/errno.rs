@@ -40,6 +40,7 @@ fn from_posix_name(name: &str) -> Option<Errno> {
         "EOVERFLOW" => Errno::Overflow,
         "ESPIPE" => Errno::Spipe,
         "ENODEV" => Errno::Nodev,
+        "ESTALE" => Errno::Stale,
         _ => return None,
     })
 }
@@ -116,6 +117,7 @@ mod tests {
             (FilesystemError::ValueTooLarge, 61),
             (FilesystemError::NotSeekable, 70),
             (FilesystemError::NoSuchDevice, 43),
+            (FilesystemError::StaleNetworkFileHandle, 72),
             (FilesystemError::Other("x".into()), 29),
         ];
         for (error, code) in cases {
