@@ -2736,7 +2736,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Filesystem whose `fill_super` makes a root with an identity, and one making it through `simple_fill_super` |
+| Given | a Filesystem whose `fill_super` makes a root with an identity, and one making a root that names none |
 | When | each is made into an instance |
 | Then | the first root records that identity, and the second none |
 

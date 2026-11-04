@@ -1940,18 +1940,6 @@ What makes an instance of a Filesystem.
 pub trait FileSystemType: Send + Sync + 'static {}
 ```
 
-## `simple_fill_super`
-
-Makes `root` the root of an instance with nothing else to set up. Its root names no
-identity, every name stays valid, and every change is allowed.
-
-```rust
-pub fn simple_fill_super(
-    sb: &mut SuperBlock,
-    root: Arc<dyn InodeOperations>,
-) -> Result<(), FilesystemError> {}
-```
-
 ## `FileSystemType::fill_super`
 
 What the runtime asks once to set up an instance and make its root, answering why it
