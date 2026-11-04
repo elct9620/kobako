@@ -735,6 +735,16 @@ impl Dentry {
 }
 ```
 
+## `Dentry::in_lookup`
+
+Whether no lookup has answered for the name yet.
+
+```rust
+impl Dentry {
+    pub fn in_lookup(&self) -> bool {}
+}
+```
+
 ## `Dentry::ops`
 
 What answers about this name, the same for every Dentry of one Filesystem.
@@ -2024,9 +2034,13 @@ pub trait InodeOperations {
 
 ## `InodeOperations::atomic_open`
 
-Make the file a Dentry names in this directory, record it on that Dentry, and open
-it in one step. A directory without it makes the file through `create`. The
-runtime then asks its security modules before it opens the file.
+Look up, make, and open the last name of an open in one step. The runtime asks
+it for a name still in lookup, and for a negative name an open may make. A
+Dentry still in lookup is looked up first and may be handed back. Only an open
+that may make a file makes one.
+
+A directory without it looks up, then makes the file through `create`. The
+runtime asks its security modules before it opens the file.
 
 ```rust
 pub trait InodeOperations {
@@ -2122,8 +2136,8 @@ pub enum RenameFlag {}
 
 ## `Finish`
 
-What `atomic_open` did with a name: opened the file too, or left the open to the
-runtime. Each end says whether it made the file.
+What `atomic_open` did with a name: opened it, left the open to the runtime,
+or handed back its lookup. The first two say whether it made the file.
 
 ```rust
 pub enum Finish {}
@@ -2132,7 +2146,7 @@ pub enum Finish {}
 ## `Lookup`
 
 What one name in a directory turned out to be: an entry, nothing, or an entry
-stored under another spelling.
+stored under another spelling. The last carries both.
 
 ```rust
 pub enum Lookup {}

@@ -3474,3 +3474,40 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding one open file and no descriptor at the next number |
 | When | the guest renumbers the file onto that number |
 | Then | the call answers EBADF and the file stays at its own number, as preview1 replaces only an open descriptor |
+
+## `RT-310` A name stored under another spelling asks its Filesystem once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-169` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem storing `F`, and reaching it by any case |
+| When | a walk reaches `f` for the first time |
+| Then | the walk asks `lookup` once and holds the dentry of `F`, as Linux's `d_add_ci` records the entry found |
+
+## `RT-311` An open of a name no walk looked up asks `atomic_open`
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-244`, `RT-294` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem with `atomic_open`, holding a file no walk looked up |
+| When | a guest opens that file, asking to create nothing |
+| Then | the runtime asks `atomic_open` in place of `lookup`, and the open reaches the file, as Linux's `lookup_open` does |
+
+## `RT-312` A name `atomic_open` finds under another spelling opens as that spelling
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-311` |
+| relates | `RT-310` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose `atomic_open` finds the name stored as `F` |
+| When | a guest opens `f`, asking to create nothing |
+| Then | the open holds the dentry of `F`, as `finish_no_open` hands Linux's VFS what `d_add_ci` returned |
