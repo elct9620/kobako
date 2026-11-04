@@ -2728,7 +2728,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Filesystem handing the same inode for two names |
+| Given | a Filesystem handing the same file inode for two names |
 | When | a call opens each name |
 | Then | both dentries record that one inode |
 
@@ -3536,3 +3536,39 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem whose `atomic_open` opens a file no walk looked up |
 | When | a guest opens that file's name with a trailing slash, asking to create nothing |
 | Then | `atomic_open` is asked for a directory and the open answers ENOTDIR, as Linux's `lookup_open` adds `O_DIRECTORY` |
+
+## `RT-315` A directory found under a second name moves its one dentry there
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-246` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem handing the same directory inode for two names |
+| When | a walk reaches one name, then the other |
+| Then | the dentry the first walk held now stands at the second name, as Linux's `d_splice_alias` moves a directory's alias |
+
+## `RT-316` A directory found beneath itself answers ELOOP
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-315` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem handing a directory's own inode for a name inside it |
+| When | a walk reaches that name |
+| Then | the walk answers ELOOP, as `d_splice_alias` refuses an alias that is an ancestor |
+
+## `RT-317` A directory whose move another call holds up answers ESTALE
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-315` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem handing one directory inode for names in two directories, and a call holding the rename lock |
+| When | a walk reaches that name |
+| Then | the walk answers ESTALE without waiting, as `__d_unalias` only tries the locks |
