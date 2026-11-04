@@ -65,7 +65,7 @@ pub struct Dentry {
     ops: Option<Arc<dyn DentryOperations>>,
     /// Wakes the walks waiting while another looks this name up, as Linux's
     /// `d_wait` does.
-    lookup_done: Condvar,
+    wait: Condvar,
 }
 
 /// Which dentry a lookup's answer stands at, as Linux's `d_splice_alias`
@@ -135,7 +135,7 @@ impl Dentry {
             this: this.clone(),
             fsdata: OnceLock::new(),
             ops,
-            lookup_done: Condvar::new(),
+            wait: Condvar::new(),
         })
     }
 
@@ -293,9 +293,9 @@ impl Dentry {
         sb: &SuperBlock,
         dir: &Dentry,
     ) -> Result<Splice, FilesystemError> {
-        let asked = self.lookup_by(|| {
+        let asked = self.ask_in_lookup(|| {
             let found = dir.inode_ops()?.lookup(self)?;
-            self.d_splice_alias(sb, found)
+            self.splice_alias(sb, found)
         })?;
         Ok(asked.unwrap_or(Splice::Here))
     }
@@ -304,18 +304,18 @@ impl Dentry {
     /// one did. One walk asks while any other reaching the name waits for its
     /// answer, as `d_alloc_parallel` marks the dentry in lookup, `d_wait_lookup`
     /// waits on it, and `d_lookup_done` ends it.
-    pub(crate) fn lookup_by<T>(
+    pub(crate) fn ask_in_lookup<T>(
         &self,
         ask: impl FnOnce() -> Result<T, FilesystemError>,
     ) -> Result<Option<T>, FilesystemError> {
-        let ends = match self.d_wait_lookup()? {
+        let ends = match self.wait_lookup()? {
             InLookup::Answered => return Ok(None),
             InLookup::Begun => true,
             InLookup::Within => false,
         };
         let asked = ask();
         if ends {
-            self.d_lookup_done();
+            self.lookup_done();
         }
         asked.map(Some)
     }
@@ -327,7 +327,7 @@ impl Dentry {
     /// call holds answers ESTALE. An entry stored under another spelling is
     /// handed back with that spelling instead, for the caller to record there,
     /// as `d_add_ci` does.
-    pub(crate) fn d_splice_alias(
+    pub(crate) fn splice_alias(
         &self,
         sb: &SuperBlock,
         found: Lookup,
@@ -358,7 +358,7 @@ impl Dentry {
     /// run is to stop. A Filesystem
     /// asking the runtime about the name its own lookup is answering asks it again
     /// within that lookup, as it would otherwise wait on itself.
-    fn d_wait_lookup(&self) -> Result<InLookup, FilesystemError> {
+    fn wait_lookup(&self) -> Result<InLookup, FilesystemError> {
         let current = sched::current();
         loop {
             let mut state = self.state();
@@ -377,7 +377,7 @@ impl Dentry {
                         let state = self.state();
                         if matches!(state.asked, LookupState::By(_) | LookupState::Asking(_)) {
                             drop(
-                                self.lookup_done
+                                self.wait
                                     .wait_timeout(state, sched::sleep_slice())
                                     .unwrap_or_else(PoisonError::into_inner),
                             );
@@ -395,13 +395,13 @@ impl Dentry {
 
     /// End this walk's lookup, waking every walk waiting on it, as
     /// `d_lookup_done` does.
-    fn d_lookup_done(&self) {
+    fn lookup_done(&self) {
         let mut state = self.state();
         if matches!(state.asked, LookupState::By(_) | LookupState::Asking(_)) {
             state.asked = LookupState::Not;
         }
         drop(state);
-        self.lookup_done.notify_all();
+        self.wait.notify_all();
     }
 
     /// What kind of entry this records, `NotFound` where it records none, as

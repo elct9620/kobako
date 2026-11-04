@@ -232,7 +232,7 @@ fn d_add_ci(
         Splice::Alias(alias) => (name.to_string(), alias),
         Splice::Spelled(stored, inode) => {
             let dentry = d_alloc_parallel(sb, parent, &stored)?;
-            let spliced = dentry.lookup_by(|| dentry.d_splice_alias(sb, Lookup::Found(inode)))?;
+            let spliced = dentry.ask_in_lookup(|| dentry.splice_alias(sb, Lookup::Found(inode)))?;
             match spliced {
                 Some(Splice::Alias(alias)) => (stored, alias),
                 _ => (stored, dentry),
@@ -459,7 +459,7 @@ impl Nameidata {
             how.directory |= self.lookup_directory;
             atomic_open(mnt.sb(), &dir, &given, &how)
         };
-        let asked = match given.lookup_by(&mut ask) {
+        let asked = match given.ask_in_lookup(&mut ask) {
             Ok(Some(asked)) => Ok(asked),
             Ok(None) if given.inode().is_some() || !how.create => Ok(AtomicOpen {
                 file: None,
@@ -1175,7 +1175,7 @@ pub(crate) fn atomic_open(
         Finish::Open { file, created } => (Some(file), created, Splice::Here),
         Finish::Spelled { file, name, inode } => (Some(file), false, Splice::Spelled(name, inode)),
         Finish::NoOpen { created } => (None, created, Splice::Here),
-        Finish::Lookup(found) => (None, false, child.d_splice_alias(sb, found)?),
+        Finish::Lookup(found) => (None, false, child.splice_alias(sb, found)?),
     };
     Ok(AtomicOpen {
         file,
