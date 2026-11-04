@@ -38,10 +38,10 @@ pub fn do_utimes_path(
     follow: bool,
     times: &Iattr,
 ) -> Result<(), FilesystemError> {
-    retry_estale(|| {
-        let nd = filename_lookup(cred, start, path, follow)?;
-        vfs_utimes(cred, &nd.path_to(nd.path()?), times)
-    })
+    retry_estale(
+        || filename_lookup(cred, start, path, follow),
+        |nd| vfs_utimes(cred, &nd.path_to(nd.path()?), times),
+    )
 }
 
 #[cfg(test)]

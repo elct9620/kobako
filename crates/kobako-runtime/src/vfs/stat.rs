@@ -121,7 +121,10 @@ pub fn vfs_fstatat(
     path: &str,
     follow: bool,
 ) -> Result<Kstat, FilesystemError> {
-    retry_estale(|| filename_lookup(cred, start, path, follow)?.getattr())
+    retry_estale(
+        || filename_lookup(cred, start, path, follow),
+        |nd| nd.getattr(),
+    )
 }
 
 /// Where the link at `path` beneath `start` points, as Linux's `do_readlinkat`
@@ -134,17 +137,17 @@ pub fn do_readlinkat(
     start: &impl Start,
     path: &str,
 ) -> Result<String, FilesystemError> {
-    retry_estale(|| {
-        let (target, refusal) = match path.is_empty() {
-            true => (
-                start.path_init()?.dentry().clone(),
-                FilesystemError::NotFound,
-            ),
-            false => (
-                filename_lookup(cred, start, path, false)?.path()?,
-                FilesystemError::InvalidInput,
-            ),
-        };
+    let walk = || match path.is_empty() {
+        true => Ok((
+            start.path_init()?.dentry().clone(),
+            FilesystemError::NotFound,
+        )),
+        false => Ok((
+            filename_lookup(cred, start, path, false)?.path()?,
+            FilesystemError::InvalidInput,
+        )),
+    };
+    retry_estale(walk, |(target, refusal)| {
         if target.kind()? != FileType::Symlink {
             return Err(refusal);
         }
