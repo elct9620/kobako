@@ -78,7 +78,7 @@ impl<'a> DirContext<'a> {
         Self {
             pos,
             actor,
-            cred: Arc::default(),
+            cred: Cred::new(Vec::new()),
         }
     }
 

@@ -556,18 +556,25 @@ mod tests {
         vfs::build_open_flags(how).expect("the flags must mean an open")
     }
 
-    /// A table holding only the three standard streams.
-    fn standard_streams() -> Descriptors {
+    /// A table holding the three standard streams and `mounts`, at most `limit`
+    /// descriptors open, as a Driver makes one.
+    fn table_of(mounts: Vec<Mount>, limit: Option<usize>) -> Result<Descriptors, FilesystemError> {
+        let cred = prepare_creds_within(&[], None);
+        let ends = |pipe| create_pipe_files(&pipe, &cred);
         Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            Vec::new(),
-            None,
-            prepare_creds_within(&[], None),
+            ends(PipeInodeInfo::from_bytes(Vec::new())).0,
+            ends(PipeInodeInfo::new(1)).1,
+            ends(PipeInodeInfo::new(1)).1,
+            mounts,
+            limit,
+            cred.clone(),
             Profile::Hermetic,
         )
-        .expect("a table holding no Mount must make")
+    }
+
+    /// A table holding only the three standard streams.
+    fn standard_streams() -> Descriptors {
+        table_of(Vec::new(), None).expect("a table holding no Mount must make")
     }
 
     /// The code a call answered, if it answered one.
@@ -669,8 +676,13 @@ mod tests {
         .expect("/data is a guest path");
         let start = Path::root(mount.mnt());
         Descriptor::for_file(
-            vfs::do_file_open(&Arc::default(), &start, "file", &flags_of(how))
-                .unwrap_or_else(|_| panic!("the file must open")),
+            vfs::do_file_open(
+                &prepare_creds_within(&[], None),
+                &start,
+                "file",
+                &flags_of(how),
+            )
+            .unwrap_or_else(|_| panic!("the file must open")),
         )
     }
 
@@ -750,12 +762,10 @@ mod tests {
     #[test]
     fn a_descriptor_reports_the_kind_its_file_is() {
         let mut table = standard_streams();
-        let mut how = OpenHow::default();
-        how.read = true;
         let fd = table
             .push(open_held(
                 Holds(FileType::Chrdev, || Box::new(RefusesClose)),
-                &how,
+                &OpenHow::default(),
             ))
             .expect("a descriptor to ask about");
         assert_eq!(
@@ -763,8 +773,8 @@ mod tests {
                 .unwrap_or_else(|_| panic!("the device must report"))
                 .fs_filetype,
             types::Filetype::CharacterDevice,
-            "fd_fdstat_get on a character device a Filesystem opens like any file must report \
-             a character device, as fd_filestat_get does"
+            "fd_fdstat_get on a character device opened for its path alone must report a \
+             character device, as fd_filestat_get does"
         );
     }
 
@@ -779,16 +789,8 @@ mod tests {
             Access::Read,
         )
         .expect("/data is a guest path");
-        let mut table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            vec![mount],
-            None,
-            prepare_creds_within(&[], None),
-            Profile::Hermetic,
-        )
-        .unwrap_or_else(|_| panic!("the table must make"));
+        let mut table =
+            table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
         assert_eq!(
             (
                 errno(tell(&mut table, 3)),
@@ -811,16 +813,8 @@ mod tests {
         )
         .expect("/data is a guest path");
         let root = Path::root(mount.mnt());
-        let mut table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            vec![mount],
-            None,
-            prepare_creds_within(&[], None),
-            Profile::Hermetic,
-        )
-        .unwrap_or_else(|_| panic!("the table must make"));
+        let mut table =
+            table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
         let cred = table.cred().clone();
         let mut reported = |dsync, sync| {
             let mut how = OpenHow::default();
@@ -875,16 +869,8 @@ mod tests {
         .expect("/data is a guest path")
         .with_policy(policy.clone());
         let root = Path::root(mount.mnt());
-        let mut table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            vec![mount],
-            None,
-            prepare_creds_within(&[], None),
-            Profile::Hermetic,
-        )
-        .unwrap_or_else(|_| panic!("the table must make"));
+        let mut table =
+            table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
         let cred = table.cred().clone();
         let mut read = OpenHow::default();
         read.read = true;
@@ -915,16 +901,7 @@ mod tests {
             Access::Read,
         )
         .expect("/data is a guest path");
-        let table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            vec![mount],
-            None,
-            prepare_creds_within(&[], None),
-            Profile::Hermetic,
-        )
-        .unwrap_or_else(|_| panic!("the table must make"));
+        let table = table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
         assert_eq!(
             (
                 errno(set_times(&table, 3, Fstflags::MTIM)),
@@ -1167,16 +1144,7 @@ mod tests {
     // @behavior RT-259
     #[test]
     fn a_full_table_answers_after_the_flags_and_before_the_start() {
-        let mut table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            Vec::new(),
-            Some(3),
-            prepare_creds_within(&[], None),
-            Profile::Hermetic,
-        )
-        .expect("a table holding no Mount must make");
+        let mut table = table_of(Vec::new(), Some(3)).expect("a table holding no Mount must make");
         let mut bytes = *b"a";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 1);
@@ -1284,16 +1252,8 @@ mod tests {
             Access::Read,
         )
         .expect("/data is a guest path");
-        let mut table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            vec![mount],
-            None,
-            prepare_creds_within(&[], None),
-            Profile::Hermetic,
-        )
-        .unwrap_or_else(|_| panic!("the table must make"));
+        let mut table =
+            table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
         let header = types::Dirent::guest_size();
         let dots = 2 * header + 3;
         let mut bytes = vec![0u8; 256];
@@ -1335,16 +1295,8 @@ mod tests {
                 Access::Read,
             )
             .expect("/data is a guest path");
-            let mut table = Descriptors::new(
-                create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
-                create_pipe_files(&PipeInodeInfo::new(1)).1,
-                create_pipe_files(&PipeInodeInfo::new(1)).1,
-                vec![mount],
-                None,
-                prepare_creds_within(&[], None),
-                Profile::Hermetic,
-            )
-            .unwrap_or_else(|_| panic!("the table must make"));
+            let mut table =
+                table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
             let mut bytes = vec![0u8; 256];
             let (first, next) = {
                 let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
@@ -1407,16 +1359,7 @@ mod tests {
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        let table = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(Vec::new())).0,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            create_pipe_files(&PipeInodeInfo::new(1)).1,
-            vec![mount],
-            None,
-            prepare_creds_within(&[], None),
-            Profile::Hermetic,
-        )
-        .unwrap_or_else(|_| panic!("the table must make"));
+        let table = table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
         let mut bytes = *b"/trelative";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 64);

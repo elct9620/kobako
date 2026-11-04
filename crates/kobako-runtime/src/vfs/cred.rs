@@ -137,15 +137,25 @@ impl VmCommitted {
 /// Who a call is made for, holding the security modules registered for it, as
 /// `cred->security` holds a Landlock domain, and the memory held on its behalf,
 /// which every Cred restricted from it shares, as a task's memory cgroup does.
-#[derive(Default)]
 pub struct Cred {
     security: Vec<Arc<dyn SecurityOperations>>,
     committed: Option<Arc<VmCommitted>>,
 }
 
+/// One no module is registered for, which this crate's tests make calls as.
+#[cfg(test)]
+impl Default for Cred {
+    fn default() -> Self {
+        Self {
+            security: Vec::new(),
+            committed: None,
+        }
+    }
+}
+
 impl Cred {
     /// One with `security` registered.
-    pub fn new(security: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
+    pub(crate) fn new(security: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
         Self::within(security, None)
     }
 

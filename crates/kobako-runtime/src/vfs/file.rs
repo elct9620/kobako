@@ -1817,7 +1817,7 @@ mod tests {
     fn an_allocation_refuses_in_linuxs_order() {
         struct NoOperations;
         impl FileOperations for NoOperations {}
-        let (_, mut pipe) = create_pipe_files(&PipeInodeInfo::new(1));
+        let (_, mut pipe) = create_pipe_files(&PipeInodeInfo::new(1), &Arc::default());
         let how = OpenHow {
             write: true,
             ..OpenHow::default()

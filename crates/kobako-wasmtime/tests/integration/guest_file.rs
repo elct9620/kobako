@@ -13,6 +13,7 @@ use kobako_runtime::filesystem::{
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
+use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::Inode;
 use kobako_runtime::vfs::{self, Dentry, Path};
 use kobako_runtime::{Completion, Entry, Runtime};
@@ -70,7 +71,12 @@ fn contents<F: FileSystemType>(filesystem: &Arc<F>, path: &str) -> Vec<u8> {
     let mut how = OpenHow::default();
     how.read = true;
     let op = vfs::build_open_flags(&how).expect("a read means an open");
-    let Ok(mut file) = vfs::do_file_open(&Arc::default(), &host(filesystem), path, &op) else {
+    let Ok(mut file) = vfs::do_file_open(
+        &prepare_creds_within(&[], None),
+        &host(filesystem),
+        path,
+        &op,
+    ) else {
         panic!("the file must exist");
     };
     let mut buf = vec![0; 64];
@@ -417,7 +423,13 @@ fn an_exclusive_open_without_create_makes_no_file() {
     assert_eq!(
         (
             answer,
-            vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "lock", false).is_err()
+            vfs::vfs_fstatat(
+                &prepare_creds_within(&[], None),
+                &host(&tmpfs),
+                "lock",
+                false
+            )
+            .is_err()
         ),
         (Err("Errno::ENOENT".to_string()), true),
         "File.open with RDONLY | EXCL of a path nothing is at through the bundled guest must \

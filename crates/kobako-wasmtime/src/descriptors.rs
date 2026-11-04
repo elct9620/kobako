@@ -161,7 +161,7 @@ mod tests {
     use kobako_runtime::security::prepare_creds_within;
 
     fn pipe_end() -> File {
-        create_pipe_files(&PipeInodeInfo::new(1)).1
+        create_pipe_files(&PipeInodeInfo::new(1), &prepare_creds_within(&[], None)).1
     }
 
     // @behavior RT-189

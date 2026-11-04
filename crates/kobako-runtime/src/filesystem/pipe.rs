@@ -6,7 +6,7 @@
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::vfs::{
-    alloc_file_pseudo, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
+    alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
     FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
 };
 
@@ -121,9 +121,10 @@ impl FileOperations for AnonPipe {
     }
 }
 
-/// The read and the write end of `pipe`, as Linux's `create_pipe_files` opens
-/// both on one inode. Neither takes a position.
-pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
+/// The read and the write end of `pipe`, opened as `cred`, as Linux's
+/// `create_pipe_files` opens both on one inode as the calling task. Neither
+/// takes a position.
+pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>, cred: &Arc<Cred>) -> (File, File) {
     let inode = Inode::new(&Kstat::new(FileType::Fifo, 0), Arc::new(PipeFs));
     let write = alloc_file_pseudo(
         inode,
@@ -133,7 +134,7 @@ pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
             ..OpenHow::default()
         },
         Box::new(AnonPipe(pipe.clone())),
-        &Arc::default(),
+        cred,
     );
     let read = write.alloc_file_clone(
         &OpenHow {
@@ -151,7 +152,8 @@ mod tests {
 
     #[test]
     fn a_reader_reads_in_order_then_nothing() {
-        let (mut reader, _) = create_pipe_files(&PipeInodeInfo::from_bytes(b"abc".to_vec()));
+        let (mut reader, _) =
+            create_pipe_files(&PipeInodeInfo::from_bytes(b"abc".to_vec()), &Arc::default());
         let mut buf = [0; 2];
         assert_eq!(
             (
@@ -169,7 +171,8 @@ mod tests {
     // @behavior RT-217
     #[test]
     fn a_read_into_no_room_reads_nothing() {
-        let (mut holding, _) = create_pipe_files(&PipeInodeInfo::from_bytes(b"a".to_vec()));
+        let (mut holding, _) =
+            create_pipe_files(&PipeInodeInfo::from_bytes(b"a".to_vec()), &Arc::default());
         let mut byte = [0];
         assert_eq!(
             (holding.read(&mut []), holding.read(&mut byte), byte),
@@ -181,7 +184,7 @@ mod tests {
     #[test]
     fn a_writer_keeps_what_fits_and_fails_past_its_capacity() {
         let pipe = PipeInodeInfo::new(3);
-        let (_, mut writer) = create_pipe_files(&pipe);
+        let (_, mut writer) = create_pipe_files(&pipe, &Arc::default());
         assert_eq!(
             (
                 writer.write(b"ab").ok(),
@@ -196,7 +199,7 @@ mod tests {
 
     #[test]
     fn a_pipe_takes_no_position() {
-        let (reader, writer) = create_pipe_files(&PipeInodeInfo::new(1));
+        let (reader, writer) = create_pipe_files(&PipeInodeInfo::new(1), &Arc::default());
         for end in [reader, writer] {
             assert!(
                 end.is_stream() && !end.mode().contains(FMode::LSEEK),
@@ -208,7 +211,7 @@ mod tests {
     // @behavior RT-198
     #[test]
     fn a_pipe_reports_a_fifo() {
-        let (reader, _writer) = create_pipe_files(&PipeInodeInfo::new(1));
+        let (reader, _writer) = create_pipe_files(&PipeInodeInfo::new(1), &Arc::default());
         assert_eq!(
             reader.getattr().map(|metadata| metadata.file_type).ok(),
             Some(FileType::Fifo),

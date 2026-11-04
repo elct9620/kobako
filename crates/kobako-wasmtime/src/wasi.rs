@@ -112,9 +112,9 @@ impl Wasi {
         // call that reads a descriptor (`crate::preview1`); the builder
         // keeps only what the remaining imports read.
         let descriptors = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(stdin_content)).0,
-            create_pipe_files(&stdout).1,
-            create_pipe_files(&stderr).1,
+            create_pipe_files(&PipeInodeInfo::from_bytes(stdin_content), &opener).0,
+            create_pipe_files(&stdout, &opener).1,
+            create_pipe_files(&stderr, &opener).1,
             mounts,
             open_file_limit,
             opener,

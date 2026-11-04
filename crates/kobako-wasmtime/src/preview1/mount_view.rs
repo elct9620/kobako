@@ -17,6 +17,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::profile::Profile;
+use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{self, Dentry, Inode, Path, SecurityOperations, SecurityPath, PATH_MAX};
 use wasmtime::{Instance, Module, Store};
 
@@ -48,7 +49,7 @@ fn host_entries<F: FileSystemType>(filesystem: &Arc<F>) -> Result<Vec<String>, F
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
-    let mut root = vfs::File::root(mount.mnt(), &Arc::default())?;
+    let mut root = vfs::File::root(mount.mnt(), &prepare_creds_within(&[], None))?;
     let mut names = Vec::new();
     root.llseek(2, vfs::Whence::Set)?;
     root.iterate_dir(&mut vfs::DirContext::new(0, &mut |emit| {
@@ -709,7 +710,12 @@ fn flags_of(how: &OpenHow) -> vfs::OpenFlags {
 fn contents(root: &Path, path: &str) -> Option<Vec<u8>> {
     let mut how = OpenHow::default();
     how.read = true;
-    let Ok(mut file) = vfs::do_file_open(&Arc::default(), root, path, &flags_of(&how)) else {
+    let Ok(mut file) = vfs::do_file_open(
+        &prepare_creds_within(&[], None),
+        root,
+        path,
+        &flags_of(&how),
+    ) else {
         return None;
     };
     let mut buf = vec![0; 64];
@@ -723,7 +729,13 @@ fn overwrite(root: &Path, path: &str) {
     let mut how = OpenHow::default();
     (how.write, how.create) = (true, true);
     assert!(
-        vfs::do_file_open(&Arc::default(), root, path, &flags_of(&how)).is_ok(),
+        vfs::do_file_open(
+            &prepare_creds_within(&[], None),
+            root,
+            path,
+            &flags_of(&how)
+        )
+        .is_ok(),
         "the file must be made"
     );
 }
@@ -1175,8 +1187,8 @@ fn stat_after(policy: Option<Arc<dyn Policy>>, change: impl FnOnce(&Path)) -> i3
 /// an `inner` of its own, so only where the descriptor reaches decides
 /// whether the lookup finds one.
 fn move_and_replace(root: &Path) {
-    vfs::filename_renameat2(&Arc::default(), root, "dir", root, "moved").unwrap();
-    vfs::filename_mkdirat(&Arc::default(), root, "dir").unwrap();
+    vfs::filename_renameat2(&prepare_creds_within(&[], None), root, "dir", root, "moved").unwrap();
+    vfs::filename_mkdirat(&prepare_creds_within(&[], None), root, "dir").unwrap();
     overwrite(root, "dir/inner");
 }
 
@@ -1186,9 +1198,9 @@ fn move_and_replace(root: &Path) {
 #[test]
 fn a_directory_made_in_a_removed_directorys_place_is_not_reached_through_it() {
     let answer = stat_after(None, |root| {
-        vfs::filename_unlinkat(&Arc::default(), root, "dir/inner").unwrap();
-        vfs::filename_rmdir(&Arc::default(), root, "dir").unwrap();
-        vfs::filename_mkdirat(&Arc::default(), root, "dir").unwrap();
+        vfs::filename_unlinkat(&prepare_creds_within(&[], None), root, "dir/inner").unwrap();
+        vfs::filename_rmdir(&prepare_creds_within(&[], None), root, "dir").unwrap();
+        vfs::filename_mkdirat(&prepare_creds_within(&[], None), root, "dir").unwrap();
         overwrite(root, "dir/inner");
     });
     assert_eq!(
@@ -1298,9 +1310,15 @@ fn a_directory_moved_beneath_another_mount_of_its_instance_is_reached_beneath_a_
         let mut guest = Guest::new(&[Grant::Mount(mount.clone().with_policy(policy))]);
         assert_eq!(guest.call_bare("open_dir"), 0, "dir must open");
         let other = Path::root(mount.mnt());
-        vfs::filename_renameat2(&Arc::default(), &other, "dir", &other, "moved")
-            .expect("the directory must move");
-        vfs::filename_mkdirat(&Arc::default(), &other, "dir")
+        vfs::filename_renameat2(
+            &prepare_creds_within(&[], None),
+            &other,
+            "dir",
+            &other,
+            "moved",
+        )
+        .expect("the directory must move");
+        vfs::filename_mkdirat(&prepare_creds_within(&[], None), &other, "dir")
             .expect("another directory must be made");
         guest.call_bare("open_inner")
     };
@@ -1414,9 +1432,9 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
         "dir must open as a directory"
     );
     let outside = host(&reuses);
-    vfs::filename_unlinkat(&Arc::default(), &outside, "dir/inner").unwrap();
-    vfs::filename_rmdir(&Arc::default(), &outside, "dir").unwrap();
-    vfs::filename_mkdirat(&Arc::default(), &outside, "dir").unwrap();
+    vfs::filename_unlinkat(&prepare_creds_within(&[], None), &outside, "dir/inner").unwrap();
+    vfs::filename_rmdir(&prepare_creds_within(&[], None), &outside, "dir").unwrap();
+    vfs::filename_mkdirat(&prepare_creds_within(&[], None), &outside, "dir").unwrap();
     overwrite(&host(&tmpfs), "dir/inner");
     assert_eq!(
         guest.call_bare("stat_inner"),
@@ -1555,8 +1573,10 @@ fn a_directory_two_layers_hold_is_reached_through_its_descriptor() {
 #[test]
 fn a_directory_moved_back_to_its_path_is_reached_through_its_descriptor_again() {
     let answer = stat_after(None, |root| {
-        vfs::filename_renameat2(&Arc::default(), root, "dir", root, "moved").unwrap();
-        vfs::filename_renameat2(&Arc::default(), root, "moved", root, "dir").unwrap();
+        vfs::filename_renameat2(&prepare_creds_within(&[], None), root, "dir", root, "moved")
+            .unwrap();
+        vfs::filename_renameat2(&prepare_creds_within(&[], None), root, "moved", root, "dir")
+            .unwrap();
     });
     assert_eq!(
         answer, 0,
@@ -1678,8 +1698,13 @@ fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
     assert_eq!(
         (
             guest.call_pair("rename_paths", DIR, MOVED),
-            vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "dir/secret", false)
-                .map(|m| m.file_type)
+            vfs::vfs_fstatat(
+                &prepare_creds_within(&[], None),
+                &host(&tmpfs),
+                "dir/secret",
+                false
+            )
+            .map(|m| m.file_type)
         ),
         (ERRNO_XDEV, Ok(FileType::RegFile)),
         "path_rename of a directory beneath a Mount with a Policy through preview1 must \
@@ -2074,7 +2099,7 @@ fn a_name_no_filesystem_makes_is_answered_by_what_stands() {
     )
     .expect("/data is a guest path");
     let root = vfs::Path::root(mount.mnt());
-    let cred = Arc::default();
+    let cred = prepare_creds_within(&[], None);
     let link = |old, new| vfs::filename_linkat(&cred, &root, old, &root, new, false);
     let symlink = |new| vfs::filename_symlinkat(&cred, "target", &root, new);
     let refused = Err;
@@ -2115,8 +2140,13 @@ fn an_allocation_grows_a_file_to_where_its_room_ends_and_shortens_none() {
         let tmpfs = tmpfs_with("file.txt", seed);
         let answer = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, None)])
             .call("allocate_file", FILE);
-        let len = vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "file.txt", false)
-            .map(|stat| stat.size);
+        let len = vfs::vfs_fstatat(
+            &prepare_creds_within(&[], None),
+            &host(&tmpfs),
+            "file.txt",
+            false,
+        )
+        .map(|stat| stat.size);
         let held = contents(&host(&tmpfs), "file.txt").map(|head| head[7]);
         (answer, len.ok().map(|len| len as usize), held)
     };
@@ -2388,7 +2418,13 @@ fn a_security_module_the_driver_was_built_with_judges_the_guest() {
     assert_eq!(
         (
             guest.call("make_dir", NEW_AS_DIRECTORY),
-            vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "new.txt", false).is_err()
+            vfs::vfs_fstatat(
+                &prepare_creds_within(&[], None),
+                &host(&tmpfs),
+                "new.txt",
+                false
+            )
+            .is_err()
         ),
         (ERRNO_ACCES, true),
         "path_create_directory beneath a Mount through preview1, the Driver built with a \
@@ -2411,7 +2447,13 @@ fn a_path_ending_in_a_dot_makes_nothing_where_no_directory_stands() {
     assert_eq!(
         (
             answers,
-            vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "missing", false).is_err()
+            vfs::vfs_fstatat(
+                &prepare_creds_within(&[], None),
+                &host(&tmpfs),
+                "missing",
+                false
+            )
+            .is_err()
         ),
         ([ERRNO_NOENT, ERRNO_NOENT], true),
         "path_create_directory and path_open with O_CREAT of missing/. beneath a Mount through \
@@ -2437,7 +2479,13 @@ fn a_path_ending_in_a_dot_is_neither_removed_nor_moved() {
     assert_eq!(
         (
             answers,
-            vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "dir/inner", false).is_ok()
+            vfs::vfs_fstatat(
+                &prepare_creds_within(&[], None),
+                &host(&tmpfs),
+                "dir/inner",
+                false
+            )
+            .is_ok()
         ),
         (
             [
@@ -2606,7 +2654,7 @@ fn an_exclusive_create_follows_no_link_at_the_end() {
     how.exclusive = true;
     how.follow = true;
     let answer = vfs::do_file_open(
-        &Arc::default(),
+        &prepare_creds_within(&[], None),
         &bind_root(&host.0),
         "gone",
         &flags_of(&how),
@@ -2627,7 +2675,12 @@ fn an_exclusive_create_follows_no_link_at_the_end() {
 fn a_trailing_slash_on_a_link_to_a_directory_reads_no_link() {
     let host = LinkedHost::new("readlink-slash");
     assert_eq!(
-        vfs::do_readlinkat(&Arc::default(), &bind_root(&host.0), "dir/").err(),
+        vfs::do_readlinkat(
+            &prepare_creds_within(&[], None),
+            &bind_root(&host.0),
+            "dir/"
+        )
+        .err(),
         Some(FilesystemError::InvalidInput),
         "vfs::do_readlinkat of dir/, dir a host link to a directory beneath a Bind Mount, must \
          answer EINVAL, as Linux's does"

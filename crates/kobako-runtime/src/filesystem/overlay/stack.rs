@@ -25,7 +25,7 @@ use super::inode::OverlayDirInode;
 use super::path::OverlayPath;
 
 use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb};
-use crate::vfs::{Dentry, Identity};
+use crate::vfs::{Cred, Dentry, Identity};
 
 /// The directories of the upper Tmpfs holding the view's changes and the
 /// changes being built, as overlayfs's `upperdir` and `workdir`.
@@ -230,7 +230,7 @@ impl OverlayFs {
     ) -> Result<Self, FilesystemError> {
         let mut roots = vec![None];
         let mut work = None;
-        let creator_cred = Arc::default();
+        let creator_cred = Cred::new(Vec::new());
         if let Some(upper) = upper {
             let root = OverlayPath::root(&upper, &creator_cred);
             roots[UPPER] = Some(ovl_workdir_create(&root, UPPERDIR)?);
