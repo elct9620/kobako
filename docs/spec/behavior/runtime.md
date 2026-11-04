@@ -3656,3 +3656,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem opening in one step |
 | When | an open asks to make a name exclusively and to truncate it |
 | Then | its `atomic_open` is asked for no truncation, as Linux's `lookup_open` clears `O_TRUNC` for `O_EXCL` |
+
+## `RT-325` A name found under another spelling takes that spelling's dentry as it stands
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-310` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem storing `f` as `F`, and a walk that already holds the dentry of `F` |
+| When | a walk reaches `f` |
+| Then | it holds the dentry of `F` without asking `revalidate` about it, as Linux's `d_add_ci` finds it through `d_hash_and_lookup` |
