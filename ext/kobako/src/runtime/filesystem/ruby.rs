@@ -419,15 +419,19 @@ impl InodeOperations for RubyFilesystem {
         Ok(Box::new(RubyDir(*self, Rdir::default())))
     }
 
-    /// A name still in lookup is asked of the object's `stat` first, and left
-    /// to the runtime unless the open may make it and nothing stands there, as
-    /// FUSE's `fuse_atomic_open` looks the name up before it creates.
+    /// A name still in lookup is asked of the object's `stat` first, and any
+    /// name is left to the runtime unless the open may make it and nothing
+    /// stands there, as FUSE's `fuse_atomic_open` looks the name up before it
+    /// creates.
     fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
         if dentry.in_lookup() {
             let found = self.lookup(dentry)?;
             if !how.create || !matches!(found, Lookup::Absent) {
                 return Ok(Finish::Lookup(found));
             }
+        }
+        if !how.create {
+            return Ok(Finish::NoOpen { created: false });
         }
         let file = self.open_at(dentry, how, true)?;
         Ok(Finish::Open {
