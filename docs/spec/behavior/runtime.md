@@ -3524,3 +3524,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a read-only Mount, and a name a walk already found missing |
 | When | a guest opens that name, asking to create it |
 | Then | the open answers EROFS and the Filesystem makes nothing, as `create_error` clears `O_CREAT` |
+
+## `RT-314` A name with a trailing slash asks `atomic_open` for a directory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-311` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose `atomic_open` opens a file no walk looked up |
+| When | a guest opens that file's name with a trailing slash, asking to create nothing |
+| Then | `atomic_open` is asked for a directory and the open answers ENOTDIR, as Linux's `lookup_open` adds `O_DIRECTORY` |
