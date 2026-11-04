@@ -759,7 +759,11 @@ impl StoresUpperCase {
 
 impl FileSystemType for StoresUpperCase {
     fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-        vfs::simple_fill_super(sb, self)
+        sb.d_make_root(vfs::Inode::new(
+            &vfs::Kstat::new(vfs::FileType::Dir, 0),
+            self,
+        ));
+        Ok(())
     }
 }
 
@@ -1030,7 +1034,11 @@ impl InodeOperations for FailsPastTheDots {
 
 impl FileSystemType for FailsPastTheDots {
     fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-        vfs::simple_fill_super(sb, self)
+        sb.d_make_root(vfs::Inode::new(
+            &vfs::Kstat::new(vfs::FileType::Dir, 0),
+            self,
+        ));
+        Ok(())
     }
 }
 
@@ -1348,7 +1356,11 @@ impl Hook for ReusesInodes {
     ) -> Result<(), FilesystemError> {
         let beneath = Filesystem::new(fs)?;
         let root = beneath.root().ok_or(FilesystemError::NotFound)?;
-        kobako_runtime::filesystem::simple_fill_super(sb, root.ops().clone())
+        sb.d_make_root(vfs::Inode::new(
+            &vfs::Kstat::new(vfs::FileType::Dir, 0),
+            root.ops().clone(),
+        ));
+        Ok(())
     }
 
     /// The call removing it holds what it looked up, so `dir` is open
@@ -2884,7 +2896,11 @@ struct ChangesNothing(Arc<dyn InodeOperations>);
 
 impl FileSystemType for ChangesNothing {
     fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-        kobako_runtime::filesystem::simple_fill_super(sb, self)
+        sb.d_make_root(vfs::Inode::new(
+            &vfs::Kstat::new(vfs::FileType::Dir, 0),
+            self,
+        ));
+        Ok(())
     }
 }
 

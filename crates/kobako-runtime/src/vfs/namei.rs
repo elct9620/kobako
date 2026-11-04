@@ -1440,7 +1440,11 @@ mod tests {
 
     impl FileSystemType for LinksFile {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -1514,7 +1518,11 @@ mod tests {
     impl FileSystemType for AskedOfAbsent {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
             sb.set_default_d_op(self.clone());
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -1819,7 +1827,7 @@ mod tests {
             ),
             (vfs::Identity::of(&reported), None),
             "Filesystem::new must stand on the root fill_super made, with no identity for one \
-             made through simple_fill_super, as fill_super makes s_root"
+             d_make_root was handed an inode naming none, as fill_super makes s_root"
         );
     }
 
@@ -1829,7 +1837,11 @@ mod tests {
 
     impl FileSystemType for SharesInode {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -1882,7 +1894,11 @@ mod tests {
 
     impl FileSystemType for SharesDirectory {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -1982,7 +1998,11 @@ mod tests {
 
     impl FileSystemType for HoldsSharedLookup {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -2274,7 +2294,11 @@ mod tests {
 
     impl FileSystemType for CreatesOnly {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -2413,7 +2437,11 @@ mod tests {
 
     impl FileSystemType for OpensWithinItsDirectory {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -2472,7 +2500,11 @@ mod tests {
 
     impl FileSystemType for FindsAFileStanding {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -2531,7 +2563,11 @@ mod tests {
 
     impl FileSystemType for OpensAtOnce {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -2568,7 +2604,11 @@ mod tests {
 
     impl FileSystemType for RecordsTruncate {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -2705,7 +2745,11 @@ mod tests {
 
     impl FileSystemType for OpensSpelled {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -2969,7 +3013,11 @@ mod tests {
     impl FileSystemType for ReadOnlyRefusingWrites {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
             sb.set_rdonly();
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -3286,7 +3334,11 @@ mod tests {
     impl FileSystemType for HookedTmpfs {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
             sb.set_default_d_op(Arc::new(HookedDentry(self.stale.clone())));
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -3378,7 +3430,11 @@ mod tests {
 
     impl FileSystemType for FoldsToUpper {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -3459,7 +3515,11 @@ mod tests {
 
     impl FileSystemType for OpensItsLinks {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -3589,7 +3649,11 @@ mod tests {
 
     impl FileSystemType for OneEntry {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -4309,7 +4373,11 @@ mod tests {
     impl FileSystemType for CountsLookups {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
             sb.set_default_d_op(self.clone());
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -4352,7 +4420,11 @@ mod tests {
 
     impl FileSystemType for RecordsCalls {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -4488,7 +4560,11 @@ mod tests {
 
     impl FileSystemType for KeepsChanges {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -4571,7 +4647,11 @@ mod tests {
 
     impl FileSystemType for Holds {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -4810,7 +4890,11 @@ mod tests {
 
     impl FileSystemType for HoldsLookup {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -4844,7 +4928,11 @@ mod tests {
 
     impl FileSystemType for AsksItsOwnName {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -4945,7 +5033,11 @@ mod tests {
 
     impl FileSystemType for RecordsAsker {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -5012,7 +5104,11 @@ mod tests {
 
     impl FileSystemType for PointsNowhere {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -5046,7 +5142,11 @@ mod tests {
 
     impl FileSystemType for StaleBehindLinks {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            vfs::simple_fill_super(sb, self)
+            sb.d_make_root(vfs::Inode::new(
+                &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -5325,7 +5425,11 @@ mod tests {
 
         impl FileSystemType for AnswersAtOnce {
             fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-                vfs::simple_fill_super(sb, self)
+                sb.d_make_root(vfs::Inode::new(
+                    &Kstat::new(crate::filesystem::FileType::Dir, 0),
+                    self,
+                ));
+                Ok(())
             }
         }
 

@@ -623,7 +623,11 @@ mod tests {
 
     impl kobako_runtime::filesystem::FileSystemType for Holds {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            kobako_runtime::filesystem::simple_fill_super(sb, self)
+            sb.d_make_root(kobako_runtime::vfs::Inode::new(
+                &kobako_runtime::Kstat::new(kobako_runtime::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -1211,7 +1215,11 @@ mod tests {
 
     impl kobako_runtime::filesystem::FileSystemType for ListsNames {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            kobako_runtime::filesystem::simple_fill_super(sb, self)
+            sb.d_make_root(kobako_runtime::vfs::Inode::new(
+                &kobako_runtime::Kstat::new(kobako_runtime::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 
@@ -1365,7 +1373,11 @@ mod tests {
 
     impl kobako_runtime::filesystem::FileSystemType for MakesLinks {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            kobako_runtime::filesystem::simple_fill_super(sb, self)
+            sb.d_make_root(kobako_runtime::vfs::Inode::new(
+                &kobako_runtime::Kstat::new(kobako_runtime::FileType::Dir, 0),
+                self,
+            ));
+            Ok(())
         }
     }
 

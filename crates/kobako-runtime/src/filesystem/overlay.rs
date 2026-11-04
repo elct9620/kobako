@@ -892,7 +892,8 @@ mod tests {
 
     impl FileSystemType for KeepsTimes {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 
@@ -2390,7 +2391,8 @@ mod tests {
 
     impl FileSystemType for FoldsCase {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 
@@ -2851,7 +2853,8 @@ mod tests {
 
     impl FileSystemType for HoldsFifo {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 

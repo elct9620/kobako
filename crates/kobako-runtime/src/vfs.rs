@@ -51,7 +51,7 @@ pub use readdir::{
     dir_emit_dots, generic_read_dir, verify_dirent_name, DirContext, DirEmit, DirEntry,
 };
 pub use stat::{do_readlinkat, vfs_fstatat, FileType, Kstat};
-pub use super_block::{simple_fill_super, FileSystemType, SuperBlock};
+pub use super_block::{FileSystemType, SuperBlock};
 pub use utimes::{do_utimes_fd, do_utimes_path};
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name

@@ -8,11 +8,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    simple_fill_super, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
-    Finish, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, Tmpfs,
+    FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, Finish, InodeOperations,
+    Kiocb, Kstat, Lookup, OpenHow, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
+use kobako_runtime::vfs::Inode;
 use kobako_runtime::vfs::{self, Dentry, Path};
 use kobako_runtime::{Completion, Entry, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
@@ -593,7 +594,8 @@ where
     F: FileOperations + 'static,
 {
     fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-        simple_fill_super(sb, self)
+        sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+        Ok(())
     }
 }
 
@@ -939,7 +941,8 @@ struct ReportsLen(Arc<dyn InodeOperations>, u64);
 
 impl FileSystemType for ReportsLen {
     fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-        simple_fill_super(sb, self)
+        sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+        Ok(())
     }
 }
 

@@ -903,7 +903,8 @@ mod tests {
     impl crate::vfs::FileSystemType for ByPath {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
             sb.set_default_d_op(self.clone());
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 

@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use super::dentry::{Dentries, DentryOperations};
 use super::errno::FilesystemError;
-use super::inode::{Inode, InodeOperations};
-use super::stat::{FileType, Kstat};
+use super::inode::Inode;
 use crate::locking::RwSemaphore;
 
 /// What makes an instance of a Filesystem, as Linux's `file_system_type`.
@@ -16,16 +15,6 @@ pub trait FileSystemType: Send + Sync + 'static {
     /// runtime, and whether nothing beneath it changes. An instance that cannot
     /// stand answers why, and none is made.
     fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError>;
-}
-
-/// Make `root` the root of an instance with nothing else to set up, whose root
-/// names no identity, as Linux's `simple_fill_super` fills one in.
-pub fn simple_fill_super(
-    sb: &mut SuperBlock,
-    root: Arc<dyn InodeOperations>,
-) -> Result<(), FilesystemError> {
-    sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), root));
-    Ok(())
 }
 
 /// One Filesystem instance, with the directories of it a walk reaches. Every

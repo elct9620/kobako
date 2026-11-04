@@ -778,7 +778,8 @@ mod tests {
 
     impl crate::vfs::FileSystemType for Opens {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 
@@ -929,7 +930,8 @@ mod tests {
 
     impl crate::vfs::FileSystemType for OpensNothing {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 
@@ -1155,7 +1157,8 @@ mod tests {
 
     impl crate::vfs::FileSystemType for ReadsWhole {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 
@@ -1178,7 +1181,8 @@ mod tests {
 
     impl crate::vfs::FileSystemType for CannotStat {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 
@@ -1201,7 +1205,8 @@ mod tests {
 
     impl crate::vfs::FileSystemType for StatsAsOne {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 
@@ -1573,7 +1578,8 @@ mod tests {
 
     impl crate::vfs::FileSystemType for RecordsCalls {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 
@@ -1676,7 +1682,8 @@ mod tests {
 
     impl crate::vfs::FileSystemType for HoldsCountsSyncs {
         fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-            crate::vfs::simple_fill_super(sb, self)
+            sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
         }
     }
 

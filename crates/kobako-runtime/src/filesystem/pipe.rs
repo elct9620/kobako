@@ -6,9 +6,8 @@
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::vfs::{
-    alloc_file_pseudo, simple_fill_super, Dentry, FMode, File, FileOperations, FileSystemType,
-    FileType, FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock,
-    VfsMount,
+    alloc_file_pseudo, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
+    FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
 };
 
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No path
@@ -23,7 +22,8 @@ struct PipeFs;
 
 impl FileSystemType for PipeFs {
     fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError> {
-        simple_fill_super(sb, self)
+        sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
+        Ok(())
     }
 }
 
