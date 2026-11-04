@@ -6,16 +6,16 @@
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::vfs::{
-    simple_fill_super, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
-    FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, Path, PollMask, SuperBlock,
+    alloc_file_pseudo, simple_fill_super, Dentry, FMode, File, FileOperations, FileSystemType,
+    FileType, FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock,
     VfsMount,
 };
 
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No path
 /// reaches it: a pipe is only ever open.
-static PIPE_MNT: LazyLock<Path> = LazyLock::new(|| {
+static PIPE_MNT: LazyLock<Arc<VfsMount>> = LazyLock::new(|| {
     let sb = SuperBlock::new(Arc::new(PipeFs)).expect("pipefs fills in nothing that can fail");
-    Path::root(&VfsMount::kern_mount(sb))
+    VfsMount::kern_mount(sb)
 });
 
 /// A pipe reports what it is and no length, as `get_pipe_inode` makes one.
@@ -124,30 +124,25 @@ impl FileOperations for AnonPipe {
 /// The read and the write end of `pipe`, as Linux's `create_pipe_files` opens
 /// both on one inode. Neither takes a position.
 pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {
-    let dentry = PIPE_MNT.mnt().sb().dentries().alloc_pseudo();
-    let found = Kstat::new(FileType::Fifo, 0);
-    Inode::new(&found, Arc::new(PipeFs)).add_to(&dentry);
-    let cred = Arc::<Cred>::default();
-    let end = |how: OpenHow| {
-        File::new(
-            PIPE_MNT.with_dentry(dentry.clone()),
-            Box::new(AnonPipe(pipe.clone())),
-            FMode::of(&how),
-            &how,
-            &cred,
-            cred.security_file_alloc(),
-        )
-    };
-    (
-        end(OpenHow {
-            read: true,
-            ..OpenHow::default()
-        }),
-        end(OpenHow {
+    let inode = Inode::new(&Kstat::new(FileType::Fifo, 0), Arc::new(PipeFs));
+    let write = alloc_file_pseudo(
+        inode,
+        &PIPE_MNT,
+        &OpenHow {
             write: true,
             ..OpenHow::default()
-        }),
-    )
+        },
+        Box::new(AnonPipe(pipe.clone())),
+        &Arc::default(),
+    );
+    let read = write.alloc_file_clone(
+        &OpenHow {
+            read: true,
+            ..OpenHow::default()
+        },
+        Box::new(AnonPipe(pipe.clone())),
+    );
+    (read, write)
 }
 
 #[cfg(test)]

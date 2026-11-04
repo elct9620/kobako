@@ -34,6 +34,7 @@ pub use attr::{Iattr, SetTime};
 pub use cred::{Cred, FileSecurity, SecurityOperations, SecurityPath};
 pub use dentry::{Dentry, DentryOperations};
 pub use errno::FilesystemError;
+pub(crate) use file::alloc_file_pseudo;
 pub use file::{
     generic_file_llseek, generic_write_sync, FMode, File, FileOperations, Kiocb, PollMask, Whence,
 };

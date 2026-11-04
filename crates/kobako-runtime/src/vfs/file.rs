@@ -325,7 +325,47 @@ pub struct File {
     security: Vec<FileSecurity>,
 }
 
+/// A file `ops` answers for, opened as `how` asks on a dentry of `mnt` that no
+/// walk reaches and stands for `inode`, holding what each of `cred`'s security
+/// modules keeps on it, as Linux's `alloc_file_pseudo` makes one for what is
+/// only ever open.
+pub(crate) fn alloc_file_pseudo(
+    inode: Arc<Inode>,
+    mnt: &Arc<VfsMount>,
+    how: &OpenHow,
+    ops: Box<dyn FileOperations>,
+    cred: &Arc<Cred>,
+) -> File {
+    let dentry = mnt.sb().dentries().alloc_pseudo();
+    inode.add_to(&dentry);
+    File::alloc_file(Path::root(mnt).with_dentry(dentry), how, ops, cred)
+}
+
 impl File {
+    /// A file `ops` answers for, opened as `how` asks at `path`, as Linux's
+    /// `alloc_file` takes an empty file and fills in its path.
+    fn alloc_file(
+        path: Path,
+        how: &OpenHow,
+        ops: Box<dyn FileOperations>,
+        cred: &Arc<Cred>,
+    ) -> Self {
+        File::new(
+            path,
+            ops,
+            FMode::of(how),
+            how,
+            cred,
+            cred.security_file_alloc(),
+        )
+    }
+
+    /// Another file `ops` answers for, opened as `how` asks where this one
+    /// stands, as Linux's `alloc_file_clone` opens a pipe's other end.
+    pub(crate) fn alloc_file_clone(&self, how: &OpenHow, ops: Box<dyn FileOperations>) -> Self {
+        File::alloc_file(self.path.clone(), how, ops, &self.cred)
+    }
+
     /// The file `ops` answers for, opened at `path` for `mode` as `how` asks,
     /// with no position where `ops` is a stream, holding what each of `cred`'s
     /// security modules kept on it. It keeps the inode `path` names, as
