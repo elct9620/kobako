@@ -13,7 +13,9 @@ use super::memory::GuestMemory;
 use super::types;
 use crate::descriptors::{Descriptor, Descriptors};
 
-/// The arguments `path_open` takes besides where it starts and the path.
+/// The arguments `path_open` takes besides where it starts and the path, as
+/// Linux's `openat2` takes a `struct open_how`; they become the `OpenHow` the
+/// VFS opens with.
 pub(crate) struct PathOpen {
     pub(crate) dirflags: types::Lookupflags,
     pub(crate) oflags: types::Oflags,
