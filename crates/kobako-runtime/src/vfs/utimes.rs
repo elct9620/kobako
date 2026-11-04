@@ -231,7 +231,7 @@ mod tests {
     fn a_time_set_through_a_descriptor_is_judged_where_it_stands() {
         let policy = Arc::new(RecordsPaths::default());
         let mount = mount_of(tmpfs(), MountAccess::ReadWrite).with_policy(policy.clone());
-        let cred = restrict_self(&prepare_creds_within(None), [&mount]);
+        let cred = restrict_self(&prepare_creds_within(&[], None), [&mount]);
         let root = Path::root(mount.mnt());
         let how = crate::vfs::OpenHow {
             read: true,
@@ -271,7 +271,7 @@ mod tests {
         assert_eq!(
             (
                 vfs_utimes(
-                    &restrict_self(&prepare_creds_within(None), [&mount]),
+                    &restrict_self(&prepare_creds_within(&[], None), [&mount]),
                     &Path::root(mount.mnt()),
                     &times()
                 ),

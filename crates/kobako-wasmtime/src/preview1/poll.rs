@@ -223,6 +223,7 @@ mod tests {
             stderr_limit: None,
             open_file_limit: None,
             profile,
+            security: Vec::new(),
         };
         let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
@@ -279,6 +280,7 @@ mod tests {
             stderr_limit: None,
             open_file_limit: None,
             profile: Profile::Hermetic,
+            security: Vec::new(),
         };
         let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
@@ -329,6 +331,7 @@ mod tests {
             stderr_limit: None,
             open_file_limit: None,
             profile: Profile::Hermetic,
+            security: Vec::new(),
         };
         let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));

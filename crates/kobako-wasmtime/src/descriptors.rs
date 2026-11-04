@@ -12,7 +12,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::security::{prepare_creds_within, restrict_self, WalkGuard};
+use kobako_runtime::security::{restrict_self, WalkGuard};
 use kobako_runtime::vfs::{Cred, File};
 
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
@@ -49,14 +49,15 @@ impl Descriptors {
     /// The table every invocation starts from: stdin, then the two
     /// Channels, then one preopen per Mount from descriptor 3. It holds at
     /// most `limit` descriptors, those included, as a process's
-    /// `RLIMIT_NOFILE` counts every one it holds.
+    /// `RLIMIT_NOFILE` counts every one it holds. Each Mount's root opens as
+    /// `opener`, the Cred the Driver prepared, before its Policy applies.
     pub(crate) fn new(
         stdin: File,
         stdout: File,
         stderr: File,
         mounts: Vec<Mount>,
         limit: Option<usize>,
-        memory_limit: Option<usize>,
+        opener: Arc<Cred>,
         profile: Profile,
     ) -> Result<Self, FilesystemError> {
         let mut used = BTreeMap::from([
@@ -67,7 +68,6 @@ impl Descriptors {
         // Each Mount's root opens before its Policy applies, as a Linux task
         // opens what it keeps and then calls `landlock_restrict_self`, so a
         // Policy judges only what the guest asks for.
-        let opener = prepare_creds_within(memory_limit);
         for (fd, mount) in (3..).zip(&mounts) {
             used.insert(
                 fd,
@@ -158,6 +158,7 @@ impl Descriptors {
 mod tests {
     use super::*;
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
+    use kobako_runtime::security::prepare_creds_within;
 
     fn pipe_end() -> File {
         create_pipe_files(&PipeInodeInfo::new(1)).1
@@ -172,7 +173,7 @@ mod tests {
             pipe_end(),
             Vec::new(),
             None,
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
         )
         .unwrap_or_else(|_| panic!("a table holding no Mount must make"));

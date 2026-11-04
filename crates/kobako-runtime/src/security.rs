@@ -247,13 +247,17 @@ impl WalkGuard {
 
 /// The Cred an Invocation opens its Mounts' roots with, its Filesystems holding at
 /// most `memory_limit` bytes on its behalf, or without bound for `None`: kobako's
-/// own rules, before any Mount's Policy applies, as a Linux task opens the files
-/// it keeps before `landlock_restrict_self`.
-pub fn prepare_creds_within(memory_limit: Option<usize>) -> Arc<Cred> {
-    Cred::within(
-        vec![Arc::new(KobakoSecurity)],
-        memory_limit.map(VmCommitted::new),
-    )
+/// own rules, then each of `modules` in order, before any Mount's Policy applies,
+/// as a Linux task opens the files it keeps before `landlock_restrict_self`.
+/// The modules are those the Driver was built with, as Linux stacks the LSMs
+/// `lsm=` names at boot after the capability module.
+pub fn prepare_creds_within(
+    modules: &[Arc<dyn SecurityOperations>],
+    memory_limit: Option<usize>,
+) -> Arc<Cred> {
+    let mut security: Vec<Arc<dyn SecurityOperations>> = vec![Arc::new(KobakoSecurity)];
+    security.extend(modules.iter().cloned());
+    Cred::within(security, memory_limit.map(VmCommitted::new))
 }
 
 /// `cred` with each Mount's Policy added, the modules it held and the memory
@@ -322,7 +326,7 @@ mod tests {
             .with_policy(Arc::new(RefusesChangesInQ));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = restrict_self(&prepare_creds_within(None), [&guarded]);
+        let cred = restrict_self(&prepare_creds_within(&[], None), [&guarded]);
         let write = OpenHow {
             write: true,
             ..Default::default()
@@ -332,7 +336,7 @@ mod tests {
                 .unwrap_or_else(|_| panic!("the file must open"));
         let root = Path::root(plain.mnt());
         crate::vfs::filename_renameat2(
-            &restrict_self(&prepare_creds_within(None), []),
+            &restrict_self(&prepare_creds_within(&[], None), []),
             &root,
             "p/f",
             &root,
@@ -358,7 +362,7 @@ mod tests {
         let mount = Mount::new("/data", filesystem, Access::ReadWrite)
             .expect("/data is a guest path")
             .with_policy(policy.clone());
-        let cred = restrict_self(&prepare_creds_within(None), [&mount]);
+        let cred = restrict_self(&prepare_creds_within(&[], None), [&mount]);
         let opened = crate::vfs::kern_path::filp_open(
             &cred,
             &Path::root(mount.mnt()),
@@ -394,7 +398,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let mount = prepare(mount);
-        let cred = restrict_self(&prepare_creds_within(None), [&mount]);
+        let cred = restrict_self(&prepare_creds_within(&[], None), [&mount]);
         let root = Path::root(mount.mnt());
         let how = crate::vfs::OpenHow {
             read: true,
@@ -476,7 +480,7 @@ mod tests {
             .with_policy(Arc::new(Counts::default()));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = restrict_self(&prepare_creds_within(None), [&guarded]);
+        let cred = restrict_self(&prepare_creds_within(&[], None), [&guarded]);
         let how = crate::vfs::OpenHow {
             read: true,
             directory: true,
@@ -509,7 +513,7 @@ mod tests {
                 .expect("the call must ask revalidate");
             let root = Path::root(plain.mnt());
             crate::vfs::filename_renameat2(
-                &restrict_self(&prepare_creds_within(None), []),
+                &restrict_self(&prepare_creds_within(&[], None), []),
                 &root,
                 "p/d",
                 &root,
@@ -559,7 +563,7 @@ mod tests {
                 let root = self.plain.get().expect("the plain Mount stands").clone();
                 std::thread::spawn(move || {
                     crate::vfs::filename_renameat2(
-                        &restrict_self(&prepare_creds_within(None), []),
+                        &restrict_self(&prepare_creds_within(&[], None), []),
                         &root,
                         &format!("{from}/d"),
                         &root,
@@ -625,7 +629,7 @@ mod tests {
                 scope.spawn(|| {
                     let (root, cred) = (
                         Path::root(plain.mnt()),
-                        restrict_self(&prepare_creds_within(None), []),
+                        restrict_self(&prepare_creds_within(&[], None), []),
                     );
                     while !stop.load(Ordering::SeqCst) {
                         for (from, to) in [("p/d", "q/d"), ("q/d", "p/d")] {

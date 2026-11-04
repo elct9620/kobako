@@ -65,6 +65,7 @@ fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
         stderr_limit: None,
         open_file_limit: None,
         profile: Profile::Permissive,
+        security: Vec::new(),
     };
     let wasi = Wasi::for_invocation(&config, &[], &[Grant::Mount(mount)])
         .map_err(|err| err.to_string())?;

@@ -292,6 +292,7 @@ fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
         stderr_limit: limit,
         open_file_limit: None,
         profile: Profile::Hermetic,
+        security: Vec::new(),
     };
     let wasi = Wasi::for_invocation(&config, PREAMBLE, &[]).expect("WASI context must build");
     let mut store = Store::new(engine, Invocation::new(None, wasi));

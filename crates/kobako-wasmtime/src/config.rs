@@ -6,14 +6,17 @@
 //! per-invocation `crate::invocation::Invocation` (which the wasm engine
 //! mutates from inside a run).
 //!
-//! Field-for-field the same shape as the SDK's `kobako::Options`, and
-//! deliberately not shared with it: this struct is free to name a wasmtime
-//! type, and `Options` is not — an engine-free host must still be able to
-//! build the SDK.
+//! Its caps are field-for-field the SDK's `kobako::Options`, and deliberately
+//! not shared with it: this struct is free to name a wasmtime type, and
+//! `Options` is not — an engine-free host must still be able to build the SDK.
+//! The security modules are the Driver's own, as Linux's LSMs are the
+//! kernel's: whoever builds the Driver hands them here.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::profile::Profile;
+use kobako_runtime::vfs::SecurityOperations;
 
 /// The caps and requested isolation profile for one `Driver`. `None` on
 /// any cap field disables that cap.
@@ -45,6 +48,10 @@ pub struct Config {
     /// sources, and `Driver::profile` declares it back as the built
     /// posture.
     pub profile: Profile,
+    /// Security modules every invocation is judged by, each asked in order
+    /// after kobako's own rules and before any Mount's Policy, as Linux
+    /// stacks the LSMs it was booted with.
+    pub security: Vec<Arc<dyn SecurityOperations>>,
 }
 
 impl Default for Config {
@@ -60,6 +67,7 @@ impl Default for Config {
             stderr_limit: Some(1 << 20),
             open_file_limit: Some(1024),
             profile: Profile::Hermetic,
+            security: Vec::new(),
         }
     }
 }
@@ -81,7 +89,8 @@ mod tests {
                 config.stdout_limit,
                 config.stderr_limit,
                 config.open_file_limit,
-                config.profile
+                config.profile,
+                config.security.len()
             ),
             (
                 Some(Duration::from_secs(60)),
@@ -90,9 +99,11 @@ mod tests {
                 Some(1024 * 1024),
                 Some(1024 * 1024),
                 Some(1024),
-                Profile::Hermetic
+                Profile::Hermetic,
+                0
             ),
-            "Config::default must carry the caps every frontend defaults to"
+            "Config::default must carry the caps every frontend defaults to, and no security \
+             module beyond kobako's own"
         );
     }
 }

@@ -547,6 +547,7 @@ mod tests {
     };
     use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::profile::Profile;
+    use kobako_runtime::security::prepare_creds_within;
     use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path, PATH_MAX};
     use wiggle::{GuestPtr, GuestType};
 
@@ -563,7 +564,7 @@ mod tests {
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             Vec::new(),
             None,
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
         )
         .expect("a table holding no Mount must make")
@@ -784,7 +785,7 @@ mod tests {
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             vec![mount],
             None,
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
         )
         .unwrap_or_else(|_| panic!("the table must make"));
@@ -816,7 +817,7 @@ mod tests {
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             vec![mount],
             None,
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
         )
         .unwrap_or_else(|_| panic!("the table must make"));
@@ -880,7 +881,7 @@ mod tests {
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             vec![mount],
             None,
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
         )
         .unwrap_or_else(|_| panic!("the table must make"));
@@ -920,7 +921,7 @@ mod tests {
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             vec![mount],
             None,
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
         )
         .unwrap_or_else(|_| panic!("the table must make"));
@@ -1172,7 +1173,7 @@ mod tests {
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             Vec::new(),
             Some(3),
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
         )
         .expect("a table holding no Mount must make");
@@ -1289,7 +1290,7 @@ mod tests {
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             vec![mount],
             None,
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
         )
         .unwrap_or_else(|_| panic!("the table must make"));
@@ -1340,7 +1341,7 @@ mod tests {
                 create_pipe_files(&PipeInodeInfo::new(1)).1,
                 vec![mount],
                 None,
-                None,
+                prepare_creds_within(&[], None),
                 Profile::Hermetic,
             )
             .unwrap_or_else(|_| panic!("the table must make"));
@@ -1412,7 +1413,7 @@ mod tests {
             create_pipe_files(&PipeInodeInfo::new(1)).1,
             vec![mount],
             None,
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
         )
         .unwrap_or_else(|_| panic!("the table must make"));

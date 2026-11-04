@@ -17,7 +17,7 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, Policy};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, Dentry, Inode, Path, PATH_MAX};
+use kobako_runtime::vfs::{self, Dentry, Inode, Path, SecurityOperations, SecurityPath, PATH_MAX};
 use wasmtime::{Instance, Module, Store};
 
 use crate::cache::shared_engine;
@@ -503,23 +503,35 @@ impl Guest {
 
     /// A guest holding at most `open_file_limit` descriptors at once.
     fn with_open_file_limit(open_file_limit: Option<usize>, grants: &[Grant]) -> Self {
-        Self::build(open_file_limit, None, Profile::Hermetic, grants)
+        Self::build(open_file_limit, None, Profile::Hermetic, Vec::new(), grants)
     }
 
     /// A guest allotted `memory_limit` bytes.
     fn with_memory_limit(memory_limit: usize, grants: &[Grant]) -> Self {
-        Self::build(None, Some(memory_limit), Profile::Hermetic, grants)
+        Self::build(
+            None,
+            Some(memory_limit),
+            Profile::Hermetic,
+            Vec::new(),
+            grants,
+        )
     }
 
     /// A guest on `profile`.
     fn for_posture(profile: Profile, grants: &[Grant]) -> Self {
-        Self::build(None, None, profile, grants)
+        Self::build(None, None, profile, Vec::new(), grants)
+    }
+
+    /// A guest whose Driver was built with `security`.
+    fn judged_by(security: Vec<Arc<dyn SecurityOperations>>, grants: &[Grant]) -> Self {
+        Self::build(None, None, Profile::Hermetic, security, grants)
     }
 
     fn build(
         open_file_limit: Option<usize>,
         memory_limit: Option<usize>,
         profile: Profile,
+        security: Vec<Arc<dyn SecurityOperations>>,
         grants: &[Grant],
     ) -> Self {
         let engine = shared_engine().expect("shared engine must be constructible");
@@ -531,6 +543,7 @@ impl Guest {
             stderr_limit: None,
             open_file_limit,
             profile,
+            security,
         };
         let wasi = Wasi::for_invocation(&config, &[], grants).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
@@ -2351,6 +2364,37 @@ fn file_and_directory() -> Arc<Tmpfs> {
             .into_iter()
             .collect(),
     )
+}
+
+/// A security module refusing every directory made.
+struct RefusesMkdir;
+
+impl SecurityOperations for RefusesMkdir {
+    fn path_mkdir(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+        Err(FilesystemError::PermissionDenied)
+    }
+}
+
+// The Mount allows every change and has no Policy, so only the module the
+// Driver was built with refuses the make.
+// @behavior RT-329
+#[test]
+fn a_security_module_the_driver_was_built_with_judges_the_guest() {
+    let tmpfs = file_and_directory();
+    let mut guest = Guest::judged_by(
+        vec![Arc::new(RefusesMkdir)],
+        &[grant(tmpfs.clone(), Access::ReadWrite, None)],
+    );
+    assert_eq!(
+        (
+            guest.call("make_dir", NEW_AS_DIRECTORY),
+            vfs::vfs_fstatat(&Arc::default(), &host(&tmpfs), "new.txt", false).is_err()
+        ),
+        (ERRNO_ACCES, true),
+        "path_create_directory beneath a Mount through preview1, the Driver built with a \
+         security module refusing it, must answer EACCES and make nothing, as an LSM stacked \
+         at boot refuses security_path_mkdir"
+    );
 }
 
 // A `.` after a name resolves through it, so Linux and macOS both refuse

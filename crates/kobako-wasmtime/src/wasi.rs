@@ -17,6 +17,16 @@ use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
+use kobako_runtime::security::prepare_creds_within;
+use kobako_runtime::vfs::Cred;
+
+/// The Cred an invocation's Mounts open as: kobako's own rules, then each
+/// module the Driver was built with, its Filesystems holding at most the
+/// memory the Driver allots, as Linux's `prepare_creds` gives a task the
+/// LSMs it booted with.
+fn prepare_creds(config: &Config) -> Arc<Cred> {
+    prepare_creds_within(&config.security, config.memory_limit)
+}
 
 /// One instance's WASI context: its descriptor table, the clocks its
 /// waits pass on, and the capture pipes stdout and stderr write into, so
@@ -43,7 +53,7 @@ impl Wasi {
             config.stdout_limit,
             config.stderr_limit,
             config.open_file_limit,
-            config.memory_limit,
+            prepare_creds(config),
             config.profile,
             grants.iter().filter_map(to_mount).collect(),
         )
@@ -58,7 +68,7 @@ impl Wasi {
             config.stdout_limit,
             config.stderr_limit,
             config.open_file_limit,
-            config.memory_limit,
+            prepare_creds(config),
             Profile::Hermetic,
             Vec::new(),
         )
@@ -74,7 +84,7 @@ impl Wasi {
             Some(0),
             Some(0),
             None,
-            None,
+            prepare_creds_within(&[], None),
             Profile::Hermetic,
             Vec::new(),
         )
@@ -88,7 +98,7 @@ impl Wasi {
         stdout_limit: Option<usize>,
         stderr_limit: Option<usize>,
         open_file_limit: Option<usize>,
-        memory_limit: Option<usize>,
+        opener: Arc<Cred>,
         profile: Profile,
         mounts: Vec<Mount>,
     ) -> Result<Self, Trap> {
@@ -107,7 +117,7 @@ impl Wasi {
             create_pipe_files(&stderr).1,
             mounts,
             open_file_limit,
-            memory_limit,
+            opener,
             profile,
         )
         .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?;
@@ -240,6 +250,7 @@ mod tests {
             stderr_limit: None,
             open_file_limit: None,
             profile,
+            security: Vec::new(),
         };
         let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));

@@ -383,6 +383,7 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
         stderr_limit: None,
         open_file_limit: None,
         profile: Profile::Hermetic,
+        security: Vec::new(),
     };
     let directory = Bind::new(&host.0).expect("the host directory must open");
     let grant = Grant::Mount(

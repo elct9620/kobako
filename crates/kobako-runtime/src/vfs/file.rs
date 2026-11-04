@@ -1380,7 +1380,7 @@ mod tests {
         .expect("/data is a guest path");
         // `.`, `..`, and two one-letter names.
         let one_listing = 4 * size_of::<DirEntry>() + 1 + 2 + 2;
-        let cred = crate::security::prepare_creds_within(Some(one_listing));
+        let cred = crate::security::prepare_creds_within(&[], Some(one_listing));
         // A Driver opens the root before the Policies apply and lists through
         // the Cred they were added to, so both must count against one limit.
         let restricted = crate::security::restrict_self(&cred, [&mount]);

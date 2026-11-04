@@ -90,6 +90,7 @@ mod tests {
             stderr_limit: None,
             open_file_limit: None,
             profile: Profile::Hermetic,
+            security: Vec::new(),
         };
         let built = Driver::new(Path::new(FIXTURE), config);
         assert!(
