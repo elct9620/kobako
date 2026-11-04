@@ -951,19 +951,10 @@ impl VfsMount {
 ## `Cred`
 
 Who a call is made for, one per Invocation, holding its registered security modules.
+A Driver gets one only from `prepare_creds_within`, so kobako's own rules always come first.
 
 ```rust
 pub struct Cred {}
-```
-
-## `Cred::new`
-
-One with these security modules registered.
-
-```rust
-impl Cred {
-    pub fn new(security: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {}
-}
 ```
 
 ## `SecurityOperations`
@@ -1618,10 +1609,11 @@ impl PipeInodeInfo {
 
 ## `create_pipe_files`
 
-The read and the write end of a pipe, each an open file with no position.
+The read and the write end of a pipe, each an open file with no position,
+opened as `cred`.
 
 ```rust
-pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>) -> (File, File) {}
+pub fn create_pipe_files(pipe: &Arc<PipeInodeInfo>, cred: &Arc<Cred>) -> (File, File) {}
 ```
 
 ## `OpenHow`

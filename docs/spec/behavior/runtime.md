@@ -3077,8 +3077,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Filesystem whose entry is a character device it opens like any file |
-| When | the guest opens the entry and asks what its descriptor reports |
+| Given | a Filesystem whose entry is a character device |
+| When | the guest opens the entry for its path alone and asks what its descriptor reports |
 | Then | the descriptor reports a character device, as a stat of the same entry does |
 
 ## `RT-277` A readlink into no room is invalid
