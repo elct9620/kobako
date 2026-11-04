@@ -3572,3 +3572,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem handing one directory inode for names in two directories, and a call holding the rename lock |
 | When | a walk reaches that name |
 | Then | the walk answers ESTALE without waiting, as `__d_unalias` only tries the locks |
+
+## `RT-318` A file `atomic_open` opens under another spelling opens as that spelling
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-312` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem whose `atomic_open` finds the name stored as `F` and opens it |
+| When | a guest opens `f`, asking to create nothing |
+| Then | the open holds the dentry of `F`, as Linux's `atomic_open` takes the dentry `finish_open` was handed |
