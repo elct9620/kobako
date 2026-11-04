@@ -203,7 +203,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
         rights.set(Rights::FD_READ, file.readable());
         rights.set(Rights::FD_WRITE, file.writable());
         (rights, rights)
-    } else if descriptor.preopen.is_some() {
+    } else if descriptor.preopen_path.is_some() {
         (preopen_rights(), directory_inheriting())
     } else if file.is_directory() {
         let mut rights = Rights::all()
@@ -282,7 +282,7 @@ pub(crate) fn pread(
 }
 
 pub(crate) fn prestat_get(table: &Descriptors, fd: u32) -> Answer<types::Prestat> {
-    match &descriptor(table, fd)?.preopen {
+    match &descriptor(table, fd)?.preopen_path {
         Some(at) => Ok(types::Prestat::Dir(types::PrestatDir {
             pr_name_len: at.len() as u32,
         })),
@@ -297,7 +297,7 @@ pub(crate) fn prestat_dir_name(
     path: GuestPtr<u8>,
     path_len: u32,
 ) -> Answer {
-    match &descriptor(table, fd)?.preopen {
+    match &descriptor(table, fd)?.preopen_path {
         Some(at) => {
             let name = at.as_bytes();
             if name.len() > path_len as usize {
@@ -958,7 +958,7 @@ mod tests {
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
-        let flags = PathOpen {
+        let args = PathOpen {
             dirflags: types::Lookupflags::empty(),
             oflags: types::Oflags::CREAT | types::Oflags::DIRECTORY,
             rights_base: Rights::FD_READ,
@@ -967,7 +967,7 @@ mod tests {
         let path = |len| GuestPtr::new((0, len));
         assert_eq!(
             (
-                errno(path_open(&mut table, &mem, fd, path(1), &flags)),
+                errno(path_open(&mut table, &mem, fd, path(1), &args)),
                 errno(create_directory(&table, &mem, fd, path(0))),
                 errno(create_directory(&table, &mem, fd, path(PATH_MAX as u32))),
                 errno(utimensat(0, 0, Fstflags::empty(), |times| path_set_times(
@@ -1000,7 +1000,7 @@ mod tests {
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
-        let flags = |oflags| PathOpen {
+        let args = |oflags| PathOpen {
             dirflags: types::Lookupflags::empty(),
             oflags,
             rights_base: Rights::FD_READ,
@@ -1008,7 +1008,7 @@ mod tests {
         };
         let path = |len| GuestPtr::new((0, len));
         let unopened = 99;
-        let create_dir = flags(types::Oflags::CREAT | types::Oflags::DIRECTORY);
+        let create_dir = args(types::Oflags::CREAT | types::Oflags::DIRECTORY);
         assert_eq!(
             (
                 errno(path_open(&mut table, &mem, unopened, path(1), &create_dir)),
@@ -1175,7 +1175,7 @@ mod tests {
         let mut bytes = *b"a";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 1);
-        let flags = |oflags| PathOpen {
+        let args = |oflags| PathOpen {
             dirflags: types::Lookupflags::empty(),
             oflags,
             rights_base: Rights::FD_READ,
@@ -1190,14 +1190,14 @@ mod tests {
                     &mem,
                     unopened,
                     path,
-                    &flags(types::Oflags::CREAT | types::Oflags::DIRECTORY)
+                    &args(types::Oflags::CREAT | types::Oflags::DIRECTORY)
                 )),
                 errno(path_open(
                     &mut table,
                     &mem,
                     unopened,
                     path,
-                    &flags(types::Oflags::empty())
+                    &args(types::Oflags::empty())
                 )),
             ),
             (Some(Errno::Inval), Some(Errno::Mfile)),

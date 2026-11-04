@@ -13,7 +13,7 @@ use super::memory::GuestMemory;
 use super::types;
 use crate::descriptors::{Descriptor, Descriptors};
 
-/// The flags `path_open` takes besides the path itself.
+/// The arguments `path_open` takes besides where it starts and the path.
 pub(crate) struct PathOpen {
     pub(crate) dirflags: types::Lookupflags,
     pub(crate) oflags: types::Oflags,
@@ -117,9 +117,9 @@ pub(crate) fn open(
     mem: &GuestMemory<'_, '_>,
     fd: u32,
     path: GuestPtr<str>,
-    flags: &PathOpen,
+    args: &PathOpen,
 ) -> Answer<types::Fd> {
-    let oflags = flags.oflags;
+    let oflags = args.oflags;
     let mut how = OpenHow::default();
     // wasi-libc asks `fd_read` and `fd_readdir` for `O_RDONLY` and neither for
     // `O_SEARCH`, which glibc spells `O_PATH`; wasi-testsuite lists a
@@ -128,17 +128,17 @@ pub(crate) fn open(
     how.create = oflags.contains(types::Oflags::CREAT);
     how.exclusive = oflags.contains(types::Oflags::EXCL);
     how.truncate = oflags.contains(types::Oflags::TRUNC);
-    how.write = flags.rights_base.contains(types::Rights::FD_WRITE);
-    how.read = flags
+    how.write = args.rights_base.contains(types::Rights::FD_WRITE);
+    how.read = args
         .rights_base
         .intersects(types::Rights::FD_READ | types::Rights::FD_READDIR)
         || (!how.write && (how.create || how.truncate));
     how.directory = oflags.contains(types::Oflags::DIRECTORY);
-    how.follow = flags.dirflags.contains(types::Lookupflags::SYMLINK_FOLLOW);
-    how.append = flags.fdflags.contains(types::Fdflags::APPEND);
-    how.nonblock = flags.fdflags.contains(types::Fdflags::NONBLOCK);
-    how.dsync = flags.fdflags.contains(types::Fdflags::DSYNC);
-    how.sync = flags
+    how.follow = args.dirflags.contains(types::Lookupflags::SYMLINK_FOLLOW);
+    how.append = args.fdflags.contains(types::Fdflags::APPEND);
+    how.nonblock = args.fdflags.contains(types::Fdflags::NONBLOCK);
+    how.dsync = args.fdflags.contains(types::Fdflags::DSYNC);
+    how.sync = args
         .fdflags
         .intersects(types::Fdflags::RSYNC | types::Fdflags::SYNC);
     // Linux's `do_sys_openat2` builds the flags, then reserves a descriptor

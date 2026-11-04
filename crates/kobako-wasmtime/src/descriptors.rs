@@ -19,7 +19,7 @@ use kobako_runtime::vfs::{Cred, File};
 pub(crate) struct Descriptor {
     pub(crate) file: File,
     /// The guest path a preopen names; a Mount's own root has one.
-    pub(crate) preopen: Option<String>,
+    pub(crate) preopen_path: Option<String>,
 }
 
 impl Descriptor {
@@ -27,7 +27,7 @@ impl Descriptor {
     pub(crate) fn for_file(file: File) -> Self {
         Self {
             file,
-            preopen: None,
+            preopen_path: None,
         }
     }
 }
@@ -73,7 +73,7 @@ impl Descriptors {
                 fd,
                 Descriptor {
                     file: File::root(mount.mnt(), &opener)?,
-                    preopen: Some(mount.at().to_string()),
+                    preopen_path: Some(mount.at().to_string()),
                 },
             );
         }
