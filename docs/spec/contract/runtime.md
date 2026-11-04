@@ -2313,26 +2313,6 @@ impl Rdir {
 }
 ```
 
-## `SecurityOperations::vm_enough_memory`
-
-Whether more bytes may be held for this caller. A module without it allows them.
-
-```rust
-pub trait SecurityOperations {
-    fn vm_enough_memory(&self, _bytes: usize) -> Result<(), FilesystemError>;
-}
-```
-
-## `SecurityOperations::vm_unacct_memory`
-
-Bytes allowed earlier are held no more.
-
-```rust
-pub trait SecurityOperations {
-    fn vm_unacct_memory(&self, _bytes: usize);
-}
-```
-
 ## `prepare_creds_within`
 
 The caller an Invocation opens its Mounts' roots as, before any Policy applies.
