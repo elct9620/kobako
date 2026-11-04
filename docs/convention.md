@@ -162,6 +162,7 @@ These names come from another side, and step 1 keeps each as that side spells it
 | Ruby and its hooks | `method_missing`, `respond_to_missing?`, `LocalJumpError`, `ThreadError` |
 | magnus and beni | `funcall`, `define_method` |
 | WASI and POSIX | `fd_readdir`, `PATH_MAX`, `ELOOP` |
+| wasmtime-wasi's preview1, for the Driver's descriptor table, where a name there means the same | `Descriptors`, `push`, `remove`, `preopen_path` |
 | MessagePack | `ext`, `bin`, `str` |
 | Minitest | `test_`, `assert_equal` |
 | connection_pool | `Pool#with` |
