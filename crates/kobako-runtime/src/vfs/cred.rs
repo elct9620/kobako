@@ -19,7 +19,8 @@ pub type FileSecurity = Option<Arc<dyn Any + Send + Sync>>;
 
 /// A path a security hook is asked about: the mount it stands on, and its name
 /// from that mount's root, built only for a module that reads it, as `struct path`
-/// leaves `d_path` to the module that needs one.
+/// leaves `d_path` to the module that needs one. The name is what
+/// `Dentry::path_raw` answers for the entry when the module asks.
 #[derive(Clone, Copy)]
 pub struct SecurityPath<'a> {
     pub mnt: &'a Arc<VfsMount>,
