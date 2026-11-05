@@ -16,8 +16,8 @@ pub trait FileSystemType: Send + Sync + 'static {
     /// `d_make_root` after any `set_default_d_op`, so the root answers through
     /// it too. It also says what every dentry answers through, for a
     /// Filesystem changed outside the runtime, whether nothing beneath it
-    /// changes, and whether a name goes once unused. An instance that cannot stand answers why, and
-    /// none is made.
+    /// changes, and whether a name goes once unused. An instance that cannot
+    /// stand answers why, and none is made.
     fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError>;
 }
 

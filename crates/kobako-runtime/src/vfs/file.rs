@@ -111,10 +111,10 @@ pub trait FileOperations: Any + Send + Sync {
     /// the file has no positions. A file without it refuses as Linux's
     /// `vfs_write` refuses one without `f_op->write_iter`.
     ///
-    /// A call landing at the end, as `iocb.append` asks, must keep another writer's from landing over
-    /// it, as `generic_file_write_iter` reads the end under the inode's lock,
-    /// so a file that cannot read its end and write there in one step answers
-    /// `Unsupported`.
+    /// A call landing at the end, as `iocb.append` asks, must keep another
+    /// writer's from landing over it, as `generic_file_write_iter` reads the
+    /// end under the inode's lock, so a file that cannot read its end and
+    /// write there in one step answers `Unsupported`.
     fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
         Err(FilesystemError::InvalidInput)
     }
@@ -122,8 +122,8 @@ pub trait FileOperations: Any + Send + Sync {
     /// Hand `ctx` the entries of this directory, which `dentry` names, from
     /// `ctx`'s position until its actor stops, as `iterate_shared` does through
     /// `dir_emit_dots` and `dir_emit`. One reading the whole directory at once
-    /// answers through `Rdir`. A file without it answers `NotADirectory`, as
-    /// Linux's `iterate_dir` does.
+    /// answers through the `Rdir` that `filesystem` provides. A file without
+    /// it answers `NotADirectory`, as Linux's `iterate_dir` does.
     fn iterate_shared(
         &mut self,
         _dentry: &Dentry,

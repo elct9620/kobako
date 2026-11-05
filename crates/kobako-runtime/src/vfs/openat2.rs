@@ -34,8 +34,9 @@ pub struct OpenHow {
 
 /// What an open was found to ask, as Linux's `struct open_flags` holds what
 /// `build_open_flags` made of an `open_how`, which alone makes one, so what
-/// it asks of the entry always matches the flags. A Filesystem reads
-/// `open_flag`, as `->atomic_open` takes it and `->open` reads `f_flags`.
+/// it asks of the entry always matches the flags. A Filesystem never reads
+/// it: `->atomic_open` and `->open` take the `OpenHow` it was made of, as
+/// Linux hands them `open_flag` and `f_flags`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OpenFlags {
     open_flag: OpenHow,
