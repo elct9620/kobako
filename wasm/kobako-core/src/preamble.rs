@@ -1,7 +1,7 @@
 //! The Preamble an invocation reads from stdin before it runs anything.
 //!
-//! It arrives as a 4-byte big-endian u32 length plus its bytes
-//! (docs/wire/abi.md § Invocation inputs). Reading and decoding it here
+//! It arrives as a 4-byte big-endian u32 length plus its bytes, sent
+//! even with no records. Reading and decoding it here
 //! means a flow starts from the decoded Preamble, never from stdin; one
 //! that does not read or decode answers the invocation as a boot failure
 //! before any flow runs.

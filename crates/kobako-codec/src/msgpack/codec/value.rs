@@ -9,7 +9,7 @@
 //! means to a schema that cannot carry all of it.
 
 /// A decoded msgpack value, restricted to the 11 codec types the kobako
-/// codec accepts (docs/wire/payload-msgpack.md § Type Mapping). Anything outside
+/// codec accepts. Anything outside
 /// this set is rejected at decode time with `Error::InvalidType`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {

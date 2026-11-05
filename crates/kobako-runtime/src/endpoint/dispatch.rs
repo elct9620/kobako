@@ -130,7 +130,7 @@ fn reply_to<G: GuestInstance>(
     req_len: i32,
 ) -> Result<Reply, &'static str> {
     let req_bytes = read_request(guest, req_ptr, req_len)?;
-    // The endpoint decodes the core envelope, here and in `FrameYielder`, so
+    // The endpoint decodes the Envelope, here and in `FrameYielder`, so
     // the frontend never sees a frame; the payload inside it stays bytes
     // the whole way through.
     let call = match Upcall::decode(&req_bytes) {

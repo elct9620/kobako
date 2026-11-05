@@ -4,9 +4,8 @@
 //! consuming guest crate (for the bundled guest: the `method_missing`
 //! shims in `kobako-mruby`'s bridge module, whose shared
 //! `forward_to_dispatch` body calls `dispatch` here) and the wasm-level
-//! `__kobako_upcall` host import declared in `crate::abi`.
-//! docs/wire/envelope.md § Call / § Reply pins the contract
-//! this module implements.
+//! `__kobako_upcall` host import declared in `crate::abi`. The Envelope's
+//! Call and Reply layouts are the contract this module implements.
 //!
 //! `dispatch` builds a `Call` around a payload it never reads, sends it
 //! as a `call` upcall, and hands back the arm the Reply's tag named — the
@@ -145,7 +144,8 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     let packed = unsafe { __kobako_upcall(req_ptr, req_len) };
     let (ptr, len) = unpack_ptr_len(packed);
     if len == 0 {
-        // Wire violation per docs/wire/abi.md § ABI Signatures.
+        // A zero length is the ABI's failure signal: the host produced
+        // no answer, so it is refused rather than decoded as empty.
         return Err(DispatchError::Envelope(envelope::DecodeError::new(
             "the host returned an empty Reply",
         )));

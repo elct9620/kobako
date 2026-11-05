@@ -1,7 +1,7 @@
 //! Engine-neutral guest→host dispatch contract, free of any `magnus`
 //! dependency.
 //!
-//! The runtime decodes the core envelope and hands a handler the routed
+//! The runtime decodes the Envelope and hands a handler the routed
 //! `Call` — target, method, block flag, and the payload bytes it never
 //! reads — then expects a `Reply` back. What the handler *is* — a Ruby
 //! Proc, a Rust closure — is the frontend's concern; the runtime only sees

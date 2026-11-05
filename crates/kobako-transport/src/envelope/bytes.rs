@@ -1,4 +1,4 @@
-//! Byte primitives for the core envelope: unsigned big-endian integers,
+//! Byte primitives for the Envelope: unsigned big-endian integers,
 //! length-prefixed byte strings, counted lists, and the trailing remainder.
 //!
 //! `Reader` borrows rather than copies, so a decoded envelope's payload is

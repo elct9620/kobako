@@ -23,7 +23,7 @@ keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm", "virtualization"]
 
 [dependencies]
-# Fixed tier: the core envelope every message rides in.
+# Fixed tier: the Envelope every message rides in.
 kobako-transport = { path = "../kobako-transport", version = "0.19.0" }
 
 # Payload codec: the default schema this SDK's `ValueReceiver` speaks.

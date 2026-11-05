@@ -21,7 +21,7 @@ use kobako_transport::envelope::{Call, Fault, FaultKind, Reply, Target, YieldRep
 
 /// The names each side of this seam branches on — one per Reply and
 /// Yield Reply arm. Neutral Symbols rather than the envelope's tag bytes,
-/// the same way `Snapshot#outcome` names its arms: the core envelope is
+/// the same way `Snapshot#outcome` names its arms: the Envelope is
 /// this side's to read, so no byte value of it reaches Ruby.
 const ARM_OK: &str = "ok";
 const ARM_FAULT: &str = "fault";

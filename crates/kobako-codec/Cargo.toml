@@ -1,6 +1,6 @@
 # kobako-codec — the payload codecs.
 #
-# What rides inside a core envelope's opaque payload field, one
+# What rides inside the Envelope's opaque payload field, one
 # namespace per schema. The replaceable half of the kobako wire: an
 # assembly that speaks another schema carries none of this crate, and
 # the fixed half (`kobako-transport`) is unchanged by that choice.
@@ -16,7 +16,7 @@
 name = "kobako-codec"
 version = "0.19.0"
 edition = "2021"
-description = "Payload codecs for the kobako wire — the replaceable half that rides inside a core envelope, MessagePack by default."
+description = "Payload codecs for the kobako wire — the replaceable half that rides inside the Envelope, MessagePack by default."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
 readme = "README.md"

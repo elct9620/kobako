@@ -9,7 +9,7 @@ same in every assembly. This crate is both of them, and nothing else.
 
 | Module | What it fixes |
 |---|---|
-| `envelope` | the **core envelope**, the outer frame each message rides in |
+| `envelope` | the **Envelope**, the outer frame each message rides in |
 | `abi` | the values both sides agree on before exchanging a byte |
 
 The envelope covers the downcall's and the upcall's requests under one

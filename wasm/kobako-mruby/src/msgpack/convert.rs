@@ -30,8 +30,7 @@ use beni::value::qnil;
 use beni::{ForEach, Integer, Mrb, RArray, RHash, Symbol, Value};
 use kobako_codec::msgpack::codec::Value as CodecValue;
 // The encode-side walk caps at the same depth the decoder enforces; the
-// constant lives in `kobako-codec` so the two guest walks share one bound
-// (docs/wire/payload-msgpack.md § Structural Nesting Depth).
+// constant lives in `kobako-codec` so the two guest walks share one bound.
 use kobako_codec::msgpack::codec::MAX_NESTING_DEPTH;
 
 /// mruby carries no encoding tag, so validity is the only rule: UTF-8

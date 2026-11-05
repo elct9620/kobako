@@ -1,6 +1,6 @@
 # kobako-transport — the fixed tier of the kobako wire.
 #
-# The core envelope: the outer frame every host↔guest message rides in,
+# The Envelope: the outer frame every host↔guest message rides in,
 # carrying routing and outcome attribution and handing the payload
 # through untouched. A host, a payload codec, and a guest are chosen
 # independently only because this layer is the same in every assembly,
@@ -14,7 +14,7 @@
 name = "kobako-transport"
 version = "0.19.0"
 edition = "2021"
-description = "The kobako core envelope — the fixed host↔guest wire frame every assembly shares."
+description = "The kobako Envelope —the fixed host↔guest wire frame every assembly shares."
 license = "Apache-2.0"
 repository = "https://github.com/elct9620/kobako"
 readme = "README.md"

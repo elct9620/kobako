@@ -32,7 +32,7 @@ msgpack = ["dep:kobako-codec", "kobako-codec/msgpack"]
 
 [dependencies]
 # The fixed tier. Unconditional: the flows frame every message with the
-# core envelope whatever schema fills it.
+# Envelope whatever schema fills it.
 kobako-transport = { path = "../../crates/kobako-transport", version = "0.19.0" }
 
 # The bundled payload codec, and the only optional dependency here —

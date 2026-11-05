@@ -1,4 +1,4 @@
-//! The MessagePack payload codec — what rides inside a core envelope's
+//! The MessagePack payload codec — what rides inside the Envelope's
 //! opaque `payload` field.
 //!
 //! The envelope routes a message; this decides what the resolved method

@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use crate::receiver::{Fault, FaultKind, Receiver};
 
 /// Maximum legal Capability Handle ID — the wire pins ids to the
-/// positive i32 range (docs/wire/payload-msgpack.md § Ext Types → ext 0x01).
+/// positive i32 range.
 const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
 
 /// The Sandbox-owned table: live entries plus the per-invocation

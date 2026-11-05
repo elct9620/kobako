@@ -28,9 +28,8 @@ pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
     .and_then(|_| preview1::shadow(&mut linker))
     .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
 
-    // `__kobako_upcall`, `(ptr: i32, len: i32) -> i64` per
-    // docs/wire/abi.md § ABI Signatures; `endpoint::handle` owns what it
-    // answers.
+    // `__kobako_upcall`, `(ptr: i32, len: i32) -> i64` in the ABI;
+    // `endpoint::handle` owns what it answers.
     linker
         .func_wrap(
             "env",

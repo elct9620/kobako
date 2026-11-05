@@ -1,5 +1,4 @@
-//! The `yield` downcall — host-initiated re-entry into a guest block
-//! (docs/wire/abi.md § ABI Signatures).
+//! The `yield` downcall — host-initiated re-entry into a guest block.
 //!
 //! The host sends it from inside an upcall it is still answering when
 //! a Service method invokes its Yielder. The flow answers with a value;

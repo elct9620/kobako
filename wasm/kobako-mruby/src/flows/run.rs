@@ -103,8 +103,7 @@ fn call_entrypoint<G: crate::MrbGuest>(preamble: &Preamble, run: Run) -> Result<
     // multiplier: 1)`).
     // An argument the guest cannot represent — an integer outside the
     // 64-bit range — fails the invocation rather than reaching the
-    // entrypoint with a saturated value (docs/wire/payload-msgpack.md § Integer
-    // Range).
+    // entrypoint with a saturated value.
     let mut argv = arguments.args;
     if let Some(kwargs) = arguments.kwargs {
         argv.push(kwargs.as_value());

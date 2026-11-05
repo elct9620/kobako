@@ -1,7 +1,7 @@
 //! The Guest ABI contract as a Rust trait.
 //!
-//! `Guest` turns the operations a downcall carries
-//! (docs/wire/abi.md § ABI Signatures) into a compiler-checked type;
+//! `Guest` turns the operations a downcall carries — eval, run, yield,
+//! compile — into a compiler-checked type;
 //! `export_guest!` emits every `#[no_mangle]` export in the invoking
 //! crate, so export signatures cannot drift per-guest and this crate
 //! itself defines no `#[no_mangle]` symbol (dependency-rlib exports are
@@ -62,8 +62,8 @@ macro_rules! export_guest {
         #[no_mangle]
         pub extern "C" fn __kobako_downcall(ptr: u32, len: u32) -> u64 {
             // SAFETY: the host wrote the request at `[ptr, ptr + len)` in
-            // guest linear memory before calling this export
-            // (docs/wire/abi.md § ABI Signatures); u8 has alignment 1.
+            // guest linear memory before calling this export; u8 has
+            // alignment 1.
             let request =
                 unsafe { ::core::slice::from_raw_parts(ptr as usize as *const u8, len as usize) };
             $crate::abi::answer(&$crate::abi::serve::<$guest>(request))

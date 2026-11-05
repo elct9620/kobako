@@ -24,8 +24,8 @@ use super::Kobako;
 /// silently when the ivar layout changes.
 const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
 
-/// Largest Handle id the wire admits (docs/wire/README.md § Capability
-/// Handle). Named here because `Kobako::mint_handle` enforces it for
+/// Largest Handle id the wire admits, the top of the positive i32 range.
+/// Named here because `Kobako::mint_handle` enforces it for
 /// itself: every layer that can admit an id states the bound rather than
 /// inheriting it from the one before.
 const MAX_HANDLE_ID: u32 = 0x7fff_ffff;

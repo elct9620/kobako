@@ -46,7 +46,7 @@ impl Snapshot {
         Self(snapshot, verb)
     }
 
-    /// Already split off the core envelope, so the Ruby side maps a failure
+    /// Already split off the Envelope, so the Ruby side maps a failure
     /// onto its error taxonomy without decoding a payload byte: the ok
     /// arm's payload, or a Panic's fields beside an empty payload. A trap
     /// has no Outcome; `#trap_error` is the discriminator there.

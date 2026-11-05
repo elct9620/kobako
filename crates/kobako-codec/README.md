@@ -3,7 +3,7 @@
 The payload codecs for [kobako](https://github.com/elct9620/kobako), an
 in-process Wasm sandbox for running untrusted mruby scripts from Ruby.
 
-kobako's wire has two layers. The core envelope routes a message and
+kobako's wire has two layers. The Envelope routes a message and
 attributes its outcome — the fixed half, living in
 [kobako-transport](https://crates.io/crates/kobako-transport). What rides
 inside an envelope's opaque `payload` field is the replaceable half, and

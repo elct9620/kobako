@@ -1,4 +1,4 @@
-//! The core envelope — the fixed-layout outer frame of every host↔guest
+//! The Envelope — the fixed-layout outer frame of every host↔guest
 //! message.
 //!
 //! Routing and outcome attribution live here; everything a resolved method
@@ -50,7 +50,7 @@ pub use unsupported::Unsupported;
 
 use std::fmt;
 
-/// A message that does not conform to the core envelope layout. Only
+/// A message that does not conform to the Envelope layout. Only
 /// decoding produces one — every `encode` is infallible — so the name says
 /// which direction it comes from.
 ///

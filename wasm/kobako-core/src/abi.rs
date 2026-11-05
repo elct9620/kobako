@@ -20,8 +20,8 @@ pub use memory::{alloc, answer};
 // ---------------------------------------------------------------------------
 //
 // The `wasm_import_module = "env"` attribute pins the import namespace.
-// Signature: `(ptr: i32, len: i32) -> i64` per docs/wire/abi.md
-// § ABI Signatures. We only declare the import on the wasm32 target —
+// Signature: `(ptr: i32, len: i32) -> i64`, the ABI's upcall import.
+// We only declare the import on the wasm32 target —
 // on the host target (where the rlib's unit tests run) there is no
 // host to provide the symbol.
 #[cfg(target_arch = "wasm32")]

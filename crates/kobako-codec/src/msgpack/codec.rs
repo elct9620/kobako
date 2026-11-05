@@ -1,6 +1,6 @@
 //! MessagePack codec — Rust-side glue over the `rmp` crate.
 //!
-//! The kobako codec (docs/wire/payload-msgpack.md) is plain MessagePack with
+//! The kobako codec is plain MessagePack with
 //! two ext type codes — 0x00 Symbol (variable-length ext carrying the
 //! symbol name as UTF-8 bytes) and 0x01 Capability Handle (`fixext 4`,
 //! big-endian u32). The Ruby host encodes through the
@@ -27,24 +27,21 @@ pub use encoder::{Encode, Encoder};
 pub use error::Error;
 pub use value::Value;
 
-/// MessagePack ext type code reserved for Symbol
-/// (docs/wire/payload-msgpack.md § Ext Types → ext 0x00). Module-private
+/// MessagePack ext type code reserved for Symbol. Module-private
 /// — mirrors the `EXT_SYMBOL`
 /// constant on the Ruby Factory side.
 const EXT_SYMBOL: i8 = 0x00;
 
-/// MessagePack ext type code reserved for Capability Handle
-/// (docs/wire/payload-msgpack.md § Ext Types → ext 0x01). Module-private — every
+/// MessagePack ext type code reserved for Capability Handle. Module-private — every
 /// encoder/decoder that needs it lives inside this module.
 const EXT_HANDLE: i8 = 0x01;
 
-/// Maximum legal Capability Handle ID (docs/wire/payload-msgpack.md § Ext Types
-/// → ext 0x01). Module-private.
+/// Maximum legal Capability Handle ID — the wire pins ids to the positive
+/// i32 range. Module-private.
 const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
 
 /// Maximum structural nesting depth the guest codec walks on both the
-/// encode and decode paths (docs/wire/payload-msgpack.md § Structural Nesting
-/// Depth). The cap keeps a reference cycle or a pathologically deep
+/// encode and decode paths. The cap keeps a reference cycle or a pathologically deep
 /// payload from overflowing the wasm stack and hard-trapping the guest;
 /// it sits far below that overflow threshold and matches the limit the
 /// host's MessagePack library imposes, so both sides reject the same

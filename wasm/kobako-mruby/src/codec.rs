@@ -86,7 +86,7 @@ pub struct Arguments {
     pub kwargs: Option<beni::RHash>,
 }
 
-/// One schema for everything a core envelope hands through.
+/// One schema for everything the Envelope hands through.
 ///
 /// Every method is associated rather than taking `&self`: a codec is a
 /// choice of encoding, not a value with state, and the flows reach it

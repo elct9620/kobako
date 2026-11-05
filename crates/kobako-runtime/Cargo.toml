@@ -25,7 +25,7 @@ readme = "README.md"
 keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm", "virtualization"]
 
-# The fixed tier: the core envelope this contract routes and attributes
+# The fixed tier: the Envelope this contract routes and attributes
 # through. The version pin rides the linked release group; the path keeps
 # in-tree builds (and the Ruby gem, which ships both crates) resolving
 # locally.

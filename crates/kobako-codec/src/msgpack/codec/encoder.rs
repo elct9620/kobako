@@ -94,7 +94,8 @@ impl Encoder {
 /// invocation `payload::Arguments` today — which is why the trait
 /// lives here at the codec tier rather than under `payload`. A schema
 /// built on this codec implements it for its own documents too; the
-/// trait is graded stable in `docs/guides/customization.md`. It is the
+/// trait is graded stable, so its signature changes only with this
+/// crate's version increment. It is the
 /// Rust-native expression of the contract the Ruby host gets via duck
 /// typing (`#encode` on each value object). The value object's own
 /// invariants are the contract; this does not re-validate the shape.
@@ -138,8 +139,7 @@ mod tests {
     fn encoder_accepts_nesting_at_max_depth() {
         // The encode-side guard mirrors the decode-side boundary: a value
         // nested exactly to the cap must encode, so the two paths agree on
-        // which structures are legal (docs/wire/payload-msgpack.md § Structural
-        // Nesting Depth).
+        // which structures are legal.
         let mut v = Value::Nil;
         for _ in 0..MAX_NESTING_DEPTH {
             v = Value::Array(vec![v]);
@@ -249,7 +249,7 @@ mod tests {
     // @behavior WP-063
     #[test]
     fn golden_sym_empty_uses_ext8_with_zero_length() {
-        // docs/wire/payload-msgpack.md § Ext Types → ext 0x00: `c7 00 00` is the empty Symbol.
+        // `c7 00 00` is the empty Symbol: ext 8, zero length, ext type 0x00.
         assert_eq!(encode(&Value::Sym(String::new())), vec![0xc7, 0x00, 0x00]);
     }
 

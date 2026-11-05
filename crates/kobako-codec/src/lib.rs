@@ -1,6 +1,6 @@
 //! kobako-codec — the payload codecs.
 //!
-//! What rides inside a core envelope's opaque `payload` field, one
+//! What rides inside the Envelope's opaque `payload` field, one
 //! namespace per schema: `msgpack` holds the byte codec and the
 //! invocation arguments it carries. Naming a namespace after its schema
 //! is what makes a second one an addition rather than a rename.
