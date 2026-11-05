@@ -641,7 +641,7 @@ impl Tmpfs {
     }
 
     /// Put `node` at the name `dentry` carries and record it there, as
-    /// `shmem_mknod` calls `d_instantiate`.
+    /// `shmem_mknod` calls `d_make_persistent`.
     fn make(&self, dentry: &Dentry, node: Node) -> Result<(), FilesystemError> {
         self.dir.state().insert(&dentry.name(), node.clone());
         dentry.add(Some(self.inode_of(node)));
