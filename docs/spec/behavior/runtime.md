@@ -3764,3 +3764,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem answering ESTALE the first time it is asked about a name |
 | When | a mkdir, a symlink, or a link looks up that name to make it |
 | Then | the call answers ESTALE after asking once, as `filename_create`'s error returns before `retry_estale` |
+
+## `RT-334` A security module reads a name where the entry stands as it asks
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-249` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file moved after the open found it and before the open asks `file_open` |
+| When | the security module reads the name `file_open` is handed |
+| Then | the name is where the file stands after the move, as `struct path` gives it |
