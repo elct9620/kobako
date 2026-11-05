@@ -56,9 +56,9 @@ pub(crate) struct Nameidata {
     pending: VecDeque<String>,
     /// The links followed through every walk of one call, as Linux's
     /// `total_link_count` carries into a walk made again for ESTALE.
-    links: Rc<Cell<usize>>,
+    total_link_count: Rc<Cell<usize>>,
     /// The last name, as Linux's `nd->last`, empty unless it is a `Norm` one.
-    pub(crate) name: String,
+    pub(crate) last: String,
     last_type: LastType,
     /// Whether a `/` follows the last name, as `nd->last.name[nd->last.len]`.
     trailing_slash: bool,
@@ -104,8 +104,8 @@ impl Nameidata {
     /// Find the last name afresh and keep what stands there, as a call looks
     /// its name up once it holds the directory's lock.
     fn lookup_last_locked(&mut self) -> Result<Arc<Dentry>, FilesystemError> {
-        let child = lookup_one_qstr_excl(self.mnt.sb(), self.dentry(), &self.name)?;
-        self.name = child.name();
+        let child = lookup_one_qstr_excl(self.mnt.sb(), self.dentry(), &self.last)?;
+        self.last = child.name();
         self.path = Some(child.clone());
         Ok(child)
     }
@@ -128,7 +128,7 @@ impl Nameidata {
     /// holds it.
     pub(crate) fn dentry_path(&self) -> String {
         let mut names = self.dentry().names();
-        names.push(self.name.clone());
+        names.push(self.last.clone());
         names.retain(|name| !name.is_empty());
         names.join("/")
     }
@@ -342,8 +342,8 @@ impl Nameidata {
     /// Walk on through where the link `dentry` names points, before
     /// whatever is left of the path.
     fn pick_link(&mut self, dentry: &Dentry) -> Result<(), FilesystemError> {
-        self.links.set(self.links.get() + 1);
-        if self.links.get() > MAXSYMLINKS {
+        self.total_link_count.set(self.total_link_count.get() + 1);
+        if self.total_link_count.get() > MAXSYMLINKS {
             return Err(FilesystemError::FilesystemLoop);
         }
         let target = dentry.get_link()?;
@@ -410,7 +410,7 @@ impl Nameidata {
             ".." => LastType::DotDot,
             _ => LastType::Norm,
         };
-        self.name = match self.last_type {
+        self.last = match self.last_type {
             LastType::Norm => name.to_string(),
             _ => String::new(),
         };
@@ -439,8 +439,8 @@ impl Nameidata {
                 follow = true;
                 self.lookup_directory = true;
             }
-            let child = lookup_dentry(self.mnt.sb(), self.dentry(), &self.name)?;
-            self.name = child.name();
+            let child = lookup_dentry(self.mnt.sb(), self.dentry(), &self.last)?;
+            self.last = child.name();
             self.path = Some(child.clone());
             if child.inode().is_none() {
                 return Err(FilesystemError::NotFound);
@@ -478,7 +478,7 @@ impl Nameidata {
             }
             let (child, opened) = match self.lookup_fast_for_open(how)? {
                 Some(child) => {
-                    self.name = child.name();
+                    self.last = child.name();
                     self.path = Some(child.clone());
                     if child.inode().is_none() {
                         return Err(FilesystemError::NotFound);
@@ -504,7 +504,7 @@ impl Nameidata {
         if how.create && how.exclusive {
             return Ok(None);
         }
-        let found = lookup_fast(self.mnt.sb(), self.dentry(), &self.name)?;
+        let found = lookup_fast(self.mnt.sb(), self.dentry(), &self.last)?;
         Ok(found.filter(|child| !how.create || child.inode().is_some()))
     }
 
@@ -538,7 +538,7 @@ impl Nameidata {
             return Err(FilesystemError::NotFound);
         }
         let mnt = self.mnt.clone();
-        let given = d_alloc_parallel(mnt.sb(), &dir, &self.name)?;
+        let given = d_alloc_parallel(mnt.sb(), &dir, &self.last)?;
         let mut create_error = None;
         let mut ask = || {
             let mut how = *how;
@@ -574,7 +574,7 @@ impl Nameidata {
         };
         let child = spliced.unwrap_or(given);
         retain(mnt.sb(), &child);
-        self.name = child.name();
+        self.last = child.name();
         self.path = Some(child.clone());
         if child.inode().is_none() {
             return Err(create_error.unwrap_or(FilesystemError::NotFound));
@@ -653,12 +653,12 @@ fn sb_permission(sb: &SuperBlock, dentry: &Dentry, mask: Mask) -> Result<(), Fil
 /// `set_nameidata` and `path_init` make one. A path no call can take answers
 /// first, wherever it starts; an absolute one is not the caller's to reach, so
 /// no start is looked for; and a walk starts from nothing but a directory.
-/// Each walk of one call counts its links toward `links`.
+/// Each walk of one call counts its links toward `total_link_count`.
 fn set_nameidata(
     cred: &Arc<Cred>,
     start: &impl Start,
     path: &str,
-    links: &Rc<Cell<usize>>,
+    total_link_count: &Rc<Cell<usize>>,
 ) -> Result<Nameidata, FilesystemError> {
     getname(path)?;
     if path.starts_with('/') {
@@ -675,8 +675,8 @@ fn set_nameidata(
         r_seq: RENAME_LOCK.read_seqbegin(),
         dir: start.dentry().clone(),
         pending: parts(path),
-        links: links.clone(),
-        name: String::new(),
+        total_link_count: total_link_count.clone(),
+        last: String::new(),
         last_type: LastType::Dot,
         trailing_slash: false,
         path: None,
@@ -692,9 +692,9 @@ pub(crate) fn filename_parentat(
     start: &impl Start,
     path: &str,
 ) -> Result<Nameidata, FilesystemError> {
-    let links = Rc::default();
+    let total_link_count = Rc::default();
     walk_with_reval(|| {
-        let mut nd = set_nameidata(cred, start, path, &links)?;
+        let mut nd = set_nameidata(cred, start, path, &total_link_count)?;
         nd.link_path_walk()?;
         nd.complete_walk()?;
         Ok(nd)
@@ -738,8 +738,8 @@ pub(crate) fn filename_lookup(
     path: &str,
     follow: bool,
 ) -> Result<Nameidata, FilesystemError> {
-    let links = Rc::default();
-    walk_with_reval(|| path_lookupat(set_nameidata(cred, start, path, &links)?, follow))
+    let total_link_count = Rc::default();
+    walk_with_reval(|| path_lookupat(set_nameidata(cred, start, path, &total_link_count)?, follow))
 }
 
 /// Walk `nd` to what its path names, as Linux's `path_lookupat`.
@@ -764,8 +764,8 @@ pub fn do_file_open(
     path: &str,
     op: &OpenFlags,
 ) -> Result<File, FilesystemError> {
-    let links = Rc::default();
-    walk_with_reval(|| path_openat(set_nameidata(cred, start, path, &links)?, op))
+    let total_link_count = Rc::default();
+    walk_with_reval(|| path_openat(set_nameidata(cred, start, path, &total_link_count)?, op))
 }
 
 /// Walk `nd` to its last name and open it as `op` asks, as Linux's
@@ -1081,12 +1081,12 @@ pub fn filename_renameat2(
         let sb = mnt.sb();
         let rd = __start_renaming(
             sb,
-            (source.dentry(), &source.name),
-            (target.dentry(), &target.name),
+            (source.dentry(), &source.last),
+            (target.dentry(), &target.last),
             None,
         )?;
-        source.name = rd.old_dentry.name();
-        target.name = rd.new_dentry.name();
+        source.last = rd.old_dentry.name();
+        target.last = rd.new_dentry.name();
         // Unless the source is a directory, a trailing `/` on either side is
         // refused, as `filename_renameat2` refuses it.
         let is_dir = rd.old_dentry.kind()? == FileType::Dir;
