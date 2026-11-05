@@ -584,16 +584,6 @@ impl Mount {
 }
 ```
 
-## `Mount::filesystem`
-
-The Filesystem instance the Mount places.
-
-```rust
-impl Mount {
-    pub fn filesystem(&self) -> &Arc<Filesystem> {}
-}
-```
-
 ## `SuperBlock`
 
 One Filesystem instance, as Linux's `super_block`. A Host App names it
