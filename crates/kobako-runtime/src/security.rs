@@ -527,7 +527,7 @@ mod tests {
                 && crate::vfs::vfs_fstatat(&cred, held.path(), "f", false).is_ok()
                 && held.path().dentry().path_raw() == "/q/d",
             "WalkGuard::check of a directory moved by another Mount while revalidate is asked, \
-             beneath a Policy, must let a call through both then and afterwards, at q/d"
+             beneath a Policy, must let a call through both then and afterwards, at /q/d"
         );
     }
 
