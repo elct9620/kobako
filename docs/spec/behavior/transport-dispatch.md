@@ -405,7 +405,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a bound Service answering a value the host cannot encode |
 | When | the guest reads the failure's message |
-| Then | it is worded by the Host Gem rather than by the codec |
+| Then | it is worded by the host rather than by the Codec |
 
 ## `T-046` Running out of references while wrapping takes the fault arm
 

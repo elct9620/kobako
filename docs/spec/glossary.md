@@ -21,7 +21,7 @@ The application that embeds kobako. It holds every credential and policy decisio
 
 ### Host Gem
 
-kobako itself — the side of the boundary that owns the guest. It routes what the guest asks for and decides what each outcome means.
+The Ruby gem: the Ruby Frontend and the native extension beneath it. The Rust SDK is the other Frontend, so the host side as a whole is the host.
 
 ### Guest Binary
 
@@ -201,6 +201,14 @@ A request from the guest to the host. It carries a Call.
 
 The agreement two endpoints reach about how values become bytes. It is replaceable: only the two endpoints need to share one.
 
+#### Rejected
+
+- `dialect` - a second name for the same agreement.
+
+### Overlay
+
+How one endpoint's Codec speaks to that endpoint's own objects, a Handle included. It lives where those objects live. The Filesystem's Overlay is another thing under the same word.
+
 ### Value Budget
 
 The most values one guest payload may hold, worked out from the memory cap. Decoding spends it, so a short payload cannot make the host build a large value.
@@ -263,16 +271,20 @@ Ambient                      -> host time, entropy, files, environment, sockets
 
 ### Posture
 
-The isolation a runtime builds around the guest, one rung on an ordered ladder. The Host App requests a rung as a floor, and the runtime declares the rung it built. Rungs differ only in which Ambient authority they grant.
+The isolation a Wasm Driver builds around the guest, one rung on an ordered ladder. The Host App requests a rung as a floor, and the Wasm Driver declares the rung it built. Rungs differ only in which Ambient authority they grant.
 
 ```
 permissive  <  hermetic
    requested rung  <=  declared rung   -> accepted
 ```
 
+### Engine
+
+The WebAssembly runtime that executes a Guest Binary, such as wasmtime. Only a Wasm Driver names it, so a Frontend works over any Engine.
+
 ### Wasm Driver
 
-What drives one Engine, such as wasmtime, and encodes each ABI onto it. The runtime beneath it decides each answer. The Wasm Driver keeps only the checks a syscall entry makes itself, such as which descriptor a call takes. Each implements `Runtime`, and wasmtime's is `kobako_wasmtime::Driver`.
+What drives one Engine, such as wasmtime, and encodes each ABI onto it. `kobako-runtime` beneath it decides each answer. The Wasm Driver keeps only the checks a syscall entry makes itself, such as which descriptor a call takes. Each implements `Runtime`, and wasmtime's is `kobako_wasmtime::Driver`.
 
 ```
 guest --ABI--> Wasm Driver: decode, fd table, errno codes, entry checks --> runtime: the answer
@@ -390,7 +402,7 @@ The runtime records on the Dentry the Inode a lookup finds, as Linux's `d_add` d
 
 ### Open File
 
-What a descriptor refers to, as Linux's `struct file`. It holds where it was opened, what answers for it, its position, and what it was opened for. A Wasm Driver's table holds it, so every ABI shares one. Each standard stream is one too, an end of a pipe with no position.
+What a descriptor refers to, as Linux's `struct file`. It holds where it was opened, what answers for it, its position, and what it was opened for. `kobako-runtime` holds it, so every ABI shares one, and each ABI's descriptor table refers to it. Each standard stream is one too, an end of a pipe with no position.
 
 ### Path
 

@@ -1,7 +1,7 @@
-# MessagePack dialect
+# MessagePack Codec
 
-What a schema author or an overlay builds on when it speaks the MessagePack
-dialect. It covers the values the dialect carries and the reader and writer for
+What a Codec author or an overlay builds on when it speaks the MessagePack
+Codec. It covers the values the Codec carries and the reader and writer for
 them.
 Which values both peers carry is the payload peers' to hold.
 
@@ -15,7 +15,7 @@ Which values both peers carry is the payload peers' to hold.
 
 ## `Value`
 
-One value of the dialect, restricted to the types the Codec carries.
+One value of the MessagePack Codec, restricted to the types it carries.
 
 ```rust
 pub enum Value {}
@@ -23,7 +23,7 @@ pub enum Value {}
 
 ## `Encoder`
 
-Writes values into the dialect's bytes.
+Writes values into the Codec's bytes.
 
 ```rust
 pub struct Encoder {}
@@ -71,7 +71,7 @@ impl Encoder {
 
 ## `Decoder`
 
-Reads values back out of the dialect's bytes.
+Reads values back out of the Codec's bytes.
 
 ```rust
 pub struct Decoder {}
@@ -159,7 +159,7 @@ impl Arguments {
 
 ## `MAX_NESTING_DEPTH`
 
-The deepest a value may nest, shared by every walk over the dialect so the
+The deepest a value may nest, shared by every walk over the Codec so the
 peers refuse the same boundary.
 
 ```rust

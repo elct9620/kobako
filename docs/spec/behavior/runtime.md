@@ -127,7 +127,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Guest Binary reporting an ABI version the Host Gem does not implement |
+| Given | a Guest Binary reporting an ABI version the host does not implement |
 | When | a Sandbox is constructed over it |
 | Then | construction fails |
 
