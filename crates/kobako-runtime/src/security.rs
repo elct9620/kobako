@@ -76,13 +76,12 @@ impl MountPolicy {
         Arc::ptr_eq(&self.mnt, mnt)
     }
 
-    /// The absolute guest path `path`, relative to the Mount's root, stands
-    /// for.
+    /// The absolute guest path `path`, from the Mount's root, stands for.
     fn guest_path(&self, path: &str) -> String {
         match (self.at.as_str(), path) {
-            (at, "") => at.to_string(),
-            ("/", path) => format!("/{path}"),
-            (at, path) => format!("{at}/{path}"),
+            (at, "/") => at.to_string(),
+            ("/", path) => path.to_string(),
+            (at, path) => format!("{at}{path}"),
         }
     }
 
@@ -526,7 +525,7 @@ mod tests {
             first.is_ok()
                 && guard.check(held.path()).is_ok()
                 && crate::vfs::vfs_fstatat(&cred, held.path(), "f", false).is_ok()
-                && held.path().dentry().path_raw() == "q/d",
+                && held.path().dentry().path_raw() == "/q/d",
             "WalkGuard::check of a directory moved by another Mount while revalidate is asked, \
              beneath a Policy, must let a call through both then and afterwards, at q/d"
         );
@@ -671,7 +670,7 @@ mod tests {
         let judged = |kind| {
             let path = SecurityPath {
                 mnt: mount.mnt(),
-                name: &String::new,
+                name: &|| "/".to_owned(),
             };
             KobakoSecurity
                 .file_open(path, kind, FMode::READ, &OpenHow::default())

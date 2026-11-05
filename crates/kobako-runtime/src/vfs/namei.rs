@@ -125,12 +125,12 @@ impl Nameidata {
     /// The path from the mount's root, read from the dentry the walk stands
     /// in as Linux's `d_path` reads one: each name spelled as the directory
     /// holding it stores it, the last name kept as given where nothing
-    /// holds it.
+    /// holds it, from a leading `/` that alone names the root.
     pub(crate) fn dentry_path(&self) -> String {
         let mut names = self.dentry().names();
         names.push(self.last.clone());
         names.retain(|name| !name.is_empty());
-        names.join("/")
+        format!("/{}", names.join("/"))
     }
 
     /// Answer `hook` for the path the walk ended on, as Linux's `security_path_*`
@@ -3522,9 +3522,9 @@ mod tests {
         renaming: Arc<Hook>,
     }
 
-    /// The path `dentry` stands at, folded.
+    /// The path `dentry` stands at beneath the root, folded.
     fn folded(dentry: &Dentry) -> String {
-        dentry.path_raw().to_uppercase()
+        dentry.path_raw()[1..].to_uppercase()
     }
 
     /// A directory of a `FoldsToUpper`, open.

@@ -221,6 +221,13 @@ fn time_of(stat: Value, name: &str) -> Result<Option<SystemTime>, MagnusError> {
         .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::new(seconds, nanoseconds))))
 }
 
+/// The path the object is asked about for `dentry`: where it stands beneath the
+/// root, with no leading `/`, so an object joining it to a directory of its own
+/// stays within that directory, empty for the root.
+fn path_of(dentry: &Dentry) -> String {
+    dentry.path_raw()[1..].to_owned()
+}
+
 fn join(dir: &str, name: &str) -> String {
     if dir.is_empty() {
         name.to_string()
@@ -239,7 +246,7 @@ impl RubyFilesystem {
         how: &OpenHow,
         create: bool,
     ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-        let path = dentry.path_raw();
+        let path = path_of(dentry);
         let file = ask(
             self.object,
             "open",
@@ -251,13 +258,13 @@ impl RubyFilesystem {
         )?;
         match dentry.inode().map(|inode| inode.identity()) {
             None => {
-                let made = self.stat(dentry.path_raw())?;
+                let made = self.stat(path_of(dentry))?;
                 dentry.add(Some(Inode::new(&made, Arc::new(RubyRegular(*self)))));
             }
             // The object opens by path, so whatever stands there now may be
             // another entry than the one judged, as `Bind::open_file` finds.
             Some(Some(identity)) => {
-                if Identity::of(&self.stat(dentry.path_raw())?) != Some(identity) {
+                if Identity::of(&self.stat(path_of(dentry))?) != Some(identity) {
                     return Err(FilesystemError::NotFound);
                 }
             }
@@ -279,7 +286,7 @@ impl RubyFilesystem {
     /// gone by the time it is asked about is one the listing no longer holds, as
     /// any listing is a moment that may have passed.
     fn entries_at(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
-        let at = dentry.path_raw();
+        let at = path_of(dentry);
         let names: Vec<String> = ask(
             self.object,
             "children",
@@ -306,7 +313,7 @@ struct RubyLink(RubyFilesystem);
 
 impl InodeOperations for RubyLink {
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        self.0.stat(dentry.path_raw())
+        self.0.stat(path_of(dentry))
     }
 
     fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
@@ -323,7 +330,7 @@ impl InodeOperations for RubyRegular {
     /// the entry its lookup recorded; anything else is asked by its path.
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
         let Some(file) = find_open_file(dentry) else {
-            return self.0.stat(dentry.path_raw());
+            return self.0.stat(path_of(dentry));
         };
         let metadata = ask(
             file.get(),
@@ -386,7 +393,7 @@ impl FileSystemType for RubyFilesystem {
 /// path a Policy judges.
 impl InodeOperations for RubyFilesystem {
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        self.stat(dentry.path_raw())
+        self.stat(path_of(dentry))
     }
 
     /// A Ruby object matches names exactly, as its contract asks. A lookup
@@ -395,7 +402,7 @@ impl InodeOperations for RubyFilesystem {
         if dentry.name().len() > NAME_MAX {
             return Err(FilesystemError::InvalidFilename);
         }
-        match self.stat(dentry.path_raw()) {
+        match self.stat(path_of(dentry)) {
             Ok(found) => {
                 let ops: Arc<dyn InodeOperations> = match found.file_type {
                     FileType::Dir => Arc::new(*self),
@@ -444,7 +451,7 @@ impl InodeOperations for RubyFilesystem {
         change(
             self.object,
             "mkdir",
-            (dentry.path_raw(),),
+            (path_of(dentry),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -453,7 +460,7 @@ impl InodeOperations for RubyFilesystem {
         change(
             self.object,
             "rmdir",
-            (dentry.path_raw(),),
+            (path_of(dentry),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -462,7 +469,7 @@ impl InodeOperations for RubyFilesystem {
         change(
             self.object,
             "unlink",
-            (dentry.path_raw(),),
+            (path_of(dentry),),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -483,7 +490,7 @@ impl InodeOperations for RubyFilesystem {
         change(
             self.object,
             "rename",
-            (from.path_raw(), to.path_raw()),
+            (path_of(from), path_of(to)),
             FilesystemError::ReadOnlyFilesystem,
         )
     }
@@ -566,7 +573,7 @@ impl DentryOperations for RubyFilesystem {
         let Some(inode) = dentry.inode().filter(|_| find_open_file(dentry).is_none()) else {
             return Ok(false);
         };
-        match self.stat(dentry.path_raw()) {
+        match self.stat(path_of(dentry)) {
             Ok(found) => {
                 Ok(Identity::of(&found) == inode.identity() && found.file_type == inode.kind())
             }

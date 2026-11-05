@@ -794,12 +794,12 @@ impl FileSystemType for StoresUpperCase {
 
 impl InodeOperations for StoresUpperCase {
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        self.stat(&dentry.path_raw())
+        self.stat(&dentry.path_raw()[1..])
             .ok_or(FilesystemError::NotFound)
     }
 
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-        let Some(found) = self.stat(&dentry.path_raw()) else {
+        let Some(found) = self.stat(&dentry.path_raw()[1..]) else {
             return Ok(Lookup::Absent);
         };
         let inode = Inode::new(&found, Arc::new(self.clone()));

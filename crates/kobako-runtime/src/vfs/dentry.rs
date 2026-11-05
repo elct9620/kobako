@@ -180,10 +180,11 @@ impl Dentry {
         self.state().name.clone()
     }
 
-    /// Where this name stands now beneath the Filesystem's root, empty for
-    /// the root, as Linux's `dentry_path_raw` answers.
+    /// Where this name stands now beneath the Filesystem's root, from a
+    /// leading `/` that alone names the root, as Linux's `dentry_path_raw`
+    /// answers.
     pub fn path_raw(&self) -> String {
-        self.names().join("/")
+        format!("/{}", self.names().join("/"))
     }
 
     /// Each name from the Filesystem's root down to this directory, as Linux's
@@ -899,6 +900,12 @@ mod tests {
         root: KernPath,
     }
 
+    /// The path `dentry` stands at beneath a `ByPath`'s root, as a path-based
+    /// Filesystem builds its own from `dentry_path_raw`.
+    fn at(dentry: &Dentry) -> String {
+        dentry.path_raw()[1..].to_owned()
+    }
+
     /// A name it recorded nothing for is looked up again, as a Ruby Filesystem's
     /// `revalidate` answers, so one it made is found where the make left it.
     impl super::DentryOperations for ByPath {
@@ -921,11 +928,11 @@ mod tests {
 
     impl InodeOperations for ByPath {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            self.root.vfs_lstat(&dentry.path_raw())
+            self.root.vfs_lstat(&at(dentry))
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-            match self.root.vfs_lstat(&dentry.path_raw()) {
+            match self.root.vfs_lstat(&at(dentry)) {
                 Ok(found) => Ok(Lookup::Found(Inode::new(
                     &found,
                     Arc::new(Self {
@@ -945,7 +952,7 @@ mod tests {
             if dentry.kind() == Ok(FileType::Dir) {
                 return Ok(Box::new(ByPathDir(self.root.clone())));
             }
-            self.root.open(&dentry.path_raw(), how)
+            self.root.open(&at(dentry), how)
         }
 
         fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
@@ -958,7 +965,7 @@ mod tests {
             if !how.create {
                 return Ok(Finish::NoOpen { created: false });
             }
-            let file = self.root.create(&dentry.path_raw(), how)?;
+            let file = self.root.create(&at(dentry), how)?;
             Ok(Finish::Open {
                 file,
                 created: true,
@@ -966,15 +973,15 @@ mod tests {
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.vfs_mkdir(&dentry.path_raw())
+            self.root.vfs_mkdir(&at(dentry))
         }
 
         fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.vfs_rmdir(&dentry.path_raw())
+            self.root.vfs_rmdir(&at(dentry))
         }
 
         fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.vfs_unlink(&dentry.path_raw())
+            self.root.vfs_unlink(&at(dentry))
         }
 
         fn rename(
@@ -987,8 +994,7 @@ mod tests {
             (to_dir as &dyn Any)
                 .downcast_ref::<Self>()
                 .ok_or(FilesystemError::CrossesDevices)?;
-            self.root
-                .rename(&from.path_raw(), &self.root, &to.path_raw())
+            self.root.rename(&at(from), &self.root, &at(to))
         }
     }
 
@@ -1001,7 +1007,7 @@ mod tests {
             dentry: &Dentry,
             ctx: &mut vfs::DirContext<'_>,
         ) -> Result<(), FilesystemError> {
-            let entries = match dentry.path_raw().as_str() {
+            let entries = match at(dentry).as_str() {
                 "" => self.0.iterate_dir(),
                 at => self.0.open_dir(at)?.iterate_dir(),
             }?;
@@ -1230,6 +1236,16 @@ mod tests {
     }
 
     #[test]
+    fn the_root_stands_at_a_lone_slash() {
+        let dentries = super::Dentries::new(None);
+        assert_eq!(
+            dentries.root().path_raw(),
+            "/",
+            "Dentry::path_raw of the root must answer a lone /, as dentry_path_raw answers"
+        );
+    }
+
+    #[test]
     fn an_exchange_swaps_two_dentries() {
         let dentries = super::Dentries::new(None);
         let root = dentries.root();
@@ -1244,7 +1260,7 @@ mod tests {
                     .lookup(&root, "a")
                     .is_some_and(|found| Arc::ptr_eq(&found, &b))
             ),
-            ("d/b".to_string(), "a".to_string(), true),
+            ("/d/b".to_string(), "/a".to_string(), true),
             "Dentries::exchange must hand each dentry the other's name, and find each by its new \
              name"
         );
@@ -1297,7 +1313,7 @@ mod tests {
                 })
             };
             let torn = (0..5_000_000)
-                .filter(|_| leaf.path_raw().starts_with("z/"))
+                .filter(|_| leaf.path_raw().starts_with("/z/"))
                 .count();
             stop.store(true, Ordering::SeqCst);
             moving.join().expect("the moves must not panic");

@@ -2370,9 +2370,9 @@ mod tests {
         }
     }
 
-    /// The path `dentry` stands at, folded.
+    /// The path `dentry` stands at beneath the root, folded.
     fn folded(dentry: &Dentry) -> String {
-        dentry.path_raw().to_lowercase()
+        dentry.path_raw()[1..].to_lowercase()
     }
 
     /// A directory of a `FoldsCase`, open.
