@@ -28,7 +28,8 @@ A Bind opens only files and directories: a FIFO, socket, or device raises
 | no writable grant over kobako's compile cache | the host runs what that cache holds as native code |
 
 Each file the guest holds open holds one host descriptor. Each directory it
-holds open holds one per Bind Layer it spans. A Bind also keeps up to 64
+holds open holds one for each Bind it spans, so an Overlay's directory holds one
+per Layer that is a Bind. A Bind also keeps up to 64
 directories open for walks, besides its root.
 
 The compile cache is `$XDG_CACHE_HOME/kobako`, else `~/.cache/kobako`. A Bind of
@@ -45,8 +46,7 @@ sandbox.mount("/data", fs) { |path, _access| path.start_with?("/data/public/") }
 ```
 
 Allow what the guest needs rather than refusing what it must not reach: a
-denylist misses a path you did not foresee. An open that may create is asked a
-change first, then what it opens for, as Linux asks its security modules.
+denylist misses a path you did not foresee.
 
 ### Judged Paths
 
@@ -61,8 +61,9 @@ table shows what the guest sees where a path could slip past it.
 | another case or Unicode form of a name | the Policy judges the spelling the host stores |
 
 A call that what stands at the path refuses, such as `Errno::ENOENT`, fails
-before the Policy is asked. An open that may create asks its change first, so
-its `Errno::EEXIST` comes after the Policy.
+before the Policy is asked. An open that may create is asked a change first,
+then what it opens for, as Linux asks its security modules. Its
+`Errno::EEXIST` comes after the Policy.
 
 ## Refused Paths
 
@@ -95,11 +96,50 @@ another's. The bundled Guest Binaries import no clock, so no script can time
 that. A third-party guest on `permissive`, or a script a Service hands a clock,
 may tell which names were reached lately.
 
+## Opened Directories
+
+A directory the guest opened is held as itself, as a POSIX descriptor holds one.
+Beyond each Mount's root, only a third-party guest holds a directory open to
+walk from.
+
+| After it opens | A call through it |
+|---|---|
+| it moves | reaches it where it went, as Linux |
+| it is removed | makes nothing more |
+
+A path resolved through it stays beneath it, as a descriptor only ever narrows
+what the guest may reach.
+
+### Beneath a Policy
+
+The Policy judges a path through the directory where the directory stands now.
+How it moved decides whether it is still reached.
+
+| How it moved | A path through it |
+|---|---|
+| through any Mount of the same Filesystem | reaches it where it went, judged there |
+| as a call starts from it, through another Mount | that call and each later one reach it where it went |
+| by the host, or through another Filesystem | raises `Errno::ENOENT` |
+| on a Filesystem that reports no identity | raises `Errno::ENOENT` |
+
+### Descriptor Reads
+
+The Policy judges neither a `stat` nor a listing of the descriptor itself. This
+table shows what the guest still reads once the host moved the directory out of
+the Mount.
+
+| Through the descriptor | Answer |
+|---|---|
+| a `stat` of it | what it reports then |
+| a listing of it | the names it holds then, new ones included |
+| a path beneath it, content included | `Errno::ENOENT` |
+
 ## Host Risks
 
 Some risks stay with the host, because kobako cannot see them. A row marked
-third-party needs a call the bundled Guest Binaries do not import, so only a
-third-party guest reaches it.
+third-party needs what the bundled Guest Binaries never do, so only a
+third-party guest reaches it. It needs a call they do not import, listed below,
+or a walk from a directory the guest opened.
 
 | A guest call | Preview1 imports it lacks |
 |---|---|
@@ -159,6 +199,7 @@ Windows reads some names differently and holds open directories in place.
 
 | Risk | Where it lies |
 |---|---|
+| a `\` in a path on a Bind | `Errno::EINVAL`, never asked of the host |
 | a name Windows reads as another on a Bind | `Errno::EINVAL`: a stream, a device, a wildcard, or a trailing dot or space |
 | a directory a Bind holds open | the host cannot move or remove it until the Bind is collected |
 | a Bind's directory opened beneath a Policy, third-party | a path through it raises `Errno::ENOENT`, as a Bind reports no identity there |
@@ -177,41 +218,3 @@ state.
 
 The Wasm Driver makes such a call again a few times before the guest sees
 `Errno::EAGAIN`.
-
-## Opened Directories
-
-A directory the guest opened is held as itself, as a POSIX descriptor holds one.
-Beyond each Mount's root, only a third-party guest holds a directory open to
-walk from.
-
-| After it opens | A call through it |
-|---|---|
-| it moves | reaches it where it went, as Linux |
-| it is removed | makes nothing more |
-
-A path resolved through it stays beneath it, as a descriptor only ever narrows
-what the guest may reach.
-
-### Beneath a Policy
-
-The Policy judges a path through the directory where the directory stands now.
-How it moved decides whether it is still reached.
-
-| How it moved | A path through it |
-|---|---|
-| through any Mount of the same Filesystem | reaches it where it went, judged there |
-| as a call starts from it, through another Mount | that call and each later one reach it where it went |
-| by the host, or through another Filesystem | raises `Errno::ENOENT` |
-| on a Filesystem that reports no identity | raises `Errno::ENOENT` |
-
-### Descriptor Reads
-
-The Policy judges neither a `stat` nor a listing of the descriptor itself. This
-table shows what the guest still reads once the host moved the directory out of
-the Mount.
-
-| Through the descriptor | Answer |
-|---|---|
-| a `stat` of it | what it reports then |
-| a listing of it | the names it holds then, new ones included |
-| a path beneath it, content included | `Errno::ENOENT` |

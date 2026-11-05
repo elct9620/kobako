@@ -1,8 +1,8 @@
 # Extensions
 
 An **Extension** teaches guest code a native-style constant. It bundles a guest idiom
-(mruby `source`) with an optional host `backend`. Pure operations such as `Vfs.join`
-stay in-guest; privileged ones such as `Vfs.read` dispatch to the host backend like
+(mruby `source`) with an optional host `backend`. Pure operations such as `Storage.join`
+stay in-guest; privileged ones such as `Storage.read` dispatch to the host backend like
 any bound Service.
 
 | Part | Lives in |
@@ -12,7 +12,7 @@ any bound Service.
 | a concrete Extension | the Host App or a third-party gem |
 
 kobako ships no concrete Extension, only the contract and the `#install` consumer.
-The `Vfs` used below is illustrative; a Guest Binary's own `File` is reached
+The `Storage` used below is illustrative; a Guest Binary's own `File` is reached
 through a Mount instead.
 
 ## Extension Contract
@@ -59,8 +59,8 @@ Extension            Catalog
   backend       --->   Service at path
 ```
 
-Install every Extension before the first Invocation, which seals installation along
-with `#bind` and `#preload` and checks each `depends_on`. The seal and the dependency
+Install every Extension before the first Invocation, which seals `#bind`,
+`#preload`, `#install`, `#mount`, and `#flag` and checks each `depends_on`. The seal and the dependency
 check are specified in [extension](../spec/behavior/extension.md).
 
 ## Design Boundaries
@@ -76,15 +76,15 @@ The first rule is the `install` / `bind` divide. A capability spanning several
 host-backed constants composes as one idiom and one backend each, joined by
 reference rather than a single aggregate.
 
-## Virtual File Example
+## Storage Example
 
 The guest idiom `extend`s `Kobako::Proxy` for host-forwarding. The capability is
-mixed in rather than inherited, so `Vfs` keeps its own superclass free. It runs path
+mixed in rather than inherited, so `Storage` keeps its own superclass free. It runs path
 arithmetic locally and routes I/O to the host.
 
 ```ruby
-VFS_SOURCE = <<~RUBY
-  class Vfs
+STORAGE_SOURCE = <<~RUBY
+  class Storage
     extend Kobako::Proxy
 
     def self.join(*parts) = parts.join("/")
@@ -111,27 +111,27 @@ The host backend is an ordinary duck-typed object, here a fresh in-memory store 
 Invocation so writes never leak.
 
 ```ruby
-vfs_ext = Kobako::Extension.new(
-  name: :Vfs,
-  source: VFS_SOURCE,
+storage_ext = Kobako::Extension.new(
+  name: :Storage,
+  source: STORAGE_SOURCE,
   backend: Kobako::Extension::Backend.new(
-    path: "Vfs",
-    provider: -> { InMemoryFileSystem.new },  # provider: → fresh each invocation
+    path: "Storage",
+    provider: -> { InMemoryStore.new },  # provider: → fresh each invocation
   ),
 )
 
-sandbox.install(vfs_ext)
+sandbox.install(storage_ext)
 
 sandbox.eval(<<~RUBY)
-  Vfs.write("a.txt", "hello")
-  Vfs.join("dir", Vfs.basename("x/a.txt"))  #=> "dir/a.txt"  (local, no round-trip)
+  Storage.write("a.txt", "hello")
+  Storage.join("dir", Storage.basename("x/a.txt"))  #=> "dir/a.txt"  (local, no round-trip)
 RUBY
 ```
 
 A read-only, shared backend supplies a static object with `object:` instead.
 
 ```ruby
-backend: Kobako::Extension::Backend.new(path: "Vfs", object: read_only_store)
+backend: Kobako::Extension::Backend.new(path: "Storage", object: read_only_store)
 ```
 
 ## Rust SDK

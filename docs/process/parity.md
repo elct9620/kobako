@@ -32,7 +32,9 @@ One declarative scenario runs through both Frontends against the same
 
 The two must match field for field after normalization. Host-generated
 wording and raw timing legitimately differ, so they stay
-diagnostic-only; `test/support/parity/case.rb` owns that normalization.
+diagnostic-only: messages are dropped, and usage is compared only for
+whether it is present. `test/support/parity/case.rb` owns that
+normalization.
 The suite rides `rake test`. Its families skip on a checkout without
 cargo, and fail under CI instead.
 
@@ -128,6 +130,8 @@ scenario (a) --> parity case (b) --> sumi verify (c)
 - (a) Its When step reads "both frontends run it".
 - (b) Only a case in `test/parity/` witnesses it.
 - (c) It fails once that case stops claiming the scenario.
+
+A parity case may also witness an ordinary scenario that both Frontends satisfy, as the Mount case claims scenarios of the mount and file features.
 
 ### Unstageable Behavior
 

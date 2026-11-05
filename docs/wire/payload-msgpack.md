@@ -64,12 +64,11 @@ Any other ext code is refused. `Value` is `kobako_codec::msgpack::Value`, the de
 
 ## Integer Range
 
-Both sides hold an `Integer` of any precision, and one crosses the wire within the range msgpack's integer types encode.
+Both sides hold an `Integer` of arbitrary precision, and one crosses the wire within the range msgpack's integer types encode.
 
-| Side | `Integer` width | Crosses within |
-|------|-----------------|----------------|
-| Host Gem | arbitrary precision | −2⁶³ to 2⁶⁴−1 |
-| Guest Binary | arbitrary precision | −2⁶³ to 2⁶⁴−1 |
+```
+-2^63 <= wire Integer <= 2^64 - 1
+```
 
 Every integer the wire carries fits both sides, so neither refuses one inbound. An `Integer` past the range has no wire form, and the side holding it refuses to send it ([codec](../spec/behavior/codec.md)). A guest `Integer` within the range crosses whichever form mruby keeps it in.
 

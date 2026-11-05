@@ -18,6 +18,9 @@ The gem package `.` is configured so a gem-only release still gets its tag and i
 | no `component` | a gem-only release still creates its `vX.Y.Z` tag |
 | `version-file` | the Ruby strategy finds `lib/kobako/version.rb` |
 | no `package-name` | the component stays unset |
+| top-level `extra-files` | each gem release moves the ext crate's version in `ext/kobako/Cargo.toml` and the root `Cargo.lock` |
+
+Every crate package sets its own `extra-files`, which replaces the top-level list, so only the gem package inherits it.
 
 With `include-component-in-tag: false`, release-please tags a standalone release only when the configured component matches the componentless PR section. Naming a component therefore silently drops the tag. Without a component, the Ruby strategy cannot find `VERSION` on its own, so `version-file` names it. Dropping `version-file` releases the previous version while the tag and CHANGELOG move on. `package-name` would also locate the file, but it sets the component and loses the tag again.
 
@@ -43,11 +46,11 @@ Standard semver applies once the project is stable (≥ 1.0).
 | Type | Bump |
 |------|------|
 | `feat:` | minor |
-| `fix:` | patch |
+| `fix:` `perf:` | patch |
 | any type with `!` or a `BREAKING CHANGE:` footer | major |
-| unmarked `refactor` `docs` `test` `chore` `build` `ci` `perf` `style` | none |
+| unmarked `refactor` `docs` `test` `chore` `build` `ci` `style` | none |
 
-An unmarked `refactor`, `docs`, or `test` commit never releases, so a change shipped only under those types is invisible to `release-please`. The breaking marker overrides the type: a `refactor!` both releases and reaches the changelog.
+A commit releases only when its type has a changelog section. The config overrides no `changelog-sections`, so `release-please`'s defaults apply: `perf` gets Performance Improvements, while an unmarked `refactor`, `docs`, or `test` commit never releases. A change shipped only under those types is invisible to `release-please`. The breaking marker overrides the type: a `refactor!` both releases and reaches the changelog.
 
 ### Pre-1.0 Override
 
@@ -67,12 +70,12 @@ Most releases need nothing extra; the rows below cover the ones that do.
 
 | Situation | Approach |
 |-----------|----------|
-| a `feat` or `fix` on the package's paths | nothing extra; the PR opens itself |
+| a `feat`, `fix`, or `perf` on the package's paths | nothing extra; the PR opens itself |
 | a real change landed only as unmarked types | give it a trigger |
 | both tracks must publish together | both triggers in one scan window |
 | a breaking change | see Breaking Changes |
 
-A catch-up trigger is preferably a genuine `feat` or `fix` touching that track's paths; correcting a stale README example is a real `fix`. Only when no natural one exists, use a `Release-As: X.Y.Z` footer under the rules below.
+A catch-up trigger is preferably a genuine `feat`, `fix`, or `perf` touching that track's paths; correcting a stale README example is a real `fix`. Only when no natural one exists, use a `Release-As: X.Y.Z` footer under the rules below.
 
 The tracks publish together when the gem bundles a new Guest Binary: a gem on the old Guest Binary mispairs with new crates. Put each trigger in the same scan window, path-scoped to its own track. `release-please` opens one combined PR, and a single merge publishes both.
 
@@ -94,7 +97,7 @@ With `!` alone, the changelog note is the commit subject, and the body is never 
 
 ## Release-As Rules
 
-Use `Release-As` only when a track has no natural `feat` or `fix` to release.
+Use `Release-As` only when a track has no natural `feat`, `fix`, or `perf` to release.
 
 | Rule | Why |
 |------|-----|
@@ -126,7 +129,7 @@ The BREAKING CHANGES section is the last point at which a subject-only note can 
 
 ## Linked Group Seats
 
-A crate joins the group by taking every seat below. None fails where it was missed: three fail silently, and `test/tasks/test_release_wiring.rb` holds those three. The loud ones surface at release time, some part-way through a group publish that has already put crates on crates.io.
+A crate joins the group by taking every seat below. A missed seat never fails at the step that missed it. The three marked silent report success anyway, and `test/tasks/test_release_wiring.rb` checks those three. The others fail at release time, some part-way through a group publish that has already put crates on crates.io.
 
 | Seat | What it takes | If it is missed |
 |------|---------------|-----------------|
@@ -135,7 +138,7 @@ A crate joins the group by taking every seat below. None fails where it was miss
 | each dependent's `extra-files` | a pin on the new crate's version | dependents require a stale version |
 | `.release-please-manifest.json` | the path at the group's version | silent: never joins the bump |
 | the crate's `README.md` | an annotated version line | silent: the version never updates |
-| each sibling `[dev-dependencies]` | a path and no version | silent: the lockfile sync fails |
+| each sibling `[dev-dependencies]` | a path and no version | silent: the version falls behind until the lockfile sync cannot resolve it |
 | `.github/scripts/publish-crates.sh` | a `publish_crate` call before dependents | publish fails part-way through |
 | `.github/workflows/release-please.yml` | the output, the OR chain, the `cargo update -p` lists | the lockfile sync skips it |
 | crates.io | a `0.0.0` placeholder | publish fails: the name is unknown |

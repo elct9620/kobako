@@ -31,16 +31,23 @@ default unless it keeps a guarantee no default can. An exhaustive set has neithe
 there is no wildcard to fall into. kobako swapping its own replaceable implementation
 is not a break.
 
-A struct with public fields is graded by whether its fields can grow:
-
-| Its fields | Mark | Grade | You build it with |
-|---|---|---|---|
-| can grow | `#[non_exhaustive]` | append-only | its `new`, or `Default` and then each field |
-| fixed by what it models | none | stable · exhaustive | a struct literal |
-
 Source compatibility is the owning crate's semantic version; wire compatibility is
 the ABI version. A rename moves no byte, and a wire change need not touch a name.
-Both govern only the fixed tier, where the shape of the name *is* the wire.
+Both govern only the fixed pillar, where the shape of the name *is* the wire.
+
+### Graded Structs
+
+A struct is graded by whether its fields can grow:
+
+| Its public fields | Mark | Grade | You build it with |
+|---|---|---|---|
+| can grow | `#[non_exhaustive]` | append-only | a constructor it offers, then each field |
+| fixed by what it models | none | stable · exhaustive | a struct literal |
+| none | none | stable | nothing; you pass on what kobako made |
+
+`Iattr::size` and `Kiocb::at` are such constructors. `DirEmit` and `Failure` offer
+none, so you only read what kobako hands you. `OpenFlags` you only pass from
+`build_open_flags` to `do_file_open`, so what it holds may change beneath you.
 
 ## Replaceable Points
 
@@ -66,10 +73,10 @@ The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder}` · `kobako_codec::msgpack::codec::MAX_NESTING_DEPTH` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
-| **stable** | `kobako_runtime::{Tmpfs, Bind, Overlay, Mount, MountPathError}` · `kobako_runtime::filesystem::Filesystem` · `kobako_runtime::filesystem::{PipeInodeInfo, Rdir, create_pipe_files}` · `kobako_runtime::vfs::{Cred, Dentry, DirContext, File, FileSecurity, FMode, Identity, Inode, Mask, Path, PollMask, Start, SuperBlock, VfsMount, build_open_flags, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, filename_linkat, filename_symlinkat, dir_emit_dots, generic_file_llseek, generic_read_dir, generic_write_sync, vfs_fstatat, do_readlinkat, do_utimes_path, do_utimes_fd, verify_dirent_name, PATH_MAX, NAME_MAX}` · `kobako_runtime::security::{WalkGuard, prepare_creds_within, restrict_self}` · `kobako_runtime::endpoint::{Calls, MemoryCap, MemoryLimitExceeded, ABANDONED, RUNTIME_INCOMPATIBLE, clip_capture, compiled_bytecodes, handle, pipe_capacity, read_compile_reply, read_outcome, request_of, stdin_content, write_request}` · `kobako_runtime::sched::{Task, run_task}` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder}` · `kobako_codec::msgpack::codec::MAX_NESTING_DEPTH` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::extension::ProviderFn` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
+| **stable** | `kobako_runtime::{Tmpfs, Bind, Overlay, Mount, MountPathError}` · `kobako_runtime::filesystem::Filesystem` · `kobako_runtime::filesystem::{PipeInodeInfo, Rdir, create_pipe_files}` · `kobako_runtime::vfs::{Cred, Dentry, DirContext, File, FileSecurity, FMode, Identity, Inode, Mask, OpenFlags, Path, PollMask, Start, SuperBlock, VfsMount, build_open_flags, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, filename_linkat, filename_symlinkat, dir_emit_dots, generic_file_llseek, generic_read_dir, generic_write_sync, vfs_fstatat, do_readlinkat, do_utimes_path, do_utimes_fd, verify_dirent_name, PATH_MAX, NAME_MAX}` · `kobako_runtime::security::{WalkGuard, prepare_creds_within, restrict_self}` · `kobako_runtime::endpoint::{Calls, MemoryCap, MemoryLimitExceeded, ABANDONED, RUNTIME_INCOMPATIBLE, clip_capture, compiled_bytecodes, handle, pipe_capacity, read_compile_reply, read_outcome, request_of, stdin_content, write_request}` · `kobako_runtime::sched::{Task, run_task}` |
 | **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access}` · `kobako_runtime::vfs::{Lookup, SecurityPath, SetTime, Whence}` · `kobako_runtime::endpoint::UpcallEnd` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
-| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, Kstat, DirEntry}` · `kobako_runtime::filesystem::{RenameFlag, Finish}` · `kobako_runtime::vfs::{OpenHow, OpenFlags, DirEmit, Iattr, Kiocb}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
+| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, Kstat, DirEntry}` · `kobako_runtime::filesystem::{RenameFlag, Finish}` · `kobako_runtime::vfs::{OpenHow, DirEmit, Iattr, Kiocb}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
@@ -81,7 +88,7 @@ and `Inode`, and `kobako::msgpack::Value` re-exports `kobako_codec::msgpack::Val
 `kobako::filesystem` re-exports `kobako_runtime::filesystem`, so each name there keeps
 the grade above.
 
-### Fixed Tier
+### Fixed Pillar
 
 Two things stay fixed, and the Ruby Frontend takes no Codec seam.
 
@@ -91,7 +98,7 @@ Two things stay fixed, and the Ruby Frontend takes no Codec seam.
 | the Ruby Frontend's Codec, MessagePack | Ruby's native choice, which the gem speaks directly |
 
 Both wire parts live in `kobako-transport`, which depends on nothing, so an
-implementer picks up the fixed tier without anyone else's choices
+implementer picks up the fixed pillar without anyone else's choices
 (→ [`wire/README.md`](../wire/README.md)).
 
 ## Payload Codec

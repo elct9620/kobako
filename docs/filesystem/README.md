@@ -36,13 +36,17 @@ The Context follows Linux's three layers: the Wasm Driver in the syscall's place
 
 - (a) `kobako-wasmtime`: decoding, errno, the fd table, rights, the Cred, syscall-entry checks.
 - (b) `kobako_runtime::vfs`: namei, dentries, inodes, vfsmounts, open files, the dentry cache.
-- (c) kobako's rules, which hold whatever a Mount allows, and each Mount's Policy.
-- (d) Tmpfs, Bind, Overlay; Ruby, which answers through an object the Host App writes in Ruby; pipe, for the standard streams.
+- (c) In order: kobako's rules, which hold whatever a Mount allows; the modules in `kobako_wasmtime::Config::security`; each Mount's Policy.
+- (d) kobako ships Bind, Tmpfs, and Overlay. Ruby lets a Host App write its own in Ruby; pipe serves the standard streams and a Channel, behind no Mount.
 - (e) Beneath the VFS and every Filesystem: `rw_semaphore`, `seqlock`, `current`, and `schedule`, where a Frontend registers its way to wait.
+
+Whoever builds the Wasm Driver hands it the modules, as Linux stacks the LSMs it booted with.
 
 ### Module Names
 
 The Filesystems are built on the VFS, so the operation tables belong to `vfs`. The `filesystem` module exports them for a third party bringing its own, and exports `vfs::SuperBlock` as `filesystem::Filesystem`.
+
+`WalkGuard` keeps a Policy judging the path a descriptor stands at. Linux's VFS asks nothing of where a walk starts, so the Wasm Driver holds one in its descriptor table and asks it at syscall entry.
 
 | Module | Holds |
 |---|---|
@@ -63,8 +67,6 @@ Each role keeps to its own work, so a change that crosses roles is a change in t
 | locking, sched | whether a wait can end, who asks, the Frontend's way to wait |
 
 The VFS also charges what a Cred's Filesystems hold against that Cred's memory cap.
-
-`WalkGuard` keeps a Policy judging the path a descriptor stands at. Linux's VFS asks nothing of where a walk starts, so the Wasm Driver holds one in its descriptor table and asks it at syscall entry.
 
 ## Linux Alignment
 
@@ -123,7 +125,7 @@ One WASI call passes the Wasm Driver, the VFS, and a Filesystem in turn, and eac
 
 ## Divergence Kinds
 
-kobako differs from Linux in three kinds of way. All three only refuse more; none gives a success answer Linux would not.
+kobako differs from Linux in three kinds of way. As to which call succeeds, all three only refuse more; none lets a call succeed that Linux would refuse. What a successful stat reports, such as a link's size or an inode number, is the Posture's to mask.
 
 | Kind | Example | Owner |
 |---|---|---|

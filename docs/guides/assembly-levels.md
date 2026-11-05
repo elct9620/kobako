@@ -5,13 +5,14 @@ This document maps four levels. Each widens what is yours and costs more to stan
 Find the one that varies what you need varied, and stop there.
 
 Read this before [`customization.md`](customization.md).
-This one tells you which interfaces you will meet; that one states what each obliges its implementer to do.
+This one tells you which interfaces you will meet; that one names each and what kobako promises in return.
+What implementing a trait obliges is in that trait's rustdoc.
 
 | Document | Answers |
 |---|---|
 | [`variants.md`](variants.md) | what we ship |
 | this one | which level to stand on |
-| [`customization.md`](customization.md) | what the interfaces at that level oblige you to |
+| [`customization.md`](customization.md) | which interfaces that level exposes, and what kobako promises for each |
 
 ## The Ladder
 
@@ -41,7 +42,7 @@ These two tables show what is yours at each level, guest side first.
 
 | | capability gems | invocation flows | guest language |
 |---|---|---|---|
-| L1 | `kobako-io` | the harness's | mruby |
+| L1 | `kobako-io` | the `MrbGuest` flows | mruby |
 | L2 | yours | yours | yours |
 | L3 | yours | yours | yours |
 | L4 | yours | yours | yours |
@@ -65,9 +66,9 @@ The Posture is yours to lower, and it defaults to hermetic.
 |---|---|
 | Codec | MessagePack |
 | capability | `kobako-io` only |
-| Posture | hermetic by default; `profile: :permissive` leaves the clock and entropy live |
+| Posture | hermetic by default; `profile: :permissive` brings no live clock, since the bundled Guest Binary imports none |
 | Engine | wasmtime |
-| invocation flows | the mruby harness's own |
+| invocation flows | the provided `MrbGuest` flows |
 
 A downloadable variant adds Regexp or JSON ([`variants.md`](variants.md)) and keeps you here.
 A variant is a different artifact, not a different level.
@@ -79,7 +80,7 @@ At L2 you build a Guest Binary of your own, and the Ruby gem drives it unchanged
 | Option | What you build |
 |---|---|
 | mruby | a leaf shell over `kobako-mruby` naming the `beni::Gem` set scripts may reach |
-| mruby, other flows | the same shell, replacing a harness flow you do not want |
+| mruby, other flows | the same shell, replacing an `MrbGuest` flow you do not want |
 | another interpreter | any artifact that satisfies the ABI |
 
 The gem drives whatever artifact you hand it, since the guest still speaks what the gem speaks.
@@ -123,7 +124,7 @@ Pick the next document by where this one left you.
 | You are heading for | Read |
 |---|---|
 | L1, with a capability the default lacks | [`variants.md`](variants.md) |
-| L2 or beyond | [`customization.md`](customization.md), the obligations each seam carries |
+| L2 or beyond | [`customization.md`](customization.md), the seams and what kobako promises for each |
 | how the parts fit around the fixed pillar | [`architecture.md`](../architecture.md) |
 | the wire itself | [`wire/`](../wire/README.md), starting from its overview |
 | what the sandbox does and does not defend | [`security.md`](security.md) |

@@ -9,6 +9,8 @@ How code in kobako is named, beside [`architecture.md`](../architecture.md), whi
 | which word class names what | Word Classes, Method Names |
 | where `-ed` and `-ing` stand | Participles |
 | how a question, a raise, or a limit reads | Questions, Raising Methods, Limits |
+| when an adjective stands alone | Kinds and Markers |
+| how files and tests are named | Files and Tests |
 | which names come from elsewhere | Fixed Names |
 
 ## Principles
@@ -24,7 +26,7 @@ Because names carry the intent, a comment is left for what no name can say: a re
 
 ## Precedence
 
-A name is judged inside its context, as The Contexts in [`architecture.md`](../architecture.md) draws them. Across two contexts only the interface that translates between them is compared, so the same word may stand in both.
+A name is judged inside its context, as Contexts in [`architecture.md`](../architecture.md) draws them. Across two contexts only the interface that translates between them is compared, so the same word may stand in both.
 
 A name is settled by three steps, in order; the first that decides it ends the search.
 
@@ -45,6 +47,7 @@ What a name stands for decides its word class.
 | An attribute | a noun, or the state it records | `memory_limit`, `failed?` |
 | An enum variant | a noun or an adjective | `Profile::Hermetic`, `Grant::Mount` |
 | A variable or field | a noun, or the state it records | `owner`, `live` |
+| A field holding what answers an event | `on_` and the event | `on_dispatch` |
 
 A method names no subject, because its receiver is one: `sandbox.mount(path, fs)` reads as noun, verb, and noun. An attribute answers what a value holds and takes nothing.
 
@@ -59,7 +62,6 @@ A method is named for what it does, and each kind shows it this way.
 | makes or converts a value | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_nr_inodes`, `from_posix_name` |
 | adds one more of a member it already holds | the member's noun, as `Command::arg` | `flag` |
 | runs a block under a condition | a preposition and the condition | `within_value_budget { … }` |
-| is called when something happens | `on_` and the event | `on_dispatch` |
 
 A preposition opens a name only where the call reads as a phrase without it, as `with_X(…)` and `within_X { … }` do. Elsewhere it stands after a verb.
 
@@ -68,11 +70,11 @@ A preposition opens a name only where the call reads as a phrase without it, as 
 A name reads at the call site as a phrase, without a comment repeating it.
 
 ```ruby
-sandbox.mount("/data", fs)        # subject, verb, object
-decoder.decode_within(budget)     # a verb, then where it acts
+sandbox.mount("/data", fs)                    # subject, verb, object
+Codec.within_value_budget(budget) { run }     # a preposition, then the condition
 
-memory.emptied                    # drift: a participle names no act
-memory.to_empty                   # a conversion names what it makes
+memory.emptied                                # drift: a participle names no act
+memory.to_empty                               # a conversion names what it makes
 ```
 
 ## Participles
@@ -148,7 +150,7 @@ Files and tests are named for what they hold.
 | A Rust test | the behaviour as a sentence | `the_guest_wall_clock_reads_the_unix_epoch` |
 | A Minitest test | `test_`, then the behaviour | `test_a_block_run_on_another_thread_refuses` |
 
-Where a file goes follows How We Work in `AGENTS.md`, and so does a test's assertion message.
+Where a file goes follows the part that owns its concern. Part Ownership in [`architecture.md`](../architecture.md) places the crates, and the comment atop `lib/kobako.rb` places the Ruby tiers. A test's assertion message follows How We Work in `AGENTS.md`.
 
 ## Fixed Names
 
@@ -158,7 +160,6 @@ These names come from another side, and step 1 keeps each as that side spells it
 |---|---|
 | Rust API Guidelines | `new`, `try_`, `as_`, `into_`, `_mut`, a getter without `get_`, a trait such as `Blocking` |
 | Rust API Guidelines, where a type name drops what its module path says | `io::Error`, `kobako_wasmtime::Driver` |
-| Rust standard library, where a Bind reaches its host | `OpenOptions`, `Metadata` |
 | Linux, for the VFS, a Filesystem's operations, locks, and scheduling | `filename_mkdirat`, `vfs_mkdir`, `DentryOperations::revalidate`, `RwSemaphore::down_read`, `sched::schedule` |
 | Ruby and its hooks | `method_missing`, `respond_to_missing?`, `LocalJumpError`, `ThreadError` |
 | magnus and beni | `funcall`, `define_method` |

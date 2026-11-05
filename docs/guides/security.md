@@ -35,7 +35,7 @@ feature that specifies it.
 | a bound object exposes only what it defines itself | [transport-boundary](../spec/behavior/transport-boundary.md) |
 | reflection, eval, and methods mixed into every object never cross, whatever an object permits | [transport-boundary](../spec/behavior/transport-boundary.md) |
 | the guest cannot forge or dereference a Handle | [transport-boundary](../spec/behavior/transport-boundary.md) |
-| each invocation starts from the same boot state | [sandbox](../spec/behavior/sandbox.md) |
+| each Invocation starts from the same boot state | [sandbox](../spec/behavior/sandbox.md) |
 | a binding belongs to its own Sandbox | [services](../spec/behavior/services.md) |
 | no ambient filesystem, environment, or socket | [runtime](../spec/behavior/runtime.md) |
 | a path the guest gives stays within its Mount, and the Mount's access holds | [runtime](../spec/behavior/runtime.md) |
@@ -59,7 +59,9 @@ A permissive guest's inode number tells entries apart, and nothing outside the p
 
 `hermetic` keeps the guest deterministic except for values a Service injects.
 Requesting `:permissive` trades that reproducibility for real time and entropy;
-every other guarantee holds on both rungs.
+every other guarantee holds on both rungs. Live time and entropy reach only a
+third-party guest: the bundled Guest Binaries import no clock and give scripts
+no randomness.
 
 The request is also a floor. Keep the default when the engine is swappable. An
 engine that cannot deny ambient authority is then refused at construction, not
@@ -111,7 +113,7 @@ binding is a capability you hand out. Ask these questions before you bind one.
 | Input Validation | reject at method entry |
 | External Effects | allowlist the resolved resource |
 | Returned Values | return terminal values |
-| Work Volume | budget each invocation |
+| Work Volume | budget each Invocation |
 
 ### Trust Context
 
@@ -119,7 +121,7 @@ A Sandbox's bindings *are* its capability set, so one Sandbox shared across cont
 turns every binding into ambient authority for all of them. Build one per principal
 — per user, agent session, or submission — and bind only what that context may
 touch. Finish every `bind`, `install`, `mount`, `preload`, and `flag` before the
-first invocation; the Sandbox refuses each of them from then on.
+first Invocation; the Sandbox refuses each of them from then on.
 
 ```ruby
 def sandbox_for(session)
@@ -263,18 +265,18 @@ stay out of the message.
 
 ### Work Volume
 
-The timeout bounds an invocation's time, Service time included, but not the host
+The timeout bounds an Invocation's time, Service time included, but not the host
 memory and work each call costs. A Handle costs the guest only its reference, while
-its object stays in host memory until the invocation ends
+its object stays in host memory until the Invocation ends
 ([transport-dispatch](../spec/behavior/transport-dispatch.md)). For hostile input,
-bound the calls and Handles a single invocation can create.
+bound the calls and Handles a single Invocation can create.
 
 Each payload the guest sends holds at most one value per 16 bytes of `memory_limit`
 ([payload-msgpack](../wire/payload-msgpack.md)). Raising the memory cap raises what one
 call may make the host build.
 
 ```ruby
-sandbox.bind("Cur::Next")  # filled per invocation
+sandbox.bind("Cur::Next")  # filled per Invocation
 
 def budgeted(cursor, limit: 1_000)
   calls = 0
@@ -287,5 +289,5 @@ end
 sandbox.eval(script) { |ctx| ctx.bind("Cur::Next", budgeted(cursor)) }
 ```
 
-A fresh budget per `ctx.bind` resets the count for every invocation. A counter
+A fresh budget per `ctx.bind` resets the count for every Invocation. A counter
 captured once at `bind` would span the Sandbox's lifetime instead.

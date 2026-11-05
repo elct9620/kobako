@@ -12,13 +12,14 @@ The Isolation Context owns the Engine, the Wasm Driver that drives it, and the A
 
 ## Name Map
 
-An Engine and the Wasm Driver are two concepts: one runs wasm, the other drives it. Each concept has a type name, and the two differ.
+An Engine and the Wasm Driver are two concepts: one runs wasm, the other drives it. Each concept has its own name in code, and the two differ. `Runtime` the trait and `kobako-runtime` the crate are also two things.
 
-| Name | Means | Type |
+| Name | Means | In code |
 |---|---|---|
 | Engine | the wasm runtime itself | wasmtime, WasmEdge |
 | Wasm Driver | the layer that drives an Engine | `kobako_wasmtime::Driver` |
-| Runtime | the contract each Wasm Driver implements | `kobako_runtime::Runtime` |
+| `Runtime` | the trait each Wasm Driver implements | `kobako_runtime::Runtime` |
+| `kobako-runtime` | the crate that decides every answer | the `kobako-runtime` crate |
 | Filesystem | what answers for entries beneath a Mount | Tmpfs, Bind, Overlay |
 
 The wasmtime type is `Driver` with no prefix, because its crate path already names the Engine. A Filesystem is never called a driver, so the word stays with the Wasm Driver.
@@ -40,7 +41,7 @@ The rows run in the order one system call passes through them. The boundary row 
 
 ## Driver Role
 
-The runtime decides every answer the guest can see, and the Wasm Driver only encodes. The test for each judgment is whether it would still exist under preview2. A judgment that would survive belongs to the runtime; one that exists only for this ABI's shape belongs to the Wasm Driver.
+`kobako-runtime` decides the answers, and the Wasm Driver only encodes. A judgment belongs to the Wasm Driver in two cases. Either it would vanish under preview2, or it is a check a syscall entry makes itself, such as which descriptor a call takes. Every other judgment belongs to `kobako-runtime`. Clocks, the environment, and random bytes are answered by native WASI instead, with the frozen sources wired in by the Wasm Driver.
 
 ```
 +- Wasm Driver: encode ----------------+
@@ -49,6 +50,7 @@ The runtime decides every answer the guest can see, and the Wasm Driver only enc
 |   fd table                           |
 |   rights, prestat                    |
 |   syscall-entry checks, Cred         |
+|   frozen ambient sources             |
 +------------------+-------------------+
                    | asks
                    v
@@ -59,7 +61,7 @@ The runtime decides every answer the guest can see, and the Wasm Driver only enc
 +--------------------------------------+
 ```
 
-Errors follow the same split. The runtime names each failure in POSIX terms through `FilesystemError::posix_name`, and the Wasm Driver turns that name into a WASI code. Where each preview1 judgment lands is in [`filesystem/preview1.md`](../filesystem/preview1.md).
+Errors follow the same split. `kobako-runtime` names each failure in POSIX terms through `FilesystemError::posix_name`, and the Wasm Driver turns that name into a WASI code. Where each preview1 judgment lands is in [`filesystem/preview1.md`](../filesystem/preview1.md).
 
 ## Kernel Assembly
 
@@ -110,17 +112,17 @@ L7 has no hook in wasmtime. `wasmtime-wasi` 50's `WasiFilesystemCtx` holds only 
 
 ## Engine Interfaces
 
-A Wasm Driver for each Engine builds on what that Engine offers for host functions. The table records the versions checked.
+A Wasm Driver for each Engine builds on what that Engine offers for host functions. The table records the current releases, checked on 2026-11-06.
 
 | Engine | Registers | Shares preview1 names | Freezes clock |
 |---|---|---|---|
 | wasmtime 50 | `func_new` | shadowing | yes |
 | wasmi 2.0 | `func_new` | shadowing | yes |
 | wasmer 7.5 | `new_with_env` | overrides | no |
-| WasmEdge 0.17 | `fn` pointer | no | no |
-| WAMR | raw `wamr-sys` | global registration | no |
+| WasmEdge 0.18.1 | `fn` pointer | no | no |
+| WAMR 2.4 | Rust SDK `wamr-rust-sdk` 1.1 | global registration | no |
 
-Shadowing lets kobako answer its calls and leave the rest to the Engine's native WASI. WasmEdge lets only one provider own a module name, so its Wasm Driver would answer all 46 preview1 imports itself. An Engine that cannot freeze its clock declares the permissive Posture, as [`architecture.md`](../architecture.md) § Capability Negotiation sets out.
+Shadowing lets kobako answer its calls and leave the rest to the Engine's native WASI. WAMR's Rust SDK still registers natives once for the whole process, at runtime init. WasmEdge lets only one provider own a module name, so its Wasm Driver would answer all 46 preview1 imports itself. An Engine that cannot freeze its clock declares the permissive Posture, as [`architecture.md`](../architecture.md) § Capability Negotiation sets out.
 
 ## Native Delegation
 
@@ -128,17 +130,17 @@ The same test applies beyond the filesystem. kobako answers only what native WAS
 
 | Concern | Answered by | Reason |
 |---|---|---|
-| Posture values | native WASI | the Engine already provides them |
-| Preamble, Channel | runtime | kobako's own concepts |
-| kobako ABI host side | runtime | no Engine supports it |
-| memory cap accounting | runtime | the growth hook stays in the Wasm Driver |
-| networking | runtime | a new kind of Grant |
+| clocks, environment, random | native WASI | the Wasm Driver wires in the frozen sources |
+| Preamble, Channel | `kobako-runtime` | kobako's own concepts |
+| kobako ABI host side | `kobako-runtime` | no Engine supports it |
+| memory cap accounting | `kobako-runtime` | the growth hook stays in the Wasm Driver |
+| networking (planned) | `kobako-runtime` | a new kind of Grant |
 
-Preview1 has `sock_accept`, `sock_recv`, `sock_send`, and `sock_shutdown`, but no connect. Networking therefore needs another ABI to encode onto.
+Networking is not provided yet. Preview1 has `sock_accept`, `sock_recv`, `sock_send`, and `sock_shutdown`, but no connect. Networking therefore needs another ABI to encode onto.
 
 ## Standard Bridging
 
-Each ABI version gets its own syscall table, and every table asks the same runtime for answers. As WASI evolves, kobako adds an entry and rewrites nothing beneath it.
+Each ABI version gets its own syscall table, and every table asks the same `kobako-runtime` for answers. As WASI evolves, kobako adds an entry and rewrites nothing beneath it.
 
 ```
    preview1 module          preview2/3 component
@@ -157,7 +159,7 @@ Each ABI version gets its own syscall table, and every table asks the same runti
           +-----------------------+
 ```
 
-The fd table belongs to each ABI's encoding, and preview2 uses resources instead, so no table is shared. The Open File each table holds is the same. Precedents take this shape:
+The fd table belongs to each ABI's encoding, and preview2 uses resources instead, so no table is shared. Every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
 
 | Precedent | Shape |
 |---|---|

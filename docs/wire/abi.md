@@ -93,8 +93,8 @@ The ABI version is one u32 defined in `kobako-transport`, independent of every p
 | Inside the version | Outside the version |
 |--------------------|---------------------|
 | the symbol set, names, signatures | a new request tag or Preamble record kind in the registry |
-| the packed return convention | an additive contract change |
-| the message framing, a redefined byte value, a new answer arm | a payload Codec swap |
+| the packed return convention | a payload Codec swap |
+| the message framing, a redefined byte value, a new answer arm | the other growth a predating reader answers (→ [`README.md`](README.md) § Growth) |
 
 `__kobako_abi_version` answers a constant, readable before any entry runs. The host accepts a Guest Binary only when that constant equals its own version. A Guest Binary that states none, or another, does not run (→ [`spec/behavior/runtime.md`](../spec/behavior/runtime.md)).
 

@@ -1,23 +1,13 @@
 # Wire
 
-The wire is every message between the Host Gem and the Guest Binary during an invocation. Both sides implement it independently, and a kobako release ships exactly one version of it.
+The wire is every message between the host and the Guest Binary during an Invocation. Both sides implement it independently, and a kobako release ships exactly one version of it.
 
 | Document | Holds |
 |----------|-------|
-| this one | the two layers, overlays, transport roles, Handles, consistency |
+| this one | the two layers, overlays, transport roles, growth, Handles, consistency |
 | [`abi.md`](abi.md) | the ABI surface and its version |
 | [`envelope.md`](envelope.md) | each message's fields, meaning, and bytes |
 | [`payload-msgpack.md`](payload-msgpack.md) | the default payload codec |
-
-ABI names, return conventions, and the byte values in either layer change only with an ABI version increment (→ [`abi.md`](abi.md) § ABI Version). Three kinds of growth are not such a change, because a reader answers what it predates instead of refusing it.
-
-| Growth | What a reader that predates it does |
-|--------|-------------------------------------|
-| a Fault or Unsupported field or kind | degrades it (→ [`envelope.md`](envelope.md) § Fault) |
-| a request tag | answers it as unsupported (→ [`envelope.md`](envelope.md) § Unknown Tags) |
-| a Preamble record kind | skips or refuses it as its sender marked (→ [`envelope.md`](envelope.md) § Preamble) |
-
-Any other growth is an ABI change. Every other body refuses trailing bytes, every other closed set refuses a value it predates, and a reader refuses an answer arm it predates.
 
 ---
 
@@ -41,20 +31,18 @@ Every message is an Envelope around an opaque payload. The Envelope carries what
 
 The Codec is therefore replaceable, and a routing-only endpoint needs none. MessagePack is the default, not the only one; a Codec swap changes neither the ABI nor the Envelope. `rake crates:graph` and `rake wasm:graph` check that each codec-free tier builds without one. What a replacement Codec owes is in [`customization.md`](../guides/customization.md) § Codec Obligations.
 
----
+### Codec Overlays
 
-## Dialect Overlays
+An overlay is how one endpoint's Codec speaks to its own objects. It decodes a payload into them, wraps one back out, and reaches a bound object. It lives where that endpoint's objects live.
 
-An overlay is how one endpoint's Codec dialect speaks to its own objects. It decodes a payload into them, wraps one back out, and reaches a bound object. It lives where that endpoint's objects live.
-
-| Endpoint | Dialect implementation | Overlay |
+| Endpoint | Codec implementation | Overlay |
 |---|---|---|
-| Ruby gem | `lib/kobako/{codec,payload}/`, a second implementation | the same files |
+| Ruby gem | `lib/kobako/{codec,payload}/`, a second implementation | the same files, `lib/kobako/transport/`, `lib/kobako/context.rb` |
 | Rust SDK | `kobako-codec` | `kobako`'s `msgpack` module |
 | mruby guest | `kobako-codec` | `kobako-mruby`'s `msgpack` module |
 | `ext/` | none | none |
 
-The Ruby gem writes its dialect itself, so the Handle walk in `lib/kobako/codec/` is its overlay. `ext/` holds no objects to bind a dialect to. A dialect kobako does not ship places its overlay wherever its objects live, even outside this repository. An overlay belongs to the wire, unlike the Filesystem's Overlay.
+The Ruby gem writes its Codec itself, so its overlay sits beside it. The transport and the context decode a payload and restore its Handles through the Handle walk. `ext/` holds no objects to bind a Codec to. A Codec kobako does not ship places its overlay wherever its objects live, even outside this repository. An overlay belongs to the wire, unlike the Filesystem's Overlay.
 
 ---
 
@@ -64,12 +52,27 @@ Every exchange is one request answered by one answer, and the request decides wh
 
 | Request | Sent by | Answered by | Scope |
 |---------|---------|-------------|-------|
-| eval, run | Host Gem | an Outcome | starts an invocation |
-| compile | Host Gem | a Compile Reply | compiles the Snippets |
-| Call | Guest Binary (`Kobako::Proxy`) | a Reply from the Host Gem | inside the same import call frame |
-| Yield Call | Host Gem | a Yield Reply | only to re-enter a block |
+| eval, run | host | an Outcome | starts an Invocation |
+| compile | host | a Compile Reply | compiles the Snippets |
+| Call | Guest Binary (`Kobako::Proxy`) | a Reply from the host | inside the same import call frame |
+| Yield Call | host | a Yield Reply | only to re-enter a Block |
 
-Wasm linear memory carries every message, which is an implementation note. Every round-trip is synchronous. To guest code, a Service call is an ordinary call that completes before the next line.
+Wasm linear memory carries every message but the Preamble, which the guest reads from WASI stdin (→ [`abi.md`](abi.md) § Invocation inputs); the carrier is an implementation note. Every round-trip is synchronous. To guest code, a Service call is an ordinary call that completes before the next line.
+
+---
+
+## Growth
+
+ABI names, return conventions, and the byte values in either layer change only with an ABI version increment (→ [`abi.md`](abi.md) § ABI Version). Four kinds of growth are not such a change, because a reader answers what it predates instead of refusing it.
+
+| Growth | What a reader that predates it does |
+|--------|-------------------------------------|
+| a Fault or Unsupported field or kind | degrades it (→ [`envelope.md`](envelope.md) § Fault) |
+| a request tag | answers it as unsupported (→ [`envelope.md`](envelope.md) § Unknown Tags) |
+| a Preamble record kind | skips or refuses it as its sender marked (→ [`envelope.md`](envelope.md) § Preamble) |
+| a Flag name | skips or refuses it as its record is marked (→ [`envelope.md`](envelope.md) § Preamble Records) |
+
+Any other growth is an ABI change. Every other body refuses trailing bytes, every other closed set refuses a value it predates, and a reader refuses an answer arm it predates.
 
 ---
 

@@ -4,7 +4,7 @@ The Envelope is the outer frame of every host↔guest message. This document pin
 
 | Document | Holds |
 |----------|-------|
-| [`README.md`](README.md) | the two layers, transport roles, Handles |
+| [`README.md`](README.md) | the two layers, overlays, transport roles, growth, Handles, consistency |
 | [`abi.md`](abi.md) | the functions that carry each message |
 | [`payload-msgpack.md`](payload-msgpack.md) | the default payload codec |
 | [`spec/behavior/envelope.md`](../spec/behavior/envelope.md) | the envelope's behavior |
@@ -85,7 +85,15 @@ All tags share one number space, so a byte means one thing in every message. The
 | `0x14` | panic | an answer to eval, run | a Panic |
 | `0x15` | unsupported | an answer to any | an Unsupported |
 
-A policy sets where a future tag goes, by range. `0x09`–`0x0F` and `0x16`–`0x7F` are kobako's, `0x80`–`0xEF` either side's, and `0xF0`–`0xFF` third parties'. A reader does not tell the ranges apart; every unassigned tag reads as unknown (→ § Unknown Tags). A field's own `kind`, such as a Call's target form, picks a field rather than a message, so it keeps its own numbers.
+A policy sets where a future tag goes, by range. kobako never assigns the third-party range, so a private tag there never collides with a later registry entry.
+
+| Range | Reserved for |
+|---|---|
+| `0x09`–`0x0F`, `0x16`–`0x7F` | kobako, unassigned |
+| `0x80`–`0xEF` | either side, not yet assigned |
+| `0xF0`–`0xFF` | third parties, never assigned by kobako |
+
+A reader does not tell the ranges apart; every unassigned tag reads as unknown (→ § Unknown Tags). A field's own `kind`, such as a Call's target form, picks a field rather than a message, so it keeps its own numbers.
 
 ### Unknown Tags
 

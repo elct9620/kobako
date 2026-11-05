@@ -1,6 +1,6 @@
 # Preview1 Encoding
 
-The Wasm Driver encodes each WASI preview1 file call onto the runtime's VFS. The runtime decides every answer a guest sees. The Wasm Driver keeps only what preview1 itself defines and what a Linux syscall entry checks before the VFS. The layers are in [`README.md`](README.md); why the split sits there is in [`../isolation/README.md`](../isolation/README.md).
+The Wasm Driver encodes each WASI preview1 file call onto the VFS in `kobako-runtime`, which decides every answer a guest sees. The Wasm Driver keeps only what preview1 itself defines and what a Linux syscall entry checks before the VFS. The layers are in [`README.md`](README.md); why the split sits there is in [`../isolation/README.md`](../isolation/README.md).
 
 ```
 +-------+  preview1  +-------------+  asks  +-----+  asks  +------------+
@@ -9,7 +9,7 @@ The Wasm Driver encodes each WASI preview1 file call onto the runtime's VFS. The
                        encodes                decides
 ```
 
-A judgement belongs to the Wasm Driver when it would vanish with preview2. Every other judgement belongs to the runtime.
+A judgment belongs to the Wasm Driver when it would vanish with preview2, or when it is a check a syscall entry makes itself. Every other judgment belongs to `kobako-runtime`.
 
 ## Two ABIs
 
@@ -17,9 +17,11 @@ The Guest Binary crosses only two ABIs. `wasm-tools print` shows the same 18 imp
 
 | ABI | Imports | Answered by |
 |---|---|---|
-| kobako ABI | `env.__kobako_upcall` | Wasm Driver |
+| kobako ABI | `env.__kobako_upcall` | `kobako-runtime`'s `endpoint` |
 | WASI file calls | 13 `fd_*` and `path_*` | kobako |
 | WASI rest | `environ_*`, `random_get`, `proc_exit` | wasmtime-wasi |
+
+The Wasm Driver only wires the kobako ABI's import to `endpoint`.
 
 kobako answers 36 of the 46 preview1 imports: every `fd_*`, `path_*`, and `sock_*` call, and `poll_oneoff`. Those are the calls that read the descriptor table, so the guest stays on one table where each Mount is a preopen. The 23 the Guest Binary never imports serve a third-party guest. The other ten read no descriptor and stay wasmtime-wasi's.
 
@@ -48,9 +50,9 @@ Aligning with Linux in step 3 never departs from POSIX, so a divergence stays a 
 
 ## Runtime Decisions
 
-These judgements decide an answer, so the runtime holds them whichever ABI asks. Each names its location and the Linux precedent behind it.
+These judgments decide an answer, so `kobako-runtime` holds them whichever ABI asks. Each names its location and the Linux precedent behind it.
 
-| Judgement | Location | Precedent |
+| Judgment | Location | Precedent |
 |---|---|---|
 | Position, append, access, offset limit | `vfs::File` | `struct file` |
 | Listing lock and position | `File::iterate_dir` | `iterate_dir` |
@@ -63,11 +65,11 @@ These judgements decide an answer, so the runtime holds them whichever ABI asks.
 | Path length, NUL | `getname` | `getname` |
 | Neither-read-nor-write open | `build_open_flags`, `do_o_path` | `O_PATH` |
 
-The Posture mask hides times, inode numbers, and a link's size; the runtime decides it and the Wasm Driver only calls it. An open asking neither to read nor to write stands for its path alone, so it neither asks the Filesystem nor opens a file.
+The Posture mask hides times, inode numbers, and a link's size; `kobako-runtime` decides it and the Wasm Driver only calls it. An open asking neither to read nor to write stands for its path alone, so it neither asks the Filesystem nor opens a file.
 
 ## Driver Decisions
 
-These judgements encode preview1 or repeat a syscall entry's checks, so the Wasm Driver holds them. They group by theme.
+These judgments encode preview1 or repeat a syscall entry's checks, so the Wasm Driver holds them. They group by theme.
 
 | Theme | Rows |
 |---|---|
@@ -80,7 +82,7 @@ These judgements encode preview1 or repeat a syscall entry's checks, so the Wasm
 
 The table, its numbers, and its rights exist only in preview1, so they stay in the Wasm Driver.
 
-| Judgement | Precedent |
+| Judgment | Precedent |
 |---|---|
 | Rights and prestat | witx encoding |
 | Descriptor numbers | `get_unused_fd_flags` |
@@ -91,13 +93,13 @@ The table, its numbers, and its rights exist only in preview1, so they stay in t
 | `fd_fdstat_set_rights` refused | wasmtime-wasi |
 | Start checked before a walk | gVisor `revalidatePath` |
 
-Every call finds its descriptor as its Linux syscall does, `sock_*` and `poll_oneoff` included; the runtime marks a path-only file as `FMODE_PATH`. Renumbering ignores how the replaced descriptor's close answers. `fd_fdstat_set_rights` answers BADF for a stream and NOTSUP otherwise, since rights only narrow at open and preview2 has none. The start check is kobako's own guarantee, since Linux asks nothing of a walk's starting dentry. The Wasm Driver asks `WalkGuard` wherever a descriptor becomes a walk's start.
+Every call finds its descriptor as its Linux syscall does, `sock_*` and `poll_oneoff` included; `kobako-runtime` marks a path-only file as `FMODE_PATH`. Renumbering ignores how the replaced descriptor's close answers. `fd_fdstat_set_rights` answers BADF for a stream and NOTSUP otherwise, since rights only narrow at open and preview2 has none. The start check is kobako's own guarantee, since Linux asks nothing of a walk's starting dentry. The Wasm Driver asks `WalkGuard` wherever a descriptor becomes a walk's start.
 
 ### Directory Listing
 
 A preview1 listing writes `dirent` records into a guest buffer, so its layout follows the syscall layer.
 
-| Judgement | Precedent |
+| Judgment | Precedent |
 |---|---|
 | Cookie | witx encoding |
 | Each `d_next` filled in after | `filldir64`, `getdents64` |
@@ -110,7 +112,7 @@ Each entry's name passes `verify_dirent_name` before it is written. Linux would 
 
 Which error answers first is fixed at a Linux syscall entry, before the VFS, so the Wasm Driver keeps that order.
 
-| Judgement | Precedent |
+| Judgment | Precedent |
 |---|---|
 | `fd_filestat_set_size`: size before descriptor | `ksys_ftruncate` |
 | `path_open`: flags, EMFILE, then name | `do_sys_openat2`, `FD_ADD` |
@@ -119,20 +121,20 @@ Which error answers first is fixed at a Linux syscall entry, before the VFS, so 
 | EAGAIN retried, at most 4 tries | cap-std callers |
 | `Escape` answers NOTCAPABLE | witx capability |
 
-A full table answers EMFILE whatever the path names. A readlink buffer is a preview1 shape that preview2 lacks. The runtime reports a path escaping its descriptor as `Escape`; Linux would answer EXDEV, but preview1 names a capability the guest does not hold.
+A full table answers EMFILE whatever the path names. A readlink buffer is a preview1 shape that preview2 lacks. `kobako-runtime` reports a path escaping its descriptor as `Escape`; Linux would answer EXDEV, but preview1 names a capability the guest does not hold.
 
 ### Formats and Waits
 
-The remaining judgements shape what a call writes or how long it waits.
+The remaining judgments shape what a call writes or how long it waits.
 
-| Judgement | Precedent |
+| Judgment | Precedent |
 |---|---|
 | Argument and `filestat` formats | witx encoding |
 | Absolute link target refused | wasi-testsuite |
 | Waiting on a pipe's other end: BADF | preview1 only |
 | `poll_oneoff` clock wait | Wasm Driver deadline |
 
-The runtime reports each error by POSIX name through `FilesystemError::posix_name`, and the Wasm Driver turns the name into a WASI code. A pipe's end is never ready for what the other end does, so a wait on it answers BADF rather than never ending. A clock wait ends at the invocation's deadline, a Wasm mechanism the Wasm Driver owns.
+`kobako-runtime` reports each error by POSIX name through `FilesystemError::posix_name`, and the Wasm Driver turns the name into a WASI code. A pipe's end is never ready for what the other end does, so a wait on it answers BADF rather than never ending. A clock wait ends at the invocation's deadline, a Wasm mechanism the Wasm Driver owns.
 
 ## Call Mapping
 
@@ -145,19 +147,22 @@ Each WASI call reaches the VFS entry its Linux syscall reaches. kobako keeps the
 | `path_unlink_file` | `unlinkat` | `filename_unlinkat` | same |
 | `path_rename` | `renameat` | `filename_renameat2` | same |
 | `path_filestat_get` | `fstatat` | `vfs_fstatat` | same |
-| `fd_read` | `readv` | `vfs_read` | `File::read` |
+| `fd_read` | `read` | `vfs_read` | `File::read` |
 | `fd_readdir` | `getdents64` | `iterate_dir` | `File::iterate_dir` |
 | `fd_filestat_set_size` | `ftruncate` | `do_ftruncate` | `File::truncate` |
 
 ## WASI Subset
 
-The built-in Filesystems leave out some preview1 features, and that is the whole of kobako's divergence from WASI. wasi-testsuite at the pinned commit fails only these tests.
+kobako diverges from WASI only by refusing. These refusals are the whole of it.
 
-| Feature left out | Failing tests |
-|---|---|
-| Making a symlink or link | 6 |
+| Refused | Answer | Owner |
+|---|---|---|
+| Making a symlink or link | not offered | the built-in Filesystems |
+| Reading where a link points | NOTSUP | kobako's rules |
+| Opening a FIFO, a socket, or a device | ACCES | kobako's rules |
+| `fd_fdstat_set_rights` | NOTSUP | Wasm Driver |
 
-Setting times and `fd_allocate` follow Linux, and nonblock is accepted as Linux accepts it. `testsuite-expected.txt` beside the harness names each failing test and why.
+wasi-testsuite at the pinned commit fails only six tests, all for links. Setting times and `fd_allocate` follow Linux, and nonblock is accepted as Linux accepts it. `testsuite-expected.txt` beside the harness names each failing test and why.
 
 ## Testsuite Harness
 
