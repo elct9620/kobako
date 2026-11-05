@@ -1,4 +1,4 @@
-# Core envelope and ABI values
+# Envelope and ABI values
 
 What every Frontend and Guest shares, whatever Codec fills a payload. That is
 the Envelope each message rides in and the values the Guest ABI fixes. A Frontend

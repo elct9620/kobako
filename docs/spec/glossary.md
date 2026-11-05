@@ -181,6 +181,10 @@ The contract every message crossing the boundary answers to. Each side implement
 
 The part of a message that says where it goes and how it turned out. It is readable without a Codec, so routing and attribution never depend on one.
 
+#### Rejected
+
+- `core envelope` - a second name for the Envelope.
+
 ### Tag
 
 The first byte of every message, naming its operation or its answer's arm. One registry covers both directions, so an assigned tag means one thing everywhere.

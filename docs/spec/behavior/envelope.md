@@ -1,4 +1,4 @@
-# Core envelope
+# Envelope
 
 The bytes that say where a message goes and how it turned out. It also holds the fixed values both sides must already agree on to read them.
 

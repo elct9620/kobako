@@ -10,7 +10,7 @@ The dependency scenarios cover one more question: when that composition is check
 
 Installing after the seal, an unmet dependency, and a malformed Extension all raise rather than compose. Each is settled here by what the refusal names. The dependency ones are settled twice over. When the check fires and what it can say are separate observations.
 
-The `Vfs` idiom the end-to-end witnesses install is an illustrative fixture. kobako ships no concrete Extension. So no scenario here states what that idiom does, only what installing one produces.
+The `Storage` idiom the end-to-end witnesses install is an illustrative fixture. kobako ships no concrete Extension. So no scenario here states what that idiom does, only what installing one produces.
 
 ## Includes
 
@@ -34,9 +34,9 @@ The `Vfs` idiom the end-to-end witnesses install is an illustrative fixture. kob
 
 | Step | Statement |
 | --- | --- |
-| Given | an Extension named `File` whose backend declares the path `Vfs` |
+| Given | an Extension named `File` whose backend declares the path `Storage` |
 | When | `install` runs |
-| Then | the backend object is bound at `Vfs` |
+| Then | the backend object is bound at `Storage` |
 
 ## `EX-003` An idiom with nothing behind it binds nothing
 
