@@ -26,6 +26,20 @@ pub struct SecurityPath<'a> {
     pub name: &'a dyn Fn() -> String,
 }
 
+/// Answer `hook` for `dentry` on `mnt`, its name read from where the dentry
+/// stands when a module asks, as a module builds one from the `struct path` a
+/// `security_*` hook is handed.
+pub(crate) fn on_path<T>(
+    mnt: &Arc<VfsMount>,
+    dentry: &Dentry,
+    hook: impl FnOnce(SecurityPath<'_>) -> T,
+) -> T {
+    hook(SecurityPath {
+        mnt,
+        name: &|| dentry.path_raw(),
+    })
+}
+
 /// What a security module answers, as a hook in Linux's `lsm_hook_defs.h`. A hook
 /// a module does not have allows the call, and a module can only refuse.
 pub trait SecurityOperations: Send + Sync {

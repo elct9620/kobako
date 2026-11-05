@@ -15,7 +15,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::{Cred, FileSecurity, SecurityPath};
+use super::cred::{on_path, Cred, FileSecurity};
 use super::dentry::{Dentry, RENAME_LOCK};
 use super::file::{do_dentry_open, FMode, File, FileOperations};
 use super::inode::{Finish, Inode, Mask, RenameFlag};
@@ -105,7 +105,6 @@ impl Nameidata {
     /// its name up once it holds the directory's lock.
     fn lookup_last_locked(&mut self) -> Result<Arc<Dentry>, FilesystemError> {
         let child = lookup_one_qstr_excl(self.mnt.sb(), self.dentry(), &self.last)?;
-        self.last = child.name();
         self.path = Some(child.clone());
         Ok(child)
     }
@@ -120,26 +119,6 @@ impl Nameidata {
     /// `vfs_getattr` asks the entry the walk found.
     pub(crate) fn getattr(&self) -> Result<Kstat, FilesystemError> {
         self.path()?.getattr()
-    }
-
-    /// The path from the mount's root, read from the dentry the walk stands
-    /// in as Linux's `d_path` reads one: each name spelled as the directory
-    /// holding it stores it, the last name kept as given where nothing
-    /// holds it, from a leading `/` that alone names the root.
-    pub(crate) fn dentry_path(&self) -> String {
-        let mut names = self.dentry().names();
-        names.push(self.last.clone());
-        names.retain(|name| !name.is_empty());
-        format!("/{}", names.join("/"))
-    }
-
-    /// Answer `hook` for the path the walk ended on, as Linux's `security_path_*`
-    /// is handed `struct path` once its call holds the name.
-    fn on_path<T>(&self, hook: impl FnOnce(SecurityPath<'_>) -> T) -> T {
-        hook(SecurityPath {
-            mnt: &self.mnt,
-            name: &|| self.dentry_path(),
-        })
     }
 }
 
@@ -440,7 +419,6 @@ impl Nameidata {
                 self.lookup_directory = true;
             }
             let child = lookup_dentry(self.mnt.sb(), self.dentry(), &self.last)?;
-            self.last = child.name();
             self.path = Some(child.clone());
             if child.inode().is_none() {
                 return Err(FilesystemError::NotFound);
@@ -478,7 +456,6 @@ impl Nameidata {
             }
             let (child, opened) = match self.lookup_fast_for_open(how)? {
                 Some(child) => {
-                    self.last = child.name();
                     self.path = Some(child.clone());
                     if child.inode().is_none() {
                         return Err(FilesystemError::NotFound);
@@ -574,7 +551,6 @@ impl Nameidata {
         };
         let child = spliced.unwrap_or(given);
         retain(mnt.sb(), &child);
-        self.last = child.name();
         self.path = Some(child.clone());
         if child.inode().is_none() {
             return Err(create_error.unwrap_or(FilesystemError::NotFound));
@@ -586,7 +562,7 @@ impl Nameidata {
         let file = match file {
             Some(file) => {
                 let kind = child.kind()?;
-                let opened = self.on_path(|path| {
+                let opened = on_path(&self.mnt, &child, |path| {
                     do_dentry_open(&self.cred, path, kind, mode, how, || Ok(file))
                 })?;
                 Some(opened)
@@ -599,7 +575,7 @@ impl Nameidata {
     /// Whether the open may make the file `child` names here, as Linux's
     /// `may_o_create` asks once the mount took a write.
     fn may_o_create(&self, child: &Dentry) -> Result<(), FilesystemError> {
-        self.on_path(|path| self.cred.security_path_mknod(path))?;
+        on_path(&self.mnt, child, |path| self.cred.security_path_mknod(path))?;
         may_create_dentry(&self.cred, self.mnt.sb(), self.dentry(), child)
     }
 }
@@ -791,7 +767,7 @@ fn do_o_path(nd: Nameidata, op: &OpenFlags) -> Result<File, FilesystemError> {
     let nd = path_lookupat(nd, op.lookup_follow())?;
     let child = nd.path()?;
     let kind = child.kind()?;
-    let (f_op, security) = nd.on_path(|path| {
+    let (f_op, security) = on_path(&nd.mnt, &child, |path| {
         do_dentry_open(&nd.cred, path, kind, FMode::PATH, how, || child.open(how))
     })?;
     Ok(File::new(
@@ -853,9 +829,9 @@ fn do_open(
     may_open(&nd.cred, nd.mnt.sb(), &child, kind, acc_mode)?;
     let (f_op, security) = match opened.file {
         Some(file) => file,
-        None => {
-            nd.on_path(|path| do_dentry_open(&nd.cred, path, kind, mode, how, || child.open(how)))?
-        }
+        None => on_path(&nd.mnt, &child, |path| {
+            do_dentry_open(&nd.cred, path, kind, mode, how, || child.open(how))
+        })?,
     };
     if truncate {
         nd.cred.security_file_truncate(&security)?;
@@ -919,7 +895,9 @@ pub fn filename_linkat(
             if !Arc::ptr_eq(&old.mnt, &new.mnt) {
                 return Err(FilesystemError::CrossesDevices);
             }
-            old.on_path(|old| new.on_path(|new| cred.security_path_link(old, new)))?;
+            on_path(&old.mnt, &target, |old| {
+                on_path(&new.mnt, &child, |new| cred.security_path_link(old, new))
+            })?;
             vfs_link(cred, new.mnt.sb(), &target, new.dentry(), &child)
         },
     )
@@ -941,7 +919,7 @@ pub fn filename_symlinkat(
             Ok((nd, made))
         },
         |(nd, (_held, child))| {
-            nd.on_path(|path| cred.security_path_symlink(path))?;
+            on_path(&nd.mnt, &child, |path| cred.security_path_symlink(path))?;
             vfs_symlink(cred, nd.mnt.sb(), nd.dentry(), &child, target)
         },
     )
@@ -997,7 +975,7 @@ pub fn filename_mkdirat(
             Ok((nd, made))
         },
         |(nd, (_held, child))| {
-            nd.on_path(|path| cred.security_path_mkdir(path))?;
+            on_path(&nd.mnt, &child, |path| cred.security_path_mkdir(path))?;
             vfs_mkdir(cred, nd.mnt.sb(), nd.dentry(), &child)
         },
     )
@@ -1020,7 +998,7 @@ pub fn filename_rmdir(
             }
             nd.mnt.mnt_want_write()?;
             let (_held, child) = start_dirop(&mut nd)?;
-            nd.on_path(|path| cred.security_path_rmdir(path))?;
+            on_path(&nd.mnt, &child, |path| cred.security_path_rmdir(path))?;
             vfs_rmdir(cred, nd.mnt.sb(), nd.dentry(), &child)
         },
     )
@@ -1048,7 +1026,7 @@ pub fn filename_unlinkat(
                     _ => FilesystemError::NotADirectory,
                 });
             }
-            nd.on_path(|path| cred.security_path_unlink(path))?;
+            on_path(&nd.mnt, &child, |path| cred.security_path_unlink(path))?;
             vfs_unlink(cred, nd.mnt.sb(), nd.dentry(), &child)
         },
     )
@@ -1069,7 +1047,7 @@ pub fn filename_renameat2(
         let source = filename_parentat(cred, from, from_path)?;
         Ok((source, filename_parentat(cred, to, to_path)?))
     };
-    retry_estale(walk, |(mut source, mut target)| {
+    retry_estale(walk, |(source, target)| {
         if !Arc::ptr_eq(&source.mnt, &target.mnt) {
             return Err(FilesystemError::CrossesDevices);
         }
@@ -1085,16 +1063,14 @@ pub fn filename_renameat2(
             (target.dentry(), &target.last),
             None,
         )?;
-        source.last = rd.old_dentry.name();
-        target.last = rd.new_dentry.name();
         // Unless the source is a directory, a trailing `/` on either side is
         // refused, as `filename_renameat2` refuses it.
         let is_dir = rd.old_dentry.kind()? == FileType::Dir;
         if !is_dir && (source.trailing_slash || target.trailing_slash) {
             return Err(FilesystemError::NotADirectory);
         }
-        source.on_path(|old| {
-            target.on_path(|new| {
+        on_path(&mnt, &rd.old_dentry, |old| {
+            on_path(&mnt, &rd.new_dentry, |new| {
                 cred.security_path_rename(old, new, (&rd.old_dentry, &rd.new_dentry))
             })
         })?;
@@ -1782,6 +1758,72 @@ mod tests {
             ],
             "each call through the VFS must reach the security hook Linux names for it, the \
              open of a file the call just made included, as do_dentry_open asks security_file_open"
+        );
+    }
+
+    /// A security module moving `f` to `g` once it is asked whether `f` may be
+    /// opened, recording the name `file_open` is handed.
+    #[derive(Default)]
+    struct MovesBeforeOpen {
+        root: Mutex<Option<Path>>,
+        opened: Mutex<Vec<String>>,
+    }
+
+    impl SecurityOperations for MovesBeforeOpen {
+        fn inode_permission(&self, dentry: &Dentry, _mask: Mask) -> Result<(), FilesystemError> {
+            let root = match dentry.name() == "f" {
+                true => self.root.lock().expect("never poisoned").take(),
+                false => None,
+            };
+            if let Some(root) = root {
+                vfs::filename_renameat2(&Arc::default(), &root, "f", &root, "g")?;
+            }
+            Ok(())
+        }
+
+        fn file_open(
+            &self,
+            path: SecurityPath<'_>,
+            _kind: FileType,
+            _mode: FMode,
+            _how: &OpenHow,
+        ) -> Result<FileSecurity, FilesystemError> {
+            self.opened
+                .lock()
+                .expect("never poisoned")
+                .push((path.name)());
+            Ok(None)
+        }
+    }
+
+    // The move lands once the open found `f` and before it asks `file_open`, so
+    // only a name read from the dentry then answers where the file stands.
+    // @behavior RT-334
+    #[test]
+    fn a_security_module_reads_a_name_where_the_entry_stands_as_it_asks() {
+        let hooks = Arc::new(MovesBeforeOpen::default());
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(Arc::new([("f", "x")].into_iter().collect::<Tmpfs>()))
+                .expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = Path::root(mount.mnt());
+        *hooks.root.lock().expect("never poisoned") = Some(root.clone());
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let opened = vfs::kern_path::filp_open(&Cred::new(vec![hooks.clone()]), &root, "f", &read);
+        assert_eq!(
+            (
+                opened.is_ok(),
+                hooks.opened.lock().expect("never poisoned").clone()
+            ),
+            (true, vec!["/g".to_string()]),
+            "vfs::kern_path::filp_open of f, moved to g once it was found and before file_open, \
+             must hand file_open the name /g, as a module builds one from the dentry it is handed"
         );
     }
 

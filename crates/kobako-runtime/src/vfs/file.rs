@@ -7,7 +7,7 @@ use std::ops::BitOr;
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::{Cred, FileSecurity, SecurityPath};
+use super::cred::{on_path, Cred, FileSecurity, SecurityPath};
 use super::dentry::Dentry;
 use super::inode::{EmptyFops, Inode};
 use super::mount::VfsMount;
@@ -420,14 +420,10 @@ impl File {
         cred: &Arc<Cred>,
     ) -> Result<Self, FilesystemError> {
         let kind = path.dentry().kind()?;
-        let name = || path.dentry().path_raw();
-        let at = SecurityPath {
-            mnt: path.mnt(),
-            name: &name,
-        };
         let mode = FMode::of(how);
-        let (ops, security) =
-            do_dentry_open(cred, at, kind, mode, how, || path.dentry().open(how))?;
+        let (ops, security) = on_path(path.mnt(), path.dentry(), |at| {
+            do_dentry_open(cred, at, kind, mode, how, || path.dentry().open(how))
+        })?;
         Ok(Self::new(path, ops, mode, how, cred, security))
     }
 

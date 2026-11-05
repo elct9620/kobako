@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::{Cred, SecurityPath};
+use super::cred::{on_path, Cred};
 use super::namei::{filename_lookup, retry_estale};
 use super::path::{Path, Start};
 use super::{FilesystemError, Iattr};
@@ -21,10 +21,7 @@ pub fn do_utimes_fd(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), 
 fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
     path.mnt().mnt_want_write()?;
     let dentry = path.dentry();
-    cred.security_path_utimes(SecurityPath {
-        mnt: path.mnt(),
-        name: &|| dentry.path_raw(),
-    })?;
+    on_path(path.mnt(), dentry, |at| cred.security_path_utimes(at))?;
     let held = dentry.inode_lock()?;
     notify_change(dentry, &held, times)
 }
