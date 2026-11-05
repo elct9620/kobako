@@ -616,7 +616,8 @@ impl SuperBlock {
 
 ## `SuperBlock::d_make_root`
 
-The instance's root, set from `FileSystemType::fill_super`.
+Make a root Dentry for an Inode and set it as the instance's root, from
+`FileSystemType::fill_super`.
 
 ```rust
 impl SuperBlock {
@@ -626,7 +627,8 @@ impl SuperBlock {
 
 ## `SuperBlock::set_default_d_op`
 
-What every Dentry of the instance answers through, set from `FileSystemType::fill_super`.
+What every Dentry of the instance made after it answers through, set from
+`FileSystemType::fill_super` before `SuperBlock::d_make_root`.
 
 ```rust
 impl SuperBlock {
@@ -677,11 +679,11 @@ impl SuperBlock {
 
 ## `SuperBlock::root`
 
-The Filesystem's root directory, once `FileSystemType::fill_super` made it.
+The root Dentry of the instance, once `FileSystemType::fill_super` made it.
 
 ```rust
 impl SuperBlock {
-    pub fn root(&self) -> Option<&Arc<Inode>> {}
+    pub fn root(&self) -> Option<&Arc<Dentry>> {}
 }
 ```
 
