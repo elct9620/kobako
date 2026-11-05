@@ -61,12 +61,17 @@ pub enum Lookup {
 /// have answers by default as Linux's VFS answers a NULL in its table. One
 /// Filesystem may wrap another and answer by
 /// delegating, wrapping each entry its `lookup` finds, so it sees every call
-/// on the way through. A directory keeps its identity its own while it is
-/// open, as an open descriptor keeps a host's inode from being reused.
+/// on the way through. It forwards every operation the one beneath keeps, or
+/// the default answers in that one's place. A directory keeps its identity its
+/// own while it is open, as an open descriptor keeps a host's inode from being
+/// reused.
 ///
 /// The VFS walks a path one name at a time and follows a link
 /// itself, as the VFS above a filesystem does, so a link never leads a call
-/// out of the directory a descriptor opened.
+/// out of the directory a descriptor opened. Every call hands the dentry it
+/// is about; a Filesystem answering by path reads `Dentry::path_raw`, so a
+/// directory moved through the runtime is asked at its new path. A call
+/// making, removing, or moving a name runs under its directory's lock.
 pub trait InodeOperations: Any + Send + Sync {
     /// Whether a call may do what `mask` asks of this entry, which `dentry`
     /// names, as `->permission` answers `inode_permission`. The VFS asks where
@@ -79,14 +84,16 @@ pub trait InodeOperations: Any + Send + Sync {
 
     /// What this entry, which `dentry` names, reports of itself, as
     /// `getattr` is handed the path it answers for, even once its name is
-    /// gone and only an open file holds it, as `fstat` asks the same. A link
-    /// reports itself.
+    /// gone and only an open file holds it, as `fstat` asks the same. A
+    /// Filesystem keeps what that answer takes on the `Inode`. A link reports
+    /// itself.
     fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError>;
 
     /// Apply `attr` to this entry, even once its name is gone and only an
     /// open file holds it, as `ftruncate`, `open` with `O_TRUNC`, and
-    /// `utimensat` reach `->setattr`. An entry without it refuses a size as
-    /// invalid input and times as unsupported.
+    /// `utimensat` reach `->setattr`. One whose `open` already truncated
+    /// answers success where `attr.open` says so. An entry without it refuses a
+    /// size as invalid input and times as unsupported.
     fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
         match attr.size {
             Some(_) => Err(FilesystemError::InvalidInput),
@@ -96,7 +103,9 @@ pub trait InodeOperations: Any + Send + Sync {
 
     /// What stands at the name `dentry` carries in this directory. The
     /// runtime asks once for a dentry naming nothing yet, and an entry
-    /// without it is no directory to walk through.
+    /// without it is no directory to walk through. A directory found answers as
+    /// an `Inode::new` carrying its identity, or a Policy cannot tell it from
+    /// one made in its place.
     fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         Err(FilesystemError::NotADirectory)
     }
@@ -162,22 +171,26 @@ pub trait InodeOperations: Any + Send + Sync {
     }
 
     /// Give the entry `old` names another name, the one `dentry` carries in
-    /// this directory.
+    /// this directory. A directory without it answers EPERM, as Linux's VFS
+    /// does.
     fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::NotPermitted)
     }
 
     /// Make the link `dentry` names in this directory, pointing at `target`.
+    /// A directory without it answers EPERM, as Linux's VFS does.
     fn symlink(&self, _dentry: &Dentry, _target: &str) -> Result<(), FilesystemError> {
         Err(FilesystemError::NotPermitted)
     }
 
-    /// Remove the empty directory `dentry` names in this one.
+    /// Remove the empty directory `dentry` names in this one. A directory
+    /// without it answers EPERM, as Linux's VFS does.
     fn rmdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::NotPermitted)
     }
 
-    /// Remove the file `dentry` names in this directory.
+    /// Remove the file `dentry` names in this directory. A directory without
+    /// it answers EPERM, as Linux's VFS does.
     fn unlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::NotPermitted)
     }
@@ -189,7 +202,8 @@ pub trait InodeOperations: Any + Send + Sync {
     /// only a `to_dir` of the same mount, so no two instances meet here, as
     /// `filename_renameat2` answers EXDEV first. One that takes no `flag`
     /// refuses any as invalid input, as Linux's filesystems refuse a `renameat2`
-    /// flag they do not know.
+    /// flag they do not know. A directory without it answers EPERM, as
+    /// Linux's VFS does.
     fn rename(
         &self,
         _from: &Dentry,

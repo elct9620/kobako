@@ -8,12 +8,16 @@ use super::inode::Inode;
 use crate::locking::RwSemaphore;
 
 /// What makes an instance of a Filesystem, as Linux's `file_system_type`.
+/// Every lock beneath it waits through the one `Blocking` its process
+/// registers, so a Filesystem says nothing about waiting.
 pub trait FileSystemType: Send + Sync + 'static {
     /// Set up the instance, asked once before any walk, as a driver's
-    /// `fill_super` fills in its `super_block`: its root through `d_make_root`,
-    /// what every dentry answers through, for a Filesystem changed outside the
-    /// runtime, and whether nothing beneath it changes. An instance that cannot
-    /// stand answers why, and none is made.
+    /// `fill_super` fills in its `super_block`. It makes the root through
+    /// `d_make_root` after any `set_default_d_op`, so the root answers through
+    /// it too. It also says what every dentry answers through, for a
+    /// Filesystem changed outside the runtime, whether nothing beneath it
+    /// changes, and whether a name goes once unused. An instance that cannot stand answers why, and
+    /// none is made.
     fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError>;
 }
 
@@ -68,7 +72,8 @@ impl SuperBlock {
 
     /// Have every dentry of this instance made from now on answer through
     /// `ops`, as a driver's `fill_super` calls `set_default_d_op` before
-    /// `d_make_root`.
+    /// `d_make_root`. Without it the runtime trusts every name it holds, as
+    /// nothing changes the Filesystem outside the runtime.
     pub fn set_default_d_op(&mut self, ops: Arc<dyn DentryOperations>) {
         self.dentries.set_ops(ops);
     }
@@ -79,7 +84,8 @@ impl SuperBlock {
     }
 
     /// Refuse every change beneath this instance, as a driver's `fill_super`
-    /// sets `SB_RDONLY`.
+    /// sets `SB_RDONLY`. Without it the instance refuses no change, though a
+    /// read-only mount of it still does.
     pub fn set_rdonly(&mut self) {
         self.rdonly = true;
     }
@@ -91,6 +97,7 @@ impl SuperBlock {
 
     /// Keep no dentry of this instance once nothing holds it, as a driver with
     /// nothing to gain from a cache sets `DCACHE_DONTCACHE`, as tmpfs does.
+    /// Without it a name stays for the next walk, one naming nothing too.
     pub fn set_dontcache(&mut self) {
         self.dontcache = true;
     }
