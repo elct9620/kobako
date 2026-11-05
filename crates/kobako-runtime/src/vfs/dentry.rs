@@ -715,7 +715,7 @@ impl Dentries {
         self.ops = Some(ops);
     }
 
-    /// A root dentry recording `inode`, which walks start from from now on, as
+    /// A root dentry recording `inode`, which every later walk starts from, as
     /// `d_make_root` allocates one under no name and instantiates it.
     pub(super) fn make_root(&mut self, inode: Arc<Inode>) -> Arc<Dentry> {
         let root = Dentry::new(None, "", self.ops.clone(), &self.hashtables);
