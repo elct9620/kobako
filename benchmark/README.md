@@ -282,7 +282,7 @@ This suite is the predictive half of the GVL-impact toolkit; the Multi-Thread su
 3. Invoke.
 4. Encode the reply body.
 
-The driver frames the core envelope, decoding it and encoding the Reply *outside* the GVL re-acquisition. That framing parallelizes, so it is deliberately out of frame here.
+The driver frames the Envelope, decoding it and encoding the Reply *outside* the GVL re-acquisition. That framing parallelizes, so it is deliberately out of frame here.
 
 | Case                          | `G` per dispatch | What it isolates                                     |
 |-------------------------------|------------------|------------------------------------------------------|

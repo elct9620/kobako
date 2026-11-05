@@ -8,7 +8,7 @@
 # routed +Transport::Call+, so NO wasm, boundary crossing, or
 # guest-side codec is in the measurement window.
 #
-# The core envelope is framed by the driver, which decodes it and encodes
+# The Envelope is framed by the driver, which decodes it and encodes
 # the Reply outside the GVL re-acquisition — so that framing is
 # parallelizable and deliberately outside this window. What remains here
 # is the whole of the serial fraction.

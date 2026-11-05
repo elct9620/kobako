@@ -10,13 +10,11 @@ require_relative "../handle"
 module Kobako
   module Codec # :nodoc:
     module ExtTypes # :nodoc:
-      # MessagePack ext type code reserved for Symbol
-      # (docs/wire/payload-msgpack.md § ext 0x00 — Symbol). Module-private —
+      # MessagePack ext type code reserved for Symbol. Module-private —
       # mirrors +codec::EXT_SYMBOL+ on the
       # Rust side.
       EXT_SYMBOL = 0x00
-      # MessagePack ext type code reserved for Capability Handle
-      # (docs/wire/payload-msgpack.md § ext 0x01 — Handle). Module-private —
+      # MessagePack ext type code reserved for Capability Handle. Module-private —
       # mirrors +codec::EXT_HANDLE+ on the
       # Rust side.
       EXT_HANDLE = 0x01

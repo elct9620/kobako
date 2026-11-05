@@ -30,8 +30,8 @@ module Kobako
         raise TruncatedInputError, e.message
       end
 
-      # +str+ family payloads must be UTF-8
-      # (docs/wire/payload-msgpack.md § Text and Bytes). The msgpack gem
+      # +str+ family payloads must be UTF-8, since a sender carries bytes
+      # that are not UTF-8 as +bin+. The msgpack gem
       # returns UTF-8-tagged Strings for
       # str family but does not validate the bytes; +bin+ family decodes
       # to ASCII-8BIT. Walk the tree once and reject invalid UTF-8 in any

@@ -74,8 +74,7 @@ module Kobako
     end
 
     # The least guest memory one value occupies, so a guest payload may hold
-    # one value for each of these bytes of +memory_limit+
-    # (docs/wire/payload-msgpack.md § Value Budget).
+    # one value for each of these bytes of +memory_limit+.
     VALUE_BYTES = 16
     private_constant :VALUE_BYTES
 

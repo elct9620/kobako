@@ -16,7 +16,7 @@
 #         |
 #   Root            dependency-free value objects and error classes
 #
-# The core envelope has no tier here, because the native side frames and
+# The Envelope has no tier here, because the native side frames and
 # decodes it.
 #
 # These rules keep the tiers acyclic:

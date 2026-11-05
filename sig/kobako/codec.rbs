@@ -2,8 +2,7 @@ module Kobako
   module Codec
     MAX_NESTING_DEPTH: Integer
 
-    # A value in the closed wire type set (docs/wire/payload-msgpack.md
-    # § Type Mapping): the scalar leaves, a Capability Handle, and Array / Hash
+    # A value in the closed wire type set: the scalar leaves, a Capability Handle, and Array / Hash
     # containers of the same. The by-value payloads that cross the wire —
     # dispatch arguments and success values — inhabit this type; a Fault is
     # an envelope shape, not a wire_value.

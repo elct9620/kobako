@@ -8,9 +8,8 @@
 #        1 MiB). 16 MiB, the payload upper bound, is gated under
 #        `BENCH_FULL=1` per the smoke/full split.
 #   3b — fixed payload, varying nesting depth (1 / 4 / 16 / 64).
-#   3c — per-wire-type micro-bench, one case per entry of
-#        docs/wire/payload-msgpack.md § Type Mapping that carries a
-#        value; the table's generic ext row has none to round-trip.
+#   3c — per-wire-type micro-bench, one case per type of the closed
+#        wire type set that carries a value.
 #
 # Case order is load-bearing: a row measured downstream of a payload
 # large enough to stir the heap reports the allocator state it

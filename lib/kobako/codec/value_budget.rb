@@ -5,8 +5,8 @@ require_relative "error"
 module Kobako
   module Codec
     # Counts the values a payload holds before the decoder builds any, so a
-    # guest cannot make the host build more objects than its budget allows
-    # (docs/wire/payload-msgpack.md § Value Budget). Every value takes at
+    # guest cannot make the host build more objects than it could hold in
+    # its own memory. Every value takes at
     # least one byte, so a payload no longer than the budget needs no count.
     #
     # The count stops at the first byte it cannot frame and leaves that

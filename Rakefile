@@ -84,8 +84,8 @@ namespace :check do
   task guest: ["wasm:build", "wasm:build:regexp", "wasm:build:regexp_unicode", "wasm:build:json",
                "wasm:build:full", "wasm:test", "wasm:graph"]
 
-  # `crates:test` belongs here because the core envelope's only pin lives
-  # there: the envelope has one implementation, so the golden vectors in
+  # `crates:test` belongs here because the Envelope's only pin lives
+  # there: the Envelope has one implementation, so the golden vectors in
   # `crates/kobako-transport` are what the wire's consistency guarantee
   # rests on for that layer. `crates:graph` holds what no test binary can:
   # the build graphs the published host crates promise.
