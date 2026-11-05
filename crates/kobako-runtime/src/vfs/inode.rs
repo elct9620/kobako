@@ -342,7 +342,7 @@ impl Inode {
                 return Some(found);
             }
         }
-        dentry.instantiate(self.clone(), &mut held);
+        dentry.__instantiate(self.clone(), &mut held);
         dentry.rehash();
         None
     }
@@ -351,17 +351,11 @@ impl Inode {
     /// `d_add` does under `i_lock`.
     pub(super) fn add_hashed(self: &Arc<Self>, dentry: &Dentry) {
         let mut held = self.dentry();
-        dentry.instantiate(self.clone(), &mut held);
+        dentry.__instantiate(self.clone(), &mut held);
         dentry.rehash();
     }
 
-    /// Record this entry on `dentry`, which no walk finds by a name, as
-    /// `d_instantiate` hangs a root or a pseudo dentry on `i_dentry`.
-    pub(crate) fn add_to(self: &Arc<Self>, dentry: &Dentry) {
-        dentry.instantiate(self.clone(), &mut self.dentry());
-    }
-
-    fn dentry(&self) -> MutexGuard<'_, Weak<Dentry>> {
+    pub(super) fn dentry(&self) -> MutexGuard<'_, Weak<Dentry>> {
         self.dentry.lock().unwrap_or_else(PoisonError::into_inner)
     }
 

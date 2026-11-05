@@ -347,7 +347,7 @@ pub(crate) fn alloc_file_pseudo(
     cred: &Arc<Cred>,
 ) -> File {
     let dentry = mnt.sb().dentries().alloc_pseudo();
-    inode.add_to(&dentry);
+    dentry.instantiate(inode);
     File::alloc_file(Path::root(mnt).with_dentry(dentry), how, ops, cred)
 }
 

@@ -285,11 +285,19 @@ impl Dentry {
         self.state().hashed
     }
 
+    /// Record `inode` on this dentry, which no walk finds by a name, as
+    /// `d_instantiate` hangs a root or a pseudo dentry on `i_dentry` under
+    /// `i_lock`.
+    pub(crate) fn instantiate(&self, inode: Arc<Inode>) {
+        let mut held = inode.dentry();
+        self.__instantiate(inode.clone(), &mut held);
+    }
+
     /// Record `inode` here unless the dentry already names something, a
     /// directory's `held` dentry being this one from then on, as
     /// `__d_instantiate` hangs the dentry on `i_dentry`. The caller holds
     /// `held`, the inode's lock on the dentry it keeps.
-    pub(super) fn instantiate(&self, inode: Arc<Inode>, held: &mut Weak<Dentry>) {
+    pub(super) fn __instantiate(&self, inode: Arc<Inode>, held: &mut Weak<Dentry>) {
         let mut state = self.state();
         if state.inode.is_none() {
             if inode.kind() == FileType::Dir {
