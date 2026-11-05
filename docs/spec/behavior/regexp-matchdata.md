@@ -10,6 +10,15 @@ The out-of-range readings are errors rather than absences. A group that was in r
 
 A match cannot be constructed. It exists because a pattern matched. That is what makes the offsets it carries mean anything about the subject it names.
 
+### Surface
+
+A match answers exactly these members.
+
+```
+readers   [], begin, end, offset, captures, named_captures, names, size, length
+context   pre_match, post_match, string, regexp, to_a, to_s, dup, clone
+```
+
 ## Includes
 
 - `test/e2e/regexp/test_match_data*.rb`

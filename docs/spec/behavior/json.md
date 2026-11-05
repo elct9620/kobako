@@ -2,6 +2,25 @@
 
 What the guest's JSON surface reads, what it writes, and what it refuses to let across.
 
+### Purpose
+
+The guest has no JSON support of its own. This capability gives it a `JSON` module. Guest code then reads response bodies and builds request bodies inside the sandbox. That is the natural shape of a script that makes API calls.
+
+JSON adds no wire type and no host code. A value the guest returns crosses as any other return value does.
+
+### CRuby fidelity
+
+The surface is a chosen subset of CRuby's `JSON` module, and it adds nothing of its own. Within it, behavior is CRuby's unless a scenario states otherwise. The parser is a memory-safe one, and which parser it is stays outside this contract.
+
+```
+JSON module          parse(str, **opts), generate(obj), pretty_generate(obj)
+parse options        symbolize_names:
+serialization hook   Object#as_json
+errors               JSON::JSONError, JSON::ParserError, JSON::GeneratorError
+```
+
+The rest of CRuby's `JSON` API stays out: `dump`, `load`, `unsafe_load`, `load_file`, `parse!` and `JSON[]`. An object shapes its output through the value-returning `as_json` hook, never a `to_json` string splice. So the capability, not the object, owns escaping. The indented layout is the capability's own and need not match another `pretty_generate` byte for byte.
+
 ### Value refusals
 
 Reading and writing JSON is compute the guest does on its own. The scenarios follow what each direction produces and, more importantly, what each refuses.

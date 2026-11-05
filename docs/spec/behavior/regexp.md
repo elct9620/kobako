@@ -2,6 +2,32 @@
 
 The pattern object the guest compiles and matches with, and what it refuses to read.
 
+### Purpose
+
+The guest has no regexp support of its own. This capability gives it `Regexp`, `MatchData` and the pattern methods on `String` as ordinary Ruby. Guest code then matches, captures, substitutes and splits inside the sandbox.
+
+A pattern and a match never cross to the host. What crosses is a result: a substring, an index, captures, a map, or `nil`. It crosses as any other return value does.
+
+### CRuby fidelity
+
+The surface is a chosen subset of CRuby's `Regexp` and `MatchData` and the `String` methods around them. It adds nothing of its own. Within it, behavior is CRuby's unless a scenario states otherwise. The matching engine stays outside this contract.
+
+The guest sees exactly these constructs, plus the `String` and `MatchData` members their own features list.
+
+```
+Regexp construction    /pattern/imx, Regexp.new(source[, options]), Regexp.compile
+Regexp class methods   escape, quote, last_match
+Regexp instance        match, match?, =~, ===, source, options, casefold?,
+                       named_captures, names, inspect, to_s, ==, dup, clone
+Regexp constants       IGNORECASE, EXTENDED, MULTILINE
+Symbol                 =~, match, match?, [], slice
+nil                    =~
+match globals          $~, $1..$9, $&, $`, $', $+
+errors                 RegexpError
+```
+
+The guest has no `Encoding` objects. `Regexp.version` and the switches that turn the match globals off stay out, so the globals are always on. The backtracking bound is sized for matches that are truly unbounded. It is not raised to cover a pattern CRuby still answers.
+
 ### Why these scenarios
 
 Matching happens entirely inside the guest, so what is observable is what a pattern answers and what it refuses. Offsets are bytes throughout. The scenarios say so wherever a character count would read the same on ASCII but differ elsewhere.

@@ -10,6 +10,16 @@ Splitting and scanning disagree deliberately about a group that did not take par
 
 Replacement text is a small language of its own. Its scenarios cover what expands, what stays literal, and what is refused. The refused cases are a name no group carries and a name marker with no name behind it.
 
+#### String Surface
+
+These are the `String` methods that take a pattern.
+
+```
+matching                =~, match, match?
+searching and slicing   index, [], slice, slice!
+rewriting               scan, gsub, sub, split, []=
+```
+
 #### String Readings
 
 A String handed where a pattern goes is read as the language reads it. A metacharacter is the one case where the two readings answer differently, so both are witnessed with one.
