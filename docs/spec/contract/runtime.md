@@ -706,7 +706,8 @@ impl Dentry {
 
 ## `Dentry::path_raw`
 
-Where the name stands now beneath the Filesystem's root, empty for the root.
+Where the name stands now beneath the Filesystem's root, from a leading `/`,
+which alone names the root.
 
 ```rust
 impl Dentry {
