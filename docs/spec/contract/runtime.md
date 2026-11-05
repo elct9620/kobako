@@ -1341,6 +1341,26 @@ impl PollMask {
 }
 ```
 
+## `PollMask::IN`
+
+A read does not wait.
+
+```rust
+impl PollMask {
+    pub const IN: Self;
+}
+```
+
+## `PollMask::OUT`
+
+A write does not wait.
+
+```rust
+impl PollMask {
+    pub const OUT: Self;
+}
+```
+
 ## `File::poll`
 
 What a call would find ready, as `vfs_poll` asks the file.
@@ -1548,6 +1568,86 @@ Whether this holds all of another.
 ```rust
 impl FMode {
     pub fn contains(self, mode: Self) -> bool {}
+}
+```
+
+## `FMode::READ`
+
+The file was opened to read.
+
+```rust
+impl FMode {
+    pub const READ: Self;
+}
+```
+
+## `FMode::WRITE`
+
+The file was opened to write.
+
+```rust
+impl FMode {
+    pub const WRITE: Self;
+}
+```
+
+## `FMode::LSEEK`
+
+The file has a position that a seek can move.
+
+```rust
+impl FMode {
+    pub const LSEEK: Self;
+}
+```
+
+## `FMode::PREAD`
+
+The file reads from an offset that the call names.
+
+```rust
+impl FMode {
+    pub const PREAD: Self;
+}
+```
+
+## `FMode::PWRITE`
+
+The file writes at an offset that the call names.
+
+```rust
+impl FMode {
+    pub const PWRITE: Self;
+}
+```
+
+## `FMode::STREAM`
+
+The file reads and writes the next bytes, and has no position.
+
+```rust
+impl FMode {
+    pub const STREAM: Self;
+}
+```
+
+## `FMode::CREATED`
+
+The open that opened the file also made it.
+
+```rust
+impl FMode {
+    pub const CREATED: Self;
+}
+```
+
+## `FMode::PATH`
+
+The file stands only for its path, and does not read or write.
+
+```rust
+impl FMode {
+    pub const PATH: Self;
 }
 ```
 
@@ -1894,6 +1994,57 @@ Whether this holds all of another mask.
 ```rust
 impl Mask {
     pub fn contains(self, mask: Self) -> bool {}
+}
+```
+
+## `Mask::EXEC`
+
+The call passes through a directory.
+
+```rust
+impl Mask {
+    pub const EXEC: Self;
+}
+```
+
+## `Mask::WRITE`
+
+The call changes the entry.
+
+```rust
+impl Mask {
+    pub const WRITE: Self;
+}
+```
+
+## `Mask::READ`
+
+The call reads the entry.
+
+```rust
+impl Mask {
+    pub const READ: Self;
+}
+```
+
+## `Mask::OPEN`
+
+The call opens the entry.
+
+```rust
+impl Mask {
+    pub const OPEN: Self;
+}
+```
+
+## `Mask::APPEND`
+
+The call changes the entry only at its end, and always comes with
+`Mask::WRITE`.
+
+```rust
+impl Mask {
+    pub const APPEND: Self;
 }
 ```
 
