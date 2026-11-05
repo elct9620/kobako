@@ -102,9 +102,4 @@ impl Mount {
     pub fn at(&self) -> &str {
         &self.at
     }
-
-    /// The Filesystem instance this Mount places.
-    pub fn filesystem(&self) -> &Arc<Filesystem> {
-        self.mnt.sb()
-    }
 }
