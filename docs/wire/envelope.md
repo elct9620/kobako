@@ -1,6 +1,6 @@
 # Core Envelope
 
-The core envelope is the outer frame of every host↔guest message. This document pins each field's meaning and bytes. The layout is fixed, not MessagePack, and hands everything but routing and attribution through as an opaque `payload`.
+The Envelope is the outer frame of every host↔guest message. This document pins each field's meaning and bytes. The layout is fixed, not MessagePack, and hands everything but routing and attribution through as an opaque `payload`.
 
 | Document | Holds |
 |----------|-------|
@@ -28,7 +28,7 @@ Every field is a scalar, a byte string, or a flat list.
 
 ## Primitives
 
-Every core envelope is built from four primitives. All integers are unsigned big-endian.
+Every Envelope is built from four primitives. All integers are unsigned big-endian.
 
 | Primitive | Layout |
 |-----------|--------|
@@ -61,7 +61,7 @@ Every downcall and upcall message is a tag and a body. The framing rule applies 
 | `tag` | `u8` | the operation, or the arm of its answer |
 | `body` | remainder | that tag's layout, below |
 
-A request's body is a Call, a Run, a payload, or nothing. An answer's tag is its arm. A Reply, a Yield Reply, a Compile Reply, and an Outcome are each this layer, with the arms its operation allows.
+A request's body is a Call, a Yield Call, a Run body, source, or nothing. An answer's tag is its arm. A Reply, a Yield Reply, a Compile Reply, and an Outcome are each this layer, with the arms its operation allows.
 
 ### Tag Registry
 
@@ -71,7 +71,7 @@ All tags share one number space, so a byte means one thing in every message. The
 |---|---|---|---|
 | `0x00` | — | — | invalid |
 | `0x01` | eval | downcall | user source, UTF-8 |
-| `0x02` | run | downcall | a Run |
+| `0x02` | run | downcall | a Run body |
 | `0x03` | yield | downcall | a Yield Call |
 | `0x04` | call | upcall | a Call |
 | `0x05` | bindings | Preamble | the bound paths |
@@ -85,7 +85,7 @@ All tags share one number space, so a byte means one thing in every message. The
 | `0x14` | panic | an answer to eval, run | a Panic |
 | `0x15` | unsupported | an answer to any | an Unsupported |
 
-`0x09`–`0x0F` and `0x16`–`0x7F` are kobako's, unassigned. `0x80`–`0xEF` are left for either side later, and `0xF0`–`0xFF` for third parties. A field's own `kind`, such as a Call's target form, picks a field rather than a message, so it keeps its own numbers.
+A policy sets where a future tag goes, by range. `0x09`–`0x0F` and `0x16`–`0x7F` are kobako's, `0x80`–`0xEF` either side's, and `0xF0`–`0xFF` third parties'. A reader does not tell the ranges apart; every unassigned tag reads as unknown (→ § Unknown Tags). A field's own `kind`, such as a Call's target form, picks a field rather than a message, so it keeps its own numbers.
 
 ### Unknown Tags
 
@@ -103,7 +103,7 @@ A request tag the registry has not assigned reads as unknown, with its body inta
 
 ## Call
 
-A Call is the guest→host dispatch. Its envelope fields route it; its payload feeds the method.
+A Call asks the other side to run one method. This layout is the guest's Call to a Receiver, carried by an upcall. The host's Call into a Block is a Yield Call (→ § Yield Layouts). Its Envelope fields route it; its payload feeds the method.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -113,15 +113,15 @@ A Call is the guest→host dispatch. Its envelope fields route it; its payload f
 | `block_given` | `u8` | `0` or `1` |
 | `payload` | remainder | the arguments, codec-encoded |
 
-`kind` tells the two targets apart without reading anything else. A path uses Ruby constant syntax (`"MyService::KV"`), matching the guest's own constant access. A Handle target is an envelope field, not a payload value, so a codec without a Handle representation still reaches one.
+`kind` tells the two targets apart without reading anything else. A path uses Ruby constant syntax (`"MyService::KV"`), matching the guest's own constant access. A Handle target is an Envelope field, not a payload value, so a codec without a Handle representation still reaches one.
 
-The method is one name, reached only through its public surface ([transport-boundary](../spec/behavior/transport-boundary.md)). Only the block flag travels; the block stays in the guest and runs through a Yield Call ([transport-yield](../spec/behavior/transport-yield.md)).
+The method is one name, reached only through its public surface ([transport-boundary](../spec/behavior/transport-boundary.md)). Only the block flag travels; the Block stays in the guest and runs through a Yield Call ([transport-yield](../spec/behavior/transport-yield.md)).
 
 ---
 
 ## Reply
 
-A Reply answers one Call. Success versus fault is decided by one byte, whatever the payload schema, so a fault rides its own arm rather than a reserved payload value.
+A Reply answers one Call. Success versus fault is decided by one byte, whatever the Codec, so a fault rides its own arm rather than a reserved payload value.
 
 | Tag | Arm | Body |
 |-----|-----|------|
@@ -130,7 +130,7 @@ A Reply answers one Call. Success versus fault is decided by one byte, whatever 
 | `0x12` | break | none |
 | `0x15` | unsupported | an Unsupported |
 
-There is no partial success or streaming answer. A break answers a Call whose Service a block exit unwound; the guest continues that exit itself.
+There is no partial success or streaming answer. A break answers a Call whose Service a Block's exit unwound; the guest continues that exit itself.
 
 ### Unsupported
 
@@ -145,7 +145,7 @@ It carries no tag of its own, since the caller knows what it sent. It degrades t
 
 ### Fault
 
-A Fault is the host refusing or failing a Call. Every byte is kobako's, so it rides the envelope and a guest reads it with no codec.
+A Fault is the host refusing or failing a Call. Every byte is kobako's, so it rides the Envelope and a guest reads it with no codec.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -196,18 +196,18 @@ A Yield Call names the open Call whose block it runs, since a Service may run an
 
 The Yield Reply answers by arm:
 
-| Tag | Variant | Body | Host yield site |
+| Tag | Arm | Body | Host yield site |
 |-----|---------|------|-----------------|
 | `0x10` | ok | the block value | returns it to the Service |
 | `0x12` | break | none | unwinds the Service, then answers its Call with break |
 | `0x13` | error | an Error Record | re-raises the named class |
 | `0x15` | unsupported | an Unsupported | raises that the guest serves no block |
 
-An ok value's Handles are restored, because host code consumes it. A `break` or `return` stays in the guest, which knows where it lands, so nothing of it crosses. Any other tag, or a reply the host cannot frame, fails the yield as a trap.
+An ok value goes to the Service, so a Capability Handle in it names its host object again. A `break` or `return` stays in the guest, which knows where it lands, so nothing of it crosses. An empty answer, any other tag, or a reply the host cannot frame fails the yield as a Trap.
 
 ### Error Record
 
-An Error Record is the guest's report that something it ran raised. Block and invocation failures share it, and the host re-raises from it with no codec.
+An Error Record is the guest's report that something it ran raised. Block and Invocation failures share it, and the host re-raises from it with no codec.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -229,13 +229,20 @@ The Compile Reply answers a `compile` downcall. The guest compiles the Preamble'
 | `0x13` | error | an Error Record |
 | `0x15` | unsupported | an Unsupported |
 
-A bytecode entry is what a bytecode Snippet carries, so the host replays it unchanged. The host keeps sending the source on every other arm, and on an ok whose count is not the source Snippets' count.
+A bytecode entry is what a bytecode Snippet carries, so the host replays it unchanged. The host keeps sending the source when no bytecode can replay in its place:
+
+| Answer | Why the source stays |
+|---|---|
+| error or unsupported | no bytecode came back |
+| a reply the host cannot frame | nothing readable came back |
+| ok, count not the source Snippets' count | no entry pairs with each source |
+| ok, replay past 16 MiB | the Preamble would turn every Invocation the source fits into a Trap (→ § Message Bounds) |
 
 ---
 
 ## Outcome
 
-The Outcome is the per-invocation result, the answer to an `eval` or `run` downcall.
+The Outcome is the final result of one Invocation, the answer to an `eval` or `run` downcall.
 
 | Tag | Arm | Body |
 |-----|-----|------|
@@ -243,7 +250,7 @@ The Outcome is the per-invocation result, the answer to an `eval` or `run` downc
 | `0x14` | panic | a Panic |
 | `0x15` | unsupported | an Unsupported |
 
-The ok value becomes `Execution#value`. An empty answer or unknown tag is refused, and bytes the host cannot frame take the trap path ([outcome](../spec/behavior/outcome.md)). Guest stdout and stderr never join attribution.
+The ok value becomes `Execution#value`. An empty answer, an unknown tag, and unframed bytes each end the Invocation as a Trap, with nothing left to attribute ([outcome](../spec/behavior/outcome.md)). Guest stdout and stderr never join attribution.
 
 ### Panic
 
@@ -263,7 +270,7 @@ Only `"service"` attributes to the Service (`Kobako::ServiceError`); anything el
 
 ## Run
 
-Run is the host→guest entrypoint dispatch, the body of a `run` downcall.
+A Run is an Invocation that names an Entrypoint already loaded in the guest. Its `run` downcall carries a Run body, which names that Entrypoint and its arguments.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -276,7 +283,7 @@ It carries no `method`, since the entrypoint is invoked through `#call`, and no 
 
 ## Preamble
 
-The Preamble is what each invocation reads from stdin before its entry runs (→ [`abi.md`](abi.md) § Invocation inputs). It is a counted list of records, so a new kind of setup joins as a registry entry rather than a new position.
+The Preamble is what each Invocation reads from stdin before its entry runs (→ [`abi.md`](abi.md) § Invocation inputs). It is a counted list of records, so a new kind of setup joins as a registry entry rather than a new position.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -285,7 +292,7 @@ The Preamble is what each invocation reads from stdin before its entry runs (→
 | per record `kind` | `u8` | a tag from the registry's Preamble rows |
 | per record `body` | `bytes` | that kind's layout, below |
 
-A reader that does not know a record's kind skips it when advisory and refuses the invocation when critical. A kind the registry assigns to a message is refused either way. Bindings and snippets each appear at most once, and an absent one reads as empty, so an empty Preamble is `count = 0`.
+A reader that does not know a record's kind skips it when advisory and refuses the Invocation when critical. A kind the registry assigns to a message is refused either way. Bindings and snippets each appear at most once, and an absent one reads as empty, so an empty Preamble is `count = 0`.
 
 ### Preamble Records
 
@@ -307,14 +314,13 @@ Snippets replay in insertion order, and a source snippet's backtraces show `(sni
 
 ## Message Bounds
 
-Every message, the Preamble included, is at most 16 MiB. The host enforces it in both directions, so a guest-supplied length never makes the host allocate past it.
+Every message, the Preamble included, is at most 16 MiB, a size of exactly 16 MiB included. A larger one is a wire violation, refused before anything is allocated for it. A guest-supplied length thus never makes the host allocate past the cap.
 
-| Direction | The host checks |
-|-----------|-----------------|
-| guest → host | a Call, Outcome, Yield Reply, or Compile Reply, before reading it |
-| host → guest | a downcall request or a Reply, before writing it |
-| host → guest stdin | the Preamble, before sending it |
+| Direction | Messages under the cap |
+|-----------|------------------------|
+| guest → host | Call, Outcome, Yield Reply, Compile Reply |
+| host → guest | downcall request, Reply, Preamble |
 
-The guest's Preamble reader caps a declared length at 64 MiB. That ceiling only guards an allocation from a length prefix; the contract is the 16 MiB. A `memory_limit` below 16 MiB binds first, since the guest grows memory to hold what it reads.
+A Guest Binary may admit a declared Preamble length up to 64 MiB. That ceiling only bounds an allocation; the contract stays 16 MiB. A `memory_limit` below 16 MiB binds first, since the guest grows memory to hold what it reads.
 
 This layer is non-recursive, so it has no depth to budget. Each payload has its own (→ [`payload-msgpack.md`](payload-msgpack.md) § Structural Nesting Depth).

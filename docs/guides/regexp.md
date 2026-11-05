@@ -35,24 +35,26 @@ ordinary return-value semantics of [sandbox](../spec/behavior/sandbox.md).
 ```
 +---------------- guest ----------------+         +--- host ---+
 | Regexp, MatchData  (stay inside)      |         |            |
-| substring, index, captures, map, nil  | -wire-> | wire value |
+| match results (a)                     | -wire-> | wire value |
 +---------------------------------------+         +------------+
 ```
 
-### MRI Fidelity
+a. A substring, an index, captures, a map, or `nil`.
 
-The surface is a curated subset of MRI's `Regexp` / `MatchData` API and
-the `String` integration around it, implemented over fancy-regex.
+### CRuby Fidelity
+
+The surface is a curated subset of CRuby's `Regexp` / `MatchData` API
+and the `String` integration around it.
 
 | Aspect | Rule |
 |---|---|
 | Constructs | exactly the Surface below, nothing added |
-| Behavior | MRI's, unless a scenario states otherwise |
+| Behavior | CRuby's, unless a scenario states otherwise |
 | Engine | an implementation choice below this contract |
-| Backtracking bound | MRI's answer or none, never a different one |
+| Backtracking bound | CRuby's answer or none, never a different one |
 
 The bound is sized for genuinely unbounded matches. It is not raised to
-cover patterns MRI still answers.
+cover patterns CRuby still answers.
 
 ## Scope
 
@@ -74,9 +76,9 @@ The guest sees exactly these constructs.
 | Match globals | `$~`, `$1`..`$9`, `$&`, `` $` ``, `$'`, `$+` |
 | Errors | `RegexpError` |
 
-The capability's internals sit under the reserved `__kobako_` prefix as private
-`String` methods, which a plain call refuses with `NoMethodError`. Guest code must
-not reach for them.
+`String` method names under the `__kobako_` prefix are reserved for the
+capability's internals. Guest code must not reach for them; a plain call
+raises `NoMethodError`.
 
 ### Non-goals
 
@@ -86,5 +88,5 @@ The capability deliberately leaves out these parts of CRuby's surface.
 |----------|--------------|
 | The full CRuby `Regexp` / `MatchData` API | only the curated Surface above |
 | `Encoding` objects; character-based offsets | byte-based offsets and slices |
-| Option constants beyond `IGNORECASE` / `EXTENDED` / `MULTILINE` | the MRI-aligned `Regexp#options` bits |
+| Option constants beyond `IGNORECASE` / `EXTENDED` / `MULTILINE` | the CRuby-aligned `Regexp#options` bits |
 | `Regexp.version`, the `set_global_variables` toggle family | always-on match globals |

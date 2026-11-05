@@ -6,7 +6,7 @@ The ABI is the set of Wasm functions that carry both [wire](README.md) layers be
 |---------|-------|
 | ABI Signatures | the four symbols and the two layers they form |
 | Downcall and Upcall | how a message and its answer cross |
-| Invocation inputs | what each invocation reads, and from where |
+| Invocation inputs | what each Invocation reads, and from where |
 | ABI Version | what the version pins, and how it moves |
 
 ## ABI Signatures
@@ -20,7 +20,7 @@ The surface is four symbols. Signatures here use Wasm's own types; a Rust side s
 | `__kobako_downcall` | export | `(ptr: i32, len: i32) -> i64` | message |
 | `__kobako_upcall` | import | `(ptr: i32, len: i32) -> i64` | message |
 
-The pre-message layer works before any message exists. The version is agreed before a tag can be read. `__kobako_alloc` gives the host guest memory to write a message into, answering `0` on failure. Adding, removing, or renaming a symbol is an ABI version increment (→ [`spec/behavior/runtime.md`](../spec/behavior/runtime.md)).
+The pre-message layer works before any message exists. The version is agreed before a tag can be read. `__kobako_alloc` gives the host guest memory to write a message into, answering `0` on failure. Adding, removing, or renaming a symbol is an ABI version increment (→ [§ ABI Version](#abi-version)).
 
 ### Downcall and Upcall
 
@@ -35,40 +35,44 @@ Each direction has one symbol, named for the way it crosses. An operation is a t
 2. The callee reads it, runs the operation its tag names, and encodes the answer.
 3. The callee writes the answer into guest memory and returns its packed location.
 
-The host writes into guest memory through `__kobako_alloc`. A Call the host cannot answer is answered on the fault arm, naming why. When not even that fits in guest memory, the invocation traps with the reason.
+The host writes into guest memory through `__kobako_alloc`. A Call the host cannot answer is answered on the fault arm, naming why. When not even that fits in guest memory, the Invocation ends in a Trap naming the reason.
 
 ### Call Nesting
 
-Initiators alternate by depth, and every answer is the return value of the call at its depth. Correlation comes from the Wasm call stack, so no answer carries an id. A yield alone names a Call: the open Call whose block it runs.
+Initiators alternate by depth, and every answer is the return value of the call at its depth. Correlation comes from the Wasm call stack, so no answer carries an id. A Yield alone names a Call: the open Call whose Block it runs.
 
 ```
 downcall{run}                  <- host, depth 0
-`- upcall{call}                <- guest, depth 1
-   `- downcall{yield}          <- host, depth 2, inside the Service's yield
-      `- upcall{call}          <- guest, depth 3
++- upcall{call}                <- guest, depth 1
+   +- downcall{yield}          <- host, depth 2 (a)
+      +- upcall{call}          <- guest, depth 3
 ```
 
-A yield nests inside the upcall the host is still answering. The Yield Call and its answer are in [`envelope.md`](envelope.md) § Yield Messages.
+a. Sent from inside the Service's `yield`.
+
+A Yield nests inside the upcall the host is still answering. The Yield Call and its answer are in [`envelope.md`](envelope.md) § Yield Messages.
 
 ### Packed Return
 
 Both message symbols return a location packed as two u32 values in one i64. Every pointer refers to guest linear memory.
 
 ```
- 63        32 31         0
- ┌──────────┬────────────┐
- │   ptr    │    len     │
- └──────────┴────────────┘
- high 32 bits  low 32 bits
+ 63          32 31           0
+ +-------------+-------------+
+ |     ptr     |     len     |
+ +-------------+-------------+
+  high 32 bits   low 32 bits
 ```
 
-The reader copies the answer during the call frame and keeps no reference to it. Buffers are never freed one by one; the whole memory goes when the instance drops after the invocation.
+A `len` of `0` is the failure signal: the exchange produced no answer, so the reader refuses it rather than decoding an empty message.
+
+The reader copies the answer before the call returns and keeps no reference to it. An answer lives only as long as the instance that holds it, and every Invocation entry gets a fresh instance.
 
 ---
 
 ## Invocation inputs
 
-An invocation reads its Preamble from WASI stdin and its entry message from the downcall.
+An Invocation reads its Preamble from WASI stdin and its entry message from the downcall.
 
 | Operation | WASI stdin | Downcall |
 |---|---|---|
@@ -76,7 +80,7 @@ An invocation reads its Preamble from WASI stdin and its entry message from the 
 | run | the Preamble | `run` with the Run envelope |
 | compile | the Preamble | `compile`, with no body |
 
-A compile reads the same Preamble an invocation would, so its bytecode matches what that invocation replays, and runs none of it.
+A compile reads the same Preamble an Invocation would, so its Bytecode matches what that Invocation replays, and runs none of it.
 
 The Preamble arrives as a `u32` big-endian length followed by that many bytes. It is always sent, even with no records, so no entry meets an end-of-input ambiguity. What it holds is in [`envelope.md`](envelope.md) § Preamble.
 
@@ -90,9 +94,9 @@ The ABI version is one u32 defined in `kobako-transport`, independent of every p
 |--------------------|---------------------|
 | the symbol set, names, signatures | a new request tag or Preamble record kind in the registry |
 | the packed return convention | an additive contract change |
-| the message framing, a redefined byte value, a new answer arm | a payload codec swap |
+| the message framing, a redefined byte value, a new answer arm | a payload Codec swap |
 
-`__kobako_abi_version` is a constant function, callable before any entry runs, so one call can serve every Sandbox built from the artifact. The host accepts a Guest Binary only on equality, checked at Sandbox construction (→ [`spec/behavior/runtime.md`](../spec/behavior/runtime.md)).
+`__kobako_abi_version` answers a constant, readable before any entry runs. The host accepts a Guest Binary only when that constant equals its own version. A Guest Binary that states none, or another, does not run (→ [`spec/behavior/runtime.md`](../spec/behavior/runtime.md)).
 
 ### Lockstep Evolution
 
@@ -104,7 +108,7 @@ A host implements exactly one ABI version, so an increment is the cost of a chan
 | No negotiation | each side implements one wire shape |
 | Unsupported answer | a peer answers an unknown request, so a request tag joins without a bump |
 
-A sandbox is short-lived, so no connection or stored payload outlasts a version. An independently built Guest Binary conforms by rebuilding against the new one. Release notes list wire-affecting changes under Breaking Changes.
+A Sandbox is short-lived, so no connection or stored payload outlasts a version. An independently built Guest Binary conforms by rebuilding against the new one. Release notes list wire-affecting changes under Breaking Changes.
 
 ### Version 5
 
@@ -117,7 +121,7 @@ Version `5` carries the operation in the message, so an added operation is a reg
 | one message symbol per direction | the symbol set stays at four |
 | one tag space for every message | an answer's tag never collides across operations |
 | every answer is a return value | a call and its answer are one round trip |
-| field placement follows whose data it is | a Fault rides the envelope, readable without a codec |
+| field placement follows whose data it is | a Fault rides the Envelope, readable without a Codec |
 | setup is a counted list of records, each marked critical or advisory | a new kind of setup joins without a version |
-| a fresh instance per invocation entry | the guest may exit with dirty interpreter state |
+| a fresh instance per Invocation entry | the guest may exit with dirty interpreter state |
 | boot state may live in data segments | the guest may arrive pre-initialized |

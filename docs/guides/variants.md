@@ -6,11 +6,11 @@ the interfaces a third party replaces are in
 [customization](customization.md).
 
 ```
-base ─┬─ alone ──────────── kobako.wasm
-      ├─ + regexp ───────── kobako+regexp.wasm
-      ├─ + regexp-unicode ─ kobako+regexp-unicode.wasm
-      ├─ + json ─────────── kobako+json.wasm
-      └─ + regexp + json ── kobako+full.wasm
+base -+- alone ------------ kobako.wasm
+      +- + regexp --------- kobako+regexp.wasm
+      +- + regexp-unicode - kobako+regexp-unicode.wasm
+      +- + json ----------- kobako+json.wasm
+      +- + regexp + json -- kobako+full.wasm
 ```
 
 ## Base Surface
@@ -47,20 +47,20 @@ refuses.
 
 The suffix encodes capability composition, not a version.
 
-```
-kobako.wasm                    the default, fixed name
-kobako-<version>.wasm          the default as a Release asset
-kobako+<cap>.wasm              a capability variant
-kobako+<cap>-<version>.wasm    that variant as a Release asset
-```
+| Name | Names |
+|---|---|
+| `kobako.wasm` | the default, fixed name |
+| `kobako-<version>.wasm` | the default as a Release asset |
+| `kobako+<cap>.wasm` | a capability variant |
+| `kobako+<cap>-<version>.wasm` | that variant as a Release asset |
 
 `<cap>` names an opt-in capability axis (`regexp`, `regexp-unicode`,
 `json`) or a composition shorthand (`full` = ASCII regexp + JSON).
 
 ## Packaging Policy
 
-The published gem bundles exactly one Guest Binary, `data/kobako.wasm`,
-which the gemspec appends to its tracked files. This keeps the install
+The published gem bundles exactly one Guest Binary, `data/kobako.wasm`.
+This keeps the install
 footprint minimal; a Host App that needs a capability downloads the
 matching variant.
 
@@ -83,7 +83,7 @@ Kobako::Sandbox.new(wasm_path: "path/to/kobako+json.wasm")
 
 Every variant passes through the canonical boot bake
 ([mruby](../spec/behavior/mruby.md)). Re-baking the same inputs yields a
-byte-identical artifact, gated by the reproducible-build pipeline.
+byte-identical artifact; a build that cannot reproduce its bake fails.
 
 | Task | Produces |
 |---|---|

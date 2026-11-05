@@ -40,8 +40,8 @@ What a name stands for decides its word class.
 
 | What is named | Its name | As in |
 |---|---|---|
-| A module, class, struct, or enum | a noun, or an adjective and a noun | `Sandbox`, `OpenDirectory` |
-| A method | a verb, then its object | `mount`, `write_event` |
+| A module, class, struct, or enum | a noun, or an adjective and a noun | `Sandbox`, `FrozenWallClock` |
+| A method | a verb, then its object | `mount`, `register_symbol` |
 | An attribute | a noun, or the state it records | `memory_limit`, `failed?` |
 | An enum variant | a noun or an adjective | `Profile::Hermetic`, `Grant::Mount` |
 | A variable or field | a noun, or the state it records | `owner`, `live` |
@@ -56,8 +56,8 @@ A method is named for what it does, and each kind shows it this way.
 |---|---|---|
 | acts | a verb, then its object | `preload`, `register_source` |
 | finds a thing by a key | the noun, `_by_`, and the key | `error_by_name` |
-| makes or converts a value | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_inodes`, `from_posix_name` |
-| adds one more of a member it already holds | the member's noun, as `Command::arg` | `layer` |
+| makes or converts a value | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_nr_inodes`, `from_posix_name` |
+| adds one more of a member it already holds | the member's noun, as `Command::arg` | `flag` |
 | runs a block under a condition | a preposition and the condition | `within_value_budget { … }` |
 | is called when something happens | `on_` and the event | `on_dispatch` |
 
@@ -82,8 +82,8 @@ A word ending in `-ed` or `-ing` says what state a thing is in. It never names a
 | Where | As in |
 |---|---|
 | An attribute or variable recording a state | `stdout_truncated?`, `spent` |
-| An enum variant naming a state | a variant such as `Closed` |
-| After a verb | `write_aligned` |
+| An enum variant naming a state | a variant such as `Sealed` |
+| After a verb | `add_hashed` |
 | A dictionary noun, in that sense | `Blocking`, `nesting` |
 | A name step 1 keeps | `method_missing`, `respond_to_missing?` |
 
@@ -95,7 +95,7 @@ A question answers true or false, and each language marks it its own way.
 
 | Language | Its name | As in |
 |---|---|---|
-| Ruby | ends in `?` | `failed?`, `malformed?` |
+| Ruby | ends in `?` | `failed?`, `reserved?` |
 | Rust | `is_` or `has_` | `is_mounted`, `is_at_end` |
 | Rust | a verb in the third person | `allows`, `matches_exactly` |
 | Rust | a recorded state | `stdout_truncated`, `abandoned` |
@@ -109,8 +109,8 @@ A Ruby method ends in `!` when it raises where it could not do its work. A guard
 | Method | Raises | As in |
 |---|---|---|
 | a guard | when its condition fails | `ensure_capacity!`, `reject_unwrappable!` |
-| a pair | the `!` member, where the other answers | `save` and `save!` |
-| a change | never, so no `!` | `invalidate`, `register_source` |
+| a pair | the `!` member, where the other answers | ActiveRecord's `save` and `save!` |
+| a change | never, so no `!` | `invalidate`, `record_handle` |
 
 A change that only updates its receiver is told by its verb, not by `!`.
 
@@ -157,12 +157,13 @@ These names come from another side, and step 1 keeps each as that side spells it
 | Side | As in |
 |---|---|
 | Rust API Guidelines | `new`, `try_`, `as_`, `into_`, `_mut`, a getter without `get_`, a trait such as `Blocking` |
+| Rust API Guidelines, where a type name drops what its module path says | `io::Error`, `kobako_wasmtime::Driver` |
 | Rust standard library, where a Bind reaches its host | `OpenOptions`, `Metadata` |
 | Linux, for the VFS, a Filesystem's operations, locks, and scheduling | `filename_mkdirat`, `vfs_mkdir`, `DentryOperations::revalidate`, `RwSemaphore::down_read`, `sched::schedule` |
 | Ruby and its hooks | `method_missing`, `respond_to_missing?`, `LocalJumpError`, `ThreadError` |
 | magnus and beni | `funcall`, `define_method` |
 | WASI and POSIX | `fd_readdir`, `PATH_MAX`, `ELOOP` |
-| wasmtime-wasi's preview1, for the Driver's descriptor table, where a name there means the same | `Descriptors`, `push`, `remove`, `preopen_path` |
+| wasmtime-wasi's preview1, for the Wasm Driver's descriptor table, where a name there means the same | `Descriptors`, `push`, `remove`, `preopen_path` |
 | MessagePack | `ext`, `bin`, `str` |
 | Minitest | `test_`, `assert_equal` |
 | connection_pool | `Pool#with` |

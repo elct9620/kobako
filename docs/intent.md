@@ -5,10 +5,12 @@ running mruby code it does not trust. It is to Ruby what a V8 isolate is to
 JavaScript: embeddable, self-hosted, and isolated from the process around it.
 
 ```
-Host App --eval / run--> Sandbox --> Guest Binary (mruby in Wasm)
+Host App --eval / run--> Sandbox --> Guest Binary (a)
     ^                                      |
     +------------ Service calls <----------+
 ```
+
+- (a) mruby compiled to Wasm.
 
 ## Users
 
@@ -31,11 +33,11 @@ host memory, I/O, or credentials. The scenarios under
 |--------|-------------------------|
 | One-shot execution | `#eval` answers a result or a categorized error |
 | Preload and dispatch | preload source or bytecode once, dispatch many `#run` calls |
-| Service injection | Services and Mounts are guest code's only reach outside the Sandbox |
+| Service injection | Services and Grants are guest code's only reach outside the Sandbox |
 | File access | `#mount` hands guest `File` a Filesystem the Host App chose |
 | Block yield | a Service method yields to a guest block, still isolated |
-| Error attribution | each failure is a trap, a Sandbox failure, or a Service failure |
-| Output capture | guest stdout and stderr, apart from the Transport |
+| Error attribution | each failure is a Trap, a Sandbox failure, or a Service failure |
+| Output capture | each Channel, output and error, captured apart from the Transport |
 | Extension installation | `#install` gives guest code a native-style constant |
 | Host-parallel execution | `gvl: :release` runs Sandboxes in parallel, changing scheduling only |
 
@@ -50,7 +52,7 @@ App or to other projects.
 | A general-purpose wasmtime Ruby gem | — |
 | mruby upstream development or distribution | — |
 | Billing, SLAs, deployment and operations tooling | — |
-| Cross-Sandbox quotas, fairness, and aggregate metrics | per-invocation caps and usage |
+| Cross-Sandbox quotas, fairness, and aggregate metrics | per-Invocation caps and usage |
 | Fair ordering among waiting Pool checkouts | the bounded Pool checkout |
-| Adaptive scheduling, or observing it per invocation | the per-Sandbox `gvl:` mode |
-| Async execution, or pausing and resuming an invocation | the boot state baked into the artifact at build time |
+| Adaptive scheduling, or observing it per Invocation | the per-Sandbox `gvl:` mode |
+| Async execution, or pausing and resuming an Invocation | the boot state baked into the artifact at build time |

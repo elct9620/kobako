@@ -1,6 +1,6 @@
 # MessagePack Payload Codec
 
-This document pins the bytes of the payload, the opaque field every core envelope hands through. MessagePack is the default codec: the bundled Guest Binary and the Ruby frontend speak it.
+This document pins the bytes of the payload, the opaque field every Envelope hands through. MessagePack is the default Codec: the bundled Guest Binary and both Frontends speak it.
 
 | Document | Holds |
 |----------|-------|
@@ -8,13 +8,13 @@ This document pins the bytes of the payload, the opaque field every core envelop
 | [`envelope.md`](envelope.md) | the envelope that carries each payload |
 | [`spec/behavior/payload-encoding.md`](../spec/behavior/payload-encoding.md) | this encoding's behavior |
 
-The Host Gem (`lib/kobako/`) and the guest (`kobako-codec`) implement it independently, in different languages. Another codec may replace it, since the envelope never reads a payload byte.
+Two peers implement it independently, in different languages: the Ruby gem (`lib/kobako/`) and `kobako-codec`, which serves both the Guest Binary and the Rust SDK. Another Codec may replace it, since the Envelope never reads a payload byte.
 
 ---
 
 ## Payload Positions
 
-A codec owns exactly these positions; everything else in a message is the envelope's. A payload is exactly one MessagePack value.
+A Codec owns exactly these positions; everything else in a message is the Envelope's. A payload is exactly one MessagePack value.
 
 | Position | Content |
 |----------|---------|
@@ -22,10 +22,10 @@ A codec owns exactly these positions; everything else in a message is the envelo
 | Reply `body`, success | the Service method's return value |
 | Yield Call | the yield arguments, as a list |
 | Yield Reply `body`, ok | the block's value |
-| Outcome `body`, ok | the invocation's value |
+| Outcome `body`, ok | the Invocation's value |
 | Run `payload` | the entrypoint's `args` and `kwargs` |
 
-The envelope's own text fields, such as `method` or `origin`, never reach this codec. A Preamble snippet's body is raw source or bytecode, not a payload.
+The Envelope's own text fields, such as `method` or `origin`, never reach this Codec. A Preamble snippet's body is raw source or bytecode, not a payload.
 
 ### Argument Shape
 
@@ -36,19 +36,20 @@ A Call and a Run payload are a 2-element array with fixed positions.
 | 0 | `args` | array; elements may be Handles |
 | 1 | `kwargs` | map; Symbol keys, values may be Handles |
 
-Both elements are always present, an empty `kwargs` being the empty map (`0x80`), so positions stay stable. The positional-versus-keyword split is this codec's; another schema carries whatever shape its language needs.
+Both elements are always present, an empty `kwargs` being the empty map (`0x80`), so positions stay stable. The positional-versus-keyword split is this Codec's; another Codec carries whatever shape its language needs.
 
 ---
 
 ## Type Mapping
 
-These 11 types are the complete, closed set this codec carries ([payload-encoding](../spec/behavior/payload-encoding.md)). Each row is one MessagePack family and what each side holds it as.
+These 11 types are the complete, closed set this Codec carries ([payload-encoding](../spec/behavior/payload-encoding.md)). Each row is one type and what each side holds it as.
 
-| msgpack family | Host Ruby | Guest mruby | Guest `Value` |
-|----------------|-----------|-------------|---------------|
+| msgpack type | Host Ruby | Guest mruby | `Value` |
+|--------------|-----------|-------------|---------|
 | nil | `nil` | `nil` | `Nil` |
 | bool | `true` / `false` | `true` / `false` | `Bool` |
-| int, uint | `Integer` | `Integer` | `Int` / `UInt` |
+| int | `Integer` | `Integer` | `Int` |
+| uint | `Integer` | `Integer` | `UInt` |
 | float 32 / 64 | `Float` | `Float` | `Float` |
 | str | `String`, UTF-8 | `String` | `Str` |
 | bin | `String`, ASCII-8BIT | `String` | `Bin` |
@@ -57,13 +58,13 @@ These 11 types are the complete, closed set this codec carries ([payload-encodin
 | ext 0x00 | `Symbol` | `Symbol` | `Sym` |
 | ext 0x01 | `Kobako::Handle` | `Kobako::Handle` | `Handle` |
 
-Any other ext code is refused. `Guest Value` is `kobako_codec::msgpack::Value`, the guest codec's decoded form.
+Any other ext code is refused. `Value` is `kobako_codec::msgpack::Value`, the decoded form the Guest Binary and the Rust SDK share; the Rust SDK re-exports it as `kobako::msgpack::Value`.
 
 ---
 
 ## Integer Range
 
-Both sides hold an `Integer` of any precision, and one crosses the wire within the range msgpack's integer families encode. The guest carries the integer word and mruby's arbitrary-precision Integer beside it.
+Both sides hold an `Integer` of any precision, and one crosses the wire within the range msgpack's integer types encode.
 
 | Side | `Integer` width | Crosses within |
 |------|-----------------|----------------|
@@ -76,7 +77,7 @@ Every integer the wire carries fits both sides, so neither refuses one inbound. 
 
 ## Text and Bytes
 
-The host tags a `String` with an encoding; a guest `String` is untagged bytes. So each side picks the family by what it has.
+The host tags a `String` with an encoding; a guest `String` is untagged bytes. So each side picks the type by what it has.
 
 | Value | Rides as |
 |-------|----------|
@@ -86,28 +87,29 @@ The host tags a `String` with an encoding; a guest `String` is untagged bytes. S
 | any other guest `String` | `bin` |
 | `Symbol` | ext 0x00, UTF-8 only |
 
-Both families are legal at every value position, so the bytes always cross intact, but the tag does not. A value whose encoding matters carries it in the value. A host `String` whose tag claims text it does not hold, and a guest `Symbol` whose name is not UTF-8, have no representation ([codec](../spec/behavior/codec.md)).
+Both types are legal at every value position, so the bytes always cross intact, but the tag does not. A value whose encoding matters carries it in the value. A host `String` whose tag claims text it does not hold, and a guest `Symbol` whose name is not UTF-8, have no representation ([codec](../spec/behavior/codec.md)).
 
 ---
 
 ## Structural Nesting Depth
 
-Encoded values nest at most 128 levels, the host MessagePack library's limit, so both sides refuse at the same depth. Each payload has its own budget; the envelope needs none.
+Encoded values nest at most 128 levels, the host MessagePack library's limit, so both sides refuse at the same depth. Each payload has its own budget; the Envelope needs none. Every decode refuses a value past the bound, and every side refuses to send one.
 
-| Where | Enforced by |
-|-------|-------------|
-| every decode | each side's decoder |
-| guest return, yield result, dispatch argument | the guest encoder's capped walk |
-| `#run` argument | the host, while encoding |
-| Service answer, yield arguments | the host, measured before encoding |
+| Value past the bound | Fails as |
+|----------------------|----------|
+| guest return value | a Sandbox failure |
+| dispatch argument | an error the guest can rescue at its call |
+| block result | the guest's `TypeError`, raised in the Service's yield |
+| `#run` argument | a Sandbox failure, before the guest runs |
+| Service answer, yield arguments | the Service's failure |
 
-A value past the bound, a reference cycle included, fails as a clean error, never a trap ([codec](../spec/behavior/codec.md)). The host library has no encoder depth limit, so the host measures its outbound positions itself. That refusal lands where the Service hands the value over, since only the Service can change it.
+A reference cycle counts as past the bound, and each case is a clean error, never a Trap ([codec](../spec/behavior/codec.md)). A refusal of what a Service sends is the Service's failure, since only the Service can change that value.
 
 ---
 
 ## Value Budget
 
-A payload the guest sends holds at most one value for each 16 bytes of the invocation's memory cap, the least one guest value occupies. Every array, map, key, and element counts as one value. With no memory cap there is no budget.
+A payload the guest sends holds at most one value for each 16 bytes of the Invocation's memory cap, the least one guest value occupies. Every array, map, key, and element counts as one value. With no memory cap there is no budget.
 
 ```
 values in a guest payload <= memory_limit / 16
@@ -119,7 +121,7 @@ The host refuses a payload past the budget as it refuses one nested too deep. Wh
 
 ## Ext Types
 
-kobako uses two ext codes. A Fault has none: it rides the envelope's own arm (→ [`envelope.md`](envelope.md) § Fault), so a replacement codec owes it nothing.
+kobako uses two ext codes. A Fault has none: it rides the Envelope's own arm (→ [`envelope.md`](envelope.md) § Fault), so a replacement Codec owes it nothing.
 
 ### ext 0x00 — Symbol
 
@@ -144,4 +146,4 @@ A Handle is a `fixext 4`, six bytes in all. Its ID follows [`README.md`](README.
 | 1 | `0x01`, the kobako ext code |
 | 2–5 | the Handle ID, big-endian u32 |
 
-A Handle may appear at any payload position and depth, in both directions; in a Run payload it comes from host-side auto-wrap. A codec without a Handle representation is legal, and forgoes only Handles as values.
+A Handle may appear at any payload position and depth, in both directions. It stands for a host object the Codec cannot carry by value, a `#run` argument included. A Codec without a Handle representation is legal, and forgoes only Handles as values.

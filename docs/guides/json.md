@@ -37,14 +37,14 @@ code; a returned value follows the ordinary return-value semantics of
 +---------------------------------------+         +------------+
 ```
 
-### MRI Fidelity
+### CRuby Fidelity
 
-The surface is a curated subset of MRI's `JSON` module.
+The surface is a curated subset of CRuby's `JSON` module.
 
 | Aspect | Rule |
 |---|---|
 | Constructs | exactly the Surface below, nothing added |
-| Behavior | MRI's, unless a scenario states otherwise |
+| Behavior | CRuby's, unless a scenario states otherwise |
 | Parser | a memory-safe engine, an implementation choice below this contract |
 
 ## Scope

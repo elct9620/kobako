@@ -74,7 +74,7 @@ Most releases need nothing extra; the rows below cover the ones that do.
 
 A catch-up trigger is preferably a genuine `feat` or `fix` touching that track's paths; correcting a stale README example is a real `fix`. Only when no natural one exists, use a `Release-As: X.Y.Z` footer under the rules below.
 
-The tracks publish together when the gem bundles a new guest: a gem on the old guest mispairs with new crates. Put each trigger in the same scan window, path-scoped to its own track. `release-please` opens one combined PR, and a single merge publishes both.
+The tracks publish together when the gem bundles a new Guest Binary: a gem on the old Guest Binary mispairs with new crates. Put each trigger in the same scan window, path-scoped to its own track. `release-please` opens one combined PR, and a single merge publishes both.
 
 ## Breaking Changes
 
@@ -118,9 +118,9 @@ Check these in the release PR before merging, since the merge cannot be undone.
 
 A wrong version usually means the gem jumped to `1.0.0` or one track inherited the other's `Release-As`.
 
-After the merge, each native gem is installed on its own host and runs one guest before publishing. A gem that fails there stops the release before RubyGems.
+After the merge, each native gem is installed on its own host and runs one Invocation before publishing. A gem that fails there stops the release before RubyGems.
 
-`examples/` pin released versions: the Ruby examples pin the gem (`"~> 0.26.0"`) and the Rust examples pin crates (`"0.16"`). Switching them to a new idiom before that version publishes breaks them, so update `examples/` after the release and then bump their pins.
+`examples/` pin the latest released versions. The Ruby examples pin the gem to its patch series (`~> X.Y.0`); the Rust examples pin crates to their minor (`X.Y`). Switching them to a new idiom before that version publishes breaks them, so update `examples/` after the release and then bump their pins.
 
 The BREAKING CHANGES section is the last point at which a subject-only note can get its migration text. Rewriting it in the PR is safe while nothing else lands, since `release-please` regenerates the branch on every push.
 
@@ -152,24 +152,24 @@ The seats that hide a detail are spelled out here.
 | manifest | an absent package reads as never released |
 | README line | ends in `# x-release-please-version`, beside its siblings' |
 | dev-dependency | cargo strips a version-less path dev-dependency when packaging |
-| workflow | `<name>_release_created`, the `release-crate` job's OR chain |
+| workflow | a short `<alias>_release_created` output, such as `sdk_`, in the `release-crate` OR chain |
 
-The generic updater replaces a version only on an annotated line; with none, it reports success and changes nothing. No updater rewrites `[dev-dependencies]`, so a version named there stays at the last release and the lockfile sync cannot resolve it. A missed workflow seat still leaves `extra-files` writing the right version.
+A README line without the annotation stays at the old version while the release reports success. A version named in `[dev-dependencies]` is never rewritten, so it falls behind and the lockfile sync cannot resolve it. A missed workflow seat still writes the right version into every file; only the lockfile sync skips the crate.
 
 ### Placeholder Crate
 
-The placeholder reserves the name, and Trusted Publishing is configured against it, so it comes first.
+The placeholder reserves the name, and Trusted Publishing is configured against it in crates.io's settings rather than in this repository, so it comes first.
 
-1. Create it outside the repository, since `cargo new` inside a workspace edits that workspace's manifest.
+1. Create it outside the repository, so no workspace manifest picks it up.
 2. Give it version `0.0.0`, a description of the real crate, `license`, and `repository`.
 3. Give it a `src/lib.rs` holding only a doc comment.
 4. Publish it by hand.
 
-The real version then publishes through the normal release. `already_published` checks a specific version, so the placeholder never causes one to be skipped.
+The real version then publishes through the normal release. Publishing skips only a version already on crates.io, so the placeholder never blocks the real one.
 
 ### Trusted Publishing
 
-Trusted Publishing matches on the OIDC `workflow_ref` claim, which names the workflow that was triggered, never one reached through `workflow_call`.
+Trusted Publishing matches the workflow that was triggered, never one it calls.
 
 | Path | Triggered workflow |
 |---|---|

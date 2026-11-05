@@ -18,23 +18,22 @@ This one tells you which interfaces you will meet; that one states what each obl
 Each level names what you depend on, and all four stand on the same fixed pillar.
 
 ```
-     what you name                        ┌──────────────────────────┐
-                                          │      the fixed pillar     │
- L1  gem "kobako"                         │                          │
-     └ the bundled data/kobako.wasm       │   kobako-transport       │
-                                          │   ├ the core envelope    │
- L2  gem "kobako" + a guest you build     │   └ the ABI's values     │
-     └ kobako-mruby, or your own guest    │                          │
-                                          │   depends on nothing;    │
- L3  the kobako crate (Rust host SDK)     │   every level depends    │
-     └ any guest, any engine              │   on it                  │
-                                          │                          │
- L4  kobako-transport + kobako-runtime    │   the same in every      │
-     └ a frontend you write               │   assembly, which is     │
-       (kobako's own Ruby gem is one)     │   what makes the parts   │
-                                          │   interchangeable at all │
-                                          └──────────────────────────┘
+ what you name
+
+ L1  gem "kobako" + data/kobako.wasm ------+
+ L2  gem "kobako" + your guest ------------+
+ L3  the kobako crate ---------------------+
+ L4  kobako-transport + kobako-runtime ----+
+                                           |
+                                           v
+                                +--------------------+
+                                |  kobako-transport  | (a)
+                                |  the Envelope      |
+                                |  the ABI's values  |
+                                +--------------------+
 ```
+
+- (a) The fixed pillar depends on nothing, and every level depends on it. It is the same in every assembly, which is what makes the parts interchangeable at all.
 
 ## Level Ownership
 
@@ -47,26 +46,27 @@ These two tables show what is yours at each level, guest side first.
 | L3 | yours | yours | yours |
 | L4 | yours | yours | yours |
 
-| | payload schema | wasm engine | host frontend |
+| | Codec | Engine | Frontend |
 |---|---|---|---|
 | L1 | MessagePack | wasmtime | the Ruby gem |
 | L2 | MessagePack ⚠ | wasmtime | the Ruby gem |
-| L3 | yours | yours | the SDK's ⚠ |
+| L3 | yours | yours | the Rust SDK's ⚠ |
 | L4 | yours | yours | yours |
 
 The ⚠ cells are the traps: the freedom looks available from where you stand, and is not.
-The other fixed cells surprise nobody: you picked the Ruby gem, so you get its engine.
+The other fixed cells surprise nobody: you picked the Ruby gem, so you get its Engine.
 
 ## L1 Bundled Assembly
 
-L1 is `gem "kobako"` and the `data/kobako.wasm` it ships, with every choice made for you.
+L1 is `gem "kobako"` and the `data/kobako.wasm` it ships, with every part chosen for you but one.
+The Posture is yours to lower, and it defaults to hermetic.
 
 | Part | Choice |
 |---|---|
-| wire | MessagePack |
+| Codec | MessagePack |
 | capability | `kobako-io` only |
-| isolation floor | hermetic |
-| engine | wasmtime |
+| Posture | hermetic by default; `profile: :permissive` leaves the clock and entropy live |
+| Engine | wasmtime |
 | invocation flows | the mruby harness's own |
 
 A downloadable variant adds Regexp or JSON ([`variants.md`](variants.md)) and keeps you here.
@@ -84,26 +84,26 @@ At L2 you build a Guest Binary of your own, and the Ruby gem drives it unchanged
 
 The gem drives whatever artifact you hand it, since the guest still speaks what the gem speaks.
 
-The schema is not yours here ⚠.
-A guest shell names its codec on `MrbGuest::Codec`, so the freedom looks available.
-The Ruby frontend has no matching seam: it speaks MessagePack directly.
-A guest answering in anything else has nothing to answer to, so your own schema means L3.
+The Codec is not yours here ⚠.
+A guest shell names its Codec on `MrbGuest::Codec`, so the freedom looks available.
+The Ruby Frontend has no matching seam: it speaks MessagePack directly.
+A guest answering in anything else has nothing to answer to, so your own Codec means L3.
 
 ## L3 Rust Host
 
-At L3 the `kobako` crate is a second frontend over the same driver, and every part below it is yours.
+At L3 the `kobako` crate, the Rust SDK, is a second Frontend over the same Wasm Driver, and every part below it is yours.
 
 | Part | How you pick it |
 |---|---|
-| payload schema | build without the `msgpack` feature; each payload position is bytes you own |
+| Codec | build without the `msgpack` feature; each payload position is bytes you own |
 | guest | any artifact satisfying the ABI, in any language |
-| engine | anything satisfying the `kobako-runtime` contract, via `Sandbox::with_runtime` |
+| Engine | anything satisfying the `kobako-runtime` contract, via `Sandbox::with_runtime` |
 
-The host model is the SDK's ⚠.
-Services bind at constant paths, and Handles are minted per invocation.
-Extensions compose over preload and bind, and registration seals at the first invocation.
-That shape is what the SDK is, the same one the Ruby gem has.
-The differential parity harness holds the two to it, so a different host model means L4.
+The host model is the Rust SDK's ⚠.
+Services bind at constant paths, and Handles are minted per Invocation.
+Extensions compose over preload and bind, and registration seals at the first Invocation.
+That shape is what the Rust SDK is, the same one the Ruby gem has.
+Both Frontends are held to the same behavior ([`parity.md`](../process/parity.md)), so a different host model means L4.
 
 ## L4 Custom Frontend
 
@@ -111,10 +111,10 @@ At L4 you compose `kobako-transport` and `kobako-runtime` directly and write the
 
 | You inherit | You owe |
 |---|---|
-| the wire and the ABI | everything above them |
+| the Envelope and the ABI | everything above them |
 
 This is not an exotic path: kobako's own Ruby gem is an L4 assembly, as is any host not written in Rust.
-The gem reaches the driver through a magnus shim rather than the Rust SDK.
+The gem stands on the same Wasm Driver as the Rust SDK without going through it.
 
 ## Further Reading
 

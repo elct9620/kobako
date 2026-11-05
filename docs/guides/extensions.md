@@ -39,26 +39,27 @@ duck-types on `path`, `object`, and `provider`.
 | Declaration | Bound object | Choose it for |
 |---|---|---|
 | `object:` | the object itself | a shared read-only backend |
-| `provider:` | a no-argument callable's return value | writable state, fresh each invocation |
-| neither | `Kobako::Unresolved` | a per-eval `ctx.bind` to fill |
+| `provider:` | a no-argument callable's return value | writable state, fresh each Invocation |
+| neither | `Kobako::Unresolved` | a per-Invocation `ctx.bind` to fill |
 
 The kind is a keyword, never inferred from whether the value is callable, so a
-callable static object is simply `object:`. Per-invocation freshness is a correctness
+callable static object is simply `object:`. Per-Invocation freshness is a correctness
 tool: a writable backend uses `provider:` so its state cannot leak across
-invocations. Pass one `provider:` to several Extensions to share one resource
+Invocations. Pass one `provider:` to several Extensions to share one resource
 across their paths.
 
 ## Composition
 
-`install` decomposes each Extension into the two existing verbs. It adds no wire,
-codec, or Guest Binary surface.
+An installed Extension is a Snippet and, when it has a backend, a Service, both
+held in the Sandbox's Catalog. It adds no wire, Codec, or Guest Binary surface.
 
 ```text
-install(ext) ──► preload(code: ext.source, name: ext.name)
-             └─► ext.backend.path joins the Service registry   (backend only)
+Extension            Catalog
+  name, source  --->   Snippet
+  backend       --->   Service at path
 ```
 
-Install every Extension before the first invocation, which seals installation along
+Install every Extension before the first Invocation, which seals installation along
 with `#bind` and `#preload` and checks each `depends_on`. The seal and the dependency
 check are specified in [extension](../spec/behavior/extension.md).
 
@@ -107,7 +108,7 @@ RUBY
 ```
 
 The host backend is an ordinary duck-typed object, here a fresh in-memory store per
-invocation so writes never leak.
+Invocation so writes never leak.
 
 ```ruby
 vfs_ext = Kobako::Extension.new(
@@ -135,8 +136,8 @@ backend: Kobako::Extension::Backend.new(path: "Vfs", object: read_only_store)
 
 ## Rust SDK
 
-The `crates/kobako` host SDK reifies the same contract idiomatically. Behavior is
-parity-pinned to the Ruby frontend; only the API shape differs.
+The Rust SDK, `crates/kobako`, reifies the same contract idiomatically. Behavior is
+parity-pinned to the Ruby Frontend; only the API shape differs.
 
 ```rust
 pub trait Extension: Send + Sync {
@@ -157,4 +158,5 @@ pub enum Provider {
 // Sandbox::install(&mut self, extension: Arc<dyn Extension>) -> Result<(), Error>
 ```
 
-Provider identity maps to `Arc::ptr_eq`, mirroring the Ruby object-identity rule.
+As in Ruby, one provider is one resource: Extensions handed the same `Arc` share one
+object per Invocation, and distinct providers yield distinct objects.
