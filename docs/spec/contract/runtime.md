@@ -962,7 +962,8 @@ pub trait SecurityOperations: Send + Sync {}
 ## `SecurityPath`
 
 A path a hook is asked about: its mount, and its name built only for a module
-reading it.
+reading it. The name is what `Dentry::path_raw` answers for the entry when the
+module asks.
 
 ```rust
 pub struct SecurityPath {}
