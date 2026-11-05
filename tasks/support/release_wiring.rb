@@ -3,7 +3,7 @@
 require "json"
 
 # Readers behind the release-wiring test in
-# +test/tasks/test_release_wiring.rb+ (docs/releasing.md § Linked Group
+# +test/tasks/test_release_wiring.rb+ (docs/process/releasing.md § Linked Group
 # Seats): the seats a new crate can leave empty without anything saying
 # so.
 #

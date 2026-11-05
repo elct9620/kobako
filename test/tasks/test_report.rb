@@ -67,11 +67,11 @@ class KobakoReportTest < Minitest::Test
     _out, err = capture_io do
       assert_raises(SystemExit) do
         Report.gate(name: "release:wiring", ok_summary: "wired", violations: ["a seat"],
-                    hint: "see docs/releasing.md")
+                    hint: "see docs/process/releasing.md")
       end
     end
 
-    assert_match(%r{a seat\n\nsee docs/releasing\.md\n?\z}, err,
+    assert_match(%r{a seat\n\nsee docs/process/releasing\.md\n?\z}, err,
                  "a gate given a hint must trail it beneath the violations, separated by a blank line")
   end
 

@@ -1,6 +1,6 @@
 # Conventions
 
-How code in kobako is named, beside [`architecture.md`](architecture.md), which says where it goes. Every rule applies to Rust, Ruby, and RBS alike.
+How code in kobako is named, beside [`architecture.md`](../architecture.md), which says where it goes. Every rule applies to Rust, Ruby, and RBS alike.
 
 | Question | Section |
 |---|---|
@@ -24,7 +24,7 @@ Because names carry the intent, a comment is left for what no name can say: a re
 
 ## Precedence
 
-A name is judged inside its context, as The Contexts in [`architecture.md`](architecture.md) draws them. Across two contexts only the interface that translates between them is compared, so the same word may stand in both.
+A name is judged inside its context, as The Contexts in [`architecture.md`](../architecture.md) draws them. Across two contexts only the interface that translates between them is compared, so the same word may stand in both.
 
 A name is settled by three steps, in order; the first that decides it ends the search.
 

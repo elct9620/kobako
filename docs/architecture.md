@@ -184,7 +184,7 @@ Each context owns the rules below and the parts that keep them.
 | Isolation | the engine and the Ambient authority a Posture grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` |
 | Filesystem | Mounts, Policies, the VFS, and the Filesystem kinds | `kobako-runtime`'s filesystem and vfs, the preview1 driver, their bridges in `ext/` and `lib/` |
 
-The guest has no context of its own. Its words are either shared or the Wire's, and the capability gems speak CRuby's, which [`parity.md`](parity.md) governs.
+The guest has no context of its own. Its words are either shared or the Wire's, and the capability gems speak CRuby's, which [`parity.md`](process/parity.md) governs.
 
 ### Context Relations
 

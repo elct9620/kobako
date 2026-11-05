@@ -46,7 +46,7 @@ Some changes move together.
 | A file that declares a public interface | The contract's `Includes` |
 | A type, a crate, or a layer | `docs/architecture.md` |
 | A dependency | Every workspace's lock file, in the same commit |
-| A release | `examples/` pins move to it; read `docs/releasing.md` before `Release-As` or `!` |
+| A release | `examples/` pins move to it; read `docs/process/releasing.md` before `Release-As` or `!` |
 
 ## Index
 
@@ -57,7 +57,7 @@ Start here to grasp the whole before reading code.
 | `docs/intent.md` | Why kobako exists, and for whom |
 | `docs/architecture.md` | The crate map, the seams, the Ruby tiers, and the placement rules |
 | `docs/spec/` | Behavior, contracts, and the glossary; the source of truth |
-| `docs/convention.md` | The naming baseline a rename is judged against |
+| `docs/process/convention.md` | The naming baseline a rename is judged against |
 | `docs/wire/README.md` | The envelope and payload layers on the wire |
 | `docs/guides/` | What a Host App relies on: security, customization, extensions |
 | `lib/kobako/sandbox.rb` | Where a run starts and settles into an `Execution` |

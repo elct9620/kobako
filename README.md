@@ -705,7 +705,7 @@ Building from source requires a WASI-capable Rust toolchain in addition to the s
 
 Bug reports and pull requests are welcome at <https://github.com/elct9620/kobako>. Please open an issue before starting on non-trivial changes so we can align on scope.
 
-Releases are automated with release-please across two tracks; the version rules, commit conventions, and how to cut each release live in [`docs/releasing.md`](docs/releasing.md).
+Releases are automated with release-please across two tracks; the version rules, commit conventions, and how to cut each release live in [`docs/process/releasing.md`](docs/process/releasing.md).
 
 | Track | What it ships | Tag |
 |---|---|---|

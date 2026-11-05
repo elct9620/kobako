@@ -74,7 +74,7 @@ auto-wrap in both positions.
 
 ## Frontend Vocabulary
 
-The [glossary](spec/glossary.md) names each concept once, and each
+The [glossary](../spec/glossary.md) names each concept once, and each
 frontend reifies it under its own language's names. The surface a
 Service author touches keeps the guest-visible word (`block`), while the
 reified machinery carries the concept's own name.
@@ -90,7 +90,7 @@ reified machinery carries the concept's own name.
 
 An SDK `Receiver` whose `respond_to_guest` denies every name is opaque.
 The Ruby Yielder stays internal so a Service method takes an ordinary
-block ([transport-yield](spec/behavior/transport-yield.md)). The SDK
+block ([transport-yield](../spec/behavior/transport-yield.md)). The SDK
 yield site calls the Yielder directly, through `call_payload` or the
 `msgpack` feature's `call_values`.
 
@@ -106,7 +106,7 @@ raises a taxonomy error, while the SDK keeps failure a value.
 | never started | raises | the outer `Err` |
 
 What each run produces is specified in
-[sandbox](spec/behavior/sandbox.md). The harness compares value,
+[sandbox](../spec/behavior/sandbox.md). The harness compares value,
 captures, usage, and failure attribution after normalization, so the
 raise-versus-return spelling never surfaces as drift.
 
