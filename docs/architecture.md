@@ -1,290 +1,300 @@
 # Architecture
 
-kobako is assembled from parts. This document is the baseline for where a change belongs. It names the part that owns it, what that part may depend on, and the Ruby tier it joins.
+This is kobako's one global map. It names each part, the seams between them, and the rules that hold across all of them. Every detail lives in a Context document this map links to.
 
 | Question | Section |
 |---|---|
-| which part owns this | The Parts |
-| what every assembly shares | The Fixed Pillar |
-| where a replacement plugs in | The Seams |
-| what a word means where | The Contexts |
-| what holds across builds | Build Rules |
-| where a Ruby type goes | Ruby Tiers |
+| what kobako adds to an Engine | Bird's Eye |
+| where kobako sits among WASI's layers | WASI Position |
+| which part owns this | Code Map |
+| what every assembly shares | Fixed Pillar |
+| where a replacement plugs in | Seams |
+| what a word means where | Contexts |
+| what must never exist | Invariants |
+| which reference decides a behavior | Baselines |
+| what happens when an Engine cannot do something | Capability Negotiation |
+| how a new WASI version joins | Standard Evolution |
 
 Which level a user stands on is in [`guides/assembly-levels.md`](guides/assembly-levels.md).
 
-## The Parts
+## Bird's Eye
 
-`kobako-codec` is a dialect: MessagePack is the one we ship, and another schema is another namespace beside it.
-`kobako-transport` is the grammar both ends share, whatever dialect fills a payload.
-Every other part is an endpoint assembling those two into a model of its own.
+kobako builds only what an Engine's native WASI cannot give but kobako's guarantees need. The rest stays with the Engine.
+
+| kobako provides | Because |
+|---|---|
+| the filesystem's answers | wasmtime-wasi keeps its descriptor table to itself |
+| the host side of the kobako ABI | no Engine knows that ABI |
+| the remaining WASI calls | not provided; native WASI answers them |
 
 ```
-  HOST                                       │  GUEST (wasm32)
- ═══════════════════════════════════════════ ╪ ══════════════════════════════
-                                             │
-  Ruby gem              Rust SDK             │   mruby guest
-  ┌────────────┐        ┌────────────┐       │   ┌──────────────────┐
-  │ lib/       │        │ kobako     │       │   │ kobako-mruby     │
-  │ ┌────────┐ │        │ ┌────────┐ │       │   │ ┌──────────────┐ │
-  │ │overlay │ │        │ │overlay │ │       │   │ │   overlay    │ │
-  │ │payload/│ │        │ │msgpack/│ │       │   │ │   msgpack/   │ │
-  │ └────────┘ │        │ └───┬────┘ │       │   │ └──────┬───────┘ │
-  │ ┌────────┐ │        └─────┼──────┘       │   └────────┼─────────┘
-  │ │dialect │ │ its own      │              │            │
-  │ │codec/  │ │ Ruby impl    └──────┐   ┌───┼────────────┘
-  │ └────────┘ │                     ▼   ▼   │
-  └─────┬──────┘            ┌────────────────────────────────┐
-        │                   │ kobako-codec — the dialect     │
-  ┌─────▼──────┐            │ one namespace per schema       │
-  │ ext/       │            └────────────────────────────────┘
-  │ bridge     │  no dialect: Ruby's values on one side of it,
-  └─────┬──────┘  the driver's envelopes on the other
-        │
-        │      ┌─ the SDK drives this too, or an engine you bring
-  ┌─────▼──────▼───────────┐                  ┌──────────────────┐
-  │ kobako-wasmtime        │ one engine       │ kobako-core      │
-  │ ────────────────────── │                  │ the guest ABI    │
-  │ kobako-runtime         │ the contract     │                  │
-  └───────────┬────────────┘                  └─────────┬────────┘
-              │                               │         │
- ═════════════▼═══════════════════════════════╪═════════▼════════════════════
-         kobako-transport — the grammar: the core envelope + the ABI's
-         values. Depends on nothing; everything above depends on it.
++-------------+
+| Host model  |
++------+------+
+       | Runtime
+       v
++-------------+  drives   +--------------+
+| Wasm Driver |---------->| Engine       |
++--+-------+--+           +------+-------+
+   |       ^                     | runs
+   | asks  | imports             v
+   |       |              +--------------+
+   |       +--------------| Guest Binary |
+   v                      +--------------+
++-------------+
+| runtime     |
++-------------+
 ```
+
+- The Wasm Driver catches every import the Guest Binary makes and encodes it onto the Engine.
+- The runtime, `kobako-runtime`, decides every answer the guest sees.
+
+## WASI Position
+
+WASI can be replaced at eight layers. kobako replaces the core-module imports, layer 5, for the filesystem.
+
+```
++---------------------------+
+| guest side      L1-L4     |
++---------------------------+
+| imports         L5        | <-- kobako
++---------------------------+
+| WIT             L6        |
++---------------------------+
+| host side       L7-L8     |
++---------------------------+
+```
+
+Layers 1 to 4 run in the guest's trust domain, so they cannot hold a boundary. Layer 6 needs the guest to be a component, and layer 7 has no hook left in wasmtime. The comparison is in [`isolation/README.md`](isolation/README.md).
+
+## Code Map
+
+`kobako-transport` is the grammar both ends share. `kobako-codec` is a dialect beside it: MessagePack is the one kobako ships. Every other part is an endpoint assembling those two into a model of its own.
+
+```
+ HOST                            :  GUEST (wasm32)
+                                 :
+ +------------+  +------------+  :  +--------------+
+ | lib/ ext/  |  | kobako     |  :  | kobako-wasm  |
+ | Ruby gem   |  | Rust SDK   |  :  | shell        |
+ +-----+------+  +-----+------+  :  +------+-------+
+       |  drives       |         :         | builds on
+ +-----v---------------v------+  :  +------v-------+
+ | kobako-wasmtime            |  :  | kobako-mruby |
+ | Wasm Driver                |  :  | guest model  |
+ +-------------+--------------+  :  +------+-------+
+               | asks            :         | calls
+ +-------------v--------------+  :  +------v-------+
+ | kobako-runtime             |  :  | kobako-core  |
+ | the runtime                |  :  | guest ABI    |
+ +-------------+--------------+  :  +------+-------+
+               |                 :         |
+               v                           v
+ +-------------------------------------------------+
+ | kobako-transport                                |
+ +-------------------------------------------------+
+```
+
+- `kobako-codec` sits beside `kobako-transport`; the Rust SDK and `kobako-mruby` take it optionally, and the Ruby gem writes its own.
+- The capability gems, `kobako-baker`, and `kobako-parity` are in the table below.
 
 ### Part Ownership
 
-Each part owns one concern, and its dependencies on other kobako parts may only point the way this table does.
+Each part owns one concern. Its dependencies on other kobako parts may only point the way this table does.
 
 | Part | Owns | kobako parts it uses |
 |---|---|---|
-| `kobako-transport` | the core envelope and the ABI's values | none, ever |
-| `kobako-codec` | the payload dialects, one namespace and feature per schema | none |
-| `kobako-runtime` | the engine contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant` | transport |
-| `kobako-runtime` | what every engine shares: `endpoint`, `vfs`, `Mount`, `sched`, `InodeOperations` and kinds | transport |
-| `kobako-wasmtime` | one engine behind that contract, and its preview1 encoding | runtime, transport |
-| `kobako` | the Rust host model: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
-| `lib/` | the Ruby host model and its own dialect | the native ext |
-| `ext/` | the magnus bridge from Ruby values to the driver's envelopes and an `InodeOperations` | runtime, transport, wasmtime |
+| `kobako-transport` | the Envelope and the ABI's values | none, ever |
+| `kobako-codec` | the payload dialects, one namespace and feature per Codec | none |
+| `kobako-runtime` | the contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant` | transport |
+| `kobako-runtime` | what every Wasm Driver keeps: `endpoint`, `vfs`, `security`, `Mount`, `sched`, the Filesystems | transport |
+| `kobako-wasmtime` | one Wasm Driver, `kobako_wasmtime::Driver`, and its preview1 encoding | runtime, transport |
+| `kobako` | the Rust SDK: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
+| `lib/` | the Ruby gem and its own dialect | the native ext |
+| `ext/` | the magnus bridge: Ruby values to Envelopes, a Ruby object to a Filesystem | runtime, transport, wasmtime |
 | `kobako-core` | the guest ABI: `Guest`, `export_guest!`, the dispatch proxy | transport |
 | `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the bridge gem | core, transport, codec *(optional)* |
-| `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behaviour, no wire | none |
-| `kobako-wasm` | the shipped shell, naming the schema and the gem set | every guest part |
+| `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behavior, no wire | none |
+| `kobako-wasm` | the shipped shell, naming the Codec and the gem set | core, mruby, io, regexp *(optional)*, json *(optional)* |
 | `kobako-baker` | the build-time bake of the boot state into an artifact | none |
-| `kobako-parity` | the Rust half of the parity harness, never published | kobako, codec |
+| `kobako-parity` | the Rust half of the parity harness, never published | kobako, codec, transport |
 
-`kobako-transport` takes no dependency at all, third-party included. Elsewhere, `rmp` sits behind `kobako-codec`'s `msgpack` feature, `beni` under every guest crate that touches mruby, and the `msgpack` gem under `lib/`. `cap-std` sits under `kobako-runtime`'s Bind, and `wasmtime-wasi` under `kobako-wasmtime` for the preview1 calls kobako does not answer itself. The VFS keeps the guest inside a Bind. `cap-std` keeps every host confined again and answering alike, Windows included. `cap-fs-ext` opens a Bind's directory without following a link. `rustix` and `libc` ask the host what `cap-std` cannot.
+### Outside Crates
 
-### Dialect Overlays
+`kobako-transport` takes no dependency at all, third-party included. Every other outside crate sits under one part, for one reason.
 
-An overlay is how one endpoint's dialect speaks to its own objects. It decodes a payload into them, wraps one back out, and reaches a bound object. It lives where that endpoint's objects live.
-
-| Endpoint | Dialect implementation | Overlay |
+| Crate | Under | For |
 |---|---|---|
-| Ruby gem | `lib/kobako/{codec,payload}/`, a second implementation | the same files |
-| Rust SDK | `kobako-codec` | `kobako`'s `msgpack` module |
-| mruby guest | `kobako-codec` | `kobako-mruby`'s `msgpack` module |
-| `ext/` | none | none |
+| `rmp` | `kobako-codec`'s `msgpack` feature | MessagePack bytes |
+| `msgpack` gem | `lib/` | the Ruby gem's dialect |
+| `beni` | every guest crate that touches mruby | the mruby wrapper |
+| `cap-std`, `cap-fs-ext` | `kobako-runtime`'s Bind | confinement alike on every host, Windows included |
+| `rustix`, `libc` | `kobako-runtime` | what `cap-std` cannot ask the host |
+| `wasmtime-wasi` | `kobako-wasmtime` | the preview1 calls kobako does not answer |
 
-The Ruby gem writes its dialect itself, so the Handle walk in `lib/kobako/codec/` is its overlay. `ext/` holds no objects to bind a dialect to. A dialect kobako does not ship places its overlay wherever its objects live, even outside this repository.
+## Fixed Pillar
 
-## The Fixed Pillar
-
-`kobako-transport` is the same at every level and in every assembly.
-It depends on nothing, so taking it means taking no one else's choices.
-Everything depends on it, which is why a host, a payload codec, and a guest can be chosen independently.
+`kobako-transport` is the same at every level and in every assembly. It depends on nothing, so taking it means taking no one else's choices. Everything depends on it, so a host, a Codec, and a guest can be chosen independently.
 
 ```
- ┌─ core envelope (kobako-transport) ──────────────────────┐
- │ routing, outcome attribution    ┌─ payload ───────────┐ │
- │ read here                       │ never read here     │ │
- │                                 └─────────────────────┘ │
- └─────────────────────────────────────────────────────────┘
++- Envelope (kobako-transport) ------------------------+
+| routing, outcome      +- payload -----------------+  |
+| read here             | never read here           |  |
+|                       +---------------------------+  |
++------------------------------------------------------+
 ```
 
-A payload rides inside that envelope untouched, and that is what makes the schema replaceable.
-Routing a message and attributing its outcome never read a payload byte.
-Swapping the schema therefore leaves the envelope, the ABI, and the version alone (→ [`wire/README.md`](wire/README.md)).
+A payload rides inside the Envelope untouched, which makes the Codec replaceable. Routing a message and attributing its outcome never read a payload byte. Swapping the Codec therefore leaves the Envelope, the ABI, and the version alone; the layers are in [`wire/README.md`](wire/README.md).
 
-## The Seams
+## Seams
 
-An assembly composes replaceable parts around the fixed pillar.
-Each line names what can be swapped on its right-hand side.
+An assembly composes replaceable parts around the fixed pillar. Each line names what can be swapped on its right-hand side; the runtime is what every Wasm Driver keeps.
 
 ```
-Sandbox      = host model . engine . Guest Binary
-engine       = engine mechanics + preview1 encoding     (kobako-wasmtime)
-             + host ABI endpoint + VFS                  (kobako-runtime)
-Guest Binary = guest ABI endpoint + guest model + gems  (kobako-wasm)
-host model   = frontend + codec                         (ext/ + lib/ | kobako)
-guest model  = flows + codec                            (kobako-mruby | own Guest)
-message      = envelope . payload                       (transport . codec)
+Sandbox      = host model . Wasm Driver . runtime . Guest Binary
+Wasm Driver  = Engine + preview1 encoding              (kobako-wasmtime)
+runtime      = host ABI endpoint + VFS                 (kobako-runtime)
+Guest Binary = guest ABI endpoint + guest model + gems (kobako-wasm)
+host model   = Frontend + Codec                        (ext/ + lib/ | kobako)
+guest model  = flows + Codec                           (kobako-mruby | own Guest)
+message      = Envelope . payload                      (transport . codec)
 ```
 
-Three boundaries separate them.
-The wasm ABI is what a Guest Binary is built against; the two seams are where a replacement plugs in.
+Three boundaries separate them. The wasm ABI is what a Guest Binary is built against; the two seams are where a replacement plugs in.
 
 ```
-        seam H                 wasm ABI                 seam G
-          :                       :                       :
-  host    :    host ABI           :        guest ABI      :    guest
-  model <-:->  endpoint  <--------:-------->  endpoint <--:->  model
-          :    (runtime)          :     (kobako-core)     :    (flows)
-          :         \______ kobako-transport ______/      :
-  contract: kobako-runtime            contract: Guest + proxy::dispatch
+        seam H             wasm ABI             seam G
+          :                   :                   :
+  host    :   host ABI        :      guest ABI    :   guest
+  model <-:-> endpoint <------:------> endpoint <-:-> model
+          :   (runtime)       :    (kobako-core)  :   (flows)
 ```
 
-### Seam Rule
+| Seam | Contract |
+|---|---|
+| seam H | `kobako-runtime` |
+| seam G | `Guest` and `proxy::dispatch` |
+| between the endpoints | `kobako-transport` |
 
-A seam carries typed envelopes and payload bytes, so only the two ABI endpoints read or write an envelope's bytes.
-A frontend or a guest model never encodes, decodes, allocates, or packs.
-A change to the wire therefore stays inside the endpoints and `kobako-transport`.
+A Wasm Driver replaces the Engine and its encoding of each ABI, and keeps the runtime. A guest replaces only its model and keeps `kobako-core`.
+
+### Seam Crossings
+
+A seam carries typed Envelopes and payload bytes, never encoded Envelope bytes. A change to the wire therefore stays inside the endpoints and `kobako-transport`.
 
 | Crosses a seam | As |
 |---|---|
 | Call, Run, Reply, Yield Reply, Compile Reply, Outcome, Preamble | a `kobako-transport` type, or its fields |
-| a payload | bytes only a codec reads |
+| a payload | bytes only a Codec reads |
 | a result that does not frame | a `Trap` |
-| a host resource the guest reaches through WASI | a `kobako-runtime` `Grant`, such as a `Mount` |
-| a path call the guest makes beneath a Mount | a `kobako-runtime` `vfs` operation |
-| how a frontend's thread waits on any lock | a `kobako-runtime` `Blocking`, registered once |
-| a frontend giving up on an invocation its callback cannot answer | `DispatchHandler::abandoned` |
-| an Engine's memory and exports | a `kobako-runtime` `GuestInstance` |
+| a host resource the guest reaches through WASI | a `Grant`, such as a `Mount` |
+| a path call the guest makes beneath a Mount | a `vfs` operation |
+| how a Frontend's thread waits on any lock | a `Blocking`, registered once |
+| a Frontend giving up on an Invocation its callback cannot answer | `DispatchHandler::abandoned` |
+| an Engine's memory and exports | a `GuestInstance` |
 
-The two sides replace one unit each.
-A Wasm Driver replaces the Engine and its encoding of each ABI, and keeps the host ABI endpoint and the VFS.
-A guest replaces only its model and keeps `kobako-core`.
+## Contexts
 
-## The Contexts
+A Context is an area with its own vocabulary and rules. A name is judged inside its Context. One word may mean two things in two Contexts, as Overlay the Filesystem and a dialect overlay do. The glossary keeps one section per Context.
 
-A context is an area with its own vocabulary and rules.
-A name is judged inside its context, so the same word in two contexts may mean two things, as Overlay and a dialect overlay do.
-The glossary keeps one section per context, scoped by its includes.
+| Context | Owns | Lives in | Detail |
+|---|---|---|---|
+| Host | the Sandbox lifecycle, what the guest may call, how a failure reaches the Host App | `lib/`, `kobako` | `lib/` RDoc, [`process/parity.md`](process/parity.md) |
+| Wire | the Envelope, the tag registry, the Codecs | `kobako-transport`, `kobako-codec`, `kobako-core`, both `msgpack` overlays, `lib/kobako/{codec,payload}/` | [`wire/`](wire/README.md) |
+| Isolation | the Engine, the Wasm Driver, the Ambient authority a Posture grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` | [`isolation/`](isolation/README.md) |
+| Filesystem | Mounts, Policies, the VFS, the Filesystems | `kobako-runtime`'s `filesystem`, `vfs`, `security`, `mount`; the preview1 encoding; their bridges in `ext/`, `lib/` | [`filesystem/`](filesystem/README.md) |
 
-```
- ┌─ Everywhere: the terms every context shares ──────────────────┐
- │                                                                │
- │  Host ──dialect overlay──► Wire ◄──dialect overlay── guest     │
- │   │                                                            │
- │   │ ext/                                                       │
- │   ▼                                                            │
- │  Isolation ──Grant contract──► Filesystem                      │
- └────────────────────────────────────────────────────────────────┘
-```
-
-### Context Ownership
-
-Each context owns the rules below and the parts that keep them.
-
-| Context | Owns | Lives in |
-|---|---|---|
-| Host | the Sandbox lifecycle, what the guest may call, how a failure reaches the Host App | `lib/`, `kobako` |
-| Wire | the envelope, the tag registry, the codecs | `kobako-transport`, `kobako-codec`, `lib/kobako/{codec,payload}/`, `docs/wire/` |
-| Isolation | the engine and the Ambient authority a Posture grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` |
-| Filesystem | Mounts, Policies, the VFS, and the Filesystem kinds | `kobako-runtime`'s filesystem and vfs, the preview1 driver, their bridges in `ext/` and `lib/` |
-
-The guest has no context of its own. Its words are either shared or the Wire's, and the capability gems speak CRuby's, which [`parity.md`](process/parity.md) governs.
+The guest has no Context of its own. Its words are either shared or the Wire's, and the capability gems speak CRuby's. The Ruby gem's tiers and placement rules are in the RDoc of `lib/kobako.rb`.
 
 ### Context Relations
 
-A word crosses a context only at an interface, which translates it.
+A word crosses a Context only at an interface, which translates it.
+
+```
++- Everywhere -------------------------------------------+
+|                                                        |
+|  Host --dialect overlay--> Wire <--dialect overlay--   |
+|   |                                          guest     |
+|   | ext/                                               |
+|   v                                                    |
+|  Isolation --Grant--> Filesystem                       |
++--------------------------------------------------------+
+```
 
 | Between | Relation | Translated by |
 |---|---|---|
 | Host or guest, and Wire | each endpoint takes the Fixed Pillar unchanged | its dialect overlay |
-| Host and Isolation | the Host drives the engine | the `kobako-runtime` contract, through `ext/` for Ruby |
+| Host and Isolation | the Host drives the Wasm Driver | the `kobako-runtime` contract, through `ext/` for Ruby |
 | Isolation and Filesystem | the Filesystem conforms to the Grant contract | `Grant`, `Mount` |
 
-A Frontend hands every context's words to the Host App, and an ABI endpoint reads the Wire's on behalf of its side. A word used there therefore stays in the context that defines it.
+A Frontend hands every Context's words to the Host App, and an ABI endpoint reads the Wire's for its side. A word used there stays in the Context that defines it. A new kind of Grant joins as a Context beside Filesystem, conforming to the same contract.
 
-A new kind of Grant joins as a context beside Filesystem. It conforms to the same contract and brings its own words.
+## Invariants
 
-### Filesystem Layers
+These rules are written as what never exists, so a single counterexample breaks one. Each holds across every part and build.
 
-The Filesystem context follows Linux's three layers: the Wasm Driver in the syscall's place, the VFS, and the Filesystem Drivers. A Policy and a Filesystem Driver's operations are hooks the VFS calls at fixed points, not layers of their own.
-
-```
-+-------------------------------------------+
-| Wasm Driver   kobako-wasmtime             |
-| decode, errno, fd table, rights           |
-| Cred, syscall-entry checks                |
-| the Security Modules it is built with     |
-+---------------------+---------------------+
-                      v
-+-------------------------------------------+
-| VFS        kobako-runtime::vfs            |
-| namei, dentries, inodes, vfsmount         |
-| open files, dentry cache                  |
-|                                           |
-|   +-------------+      +-------------+    |
-|   | hook: cred  |      | hook: i_op  |    |
-|   +------+------+      +------+------+    |
-+----------+--------------------+-----------+
-           v                    v
-+---------------------+ +---------------------+
-| Security Module     | | Filesystem Driver   |
-| Policy              | | Tmpfs, Bind         |
-| (kobako_runtime::   | | Overlay, Ruby       |
-|  security)          | | pipefs              |
-+---------------------+ +---------------------+
-
-beneath the VFS and every Filesystem Driver:
-+-------------------------------------------+
-| locking   rw_semaphore, seqlock           |
-| sched     current, schedule <-- frontend  |
-+-------------------------------------------+
-```
-
-Each role keeps to its own work, so a change that crosses roles is a change in the wrong place. Only the Wasm Driver, a hook, and what a frontend registers hold kobako's own design, so the VFS's names follow Linux's.
-
-| Role | Owns |
+| Never exists | Kept by |
 |---|---|
-| Wasm Driver | decoding, errno, fd table, rights, the Cred and its modules, `WalkGuard`, syscall-entry checks |
-| VFS | the walk, dentries, inodes, open files, mounts, operation tables, what an entry lacks, Cred memory |
-| Security Module | whether a path may be reached, and `WalkGuard` |
-| Filesystem Driver | what one entry answers, and its own state on a dentry or inode |
-| locking, sched | whether a wait can end, who asks, and the frontend's way to wait |
+| a dependency of `kobako-transport`, third-party included | its `Cargo.toml` |
+| a kobako part depending against Part Ownership | each `Cargo.toml` |
+| a Codec in the default graph of `kobako-transport`, `kobako-core`, `kobako-mruby` | `crates:graph`, `wasm:graph` |
+| a Codec or an Engine `kobako` cannot build without | `crates:graph` |
+| magnus beneath `kobako-wasmtime` | `crates:graph` |
+| Envelope bytes read or written outside the two ABI endpoints | `kobako_runtime::endpoint`, `kobako-core` |
+| a Frontend or guest model that encodes, decodes, allocates, or packs | the Seam Crossings |
+| an answer the Wasm Driver decides | the runtime |
+| a guest crate on `beni` that skips libmruby on a build | no linked-only `cfg` |
+| a Codec namespace under `Kobako::Codec` | Ruby has MessagePack only |
+| a divergence from POSIX that answers differently | it only refuses more |
 
-## Build Rules
+`kobako-wasmtime` links no magnus, so a span with the GVL released cannot reach a Ruby value.
 
-Two structural facts no part's own code states.
+## Baselines
 
-| Rule | Why |
-|---|---|
-| a guest crate depending on `beni` links libmruby on every build | no code hides behind a linked-only `cfg` |
-| `Kobako::Codec` has no schema namespace | Ruby is fixed to MessagePack and has no seam |
+Behavior lives in the spec under [`spec/`](spec/). Each layer has one reference its spec and code are judged against.
 
-## Ruby Tiers
+| Layer | Baseline | Detail |
+|---|---|---|
+| WASI encoding | witx, then wasi-testsuite, then Linux | [`filesystem/preview1.md`](filesystem/preview1.md) |
+| `vfs` | Linux's VFS, in behavior and logic | [`filesystem/README.md`](filesystem/README.md) |
+| `filesystem` | the spec | [`spec/`](spec/) |
+| capability gems | CRuby, except where security forbids | [`guides/json.md`](guides/json.md), [`guides/regexp.md`](guides/regexp.md) |
+| the two Frontends | each other | [`process/parity.md`](process/parity.md) |
+| names | the naming baseline | [`process/convention.md`](process/convention.md) |
 
-Inside `lib/`, a tier may use the tiers below it and never one above.
+wasmtime-wasi is a reference for the WASI encoding, never a baseline.
+
+## Capability Negotiation
+
+An Engine that cannot do something natively says so, and the Frontend refuses by the Host App's floor. kobako does not fill an Engine's native gap.
+
+| Mechanism | Declares | On a mismatch |
+|---|---|---|
+| `Runtime::profile` | the Posture the runtime built | the Frontend refuses below the floor |
+| `Runtime::supports` | each kind of Grant it presents | the Frontend refuses an unsupported Grant |
+| Flag | a switch for the interpreter | a Guest Binary skips one it does not know, unless critical |
+
+An Engine that cannot freeze the clock therefore declares permissive.
+
+## Standard Evolution
+
+Each ABI version gets its own call table, and every table asks the same runtime. A new WASI version adds an entry, not a rewrite.
 
 ```
-Orchestration   Sandbox, Pool, Runtime (+ ext), Context
-      │
-Catalog         setup-time registries + the per-invocation Handle table
-      │
-Transport ──┐   call value objects + dispatch
-Outcome ────┤   guest-result attribution
-      │     │
-Payload ◄───┤   the [args, kwargs] shape a Call or Run carries
-      │     │
-Codec ◄─────┘   byte-level payload wire
-      │
-Root            dependency-free value objects and error classes
+ p1 module         p2 component
+     |                  |
+     v                  v
++-----------+   +-----------------+
+| p1 table  |   | wasi:filesystem |
+| now       |   | later           |
++-----+-----+   +--------+--------+
+      |                  |
+      +--------+---------+
+               | asks
+               v
+      +-----------------+
+      | kobako-runtime  |
+      +-----------------+
 ```
 
-The core envelope has no tier here, because the native side frames and decodes it.
-
-### Placement Rules
-
-These rules keep the tiers acyclic; most were learned from a cycle or a leak.
-
-| Rule | Example |
-|---|---|
-| a type sits at the lowest tier that needs it | `Kobako::Handle` at the root, for `Codec` |
-| a native-defined handle that needs nothing in `lib/` sits at the root | `Kobako::Filesystem`, for `Catalog` |
-| `Outcome` may require `transport/error.rb` | the gem contract fixes the class name |
-| `Codec.track_handles` wraps only the decode call | wider leaks its flag into re-entry |
-
-Namespace follows dependency direction, not which tier reads a type most. Do not move `Kobako::Transport::Error` to remove the lateral edge; its file depends only on root `errors.rb`.
+The descriptor table belongs to each ABI's encoding, and p2 uses resources instead, so the tables do not share it. When a later version is taken up is in [`isolation/README.md`](isolation/README.md).

@@ -1,8 +1,8 @@
 # Customization
 
 kobako is assembled from parts, and each assembly point is a named interface someone
-outside this repository can implement. This document states what each one obliges
-its implementer to do, and what kobako promises in return.
+outside this repository can implement. This document names each one and what kobako
+promises in return. What implementing a trait obliges is in that trait's rustdoc.
 
 | Document | Covers |
 |---|---|
@@ -24,11 +24,12 @@ kobako owes you, and it is set by what you do with the name.
 | **stable** | write it in your own signatures | no change without the owning crate's version increment |
 | **append-only** | match, implement, or read a set | the set only gains members |
 | **exhaustive** | match a set completely | a new member breaks your match on purpose |
-| **replaceable** | write your own in kobako's place | the obligations below are all you owe |
+| **replaceable** | write your own in kobako's place | the documented obligations are all you owe |
 
 An append-only enum carries `#[non_exhaustive]`, and a new trait method carries a
-default unless it keeps a guarantee, as the Filesystem Obligations below do. An exhaustive set has neither, so there is no wildcard to fall into. kobako
-swapping its own replaceable implementation is not a break.
+default unless it keeps a guarantee no default can. An exhaustive set has neither, so
+there is no wildcard to fall into. kobako swapping its own replaceable implementation
+is not a break.
 
 A struct with public fields is graded by whether its fields can grow:
 
@@ -47,50 +48,61 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 
 | Point | Interface | Endpoint | Grade |
 |---|---|---|---|
-| Payload codec | `MrbGuest::Codec: PayloadCodec` | guest | replaceable · methods append-only |
-| Payload codec | the byte-level payload surface, `msgpack` feature off | Rust host SDK | stable |
+| Payload Codec | `MrbGuest::Codec: PayloadCodec` | guest | replaceable · methods append-only |
+| Payload Codec | the byte-level payload surface, `msgpack` feature off | Rust SDK | stable |
 | Capability set | `MrbGuest::init_gems` | guest | replaceable |
 | Flags | `MrbGuest::apply_flag` | guest | replaceable |
 | Invocation flow | a `Guest` method implemented rather than forwarded | guest | replaceable · methods append-only |
 | The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest | replaceable · methods append-only |
-| Wasm engine | `impl Runtime` + `GuestInstance`, handed to `Sandbox::with_runtime` | Rust host SDK | replaceable |
-| Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a host frontend of your own | replaceable |
-| Filesystem | `impl FileSystemType` + `InodeOperations` + `FileOperations` + `DentryOperations`, behind a Mount | Rust host SDK | replaceable · methods append-only |
-| Lock wait | `impl Blocking`, handed once to `sched::register_blocking` | a host frontend of your own | replaceable · methods append-only |
-| Security Module | `impl SecurityOperations`, handed to `kobako_wasmtime::Config::security` | Rust host SDK | replaceable · methods append-only |
+| Wasm engine | `impl Runtime` + `GuestInstance`, handed to `Sandbox::with_runtime` | Rust SDK | replaceable |
+| Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a Frontend of your own | replaceable |
+| Filesystem | `impl FileSystemType` + `InodeOperations` + `FileOperations` + `DentryOperations`, behind a Mount | Rust SDK | replaceable · methods append-only |
+| Lock wait | `impl Blocking`, handed once to `sched::register_blocking` | a Frontend of your own | replaceable · methods append-only |
+| security module | `impl SecurityOperations`, handed to `kobako_wasmtime::Config::security` | Rust SDK | replaceable · methods append-only |
+
+### Graded Names
 
 The types those seams carry, by grade:
 
 | Grade | Names |
 |---|---|
-| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder, MAX_NESTING_DEPTH}` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
-| **stable** | `kobako_runtime::{Tmpfs, Bind, Overlay, Mount, MountPathError}` · `kobako_runtime::filesystem::Filesystem` · `kobako_runtime::filesystem::{PipeInodeInfo, Rdir, create_pipe_files}` · `kobako_runtime::vfs::{Cred, Dentry, DirContext, File, FMode, Identity, Inode, Mask, Path, PollMask, Start, SuperBlock, VfsMount, build_open_flags, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, filename_linkat, filename_symlinkat, dir_emit_dots, generic_file_llseek, generic_read_dir, generic_write_sync, vfs_fstatat, do_readlinkat, do_utimes_path, do_utimes_fd, verify_dirent_name, PATH_MAX, NAME_MAX}` · `kobako_runtime::security::{WalkGuard, prepare_creds_within, restrict_self}` · `kobako_runtime::endpoint::{Calls, MemoryCap, MemoryLimitExceeded, ABANDONED, RUNTIME_INCOMPATIBLE, clip_capture, compiled_bytecodes, handle, pipe_capacity, read_compile_reply, read_outcome, request_of, stdin_content, write_request}` · `kobako_runtime::sched::{Task, run_task}` |
+| **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder}` · `kobako_codec::msgpack::codec::MAX_NESTING_DEPTH` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
+| **stable** | `kobako_runtime::{Tmpfs, Bind, Overlay, Mount, MountPathError}` · `kobako_runtime::filesystem::Filesystem` · `kobako_runtime::filesystem::{PipeInodeInfo, Rdir, create_pipe_files}` · `kobako_runtime::vfs::{Cred, Dentry, DirContext, File, FileSecurity, FMode, Identity, Inode, Mask, Path, PollMask, Start, SuperBlock, VfsMount, build_open_flags, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, filename_linkat, filename_symlinkat, dir_emit_dots, generic_file_llseek, generic_read_dir, generic_write_sync, vfs_fstatat, do_readlinkat, do_utimes_path, do_utimes_fd, verify_dirent_name, PATH_MAX, NAME_MAX}` · `kobako_runtime::security::{WalkGuard, prepare_creds_within, restrict_self}` · `kobako_runtime::endpoint::{Calls, MemoryCap, MemoryLimitExceeded, ABANDONED, RUNTIME_INCOMPATIBLE, clip_capture, compiled_bytecodes, handle, pipe_capacity, read_compile_reply, read_outcome, request_of, stdin_content, write_request}` · `kobako_runtime::sched::{Task, run_task}` |
 | **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access}` · `kobako_runtime::vfs::{Lookup, SecurityPath, SetTime, Whence}` · `kobako_runtime::endpoint::UpcallEnd` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
 | **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, Kstat, DirEntry}` · `kobako_runtime::filesystem::{RenameFlag, Finish}` · `kobako_runtime::vfs::{OpenHow, OpenFlags, DirEmit, Iattr, Kiocb}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` |
-| **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind`, re-exported as `kobako::FaultKind` |
+| **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
 | **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, six re-exported from `kobako_core` |
 
-`kobako::filesystem` re-exports `kobako_runtime::filesystem`, so each name there keeps the grade above.
+A re-export keeps the grade of what it re-exports. The `kobako` root re-exports
+`Usage`, `Fault`, `FaultKind`, `Access`, `Policy`, `Profile`, `Filesystem`, `Dentry`,
+and `Inode`, and `kobako::msgpack::Value` re-exports `kobako_codec::msgpack::Value`.
+`kobako::filesystem` re-exports `kobako_runtime::filesystem`, so each name there keeps
+the grade above.
 
-Two things stay fixed. The **core envelope** and the **ABI surface** are the same for
-every assembly, which makes the parts interchangeable at all
-(→ [`wire/README.md`](../wire/README.md)). Both live in `kobako-transport`, which depends
-on nothing, so an implementer picks up the fixed tier without anyone else's choices.
+### Fixed Tier
 
-The **Ruby frontend is fixed to the default codec**. MessagePack is Ruby's native
-choice and the gem speaks it directly, so it has no seam to substitute at.
+Two things stay fixed, and the Ruby Frontend takes no Codec seam.
+
+| Fixed | Why |
+|---|---|
+| the **Envelope** and the **ABI surface** | the same for every assembly, which makes the parts interchangeable at all |
+| the Ruby Frontend's Codec, MessagePack | Ruby's native choice, which the gem speaks directly |
+
+Both wire parts live in `kobako-transport`, which depends on nothing, so an
+implementer picks up the fixed tier without anyone else's choices
+(→ [`wire/README.md`](../wire/README.md)).
 
 ## Payload Codec
 
-A codec owns the payload positions and nothing else. The core envelope routes and
-attributes without reading a payload byte, so a new codec leaves the envelope, the
+A Codec owns the payload positions and nothing else. The Envelope routes and
+attributes without reading a payload byte, so a new Codec leaves the Envelope, the
 ABI, and the version untouched.
 
-A guest fills the positions its codec serves. A Rust host reaches every position,
+A guest fills the positions its Codec serves. A Rust host reaches every position,
 because each has a byte-level entry, and the `msgpack` feature adds the bundled
-codec's spelling beside it.
+Codec's spelling beside it.
 
 | Position | Byte-level entry | `msgpack` spelling |
 |---|---|---|
@@ -100,35 +112,35 @@ codec's spelling beside it.
 | invocation result | `Execution::payload` | `Execution::value` |
 | object behind a Handle | `Handles::resolve`, `Execution::resolve` | `resolve_as` |
 
-A Handle is resolved by id, since spelling a Handle is the schema's job and reaching
+A Handle is resolved by id, since spelling a Handle is the Codec's job and reaching
 the object is not. Each spelling is a thin wrapper over its entry, so another
-schema's overlay is written outside the SDK as extension traits over the same entries.
+Codec's overlay is written outside the SDK as extension traits over the same entries.
 
 ### Codec Obligations
 
-A codec fills positions, not an encoding. Writing a value is the floor every codec
+A Codec fills positions, not an encoding. Writing a value is the floor every Codec
 owes. Each other position it serves or refuses as unserved, so a missing feature
 reads apart from a broken guest.
 
 | Position | What serving it obliges | Why |
 |---|---|---|
-| Yield Reply ok body, Outcome ok body | one value — **the floor** | every invocation answers an Outcome |
-| Call payload | positional and keyword arguments, distinguishably | `public_send` does not interchange them |
-| Run payload, Yield Call | the arguments alone; neither carries keywords | neither position has keywords |
+| Yield Reply ok body, Outcome ok body | one value — **the floor** | every Invocation answers an Outcome |
+| Call payload, Run payload | positional and keyword arguments, distinguishably | `public_send` and an entrypoint do not interchange them |
+| Yield Call | the arguments alone, as a plain list | a yield carries no keywords |
 
 How an unserved position refuses, and why a Call owes its Reply, is specified in
-[codec](../spec/behavior/codec.md). Keep the Call payload's keywords apart from its rest
-arguments: a codec folding them together makes `KV.get(key, limit: 9)` lose `limit:`
-with nothing raising.
+[codec](../spec/behavior/codec.md). Keep keywords apart from the rest arguments: a
+Codec folding them together makes `KV.get(key, limit: 9)` lose `limit:` with nothing
+raising.
 
-A Handle representation is optional. Without one, Handles ride only the envelope's
+A Handle representation is optional. Without one, Handles ride only the Envelope's
 `target` field: a guest still reaches a stateful receiver and only forgoes passing
-Handles as arguments. A Reply's fault body is no codec position either. A Fault is
-kobako's own data and rides the envelope, so a schema neither encodes nor reads one.
+Handles as arguments. A Reply's fault body is no Codec position either. A Fault is
+kobako's own data and rides the Envelope, so a Codec neither encodes nor reads one.
 
 ### Naming the Codec
 
-A guest shell names its codec once, on the associated type.
+A guest shell names its Codec once, on the associated type.
 
 ```rust
 impl MrbGuest for MyGuest {
@@ -140,34 +152,34 @@ impl MrbGuest for MyGuest {
 A Rust host names its choice by what it builds against. Every `msgpack` spelling,
 including the `Value` they speak, lives in the `msgpack` module rather than the crate
 root. Turning the feature off removes a spelling rather than leaving a hole, and a
-host with its own schema then implements the byte-level surface. `run` takes
+host with its own Codec then implements the byte-level surface. `run` takes
 whichever payload it is handed, so the feature governs what a host is offered, never
 what it can reach.
 
-A type implementing two schemas' receiver traits has two `into_receiver` in scope.
+A type implementing two Codecs' receiver traits has two `into_receiver` in scope.
 Name one (`ValueReceiver::into_receiver(kv)`): binding an object is choosing the
-schema the guest reaches it through.
+Codec the guest reaches it through.
 
 ### Codec-free Builds
 
 Replaceability is a property of the dependency graph, not a flag. Each tier reaches
-a codec only where it asks for one.
+a Codec only where it asks for one.
 
 | Crate | Codec it reaches |
 |---|---|
 | `kobako-transport`, `kobako-core` | none |
 | `kobako-mruby` | `MsgpackCodec` only with its `msgpack` feature |
 | `kobako-wasm` (shipped shell) | MessagePack, by asking for it |
-| `kobako` (Rust host SDK) | the `Value` surface, `msgpack` on by default |
+| `kobako` (Rust SDK) | the `Value` surface, `msgpack` on by default |
 
 A shell naming its own `MrbGuest::Codec` never asks for `msgpack`. The SDK defaults
-to a codec because an embedder names it directly; with the feature off it reaches no
-payload codec.
+to a Codec because an embedder names it directly; with the feature off it reaches no
+payload Codec.
 
-`crates:graph` and `wasm:graph` build each tier on every release and check that
-no codec appears in the graph. Each build includes the tier's tests, since a library whose
-tests still need a codec has not moved it out of the code. A `[dev-dependencies]`
-codec is allowed, because no consumer installs it.
+`crates:graph` and `wasm:graph` hold each tier to that table in the default gate, on
+every push and pull request. A tier's tests are held to it too, since a library whose
+tests still need a Codec has not moved it out of the code. A `[dev-dependencies]`
+Codec is allowed, because no consumer installs it.
 
 ## Capability Set
 
@@ -225,16 +237,17 @@ is not mruby calls `kobako_core::proxy::dispatch` directly and states the
 guest counts every Call it has open, block or not, from `0` at the outermost.
 
 ```text
-  gem ---> dispatch(target, method, Option<Proc>, payload) ---> Service
-            |                                                    |
-            +- block parks for the call <--- yield --------------+
-               (a yield downcall re-enters while the dispatch
-                frame is still on the stack)
+gem ---> dispatch (a) ---> Service
+            ^                 |
+            +--- yield (b) ---+
 ```
 
-That tier carries no payload codec, so the gem still names its own schema. It
-encodes the payload before calling and decodes the answer after, which keeps a
-guest-side raise clear of the parked block.
+- (a) `dispatch(target, method, Option<Proc>, payload)`; the block parks for the Call.
+- (b) A yield downcall re-enters while the `dispatch` frame is still on the stack.
+
+That tier carries no payload Codec, so the gem still names its own. It encodes the
+payload before calling and decodes the answer after, so a guest-side raise stays
+clear of the parked block.
 
 ## Flags
 
@@ -279,122 +292,70 @@ shipped shell is not privileged. The ABI is in
 
 ## Wasm Engine
 
-`crates/kobako-runtime` is the engine-free contract, and `crates/kobako-wasmtime` is
-one implementation of it. No frontend names an engine type, so an engine satisfying
-the contract carries every frontend above it unchanged.
+`crates/kobako-runtime` is the Engine-free contract, and `crates/kobako-wasmtime` is
+one Wasm Driver implementing it. The contract carries a Frontend through
+`Sandbox::with_runtime`, so any Wasm Driver satisfying it carries the Rust SDK above it
+unchanged.
 
 | Contract part | Names |
 |---|---|
-| engine seams | `Runtime`, `DispatchHandler`, `Yielder` |
-| host ABI endpoint | `endpoint`, over a `GuestInstance` the engine implements |
+| Engine seams | `Runtime`, `DispatchHandler`, `Yielder` |
+| host ABI endpoint | `endpoint`, over a `GuestInstance` the Wasm Driver implements |
 | files | `vfs`, with `File` answering what a guest may do with an open file |
-| declared posture | `Profile`, and `guest_kstat` for what a guest sees of an entry |
+| declared Posture | `Profile`, and `guest_kstat` for what a guest sees of an entry |
 | per-invocation types | `Snapshot`, `Completion`, `Capture`, `Usage`, `Trap` |
 
-The Rust host SDK takes an engine at `Sandbox::with_runtime` and keeps the whole tier
+The Rust SDK takes a Wasm Driver at `Sandbox::with_runtime` and keeps the whole tier
 above it: Catalog, Handles, snippet replay, Extension composition. `Sandbox::new` is
-the same path with the bundled wasmtime engine.
+the same path with the bundled `kobako_wasmtime::Driver`.
 
 ### Engine Encoding
 
-An engine encodes each ABI itself, and the runtime beneath it decides every answer.
-`kobako-wasmtime` generates preview1's table with wiggle from `witx/`. That generator
-depends on wasmtime, so another engine writes its own table.
-
-| Encoded by the engine | Decided by the runtime |
-|---|---|
-| a call's arguments | what the call answers |
-| errno codes | which error it is |
-| the descriptor table and rights | the open file behind a descriptor |
+A Wasm Driver encodes each ABI onto its Engine, and the runtime beneath it decides
+every answer (→ [`isolation/README.md`](../isolation/README.md)).
 
 ### Engine Options
 
-Only the isolation floor and each invocation's Grants cross that seam. The engine's
-own caps are configured where the engine is built
+Only the Posture and each Invocation's Grants cross that seam. The Engine's own caps
+are configured where the Wasm Driver is built
 (→ [runtime](../spec/behavior/runtime.md)).
 
-| Option | Where an engine leaves it |
+| Option | Left at its default |
 |---|---|
 | `Runtime::compile` | compiles nothing; the SDK replays the preloaded source |
 | `Runtime::supports` | supports no Grant; the SDK refuses a Mount |
-| `Runtime::profile` | required; the SDK checks the posture it declares |
+| `Runtime::profile` | required; the SDK checks the Posture it declares |
 
 ### Engine-free Builds
 
-As with the codec, the engine's replaceability is a property of the dependency graph.
+As with the Codec, the Engine's replaceability is a property of the dependency graph.
 
 | `kobako` build | Way in |
 |---|---|
 | `wasmtime` feature on (default) | `Sandbox::new` or `Sandbox::with_runtime` |
-| `wasmtime` feature off | `Sandbox::with_runtime` only; no engine reached |
+| `wasmtime` feature off | `Sandbox::with_runtime` only; no Engine reached |
 
-`crates:graph` builds the SDK that way on every release and checks that no
-engine appears in the graph.
+`crates:graph` holds the SDK to that table in the default gate, on every push and
+pull request.
 
-The Ruby frontend takes no such seam. `Kobako::Runtime` is pinned to the wasmtime
-driver, so choosing an engine there means choosing a different frontend.
+The Ruby Frontend takes no such seam. `Kobako::Runtime` is pinned to
+`kobako_wasmtime::Driver`, so choosing an Engine there means choosing a different
+Frontend.
 
 ## Filesystem
 
-A Mount hands the guest a Filesystem made from any `impl FileSystemType`, and an Overlay
-stacks Filesystems as Layers.
-The runtime walks each guest path one name at a time and checks it before the
-Filesystem acts on it. It follows a link itself, so a Filesystem only answers one
-name in a directory it already found.
+A Filesystem made from any `impl FileSystemType` plugs in behind a Mount, and an
+Overlay stacks Filesystems as Layers. The Mount decides what a guest may do, so the
+Filesystem behind it need not.
 
-```
-guest path --> runtime: walk name by name, follow links, check the Policy --> Filesystem
-                               ^                                                |
-                               +--- lookup: the entry at a name ----------------+
+```text
+FileSystemType --> Filesystem --> Mount (a) --> guest
+                       |
+                       +--> Layer (b) --> Overlay --> Mount
 ```
 
-Each entry answers for itself: a `lookup` finds an `Inode`, which holds that entry's
-operations. A wrapper wraps each entry its `lookup` finds through `Inode::with_ops`,
-so it still sees every call beneath it.
-Every call hands the Dentry it is about. A Filesystem answering by path reads it
-from `Dentry::path_raw`, which starts at `/`. A directory moved through the
-runtime is then asked at its new path. Its `lookup` finds an `Inode::new` with its
-identity, or a Policy cannot tell a directory from one made in its place.
+- (a) Placed at a guest path; it allows reading, or reading and writing.
+- (b) The Overlay stacks Filesystems; it is mounted as one Filesystem.
 
-### Filesystem Obligations
-
-`fill_super` makes the root through `d_make_root` after any `set_default_d_op`, as a Linux driver's does.
-`getattr` answers for an entry an open file still holds once its name is
-gone, so a Filesystem keeps what that takes on the `Inode`. An operation an entry lacks answers
-by default as Linux's VFS answers a NULL in `inode_operations`. One wrapping another forwards
-those it keeps.
-
-These two calls follow from what the runtime does itself, so a Filesystem answers them to fit.
-
-| The runtime | A Filesystem answers |
-|---|---|
-| truncates after `open`, through `setattr` with `Iattr::open` | success, if its `open` truncated |
-| keeps a name for the next walk | `DentryOperations::delete` true, if `revalidate` cannot judge it |
-
-| Method | Keeps | Without it, the runtime answers |
-|---|---|---|
-| `permission` | a call refused before it reaches the entry | allowed, so the backend answers once the call is made |
-| `lookup` | one dentry and lock per entry, and a Policy checking the stored spelling | ENOTDIR, no directory to walk through |
-| `fill_super` calling `set_default_d_op` | a held dentry dropped once its name changes | valid, as nothing changes it outside the runtime |
-| `fill_super` calling `set_rdonly` | every change refused | every change allowed |
-| `fill_super` calling `set_dontcache` | no name kept once nothing holds it | a name kept for the next walk, absent ones too |
-| `get_link` | a link followed only within the directory a descriptor opened | EINVAL |
-| `open` | an entry opened to read, write, or list | opens with no operations |
-| `create` | a file made under the directory's lock and recorded on its `Dentry` | EACCES |
-| `atomic_open` | a file made and opened in one step, for a backend needing that | makes it through `create`; the runtime opens it once the Policy allows |
-| `setattr` | a file sized through what holds it, and times of the guest's choosing | EINVAL for a size, ENOTSUP for a time |
-| `link`, `symlink` | a name made under the directory's lock | EPERM |
-| `FileOperations::llseek`, answering `generic_file_llseek` | a seek counting from the start, the position, or the end `getattr` reports | ESPIPE |
-| `FileOperations::read_iter`, `write_iter` | a file's bytes, moving `Kiocb::pos` past what they took | EINVAL |
-| `FileOperations::read_iter` on a directory, answering `generic_read_dir` | a directory's read refused as one | EINVAL |
-| `FileOperations::iterate_shared` | a directory listed through `dir_emit_dots` and `DirContext::dir_emit`, or `Rdir` | ENOTDIR |
-| `FileOperations::fsync` | what was written made durable; answer `Ok` with nothing to flush | EINVAL |
-| `FileOperations::fallocate` | room reserved ahead of a write | ENOTSUP |
-| `FileOperations::poll` | what a call would find ready | ready to read and write |
-| `mkdir`, `rmdir`, `unlink` | a change made under the directory's lock | EPERM |
-| `rename` | as above; a `RenameFlag` it does not take answers EINVAL | EPERM |
-| `Kiocb::append` in `write_iter` | another writer's append from landing over this one | `Unsupported`, which it answers itself |
-
-Every lock waits through the one `Blocking` a process registers, so a Filesystem says nothing
-about waiting. A frontend whose threads share a lock of their own gives that lock up inside
-`wait`, as Ruby gives up the GVL. Otherwise the holder it waits for never finishes.
+What each method owes is in the rustdoc of `FileSystemType`, `InodeOperations`,
+`FileOperations`, and `DentryOperations`, which an editor shows as you implement them.

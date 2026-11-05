@@ -250,6 +250,7 @@ A named switch the host sets for an Invocation's interpreter. A Guest Binary tha
 - `crates/kobako-runtime/src/**/*.rs`
 - `crates/kobako-wasmtime/src/**/*.rs`
 - `ext/**/*.rs`
+- `docs/isolation/**/*.md`
 
 ### Ambient
 
@@ -318,6 +319,7 @@ One of the two streams guest code writes to: output and error. Each is captured 
 - `ext/kobako/src/runtime/filesystem.rs`
 - `ext/kobako/src/runtime/filesystem/**/*.rs`
 - `lib/kobako/filesystem.rb`
+- `docs/filesystem/**/*.md`
 
 ### Mount
 

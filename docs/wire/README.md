@@ -4,47 +4,72 @@ The wire is every message between the Host Gem and the Guest Binary during an in
 
 | Document | Holds |
 |----------|-------|
-| this one | the two layers, transport roles, Handles, consistency |
+| this one | the two layers, overlays, transport roles, Handles, consistency |
 | [`abi.md`](abi.md) | the ABI surface and its version |
 | [`envelope.md`](envelope.md) | each message's fields, meaning, and bytes |
 | [`payload-msgpack.md`](payload-msgpack.md) | the default payload codec |
 
-ABI names, return conventions, and the byte values in either layer change only with an ABI version increment (→ [`abi.md`](abi.md) § ABI Version). An added field or closed-set value is not such a change, because a reader degrades what it predates (→ [`envelope.md`](envelope.md) § Fault). A new request tag is not one either, because a reader answers a request it does not serve as unsupported (→ [`envelope.md`](envelope.md) § Unknown Tags). Nor is a new Preamble record kind, which a reader skips or refuses as its sender marked (→ [`envelope.md`](envelope.md) § Preamble). A new answer arm is one, since a reader refuses an arm it predates.
+ABI names, return conventions, and the byte values in either layer change only with an ABI version increment (→ [`abi.md`](abi.md) § ABI Version). Three kinds of growth are not such a change, because a reader answers what it predates instead of refusing it.
+
+| Growth | What a reader that predates it does |
+|--------|-------------------------------------|
+| a Fault or Unsupported field or kind | degrades it (→ [`envelope.md`](envelope.md) § Fault) |
+| a request tag | answers it as unsupported (→ [`envelope.md`](envelope.md) § Unknown Tags) |
+| a Preamble record kind | skips or refuses it as its sender marked (→ [`envelope.md`](envelope.md) § Preamble) |
+
+Any other growth is an ABI change. Every other body refuses trailing bytes, every other closed set refuses a value it predates, and a reader refuses an answer arm it predates.
 
 ---
 
 ## Two Layers
 
-Every message is a core envelope around an opaque payload. The envelope carries what routing and attribution need, so a side reaches those decisions without decoding a payload byte.
+Every message is an Envelope around an opaque payload. The Envelope carries what routing and attribution need, so a side reaches those decisions without decoding a payload byte.
 
 ```
-┌─────────── core envelope ───────────┐
-│ envelope fields │ payload (opaque)  │
-└──────────────────────────┬──────────┘
-                           └── payload codec
++--------------- Envelope ---------------+
+| envelope fields  |  payload (opaque)   |
++------------------+----------+----------+
+                              |
+                              v
+                            Codec
 ```
 
 | Layer | Carries | Read by | Implemented in |
 |-------|---------|---------|----------------|
-| Core envelope | routing, ok-versus-fault, attribution | every side | `kobako-transport`, shared |
-| Payload codec | what the resolved method consumes | the two endpoints | `lib/kobako/` ↔ `kobako-codec` |
+| Envelope | routing, ok-versus-fault, attribution | every side | `kobako-transport`, shared |
+| Codec | what the resolved method consumes | the two endpoints | `lib/kobako/` and `kobako-codec` |
 
-The codec is therefore replaceable, and a routing-only endpoint needs none. MessagePack is the default, not the only one; a codec swap changes neither the ABI nor the envelope. `rake crates:graph` and `rake wasm:graph` check that each codec-free tier builds without one. What a replacement codec owes is in [`customization.md`](../guides/customization.md) § Codec Obligations.
+The Codec is therefore replaceable, and a routing-only endpoint needs none. MessagePack is the default, not the only one; a Codec swap changes neither the ABI nor the Envelope. `rake crates:graph` and `rake wasm:graph` check that each codec-free tier builds without one. What a replacement Codec owes is in [`customization.md`](../guides/customization.md) § Codec Obligations.
+
+---
+
+## Dialect Overlays
+
+An overlay is how one endpoint's Codec dialect speaks to its own objects. It decodes a payload into them, wraps one back out, and reaches a bound object. It lives where that endpoint's objects live.
+
+| Endpoint | Dialect implementation | Overlay |
+|---|---|---|
+| Ruby gem | `lib/kobako/{codec,payload}/`, a second implementation | the same files |
+| Rust SDK | `kobako-codec` | `kobako`'s `msgpack` module |
+| mruby guest | `kobako-codec` | `kobako-mruby`'s `msgpack` module |
+| `ext/` | none | none |
+
+The Ruby gem writes its dialect itself, so the Handle walk in `lib/kobako/codec/` is its overlay. `ext/` holds no objects to bind a dialect to. A dialect kobako does not ship places its overlay wherever its objects live, even outside this repository. An overlay belongs to the wire, unlike the Filesystem's Overlay.
 
 ---
 
 ## Transport Role
 
-Every exchange is one **Call** answered by one **Reply**. The roles name which side speaks first, not which side is host or guest.
+Every exchange is one request answered by one answer, and the request decides which answer. Who sends first depends on the request, not on which side is host or guest.
 
-| Role | Side | Scope |
-|------|------|-------|
-| Conversation opener | Guest Binary (`Kobako::Proxy`) | every conversation |
-| Responder | Host Gem | inside the same import call frame |
-| Reverse-direction Call | Host Gem | only to re-enter a block |
-| Medium | Wasm linear memory | an implementation note |
+| Request | Sent by | Answered by | Scope |
+|---------|---------|-------------|-------|
+| eval, run | Host Gem | an Outcome | starts an invocation |
+| compile | Host Gem | a Compile Reply | compiles the Snippets |
+| Call | Guest Binary (`Kobako::Proxy`) | a Reply from the Host Gem | inside the same import call frame |
+| Yield Call | Host Gem | a Yield Reply | only to re-enter a block |
 
-Every round-trip is synchronous. To guest code, a Service call is an ordinary call that completes before the next line.
+Wasm linear memory carries every message, which is an implementation note. Every round-trip is synchronous. To guest code, a Service call is an ordinary call that completes before the next line.
 
 ---
 
@@ -81,8 +106,8 @@ Each layer is held to a second source not derived from its implementation, so no
 
 | Layer | Implementations | Second source |
 |-------|-----------------|---------------|
-| Core envelope | one, shared by both sides | [`envelope.md`](envelope.md) |
-| Payload codec | two, Ruby and Rust | each other |
+| Envelope | one, shared by both sides | [`envelope.md`](envelope.md) |
+| Codec | two, Ruby and Rust | each other |
 
 The split follows where ambiguity lives. Two languages disagree about types, so the payload earns a second implementation. The envelope is a few routing fields every assembly composes against, so one definition held to its layout document is the guarantee.
 

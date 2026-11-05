@@ -3,16 +3,22 @@
 kobako isolates untrusted guest code; it does not decide what that code may reach.
 The first job is the gem's, the second is yours, and this guide draws the line.
 The behavior itself is specified in [`spec/behavior/`](../spec/behavior/).
+Mounts have their own guide in [mounts](mounts.md).
 
 ```
-   kobako owns                          you own
-   ───────────                          ───────
-   the isolation boundary               which Services and Mounts cross it
-   resource caps                        what each Service may do
-   wire / return-value guardrails       input validation on Service args
-   per-invocation + cross-Sandbox       one Sandbox per trust context
-     isolation                          where preloaded bytecode came from
++-- kobako owns --------+     +-- you own ------------+
+| isolation boundary    |     | Services, Mounts (a)  |
+| resource caps         |     | Service behavior      |
+| wire guardrails (b)   |     | input validation      |
+| Sandbox isolation (c) |     | trust contexts (d)    |
+|                       |     | bytecode origin       |
++-----------------------+     +-----------------------+
 ```
+
+- (a) Which Services and Mounts cross the boundary.
+- (b) The wire and return-value guardrails.
+- (c) Isolation per Invocation and across Sandboxes.
+- (d) One Sandbox per trust context.
 
 The guest reaches outward only through a Service you bound or a Filesystem you
 mounted. Guest code can name any `MyService::KV` path, but a forged name resolves
@@ -39,17 +45,17 @@ feature that specifies it.
 | a Tmpfs holds no more than its size | [filesystem](../spec/behavior/filesystem.md) |
 | a value the wire cannot carry becomes a Handle or a controlled error | [transport-dispatch](../spec/behavior/transport-dispatch.md) |
 
-## Isolation Profiles
+## Postures
 
 Postures form the ladder `permissive < hermetic`; `Sandbox.new(profile:)` requests
 one and defaults to `:hermetic`. The rungs differ in what the guest reads of time, entropy, and a Mount's entries.
 
-| Profile | Clocks and entropy | A Mount's entries | Everything else |
+| Posture | Clocks and entropy | A Mount's entries | Everything else |
 |---|---|---|---|
 | `hermetic` | frozen clock, constant entropy | every time at the epoch, inode number 0 | no ambient filesystem, `ENV`, or socket |
-| `permissive` | live host time and entropy | real times, a keyed inode number | same as `hermetic` |
+| `permissive` | live host time and entropy | real times, an inode number per entry | same as `hermetic` |
 
-A permissive guest's inode number is a hash of the entry's identity under a key the process draws once. It tells entries apart, and nothing outside the process can compute it from a host's numbers.
+A permissive guest's inode number tells entries apart, and nothing outside the process can compute it from a host's numbers.
 
 `hermetic` keeps the guest deterministic except for values a Service injects.
 Requesting `:permissive` trades that reproducibility for real time and entropy;
@@ -100,11 +106,11 @@ binding is a capability you hand out. Ask these questions before you bind one.
 | Concern | Lever |
 |---|---|
 | Trust Context | one Sandbox per principal |
-| Method Surface | bind a purpose-built object |
+| Exposed Methods | bind a purpose-built object |
 | Self-gating Objects | a private `respond_to_guest?` |
 | Input Validation | reject at method entry |
 | External Effects | allowlist the resolved resource |
-| Return Surface | return terminal values |
+| Returned Values | return terminal values |
 | Work Volume | budget each invocation |
 
 ### Trust Context
@@ -112,8 +118,8 @@ binding is a capability you hand out. Ask these questions before you bind one.
 A Sandbox's bindings *are* its capability set, so one Sandbox shared across contexts
 turns every binding into ambient authority for all of them. Build one per principal
 — per user, agent session, or submission — and bind only what that context may
-touch. Finish every `bind`, `preload`, and `flag` before the first invocation, which seals
-the registry.
+touch. Finish every `bind`, `install`, `mount`, `preload`, and `flag` before the
+first invocation; the Sandbox refuses each of them from then on.
 
 ```ruby
 def sandbox_for(session)
@@ -123,7 +129,7 @@ def sandbox_for(session)
 end
 ```
 
-### Method Surface
+### Exposed Methods
 
 `bind` exposes every public method the object's own class and the object itself
 define, not just the one you had in mind. What it inherits or mixes in stays out, as
@@ -141,7 +147,7 @@ end
 sandbox.bind("Cfg::Settings", ThemeReader.new)    # reachable: only #color
 ```
 
-#### Surface Gotchas
+#### Exposure Gotchas
 
 Two cases surprise hosts that follow the rule above. kobako cannot tell your
 classes from a gem's or the standard library's, and reflective names never cross.
@@ -235,12 +241,12 @@ sandbox.bind("Net::Get", ->(url) {
 })
 ```
 
-### Return Surface
+### Returned Values
 
 A return the wire cannot carry crosses as a `Kobako::Handle`, and its own methods
 become reachable. Return the data the guest needs as a terminal value, not a host
 object it can keep calling into. When the guest must hold the object itself, give it
-a `respond_to_guest?` that seals or narrows that surface.
+a `respond_to_guest?` that seals or narrows its Exposure.
 
 ```ruby
 sandbox.bind("Search::Docs", ->(q) { index.query(q).map(&:title) })  # => ["...", "..."]
@@ -283,142 +289,3 @@ sandbox.eval(script) { |ctx| ctx.bind("Cur::Next", budgeted(cursor)) }
 
 A fresh budget per `ctx.bind` resets the count for every invocation. A counter
 captured once at `bind` would span the Sandbox's lifetime instead.
-
-## Mount Design
-
-A Mount hands the guest a Filesystem at one path. kobako keeps the guest beneath
-that path and holds its access; what the Filesystem holds is yours to choose. A
-Bind opens only files and directories: a FIFO, socket, or device raises
-`Errno::EACCES`. On Windows, so does a spelling the host lists under no name.
-
-| Choose | Because |
-|---|---|
-| `access: :read` unless the guest must write | a read-only Mount refuses every change |
-| a Tmpfs over a Bind | a Bind is a real host path the guest changes |
-| `size:` and `nr_inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
-| `open_file_limit:` sized against the host's own | host descriptors: two per file, one per directory's Layer, 64 per Bind |
-| no writable grant over kobako's compile cache | the host runs what that cache holds as native code |
-
-The compile cache is `$XDG_CACHE_HOME/kobako`, else `~/.cache/kobako`. A Bind of
-`$HOME` covers it, and so does a Ruby Filesystem or Service that writes there.
-
-### Mount Blocks
-
-A block decides each open and each change by path. An open that may create is asked a change first, then what it opens for, as Linux asks its security modules. Allow what the guest needs
-rather than refusing what it must not reach: a denylist misses a path you did not
-foresee. The block judges paths, so nothing may reach a path it never judged:
-
-| Beneath a Mount with a block | The guest sees |
-|---|---|
-| a rename of a directory | `Errno::EXDEV`, and it copies entry by entry |
-| a path through a host link | judged where the link leads, never by the link's own path |
-| a link another writer swaps in after the block judges | never followed; the call reaches the directory it walked to |
-| another case or Unicode form of a name | the block judges the spelling the host stores |
-
-A call that what stands at the path refuses, such as `Errno::ENOENT`, fails
-before the block is asked. An open that may create asks its change first, so
-its `Errno::EEXIST` comes after the block.
-
-```ruby
-sandbox.mount("/data", fs) { |path, _access| path.start_with?("/data/public/") }
-```
-
-#### Refused Paths
-
-The block does not judge `stat` or a listing, as Landlock leaves `stat(2)` alone. A refused path keeps its content private and still reports the rest.
-
-| The guest reads | Reveals |
-|---|---|
-| that the path exists, and its kind | what stands there |
-| its size | how long the content is |
-| its inode number, on `permissive` | whether two paths are one file |
-| its count of names, on either posture | hard links, including any outside the Mount |
-
-Keep a file out of the Mount when even these must stay private.
-
-### Shared Backends
-
-kobako defends a Mount against the guest and against another Sandbox's guest writing to the same backend. A change from anywhere else is the host's.
-
-| Writer | kobako's answer |
-|---|---|
-| the guest itself | kept beneath its Mount, its access held |
-| another Sandbox's guest sharing a backend | neither guest reaches what its Mount or block refuses |
-| a guest of another Mount of the same Filesystem | only that Mount's block judges it; a block guards its own Mount's paths |
-| the host, or a change to a Layer outside its Overlay | no crash or deadlock; the rest is the host's |
-
-A Filesystem keeps names a walk found, so one guest's walks can speed up another's. The bundled Guest Binaries import no clock, so no script can time that. A third-party guest on `permissive`, or a script a Service hands a clock, may tell which names were reached lately.
-
-### Host Side
-
-Some risks stay with the host, because kobako cannot see them.
-
-| Risk | Where it lies |
-|---|---|
-| another process changing a Bind's host files | the host directory |
-| a link swapped in between kobako's check and its open, without a block | the host's race, never leading beyond the Bind |
-| a hard link or mount point inside a Bind | the guest reaches what it leads to |
-| a Bind's host disk | kobako caps no space there; the host directory's own quota does |
-| a Bind's directories stacked past `PATH_MAX` by moves | the host's own tools may refuse or slow on them |
-| a time a guest sets on a Bind's entry | it stands on the host; a hermetic guest still reads the epoch |
-| a device swapped into a Bind as the guest opens a file | opened once before its refusal |
-| a link in a Bind | followed within the Bind; its target is never read |
-| where such a link leads | told by what the guest finds there |
-| a link through a directory the guest opened | followed only within it; leading out raises `Errno::EACCES`, as a `..` leading out does |
-| a link loop | `Errno::ELOOP` after 40 links, as Linux answers |
-| a directory the guest lists in steps | a Tmpfs lists as it stands; others hold entries, `Errno::ENOMEM` past `memory_limit` |
-| an opened directory moved by the host or another guest | still reached through that descriptor, as Linux; a block refuses a path call |
-| a link in an Overlay's lower Layer | read through it; a change that would copy it up raises `Errno::EXDEV` |
-| a Filesystem written in Ruby | its own atomicity, and its time counts toward `timeout:` uninterrupted |
-| a `\` in a name a Ruby Filesystem receives | the Filesystem's to refuse, as Windows reads it as a separator |
-| a host link a Ruby Filesystem's open meets on Windows | the Filesystem's to refuse, as Windows' Ruby has no `File::NOFOLLOW` |
-| a directory a Bind holds open on Windows | the host cannot move or remove it until the Bind is collected |
-| one Overlay's upper shared by another, or mounted on its own | undefined, as overlayfs leaves it; no crash or deadlock |
-| one Tmpfs handed to two Filesystem instances in the Rust SDK | undefined under concurrent moves, as each instance has its own locks |
-| one Filesystem mounted in invocations that run at once | a change to one entry waits for the other, until `timeout:` or an interrupt |
-| a call beneath a block while another Mount keeps moving its directories | it asks again from the root a few times, then raises `Errno::EAGAIN` |
-| a name Windows reads as another on a Bind | refused as `Errno::EINVAL`: a stream, a device, a wildcard, or a trailing dot or space |
-
-### Opened Directories
-
-A directory the guest opened is held as itself, as a POSIX descriptor holds one.
-What happens to it later decides what a call through it reaches.
-
-| After it opens | A call through it |
-|---|---|
-| it moves | reaches it where it went |
-| it is removed | makes nothing more |
-
-A path resolved through it stays beneath it, as a descriptor only ever narrows
-what the guest may reach.
-
-#### Beneath a Block
-
-Each path call first asks the directory's Filesystem whether the directory still
-stands where the runtime last saw it. The block then judges where it stands now.
-
-| How it moved | A call through it |
-|---|---|
-| through any Mount of the same Filesystem | reaches it where it went, judged there |
-| by the host, or through another Filesystem | raises `Errno::ENOENT` |
-
-A move the Filesystem never saw leaves another directory there, or none. The
-Filesystem compares what stands there with the identity the directory opened
-with, and refuses it. A Bind holds the host directory open meanwhile, so the
-host never hands its inode number to the next one made. The comparison and the
-call are two steps, so a swap between them is the host's race.
-On Windows a Bind reports no identity. It refuses a
-path holding a backslash there, so a block never judges one name while the host
-walks two.
-
-#### Descriptor Reads
-
-A `stat` or listing of the descriptor itself asks neither, as the block judges
-neither anywhere. This table shows what the guest still reads once a host moved
-the directory out of the Mount.
-
-| Through the descriptor | Answer |
-|---|---|
-| a `stat` of it | what it reports then |
-| a listing of it | the names it holds then, new ones included |
-| a path beneath it, content included | `Errno::ENOENT` |
