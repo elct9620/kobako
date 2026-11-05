@@ -91,18 +91,18 @@ impl<H: Hook> Wrap<H> {
 impl<H: Hook> FileSystemType for Wrap<H> {
     fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
         self.hook.fill_super(self.fs.clone(), sb)?;
-        if let Some(root) = sb.root().cloned() {
-            let wrapped = WrapInode {
-                inner: root.ops().clone(),
-                hook: self.hook.clone(),
-            };
-            sb.d_make_root(root.with_ops(Arc::new(wrapped)));
-        }
         if let Some(ops) = sb.d_op().cloned() {
             sb.set_default_d_op(Arc::new(WrapDentry::<H> {
                 ops,
                 hook: PhantomData,
             }));
+        }
+        if let Some(root) = sb.root().and_then(|root| root.inode()) {
+            let wrapped = WrapInode {
+                inner: root.ops().clone(),
+                hook: self.hook.clone(),
+            };
+            sb.d_make_root(root.with_ops(Arc::new(wrapped)));
         }
         Ok(())
     }

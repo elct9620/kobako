@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::dentry::{Dentries, DentryOperations};
+use super::dentry::{Dentries, Dentry, DentryOperations};
 use super::errno::FilesystemError;
 use super::inode::Inode;
 use crate::locking::RwSemaphore;
@@ -22,8 +22,8 @@ pub trait FileSystemType: Send + Sync + 'static {
 /// block, so a directory moved or removed beneath one is moved or removed
 /// beneath every other.
 pub struct SuperBlock {
-    /// What `fill_super` made its root, as `s_root`.
-    root: Option<Arc<Inode>>,
+    /// The root dentry `fill_super` made, as `s_root`.
+    root: Option<Arc<Dentry>>,
     dentries: Dentries,
     /// Held by a move between two directories, as Linux's
     /// `s_vfs_rename_mutex`, so no other such move changes which of them
@@ -49,21 +49,21 @@ impl SuperBlock {
             dontcache: false,
         };
         fs.fill_super(&mut sb)?;
-        let root = sb.root.clone().ok_or(FilesystemError::InvalidInput)?;
-        sb.dentries.root().instantiate(root);
+        sb.root.as_ref().ok_or(FilesystemError::InvalidInput)?;
         Ok(Arc::new(sb))
     }
 
-    /// Make `root` the root of this instance, as a driver's `fill_super` sets
-    /// `s_root` through `d_make_root`.
+    /// Make a root dentry for `root` and set it as this instance's root, as a
+    /// driver's `fill_super` sets `s_root` to what `d_make_root` makes.
     pub fn d_make_root(&mut self, root: Arc<Inode>) {
-        self.root = Some(root);
+        self.root = Some(self.dentries.make_root(root));
     }
 
-    /// Have every dentry of this instance answer through `ops`, as a driver's
-    /// `fill_super` calls `set_default_d_op` before any dentry is made.
+    /// Have every dentry of this instance made from now on answer through
+    /// `ops`, as a driver's `fill_super` calls `set_default_d_op` before
+    /// `d_make_root`.
     pub fn set_default_d_op(&mut self, ops: Arc<dyn DentryOperations>) {
-        self.dentries = Dentries::new(Some(ops));
+        self.dentries.set_ops(ops);
     }
 
     /// What every dentry of this instance answers through, as `s_d_op`.
@@ -97,8 +97,8 @@ impl SuperBlock {
         &self.rename_mutex
     }
 
-    /// What this instance's root stands for, once `fill_super` made it, as `s_root`.
-    pub fn root(&self) -> Option<&Arc<Inode>> {
+    /// This instance's root dentry, once `fill_super` made it, as `s_root`.
+    pub fn root(&self) -> Option<&Arc<Dentry>> {
         self.root.as_ref()
     }
 

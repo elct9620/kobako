@@ -1660,7 +1660,7 @@ mod tests {
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = dentries.root();
-        let dir = filesystem.root().expect("the root stands").ops();
+        let dir = root.inode().expect("the root stands").ops().clone();
         let at = |name| {
             dentries
                 .alloc_parallel(&root, name)
@@ -1705,7 +1705,7 @@ mod tests {
         let note = at(&a, "note");
         assert!(
             matches!(
-                filesystem.root().expect("the root stands").ops().lookup(&note),
+                root.inode().expect("the root stands").ops().lookup(&note),
                 Ok(Lookup::Found(inode)) if inode.kind() == FileType::RegFile
             ),
             "a name looked up through Bind in a directory not yet opened, once its dentry moved \

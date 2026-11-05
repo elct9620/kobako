@@ -80,13 +80,16 @@ impl Overlay {
         let upper_tmpfs = upper.as_ref().is_none_or(|upper| {
             upper
                 .root()
+                .and_then(|root| root.inode())
                 .is_some_and(|root| (root.ops().as_ref() as &dyn Any).is::<Tmpfs>())
         });
         let stack_depth = 1 + lower
             .iter()
-            .filter_map(|layer| layer.root())
-            .filter_map(|root| (root.ops().as_ref() as &dyn Any).downcast_ref::<Self>())
-            .map(|overlay| overlay.stack_depth)
+            .filter_map(|layer| layer.root()?.inode())
+            .filter_map(|root| {
+                let overlay = (root.ops().as_ref() as &dyn Any).downcast_ref::<Self>()?;
+                Some(overlay.stack_depth)
+            })
             .max()
             .unwrap_or(0);
         if !(too_few..=MAX_LOWER_LAYERS).contains(&lower.len())

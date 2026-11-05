@@ -1060,7 +1060,7 @@ mod tests {
                 .expect("no other walk holds the name")
         };
         let (first, second) = (at("a"), at("b"));
-        let dir = filesystem.root().expect("the root stands").ops();
+        let dir = root.inode().expect("the root stands").ops().clone();
         dir.rename(&first, dir.as_ref(), &second, Some(RenameFlag::Exchange))
             .expect("the two must swap");
         let nlink = |name| {

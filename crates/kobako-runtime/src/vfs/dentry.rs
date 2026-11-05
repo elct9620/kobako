@@ -709,6 +709,21 @@ impl Dentries {
         self.root.clone()
     }
 
+    /// Have every dentry made from now on answer through `ops`, as
+    /// `set_default_d_op` sets `s_d_op` for each `d_alloc` after it.
+    pub(super) fn set_ops(&mut self, ops: Arc<dyn DentryOperations>) {
+        self.ops = Some(ops);
+    }
+
+    /// A root dentry recording `inode`, which walks start from from now on, as
+    /// `d_make_root` allocates one under no name and instantiates it.
+    pub(super) fn make_root(&mut self, inode: Arc<Inode>) -> Arc<Dentry> {
+        let root = Dentry::new(None, "", self.ops.clone(), &self.hashtables);
+        root.instantiate(inode);
+        self.root = root.clone();
+        root
+    }
+
     /// A dentry no walk reaches, a root of its own under no name, as
     /// `d_alloc_pseudo` makes one for what is only ever open.
     pub(crate) fn alloc_pseudo(&self) -> Arc<Dentry> {

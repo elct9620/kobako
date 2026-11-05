@@ -1386,7 +1386,10 @@ impl Hook for ReusesInodes {
         sb: &mut Filesystem,
     ) -> Result<(), FilesystemError> {
         let beneath = Filesystem::new(fs)?;
-        let root = beneath.root().ok_or(FilesystemError::NotFound)?;
+        let root = beneath
+            .root()
+            .and_then(|root| root.inode())
+            .ok_or(FilesystemError::NotFound)?;
         sb.d_make_root(vfs::Inode::new(
             &vfs::Kstat::new(vfs::FileType::Dir, 0),
             root.ops().clone(),
