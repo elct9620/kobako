@@ -4464,7 +4464,7 @@ mod tests {
         );
     }
 
-    // Called with no Driver in front, so the VFS is what answers for every ABI.
+    // Called with no Wasm Driver in front, so the VFS is what answers for every ABI.
     // @behavior RT-213
     #[test]
     fn a_path_no_call_can_take_is_refused_before_a_filesystem_is_asked() {

@@ -67,7 +67,7 @@ impl MemoryCap {
 }
 
 /// A growth past the per-invocation memory cap. An Engine ends the invocation
-/// with it, and a Driver finds it again to classify the failure as a
+/// with it, and a Wasm Driver finds it again to classify the failure as a
 /// memory-limit `Trap`. Callers use the `Display` impl below — no field is
 /// read directly — so the inner state stays private.
 #[derive(Debug)]

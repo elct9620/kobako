@@ -1,5 +1,5 @@
 //! The in-memory pipes an invocation's standard streams run over, as Linux's
-//! pipefs holds anonymous pipes. Any ABI a Driver encodes reads the Preamble
+//! pipefs holds anonymous pipes. Any ABI a Wasm Driver encodes reads the Preamble
 //! and writes a Channel through them, so none brings its own, and a pipe's two
 //! ends are open files like any other.
 

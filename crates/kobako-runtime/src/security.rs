@@ -201,7 +201,7 @@ impl SecurityOperations for MountPolicy {
 
 /// What keeps a Policy judging the path a descriptor stands at, kobako's own
 /// guarantee: Linux asks nothing of the dentry a walk starts from, so nothing in
-/// its VFS can ask this, and a Driver asks it wherever a descriptor becomes where
+/// its VFS can ask this, and a Wasm Driver asks it wherever a descriptor becomes where
 /// a call starts.
 pub struct WalkGuard {
     /// The mounts a Policy judges; no other holds anything to keep true.
@@ -248,7 +248,7 @@ impl WalkGuard {
 /// most `memory_limit` bytes on its behalf, or without bound for `None`: kobako's
 /// own rules, then each of `modules` in order, before any Mount's Policy applies,
 /// as a Linux task opens the files it keeps before `landlock_restrict_self`.
-/// The modules are those the Driver was built with, as Linux stacks the LSMs
+/// The modules are those the Wasm Driver was built with, as Linux stacks the LSMs
 /// `lsm=` names at boot after the capability module.
 pub fn prepare_creds_within(
     modules: &[Arc<dyn SecurityOperations>],

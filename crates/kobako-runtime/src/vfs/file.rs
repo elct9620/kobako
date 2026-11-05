@@ -427,7 +427,7 @@ impl File {
         Ok(Self::new(path, ops, mode, how, cred, security))
     }
 
-    /// The root of `mnt` opened as a directory for `cred`. A Driver opens each
+    /// The root of `mnt` opened as a directory for `cred`. A Wasm Driver opens each
     /// Mount's root with the Cred its Policies are added to afterwards, as a
     /// Linux task opens what it keeps before `landlock_restrict_self`.
     pub fn root(mnt: &Arc<VfsMount>, cred: &Arc<Cred>) -> Result<Self, FilesystemError> {
@@ -1088,7 +1088,7 @@ mod tests {
         );
     }
 
-    // No Driver stands in front of these calls, so the file itself is what
+    // No Wasm Driver stands in front of these calls, so the file itself is what
     // refuses each one before its Filesystem is asked.
     // @behavior RT-180
     #[test]
@@ -1387,7 +1387,7 @@ mod tests {
         // `.`, `..`, and two one-letter names.
         let one_listing = 4 * size_of::<DirEntry>() + 1 + 2 + 2;
         let cred = crate::security::prepare_creds_within(&[], Some(one_listing));
-        // A Driver opens the root before the Policies apply and lists through
+        // A Wasm Driver opens the root before the Policies apply and lists through
         // the Cred they were added to, so both must count against one limit.
         let restricted = crate::security::restrict_self(&cred, [&mount]);
         let open = |cred: &Arc<Cred>| {

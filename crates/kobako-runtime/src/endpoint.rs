@@ -1,5 +1,5 @@
 //! The host ABI endpoint: everything the kobako ABI asks of a host that no
-//! Engine decides, so a Driver for any Engine implements `GuestInstance`
+//! Engine decides, so a Wasm Driver for any Engine implements `GuestInstance`
 //! over its own memory and exports, and links `__kobako_upcall` to
 //! `dispatch::handle`.
 //!
@@ -34,7 +34,7 @@ pub const RUNTIME_INCOMPATIBLE: &str =
 const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
     "the loaded Wasm module is not a Kobako-compatible runtime";
 
-/// One guest instance as the endpoint drives it: what a Driver gives it of an
+/// One guest instance as the endpoint drives it: what a Wasm Driver gives it of an
 /// Engine, from the invocation body and from inside `__kobako_upcall` alike.
 /// A method answering `None` names an export the module does not have.
 pub trait GuestInstance {

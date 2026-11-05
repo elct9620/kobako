@@ -50,8 +50,8 @@ impl Profile {
         }
     }
 
-    /// `stat` as a guest on this posture sees it, whichever ABI a Driver
-    /// encodes it into. A Filesystem records the host's real time whatever
+    /// `stat` as a guest on this posture sees it, whichever ABI a Wasm
+    /// Driver encodes it into. A Filesystem records the host's real time whatever
     /// the invocation writing to it runs under, so one shared across
     /// invocations keeps one record; a hermetic guest sees every time at the
     /// Unix epoch, where its wall clock stands, so a time a write left behind
@@ -81,7 +81,7 @@ impl Profile {
 mod tests {
     use super::*;
 
-    // The Driver only encodes this, so another Driver shows the same, and a
+    // The Wasm Driver only encodes this, so another one shows the same, and a
     // guest reads a link's size and a time here or nowhere.
     // @behavior RT-173 RT-183
     #[test]
@@ -150,7 +150,7 @@ mod tests {
     }
 
     // A guest reads the count on any ABI, so the count starts in the runtime
-    // rather than in what a Driver encodes.
+    // rather than in what a Wasm Driver encodes.
     // @behavior RT-193
     #[test]
     fn an_entry_whose_filesystem_keeps_no_count_is_named_once() {
