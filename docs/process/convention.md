@@ -47,7 +47,7 @@ What a name stands for decides its word class.
 | An attribute | a noun, or the state it records | `memory_limit`, `failed?` |
 | An enum variant | a noun or an adjective | `Profile::Hermetic`, `Grant::Mount` |
 | A variable or field | a noun, or the state it records | `owner`, `live` |
-| A field holding what answers an event | `on_` and the event | `on_dispatch` |
+| A callback, a method or the field holding one | `on_` and the event | `on_dispatch` |
 
 A method names no subject, because its receiver is one: `sandbox.mount(path, fs)` reads as noun, verb, and noun. An attribute answers what a value holds and takes nothing.
 

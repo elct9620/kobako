@@ -1,4 +1,4 @@
-# Core Envelope
+# Envelope
 
 The Envelope is the outer frame of every host↔guest message. This document pins each field's meaning and bytes. The layout is fixed, not MessagePack, and hands everything but routing and attribution through as an opaque `payload`.
 

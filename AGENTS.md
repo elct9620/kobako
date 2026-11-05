@@ -21,9 +21,9 @@ Every change follows these rules. An earlier row wins on conflict.
 | Tooling | `bundle exec rake` is the gate |
 | Tooling | Fit the code to a lint; widen only for an RBS conflict or wiggle output |
 | Tooling | Reach for a stdlib RBS `library` first |
-| Docs | State what and why, never mechanism |
+| Docs | State what and why, never mechanism; source and crate READMEs cite nothing in `docs/` |
+| Docs | Project-wide in `architecture.md`; one module's detail in its doc comment; cross-crate in `docs/<context>/` |
 | Docs | Ruby: RDoc prose, no YARD tags; Rust: backticks, no intra-doc links |
-| Docs | A crate README links nothing in `docs/` |
 | Tests | Drive the real `data/kobako.wasm`; build no fixture wasm crate |
 | Tests | A scenario test's message: "<input> through <public API> must <behaviour>" |
 | Tests | A helper's failure states what decides the next step |
@@ -44,7 +44,8 @@ Some changes move together.
 |---|---|
 | A behavior or an interface | The scenario or contract first; `sumi verify` reports no difference |
 | A file that declares a public interface | The contract's `Includes` |
-| A type, a crate, or a layer | `docs/architecture.md` |
+| A crate, a layer, or a project-wide rule | `docs/architecture.md` |
+| A design spanning crates within one Context | `docs/<context>/` |
 | A dependency | Every workspace's lock file, in the same commit |
 | A release | `examples/` pins move to it; read `docs/process/releasing.md` before `Release-As` or `!` |
 
@@ -55,12 +56,12 @@ Start here to grasp the whole before reading code.
 | Path | What you learn here |
 |---|---|
 | `docs/intent.md` | Why kobako exists, and for whom |
-| `docs/architecture.md` | The crate map, the seams, the Ruby tiers, and the placement rules |
+| `docs/architecture.md` | The global map: parts, seams, Contexts, invariants, baselines |
 | `docs/spec/` | Behavior, contracts, and the glossary; the source of truth |
+| `docs/wire/`, `docs/isolation/`, `docs/filesystem/` | One Context's design across crates |
 | `docs/process/convention.md` | The naming baseline a rename is judged against |
-| `docs/wire/README.md` | The envelope and payload layers on the wire |
-| `docs/guides/` | What a Host App relies on: security, customization, extensions |
+| `docs/guides/` | What a Host App or an implementer relies on |
 | `lib/kobako/sandbox.rb` | Where a run starts and settles into an `Execution` |
 | `crates/kobako-runtime/src/` | Every answer a guest sees: the VFS, the Policy, the Filesystems |
-| `crates/kobako-wasmtime/src/preview1.rs` | How the Driver encodes WASI preview1 into runtime calls |
+| `crates/kobako-wasmtime/src/preview1.rs` | How the Wasm Driver encodes WASI preview1 onto `kobako-runtime` |
 | `wasm/kobako-core/src/guest.rs` | The ABI surface the Guest Binary exports and imports |

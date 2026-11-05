@@ -17,7 +17,7 @@ row below links a feature to its scenarios and to where its code starts.
 | ✅ [Dispatch boundary](docs/spec/behavior/transport-boundary.md) | [lib/kobako/transport/exposure.rb](lib/kobako/transport/exposure.rb) |
 | ✅ [Payload encoding](docs/spec/behavior/payload-encoding.md) | [lib/kobako/payload/](lib/kobako/payload/) |
 | ✅ [Payload wire](docs/spec/behavior/codec.md) | [lib/kobako/codec/](lib/kobako/codec/) |
-| ✅ [Core envelope](docs/spec/behavior/envelope.md) | [crates/kobako-transport/](crates/kobako-transport/) |
+| ✅ [Envelope](docs/spec/behavior/envelope.md) | [crates/kobako-transport/](crates/kobako-transport/) |
 | ✅ [mruby guest](docs/spec/behavior/mruby.md) | [wasm/kobako-mruby/](wasm/kobako-mruby/) |
 | ✅ [Guest IO](docs/spec/behavior/io.md) | [wasm/kobako-io/](wasm/kobako-io/) |
 | ✅ [Guest JSON](docs/spec/behavior/json.md) | [wasm/kobako-json/](wasm/kobako-json/) |
