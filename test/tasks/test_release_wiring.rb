@@ -5,7 +5,7 @@ require "test_helper"
 require_relative "../../tasks/support/release_wiring"
 
 # Coverage for the release-wiring readers and the repository's own release
-# config (docs/process/releasing.md § Linked Group Seats). Both
+# config: the seats a crate takes to join the linked release group. Both
 # seats the manifest and annotations hold fail without a symptom:
 # release-please treats a package absent from the manifest as never
 # released, and rewrites a version only on a line carrying the annotation —
@@ -15,8 +15,8 @@ class KobakoReleaseWiringTest < Minitest::Test
 
   def test_the_repository_leaves_no_seat_unfilled
     assert_empty Reader.unfilled_seats(TestPaths::ROOT),
-                 "the repository's release config through .unfilled_seats must leave no seat empty; each one a " \
-                 "crate needs is listed in docs/process/releasing.md § Linked Group Seats"
+                 "the repository's release config through .unfilled_seats must leave no seat empty; each line " \
+                 "listed names the manifest entry, version annotation, or dev-dependency version to fix"
   end
 
   CONFIG = {

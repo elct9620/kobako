@@ -42,8 +42,8 @@ module KobakoReport
 
   # The shared release-gate verdict: the +OK+ line when +violations+ is
   # empty, otherwise an aborting count named by +noun+ with the offending
-  # lines beneath it. +hint+ names where the rule is written, for a gate
-  # whose violations are one symptom of a procedure worth reading whole.
+  # lines beneath it. +hint+ states what decides the next step, for a gate
+  # whose violations all share one remedy.
   def gate(name:, ok_summary:, violations: [], noun: "problem", hint: nil)
     return "#{name}: OK — #{ok_summary}" if violations.empty?
 

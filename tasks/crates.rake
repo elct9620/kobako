@@ -4,7 +4,7 @@
 #
 #   * `rake crates:test`      — runs `cargo test` over every member of the
 #                               crates/ workspace (see its Cargo.toml),
-#                               including the core envelope's golden
+#                               including the Envelope's golden
 #                               vectors. All members compile host-native,
 #                               so no cross toolchain is involved.
 #   * `rake crates:stress`    — the stress witnesses, each in a `stress`
@@ -38,7 +38,7 @@ require_relative "support/report"
 
 CRATES_MANIFEST = File.expand_path("../crates/Cargo.toml", __dir__)
 
-# The replaceable seams docs/guides/customization.md promises are facts
+# The replaceable seams the published crates promise are facts
 # about build graphs, which no test binary can host: a tier that only
 # routes builds with no payload codec, the Rust SDK builds with no wasm
 # engine, and the driver a GVL-released span calls links no magnus, so
@@ -110,7 +110,8 @@ def check_graphs(name, probes)
   puts KobakoReport.gate(name: name,
                          ok_summary: "#{probes.size} build graphs leave out what they promise to",
                          violations: violations, noun: "violation",
-                         hint: "Each promise is written in docs/guides/customization.md.")
+                         hint: "Move the code that reaches it behind the feature that owns it; " \
+                               "change a probe only when its seam is meant to change.")
 end
 
 # Why +probe+ breaks its promise, or +nil+ when it keeps it.
