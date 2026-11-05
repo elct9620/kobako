@@ -652,7 +652,6 @@ impl Hashtables {
 /// Every name of one Filesystem something still holds, by the directory
 /// above it and its name there.
 pub(crate) struct Dentries {
-    root: Arc<Dentry>,
     ops: Option<Arc<dyn DentryOperations>>,
     hashtables: Arc<Hashtables>,
     /// The names kept for the next walk, most recently found last, as Linux's
@@ -667,7 +666,6 @@ impl Dentries {
             in_lookup_hashtable: Mutex::default(),
         });
         Self {
-            root: Dentry::new(None, "", ops.clone(), &hashtables),
             ops,
             hashtables,
             lru: Mutex::new(LruCache::new(MAX_CACHED_DENTRIES)),
@@ -705,22 +703,17 @@ impl Dentries {
         drop(pushed_out);
     }
 
-    pub(crate) fn root(&self) -> Arc<Dentry> {
-        self.root.clone()
-    }
-
     /// Have every dentry made from now on answer through `ops`, as
     /// `set_default_d_op` sets `s_d_op` for each `d_alloc` after it.
     pub(super) fn set_ops(&mut self, ops: Arc<dyn DentryOperations>) {
         self.ops = Some(ops);
     }
 
-    /// A root dentry recording `inode`, which every later walk starts from, as
-    /// `d_make_root` allocates one under no name and instantiates it.
-    pub(super) fn make_root(&mut self, inode: Arc<Inode>) -> Arc<Dentry> {
+    /// A root dentry recording `inode`, as `d_make_root` allocates one under no
+    /// name and instantiates it.
+    pub(super) fn make_root(&self, inode: Arc<Inode>) -> Arc<Dentry> {
         let root = Dentry::new(None, "", self.ops.clone(), &self.hashtables);
         root.instantiate(inode);
-        self.root = root.clone();
         root
     }
 
@@ -896,6 +889,12 @@ mod tests {
     use crate::mount::{Access, Mount};
     use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, File, Finish, Identity, Inode, OpenHow, Path};
+
+    /// A root of `dentries` standing for a directory, as `d_make_root` makes one.
+    fn made_root(dentries: &Dentries) -> Arc<Dentry> {
+        let ops: Arc<dyn InodeOperations> = Arc::new(Tmpfs::new());
+        dentries.make_root(Inode::new(&Kstat::new(FileType::Dir, 0), ops))
+    }
 
     /// The dentry of `name` in `parent`, a lookup having answered that nothing
     /// stands there, so a walk finds it by its name.
@@ -1108,7 +1107,7 @@ mod tests {
             Kstat::new(FileType::Dir, 0).with_identity(1, 3),
         );
         let dentries = Dentries::new(None);
-        let dentry = negative(&dentries, &dentries.root(), "dir");
+        let dentry = negative(&dentries, &made_root(&dentries), "dir");
         dentry.add(Some(Inode::new(&first, ops.clone())));
         dentry.add(Some(Inode::new(&second, ops)));
         assert_eq!(
@@ -1184,7 +1183,7 @@ mod tests {
     #[test]
     fn a_dentry_goes_however_deep_it_stands() {
         let dentries = Dentries::new(None);
-        let mut leaf = dentries.root();
+        let mut leaf = made_root(&dentries);
         for _ in 0..200_000 {
             leaf = dentries
                 .alloc_parallel(&leaf, "a")
@@ -1207,7 +1206,7 @@ mod tests {
     #[test]
     fn a_directory_let_go_of_takes_the_names_kept_beneath_it() {
         let dentries = Dentries::new(None);
-        let root = dentries.root();
+        let root = made_root(&dentries);
         let ops: Arc<dyn InodeOperations> = Arc::new(Tmpfs::new());
         let dir = dentries
             .alloc_parallel(&root, "dir")
@@ -1238,7 +1237,7 @@ mod tests {
     #[test]
     fn a_dentry_let_go_of_is_not_kept_for_the_next_walk() {
         let dentries = Dentries::new(None);
-        let dentry = negative(&dentries, &dentries.root(), "gone");
+        let dentry = negative(&dentries, &made_root(&dentries), "gone");
         dentries.unhash(&dentry);
         dentries.retain(&dentry);
         let held = Arc::downgrade(&dentry);
@@ -1254,7 +1253,7 @@ mod tests {
     fn the_root_stands_at_a_lone_slash() {
         let dentries = super::Dentries::new(None);
         assert_eq!(
-            dentries.root().path_raw(),
+            made_root(&dentries).path_raw(),
             "/",
             "Dentry::path_raw of the root must answer a lone /, as dentry_path_raw answers"
         );
@@ -1263,7 +1262,7 @@ mod tests {
     #[test]
     fn an_exchange_swaps_two_dentries() {
         let dentries = super::Dentries::new(None);
-        let root = dentries.root();
+        let root = made_root(&dentries);
         let a = negative(&dentries, &root, "a");
         let b = negative(&dentries, &negative(&dentries, &root, "d"), "b");
         dentries.exchange(&a, &b);
@@ -1290,7 +1289,7 @@ mod tests {
         use std::thread;
 
         use super::super::{Dentries, Dentry};
-        use super::negative;
+        use super::{made_root, negative};
 
         /// The dentry a rename onto `name` in `dir` replaces.
         fn target(dentries: &Dentries, dir: &Arc<Dentry>, name: &str) -> Arc<Dentry> {
@@ -1307,7 +1306,7 @@ mod tests {
         #[ignore = "a stress witness; run by rake crates:stress"]
         fn a_path_asked_while_directories_above_it_move_names_one_that_stood() {
             let dentries = Arc::new(Dentries::new(None));
-            let root = dentries.root();
+            let root = made_root(&dentries);
             let (x, y) = (
                 negative(&dentries, &root, "x"),
                 negative(&dentries, &root, "y"),
@@ -1318,7 +1317,6 @@ mod tests {
             let moving = {
                 let (dentries, stop) = (dentries.clone(), stop.clone());
                 thread::spawn(move || {
-                    let root = dentries.root();
                     while !stop.load(Ordering::SeqCst) {
                         dentries.move_dentry(&b, &target(&dentries, &y, "b"));
                         dentries.move_dentry(&x, &target(&dentries, &root, "z"));
@@ -1347,7 +1345,7 @@ mod tests {
         #[ignore = "a stress witness; run by rake crates:stress"]
         fn a_name_kept_while_the_names_beneath_its_directory_go_waits_on_neither() {
             let dentries = Arc::new(Dentries::new(None));
-            let dir = negative(&dentries, &dentries.root(), "dir");
+            let dir = negative(&dentries, &made_root(&dentries), "dir");
             let leaf = negative(&dentries, &dir, "leaf");
             let stop = Arc::new(AtomicBool::new(false));
             let keeping = {
@@ -1385,7 +1383,7 @@ mod tests {
         #[ignore = "a stress witness; run by rake crates:stress"]
         fn a_directory_moving_through_the_vfs_is_never_taken_for_unlinked() {
             let dentries = Arc::new(Dentries::new(None));
-            let root = dentries.root();
+            let root = made_root(&dentries);
             let (x, y) = (
                 negative(&dentries, &root, "x"),
                 negative(&dentries, &root, "y"),

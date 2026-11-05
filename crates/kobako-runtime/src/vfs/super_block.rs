@@ -59,6 +59,13 @@ impl SuperBlock {
         self.root = Some(self.dentries.make_root(root));
     }
 
+    /// This instance's root dentry, which `new` refuses an instance without.
+    pub(crate) fn s_root(&self) -> Arc<Dentry> {
+        self.root
+            .clone()
+            .expect("SuperBlock::new refuses an instance with no root")
+    }
+
     /// Have every dentry of this instance made from now on answer through
     /// `ops`, as a driver's `fill_super` calls `set_default_d_op` before
     /// `d_make_root`.

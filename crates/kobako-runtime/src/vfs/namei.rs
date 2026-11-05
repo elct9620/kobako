@@ -2386,7 +2386,7 @@ mod tests {
     #[test]
     fn a_stacked_lookup_refuses_a_name_no_single_entry_has() {
         let filesystem = Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand");
-        let root = filesystem.dentries().root();
+        let root = filesystem.s_root();
         for name in ["", ".", "..", "a/b", "a\0b"] {
             assert_eq!(
                 super::lookup_one_unlocked(&Cred::default(), &filesystem, &root, name).err(),

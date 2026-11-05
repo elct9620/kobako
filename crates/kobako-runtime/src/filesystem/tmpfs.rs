@@ -1053,7 +1053,7 @@ mod tests {
         ))
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
-        let root = dentries.root();
+        let root = filesystem.s_root();
         let at = |name| {
             dentries
                 .alloc_parallel(&root, name)
