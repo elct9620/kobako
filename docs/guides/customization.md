@@ -352,13 +352,13 @@ Each entry answers for itself: a `lookup` finds an `Inode`, which holds that ent
 operations. A wrapper wraps each entry its `lookup` finds through `Inode::with_ops`,
 so it still sees every call beneath it.
 Every call hands the Dentry it is about. A Filesystem answering by path reads it
-from `Dentry::path_raw`, so a directory moved through the runtime is asked at its
-new path. Its `lookup` finds an `Inode::new` with its identity, or a Policy cannot
-tell a directory from one made in its place.
+from `Dentry::path_raw`, which starts at `/`. A directory moved through the
+runtime is then asked at its new path. Its `lookup` finds an `Inode::new` with its
+identity, or a Policy cannot tell a directory from one made in its place.
 
 ### Filesystem Obligations
 
-`fill_super` makes the root through `d_make_root`, as a Linux driver's does.
+`fill_super` makes the root through `d_make_root` after any `set_default_d_op`, as a Linux driver's does.
 `getattr` answers for an entry an open file still holds once its name is
 gone, so a Filesystem keeps what that takes on the `Inode`. An operation an entry lacks answers
 by default as Linux's VFS answers a NULL in `inode_operations`. One wrapping another forwards
