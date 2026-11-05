@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — integer representability across the wire through real mruby
-# (docs/wire/payload-msgpack.md § Integer Range). msgpack's integer
+# E2E — integer representability across the wire through real mruby.
+# msgpack's integer
 # families reach from -2**63 to 2**64-1, every one of which the guest holds,
 # so the only bound is the one a guest Integer meets on the way out.
 class TestE2EIntegerRange < Minitest::Test

@@ -6,7 +6,7 @@ require "test_helper"
 # across every guest→host value path: the outcome (#eval return), a
 # dispatch argument, and a dispatch keyword name.
 #
-# docs/wire/payload-msgpack.md § Text and Bytes: an mruby String is a byte
+# An mruby String is a byte
 # array with no encoding tag, so the guest encoder has exactly one rule
 # available — bytes that are valid UTF-8 ride as wire str, anything else
 # as bin. A Symbol has no such second family (its name rides as ext 0x00,

@@ -11,8 +11,7 @@ require "objspace"
 # equal either way, so only its footprint tells a view from a copy.
 #
 # The view holds only because the ok arm is the value alone; a value in
-# any other payload position is copied (benchmark/README.md § Known
-# caveats). ObjectSpace.memsize_of reports the bytes an object owns, so a
+# any other payload position is copied. ObjectSpace.memsize_of reports the bytes an object owns, so a
 # view reads far below its own length while a copy reads at or above it.
 class TestOutcomeValueSharing < Minitest::Test
   # Comfortably past the msgpack gem's reference threshold, and far enough

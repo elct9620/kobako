@@ -11,8 +11,7 @@ require "test_helper"
 class TestTransportDispatchViolations < Minitest::Test
   include DispatcherHelpers
 
-  # Kwargs map keys must be ext 0x00 Symbols (docs/wire/payload-msgpack.md
-  # § Ext Types → ext 0x00). Each payload carries both elements so it reaches
+  # Kwargs map keys must be ext 0x00 Symbols. Each payload carries both elements so it reaches
   # the kwargs-key check instead of tripping the shape guard first — the
   # second message assertion witnesses which of the two fired.
   NON_SYMBOL_KWARGS = {
@@ -45,7 +44,7 @@ class TestTransportDispatchViolations < Minitest::Test
 
   # ---------- Un-issued Handle id ----------
 
-  # The core envelope carries a Handle target as a bare id its sender
+  # The Envelope carries a Handle target as a bare id its sender
   # chooses, so an id the table never issued is a well-formed Call — the
   # invocation's Catalog::Handles membership is what refuses it, not the
   # wire shape.
@@ -63,8 +62,8 @@ class TestTransportDispatchViolations < Minitest::Test
 
   # ---------- Over-deep wire violation (on the depth bound) ----------
 
-  # A Call nested beyond the codec's depth bound (docs/wire/payload-msgpack.md
-  # § Structural Nesting Depth) is contained like any other malformed payload.
+  # A Call nested beyond the codec's depth bound is contained like any
+  # other malformed payload.
   # The dispatcher rescues only StandardError, so this holds only because the
   # codec maps the overflow into Kobako::Codec::Error before it can become a
   # SystemStackError that would escape the rescue.

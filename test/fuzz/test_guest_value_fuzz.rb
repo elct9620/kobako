@@ -24,8 +24,8 @@ require "test_helper"
 # The guest's value domain is narrower than the wire's in one way the
 # harness encodes rather than works around: mruby Strings carry no
 # encoding tag, so a guest re-encoding a String has exactly one rule
-# available: valid UTF-8 travels as msgpack str, any other bytes as bin
-# (docs/wire/payload-msgpack.md § Text and Bytes). Both sides are re-tagged
+# available: valid UTF-8 travels as msgpack str, any other bytes as bin.
+# Both sides are re-tagged
 # by that rule before comparing, which pins the bytes the guest can lose
 # without pinning a tag it cannot know.
 #

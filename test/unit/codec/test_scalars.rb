@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Payload-codec scalar round-trips (docs/wire/payload-msgpack.md § Type Mapping):
+# Payload-codec scalar round-trips:
 # nil / bool, every integer encoding tier and its overflow bound, float
 # bit-fidelity, and the UTF-8 str vs binary bin distinction.
 class TestCodecScalars < Minitest::Test

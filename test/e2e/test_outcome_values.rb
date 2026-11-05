@@ -12,7 +12,7 @@ require "test_helper"
 class TestE2EOutcomeValues < Minitest::Test
   include E2eGuestHelper
 
-  # The wire str type is UTF-8 text (docs/wire/payload-msgpack.md § Type Mapping #5)
+  # The wire str type is UTF-8 text
   # and an embedded NUL is a valid UTF-8 codepoint, so a String / Symbol /
   # Hash key carrying one must round-trip as an ordinary result. The guest
   # result encoder read mruby strings as C strings, which truncate at and
@@ -51,7 +51,7 @@ class TestE2EOutcomeValues < Minitest::Test
                  "the NUL-bearing message must survive the length-based read intact")
   end
 
-  # docs/wire/payload-msgpack.md § Structural Nesting Depth: the guest encoder caps its
+  # The guest encoder caps its
   # recursive walk at 128 levels — the MessagePack limit the host decoder
   # already enforces. A return value that nests deeper, or that holds a
   # reference cycle (unbounded depth), has no wire representation and must
@@ -138,7 +138,7 @@ class TestE2EOutcomeValues < Minitest::Test
 
   # ── Native Array / Hash round-trips ─────────────
   #
-  # The 11-entry Type Mapping (docs/wire/payload-msgpack.md § Type Mapping) maps
+  # The closed 11-type wire set maps
   # msgpack array → mruby Array and msgpack map → mruby Hash. Both
   # directions must travel in full by value with element-level fidelity.
 

@@ -11,7 +11,7 @@
 # on the argument shape, not just the underlying msgpack codec already
 # covered by test/fuzz/test_roundtrip_fuzz.rb.
 #
-# The core envelope has no case here: it has one implementation, pinned
+# The Envelope has no case here: it has one implementation, pinned
 # by the golden vectors in crates/kobako-transport.
 #
 # This test does NOT need fuzz scale: a handful of representative
@@ -77,8 +77,8 @@ class TestPayloadOracle < Minitest::Test
   # @behavior WP-008
   def test_invocation_arguments_carrying_a_wrapped_leaf_round_trip
     # A non-wire-representable argument auto-wraps into the Handles table
-    # and rides as ext 0x01 in its args position — the payload Handle
-    # position docs/wire/payload-msgpack.md § ext 0x01 licenses.
+    # and rides as ext 0x01 in its args position, where a payload may
+    # carry a Handle.
     wrapped = Kobako::Codec::HandleWalk.deep_wrap([Object.new], Kobako::Catalog::Handles.new)
     bytes = Kobako::Payload::Arguments.new(args: wrapped, kwargs: {}).encode
     assert_equal bytes, oracle_roundtrip("A", bytes),

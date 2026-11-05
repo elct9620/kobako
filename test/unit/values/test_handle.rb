@@ -2,10 +2,9 @@
 
 require "test_helper"
 
-# Kobako::Handle's construction surface is deliberately closed: the wire
-# contract (docs/wire/README.md § Capability Handle, "Not constructible
-# by guest or Host App") pins that the Host App has no public path that
-# turns a bare integer into a Handle. `.new` is privatised, and `#with` —
+# Kobako::Handle's construction surface is deliberately closed: a Handle
+# is not constructible by guest or Host App, so the Host App has no public
+# path that turns a bare integer into a Handle. `.new` is privatised, and `#with` —
 # Data's copy-with-changes constructor, which would let a legitimate
 # Handle (reaching Host App code as an error field) mint a sibling with a
 # caller-chosen id — is removed. `.restore` stays as the Host Gem-internal

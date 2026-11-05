@@ -41,7 +41,7 @@ class TestRuntimeSnapshot < Minitest::Test
     assert_kind_of Integer, snapshot.memory_peak
   end
 
-  # The ext splits the outcome off the core envelope, so what reaches Ruby
+  # The ext splits the outcome off the Envelope, so what reaches Ruby
   # is the payload plus the record a failure carries — pin the shape for
   # the arm every successful run takes.
   # @behavior RT-041

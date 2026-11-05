@@ -64,7 +64,7 @@ class TestOutcomeDecoding < Minitest::Test
   end
 
   # @behavior OC-015
-  # Every failure field is typed at the core envelope, so whatever bytes
+  # Every failure field is typed at the Envelope, so whatever bytes
   # sit in the value slot the failure still names itself — asking the
   # codec would let unreadable bytes rewrite the attribution.
   def test_a_panic_attributes_without_reading_the_value_slot

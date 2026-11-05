@@ -1,5 +1,5 @@
 ;; Minimal wasm32 module that passes the construction-time ABI version
-;; check (docs/wire/abi.md § ABI Version) while stubbing the downcall as
+;; check while stubbing the downcall as
 ;; a no-op. Successor to `minimal.wasm` for tests that only need
 ;; `Kobako::Sandbox.new(wasm_path:)` to succeed; it has no memory or
 ;; allocator, so an invocation against it traps before reaching the guest.

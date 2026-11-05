@@ -126,8 +126,7 @@ module Kobako
     end
   end
 
-  # The projection every invocation's Preamble carries
-  # (docs/wire/envelope.md § Preamble): one +[kind, name, body]+
+  # The projection every invocation's Preamble carries: one +[kind, name, body]+
   # triple per entry in insertion order. Source entries name themselves;
   # Bytecode entries carry no name, because a bytecode snippet's canonical
   # name lives in its RITE debug_info and is read by the guest at load

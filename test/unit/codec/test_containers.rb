@@ -2,8 +2,7 @@
 
 require "test_helper"
 
-# Payload-codec container round-trips (docs/wire/payload-msgpack.md
-# § Type Mapping #7-#8): array / map across their length-tag boundaries,
+# Payload-codec container round-trips: array / map across their length-tag boundaries,
 # mixed and nested element fidelity, and the structural nesting depth guard.
 class TestCodecContainers < Minitest::Test
   include CodecHelpers
@@ -74,9 +73,9 @@ class TestCodecContainers < Minitest::Test
                  "a mixed tree of Handles and Symbols nested in Arrays and Hashes must round-trip unchanged"
   end
 
-  # A structure nested beyond the codec's depth bound (the MessagePack
-  # ecosystem's limit the host library enforces on decode —
-  # docs/wire/payload-msgpack.md § Structural Nesting Depth) must surface as a clean
+  # A structure nested beyond the codec's depth bound (128 levels, the
+  # MessagePack ecosystem's limit the host library enforces on decode)
+  # must surface as a clean
   # wire violation, never a Ruby SystemStackError or a host crash. The
   # guest→host dispatch path depends on this: the dispatcher rescues only
   # StandardError, so an over-deep guest request stays catchable solely

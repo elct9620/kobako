@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# Byte-level golden vectors (docs/wire/payload-msgpack.md). These vectors
+# Byte-level golden vectors of the payload codec. These vectors
 # fix the encoder output to specific byte sequences so the suite acts as a
 # real spec-compliance check, not a self-consistency check — any silent
 # drift toward a wider tag form breaks the Rust peer's decoder
