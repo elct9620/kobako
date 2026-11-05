@@ -269,12 +269,12 @@ permissive  <  hermetic
    requested rung  <=  declared rung   -> accepted
 ```
 
-### Driver
+### Wasm Driver
 
-What drives one Engine, such as wasmtime, and encodes each ABI onto it. The runtime beneath it decides each answer. The Driver keeps only the checks a syscall entry makes itself, such as which descriptor a call takes.
+What drives one Engine, such as wasmtime, and encodes each ABI onto it. The runtime beneath it decides each answer. The Wasm Driver keeps only the checks a syscall entry makes itself, such as which descriptor a call takes. Each implements `Runtime`, and wasmtime's is `kobako_wasmtime::Driver`.
 
 ```
-guest --ABI--> Driver: decode, fd table, errno codes, entry checks --> runtime: the answer
+guest --ABI--> Wasm Driver: decode, fd table, errno codes, entry checks --> runtime: the answer
 ```
 
 ### Grant
@@ -311,6 +311,7 @@ One of the two streams guest code writes to: output and error. Each is captured 
 - `crates/kobako-runtime/src/filesystem.rs`
 - `crates/kobako-runtime/src/filesystem/**/*.rs`
 - `crates/kobako-runtime/src/mount.rs`
+- `crates/kobako-runtime/src/security.rs`
 - `crates/kobako-runtime/src/vfs.rs`
 - `crates/kobako-runtime/src/vfs/**/*.rs`
 - `crates/kobako-wasmtime/src/preview1/**/*.rs`
@@ -344,6 +345,10 @@ Bind     -> a host directory; nothing outside it is reachable
 Tmpfs    -> held in memory; lives as long as the Host App's object
 Overlay  -> Layers stacked into one view; changes land in its upper Tmpfs
 ```
+
+#### Rejected
+
+- `Filesystem Driver` - Linux's informal name; beside the Wasm Driver it reads as a second kind.
 
 ### Layer
 
@@ -383,7 +388,7 @@ The runtime records on the Dentry the Inode a lookup finds, as Linux's `d_add` d
 
 ### Open File
 
-What a descriptor refers to, as Linux's `struct file`. It holds where it was opened, what answers for it, its position, and what it was opened for. A Driver's table holds it, so every ABI shares one. Each standard stream is one too, an end of a pipe with no position.
+What a descriptor refers to, as Linux's `struct file`. It holds where it was opened, what answers for it, its position, and what it was opened for. A Wasm Driver's table holds it, so every ABI shares one. Each standard stream is one too, an end of a pipe with no position.
 
 ### Path
 

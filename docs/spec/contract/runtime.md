@@ -219,7 +219,7 @@ pub enum Profile {}
 
 ## `GuestInstance`
 
-One guest instance as the host ABI endpoint drives it. A Driver implements it
+One guest instance as the host ABI endpoint drives it. A Wasm Driver implements it
 over its Engine's memory and exports.
 
 ```rust
@@ -278,7 +278,7 @@ pub trait GuestInstance {
 
 ## `Calls`
 
-The state of the Calls open on one instance, which a Driver keeps for it.
+The state of the Calls open on one instance, which a Wasm Driver keeps for it.
 
 ```rust
 pub struct Calls<F> {}
@@ -484,7 +484,7 @@ impl MemoryLimitExceeded {
 ## `Profile::guest_kstat`
 
 What a Filesystem reports, as a Guest on one posture sees it, whichever ABI a
-Driver encodes it into. A Driver shows only this.
+Wasm Driver encodes it into. A Wasm Driver shows only this.
 
 ```rust
 impl Profile {
@@ -944,7 +944,7 @@ impl VfsMount {
 ## `Cred`
 
 Who a call is made for, one per Invocation, holding its registered security modules.
-A Driver gets one only from `prepare_creds_within`, so kobako's own rules always come first.
+A Wasm Driver gets one only from `prepare_creds_within`, so kobako's own rules always come first.
 
 ```rust
 pub struct Cred {}
@@ -1093,7 +1093,7 @@ pub trait SecurityOperations {
 
 ## `WalkGuard`
 
-What keeps a Policy judging the path a descriptor stands at. A Driver asks it
+What keeps a Policy judging the path a descriptor stands at. A Wasm Driver asks it
 wherever a descriptor becomes where a call starts.
 
 ```rust

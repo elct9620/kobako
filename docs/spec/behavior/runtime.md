@@ -1947,7 +1947,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | another thread makes an entry through the held directory |
 | Then | the make waits for the move and answers ENOENT, and the move succeeds |
 
-## `RT-180` An open file answers for itself whichever Driver asks
+## `RT-180` An open file answers for itself whichever Wasm Driver asks
 
 | Attribute | Value |
 | --- | --- |
@@ -1956,7 +1956,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a file opened beneath a Mount, with no Driver in front of it |
+| Given | a file opened beneath a Mount, with no Wasm Driver in front of it |
 | When | a caller reads or writes it against its mode, or past the largest offset |
 | Then | the first answers EBADF and the second EINVAL, and the Filesystem is not asked |
 
@@ -1979,7 +1979,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a directory opened through the runtime, with no Driver in front of it |
+| Given | a directory opened through the runtime, with no Wasm Driver in front of it |
 | When | a caller lists it, stops early, and lists it again from where it stopped |
 | Then | `.` and `..` come first, and each entry carries its own position |
 
@@ -2136,7 +2136,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an entry of each kind a Filesystem reports |
-| When | a preview1 Driver encodes each kind |
+| When | a preview1 Wasm Driver encodes each kind |
 | Then | a socket reads as a stream socket, each device as itself, and a FIFO as unknown |
 
 ## `RT-196` A socket a guest sees cannot be opened
@@ -2353,7 +2353,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a call on a path or a link target holding a NUL, empty, or past `PATH_MAX` |
-| When | it reaches the VFS, whichever Driver brought it |
+| When | it reaches the VFS, whichever Wasm Driver brought it |
 | Then | it answers EINVAL, ENOENT, or ENAMETOOLONG, and the Filesystem is not asked |
 
 ## `RT-215` An open empties what stood through `setattr` once it is open
@@ -2956,7 +2956,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a directory a guest holds beneath a Mount with a Policy |
 | Given | another Mount moving it while the runtime asks whether it stands |
 | When | the runtime asks whether it stands |
-| Then | it answers EAGAIN for the Driver to make the call again |
+| Then | it answers EAGAIN for the Wasm Driver to make the call again |
 
 ## `RT-267` A wait ends once its run is to stop
 
@@ -3705,7 +3705,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the file is read twice |
 | Then | each read is handed position 0, and the file's position stays 0, as Linux's `file_ppos` answers none for a stream |
 
-## `RT-329` A security module the Driver is built with judges every guest call
+## `RT-329` A security module the Wasm Driver is built with judges every guest call
 
 | Attribute | Value |
 | --- | --- |
@@ -3713,7 +3713,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Driver built with a security module refusing every directory made, and a Mount allowing every change |
+| Given | a Wasm Driver built with a security module refusing every directory made, and a Mount allowing every change |
 | When | a guest makes a directory beneath the Mount |
 | Then | the call answers EACCES and nothing is made, as an LSM stacked at boot refuses `security_path_mkdir` |
 
