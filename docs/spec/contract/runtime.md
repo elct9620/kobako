@@ -408,18 +408,18 @@ pub fn compiled_bytecodes(preamble: &Preamble, reply: CompileReply) -> Option<Ve
 
 ## `pipe_capacity`
 
-The size of a capture pipe, one byte past its cap.
+The size of a capture pipe, one byte past its limit.
 
 ```rust
-pub fn pipe_capacity(cap: Option<usize>) -> usize {}
+pub fn pipe_capacity(limit: Option<usize>) -> usize {}
 ```
 
 ## `clip_capture`
 
-A captured channel clipped back to its cap, and whether it passed it.
+A captured channel clipped back to its limit, and whether it passed it.
 
 ```rust
-pub fn clip_capture(mut raw: Vec<u8>, cap: Option<usize>) -> (Vec<u8>, bool) {}
+pub fn clip_capture(mut raw: Vec<u8>, limit: Option<usize>) -> (Vec<u8>, bool) {}
 ```
 
 ## `MemoryCap`
@@ -432,11 +432,11 @@ pub struct MemoryCap {}
 
 ## `MemoryCap::new`
 
-A budget of a cap, or of none.
+A budget of a memory limit, or of none.
 
 ```rust
 impl MemoryCap {
-    pub fn new(max_memory: Option<usize>) -> Self {}
+    pub fn new(memory_limit: Option<usize>) -> Self {}
 }
 ```
 
@@ -470,13 +470,13 @@ impl MemoryCap {
 }
 ```
 
-## `MemoryCap::growing`
+## `MemoryCap::charge`
 
-Charge a growth, refusing one past the cap.
+Charge a growth, refusing one past the memory limit.
 
 ```rust
 impl MemoryCap {
-    pub fn growing(&mut self, desired: usize) -> Result<(), MemoryLimitExceeded> {}
+    pub fn charge(&mut self, desired: usize) -> Result<(), MemoryLimitExceeded> {}
 }
 ```
 
