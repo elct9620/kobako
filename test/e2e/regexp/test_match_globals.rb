@@ -96,6 +96,14 @@ class TestRegexpMatchGlobals < Minitest::Test
                  "$1 follows Regexp.last_match= so the numbered globals stay views of $~"
   end
 
+  # mruby stores $~ as a plain variable, so only the setter refreshes its views.
+  # @behavior RX-292
+  def test_direct_match_global_assignment_leaves_numbered_globals
+    assert_equal %w[x y],
+                 eval_regexp('"x" =~ /(x)/; m = $~; "yy" =~ /(y)/; $~ = m; [$~[1], $1]'),
+                 "$~ = m through a direct assignment must leave $1 on the later match"
+  end
+
   # Clearing $~ to nil clears its views too; $1 must not survive the reset.
   # @behavior RX-041
   def test_last_match_assignment_to_nil_clears_numbered_globals

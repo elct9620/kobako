@@ -436,8 +436,8 @@ fn rx_last_match(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     mrb.gv_get(c"$~")
 }
 
-/// Refreshes the derived globals too, so a caller can save and restore the
-/// whole match set around an inner match (`String#slice!` relies on this).
+/// Refreshes the derived globals too, which assigning `$~` directly cannot:
+/// mruby stores it as a plain variable.
 fn rx_set_last_match(mrb: &Mrb, _self: Value, value: Value) -> Value {
     globals::set_last_match(mrb, value);
     value

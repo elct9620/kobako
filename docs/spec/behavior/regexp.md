@@ -14,11 +14,13 @@ The surface is a chosen subset of CRuby's `Regexp` and `MatchData` and the `Stri
 
 Security, mruby or the matching engine can force a difference. Such a difference stays, and a scenario states it. The matching engine itself stays outside this contract.
 
+mruby stores the match global as a plain variable. Assigning it cannot refresh the globals that read through it. `Regexp.last_match=` stands in for that assignment, as the mruby regexp gems provide it.
+
 The guest sees exactly these constructs, plus the `String` and `MatchData` members their own features list.
 
 ```
 Regexp construction    /pattern/imx, Regexp.new(source[, options]), Regexp.compile
-Regexp class methods   escape, quote, last_match
+Regexp class methods   escape, quote, last_match, last_match=
 Regexp instance        match, match?, =~, ===, source, options, casefold?,
                        named_captures, names, inspect, to_s, ==, dup, clone
 Regexp constants       IGNORECASE, EXTENDED, MULTILINE
@@ -1699,3 +1701,16 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code compiles a pattern with an interval whose upper bound is below its lower |
 | Then | a `RegexpError` is raised |
+
+## `RX-292` Assigning the match global directly leaves its numbered globals behind
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-040` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| Given | guest code that saved one match and then ran another |
+| When | it assigns the saved match to the match global and reads the first numbered global |
+| Then | it holds the later match's capture |
