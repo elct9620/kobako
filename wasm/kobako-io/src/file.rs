@@ -105,7 +105,7 @@ pub(crate) fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
 }
 
 /// `path`, which `path_arg` answered, as the C string a libc call takes.
-pub(crate) fn c_path(path: &str) -> CString {
+pub(crate) fn to_c_path(path: &str) -> CString {
     CString::new(path).expect("path_arg refuses a path holding a NUL")
 }
 
@@ -127,7 +127,7 @@ fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error
     let (mode, _perm) = args.optional;
     let path = path_arg(mrb, path)?;
     let flags = mode::open_flags(mrb, mode, &path)?;
-    let c_path = c_path(&path);
+    let c_path = to_c_path(&path);
     // SAFETY: `c_path` is NUL-terminated and outlives the call.
     let fd = unsafe { open(c_path.as_ptr(), flags) };
     if fd < 0 {
@@ -169,7 +169,7 @@ fn file_truncate(mrb: &Mrb, self_: Value, length: i64) -> Result<Value, Error> {
 fn file_s_truncate(mrb: &Mrb, _self: Value, path: Value, length: i64) -> Result<Value, Error> {
     require_mount(mrb, "File.truncate")?;
     let path = path_arg(mrb, path)?;
-    let c_path = c_path(&path);
+    let c_path = to_c_path(&path);
     // SAFETY: `c_path` is NUL-terminated and outlives the call.
     if unsafe { truncate(c_path.as_ptr(), length) } != 0 {
         return Err(errno::from_io(mrb, &io::Error::last_os_error(), &path));
