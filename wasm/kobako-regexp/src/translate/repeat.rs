@@ -32,9 +32,6 @@ impl Quantity {
     /// `?`, `*`, `+`, `??`, `*?` or `+?` as Onigmo numbers them; any other
     /// quantifier folds with nothing.
     fn popular(self) -> Option<usize> {
-        if self.possessive {
-            return None;
-        }
         let base = match (self.lower, self.upper) {
             (0, Some(1)) => 0,
             (0, None) => 1,
@@ -55,9 +52,6 @@ impl Quantity {
         }
         if !self.greedy {
             out.push('?');
-        }
-        if self.possessive {
-            out.push('+');
         }
     }
 }
@@ -96,32 +90,28 @@ const FOLDS: [[Fold; 6]; 6] = {
 };
 
 /// The engine's text for `unit` repeated by each quantifier in turn.
+///
+/// A possessive quantifier is a quantifier MRI folds like any other, then
+/// makes atomic, so the stack under it folds first and the atomic group is
+/// a new unit.
 pub(super) fn write(unit: &str, quantities: &[Quantity]) -> String {
     let mut text = unit.to_string();
     let mut current: Option<Quantity> = None;
-    for &outer in quantities {
-        let Some(inner) = current else {
-            current = Some(outer);
-            continue;
+    for &quantity in quantities {
+        let outer = Quantity {
+            possessive: false,
+            ..quantity
         };
-        let folded = match (inner.popular(), outer.popular()) {
-            (Some(row), Some(column)) => FOLDS[row][column],
-            _ => Fold::AsIs,
-        };
-        let (next, quantity) = match folded {
-            Fold::Inner => continue,
-            Fold::Star => (text, Quantity::greedy(0, None)),
-            Fold::LazyStar => (text, Quantity::lazy(0, None)),
-            Fold::LazyOptional => (text, Quantity::lazy(0, Some(1))),
-            Fold::LazyOptionalPlus => (format!("(?:{text}+)"), Quantity::lazy(0, Some(1))),
-            Fold::AsIs => {
-                let mut nested = text;
-                inner.write(&mut nested);
-                (format!("(?:{nested})"), bound_by_inner_star(inner, outer))
+        current = Some(match current {
+            None => outer,
+            Some(inner) => fold(&mut text, inner, outer),
+        });
+        if quantity.possessive {
+            if let Some(folded) = current.take() {
+                folded.write(&mut text);
             }
-        };
-        text = next;
-        current = Some(quantity);
+            text = format!("(?>{text})");
+        }
     }
     if let Some(quantity) = current {
         quantity.write(&mut text);
@@ -129,12 +119,37 @@ pub(super) fn write(unit: &str, quantities: &[Quantity]) -> String {
     text
 }
 
+/// Folds `outer` over `text` already repeated by `inner`, leaving in `text`
+/// the unit the answer repeats.
+fn fold(text: &mut String, inner: Quantity, outer: Quantity) -> Quantity {
+    let outer = bound_by_inner_star(inner, outer);
+    let folded = match (inner.popular(), outer.popular()) {
+        (Some(row), Some(column)) => FOLDS[row][column],
+        _ => Fold::AsIs,
+    };
+    match folded {
+        Fold::Inner => inner,
+        Fold::Star => Quantity::greedy(0, None),
+        Fold::LazyStar => Quantity::lazy(0, None),
+        Fold::LazyOptional => Quantity::lazy(0, Some(1)),
+        Fold::LazyOptionalPlus => {
+            *text = format!("(?:{text}+)");
+            Quantity::lazy(0, Some(1))
+        }
+        Fold::AsIs => {
+            inner.write(text);
+            *text = format!("(?:{text})");
+            outer
+        }
+    }
+}
+
 /// A greedy bounded interval over `*` or `+` repeats it no more than its
 /// lower bound, or once, as Onigmo shortens it.
 fn bound_by_inner_star(inner: Quantity, outer: Quantity) -> Quantity {
     let inner_star = matches!(inner.popular(), Some(1 | 2));
     match outer.upper {
-        Some(upper) if inner_star && outer.greedy && !outer.possessive && upper > 1 => Quantity {
+        Some(upper) if inner_star && outer.greedy && upper > 1 => Quantity {
             upper: Some(outer.lower.max(1)),
             ..outer
         },
@@ -160,11 +175,21 @@ mod tests {
     }
 
     #[test]
+    fn makes_a_possessive_quantifier_atomic_after_folding() {
+        let possessive_plus = Quantity {
+            possessive: true,
+            ..Quantity::greedy(1, None)
+        };
+        assert_eq!(write("a", &[STAR, possessive_plus]), "(?>a*)");
+        assert_eq!(write("a", &[possessive_plus, STAR]), "(?>a+)*");
+    }
+
+    #[test]
     fn shortens_a_bounded_interval_over_a_star() {
         assert_eq!(
             write("a", &[STAR, Quantity::greedy(2, Some(3))]),
             "(?:a*){2}"
         );
-        assert_eq!(write("a", &[STAR, Quantity::greedy(0, Some(3))]), "(?:a*)?");
+        assert_eq!(write("a", &[STAR, Quantity::greedy(0, Some(3))]), "a*");
     }
 }

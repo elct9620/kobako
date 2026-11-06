@@ -249,6 +249,10 @@ impl<'n, 's> Rewriter<'n, 's> {
         if closes_class {
             self.close_folded_class();
         }
+        let grouped_repeat = match role {
+            Role::Closing => self.take_grouped_repeat(),
+            _ => None,
+        };
         if !matches!(role, Role::Inert | Role::Repeat) {
             self.repeat = Repeat::None;
             self.unit_is_look_around = false;
@@ -277,9 +281,33 @@ impl<'n, 's> Rewriter<'n, 's> {
                 self.out.push_str(&")".repeat(owed + 1));
                 self.unit_is_look_around = group.as_ref().is_some_and(|group| group.look_around);
                 self.unit_start = group.map(|group| group.start);
+                if let Some((unit, quantities)) = grouped_repeat {
+                    self.quantified_unit = unit;
+                    self.quantities = quantities;
+                    self.repeat = Repeat::Settled;
+                }
             }
         }
         Ok(())
+    }
+
+    /// A non-capturing group that holds nothing but one quantified unit is
+    /// that quantified unit to MRI, so a quantifier after the group folds
+    /// with the ones inside it. Called as the group closes, before its
+    /// quantifiers are forgotten.
+    fn take_grouped_repeat(&mut self) -> Option<(String, Vec<Quantity>)> {
+        let group = self.groups.last().filter(|_| self.groups.len() > 1)?;
+        let opener = "(?:";
+        let holds_one_unit = group.owed_closes == 0
+            && self.out[group.start..].starts_with(opener)
+            && self.unit_start == Some(group.start + opener.len());
+        if !holds_one_unit || self.quantities.is_empty() {
+            return None;
+        }
+        Some((
+            std::mem::take(&mut self.quantified_unit),
+            std::mem::take(&mut self.quantities),
+        ))
     }
 
     fn push_piece(&mut self, piece: Piece) -> Result<Role, String> {
@@ -959,6 +987,13 @@ mod tests {
             translate(r"(?<n>a)(b)(?<m>c)(?<n>d)\k<n>\k'n'\k<m>", 0),
             r"(?m)(?<n>a)(?:b)(?<m>c)(?<n>d)(?>\3|\1)(?>\3|\1)\k<m>"
         );
+    }
+
+    #[test]
+    fn folds_the_quantifier_after_a_group_holding_one_quantified_unit() {
+        assert_eq!(translate("(?:(?:a+?)?)*", 0), "(?m)(?:a+?)*");
+        assert_eq!(translate("(?:a*)*", 0), "(?m)a*");
+        assert_eq!(translate("(?:ab*)*", 0), "(?m)(?:ab*)*");
     }
 
     #[test]

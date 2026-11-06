@@ -2042,3 +2042,15 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp Guest Binary built with Unicode support |
 | When | guest code matches a Latin-1 letter against the case-insensitive case bracket of its other case |
 | Then | it matches |
+
+## `RX-320` A quantifier on a group holding one quantified unit folds with it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-309` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches patterns that quantify a non-capturing group holding one quantified unit |
+| Then | each answers what the language folds the quantifiers to |

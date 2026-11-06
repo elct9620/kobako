@@ -60,6 +60,13 @@ class TestRegexpQuantifier < Minitest::Test
                  "stacked quantifiers through a match must answer what the language folds them to"
   end
 
+  # @behavior RX-320
+  def test_a_quantifier_on_a_group_holding_one_quantified_unit_folds_with_it
+    assert_equal %w[aaa aaa aaa],
+                 eval_regexp('[/(?:(?:a+?)?)*/, /(?:(?:a+?)*)++/, /(?:(?:a+?)*){,2}/].map { |r| r.match("aaa")[0] }'),
+                 "a quantifier on a group of one quantified unit through a match must fold as the language folds it"
+  end
+
   # @behavior RX-310
   def test_a_quantified_look_around_is_tried_as_the_quantifier_allows
     assert_equal [[""], ["", "a"], ["", nil], nil, ["b"]],
