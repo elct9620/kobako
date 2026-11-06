@@ -7,7 +7,7 @@
 
 use super::DecodeError;
 
-const MALFORMED: DecodeError = DecodeError::new("core envelope ended before its declared length");
+const MALFORMED: DecodeError = DecodeError::new("Envelope ended before its declared length");
 
 /// Cursor over one message. Every read either advances past a complete
 /// field or fails, so a truncated message can never be mistaken for a
@@ -50,7 +50,7 @@ impl<'a> Reader<'a> {
     /// the check.
     pub(crate) fn text(&mut self) -> Result<&'a str, DecodeError> {
         core::str::from_utf8(self.bytes()?)
-            .map_err(|_| DecodeError::new("core envelope text field is not valid UTF-8"))
+            .map_err(|_| DecodeError::new("Envelope text field is not valid UTF-8"))
     }
 
     /// A `u32` count followed by that many byte strings, each carrying
@@ -106,7 +106,7 @@ impl<'a> Reader<'a> {
             Ok(())
         } else {
             Err(DecodeError::new(
-                "core envelope carries bytes past its last field",
+                "Envelope carries bytes past its last field",
             ))
         }
     }
