@@ -12,6 +12,7 @@ any bound Service.
 | a concrete Extension | the Host App or a third-party gem |
 
 kobako ships no concrete Extension, only the contract and the `#install` consumer.
+The [DSL example](../../examples/dsl/) is a worked builder idiom whose every dialect lives on the host.
 The `Storage` used below is illustrative; a Guest Binary's own `File` is reached
 through a Mount instead.
 

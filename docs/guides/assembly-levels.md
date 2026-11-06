@@ -84,6 +84,8 @@ At L2 you build a Guest Binary of your own, and the Ruby gem drives it unchanged
 | another interpreter | any artifact that satisfies the ABI |
 
 The gem drives whatever artifact you hand it, since the guest still speaks what the gem speaks.
+Build the shell as a `cdylib` for `wasm32-wasip1`, then bake its boot state with `kobako-baker input.wasm output.wasm`.
+The shipped shell, `wasm/kobako-wasm/src/guest.rs`, is a working one to start from.
 
 The Codec is not yours here ⚠.
 A guest shell names its Codec on `MrbGuest::Codec`, so the freedom looks available.
@@ -105,6 +107,7 @@ Services bind at constant paths, and Handles are minted per Invocation.
 Extensions compose over preload and bind, and registration seals at the first Invocation.
 That shape is what the Rust SDK is, the same one the Ruby gem has.
 Both Frontends are held to the same behavior ([`parity.md`](../process/parity.md)), so a different host model means L4.
+[`plugin-rs`](../../examples/plugin-rs) is a host on the SDK, and [`fixed-schema-rs`](../../examples/fixed-schema-rs) replaces the payload schema with protobuf.
 
 ## L4 Custom Frontend
 
@@ -116,6 +119,7 @@ At L4 you compose `kobako-transport` and `kobako-runtime` directly and write the
 
 This is not an exotic path: kobako's own Ruby gem is an L4 assembly, as is any host not written in Rust.
 The gem stands on the same Wasm Driver as the Rust SDK without going through it.
+[`wire-rs`](../../examples/wire-rs) assembles a host by hand on `kobako-wasmtime`, `kobako-runtime`, `kobako-transport`, and `kobako-codec`.
 
 ## Further Reading
 

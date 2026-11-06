@@ -43,6 +43,62 @@ word boundaries.
 [regexp](../spec/behavior/regexp.md) states what each ASCII variant
 refuses.
 
+## Guest Surface
+
+Each capability is a chosen subset of CRuby that adds nothing of its own.
+Within it, a script behaves as on CRuby; the sections below show where each
+subset ends.
+
+| Surface | Present in |
+|---|---|
+| Base Gems | every variant |
+| Regexp | `regexp`, `regexp-unicode`, `full` |
+| JSON | `json`, `full` |
+
+### Base Gems
+
+The base holds mruby core and an allowlist of core gems. No I/O, network,
+sleep, or random-seed gem enters it.
+
+| Area | Gems |
+|---|---|
+| compiling and errors | `mruby-compiler`, `mruby-error`, `mruby-metaprog` |
+| numbers | `mruby-bigint`, `mruby-numeric-ext`, `mruby-sprintf` |
+| collections | `mruby-array-ext`, `mruby-hash-ext`, `mruby-enum-ext`, `mruby-range-ext` |
+| objects and text | `mruby-object-ext`, `mruby-proc-ext`, `mruby-string-ext`, `mruby-symbol-ext` |
+
+Guest IO writes to stdout, stderr, and the files it opened, and to no other
+descriptor.
+
+### Regexp Surface
+
+The Regexp capability gives `Regexp`, `MatchData`, and the pattern methods on
+`String`. A pattern never crosses to the host; only its result does.
+
+| Has | Lacks |
+|---|---|
+| `/pattern/imx`, `Regexp.new`, `escape`, `last_match` | `Encoding` objects, `Regexp.version` |
+| `match`, `match?`, `=~`, `===`, `named_captures` | switches turning the match globals off |
+| `$~`, `$1`..`$9`, `` $` ``, `$'`, `$+` | case-insensitive patterns on the ASCII builds |
+
+Offsets count bytes. On `regexp` and `full`, a case-insensitive pattern raises
+`RegexpError` rather than match narrower.
+
+### JSON Surface
+
+The JSON capability gives a `JSON` module for reading and building bodies. A
+value crosses to the host as any other value does.
+
+| Has | Lacks |
+|---|---|
+| `parse(str, symbolize_names:)` | `dump`, `load`, `unsafe_load`, `load_file` |
+| `generate`, `pretty_generate` | `parse!`, `JSON[]` |
+| `Object#as_json` | a `to_json` string splice |
+
+It refuses a value with no JSON form, such as a non-finite number, bytes that
+are not text, or a non-scalar key. Parsing never yields a Handle, and
+generating refuses one wherever it sits.
+
 ## Artifact Naming
 
 The suffix encodes capability composition, not a version.
@@ -92,3 +148,12 @@ byte-identical artifact; a build that cannot reproduce its bake fails.
 | `rake wasm:build:regexp_unicode` | `kobako+regexp-unicode.wasm` |
 | `rake wasm:build:json` | `kobako+json.wasm` |
 | `rake wasm:build:full` | `kobako+full.wasm` |
+
+## Rust SDK
+
+The Rust SDK bundles no Guest Binary, so every Sandbox names the variant it
+loads.
+
+```rust
+let sandbox = Sandbox::new("path/to/kobako+json.wasm", Options::default())?;
+```

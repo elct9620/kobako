@@ -14,6 +14,117 @@ which paths a Policy allows, is the Host App's choice.
 The isolation boundary around a Mount is in [Security Model](security.md), and
 how the Filesystems are built is in [Filesystem](../filesystem/README.md).
 
+## Filesystem Kinds
+
+`mount` places a Filesystem at an absolute guest path. The default access is
+`:read`, so a write beneath it raises `Errno::EROFS` in the guest.
+
+```ruby
+sandbox.mount("/config", Kobako::Filesystem::Tmpfs.new("app.yml" => yaml))
+sandbox.mount("/data", Kobako::Filesystem::Bind.new("var/data"))
+sandbox.mount("/tmp", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+sandbox.eval('File.write("/tmp/x", "1")') do |ctx|
+  ctx.mount("/tmp", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+end
+```
+
+| Kind | Holds |
+|---|---|
+| `Tmpfs.new(files = {}, size:, nr_inodes:)` | files in memory |
+| `Bind.new(path)` | a host directory; nothing outside it is reachable |
+| `Overlay.new(lower: [fs, ...], upper: tmpfs)` | read-only Layers under a Tmpfs that takes every change |
+
+Every Invocation reaches the same Filesystem, so a run that must start empty
+replaces the mount with its own Tmpfs through `ctx.mount`. `ctx.mount` replaces
+only a path already mounted. Mounts seal with the Sandbox, and a mount may sit
+inside another; the guest reaches the innermost one.
+
+### Tmpfs Bounds
+
+A Tmpfs is bounded as a Linux tmpfs mount is. Past either bound, the guest
+raises `Errno::ENOSPC`.
+
+| Bound | Unless given | `nil` |
+|---|---|---|
+| `size:` | 64 MiB of file bytes | no bound |
+| `nr_inodes:` | one entry per 4 KiB of `size`, and the root | no bound |
+
+### Overlays
+
+An Overlay stacks Layers as Linux's overlayfs does. The lower Layers, topmost
+first, are never written, and the upper must be a Tmpfs, so the host stays as
+it was.
+
+```ruby
+overlay = Kobako::Filesystem::Overlay.new(
+  lower: [Kobako::Filesystem::Bind.new("app")], # never written
+  upper: Kobako::Filesystem::Tmpfs.new          # every change lands here
+)
+sandbox.mount("/app", overlay, access: :read_write)
+```
+
+| Change | Lands as |
+|---|---|
+| a write to a lower file | a copy up into the upper first |
+| a new or renamed file | a file in the upper |
+| a removal | a whiteout hiding the lower file, reserving no name |
+
+Without `upper:`, every change raises `Errno::EROFS`, and two lower Layers are
+needed. An Overlay takes at most 500 lower Layers and stacks at most two deep.
+The upper Tmpfs keeps changes in `upper/` and builds each in `work/` first, the
+shape gVisor also requires.
+
+### Ruby Objects
+
+Any object answering `open` and `stat` mounts as a Filesystem, directly or as a
+Layer. Its methods follow Ruby's `File`, `Dir`, and `IO`, so a real `::File`
+can answer as an open file. `Kobako::Filesystem` lists every method.
+
+| It raises | The guest sees |
+|---|---|
+| an `Errno` the guest has a class for | that `Errno` |
+| any other `StandardError` | `Errno::EIO` |
+| nothing, lacking a change method | `Errno::EROFS` for that change |
+| nothing, lacking `append` | `Errno::ENOTSUP` for an append |
+
+A path is relative to the mount, the empty path being its root. Every call
+re-enters Ruby, and its time counts toward `timeout:` uninterrupted.
+
+## Guest File
+
+The guest's `File.open` takes a mode String such as `"r"`, `"w+"`, or `"wx"`, or
+an Integer of `File::Constants` flags valued as CRuby's on Linux. An exclusive
+create lets Sandboxes sharing a directory agree on a lock file.
+
+Beneath a mount, `File.open` and `IO.new` answer as CRuby does over a Linux
+directory. Where they differ, they only refuse more.
+
+| When | The guest sees |
+|---|---|
+| nothing is mounted | `NotImplementedError` |
+| a Policy refuses a change | `Errno::EACCES`, where a read-only mount says `Errno::EROFS` |
+| an Integer mode holds a flag kobako does not honor, or `WRONLY` beside `RDWR` | `Errno::EINVAL` |
+| a mode names an encoding, such as `"r:utf-8"` | `ArgumentError` |
+| `IO.new` wraps stdout or stderr in a mode other than `"w"` | `ArgumentError` |
+| the critical flag `disable_file` is set | no `File` constant |
+
+### File Reports
+
+`File::Stat` answers as CRuby does on Linux, for what preview1 hands the guest.
+What it could only answer wrongly stays undefined, so a script fails rather
+than read a wrong answer.
+
+| Part | Holds |
+|---|---|
+| ways to ask | `File.stat`, `File.lstat`, `File::Stat.new`, `File#stat`, `File#lstat` |
+| answers | `ino`, `nlink`, `size`, `size?`, `zero?`, `ftype`, and the kind predicates |
+| class calls | `File.ftype`, `File.symlink?`, `File.size?`, `File.zero?`, `File.empty?` |
+| undefined | times, `<=>`, `dev`, `mode`, owners, permissions, `pipe?`, `blockdev?`, `File.identical?` |
+
+The kind predicates are `file?`, `directory?`, `symlink?`, `chardev?`, and
+`socket?`. A FIFO's and a block device's `ftype` read `"unknown"`, and a
+hermetic guest reads every `ino` as 0.
+
 ## Mount Choices
 
 A Bind opens only files and directories: a FIFO, socket, or device raises
@@ -44,6 +155,9 @@ takes; the Rust SDK takes it through `mount_with_policy`.
 ```ruby
 sandbox.mount("/data", fs) { |path, _access| path.start_with?("/data/public/") }
 ```
+
+The block judges only what the access already allows, so it can only refuse
+more. A falsy answer or a `StandardError` from it refuses that call.
 
 Allow what the guest needs rather than refusing what it must not reach: a
 denylist misses a path you did not foresee.
@@ -218,3 +332,28 @@ state.
 
 The Wasm Driver makes such a call again a few times before the guest sees
 `Errno::EAGAIN`.
+
+## Rust SDK
+
+The Rust SDK mounts an `Arc<Filesystem>` built from a kind in
+`kobako::filesystem`. A Filesystem written in Rust implements
+`FileSystemType` and the VFS traits of `kobako-runtime`, in place of a Ruby
+object.
+
+| Ruby | Rust |
+|---|---|
+| `Tmpfs.new("a.yml" => yaml)` | `[("a.yml", yaml)].into_iter().collect::<Tmpfs>()` |
+| `size:`, `nr_inodes:` | `Tmpfs::with_size`, `Tmpfs::with_nr_inodes` |
+| `Bind.new(path)` | `Bind::new(path)` |
+| `Overlay.new(lower:, upper:)` | `Overlay::new(lower, Some(upper))` |
+| `mount(at, fs, access:)` | `mount(at, fs, Access::Read)` |
+| `mount(at, fs) { \|path, access\| ... }` | `mount_with_policy(at, fs, policy)`, read-write |
+| `ctx.mount` | `Context::mount` in `eval_with` |
+
+```rust
+let tmpfs = [("app.yml", yaml)].into_iter().collect::<Tmpfs>();
+let fs = Filesystem::new(Arc::new(tmpfs)).expect("a seeded Tmpfs stands");
+sandbox.mount("/config", fs, Access::Read)?;
+```
+
+A Policy implements `allows(path, access)`, answering `false` to refuse.

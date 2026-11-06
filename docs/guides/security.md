@@ -291,3 +291,18 @@ sandbox.eval(script) { |ctx| ctx.bind("Cur::Next", budgeted(cursor)) }
 
 A fresh budget per `ctx.bind` resets the count for every Invocation. A counter
 captured once at `bind` would span the Sandbox's lifetime instead.
+
+## Rust SDK
+
+The Rust SDK keeps the same boundary. A `Receiver` exposes no method by
+reflection, so its surface is exactly what its `call` answers.
+
+| Ruby | Rust |
+|---|---|
+| a purpose-built object | a `Receiver` matching only the methods it serves |
+| a private `respond_to_guest?` | `Receiver::respond_to_guest` |
+| a Service raising a clean error | `Err(Fault::new(kind, message))` |
+| `profile:` | `Options::profile` |
+| a block on `mount` | `mount_with_policy` |
+
+A `Fault` message reaches the guest as written, so keep secrets out of it.

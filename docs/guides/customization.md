@@ -282,6 +282,16 @@ The host marks each flag, so the marking follows what a skipped flag would chang
 | enables something a script uses | critical | fails with `UnsupportedFlagError` |
 | imposes a restriction | critical | fails rather than run unrestricted |
 
+The Host App sets each flag for every Invocation, critical unless marked advisory.
+
+```ruby
+sandbox.flag(:strict_mode)                         # critical
+sandbox.flag(:compile_cache, "on", advisory: true) # skipped where unrecognised
+```
+
+The Rust SDK spells these `flag(name, value)` and `flag_advisory(name, value)`;
+an empty value is a plain switch.
+
 ## Guest Replacement
 
 A shell replaces one invocation flow, or the whole guest, and the host cannot tell
