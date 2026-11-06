@@ -1,7 +1,10 @@
-//! The read, seek, and close half of `::IO`, which a file this guest
+//! The read, seek, sync, and close half of `::IO`, which a file this guest
 //! opened answers: `#read`, `#gets`, `#each_line`, `#readlines`,
-//! `#eof?`, `#seek`, `#rewind`, `#pos` / `#tell`, `#pos=`, `#close`,
-//! `#closed?`.
+//! `#eof?`, `#seek`, `#rewind`, `#pos` / `#tell`, `#pos=`, `#pread`,
+//! `#pwrite`, `#fsync`, `#fdatasync`, `#advise`, `#close`, `#closed?`.
+//!
+//! A sync, a positioned write, and an advice reach a captured stream too,
+//! which answers as the pipe it is on Linux.
 //!
 //! Each reaches the descriptor through `std::fs::File` without taking it
 //! over, so the descriptor stays the `IO`'s until `#close`. The host
@@ -17,13 +20,30 @@ use std::os::fd::FromRawFd;
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, Value};
+use core::ffi::c_int;
+
+use beni::{Error, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, Symbol, Value};
 
 use crate::io::{argument_error, checked_fd, is_closed, release, Stream};
 use crate::{descriptors, errno};
 
 /// What a stream that may not be read from is refused with.
 const READ_REFUSAL: &str = "kobako IO reads only from a file this guest opened";
+
+/// What a stream standing for a descriptor this guest may no longer reach is
+/// refused with.
+const REACH_REFUSAL: &str =
+    "kobako IO reaches only fd 1 (stdout), fd 2 (stderr), or a file this guest opened";
+
+/// The advices `#advise` takes, in the order wasi-libc numbers them.
+const ADVICES: [&str; 6] = [
+    "normal",
+    "sequential",
+    "random",
+    "willneed",
+    "dontneed",
+    "noreuse",
+];
 
 /// The most bytes one read asks the host for.
 const CHUNK: usize = 4096;
@@ -43,6 +63,11 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     io.define_method(mrb, c"pos", beni::method!(io_pos, 0))?;
     io.define_method(mrb, c"pos=", beni::method!(io_set_pos, 1))?;
     io.define_method(mrb, c"tell", beni::method!(io_pos, 0))?;
+    io.define_method(mrb, c"pread", beni::method!(io_pread, 2))?;
+    io.define_method(mrb, c"pwrite", beni::method!(io_pwrite, 2))?;
+    io.define_method(mrb, c"fsync", beni::method!(io_fsync, 0))?;
+    io.define_method(mrb, c"fdatasync", beni::method!(io_fdatasync, 0))?;
+    io.define_method(mrb, c"advise", beni::method!(io_advise, -1))?;
     io.define_method(mrb, c"close", beni::method!(io_close, 0))?;
     io.define_method(mrb, c"closed?", beni::method!(io_closed_p, 0))?;
     Ok(())
@@ -216,6 +241,129 @@ fn io_pos(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let fd = readable(mrb, self_)?;
     let pos = with_file(fd, |file| file.stream_position()).map_err(|err| fail(mrb, self_, &err))?;
     Ok(i64::try_from(pos).unwrap_or(i64::MAX).into_value(mrb))
+}
+
+/// The calls `std` keeps behind an unstable feature on this target.
+#[cfg(target_os = "wasi")]
+mod raw {
+    use core::ffi::{c_int, c_void};
+
+    unsafe extern "C" {
+        pub(super) fn pread(fd: c_int, buf: *mut c_void, len: usize, offset: i64) -> isize;
+        pub(super) fn pwrite(fd: c_int, buf: *const c_void, len: usize, offset: i64) -> isize;
+        /// Answers the failure's number instead of setting `errno`.
+        pub(super) fn posix_fadvise(fd: c_int, offset: i64, len: i64, advice: c_int) -> c_int;
+    }
+}
+
+/// The same calls on the host target the guest crates' unit tests link
+/// against, whose libc may lack `posix_fadvise`; an advice changes nothing
+/// read, so taking none there answers alike.
+#[cfg(not(target_os = "wasi"))]
+mod raw {
+    use core::ffi::{c_int, c_void};
+
+    unsafe extern "C" {
+        pub(super) fn pread(fd: c_int, buf: *mut c_void, len: usize, offset: i64) -> isize;
+        pub(super) fn pwrite(fd: c_int, buf: *const c_void, len: usize, offset: i64) -> isize;
+    }
+
+    pub(super) unsafe fn posix_fadvise(
+        _fd: c_int,
+        _offset: i64,
+        _len: i64,
+        _advice: c_int,
+    ) -> c_int {
+        0
+    }
+}
+
+/// `pread(maxlen, offset)` reads at `offset` without moving the position,
+/// raising `EOFError` where nothing is left, as CRuby does.
+fn io_pread(mrb: &Mrb, self_: Value, length: i64, offset: i64) -> Result<Value, Error> {
+    let fd = readable(mrb, self_)?;
+    let length = usize::try_from(length)
+        .map_err(|_| argument_error(mrb, "negative string size (or size too big)"))?;
+    let mut buf = vec![0u8; length];
+    // SAFETY: `buf` holds `length` writable bytes for the call.
+    let read = unsafe { raw::pread(fd, buf.as_mut_ptr().cast(), length, offset) };
+    if read < 0 {
+        return Err(fail(mrb, self_, &io::Error::last_os_error()));
+    }
+    if read == 0 && length > 0 {
+        let eof = mrb.exc_get(c"EOFError")?;
+        return Err(Error::new(mrb, eof, "end of file reached"));
+    }
+    Ok(mrb.str_new(&buf[..read as usize]).as_value())
+}
+
+/// `pwrite(string, offset)` writes at `offset` without moving the position,
+/// answering how many bytes one call took, as CRuby does.
+fn io_pwrite(mrb: &Mrb, self_: Value, data: Value, offset: i64) -> Result<Value, Error> {
+    let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
+    let data = data.to_r_string(mrb)?;
+    // SAFETY: the slice is consumed before the next mruby call.
+    let bytes = unsafe { data.as_bytes(mrb) };
+    // SAFETY: `bytes` is a live buffer the call only reads.
+    let written = unsafe { raw::pwrite(fd, bytes.as_ptr().cast(), bytes.len(), offset) };
+    if written < 0 {
+        let err = io::Error::last_os_error();
+        return Err(errno::from_transfer(
+            mrb,
+            &err,
+            &label(mrb, self_),
+            "writing",
+        ));
+    }
+    Ok((written as i64).into_value(mrb))
+}
+
+fn sync(mrb: &Mrb, self_: Value, data_only: bool) -> Result<Value, Error> {
+    let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
+    with_file(fd, |file| match data_only {
+        true => file.sync_data(),
+        false => file.sync_all(),
+    })
+    .map_err(|err| errno::from_io(mrb, &err, &label(mrb, self_)))?;
+    Ok(0.into_value(mrb))
+}
+
+fn io_fsync(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    sync(mrb, self_, false)
+}
+
+fn io_fdatasync(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    sync(mrb, self_, true)
+}
+
+/// `advise(advice, offset = 0, len = 0)` checks the advice as CRuby does
+/// before it reaches the stream, and answers `nil`.
+fn io_advise(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
+    let args = scan_args::<(Value,), (Option<i64>, Option<i64>), (), (), (), ()>(mrb)?;
+    let (advice,) = args.required;
+    let (offset, len) = args.optional;
+    let symbol = Symbol::from_value(advice).ok_or_else(|| {
+        let type_error = mrb.exception_type_error();
+        match type_error {
+            Ok(class) => Error::new(mrb, class, "advice must be a Symbol"),
+            Err(err) => err,
+        }
+    })?;
+    let name = symbol.name(mrb)?;
+    let advice = ADVICES
+        .iter()
+        .position(|known| *known == name)
+        .ok_or_else(|| errno::not_implemented(mrb, &format!("Unsupported advice: :{name}")))?;
+    let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
+    // SAFETY: `fd` is a descriptor this guest may reach; the call only reads
+    // its arguments.
+    let refused =
+        unsafe { raw::posix_fadvise(fd, offset.unwrap_or(0), len.unwrap_or(0), advice as c_int) };
+    if refused != 0 {
+        let err = io::Error::from_raw_os_error(refused);
+        return Err(errno::from_io(mrb, &err, &label(mrb, self_)));
+    }
+    Ok(qnil().as_value())
 }
 
 unsafe extern "C" {

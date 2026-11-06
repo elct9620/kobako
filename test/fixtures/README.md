@@ -105,7 +105,7 @@ Hand-written text-format module that serves neither an invocation nor a block. T
 
 ## `minimal_stat_fields.wat`
 
-Hand-written text-format module that stats `f` by path and through a descriptor, then lists the first preopen. The real Guest Binary reads no listing, so its `#eval` result hands a test each number preview1 answered.
+Hand-written text-format module that stats `f` by path and through a descriptor, then lists the first preopen. The real Guest Binary reads no time and no inode number from a listing, so its `#eval` result hands a test each number preview1 answered.
 
 | Member | Holds |
 |---|---|
@@ -160,22 +160,6 @@ Hand-written text-format module whose compile answers the ambient bytes it read.
 |---|---|
 | compile | answers one bytecode: the realtime clock, then 8 bytes of entropy |
 | any other | answers a nil Result at once |
-
-## `minimal_fsync.wat`
-
-Hand-written text-format module that syncs a file of a Mount and answers the errno. The real Guest Binary imports no `fd_sync`, so no script can sync a file.
-
-| Downcall | What it does |
-|---|---|
-| any | opens `note.txt` beneath the first preopen, syncs it, and answers the errno as an Integer |
-
-## `minimal_fsync_dir.wat`
-
-Hand-written text-format module that syncs a Mount's directory and answers the errno, for the same reason as `minimal_fsync.wat`.
-
-| Downcall | What it does |
-|---|---|
-| any | syncs the first preopen and answers the errno as an Integer |
 
 ## `minimal_moved_directory.wat`
 

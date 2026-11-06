@@ -33,6 +33,8 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     file.define_method(mrb, c"initialize", beni::method!(file_initialize, -1))?;
     file.define_method(mrb, c"path", beni::method!(file_path, 0))?;
     file.define_method(mrb, c"size", beni::method!(file_size, 0))?;
+    file.define_method(mrb, c"truncate", beni::method!(file_truncate, 1))?;
+    file.define_singleton_method(mrb, c"truncate", beni::method!(file_s_truncate, 2))?;
 
     file.define_singleton_method(mrb, c"open", beni::method!(file_s_open, -1))?;
     file.define_singleton_method(mrb, c"read", beni::method!(file_s_read, 1))?;
@@ -71,7 +73,7 @@ fn is_mounted() -> bool {
     true
 }
 
-fn require_mount(mrb: &Mrb, call: &str) -> Result<(), Error> {
+pub(crate) fn require_mount(mrb: &Mrb, call: &str) -> Result<(), Error> {
     if is_mounted() {
         return Ok(());
     }
@@ -83,7 +85,7 @@ fn require_mount(mrb: &Mrb, call: &str) -> Result<(), Error> {
 
 /// A path as a String names it. One whose bytes are no valid UTF-8 names
 /// nothing WASI can reach, so it fails as the engine would answer it.
-fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
+pub(crate) fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
     if let Some(bytes) = Vec::<u8>::from_value(value) {
         return String::from_utf8(bytes).map_err(|err| {
             let path = String::from_utf8_lossy(err.as_bytes());
@@ -97,6 +99,11 @@ unsafe extern "C" {
     /// wasi-libc `open(2)`, which hands the host every flag a mode asks
     /// for, as `std::fs::OpenOptions` refuses a create without a write.
     fn open(path: *const c_char, flags: c_int, ...) -> c_int;
+
+    /// wasi-libc `ftruncate(2)` and `truncate(2)`, which refuse a negative
+    /// length as Linux does rather than taking it as a huge one.
+    fn ftruncate(fd: c_int, length: i64) -> c_int;
+    fn truncate(path: *const c_char, length: i64) -> c_int;
 }
 
 fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error> {
@@ -136,6 +143,36 @@ fn file_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(i64::try_from(len).unwrap_or(i64::MAX).into_value(mrb))
 }
 
+fn file_truncate(mrb: &Mrb, self_: Value, length: i64) -> Result<Value, Error> {
+    let fd = crate::io::checked_fd(
+        mrb,
+        self_,
+        "kobako File reaches only a file this guest opened",
+    )?;
+    if !crate::io::opened_to_write(fd) {
+        return Err(errno::io_error(mrb, "not opened for writing"));
+    }
+    // SAFETY: `fd` is a file this guest opened; the call takes no buffer.
+    if unsafe { ftruncate(fd, length) } != 0 {
+        let err = io::Error::last_os_error();
+        let label = crate::stream::label(mrb, self_);
+        return Err(errno::from_transfer(mrb, &err, &label, "writing"));
+    }
+    Ok(0.into_value(mrb))
+}
+
+fn file_s_truncate(mrb: &Mrb, _self: Value, path: Value, length: i64) -> Result<Value, Error> {
+    require_mount(mrb, "File.truncate")?;
+    let path = path_arg(mrb, path)?;
+    let c_path = CString::new(path.as_str())
+        .map_err(|_| argument_error(mrb, "string contains null byte"))?;
+    // SAFETY: `c_path` is NUL-terminated and outlives the call.
+    if unsafe { truncate(c_path.as_ptr(), length) } != 0 {
+        return Err(errno::from_io(mrb, &io::Error::last_os_error(), &path));
+    }
+    Ok(0.into_value(mrb))
+}
+
 /// `File.open` with a block yields the file and closes it however the
 /// block ends, answering the block's value.
 fn file_s_open(mrb: &Mrb, self_: RClass, args: &[Value]) -> Result<Value, Error> {
@@ -170,7 +207,7 @@ fn file_s_write(mrb: &Mrb, _self: Value, path: Value, data: Value) -> Result<Val
         .into_value(mrb))
 }
 
-fn metadata(mrb: &Mrb, call: &str, path: Value) -> Result<Option<fs::Metadata>, Error> {
+pub(crate) fn metadata(mrb: &Mrb, call: &str, path: Value) -> Result<Option<fs::Metadata>, Error> {
     require_mount(mrb, call)?;
     let path = path_arg(mrb, path)?;
     Ok(fs::metadata(path).ok())
