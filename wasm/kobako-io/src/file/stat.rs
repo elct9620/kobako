@@ -13,7 +13,7 @@ use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Module, Mrb, RClass, RTypedData, TryConvert, TypedData, Value};
 
-use super::{c_path, path_arg, require_mount};
+use super::{c_path, path_arg, require_mount, REACH_REFUSAL};
 use crate::errno;
 
 // wasi-libc's `st_mode` kinds.
@@ -288,11 +288,7 @@ fn stat_socket_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 }
 
 fn file_stat(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = crate::io::checked_fd(
-        mrb,
-        self_,
-        "kobako File reaches only a file this guest opened",
-    )?;
+    let fd = crate::io::checked_fd(mrb, self_, REACH_REFUSAL)?;
     let stat = raw::fstat(fd)
         .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label(mrb, self_)))?;
     Ok(report_value(mrb, stat))
@@ -301,11 +297,7 @@ fn file_stat(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// The entry the path it was opened by names now, as `File#lstat` asks by the
 /// path rather than the descriptor.
 fn file_lstat(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    crate::io::checked_fd(
-        mrb,
-        self_,
-        "kobako File reaches only a file this guest opened",
-    )?;
+    crate::io::checked_fd(mrb, self_, REACH_REFUSAL)?;
     let path = crate::stream::label(mrb, self_);
     let path = mrb.str_new(path.as_bytes()).as_value();
     Ok(report_value(

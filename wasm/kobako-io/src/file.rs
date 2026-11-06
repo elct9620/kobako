@@ -24,6 +24,10 @@ use crate::{descriptors, errno};
 pub(crate) mod mode;
 mod stat;
 
+/// What a `File` standing for a descriptor this guest may no longer reach is
+/// refused with.
+const REACH_REFUSAL: &str = "kobako File reaches only a file this guest opened";
+
 pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     use beni::Module;
 
@@ -142,22 +146,14 @@ fn file_path(mrb: &Mrb, self_: Value) -> Value {
 }
 
 fn file_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = crate::io::checked_fd(
-        mrb,
-        self_,
-        "kobako File reaches only a file this guest opened",
-    )?;
+    let fd = crate::io::checked_fd(mrb, self_, REACH_REFUSAL)?;
     let len = with_file(fd, |file| Ok(file.metadata()?.len()))
         .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label(mrb, self_)))?;
     Ok(i64::try_from(len).unwrap_or(i64::MAX).into_value(mrb))
 }
 
 fn file_truncate(mrb: &Mrb, self_: Value, length: i64) -> Result<Value, Error> {
-    let fd = crate::io::checked_fd(
-        mrb,
-        self_,
-        "kobako File reaches only a file this guest opened",
-    )?;
+    let fd = crate::io::checked_fd(mrb, self_, REACH_REFUSAL)?;
     if !crate::io::opened_to_write(fd) {
         return Err(errno::io_error(mrb, "not opened for writing"));
     }
