@@ -143,6 +143,10 @@ impl<'a> Pieces<'a> {
             return Piece::Text(self.take(1));
         };
         let in_class = self.class_depth > 0;
+        if letter == 'x' && after[1..].starts_with('{') {
+            self.take(2);
+            return Piece::Refused("invalid hex escape");
+        }
         if matches!(letter, 'p' | 'P') && after[1..].starts_with('{') {
             if let Some(close) = after.find('}') {
                 let text = self.take(close + 2);
@@ -161,7 +165,7 @@ impl<'a> Pieces<'a> {
         }
         if !in_class {
             // The brace belongs to the escape, and opens no interval.
-            if matches!(letter, 'x' | 'u' | 'o') && after[1..].starts_with('{') {
+            if matches!(letter, 'u' | 'o') && after[1..].starts_with('{') {
                 if let Some(close) = after.find('}') {
                     return Piece::Text(self.take(close + 2));
                 }
@@ -214,6 +218,11 @@ impl<'a> Pieces<'a> {
             self.take(1);
             return Piece::Refused(UNDEFINED_OPTION);
         }
+        // The engine's absence operator answers differently from Onigmo's.
+        if option.starts_with('~') {
+            self.take(1);
+            return Piece::Refused("the absence operator is not supported");
+        }
         if option.starts_with('(') && option[1..].starts_with(|c: char| c.is_ascii_digit()) {
             // The condition's own `)` is read with it, so it closes no frame.
             let len = option.find(')').map_or(self.rest.len(), |close| close + 3);
@@ -246,7 +255,7 @@ impl<'a> Pieces<'a> {
         }
         let outer = self.frame().look_behind;
         self.open_frame();
-        let len = ["<=", "<!", "=", "!", ">", "~"]
+        let len = ["<=", "<!", "=", "!", ">"]
             .iter()
             .find(|opener| option.starts_with(**opener))
             .map_or(2, |opener| 2 + opener.len());

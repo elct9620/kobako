@@ -74,6 +74,18 @@ class TestRegexpRefusedSyntax < Minitest::Test
                  "an interval with equal bounds through a match must still read"
   end
 
+  # @behavior RX-301
+  def test_a_hex_escape_in_braces_is_refused
+    ['\\\\x{41}', '[\\\\x{41}]'].each { |source| assert_refused source }
+    assert_equal %w[A é], eval_regexp('[/\x41/.match("A")[0], /\u{e9}/.match("é")[0]]'),
+                 "a two-digit hex escape and a braced Unicode escape through a match must still read"
+  end
+
+  # @behavior RX-302
+  def test_the_absence_operator_is_refused
+    ["(?~abc)", "(?~|abc|x)", "(?~|)", "(?~)"].each { |source| assert_refused source }
+  end
+
   private
 
   def assert_refused(source)

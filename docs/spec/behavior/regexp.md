@@ -1810,3 +1810,27 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp Guest Binary built without Unicode support |
 | When | guest code matches a hex digit property |
 | Then | it answers the matched substring |
+
+## `RX-301` A hex escape in braces is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-272` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a pattern holding a hex escape in braces, in or out of a class |
+| Then | a `RegexpError` is raised |
+
+## `RX-302` The absence operator is refused, not answered differently
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-272` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a pattern holding the absence operator in any of its forms |
+| Then | a `RegexpError` is raised |
