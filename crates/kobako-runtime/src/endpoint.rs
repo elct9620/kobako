@@ -14,7 +14,9 @@ mod memory_cap;
 
 use std::fmt::Display;
 
-use crate::error::Trap;
+use kobako_transport::abi::ABI_VERSION;
+
+use crate::error::{SetupError, Trap};
 
 pub use capture::{clip_capture, pipe_capacity};
 pub use dispatch::{handle, Calls, UpcallEnd, ABANDONED};
@@ -29,6 +31,24 @@ pub use memory_cap::{MemoryCap, MemoryLimitExceeded};
 /// what a caller can do is rebuild the runtime.
 pub const RUNTIME_INCOMPATIBLE: &str =
     "the Sandbox runtime is incompatible; rebuild it against the kobako version in use";
+
+/// Accept a Guest Binary only when the ABI version it reports is the host's;
+/// `None` means it exports none. Only rebuilding the artifact fixes either
+/// refusal, so both are `Dead` and say so.
+pub fn verify_abi_version(reported: Option<u32>) -> Result<(), SetupError> {
+    match reported {
+        None => Err(SetupError::Dead(format!(
+            "the Guest Binary does not export __kobako_abi_version; \
+             rebuild it against ABI version {ABI_VERSION}"
+        ))),
+        Some(version) if version != ABI_VERSION => Err(SetupError::Dead(format!(
+            "the Guest Binary reports ABI version {version}, but this host \
+             implements ABI version {ABI_VERSION}; rebuild the Guest Binary \
+             against the host's version"
+        ))),
+        Some(_) => Ok(()),
+    }
+}
 
 /// For the "the loaded Wasm module is not a Kobako-shaped runtime at all"
 /// failure mode, such as an instance with no `memory` export.

@@ -1,4 +1,5 @@
-//! The Guest Binary's declared ABI version check.
+//! Reading the Guest Binary's declared ABI version for the endpoint to
+//! accept or refuse.
 //!
 //! An artifact reports one ABI version, so the answer belongs to the
 //! module and not to the sandbox asking for it. The check therefore runs
@@ -13,8 +14,8 @@ use crate::cache::shared_engine;
 use crate::invocation::Invocation;
 use crate::trap;
 use crate::wasi::Wasi;
+use kobako_runtime::endpoint;
 use kobako_runtime::error::{SetupError, Trap};
-use kobako_transport::abi::ABI_VERSION;
 
 /// An absent or unequal version is a deterministic artifact fault, so
 /// every failure is a `SetupError`. `setup_timeout` bounds instantiating
@@ -40,14 +41,11 @@ pub(crate) fn verify(
     let instance = pre
         .instantiate(store.as_context_mut())
         .map_err(|e| past_deadline(&e).unwrap_or_else(|| trap::instantiate_err(e)))?;
-    let probe = instance
-        .get_typed_func::<(), u32>(store.as_context_mut(), "__kobako_abi_version")
-        .map_err(|_| {
-            SetupError::Dead(format!(
-                "the Guest Binary does not export __kobako_abi_version; \
-                 rebuild it against ABI version {ABI_VERSION}"
-            ))
-        })?;
+    let Ok(probe) =
+        instance.get_typed_func::<(), u32>(store.as_context_mut(), "__kobako_abi_version")
+    else {
+        return endpoint::verify_abi_version(None);
+    };
     let reported = probe.call(store.as_context_mut(), ()).map_err(|e| {
         past_deadline(&e).unwrap_or_else(|| {
             SetupError::Dead(format!(
@@ -55,14 +53,7 @@ pub(crate) fn verify(
             ))
         })
     })?;
-    if reported != ABI_VERSION {
-        return Err(SetupError::Dead(format!(
-            "the Guest Binary reports ABI version {reported}, but this host \
-             implements ABI version {ABI_VERSION}; rebuild the Guest Binary \
-             against the host's version"
-        )));
-    }
-    Ok(())
+    endpoint::verify_abi_version(Some(reported))
 }
 
 #[cfg(test)]

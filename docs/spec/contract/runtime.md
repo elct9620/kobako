@@ -340,6 +340,15 @@ The message for a required guest export that is absent or mistyped.
 pub const RUNTIME_INCOMPATIBLE: &str = "the Sandbox runtime is incompatible; rebuild it against the kobako version in use";
 ```
 
+## `verify_abi_version`
+
+Accept a Guest Binary only when the ABI version it reports is the host's; `None`
+means it exports none.
+
+```rust
+pub fn verify_abi_version(reported: Option<u32>) -> Result<(), SetupError> {}
+```
+
 ## `stdin_content`
 
 What the guest reads from stdin: the Preamble behind its length prefix.
