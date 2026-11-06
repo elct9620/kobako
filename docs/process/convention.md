@@ -1,10 +1,11 @@
 # Conventions
 
-How code in kobako is named, beside [`architecture.md`](../architecture.md), which says where it goes. Every rule applies to Rust, Ruby, and RBS alike.
+How code in kobako is named and worded, beside [`architecture.md`](../architecture.md), which says where it goes. Every rule applies to Rust, Ruby, and RBS alike.
 
 | Question | Section |
 |---|---|
 | what a name must achieve | Principles |
+| what a name or a comment may point at | Self-Contained Wording |
 | how a name is settled | Precedence |
 | which word class names what | Word Classes, Method Names |
 | where `-ed` and `-ing` stand | Participles |
@@ -23,6 +24,18 @@ A name serves two principles, and the first overrides the second.
 | Self-describing | receiver and name read as a phrase no comment repeats |
 
 Because names carry the intent, a comment is left for what no name can say: a reason, a constraint, or a reference to something outside.
+
+## Self-Contained Wording
+
+A name, a comment, a task description, or a message says what it is about where the reader stands. A reader handed a step number or a label must leave to look it up, and loses the thread.
+
+| Write | Not |
+|---|---|
+| the thing a step handles | its number in a process: the mruby archive, not Stage B |
+| the outside thing by its own name | a label only one document defines: `d_make_root`, not "step 3" |
+| what a check guards | the finding or round that raised it |
+
+A reference to something outside stays, as long as it names that thing: a Linux function, a CRuby method, a POSIX error.
 
 ## Precedence
 
@@ -48,8 +61,6 @@ What a name stands for decides its word class.
 | An enum variant | a noun or an adjective | `Profile::Hermetic`, `Grant::Mount` |
 | A variable or field | a noun, or the state it records | `owner`, `live` |
 | A callback, a method or the field holding one | `on_` and the event | `on_dispatch` |
-
-A name, a comment, or a task description says what a step handles, never its number in a process: the mruby archive, not Stage B.
 
 A method names no subject, because its receiver is one: `sandbox.mount(path, fs)` reads as noun, verb, and noun. An attribute answers what a value holds and takes nothing.
 

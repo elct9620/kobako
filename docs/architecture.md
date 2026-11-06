@@ -270,7 +270,7 @@ Behavior lives in the spec under [`spec/`](spec/). Each layer has one reference 
 | `filesystem` | the spec | [`spec/`](spec/) |
 | capability gems | CRuby as closely as the guest can; a scenario states each forced difference | [`spec/behavior/json.md`](spec/behavior/json.md), [`spec/behavior/regexp.md`](spec/behavior/regexp.md) |
 | the two Frontends | each other | [`process/parity.md`](process/parity.md) |
-| names | the naming baseline | [`process/convention.md`](process/convention.md) |
+| names and wording | the naming baseline | [`process/convention.md`](process/convention.md) |
 
 wasmtime-wasi is a reference for the WASI encoding, never a baseline.
 
