@@ -3,9 +3,11 @@
 //!
 //! These are pure string transforms with no mruby dependency, so they are
 //! unit-tested directly on the host. They carry what MRI reads differently
-//! from the engine: per-line anchors, `/m` as DOTALL, ASCII shorthand classes,
-//! and how named groups capture and are referred to. What the engine cannot
-//! answer as MRI would is refused here rather than answered differently.
+//! from the engine: per-line anchors, `/m` as DOTALL, the classes each
+//! character set option reaches, escapes, stacked quantifiers, folds to
+//! several characters, and how named groups capture and are referred to.
+//! What the engine cannot answer as MRI would is refused here rather than
+//! answered differently.
 
 mod classes;
 mod fold;
