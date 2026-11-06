@@ -2,7 +2,8 @@
 ;; path, opens it, stats what it opened, and lists the preopen. It answers an
 ;; array: the four errnos, the path's inode number, count of names, and three
 ;; times, the same five of the open file, then the inode number the listing
-;; gives `f`. The real Guest Binary reads no listing, so no script can.
+;; gives `f`. The real Guest Binary reads no time and no inode number from a
+;; listing, so no script can.
 ;;
 ;; Update the `i32.const` ABI version by hand on a bump, same as
 ;; `minimal_abi_ok.wat`.

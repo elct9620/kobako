@@ -3,8 +3,8 @@
 require "test_helper"
 
 # E2E — what a guest reads of an entry a Filesystem written in Ruby reports.
-# The real Guest Binary reads no listing, so a fixture guest answers each
-# number preview1 hands it.
+# The real Guest Binary reads no time and no inode number from a listing, so a
+# fixture guest answers each number preview1 hands it.
 class TestE2ERubyFilesystemStat < Minitest::Test
   include E2eGuestHelper
 
