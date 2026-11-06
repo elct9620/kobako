@@ -1721,6 +1721,10 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 
 ## `RX-293` A POSIX bracket reads Unicode in the Unicode build
 
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-085` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp Guest Binary built with Unicode support |
@@ -1837,6 +1841,10 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 
 ## `RX-303` An octal escape names a character unless the number names a group
 
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-301` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
@@ -1857,6 +1865,10 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 
 ## `RX-305` An escaped letter without a meaning reads as the letter
 
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-303` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
@@ -1864,6 +1876,10 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Then | each reads as its letter |
 
 ## `RX-306` A braced Unicode escape may name several characters
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-301` |
 
 | Step | Statement |
 | --- | --- |
@@ -1920,6 +1936,10 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Then | each look-around is tried once, or skipped when the quantifier may skip it |
 
 ## `RX-311` A backreference level reads one level when nothing recurses
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-271` |
 
 | Step | Statement |
 | --- | --- |
