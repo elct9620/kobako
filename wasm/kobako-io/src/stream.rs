@@ -22,7 +22,7 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use core::ffi::c_int;
 
-use beni::{Error, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, Symbol, Value};
+use beni::{Error, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RString, Symbol, Value};
 
 use crate::io::{argument_error, checked_fd, is_closed, release, Stream};
 use crate::{descriptors, errno};
@@ -63,7 +63,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     io.define_method(mrb, c"pos", beni::method!(io_pos, 0))?;
     io.define_method(mrb, c"pos=", beni::method!(io_set_pos, 1))?;
     io.define_method(mrb, c"tell", beni::method!(io_pos, 0))?;
-    io.define_method(mrb, c"pread", beni::method!(io_pread, 2))?;
+    io.define_method(mrb, c"pread", beni::method!(io_pread, -1))?;
     io.define_method(mrb, c"pwrite", beni::method!(io_pwrite, 2))?;
     io.define_method(mrb, c"fsync", beni::method!(io_fsync, 0))?;
     io.define_method(mrb, c"fdatasync", beni::method!(io_fdatasync, 0))?;
@@ -278,23 +278,48 @@ mod raw {
     }
 }
 
-/// `pread(maxlen, offset)` reads at `offset` without moving the position,
-/// raising `EOFError` where nothing is left, as CRuby does.
-fn io_pread(mrb: &Mrb, self_: Value, length: i64, offset: i64) -> Result<Value, Error> {
+/// `pread(maxlen, offset, outbuf)` reads at `offset` without moving the
+/// position, raising `EOFError` where nothing is left, as CRuby does. It
+/// reads a chunk at a time, so `maxlen` claims no memory the file does not
+/// fill, and replaces what `outbuf` held with what it read.
+fn io_pread(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
+    let args = scan_args::<(i64, i64), (Option<Value>,), (), (), (), ()>(mrb)?;
+    let (length, offset) = args.required;
+    let (outbuf,) = args.optional;
+    let outbuf = match outbuf.filter(|value| !value.is_nil()) {
+        Some(value) => {
+            Some(RString::from_value(value).ok_or_else(|| errno::type_error(mrb, value))?)
+        }
+        None => None,
+    };
     let fd = readable(mrb, self_)?;
     let length = usize::try_from(length)
         .map_err(|_| argument_error(mrb, "negative string size (or size too big)"))?;
-    let mut buf = vec![0u8; length];
-    // SAFETY: `buf` holds `length` writable bytes for the call.
-    let read = unsafe { raw::pread(fd, buf.as_mut_ptr().cast(), length, offset) };
-    if read < 0 {
-        return Err(fail(mrb, self_, &io::Error::last_os_error()));
+    let mut bytes = Vec::with_capacity(length.min(CHUNK));
+    let mut chunk = [0u8; CHUNK];
+    while bytes.len() < length {
+        let want = (length - bytes.len()).min(CHUNK);
+        let at = offset + bytes.len() as i64;
+        // SAFETY: `chunk` holds `want` writable bytes for the call.
+        let read = unsafe { raw::pread(fd, chunk.as_mut_ptr().cast(), want, at) };
+        if read < 0 {
+            return Err(fail(mrb, self_, &io::Error::last_os_error()));
+        }
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&chunk[..read as usize]);
     }
-    if read == 0 && length > 0 {
+    if bytes.is_empty() && length > 0 {
         let eof = mrb.exc_get(c"EOFError")?;
         return Err(Error::new(mrb, eof, "end of file reached"));
     }
-    Ok(mrb.str_new(&buf[..read as usize]).as_value())
+    let Some(outbuf) = outbuf else {
+        return Ok(mrb.str_new(&bytes).as_value());
+    };
+    outbuf.resize(mrb, 0)?;
+    outbuf.cat(mrb, &bytes)?;
+    Ok(outbuf.as_value())
 }
 
 /// `pwrite(string, offset)` writes at `offset` without moving the position,
@@ -339,9 +364,11 @@ fn io_fdatasync(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// `advise(advice, offset = 0, len = 0)` checks the advice as CRuby does
 /// before it reaches the stream, and answers `nil`.
 fn io_advise(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
-    let args = scan_args::<(Value,), (Option<i64>, Option<i64>), (), (), (), ()>(mrb)?;
+    // A `nil` offset or length is 0, as CRuby reads one.
+    let args =
+        scan_args::<(Value,), (Option<Option<i64>>, Option<Option<i64>>), (), (), (), ()>(mrb)?;
     let (advice,) = args.required;
-    let (offset, len) = args.optional;
+    let (offset, len) = (args.optional.0.flatten(), args.optional.1.flatten());
     let symbol = Symbol::from_value(advice).ok_or_else(|| {
         let type_error = mrb.exception_type_error();
         match type_error {

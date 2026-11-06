@@ -6,16 +6,15 @@
 //! block device reach it as no kind at all, the guest has no `Time` to give a
 //! time in, and the host shows every entry on one device.
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::io;
 
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Module, Mrb, RClass, RTypedData, TryConvert, TypedData, Value};
 
-use super::{path_arg, require_mount};
+use super::{c_path, path_arg, require_mount};
 use crate::errno;
-use crate::io::argument_error;
 
 // wasi-libc's `st_mode` kinds.
 const S_IFMT: u32 = 0xf000;
@@ -212,9 +211,7 @@ fn ask_host(
 ) -> Result<(String, io::Result<Stat>), Error> {
     require_mount(mrb, call)?;
     let path = path_arg(mrb, path)?;
-    let c_path = CString::new(path.as_str())
-        .map_err(|_| argument_error(mrb, "string contains null byte"))?;
-    let found = ask(&c_path);
+    let found = ask(&c_path(&path));
     Ok((path, found))
 }
 

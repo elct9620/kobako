@@ -532,8 +532,15 @@ fn an_integer_mode_may_create_or_truncate_without_asking_to_write() {
 // @behavior FL-033
 #[test]
 fn a_path_holding_a_nul_byte_raises_argument_error() {
+    let script = r#"
+        path = "/data/note.txt\0x"
+        calls = [-> { File.open(path) { } }, -> { File.read(path) }, -> { File.write(path, "x") },
+                 -> { File.exist?(path) }, -> { File.stat(path) }, -> { Dir.exist?(path) },
+                 -> { Dir.children(path) }]
+        print calls.map { |call| begin; call.call; "none"; rescue Exception => e; e.class.to_s; end }.join(",")
+    "#;
     let Some(answer) = run(
-        r#"File.open("/data/note.txt\0x") { }"#,
+        script,
         &[mount(note_tmpfs(), Access::ReadWrite)],
         Vec::new(),
     ) else {
@@ -541,8 +548,11 @@ fn a_path_holding_a_nul_byte_raises_argument_error() {
     };
     assert_eq!(
         answer,
-        Err("ArgumentError".to_string()),
-        "File.open of a path holding a NUL byte through the bundled guest must raise ArgumentError"
+        Ok("ArgumentError,ArgumentError,ArgumentError,ArgumentError,ArgumentError,ArgumentError,\
+            ArgumentError"
+            .to_string()),
+        "File.open, File.read, File.write, File.exist?, File.stat, Dir.exist?, and Dir.children of a \
+         path holding a NUL byte through the bundled guest must each raise ArgumentError"
     );
 }
 

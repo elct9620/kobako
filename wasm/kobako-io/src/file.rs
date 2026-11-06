@@ -83,16 +83,26 @@ pub(crate) fn require_mount(mrb: &Mrb, call: &str) -> Result<(), Error> {
     ))
 }
 
-/// A path as a String names it. One whose bytes are no valid UTF-8 names
-/// nothing WASI can reach, so it fails as the engine would answer it.
+/// A path as a String names it. One holding a NUL raises `ArgumentError`,
+/// as CRuby refuses one for every path call. One whose bytes are no valid
+/// UTF-8 names nothing WASI can reach, so it fails as the engine would
+/// answer it.
 pub(crate) fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
-    if let Some(bytes) = Vec::<u8>::from_value(value) {
-        return String::from_utf8(bytes).map_err(|err| {
-            let path = String::from_utf8_lossy(err.as_bytes());
-            errno::error_by_name(mrb, c"EILSEQ", &path)
-        });
+    let Some(bytes) = Vec::<u8>::from_value(value) else {
+        return Err(errno::type_error(mrb, value));
+    };
+    if bytes.contains(&0) {
+        return Err(argument_error(mrb, "string contains null byte"));
     }
-    Err(errno::type_error(mrb, value))
+    String::from_utf8(bytes).map_err(|err| {
+        let path = String::from_utf8_lossy(err.as_bytes());
+        errno::error_by_name(mrb, c"EILSEQ", &path)
+    })
+}
+
+/// `path`, which `path_arg` answered, as the C string a libc call takes.
+pub(crate) fn c_path(path: &str) -> CString {
+    CString::new(path).expect("path_arg refuses a path holding a NUL")
 }
 
 unsafe extern "C" {
@@ -113,8 +123,7 @@ fn file_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error
     let (mode, _perm) = args.optional;
     let path = path_arg(mrb, path)?;
     let flags = mode::open_flags(mrb, mode, &path)?;
-    let c_path = CString::new(path.as_str())
-        .map_err(|_| argument_error(mrb, "string contains null byte"))?;
+    let c_path = c_path(&path);
     // SAFETY: `c_path` is NUL-terminated and outlives the call.
     let fd = unsafe { open(c_path.as_ptr(), flags) };
     if fd < 0 {
@@ -164,8 +173,7 @@ fn file_truncate(mrb: &Mrb, self_: Value, length: i64) -> Result<Value, Error> {
 fn file_s_truncate(mrb: &Mrb, _self: Value, path: Value, length: i64) -> Result<Value, Error> {
     require_mount(mrb, "File.truncate")?;
     let path = path_arg(mrb, path)?;
-    let c_path = CString::new(path.as_str())
-        .map_err(|_| argument_error(mrb, "string contains null byte"))?;
+    let c_path = c_path(&path);
     // SAFETY: `c_path` is NUL-terminated and outlives the call.
     if unsafe { truncate(c_path.as_ptr(), length) } != 0 {
         return Err(errno::from_io(mrb, &io::Error::last_os_error(), &path));
