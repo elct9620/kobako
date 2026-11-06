@@ -25,6 +25,7 @@ row below links a feature to its scenarios and to where its code starts.
 | ✅ [Regexp over String](docs/spec/behavior/regexp-string.md) | [wasm/kobako-regexp/src/string_ext.rs](wasm/kobako-regexp/src/string_ext.rs) |
 | ✅ [MatchData](docs/spec/behavior/regexp-matchdata.md) | [wasm/kobako-regexp/src/matchdata.rs](wasm/kobako-regexp/src/matchdata.rs) |
 | ✅ [Guest File](docs/spec/behavior/file.md) | [wasm/kobako-io/src/file.rs](wasm/kobako-io/src/file.rs) |
+| ✅ [Guest Dir](docs/spec/behavior/dir.md) | [wasm/kobako-io/src/dir.rs](wasm/kobako-io/src/dir.rs) |
 | ✅ [Filesystem](docs/spec/behavior/filesystem.md) | [crates/kobako-runtime/src/filesystem.rs](crates/kobako-runtime/src/filesystem.rs) |
 | ✅ [Mount](docs/spec/behavior/mount.md) | [lib/kobako/catalog/mount.rb](lib/kobako/catalog/mount.rb) |
 | ✅ [Ruby Filesystem](docs/spec/behavior/ruby-filesystem.md) | [ext/kobako/src/runtime/filesystem/ruby.rs](ext/kobako/src/runtime/filesystem/ruby.rs) |

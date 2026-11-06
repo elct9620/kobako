@@ -200,7 +200,6 @@ bundle exec rake install   # install the local checkout
 ```
 
 The first compile builds mruby and the Guest Binary through the [beni] gem.
-`AGENTS.md` maps the rake tasks and the repository layout.
 
 [beni]: https://github.com/elct9620/beni
 
