@@ -30,9 +30,9 @@ impl kobako_mruby::MrbGuest for KobakoGuest {
         Ok(())
     }
 
-    /// `disable_file` removes `File` before any user code runs, for a Host
-    /// App that wants a guest with no file surface at all. Without a Mount
-    /// `File` already reaches nothing, so this narrows
+    /// `disable_file` removes `File` and `Dir` before any user code runs, for
+    /// a Host App that wants a guest with no file surface at all. Without a
+    /// Mount both already reach nothing, so this narrows
     /// what the guest can name, not what it can reach.
     fn apply_flag(mrb: &Mrb, flag: &Flag) -> Result<bool, Error> {
         use beni::Module;
@@ -40,6 +40,7 @@ impl kobako_mruby::MrbGuest for KobakoGuest {
         match flag.name.as_str() {
             "disable_file" => {
                 mrb.class_object().const_remove(mrb, c"File")?;
+                mrb.class_object().const_remove(mrb, c"Dir")?;
                 Ok(true)
             }
             _ => Ok(false),

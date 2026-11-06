@@ -1,0 +1,234 @@
+//! `::Dir`: the directories beneath the paths a Host App mounted, listed,
+//! made, and removed as CRuby's `Dir` does on Linux.
+//!
+//! A path resolves as `File`'s does, and with no Mount every call raises
+//! `NotImplementedError`. An opened `Dir` lists its entries when it opens
+//! and again on each `each`, as POSIX leaves a change made since then
+//! unspecified. The guest has no `Enumerator`, so a call CRuby answers with
+//! one without a block raises instead.
+
+use std::cell::RefCell;
+use std::fs;
+use std::io;
+
+use beni::prelude::*;
+use beni::scan_args::scan_args;
+use beni::value::qnil;
+use beni::{Error, IntoValue, Module, Mrb, Proc, RClass, TryConvert, TypedData, Value};
+
+use crate::errno;
+use crate::file::{metadata, path_arg, require_mount};
+use crate::io::argument_error;
+
+/// What an opened `Dir` stands for, `None` once closed, kept in its payload
+/// so a script's instance variables cannot rewrite it.
+#[beni::wrap(class = "Dir", name = "Kobako::Dir")]
+struct Listing(RefCell<Option<Opened>>);
+
+struct Opened {
+    path: String,
+    entries: Vec<Vec<u8>>,
+    next: usize,
+}
+
+impl Listing {
+    fn of<'a>(mrb: &Mrb, value: Value) -> Result<&'a Listing, Error> {
+        <&Listing>::try_convert(value, mrb)
+    }
+}
+
+pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
+    let dir = mrb.define_class(c"Dir", mrb.class_object())?;
+    Listing::mark_carriers(mrb)?;
+    dir.include_module(mrb, mrb.module_get(c"Enumerable")?)?;
+    dir.define_singleton_method(mrb, c"new", beni::method!(dir_s_new, 1))?;
+    dir.define_singleton_method(mrb, c"open", beni::method!(dir_s_open, -1))?;
+    dir.define_singleton_method(mrb, c"children", beni::method!(dir_s_children, 1))?;
+    dir.define_singleton_method(mrb, c"entries", beni::method!(dir_s_entries, 1))?;
+    dir.define_singleton_method(mrb, c"each_child", beni::method!(dir_s_each_child, -1))?;
+    dir.define_singleton_method(mrb, c"exist?", beni::method!(dir_s_exist_p, 1))?;
+    dir.define_singleton_method(mrb, c"empty?", beni::method!(dir_s_empty_p, 1))?;
+    dir.define_singleton_method(mrb, c"mkdir", beni::method!(dir_s_mkdir, -1))?;
+    dir.define_singleton_method(mrb, c"rmdir", beni::method!(dir_s_rmdir, 1))?;
+    dir.define_singleton_method(mrb, c"delete", beni::method!(dir_s_rmdir, 1))?;
+    dir.define_singleton_method(mrb, c"unlink", beni::method!(dir_s_rmdir, 1))?;
+    dir.define_method(mrb, c"path", beni::method!(dir_path, 0))?;
+    dir.define_method(mrb, c"to_path", beni::method!(dir_path, 0))?;
+    dir.define_method(mrb, c"read", beni::method!(dir_read, 0))?;
+    dir.define_method(mrb, c"each", beni::method!(dir_each, 0))?;
+    dir.define_method(mrb, c"close", beni::method!(dir_close, 0))?;
+    Ok(())
+}
+
+/// `value` as a path a call beneath a Mount may take.
+fn dir_path_arg(mrb: &Mrb, call: &str, value: Value) -> Result<String, Error> {
+    require_mount(mrb, call)?;
+    let path = path_arg(mrb, value)?;
+    if path.contains('\0') {
+        return Err(argument_error(mrb, "string contains null byte"));
+    }
+    Ok(path)
+}
+
+/// The names in `path` but `.` and `..`, as the host lists them.
+fn children(path: &str) -> io::Result<Vec<Vec<u8>>> {
+    fs::read_dir(path)?
+        .map(|entry| entry.map(|entry| entry.file_name().into_encoded_bytes()))
+        .collect()
+}
+
+/// The names in `path` behind `.` and `..`, as `readdir(3)` answers them.
+fn entries(path: &str) -> io::Result<Vec<Vec<u8>>> {
+    let mut all = vec![b".".to_vec(), b"..".to_vec()];
+    all.extend(children(path)?);
+    Ok(all)
+}
+
+fn listed(
+    mrb: &Mrb,
+    call: &str,
+    path: Value,
+    list: fn(&str) -> io::Result<Vec<Vec<u8>>>,
+) -> Result<Vec<Vec<u8>>, Error> {
+    let path = dir_path_arg(mrb, call, path)?;
+    list(&path).map_err(|err| errno::from_io(mrb, &err, &path))
+}
+
+fn names_value(mrb: &Mrb, names: &[Vec<u8>]) -> Result<Value, Error> {
+    let array = mrb.ary_new();
+    for name in names {
+        array.push(mrb, mrb.str_new(name).as_value())?;
+    }
+    Ok(array.as_value())
+}
+
+fn yield_each(mrb: &Mrb, block: Proc, names: &[Vec<u8>]) -> Result<(), Error> {
+    for name in names {
+        let _scope = mrb.arena_scope();
+        block.call::<_, Value>(mrb, [mrb.str_new(name).as_value()])?;
+    }
+    Ok(())
+}
+
+fn dir_s_new(mrb: &Mrb, class: RClass, path: Value) -> Result<Value, Error> {
+    let path = dir_path_arg(mrb, "Dir.open", path)?;
+    let entries = entries(&path).map_err(|err| errno::from_io(mrb, &err, &path))?;
+    let opened = Opened {
+        path,
+        entries,
+        next: 0,
+    };
+    Ok(mrb
+        .wrap_as(Listing(RefCell::new(Some(opened))), class)
+        .as_value())
+}
+
+/// `Dir.open` with a block yields the directory and closes it however the
+/// block ends, answering the block's value.
+fn dir_s_open(mrb: &Mrb, class: RClass, _args: &[Value]) -> Result<Value, Error> {
+    let args = scan_args::<(Value,), (), (), (), (), Option<Proc>>(mrb)?;
+    let dir = dir_s_new(mrb, class, args.required.0)?;
+    let Some(block) = args.block else {
+        return Ok(dir);
+    };
+    let answer = block.call(mrb, [dir]);
+    dir_close(mrb, dir)?;
+    answer
+}
+
+fn dir_s_children(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
+    names_value(mrb, &listed(mrb, "Dir.children", path, children)?)
+}
+
+fn dir_s_entries(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
+    names_value(mrb, &listed(mrb, "Dir.entries", path, entries)?)
+}
+
+fn dir_s_each_child(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
+    let args = scan_args::<(Value,), (), (), (), (), Option<Proc>>(mrb)?;
+    let block = args
+        .block
+        .ok_or_else(|| argument_error(mrb, "Dir.each_child needs a block"))?;
+    let names = listed(mrb, "Dir.each_child", args.required.0, children)?;
+    yield_each(mrb, block, &names)?;
+    Ok(qnil().as_value())
+}
+
+fn dir_s_exist_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
+    Ok(metadata(mrb, "Dir.exist?", path)?.is_some_and(|m| m.is_dir()))
+}
+
+/// Anything but a directory is not an empty one, as CRuby answers; a
+/// missing path raises.
+fn dir_s_empty_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
+    let path = dir_path_arg(mrb, "Dir.empty?", path)?;
+    match fs::read_dir(&path) {
+        Ok(mut names) => Ok(names.next().is_none()),
+        Err(err) if err.kind() == io::ErrorKind::NotADirectory => Ok(false),
+        Err(err) => Err(errno::from_io(mrb, &err, &path)),
+    }
+}
+
+/// The permission is taken and left unused, as preview1 makes a directory
+/// with none of its own.
+fn dir_s_mkdir(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
+    let (path,) = scan_args::<(Value,), (Option<Value>,), (), (), (), ()>(mrb)?.required;
+    let path = dir_path_arg(mrb, "Dir.mkdir", path)?;
+    fs::create_dir(&path).map_err(|err| errno::from_io(mrb, &err, &path))?;
+    Ok(0.into_value(mrb))
+}
+
+fn dir_s_rmdir(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
+    let path = dir_path_arg(mrb, "Dir.rmdir", path)?;
+    fs::remove_dir(&path).map_err(|err| errno::from_io(mrb, &err, &path))?;
+    Ok(0.into_value(mrb))
+}
+
+/// What `body` makes of the open listing, or `IOError` once it is closed.
+fn with_opened<R>(
+    mrb: &Mrb,
+    self_: Value,
+    body: impl FnOnce(&mut Opened) -> R,
+) -> Result<R, Error> {
+    let listing = Listing::of(mrb, self_)?;
+    let mut held = listing.0.borrow_mut();
+    let opened = held
+        .as_mut()
+        .ok_or_else(|| errno::io_error(mrb, "closed directory"))?;
+    Ok(body(opened))
+}
+
+fn dir_path(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let path = with_opened(mrb, self_, |opened| opened.path.clone())?;
+    Ok(mrb.str_new(path.as_bytes()).as_value())
+}
+
+fn dir_read(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let name = with_opened(mrb, self_, |opened| {
+        let name = opened.entries.get(opened.next).cloned();
+        opened.next += usize::from(name.is_some());
+        name
+    })?;
+    Ok(name.map_or(qnil().as_value(), |name| mrb.str_new(&name).as_value()))
+}
+
+/// Lists the directory again from its start, as CRuby rewinds first, and
+/// leaves it at the end.
+fn dir_each(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let block = scan_args::<(), (), (), (), (), Option<Proc>>(mrb)?
+        .block
+        .ok_or_else(|| argument_error(mrb, "Dir#each needs a block"))?;
+    let path = with_opened(mrb, self_, |opened| opened.path.clone())?;
+    let names = entries(&path).map_err(|err| errno::from_io(mrb, &err, &path))?;
+    with_opened(mrb, self_, |opened| {
+        opened.entries = names.clone();
+        opened.next = names.len();
+    })?;
+    yield_each(mrb, block, &names)?;
+    Ok(self_)
+}
+
+fn dir_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Listing::of(mrb, self_)?.0.borrow_mut().take();
+    Ok(qnil().as_value())
+}

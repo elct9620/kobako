@@ -2,8 +2,8 @@
 //! mruby guests.
 //!
 //! Installs the `::IO` class, the `STDOUT` / `STDERR` constants, the
-//! assignable `$stdout` / `$stderr` globals, `::File < IO` over the
-//! directories the host preopens, the errors a file operation raises, and
+//! assignable `$stdout` / `$stderr` globals, `::File < IO` and `::Dir` over
+//! the directories the host preopens, the errors a file operation raises, and
 //! the private Kernel output delegators (`print` / `puts` / `printf` /
 //! `p` / `putc` / `warn`) that dispatch through those globals at call
 //! time.
@@ -14,6 +14,7 @@
 //! so any guest shell can compose it.
 
 mod descriptors;
+mod dir;
 mod errno;
 mod file;
 mod io;
@@ -35,6 +36,7 @@ impl Gem for KobakoIo {
         let io = io::init(mrb)?;
         stream::init(mrb, io)?;
         file::init(mrb, io)?;
+        dir::init(mrb)?;
         kernel_ext::init(mrb)?;
         Ok(())
     }

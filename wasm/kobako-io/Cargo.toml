@@ -1,7 +1,7 @@
 # kobako-io — sandbox IO / File / Kernel capability gem.
 #
 # The `::IO` class, `STDOUT` / `STDERR`, the assignable `$stdout` /
-# `$stderr` globals, `::File < IO` over the preopened directories, and
+# `$stderr` globals, `::File < IO` and `::Dir` over the preopened directories, and
 # the private Kernel output delegators for a kobako mruby guest. Pure
 # Rust over beni — the whole Ruby-level surface is defined through the
 # typed wrapper; no mrblib, no mrbc / RITE pipeline. kobako-free by
