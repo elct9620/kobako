@@ -45,11 +45,11 @@ impl Wasi {
     /// descriptor 3 in order.
     pub(crate) fn for_invocation(
         config: &Config,
-        preamble: &[u8],
+        stdin: Vec<u8>,
         grants: &[Grant],
     ) -> Result<Self, Trap> {
         Self::new(
-            preamble,
+            stdin,
             config.stdout_limit,
             config.stderr_limit,
             config.open_file_limit,
@@ -62,9 +62,9 @@ impl Wasi {
     /// A compile's context, at the strongest posture whatever the Sandbox
     /// requested: compiling the Snippets needs no ambient authority, so
     /// it is granted none.
-    pub(crate) fn for_compile(config: &Config, preamble: &[u8]) -> Result<Self, Trap> {
+    pub(crate) fn for_compile(config: &Config, stdin: Vec<u8>) -> Result<Self, Trap> {
         Self::new(
-            preamble,
+            stdin,
             config.stdout_limit,
             config.stderr_limit,
             config.open_file_limit,
@@ -75,12 +75,12 @@ impl Wasi {
     }
 
     /// The ABI version probe's context. Instantiating it runs the
-    /// artifact's start section, yet reading a version needs no ambient
-    /// authority and no output: the probe takes the strongest posture and
-    /// pipes sized to keep nothing.
+    /// artifact's start section, yet reading a version needs no input, no
+    /// ambient authority, and no output: the probe takes an empty stdin, the
+    /// strongest posture, and pipes sized to keep nothing.
     pub(crate) fn for_probe() -> Result<Self, Trap> {
         Self::new(
-            &[],
+            Vec::new(),
             Some(0),
             Some(0),
             None,
@@ -91,10 +91,9 @@ impl Wasi {
     }
 
     /// An uncapped output channel has no ceiling on the host: a guest
-    /// rewriting one buffer grows the pipe, not its own memory. The 16 MiB
-    /// cap keeps the Preamble's `u32` length prefix from wrapping.
+    /// rewriting one buffer grows the pipe, not its own memory.
     fn new(
-        preamble: &[u8],
+        stdin: Vec<u8>,
         stdout_limit: Option<usize>,
         stderr_limit: Option<usize>,
         open_file_limit: Option<usize>,
@@ -102,9 +101,6 @@ impl Wasi {
         profile: Profile,
         mounts: Vec<Mount>,
     ) -> Result<Self, Trap> {
-        let stdin_content =
-            endpoint::stdin_content(preamble).map_err(|msg| Trap::Other(msg.to_string()))?;
-
         let stdout = PipeInodeInfo::new(endpoint::pipe_capacity(stdout_limit));
         let stderr = PipeInodeInfo::new(endpoint::pipe_capacity(stderr_limit));
 
@@ -112,7 +108,7 @@ impl Wasi {
         // call that reads a descriptor (`crate::preview1`); the builder
         // keeps only what the remaining imports read.
         let descriptors = Descriptors::new(
-            create_pipe_files(&PipeInodeInfo::from_bytes(stdin_content), &opener).0,
+            create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
             mounts,
@@ -252,7 +248,7 @@ mod tests {
             profile,
             security: Vec::new(),
         };
-        let wasi = Wasi::for_invocation(&config, &[], &[]).expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
 

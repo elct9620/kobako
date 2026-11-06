@@ -28,7 +28,7 @@ use kobako_runtime::grant::{Grant, GrantKind};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
-use kobako_transport::envelope::{Downcall, Preamble};
+use kobako_transport::envelope::Preamble;
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {
@@ -152,7 +152,9 @@ impl ContractRuntime for Driver {
         handler: Option<Arc<dyn DispatchHandler>>,
         grants: &[Grant],
     ) -> Result<Snapshot, InvokeError> {
-        let wasi = Wasi::for_invocation(&self.config, &preamble.encode(), grants)?;
+        let stdin =
+            endpoint::stdin_content(preamble).map_err(|msg| Trap::Other(msg.to_string()))?;
+        let wasi = Wasi::for_invocation(&self.config, stdin, grants)?;
         let mut store = self.new_store(wasi)?;
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
@@ -189,12 +191,13 @@ impl ContractRuntime for Driver {
     /// own that no script ever runs on, so what it answers carries
     /// nothing a script could have written.
     fn compile(&self, preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
-        let wasi = Wasi::for_compile(&self.config, &preamble.encode()).ok()?;
+        let wasi = Wasi::for_compile(&self.config, endpoint::stdin_content(preamble).ok()?).ok()?;
         let mut store = self.new_store(wasi).ok()?;
         let exports = self.instantiate(&mut store).ok()?;
         let downcall = exports::require(exports.downcall.as_ref()).ok()?;
         let (ptr, len) =
-            endpoint::write_request(&mut guest_of(&mut store), &Downcall::Compile.encode()).ok()?;
+            endpoint::write_request(&mut guest_of(&mut store), &endpoint::compile_request())
+                .ok()?;
         let packed = self
             .call_with_caps(&mut store, &exports, downcall, (ptr, len))
             .ok()?;

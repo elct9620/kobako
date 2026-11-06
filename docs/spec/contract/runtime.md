@@ -345,7 +345,7 @@ pub const RUNTIME_INCOMPATIBLE: &str = "the Sandbox runtime is incompatible; reb
 What the guest reads from stdin: the Preamble behind its length prefix.
 
 ```rust
-pub fn stdin_content(preamble: &[u8]) -> Result<Vec<u8>, &'static str> {}
+pub fn stdin_content(preamble: &Preamble) -> Result<Vec<u8>, &'static str> {}
 ```
 
 ## `request_of`
@@ -354,6 +354,14 @@ The downcall an entry is.
 
 ```rust
 pub fn request_of(entry: Entry<'_>) -> Vec<u8> {}
+```
+
+## `compile_request`
+
+The downcall that asks the guest to compile its Preamble.
+
+```rust
+pub fn compile_request() -> Vec<u8> {}
 ```
 
 ## `write_request`

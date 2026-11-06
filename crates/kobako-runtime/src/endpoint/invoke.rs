@@ -15,11 +15,12 @@ use crate::runtime::Entry;
 /// What the guest reads from stdin: the Preamble behind its length prefix. It
 /// carries the same 16 MiB cap as a downcall request: past it, the prefix
 /// would silently wrap.
-pub fn stdin_content(preamble: &[u8]) -> Result<Vec<u8>, &'static str> {
+pub fn stdin_content(preamble: &Preamble) -> Result<Vec<u8>, &'static str> {
+    let preamble = preamble.encode();
     checked_payload_len(preamble.len())?;
     let mut content = Vec::with_capacity(FRAME_LEN_SIZE + preamble.len());
     content.extend_from_slice(&(preamble.len() as u32).to_be_bytes());
-    content.extend_from_slice(preamble);
+    content.extend_from_slice(&preamble);
     Ok(content)
 }
 
@@ -36,6 +37,11 @@ pub fn request_of(entry: Entry<'_>) -> Vec<u8> {
         }),
     }
     .encode()
+}
+
+/// The downcall that asks the guest to compile its Preamble.
+pub fn compile_request() -> Vec<u8> {
+    Downcall::Compile.encode()
 }
 
 /// Write a request into a guest buffer, answering where. A missing or trapping

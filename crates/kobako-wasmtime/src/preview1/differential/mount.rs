@@ -394,7 +394,8 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
         )
         .expect("AT is a guest path"),
     );
-    let wasi = Wasi::for_invocation(&config, &[], &[grant]).expect("WASI context must build");
+    let wasi =
+        Wasi::for_invocation(&config, Vec::new(), &[grant]).expect("WASI context must build");
     let mut store = Store::new(engine, Invocation::new(None, wasi));
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     let linker = imports::linker().expect("host imports must link");

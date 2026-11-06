@@ -19,7 +19,8 @@ use crate::error::Trap;
 pub use capture::{clip_capture, pipe_capacity};
 pub use dispatch::{handle, Calls, UpcallEnd, ABANDONED};
 pub use invoke::{
-    compiled_bytecodes, read_compile_reply, read_outcome, request_of, stdin_content, write_request,
+    compile_request, compiled_bytecodes, read_compile_reply, read_outcome, request_of,
+    stdin_content, write_request,
 };
 pub use memory_cap::{MemoryCap, MemoryLimitExceeded};
 

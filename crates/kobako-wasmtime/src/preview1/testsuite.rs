@@ -67,7 +67,7 @@ fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
         profile: Profile::Permissive,
         security: Vec::new(),
     };
-    let wasi = Wasi::for_invocation(&config, &[], &[Grant::Mount(mount)])
+    let wasi = Wasi::for_invocation(&config, Vec::new(), &[Grant::Mount(mount)])
         .map_err(|err| err.to_string())?;
     let mut store = Store::new(engine, Invocation::new(None, wasi));
     arm_deadline(&mut store, Some(Duration::from_secs(30)));
