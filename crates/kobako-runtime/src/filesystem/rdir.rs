@@ -25,7 +25,7 @@ struct Charge {
 }
 
 impl Charge {
-    fn of(cred: &Arc<Cred>, entries: &[DirEntry]) -> Result<Self, FilesystemError> {
+    fn account(cred: &Arc<Cred>, entries: &[DirEntry]) -> Result<Self, FilesystemError> {
         let names: usize = entries.iter().map(|entry| entry.name.capacity()).sum();
         let bytes = size_of_val(entries) + names;
         cred.security_vm_enough_memory(bytes)?;
@@ -65,7 +65,7 @@ impl Rdir {
                 let mut entries = dots(dentry)?;
                 entries.extend(read);
                 entries.shrink_to_fit();
-                let _charge = Charge::of(ctx.cred(), &entries)?;
+                let _charge = Charge::account(ctx.cred(), &entries)?;
                 Listing { entries, _charge }
             }
         };
