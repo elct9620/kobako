@@ -48,6 +48,16 @@ class TestE2EIOPositioned < Minitest::Test
      -> { file.pwrite("x", 0) }, -> { file.advise(:normal) }].map(&attempt)
   RUBY
 
+  PAST_THE_FILE = 'File.open("/m/f") { |file| file.pread(4 << 20, 0) }'
+
+  INTO_A_BUFFER = <<~RUBY
+    buffer = +"stale text"
+    answer = File.open("/m/f") { |file| file.pread(2, 1, buffer) }
+    [answer, answer.equal?(buffer)]
+  RUBY
+
+  ADVISED_WITH_NIL = 'File.open("/m/f") { |file| [file.advise(:normal, nil), file.advise(:normal, 0, nil)] }'
+
   def sandbox
     Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/m", Kobako::Filesystem::Tmpfs.new("f" => "hello"),
                                                     access: :read_write)
@@ -101,5 +111,25 @@ class TestE2EIOPositioned < Minitest::Test
     assert_equal ["IOError"] * 6, sandbox.eval(ATTEMPT + CLOSED).value,
                  "fsync, fdatasync, truncate, pread, pwrite, and advise on a closed file through the " \
                  "bundled guest must each raise IOError"
+  end
+
+  # @behavior FL-074
+  def test_a_positioned_read_past_what_a_file_holds_answers_what_it_holds
+    assert_equal "hello", sandbox.eval(PAST_THE_FILE).value,
+                 "IO#pread of 4 MiB from a 5-byte file through the bundled guest must answer the 5 bytes " \
+                 "within the default memory limit"
+  end
+
+  # @behavior FL-075
+  def test_a_positioned_read_fills_a_buffer_it_is_given
+    assert_equal ["el", true], sandbox.eval(INTO_A_BUFFER).value,
+                 "IO#pread of 2 bytes from offset 1 into a String through the bundled guest must answer " \
+                 "that String, holding only what it read"
+  end
+
+  # @behavior FL-076
+  def test_an_advice_takes_nil_as_offset_or_length_zero
+    assert_equal [nil, nil], sandbox.eval(ADVISED_WITH_NIL).value,
+                 "an advice with nil as its offset or its length through the bundled guest must answer nil"
   end
 end

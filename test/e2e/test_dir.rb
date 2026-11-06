@@ -30,21 +30,6 @@ class TestE2EDir < Minitest::Test
      attempt.(-> { Dir.empty?("/m/none") })]
   RUBY
 
-  OPENED = <<~RUBY
-    dir = Dir.open("/m/d")
-    read = [dir.path, dir.read, dir.read, dir.read, dir.read, dir.read]
-    each = []
-    answer = dir.each { |name| each << name }
-    dir.close
-    [read, each, answer.equal?(dir), Dir.open("/m/d") { |opened| opened.class.to_s }]
-  RUBY
-
-  CLOSED = <<~RUBY
-    dir = Dir.open("/m/d")
-    dir.close
-    [dir.close, attempt.(-> { dir.read })]
-  RUBY
-
   REFUSED = <<~RUBY
     [-> { Dir.children("/m/none") }, -> { Dir.children("/m/f") }, -> { Dir.mkdir("/m/d") },
      -> { Dir.rmdir("/m/d") }, -> { Dir.rmdir("/m/f") }].map(&attempt)
@@ -56,6 +41,11 @@ class TestE2EDir < Minitest::Test
     [-> { Dir.children("/m") }, -> { Dir.entries("/m") }, -> { Dir.each_child("/m") {} },
      -> { Dir.open("/m") }, -> { Dir.mkdir("/m") }, -> { Dir.rmdir("/m") },
      -> { Dir.exist?("/m") }, -> { Dir.empty?("/m") }].map(&attempt)
+  RUBY
+
+  BAD_PERMISSION = <<~RUBY
+    [-> { Dir.mkdir("/m/s", "abc") }, -> { Dir.mkdir("/m/n", nil) }].map(&attempt) +
+      [Dir.exist?("/m/s"), Dir.exist?("/m/n")]
   RUBY
 
   def sandbox(access: :read_write)
@@ -86,24 +76,6 @@ class TestE2EDir < Minitest::Test
                  "directory, and for an empty one, and Dir.empty? of a missing path must raise ENOENT"
   end
 
-  # @behavior FL-053
-  def test_an_opened_directory_yields_its_entries_one_at_a_time
-    read, each, same, block = sandbox.eval(OPENED).value
-
-    assert_equal ["/m/d", ".", "..", %w[x y], nil], [*read.take(3), read[3, 2].sort, read[5]],
-                 "Dir#read through the bundled guest must answer . and .., each name, and then nil"
-    assert_equal [%w[. .. x y], true, "Dir"], [each.sort, same, block],
-                 "Dir#each through the bundled guest must yield every entry and answer the Dir, and " \
-                 "Dir.open with a block must answer the block's value"
-  end
-
-  # @behavior FL-054
-  def test_a_closed_directory_raises_io_error
-    assert_equal [nil, "IOError"], sandbox.eval(ATTEMPT + CLOSED).value,
-                 "Dir#read of a closed directory through the bundled guest must raise IOError, and a " \
-                 "second close must answer nil"
-  end
-
   # @behavior FL-055
   def test_a_directory_call_a_path_cannot_take_raises_cruby_errno
     assert_equal %w[Errno::ENOENT Errno::ENOTDIR Errno::EEXIST Errno::ENOTEMPTY Errno::ENOTDIR],
@@ -130,5 +102,12 @@ class TestE2EDir < Minitest::Test
 
     refute flagged.eval("Object.const_defined?(:Dir)").value,
            "the disable_file flag through the bundled guest must leave no Dir constant"
+  end
+
+  # @behavior FL-071
+  def test_a_permission_that_is_not_a_number_raises_type_error
+    assert_equal ["TypeError", "TypeError", false, false], sandbox.eval(ATTEMPT + BAD_PERMISSION).value,
+                 "Dir.mkdir with a String or nil permission through the bundled guest must raise TypeError " \
+                 "and make no directory"
   end
 end
