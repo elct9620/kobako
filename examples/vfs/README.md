@@ -103,6 +103,5 @@ from the next.
 | `File.read` | the Temporary Layer, or the directory beneath the mount |
 | a path the block refuses or outside the mount | nothing |
 
-The [README](../../README.md) lists every Filesystem kind, and the
-[security guide](../../docs/guides/security.md) covers what a mount block
-judges.
+The mount block judges each open and each change by guest path, and it can
+only refuse what the mount's access already allows.

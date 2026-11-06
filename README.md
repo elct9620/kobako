@@ -2,715 +2,214 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/elct9620/kobako)
 
-Kobako is a Ruby gem that embeds a Wasm-isolated mruby interpreter inside your application. It runs untrusted Ruby scripts in-process — LLM-generated code, user formulas, student submissions, third-party plugins. Those scripts get no access to host memory, files, network, or credentials. Its home is the Ruby ecosystem; a Rust SDK offers the same sandbox to hosts written in other languages.
-
-The host (`wasmtime`) runs a precompiled `kobako.wasm` guest containing mruby and a Transport proxy. A guest script reaches the outside world only through Host App-declared **Services**, the named host objects you explicitly inject into the sandbox. The guest sees each one as a proxy that forwards calls back to the host over the Transport wire.
+Kobako is a Ruby gem that runs untrusted mruby scripts in an in-process Wasm
+sandbox: LLM-generated code, user formulas, student submissions, plugins. A
+script reaches no host memory, file, network, or credential you did not hand it.
+A Rust SDK offers the same sandbox to hosts in other languages.
 
 ```
-        Host process                       Wasm guest
-   ┌──────────────────────┐         ┌──────────────────────┐
-   │  Kobako::Sandbox     │ ─eval─▶ │  mruby interpreter   │
-   │                      │ ─run──▶ │                      │
-   │  Services            │ ◀─call─ │  KV::Lookup.call(k)  │
-   │   KV::Lookup         │ ─resp─▶ │                      │
-   │                      │         │                      │
-   │  Execution           │ ◀─pipe─ │  puts / warn         │
-   │   value              │ ◀─last─ │  last expression     │
-   │   stdout / stderr    │         │                      │
-   │   usage              │         │                      │
-   └──────────────────────┘         └──────────────────────┘
-            trusted                       untrusted
+      Host process                    Wasm guest
++---------------------+         +---------------------+
+| Kobako::Sandbox     |--eval-->| mruby interpreter   |
+| Services            |<--call--| KV::Lookup.call(k)  |
+| Execution           |<-result-| last expression     |
++---------------------+         +---------------------+
+        trusted                       untrusted
 ```
 
 ## Requirements
 
+The gem ships its Guest Binary and, on most platforms, a prebuilt native
+extension.
+
 | What | Which versions | When you need it |
 |---|---|---|
-| Ruby | ≥ 3.3.0 | always |
-| Platform | Linux, macOS, or Windows | always — on Windows, behaviour its tests do not cover is fixed last |
-| Rust / Cargo | current stable | only where no prebuilt gem matches your platform; otherwise the native extension installs ready-built |
-| WASI toolchain | vendored by the build | only when building the gem from a source checkout — see [Development](#development) |
-
-The precompiled `kobako.wasm` Guest Binary ships inside the gem, so end users do **not** need a WASI toolchain.
+| Ruby | >= 3.3.0 | always |
+| Platform | Linux, macOS, or Windows | always; Windows gaps are fixed last |
+| Rust / Cargo | current stable | only where no prebuilt gem matches your platform |
+| WASI toolchain | vendored by the build | only when building from a source checkout |
 
 ## Installation
 
-Install the gem; it ships its Guest Binary prebuilt.
+Add the gem to your bundle.
 
 ```bash
 bundle add kobako
-# or
-gem install kobako
 ```
 
 ## Quick Start
 
-The same untrusted script runs identically from either host frontend. It executes inside the Wasm guest and reaches no file you have not mounted for it, no socket, and none of your environment.
+A Sandbox runs guest code and returns the record of that run.
 
 ```ruby
 require "kobako"
 
 sandbox = Kobako::Sandbox.new
-sandbox.eval("1 + 2").value  # => 3
+sandbox.eval("1 + 2").value # => 3
 ```
 
 ```rust
 use kobako::{Options, Sandbox};
 
-// Options::default() is secure by default: the same caps as Ruby, hermetic isolation.
 let sandbox = Sandbox::new("kobako.wasm", Options::default())?;
-sandbox.eval("1 + 2")?.value()?;  // => Value::Int(3)
+sandbox.eval("1 + 2")?.value()?; // => Value::Int(3)
 ```
 
-Each invocation returns the record of that one run: `Kobako::Execution` in Ruby, `Execution` in Rust. It carries the guest value alongside the run's output and resource usage. Nothing a run observes is stored on the Sandbox, so the same Sandbox serves concurrent invocations without them seeing each other.
+These terms name what the rest of this README builds on.
 
-The gem bundles its Guest Binary; a Rust host loads one explicitly — see [Frontends & Guest Binaries](#frontends--guest-binaries) for the packages and the Guest Binary variants.
-
-## Frontends & Guest Binaries
-
-Embedding kobako is two independent choices: the **host frontend** you build against, and the **Guest Binary** it runs.
-
-```text
-host frontend          Guest Binary
-  Ruby gem      ──┐  ┌── kobako.wasm (pure)
-  Rust SDK      ──┼──┼── kobako+regexp.wasm
-  your own      ──┘  └── kobako+json.wasm · your own
-```
-
-They compose freely, since any frontend loads any Guest Binary. A Ruby host can run a JSON-enabled guest, and a Rust host can run the pure default. How far down those choices go — and which ones a given starting point quietly makes for you — is laid out in [`docs/guides/assembly-levels.md`](docs/guides/assembly-levels.md).
-
-### Host frontends
-
-The host embeds the sandbox and owns the wire codec. Choose by your host language and how much of the contract you want pre-assembled.
-
-| Frontend | Package | Add it | Best for |
-|----------|---------|--------|----------|
-| Ruby gem | `kobako` (RubyGems) | `gem install kobako` | A Ruby host — Services, Handles, snippets, and pooling out of the box |
-| Rust SDK | `kobako` (crates.io) | `cargo add kobako` | A Rust host — the same behavior contract behind an idiomatic Rust API |
-| Low-level crates | `kobako-wasmtime` + `kobako-runtime` + `kobako-transport` + `kobako-codec` | `cargo add` each | A custom host, or driving the wire directly in another language |
-
-The Rust crates are documented on [crates.io](https://crates.io/crates/kobako); the Ruby gem is this README. Three runnable Rust hosts show the choice. [`plugin-rs`](examples/plugin-rs) builds on the SDK, and [`wire-rs`](examples/wire-rs) assembles a host by hand on the low-level crates. [`fixed-schema-rs`](examples/fixed-schema-rs) replaces the payload schema both of those keep, with a guest and a host that agree on protobuf.
-
-### Pre-built Guest Binaries
-
-The gem bundles the pure `kobako.wasm`. Regexp and JSON are opt-in capabilities compiled into separate variants, each attached to every [GitHub Release](https://github.com/elct9620/kobako/releases). Download a variant and point your host at it — `Sandbox.new(wasm_path:)` in Ruby, `Sandbox::new(path, ...)` in Rust. [`docs/guides/variants.md`](docs/guides/variants.md) lists every variant and what it adds.
-
-```ruby
-sandbox = Kobako::Sandbox.new(wasm_path: "kobako+full.wasm")
-sandbox.eval('JSON.generate({ n: "42".to_i })').value  # => "{\"n\":42}"
-```
-
-### Custom Guest Binaries
-
-When no variant matches your capability set, build a Guest Binary of your own in Rust. A shell over `kobako-mruby` installs exactly the capability gems you choose: the shipped `kobako-io`, `kobako-regexp`, and `kobako-json`, or your own `beni::Gem`. `kobako-core` exports the wasm ABI. The Ruby gem drives it unchanged.
-
-| To decide | Read |
+| Term | Meaning |
 |---|---|
-| which parts you own at each level | [`docs/guides/assembly-levels.md`](docs/guides/assembly-levels.md) |
-| what a guest shell implements | [`docs/guides/customization.md`](docs/guides/customization.md) |
-| a working shell | [`wasm/kobako-wasm/src/guest.rs`](wasm/kobako-wasm/src/guest.rs) |
+| Sandbox | the unit you configure once and invoke many times |
+| Invocation | one run of guest code, by `#eval` or `#run` |
+| Execution | the frozen record an Invocation leaves |
+| Service | a host object the guest reaches by name |
+| Mount | a Filesystem placed at a guest path |
 
-Build the shell as a `cdylib` for `wasm32-wasip1`, then bake its boot state into the artifact with `kobako-baker input.wasm output.wasm`.
+## Features
 
-A shell may also define flags, switches the Host App sets for every invocation. A flag is critical by default, so a Guest Binary that does not recognise it raises `Kobako::UnsupportedFlagError` rather than run without it. Mark it `advisory: true` only when a script cannot tell the flag was skipped.
+Each feature below shows its smallest use; the [guides] hold the rest.
 
-```ruby
-sandbox.flag(:strict_mode)                      # critical: refused where unrecognised
-sandbox.flag(:compile_cache, "on", advisory: true) # skipped where unrecognised
-```
-
-## Glossary
-
-These terms name the concepts the rest of this README builds on.
-
-| Term | Ruby class | Meaning |
-|------|------------|---------|
-| Sandbox | `Kobako::Sandbox` | The unit you configure once and invoke many times. |
-| Invocation | — | One run of guest code, by `#eval` or `#run`. |
-| Execution | `Kobako::Execution` | The frozen record an Invocation leaves. |
-| Service | — | A host object the guest reaches by name, such as `MyService::KV`. |
-| Mount | — | A `Kobako::Filesystem` placed at a guest path by `Sandbox#mount`, for the guest's `File`. |
-| Context | `Kobako::Context` | The per-Invocation object the optional block receives. |
-| Snippet | — | Guest source or bytecode replayed at the start of every Invocation. |
-| Handle | `Kobako::Handle` | An opaque reference to a host object the wire cannot carry by value. |
-| Block | — | Guest code passed alongside a Service call. |
-
-A Sandbox keeps nothing from one Invocation to the next. An Execution holds what the run produced, wrote, and consumed: `#value`, output captures, and `#usage`. A failed run raises, carrying its Execution on the error's `#execution`. A Service or a Mount is the guest's only route to a host resource. A Context's `ctx.bind` supplies a Service object for that one run. A Handle names its object only within the Invocation that issued it. A Block stays in the guest; each `yield` to it is a synchronous round-trip.
-
-## Usage
-
-Each section below stands on its own; this is the order they build in.
-
-| If you want to | Read |
-|---|---|
-| let guest code call into your host | [Services](#services), [Per-Invocation Bindings](#per-invocation-bindings), [Service Blocks](#service-blocks) |
-| let guest code read and write files | [Mounts](#mounts) |
-| see what a run produced or why it failed | [Output Capture](#output-capture), [Error Handling](#error-handling), [Invocation Lifecycle](#invocation-lifecycle) |
-| bound what a run may consume | [Resource Limits](#resource-limits), [Concurrency](#concurrency), [Pooling](#pooling) |
-| hand host objects across the boundary | [Handle Management](#handle-management) |
-| ship guest code with the Sandbox | [Snippets & Entrypoints](#snippets--entrypoints), [Extensions](#extensions) |
+[guides]: https://github.com/elct9620/kobako/tree/main/docs/guides
 
 ### Services
 
-`bind` any Ruby object as a Service at a constant-path name. The guest reaches it as a `MyService::KV` (or top-level `Clock`) proxy. Through the Transport wire, the guest invokes the public methods the object's own class defines.
+`bind` makes a host object reachable from the guest at a constant name.
 
 ```ruby
-class User
-  attr_reader :name
-
-  def initialize(name:)
-    @name = name
-  end
-end
-
-sandbox.bind("Project::User", User.new(name: "alice"))
-sandbox.bind("KV::Lookup",     ->(key) { redis.get(key) })
-
-sandbox.eval(<<~RUBY)
-  Project::User.name         # => "alice"
-  KV::Lookup.call("user_42") # => "..."
-RUBY
+sandbox.bind("KV::Lookup", ->(key) { redis.get(key) })
+sandbox.eval('KV::Lookup.call("user_42")').value
 ```
 
-Each `::`-separated path segment must match `/\A[A-Z]\w{0,65533}\z/`. A path under `Kobako`, which the Guest Binary keeps for itself, raises `ArgumentError`. Symbol kwargs travel transparently to the host method's keyword arguments. The registry seals at the first invocation (see [Invocation Lifecycle](#invocation-lifecycle)); later `#bind` raises `ArgumentError`.
-
-### Per-Invocation Bindings
-
-A setup-time `bind` fixes one object for the Sandbox's life. Some objects belong to a single run instead: the current request, the acting user, a per-tenant store. For those, declare the path at setup and fill it per invocation. `bind(path)` with no object reserves the name as a *fillable*: the guest sees the constant, while an unfilled dispatch fails closed as `Kobako::ServiceError`. The optional `#eval` / `#run` block fills it.
-
-```ruby
-sandbox.bind("Req::Current")  # declared, unfilled — stands for Kobako::Unresolved
-
-sandbox.eval("Req::Current.user_id") { |ctx| ctx.bind("Req::Current", request) }
-```
-
-`ctx.bind` also shadows an already-bound path for that one run. The Context is spent once the block returns, so a `ctx` captured out of it raises `ArgumentError`. Choosing the object per invocation lets concurrent Threads invoke a single Sandbox and still keep their identities apart. The [multi-tenant example](examples/multi-tenant/) runs that shape end to end.
+A Service can also be filled per Invocation, take a guest block, and hand back
+host objects as opaque Handles.
 
 ### Mounts
 
-`mount` places a `Kobako::Filesystem` at an absolute guest path, where the guest's `File` reads it. The default access is `:read`, so a write beneath it raises `Errno::EROFS` in the guest.
+`mount` gives the guest's `File` a Filesystem at one path, read-only by default.
 
 ```ruby
 sandbox.mount("/config", Kobako::Filesystem::Tmpfs.new("app.yml" => yaml))
-sandbox.mount("/tmp", Kobako::Filesystem::Tmpfs.new, access: :read_write)
-sandbox.mount("/data", Kobako::Filesystem::Bind.new("var/data")) { |path, _access| path.end_with?(".csv") }
-
-sandbox.eval('File.read("/config/app.yml")')
-sandbox.eval('File.write("/tmp/scratch", "x")') { |ctx| ctx.mount("/tmp", Kobako::Filesystem::Tmpfs.new, access: :read_write) }
+sandbox.eval('File.read("/config/app.yml")').value
 ```
 
 | Kind | Holds |
 |---|---|
-| `Tmpfs.new(files = {}, size:, nr_inodes:)` | files in memory, shared by every invocation |
-| `Bind.new(path)` | a host directory; nothing outside it is reachable |
-| `Overlay.new(lower: [fs, ...], upper: tmpfs)` | read-only Layers under a Tmpfs that takes every change |
+| `Tmpfs` | files in memory |
+| `Bind` | one host directory |
+| `Overlay` | read-only Layers under a Tmpfs |
 
-Every invocation reaches the same Filesystem, so the last line starts empty with a Tmpfs of its own.
+### Execution Records
 
-A block judges each open and each change the access allows, and can only refuse more. An open that may create asks a change first, then what it opens for. A falsy answer or a `StandardError` fails that call as `Errno::EACCES`. Mounts seal with the Sandbox like a `bind`, and `ctx.mount` replaces one for a single run. A mount may sit inside another, and the guest reaches the innermost one.
-
-#### Tmpfs Bounds
-
-A Tmpfs is bounded as a tmpfs mount is, and the guest raises `Errno::ENOSPC` past either bound.
-
-| Bound | Unless given | `nil` |
-|---|---|---|
-| `size:` | 64 MiB of file bytes | no bound |
-| `nr_inodes:` | one entry per 4 KiB of `size`, and the root | no bound |
-
-#### Guest File
-
-The guest's `File.open` takes a mode String such as `"r"`, `"w+"`, or `"wx"`, or an Integer of `File::Constants` flags, valued as CRuby's on Linux. An exclusive create lets Sandboxes sharing a directory agree on a lock file. The critical flag `disable_file` removes `File` from the guest altogether.
-
-Beneath a mount, `File.open` and `IO.new` answer as CRuby does over a Linux directory. Where they differ, they only refuse more:
-
-| When | The guest sees |
-|---|---|
-| nothing is mounted | `NotImplementedError` |
-| a block refuses a change | `Errno::EACCES` where a read-only mount says `Errno::EROFS` |
-| a Ruby Filesystem's file without `append` is asked to append | `Errno::ENOTSUP` on the write |
-| an Integer mode holds a flag kobako does not honor, or `WRONLY` beside `RDWR` | `Errno::EINVAL` |
-| a mode names an encoding, such as `"r:utf-8"` | `ArgumentError` |
-| `IO.new` wraps stdout or stderr in a mode other than `"w"` | `ArgumentError` |
-| `disable_file` is set | no `File` constant |
-
-##### File Reports
-
-`File::Stat` answers as CRuby does on Linux, for what preview1 hands the guest. It leaves undefined what it could only answer wrongly, so a script fails rather than reading a wrong answer.
-
-| Part | Holds |
-|---|---|
-| ways to ask | `File.stat`, `File.lstat`, `File::Stat.new`, `File#stat`, `File#lstat` |
-| answers | `ino`, `nlink`, `size`, `size?`, `zero?`, `ftype`, `file?`, `directory?`, `symlink?`, `chardev?`, `socket?` |
-| class calls | `File.ftype`, `File.symlink?`, `File.size?`, `File.zero?`, `File.empty?` |
-| undefined | times and `<=>`, `dev`, `mode`, owners, permissions, `pipe?`, `blockdev?`, `File.identical?` |
-
-A FIFO's and a block device's `ftype` read `"unknown"`, as neither reaches the guest as a kind. A hermetic guest reads every `ino` as 0.
-
-#### Overlays
-
-An Overlay stacks Layers as Linux's overlayfs does. The lower Layers, topmost first, are never written. The upper must be a Tmpfs, as gVisor requires, so the host stays as it was.
+An Execution carries the value, the output, and the usage. A failed run raises
+one of three classes, each carrying its Execution.
 
 ```ruby
-overlay = Kobako::Filesystem::Overlay.new(
-  lower: [Kobako::Filesystem::Bind.new("app")], # never written
-  upper: Kobako::Filesystem::Tmpfs.new          # every change lands here
-)
-sandbox.mount("/app", overlay, access: :read_write)
-```
+execution = sandbox.eval('puts "hi"; 42')
+execution.stdout # => "hi\n"
 
-A lower file is copied up into the upper before it changes. A new or renamed file lands in the upper. A removal hides what a lower Layer keeps with a whiteout, as Linux does, so no name is reserved. The Tmpfs keeps the changes in `upper/` and builds each in `work/` first. Without `upper:`, every change raises `Errno::EROFS`, and two lower Layers are needed. As in Linux, an Overlay takes at most 500 lower Layers and stacks at most two deep.
-
-#### Filesystems in Ruby
-
-Any object answering `open` and `stat` mounts as a Filesystem, directly or as a Layer. Its methods follow Ruby's `File`, `Dir`, and `IO`, so a real `::File` can answer as an open file.
-
-| Method | Answers |
-|---|---|
-| `open(path, flags)` | an open file, below |
-| `stat(path)` | an object answering `directory?`, `size`, and `ino`, as `File::Stat` does |
-| `children(path)` | entry names, as `Dir.children` gives them |
-| `mkdir` · `rmdir` · `unlink` · `rename(from, to)` | optional; without one, that change raises `Errno::EROFS` |
-
-A `stat` may also answer `dev`; without one, the Filesystem stands for a single device. One answering `ftype` says a FIFO, a socket, or a device is one, so it refuses to open without asking `open`. An `ino` names one directory while the guest holds it open, and names match exactly, as a block judges them. A path is relative to the mount, the empty path being its root, and `flags` are `File::Constants`. An `Errno` the guest has a class for reaches the script as itself, and any other `StandardError` as `Errno::EIO`. Every call re-enters Ruby, and its time counts toward `timeout:` without being interrupted.
-
-##### Open Files
-
-The file `open` answers takes the guest's reads and writes, each method named as `IO` names it.
-
-| Method | Answers | Without it |
-|---|---|---|
-| `pread(length, offset)` · `size` | bytes, `nil` or `EOFError` at the end; the length | required |
-| `pwrite(data, offset)` · `truncate(length)` | bytes written; nothing | that change raises `Errno::EROFS` |
-| `append(data)` | where the file then ends, as `IO#pos` does | an append raises `Errno::ENOTSUP` |
-| `fsync` · `close` | nothing | nothing to flush or release |
-| `stat` | what `stat(path)` answers, for the file's times and count of names | one name, and no time |
-
-An `append` writes all of `data` at the end in one step, so another writer's append never lands over it.
-
-### Output Capture
-
-Guest writes through `puts` / `print` / `p` / `$stdout` / `$stderr` are buffered per-channel and read off the run's Execution, independently of its `#value`. Each invocation captures its own; overflow is clipped at the cap and flagged by `#stdout_truncated?` / `#stderr_truncated?`.
-
-```ruby
-execution = sandbox.eval(<<~RUBY)
-  puts "hello"
-  warn "be careful"
-  42
-RUBY
-
-execution.value   # => 42
-execution.stdout  # => "hello\n"
-execution.stderr  # => "be careful\n"
-```
-
-### Error Handling
-
-Every invocation either returns an Execution or raises exactly one of three classes, so you can route faults without inspecting messages. The full taxonomy lives in [`lib/kobako/errors.rb`](lib/kobako/errors.rb).
-
-```ruby
 begin
   sandbox.eval(script)
-rescue Kobako::TrapError
-  # Wasm engine fault or cap exhaustion. The invocation is over.
-rescue Kobako::ServiceError
-  # A host Service call failed and the script did not rescue it.
-rescue Kobako::SandboxError => e
-  # The script raised, failed to compile, or returned an unrepresentable value,
-  # or the Guest Binary could not start the run.
-  logger.warn(e.execution.stderr)  # the failed run's own captures and usage
+rescue Kobako::TrapError, Kobako::ServiceError, Kobako::SandboxError => e
+  e.execution&.stderr
 end
 ```
-
-Each of these carries the failed run's Execution on `#execution`. A rescue reads that run's output and usage exactly as a successful caller reads them off the returned one. `#failed?` keeps the two apart when both `#value` are `nil` — a script whose last expression was `nil` versus one that never produced a value. A failure caught before the guest ran at all — a host pre-flight refusal — leaves `#execution` `nil`, since there is no run to report.
-
-| Class                           | Parent         | Trigger                                              |
-|---------------------------------|----------------|------------------------------------------------------|
-| `Kobako::TimeoutError`          | `TrapError`    | Per-invocation `timeout` exhausted                   |
-| `Kobako::MemoryLimitError`      | `TrapError`    | Per-invocation `memory_limit` exhausted              |
-| `Kobako::NoServiceError`        | `ServiceError` | Nothing bound there, a dead Handle, or a method the guest may not call |
-| `Kobako::ServiceArgumentError`  | `ServiceError` | The call would not bind, or the Service raised `ArgumentError` |
-| `Kobako::HandleExhaustedError` | `SandboxError` | Handle counter reached its 2³¹ − 1 cap               |
-| `Kobako::BytecodeError`         | `SandboxError` | `#preload(binary:)` failed RITE validation at replay |
-| `Kobako::UnsupportedFlagError`  | `SandboxError` | The Guest Binary does not recognise a critical `#flag`; no script ran |
-| `Kobako::UndefinedEntrypointError` | `SandboxError` | `#run` named a constant no snippet defined; carries `#name` and `#available` |
-
-`SandboxError` and `ServiceError` carry structured `origin` / `klass` / `backtrace_lines` fields when the guest produced a panic envelope.
-
-#### Host Exceptions
-
-A Service, a mount's block, or a Filesystem written in Ruby is your code running inside the run. What it raises splits by class.
-
-| Raised by your code                     | Result                                        |
-|-----------------------------------------|-----------------------------------------------|
-| a `StandardError`                       | the guest sees a failure it may rescue        |
-| `Interrupt`, `exit`, `throw`, `Timeout` | the run ends; the invocation raises it as is  |
 
 ### Resource Limits
 
-Each invocation enforces a wall-clock `timeout` and a per-invocation linear-memory `memory_limit`; exhaustion raises a `TrapError` subclass. Pass `nil` to `timeout` / `memory_limit` to disable that cap. Read [`Execution#usage`](lib/kobako/execution.rb) for actual consumption — populated on every outcome, so a rescued trap reports it just as a completed run does.
+Each Invocation runs under caps, and reaching one ends that run alone.
 
 ```ruby
-sandbox = Kobako::Sandbox.new(
-  timeout:      5.0,              # seconds, default 60.0
-  setup_timeout: 2.0,             # seconds, default 10.0
-  memory_limit: 10 * 1024 * 1024, # bytes,   default 4 MiB
-  stdout_limit: 64 * 1024,        # bytes,   default 1 MiB
-  stderr_limit: 64 * 1024,
-  open_file_limit: 16             # descriptors, default 1024
-)
+Kobako::Sandbox.new(timeout: 5.0, memory_limit: 10 * 1024 * 1024)
 ```
 
-| Cap               | Raises                         | Default |
-|-------------------|--------------------------------|---------|
-| `timeout`         | `Kobako::TimeoutError`         | 60.0 s  |
-| `setup_timeout`   | `Kobako::SetupError` at `new`  | 10.0 s  |
-| `memory_limit`    | `Kobako::MemoryLimitError`     | 4 MiB   |
-| `stdout_limit`    | output clipped (no raise)      | 1 MiB   |
-| `stderr_limit`    | output clipped (no raise)      | 1 MiB   |
-| `open_file_limit` | `Errno::EMFILE` in the guest   | 1024    |
-
-`setup_timeout` bounds instantiating a Guest Binary and reading its ABI version, not compiling it. It applies the first time a path is loaded; later Sandboxes on that path skip the check. A Pool builds each Sandbox at its first checkout, so its `SetupError` raises from `with`. `memory_limit` covers the per-invocation `memory.grow` delta from the entry baseline, so a Sandbox reused across invocations does not silently accumulate against a global budget. `open_file_limit` counts every descriptor one invocation holds, the three standard ones and each Mount's included, so a guest cannot exhaust the host process's own.
-
-#### Isolation Profile
-
-Beyond the caps, `profile:` requests the Sandbox's isolation posture on a two-rung ladder.
-
-```
-:permissive  <  :hermetic (default)
-live clock      frozen clock
-live entropy    constant entropy
-```
-
-`:hermetic` denies the guest ambient time and entropy; `:permissive` lets the guest's `wasi:clocks` / `wasi:random` read live host sources, an explicit trade of reproducibility. The guest reaches no ambient filesystem, environment, or network under either. The request is also a floor: construction fails with `Kobako::SetupError` on a runtime that declares a weaker posture than requested. See [`docs/guides/security.md`](docs/guides/security.md) § Isolation Profiles.
+| Cap | Default |
+|---|---|
+| `timeout` | 60 s |
+| `memory_limit` | 4 MiB |
+| `stdout_limit`, `stderr_limit` | 1 MiB |
+| `open_file_limit` | 1024 |
 
 ### Concurrency
 
-A Sandbox keeps no state from any run, so concurrent Threads may invoke distinct Sandboxes or share a single one. Each invocation owns its Handles, captures, and usage either way. One Thread still runs one invocation at a time. Sharing a Sandbox adds a single obligation.
-
-| What you bind | Who reaches it | What it owes |
-|---|---|---|
-| Bound once at setup | every Thread sharing the Sandbox | it must itself be thread-safe |
-| Supplied per invocation — `ctx.bind`, or an Extension `provider:` | that invocation alone | nothing |
-
-#### GVL Modes
-
-By default an invocation holds Ruby's GVL for its whole span, so guest execution across Threads serializes. `gvl: :release` drops the GVL for the guest span and re-acquires it for each guest→host dispatch, running guest code in parallel across Threads.
+A Sandbox keeps nothing between runs, so Threads may share one. `gvl:
+:release` runs guest code in parallel, and `Kobako::Pool` keeps warm Sandboxes.
 
 ```ruby
-sandbox = Kobako::Sandbox.new(gvl: :release)
+pool = Kobako::Pool.new(slots: 4) { |sandbox| sandbox.bind("KV::Lookup", lookup) }
+pool.with { |sandbox| sandbox.eval(script).value }
 ```
 
-The mode is per-Sandbox and fixed at construction; it changes scheduling only, leaving isolation, Handle lifetimes, captures, and outcomes identical. `:hold` remains the default because releasing pays a handoff cost at every dispatch. Compute-bound scripts scale with Thread count, while dispatch-heavy ones match or trail `:hold`. `rake bench:gvl_scheduling` measures both ends on your own hardware.
+### Snippets
 
-### Invocation Lifecycle
-
-One Sandbox serves many invocations. Service bindings and preloaded snippets persist across calls; everything a run produces — Handles, captured output, memory delta — belongs to that run alone.
-
-```
-   ───────────── setup phase (mutable) ─────────────
-
-     sandbox = Kobako::Sandbox.new
-     sandbox.bind("KV::Lookup", ...)
-     sandbox.bind("Req::Current")          # fillable: object comes later
-     sandbox.preload(code: ..., name: :Adder)
-     sandbox.preload(code: ..., name: :Greeter)
-
-                          │
-                          ▼
-
-   ═════════════════ seal point ═════════════════
-   First #eval or #run freezes the Service registry
-   and snippet table. Further bind / preload now
-   raise ArgumentError.
-
-                          │
-                          ▼
-
-   ──────────────── invocation N ───────────────────
-
-     1. resolve this run's bindings, before the guest starts:
-          ctx.bind("Req::Current", ...)  fills the fillable
-          provider: backends yield this run's object
-
-     2. start from the canonical boot state
-        (mruby pre-initialized into the artifact at build time)
-
-     3. replay snippets (in insertion order):
-          :Adder     → defines Adder
-          :Greeter   → defines Greeter
-
-     4. dispatch:  eval(source)  or  run(:Target, *args, **kwargs)
-
-     5. return the run's Execution to host
-
-     6. discard the instance; per-invocation state ends with it:
-          · Handles invalidated
-          · captures frozen into the Execution
-          · memory delta zeroed
-
-     Services + snippets persist; invocation N+1 repeats.
-```
-
-For workloads that must be isolated from each other, construct a fresh `Kobako::Sandbox` per scope: per tenant, per student submission, per agent session. wasmtime's Engine and the compiled Module are cached at process scope, so additional Sandboxes amortize cold-start cost automatically.
-
-### Pooling
-
-For hosts that serve many short invocations, `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes. It hands each one to a single exclusive holder at a time. Construction forwards every `Sandbox.new` keyword verbatim; the optional block is the per-Sandbox setup window and runs exactly once per constructed Sandbox.
+`preload` replays guest code into every Invocation, and `run` calls what it
+defined. An Extension pairs such code with a host backend.
 
 ```ruby
-pool = Kobako::Pool.new(slots: 4) do |sandbox|
-  sandbox.bind("KV::Lookup", ->(key) { redis.get(key) })
-end
-
-pool.with { |sandbox| sandbox.eval(%(KV::Lookup.call("user_42"))).value }
+sandbox.preload(code: "Adder = ->(a, b) { a + b }", name: :Adder)
+sandbox.run(:Adder, 2, 3).value # => 5
 ```
 
-#### Options and lifetime
+### Guest Binaries
 
-| Option | Meaning | Default |
-|--------|---------|---------|
-| `slots:` | Upper bound on constructed Sandboxes | required |
-| `checkout_timeout:` | Seconds `#with` waits for a free Sandbox; `nil` waits indefinitely | 5.0 |
-
-Sandboxes construct lazily on first demand. `#with` yields a Sandbox and returns the block's value, and at block exit the Sandbox returns to the pool, whatever the block raised. A checkout that waits past `checkout_timeout` raises `Kobako::PoolTimeoutError`. There is no teardown verb — a Pool releases everything with its own reachability.
-
-#### Pool Trade-offs
-
-| It gives you | It does not give you |
-|---|---|
-| warm, pre-configured Sandboxes and exclusive checkout | isolation (see [Concurrency](#concurrency)) |
-
-A Sandbox holds no state from any run, so Threads sharing one are equally safe. `Kobako::Pool` is experimental today and is best treated as a convenience for warm, pre-configured reuse rather than a throughput optimisation. The build bakes the shared boot state into the artifact, and every dynamic script still compiles and runs per invocation. All a pool actually saves is the host-side `Sandbox.new` — now about 3 µs, an order of magnitude below the invocation that follows it. For the workload kobako is built for — many small, short-lived Sandboxes running dynamic scripts — that is not a gain worth the coupling.
-
-### Service Blocks
-
-A Service method can accept a guest-supplied block via `&blk` and `yield` into it. The block body runs inside the Wasm guest. Its `break` / `next` / `return` / exceptions follow normal Ruby semantics: an exit lands where it would through a plain method.
+The gem bundles the pure `kobako.wasm`. Each [GitHub Release] adds variants
+with Regexp or JSON, and you can build your own in Rust.
 
 ```ruby
-sandbox.bind("Seq::Map", ->(items, &blk) { items.map(&blk) })
-
-sandbox.eval('Seq::Map.call([1, 2, 3]) { |x| x * 2 }').value
-# => [2, 4, 6]
+sandbox = Kobako::Sandbox.new(wasm_path: "kobako+full.wasm")
+sandbox.eval('JSON.generate({ n: 42 })').value # => "{\"n\":42}"
 ```
 
-A `yield` that cannot complete raises at the Service's call site, so the Service may rescue it. Left unrescued, a `BlockError` hands the guest its own exception back; the others fail the Service call.
-
-| Class                      | Trigger at `yield`                    |
-|----------------------------|---------------------------------------|
-| `Kobako::BlockError`       | The guest block raised                |
-| `Kobako::YieldValueError`  | An argument cannot cross to the guest |
-| `Kobako::UnsupportedError` | The Guest Binary serves no block      |
-| `ThreadError`              | The block runs off the calling Fiber  |
-
-#### Block Fiber
-
-A block runs only on the Fiber that called the Service. The guest's Wasm stack lives on that Fiber's native stack, so entering it from another raises `ThreadError` before the block runs. CRuby itself lets a block run anywhere; kobako narrows that to keep the guest's stack checks sound.
-
-```
-Service on the calling Fiber
-  ├─ blk.call / yield                     ─> runs in the guest
-  ├─ Thread.new { blk.call }              ─> ThreadError
-  └─ Enumerator.new { |y| y << blk.call }
-       .next   (runs its body on a Fiber) ─> ThreadError
-```
-
-`Enumerator#next` counts as another Fiber, because it runs the enumerator's body on one. Internal iteration such as `each` or `map` stays on the calling Fiber and runs the block normally.
-
-### Handle Management
-
-A host object the wire cannot represent may be returned from a Service, passed to `#run`, or handed back from the guest. It crosses the boundary as an opaque `Kobako::Handle` proxy and is restored to the original object before host code sees it. Any other unrepresentable value raises `Kobako::SandboxError`. Handles are scoped to a single invocation.
-
-```ruby
-class Greeter
-  def initialize(name) = @name = name
-  def greet            = "hi, #{@name}"
-end
-
-sandbox.bind("Factory::Make", ->(name) { Greeter.new(name) })
-
-sandbox.eval('Factory::Make.call("Bob").greet').value  # => "hi, Bob"  (Handle round-trip inside guest)
-sandbox.eval('Factory::Make.call("Bob")').value        # => #<Greeter @name="Bob">  (Handle restoration)
-```
-
-A `break` value from a guest block never reaches host code. It stays in the guest while the Service unwinds, so a Handle in it stays a Handle.
-
-#### Per-dispatch Handles
-
-Each dispatch that hands back a non-wire-representable object allocates a *new* Handle — kobako never deduplicates by object identity. This is most visible with fluent / builder APIs. An `ActiveRecord::Relation` chain `spawn`s a fresh relation at each step, so every hop is an independent dispatch that binds its own Handle:
-
-```
-   guest chain                        host  (Catalog::Handles, one invocation)
-   ───────────                        ─────────────────────────────────────────
-   User.where(active: true)  ─call──▶ Relation #1 (fresh clone)  bound ▶ Handle 1
-                             ◀─Handle 1
-       .order(:created_at)   ─call──▶ Relation #2 (fresh clone)  bound ▶ Handle 2
-                             ◀─Handle 2
-       .limit(10)            ─call──▶ Relation #3 (fresh clone)  bound ▶ Handle 3
-                             ◀─Handle 3
-
-   3 hops ─▶ 3 dispatches ─▶ 3 distinct relations ─▶ 3 Handles
-   all stay live until the invocation ends, then reset together
-```
-
-This is deliberate, not a leak. Handle IDs run to 2³¹ − 1 per invocation and reset between invocations, so even deep chains stay far inside the range. Two consequences are worth keeping in mind. The same host object handed back twice yields two *different* Handles, and the guest cannot tell they alias. Every intermediate Handle stays live until the invocation ends, since there is no per-Handle release.
-
-### Snippets & Entrypoints
-
-`Sandbox#preload` registers named mruby snippets that replay into every invocation's canonical boot state; `Sandbox#run(:Target, *args, **kwargs)` dispatches into a top-level `Object` constant defined by those snippets.
-
-```ruby
-sandbox = Kobako::Sandbox.new
-sandbox.preload(code: "Adder   = ->(a, b) { a + b }",                    name: :Adder)
-sandbox.preload(code: 'Greeter = ->(opts) { "hello, #{opts[:name]}" }', name: :Greeter)
-
-sandbox.run(:Adder, 2, 3).value            # => 5
-sandbox.run(:Greeter, name: "world").value # => "hello, world"
-```
-
-An entrypoint's `kwargs` arrive as a trailing positional Hash, because mruby's C-side call path carries no keyword arguments. Declare a Hash parameter and unpack it yourself.
-
-A target no snippet defined raises `Kobako::UndefinedEntrypointError`. Its `#available` lists the top-level constants the snippets did contribute, so the name is corrected from the error rather than by reading the guest source.
-
-```
-   per-invocation replay (every #eval / #run, snippets in insertion order):
-
-      canonical boot state
-            │
-            ├──▶ replay :Adder            (defines Adder)
-            │
-            ├──▶ replay :Greeter          (defines Greeter)
-            │
-            └──▶ eval(source)  -or-  run(:Target, *args, **kwargs)
-                       │
-                       ▼
-              return the Execution, then discard the instance
-```
-
-#### Payload Forms
-
-`#preload` accepts two payload forms:
-
-| Form     | Signature                            | Snippet name source                   | Validation timing                                                          |
-|----------|--------------------------------------|---------------------------------------|----------------------------------------------------------------------------|
-| Source   | `preload(code: "...", name: :Const)` | The `name:` keyword                   | First invocation's replay; compile errors raise `Kobako::SandboxError`     |
-| Bytecode | `preload(binary: bytes)`             | Read from the bytecode's `debug_info` | First invocation's replay; structural failure raises `Kobako::BytecodeError` |
-
-Use the source form for snippets authored in your repo; use the bytecode form when snippets ship as build artifacts from a separate `mrbc` pipeline. Source is compiled once, before the first invocation, and replays as bytecode from then on, so the bytecode form saves only that one compile. Both replay through the same per-invocation path, so no snippet content failure surfaces at `#preload` — force the first replay with a no-op invocation (e.g. `sandbox.eval("nil")`) when you want validation before real traffic.
-
-### Extensions
-
-An Extension teaches the guest a native-style constant by pairing a guest idiom (`source`) with an optional host `backend`. `Sandbox#install` composes the two through the existing `#preload` and `#bind` verbs, adding no wire or Guest Binary surface. Pure operations run in-guest with no round-trip. The rest dispatch to the backend under the same isolation and reflection guarantees as any bound Service ([`docs/guides/extensions.md`](docs/guides/extensions.md)).
-
-```ruby
-VFS = <<~'MRUBY'
-  class Vfs
-    extend Kobako::Proxy
-    def self.basename(path) = path.split("/").last || ""  # pure: runs in-guest
-    # read / write are undefined here, so they dispatch to the backend
-  end
-MRUBY
-
-sandbox.install(
-  Kobako::Extension.new(
-    name: :Vfs,
-    source: VFS,
-    backend: Kobako::Extension::Backend.new(
-      path: "Vfs",
-      provider: -> { CopyOnWriteFiles.new(root) }  # invoked once per invocation
-    )
-  )
-)
-
-sandbox.eval('Vfs.read("sample.txt")')  # dispatches to the backend's #read
-```
-
-A backend declares the bound object's lifetime by keyword, never by inference — so a static object that happens to be callable stays unambiguous.
-
-| Keyword     | Lifetime                                                                    |
-|-------------|-----------------------------------------------------------------------------|
-| `object:`   | One object, shared by every invocation                                       |
-| `provider:` | A no-argument callable invoked per invocation                               |
-| neither     | A fillable, standing for `Kobako::Unresolved` until `ctx.bind` supplies the run's object |
-
-A writable backend takes `provider:`, so its state cannot leak across runs. kobako ships no concrete Extension; the idiom and backend are yours. The [DSL example](examples/dsl/) is a worked builder idiom whose every dialect lives on the host.
+[GitHub Release]: https://github.com/elct9620/kobako/releases
 
 ## Security
 
-kobako isolates the guest, but **what it may reach is whatever you `bind` or `mount`**.
-`bind` exposes every public method the object's own class defines. Inherited, mixed-in, and built-in
-methods stay out of reach, but the class's own surface does not. Bind a purpose-built object
-scoped to the task, not a capable one whose other methods leak more than you intend.
+kobako isolates the guest, but it reaches whatever you `bind` or `mount`. Bind
+an object built for the task, since every public method its class defines is
+exposed.
 
 ```ruby
-class ThemeReader          # only #color is reachable; AppConfig.secret_key is not
+class ThemeReader # only #color is reachable
   def color = AppConfig.theme.color
 end
 
-sandbox = Kobako::Sandbox.new
-sandbox.bind("Cfg::Settings", ThemeReader.new)  # not: bind("Cfg::Settings", AppConfig)
-
-sandbox.eval('Cfg::Settings.color').value  # => "#3366ff"  — any other method raises Kobako::NoServiceError
+sandbox.bind("Cfg::Settings", ThemeReader.new) # not AppConfig itself
 ```
-
-Guest code can name any `MyService::KV` path, but a forged name only resolves to
-something you bound. What you bind is the real authorization gate. An object can also
-narrow its own surface with a private `respond_to_guest?`. Give each trust context its own
-Sandbox. [`docs/guides/security.md`](docs/guides/security.md) covers the rest: self-gating
-objects, validating untrusted input, default-deny external effects, and the return surface.
 
 ## Performance
 
-Order-of-magnitude figures on macOS arm64, Ruby 3.4.7, YJIT off. Absolute values vary by hardware but ratios are stable across machines. Full numbers, methodology, and the +10%-regression gate live in [`benchmark/README.md`](benchmark/README.md).
+Figures are order-of-magnitude on macOS arm64 with Ruby 3.4.7; ratios hold
+across machines. The [benchmark] suite gates every release on a +10% regression.
 
-| Phase                                                        | Cost                  |
-|--------------------------------------------------------------|-----------------------|
-| First `Sandbox.new` ever for a Guest Binary (Module JIT, then disk-cached) | ~500 ms once per machine |
-| First `Sandbox.new` in a fresh process (`.cwasm` cache warm) | ~1.4 ms one-time      |
-| Subsequent `Sandbox.new` (caches warm)                       | ~3 µs                 |
-| Warm `#eval` with one Service call on a reused Sandbox       | ~62 µs                |
-| Warm `#run(:Entrypoint, ...)` dispatch                       | ~57 µs                |
-| Service call amortized inside one invocation                 | ~4.9 µs               |
-| Snippet replay per invocation                                | ~2.7 µs each          |
-| Per additional idle Sandbox (RSS)                            | < 1 KB                |
-
-The Cranelift JIT runs once per machine and wasmtime release — the compiled artifact persists in a `.cwasm` disk cache, so later processes deserialize in milliseconds. An idle Sandbox holds no wasm instance, which is why a thousand idle tenants cost ~37 MB total. The canonical boot state is baked into the artifact and instantiated per invocation. A +10% regression on any gated benchmark blocks release.
-
-#### Throughput Levers
-
-| Choice | What it changes |
+| Phase | Cost |
 |---|---|
-| `gvl: :hold` (default) | ~15–20k `#eval`/s in aggregate, at any Thread count |
-| `gvl: :release` | lifts that ceiling for compute-bound scripts (see [Concurrency](#concurrency)) |
-| `match?` over `=~` | `=~` (~5.6 µs/match) costs about 6× `match?` (~0.9 µs) |
+| first `Sandbox.new` per machine (JIT, then disk-cached) | ~500 ms |
+| later `Sandbox.new` | ~3 µs |
+| warm `#eval` with one Service call | ~62 µs |
 
-Under `:hold` the GVL serializes wasm work, though Ruby-side `#eval` setup still overlaps. `=~` eagerly builds the `MatchData` and match globals, so prefer `match?` for boolean tests. Regexp is an opt-in capability gem, excluded from the default binary and the gated set. Its throughput is tracked in a separate non-gated characterization (`#11` in [`benchmark/README.md`](benchmark/README.md)).
-
-```bash
-bundle exec rake bench  # every gated regression benchmark (~5-8 min)
-```
+[benchmark]: https://github.com/elct9620/kobako/tree/main/benchmark
 
 ## Development
 
-After checking out the repo:
+The release gate compiles everything and runs every test and lint.
 
 ```bash
-bin/setup         # install dependencies
-bundle exec rake  # the release gate: compile, tests, crate build graphs, rubocop, steep
+bin/setup                  # install dependencies
+bundle exec rake           # the release gate
+bin/console                # IRB with the gem loaded
+bundle exec rake install   # install the local checkout
 ```
 
-Building from source requires a WASI-capable Rust toolchain in addition to the standard host toolchain. The first compile walks the full chain. The [beni](https://github.com/elct9620/beni) gem vendors wasi-sdk + mruby and builds `libmruby.a` (`rake beni:build`), then `rake wasm:build` produces the Guest Binary. See [`AGENTS.md`](AGENTS.md) for the rake task map and pipeline layout. `bin/console` opens an IRB session with the gem preloaded; `bundle exec rake install` installs the local checkout as a gem.
+The first compile builds mruby and the Guest Binary through the [beni] gem.
+`AGENTS.md` maps the rake tasks and the repository layout.
+
+[beni]: https://github.com/elct9620/beni
 
 ## Contributing
 
-Bug reports and pull requests are welcome at <https://github.com/elct9620/kobako>. Please open an issue before starting on non-trivial changes so we can align on scope.
+Bug reports and pull requests are welcome at the [repository]. Open an issue
+before a non-trivial change, so we can agree on its scope.
 
-Releases are automated with release-please across two tracks; the version rules, commit conventions, and how to cut each release live in [`docs/process/releasing.md`](docs/process/releasing.md).
-
-| Track | What it ships | Tag |
-|---|---|---|
-| Gem | the Ruby gem, with the bundled `kobako.wasm` | `v*` |
-| Crates | the linked guest-crate group | `<component>-v*` |
+[repository]: https://github.com/elct9620/kobako
 
 ## License
 
