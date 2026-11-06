@@ -1,4 +1,4 @@
-//! Thin CLI over `kobako_baker::bake` — Stage C invokes it as
+//! Thin CLI over `kobako_baker::bake` — kobako's Guest Binary build invokes it as
 //! `kobako-baker <input.wasm> <output.wasm>`.
 
 use anyhow::{bail, Context, Result};
