@@ -1918,3 +1918,23 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches patterns that quantify a look-around |
 | Then | each look-around is tried once, or skipped when the quantifier may skip it |
+
+## `RX-311` A backreference level reads one level when nothing recurses
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches backreferences with a level in a pattern that calls no subexpression |
+| Then | level zero reads its group, and any other level matches nothing |
+
+## `RX-312` A backreference level beside a call or a shared name is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-311` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a level backreference in a pattern with a subexpression call, or to a shared name |
+| Then | a `RegexpError` is raised |

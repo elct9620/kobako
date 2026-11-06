@@ -57,7 +57,9 @@ pub(crate) fn build_pattern(source: &str, options: i64) -> Result<String, String
     } else {
         names.iter().map(|(_, numbers)| numbers.len()).sum()
     };
-    let mut rewriter = Rewriter::new(&names, out);
+    let has_calls = Pieces::new(source, extended, captures)
+        .any(|piece| matches!(piece, Piece::NamedReference { kind: 'g', .. }));
+    let mut rewriter = Rewriter::new(&names, has_calls, out);
     for piece in Pieces::new(source, extended, captures) {
         rewriter.rewrite(piece)?;
     }
@@ -124,6 +126,8 @@ enum Repeat {
 /// Writes the engine's pattern, keeping what a later piece reaches back for.
 struct Rewriter<'n, 's> {
     names: &'n [(&'s str, Vec<usize>)],
+    /// Whether the source calls a subexpression, so it may recurse.
+    has_calls: bool,
     out: String,
     /// The source itself comes first, so this is never empty.
     groups: Vec<OpenGroup>,
@@ -141,9 +145,10 @@ struct Rewriter<'n, 's> {
 }
 
 impl<'n, 's> Rewriter<'n, 's> {
-    fn new(names: &'n [(&'s str, Vec<usize>)], out: String) -> Self {
+    fn new(names: &'n [(&'s str, Vec<usize>)], has_calls: bool, out: String) -> Self {
         Self {
             names,
+            has_calls,
             out,
             groups: vec![OpenGroup {
                 start: 0,
@@ -393,6 +398,15 @@ impl<'n, 's> Rewriter<'n, 's> {
                 self.out.push_str(text);
                 Role::Unit
             }
+            Piece::NamedReference {
+                kind: 'k',
+                name: leveled,
+                ..
+            } if split_level(leveled).is_some() => {
+                let (name, level) = split_level(leveled).expect("the guard split it");
+                self.push_leveled_reference(name, level)?;
+                Role::Unit
+            }
             Piece::NamedReference { text, kind, name } => {
                 if named && is_group_number(name) {
                     return Err(NUMBERED_REFERENCE.to_string());
@@ -408,6 +422,26 @@ impl<'n, 's> Rewriter<'n, 's> {
             }
             Piece::Refused(reason) => return Err(reason.to_string()),
         })
+    }
+
+    /// `\k<name+level>` names the group at a recursion level relative to the
+    /// reference. With no subexpression call there is one level, so level zero
+    /// is the group itself and any other level matches nothing. The engine
+    /// has no levels, so a pattern that recurses, or a name several groups
+    /// share, is refused.
+    fn push_leveled_reference(&mut self, name: &str, level: i64) -> Result<(), String> {
+        if self.has_calls || find_shared_numbers(self.names, name).is_some() {
+            return Err("a backreference with a level is not supported here".to_string());
+        }
+        if !self.names.is_empty() && is_group_number(name) {
+            return Err(NUMBERED_REFERENCE.to_string());
+        }
+        if level == 0 {
+            self.out.push_str(&format!(r"\k<{name}>"));
+        } else {
+            self.out.push_str("(?!)");
+        }
+        Ok(())
     }
 
     fn push_escape(
@@ -561,6 +595,25 @@ fn push_each_group(numbers: &[usize], out: &mut String) {
         out.push_str(&number.to_string());
     }
     out.push(')');
+}
+
+/// `name+level` or `name-level` split apart, for a name that is not empty.
+fn split_level(reference: &str) -> Option<(&str, i64)> {
+    let sign = reference[1..].rfind(['+', '-'])? + 1;
+    let (name, level) = reference.split_at(sign);
+    let digits = &level[1..];
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let magnitude = digits.parse::<i64>().ok()?;
+    Some((
+        name,
+        if level.starts_with('-') {
+            -magnitude
+        } else {
+            magnitude
+        },
+    ))
 }
 
 fn is_group_number(name: &str) -> bool {
@@ -719,6 +772,16 @@ mod tests {
             translate(r"(?<n>a)(b)(?<m>c)(?<n>d)\k<n>\k'n'\k<m>", 0),
             r"(?m)(?<n>a)(?:b)(?<m>c)(?<n>d)(?>\3|\1)(?>\3|\1)\k<m>"
         );
+    }
+
+    #[test]
+    fn reads_a_backreference_level_without_recursion() {
+        assert_eq!(translate(r"(?<n>a)\k<n+0>", 0), r"(?m)(?<n>a)\k<n>");
+        assert_eq!(translate(r"(a)\k<-1+0>\k<1-1>", 0), r"(?m)(a)\k<-1>(?!)");
+        assert!(build_pattern(r"(?<n>a)\k<n+0>\g<n>", 0).is_err());
+        assert!(build_pattern(r"(?<n>a)(?<n>b)\k<n+0>", 0).is_err());
+        assert_eq!(split_level("-1"), None);
+        assert_eq!(split_level("n+"), None);
     }
 
     fn translate(source: &str, options: i64) -> String {

@@ -59,4 +59,20 @@ class TestRegexpGroupSyntax < Minitest::Test
                    "#{source} through Regexp.new must raise RegexpError"
     end
   end
+
+  # @behavior RX-311
+  def test_a_backreference_level_without_recursion_reads_one_level
+    assert_equal [%w[aa a], %w[aa a], nil, ["b", nil]],
+                 eval_regexp('[/(?<n>a)\k<n+0>/.match("aa"), /(a)\k<-1+0>/.match("aa"), ' \
+                             '/(?<n>a)\k<n+1>/.match("aa"), /(a)\k<1-1>|b/.match("b")].map { |m| m && m.to_a }'),
+                 "a backreference at level zero through a match must read its group, any other level nothing"
+  end
+
+  # @behavior RX-312
+  def test_a_backreference_level_beside_a_call_or_a_shared_name_is_refused
+    ['(?<n>a)\\\\k<n+0>\\\\g<n>', '(?<n>a)(?<n>b)\\\\k<n+0>'].each do |source|
+      assert_equal "RegexpError", guard_error(%(Regexp.new("#{source}")), "RegexpError"),
+                   "#{source} through Regexp.new must raise RegexpError"
+    end
+  end
 end
