@@ -62,4 +62,14 @@ class TestRegexpUtf8 < Minitest::Test
     assert_equal [2, nil], eval_regexp('["éb" =~ /(?a)\bb/, "éb" =~ /\bb/]'),
                  "a boundary after a non-ASCII letter through /(?a)\\bb/ must match where /\\bb/ does not"
   end
+
+  # U+200B is a format character, which CRuby's Graph and Print take in.
+  # @behavior RX-299
+  def test_a_property_reads_the_set_cruby_gives_its_name
+    assert_equal [0, 0, 0, 0],
+                 eval_regexp('["​" =~ /\p{Graph}/, "​" =~ /[\p{Print}]/, ' \
+                             '"$" =~ /\p{XPosixPunct}/, "" =~ /\p{Unknown}/]'),
+                 "a format character through /\\p{Graph}/ and /[\\p{Print}]/, a dollar sign through " \
+                 "/\\p{XPosixPunct}/ and a private use character through /\\p{Unknown}/ must match"
+  end
 end

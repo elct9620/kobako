@@ -30,6 +30,13 @@ pub(super) enum Piece<'a> {
         in_class: bool,
         charset: Charset,
     },
+    /// `\p{name}`, `\p{^name}` or `\P{name}`.
+    Property {
+        text: &'a str,
+        name: &'a str,
+        negated: bool,
+        in_class: bool,
+    },
     /// `[:name:]` or `[:^name:]` inside a character class.
     PosixBracket {
         name: &'a str,
@@ -136,9 +143,25 @@ impl<'a> Pieces<'a> {
             return Piece::Text(self.take(1));
         };
         let in_class = self.class_depth > 0;
+        if matches!(letter, 'p' | 'P') && after[1..].starts_with('{') {
+            if let Some(close) = after.find('}') {
+                let text = self.take(close + 2);
+                let body = &text[3..text.len() - 1];
+                let (caret, name) = match body.strip_prefix('^') {
+                    Some(name) => (true, name),
+                    None => (false, body),
+                };
+                return Piece::Property {
+                    text,
+                    name,
+                    negated: caret != (letter == 'P'),
+                    in_class,
+                };
+            }
+        }
         if !in_class {
             // The brace belongs to the escape, and opens no interval.
-            if matches!(letter, 'p' | 'P' | 'x' | 'u' | 'o') && after[1..].starts_with('{') {
+            if matches!(letter, 'x' | 'u' | 'o') && after[1..].starts_with('{') {
                 if let Some(close) = after.find('}') {
                     return Piece::Text(self.take(close + 2));
                 }

@@ -83,6 +83,12 @@ class TestRegexpUnicodeGate < Minitest::Test
     ), "ASCII POSIX brackets and an ASCII boundary through #eval on the no-unicode variant must still match"
   end
 
+  # @behavior RX-300
+  def test_an_ascii_property_answers_without_unicode
+    assert_equal %w[f g], eval_no_unicode('[/\p{XDigit}/.match("xf")[0], /\P{XDigit}/.match("fg")[0]]'),
+                 "\\p{XDigit} and \\P{XDigit} through #eval on the no-unicode variant must still match"
+  end
+
   # @behavior RX-278
   def test_a_backspace_class_stands_without_unicode
     assert_equal "\b", eval_no_unicode('/[\b]/.match("\b")[0]'),

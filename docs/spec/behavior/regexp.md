@@ -1786,3 +1786,27 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp Guest Binary built without Unicode support |
 | When | guest code matches a hex digit POSIX bracket, an ASCII-option POSIX bracket and an ASCII-option word boundary |
 | Then | each answers the matched substring |
+
+## `RX-299` A property reads the set CRuby gives its name
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-293` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches a format character against the graphic property and a dollar sign against the POSIX punctuation property |
+| Then | each matches |
+
+## `RX-300` Without the Unicode build an ASCII property still answers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-298` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built without Unicode support |
+| When | guest code matches a hex digit property |
+| Then | it answers the matched substring |

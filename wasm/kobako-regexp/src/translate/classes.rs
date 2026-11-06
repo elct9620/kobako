@@ -17,6 +17,10 @@ const UNICODE_WORD: &str = r"\p{Alphabetic}\p{M}\p{Nd}\p{Pc}\p{Join_Control}";
 const UNICODE_WORD_LATIN1: &str =
     r"\p{Alphabetic}\p{M}\p{Nd}\p{Pc}\p{Join_Control}\x{B2}\x{B3}\x{B9}\x{BC}-\x{BE}";
 const UNICODE_DIGIT: &str = r"\p{Nd}";
+const ASCII_HEX_DIGIT: &str = "0-9A-Fa-f";
+const GRAPH_EXCLUDED: &str = r"\p{Zs}\p{Zl}\p{Zp}\p{Cc}\p{Cn}\p{Cs}";
+const PRINT_EXCLUDED: &str = r"\p{Zl}\p{Zp}\p{Cc}\p{Cn}\p{Cs}";
+const PUNCT: &str = r"\p{P}$+<=>\^`|~";
 const UNICODE_SPACE: &str = r"\t\n\x0b\x0c\r\x{85}\p{Zs}\p{Zl}\p{Zp}";
 
 /// One set as class items, and whether the items are the set's complement.
@@ -93,6 +97,28 @@ pub(super) fn word_boundary(letter: char, charset: Charset) -> Result<String, &'
     Ok(format!(r"\{letter}"))
 }
 
+/// A property whose Onigmo set the engine names differently or not at all,
+/// as a class; `None` leaves the property to the engine. MRI reads a name
+/// without regard to case or underscores.
+pub(super) fn property(name: &str, negated: bool) -> Option<String> {
+    let name: String = name
+        .chars()
+        .filter(|c| !matches!(c, '_' | ' ' | '-'))
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    let set = match name.as_str() {
+        "ascii" => Set::of(r"\x00-\x7F"),
+        "xdigit" => Set::of(ASCII_HEX_DIGIT),
+        _ if !cfg!(feature = "unicode") => return None,
+        "graph" => Set::all_but(GRAPH_EXCLUDED),
+        "print" => Set::all_but(PRINT_EXCLUDED),
+        "xposixpunct" => Set::of(PUNCT),
+        "unknown" | "zzzz" => Set::of(r"\p{Cn}\p{Co}"),
+        _ => return None,
+    };
+    Some(set.class(negated))
+}
+
 /// A POSIX bracket as a class nested in the one holding it.
 pub(super) fn posix_bracket(
     name: &str,
@@ -112,10 +138,10 @@ pub(super) fn posix_bracket(
         "blank" => Set::of(r"\p{Zs}\t"),
         "cntrl" => Set::of(r"\p{Cc}"),
         "digit" => Set::of(UNICODE_DIGIT),
-        "graph" => Set::all_but(r"\p{Zs}\p{Zl}\p{Zp}\p{Cc}\p{Cn}\p{Cs}"),
+        "graph" => Set::all_but(GRAPH_EXCLUDED),
         "lower" => Set::of(r"\p{Lowercase}"),
-        "print" => Set::all_but(r"\p{Zl}\p{Zp}\p{Cc}\p{Cn}\p{Cs}"),
-        "punct" => Set::of(r"\p{P}$+<=>\^`|~"),
+        "print" => Set::all_but(PRINT_EXCLUDED),
+        "punct" => Set::of(PUNCT),
         "space" => Set::of(UNICODE_SPACE),
         "upper" => Set::of(r"\p{Uppercase}"),
         _ => Set::of(UNICODE_WORD),

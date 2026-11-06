@@ -181,6 +181,22 @@ impl<'n, 's> Rewriter<'n, 's> {
                 self.push_escape(letter, true, charset)?;
                 Role::Inert
             }
+            Piece::Property {
+                text,
+                name,
+                negated,
+                in_class,
+            } => {
+                match classes::property(name, negated) {
+                    Some(class) => self.out.push_str(&class),
+                    None => self.out.push_str(text),
+                }
+                if in_class {
+                    Role::Inert
+                } else {
+                    Role::Unit
+                }
+            }
             Piece::PosixBracket {
                 name,
                 negated,
@@ -490,6 +506,20 @@ mod tests {
             translate(r"[[:graph:]]", 0),
             r"(?m)[[^\p{Zs}\p{Zl}\p{Zp}\p{Cc}\p{Cn}\p{Cs}]]"
         );
+    }
+
+    #[test]
+    fn writes_an_ascii_property_as_a_class() {
+        assert_eq!(translate(r"\p{XDigit}", 0), r"(?m)[0-9A-Fa-f]");
+        assert_eq!(translate(r"[x\P{x_digit}]", 0), r"(?m)[x[^0-9A-Fa-f]]");
+        assert_eq!(translate(r"\p{^ASCII}", 0), r"(?m)[^\x00-\x7F]");
+    }
+
+    #[cfg(feature = "unicode")]
+    #[test]
+    fn writes_a_property_the_engine_reads_differently_as_onigmo_does() {
+        assert_eq!(translate(r"\p{Unknown}", 0), r"(?m)[\p{Cn}\p{Co}]");
+        assert_eq!(translate(r"\P{Alpha}", 0), r"(?m)\P{Alpha}");
     }
 
     #[cfg(not(feature = "unicode"))]
