@@ -13,7 +13,7 @@
 #                         Characterization only — not in the release gate.
 #
 # Both compile `beni-sys`, which links the host archive, so each depends
-# on Stage B (`beni:build`). The Stage C artifact tasks
+# on the mruby build (`beni:build`). The Guest Binary artifact tasks
 # (build / variants / clean) live in tasks/wasm/build.rake; shared helpers
 # (paths, cargo env) in tasks/support/wasm.rb.
 

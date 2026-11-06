@@ -3,13 +3,13 @@
 require "fileutils"
 
 module KobakoWasm
-  # Stage C build orchestrator: cross-compiles +kobako-wasm+ for
+  # The Guest Binary build's orchestrator: cross-compiles +kobako-wasm+ for
   # +wasm32-wasip1+ against the vendored +libmruby.a+ and copies the
   # produced wasm into +data/kobako.wasm+. One instance per build run.
   #
   # The caller (+rake wasm:build+) is responsible for guarding
   # +KobakoWasm.cargo_available?+ before constructing the builder;
-  # everything else — the Stage B pre-condition, the cargo env bundle,
+  # everything else — the mruby archive pre-condition, the cargo env bundle,
   # and the artefact copy — is encapsulated here.
   #
   # ## Linker choice: rust-lld (not wasi-sdk clang)
@@ -39,7 +39,7 @@ module KobakoWasm
     # decides what to recompile from what it tracks — the sources, features,
     # lockfiles, and the mruby archive's flags sidecar beni-sys declares —
     # so an unchanged tree costs only its fingerprint check and the bake.
-    # Raises with a Stage B hint when +libmruby.a+ is missing, and raises
+    # Raises with a +beni:build+ hint when +libmruby.a+ is missing, and raises
     # again if cargo succeeds but the expected output file is absent.
     def build
       ensure_libmruby_present
@@ -49,14 +49,14 @@ module KobakoWasm
 
     private
 
-    # Stage B sentinel check. Stage C cannot link without +libmruby.a+,
-    # so we assert it explicitly with a message that points at the rake
+    # The mruby archive's sentinel check. The Guest Binary cannot link
+    # without +libmruby.a+, so we assert it explicitly with a message that points at the rake
     # task that produces it.
     def ensure_libmruby_present
       return if File.exist?(LIBMRUBY_PATH)
 
       raise "[wasm:build] expected libmruby.a at #{LIBMRUBY_PATH}; " \
-            "run `rake beni:build` (Stage B) first"
+            "run `rake beni:build` first"
     end
 
     def run_cargo_release_build

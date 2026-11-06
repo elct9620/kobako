@@ -3,7 +3,7 @@
 # mruby build configuration for the kobako Guest Binary.
 # =====================================================
 #
-# Drives mruby's build system (Stage B of the Build Pipeline) to produce
+# Drives mruby's build system, the step before the Guest Binary build, to produce
 # `vendor/mruby/build/wasi/lib/libmruby.a`, cross-compiled for
 # `wasm32-wasip1` against the vendored wasi-sdk toolchain.
 #
@@ -41,7 +41,7 @@
 # only defined on first load, so `load`-ing this file twice in the same
 # process (e.g. across test runs) does not warn about constant redefinition.
 unless defined?(KobakoBuildConfig)
-  # Config-time constants and helpers shared across the mruby Stage B
+  # Config-time constants and helpers shared across the mruby
   # build (this file) and the rake wrappers in `tasks/`. Wrapped in
   # `unless defined?` so re-loading this file (e.g. across test runs)
   # does not warn about constant redefinition.
@@ -56,8 +56,8 @@ unless defined?(KobakoBuildConfig)
 
     # mruby `CrossBuild` name — controls the build subdirectory layout
     # (`vendor/mruby/build/<name>/`). The `target :wasi` declaration in
-    # the Rakefile's `Beni::Tasks` block and the Stage C paths in
-    # `tasks/support/kobako_wasm.rb` MUST agree; the constant is hoisted
+    # the Rakefile's `Beni::Tasks` block and the Guest Binary build's paths
+    # in `tasks/support/wasm.rb` MUST agree; the constant is hoisted
     # here so paths derived from the build subdir stay in sync.
     MRUBY_BUILD_NAME = "wasi"
 

@@ -2,7 +2,7 @@
 # Stop: clippy gate over every workspace — host ext, crates/ host
 # crates, wasm sub-workspace, and the standalone kobako-baker — plus
 # the wasm32-wasip1 cross check when the target toolchain and the
-# Stage B archive are both present. The wasm sub-workspace's host lane
+# mruby build's archive are both present. The wasm sub-workspace's host lane
 # links the host archive `rake beni:build` stages, found through
 # BENI_VENDOR_DIR.
 set -euo pipefail

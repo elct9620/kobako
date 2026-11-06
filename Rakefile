@@ -66,7 +66,7 @@ Beni::Tasks.new do
   end
 end
 
-# Load tasks/**/*.rake (Stage C + bench/coverage wrappers). Each .rake file
+# Load tasks/**/*.rake (the Guest Binary build + bench/coverage wrappers). Each .rake file
 # is self-contained; see tasks/wasm/ for the Guest Binary flow.
 Dir.glob("tasks/**/*.rake").each { |t| load t }
 

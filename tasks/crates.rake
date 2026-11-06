@@ -50,7 +50,7 @@ CRATES_MANIFEST = File.expand_path("../crates/Cargo.toml", __dir__)
 # the edges a consumer installs — +[dev-dependencies]+ and proc macros
 # expand nothing into it — except the magnus probe, which reads every edge.
 #
-# The guest tiers compile on the host and link the archive Stage B
+# The guest tiers compile on the host and link the archive the mruby build
 # stages, hence +wasm:graph+'s +beni:build+ prerequisite and
 # +KobakoWasm::HOST_CARGO_ENV+.
 CratesGraphProbe = Struct.new(:crate, :dir, :features, :edges, :denied, :allowed, :built, keyword_init: true) do

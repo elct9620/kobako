@@ -4,11 +4,11 @@
 # ============================================
 #
 # Pure-Ruby helpers backing +tasks/wasm/+. Owns crate paths, the
-# wasm32-wasip1 target name, and the Stage C orchestrator. The
+# wasm32-wasip1 target name, and the Guest Binary build's orchestrator. The
 # .rake wrapper is the rake DSL surface that glues these helpers to
 # +rake wasm:test+ / +rake wasm:build+.
 
-# Stage C build helpers for the kobako-wasm crate. See
+# Guest Binary build helpers for the kobako-wasm crate. See
 # +tasks/wasm/+ for the rake DSL and +KobakoWasm::GuestBuilder+ for
 # the orchestrator class.
 module KobakoWasm
@@ -23,7 +23,7 @@ module KobakoWasm
   MANIFEST   = File.join(CRATE_DIR, "Cargo.toml").freeze
   WASM_TARGET = "wasm32-wasip1"
 
-  # Stage C output paths. Cargo derives the workspace-shared target
+  # The Guest Binary build's output paths. Cargo derives the workspace-shared target
   # directory from the workspace root rather than the cdylib member.
   CRATE_TARGET_DIR  = File.join(WASM_WORKSPACE_DIR, "target").freeze
   CRATE_WASM_OUTPUT = File.join(CRATE_TARGET_DIR, WASM_TARGET, "release", "kobako_wasm.wasm").freeze
@@ -60,10 +60,10 @@ module KobakoWasm
   # removes.
   GUEST_BINARIES = [DATA_WASM, *VARIANT_BUILDS.values.map(&:last)].freeze
 
-  # Stage B output (produced by `rake beni:build` against
+  # The mruby build's output (produced by `rake beni:build` against
   # build_config/wasi.rb). The vendor base mirrors the `Beni::Tasks`
   # default (`BENI_VENDOR_DIR` or `vendor/` at the project root) so the
-  # Stage C exports name the same tree beni populated.
+  # Guest Binary build's exports name the same tree beni populated.
   VENDOR_DIR     = (ENV["BENI_VENDOR_DIR"] || File.join(ROOT, "vendor")).freeze
   WASI_SDK_DIR   = (ENV["WASI_SDK_PATH"] || File.join(VENDOR_DIR, "wasi-sdk")).freeze
   MRUBY_LIB_DIR  = File.join(VENDOR_DIR, "mruby", "build", "wasi", "lib").freeze
@@ -86,7 +86,7 @@ module KobakoWasm
     system("cargo", "llvm-cov", "--version", out: File::NULL, err: File::NULL)
   end
 
-  # Shared guard for the Stage C build tasks: abort with an install hint
+  # Shared guard for the Guest Binary build tasks: abort with an install hint
   # when cargo is absent, so each task body stays a single build call.
   def self.ensure_cargo!
     abort "cargo not on PATH; install the Rust toolchain to build the Guest Binary" unless cargo_available?

@@ -30,7 +30,7 @@ unless defined?(KvBuildConfig)
 
     # The mruby `CrossBuild` name, which is also the build subdirectory
     # (`vendor/mruby/build/<name>/`). The `target :wasi` declaration in
-    # the Rakefile and the archive path Stage C exports must agree with
+    # the Rakefile and the archive path the Guest Binary build exports must agree with
     # it, so it is named once here.
     MRUBY_BUILD_NAME = "wasi"
 

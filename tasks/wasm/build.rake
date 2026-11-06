@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Stage C of the Build Pipeline — the Guest Binary artifact tasks.
+# The Guest Binary artifact tasks.
 #
 #   * `rake wasm:build` — cross-compiles the kobako-wasm shell crate against
 #                         the vendored wasi-sdk + libmruby.a and writes the
@@ -19,7 +19,7 @@
 require_relative "../support/wasm"
 
 namespace :wasm do
-  desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a (Stage C)"
+  desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a"
   task build: ["beni:build"] do
     KobakoWasm.ensure_cargo!
     KobakoWasm::GuestBuilder.new.build
