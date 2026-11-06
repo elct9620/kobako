@@ -424,8 +424,8 @@ disable_file flag -> no File constant
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a read-write Mount |
-| When | the script opens a path holding a NUL byte |
-| Then | the open raises `ArgumentError` |
+| When | the script opens, reads, writes, asks about, or lists a path holding a NUL byte |
+| Then | each call raises `ArgumentError` |
 
 ## `FL-034` An open answers as CRuby does on Linux, unless a rule refuses it
 
@@ -775,3 +775,39 @@ disable_file flag -> no File constant
 | Given | a script holding a file it opened and then closed |
 | When | it calls `fsync`, `fdatasync`, `truncate`, `pread`, `pwrite`, and `advise` on it |
 | Then | each raises `IOError` |
+
+## `FL-074` A positioned read past what a file holds answers what it holds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-064` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file of 5 bytes open to read, under the default memory limit of 4 MiB |
+| When | it reads 4 MiB from offset 0 with `pread` |
+| Then | `pread` answers the 5 bytes |
+
+## `FL-075` A positioned read fills a buffer it is given
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-064` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file holding `hello` open to read, and a String holding `stale text` |
+| When | it reads 2 bytes from offset 1 with `pread` into that String |
+| Then | `pread` answers that same String, now holding `el` |
+
+## `FL-076` An advice takes nil as offset or length 0
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file open to read |
+| When | it gives an advice with `nil` as its offset, and another with `nil` as its length |
+| Then | each answers `nil` |

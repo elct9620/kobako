@@ -19,9 +19,18 @@ nothing mounted    -> NotImplementedError
 disable_file flag  -> no Dir constant
 ```
 
+What the guest cannot answer as CRuby does, it leaves out, so a script fails instead of reading another answer. An opened `Dir` holds no descriptor. The guest has no working directory, no `Enumerator`, and no String encoding.
+
+```
+glob, [], pwd, chdir, fileno -> NoMethodError
+a call given no block        -> ArgumentError, where CRuby answers an Enumerator
+the encoding: keyword        -> ArgumentError
+```
+
 ## Includes
 
 - `test/e2e/test_dir.rb`
+- `test/e2e/test_dir_opened.rb`
 
 ## `FL-050` A script lists a directory beneath a Mount
 
@@ -134,3 +143,40 @@ disable_file flag  -> no Dir constant
 | Given | a Sandbox that set the critical flag `disable_file` |
 | When | the script asks whether `Dir` is defined |
 | Then | it is not |
+
+## `FL-071` A permission that is not a number raises TypeError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-051` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount |
+| When | the script makes a directory with a String permission, and another with `nil` |
+| Then | each raises `TypeError`, and neither directory exists |
+
+## `FL-072` An opened directory lists its children again and rewinds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-053` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding an opened directory with two files |
+| When | it asks `children`, yields `each_child`, reads, then calls `rewind` and reads again |
+| Then | each lists the two names, the first read answers `nil`, and the read after `rewind` answers `.` |
+
+## `FL-073` A directory names its path open or closed
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-053` |
+| relates | `FL-054` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a directory it opened |
+| When | it asks `inspect` and `path`, closes it, and asks `path` again |
+| Then | `inspect` names the path as `#<Dir:path>`, and each `path` answers it |
