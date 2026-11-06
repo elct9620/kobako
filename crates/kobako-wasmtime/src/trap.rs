@@ -136,7 +136,7 @@ mod tests {
 
     // @behavior OC-033
     #[test]
-    fn to_trap_routes_memory_limit_trap_to_memory_limit() {
+    fn to_trap_routes_memory_limit_exceeded_to_memory_limit() {
         let trap = MemoryLimitExceeded::new(1 << 20, 1 << 19);
         let expected = trap.to_string();
         let err = wasmtime::Error::new(trap);

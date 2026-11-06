@@ -4,26 +4,26 @@
 
 /// The budget one invocation's memory grows against.
 ///
-/// `max_memory` is the byte cap on per-invocation growth (`None` disables
-/// the cap). `baseline` is the linear-memory size captured at invocation
-/// entry by `MemoryCap::activate`; only the growth past `baseline` is charged
-/// against `max_memory`, so the mruby image's initial allocation and any
-/// high-water mark left by prior invocations on the same Sandbox do not
-/// consume the budget. An Engine also asks about the module's declared
-/// initial allocation at instantiation time, so the cap stays dormant until
-/// `MemoryCap::activate` arms it for one invocation.
+/// `memory_limit` bounds per-invocation growth (`None` disables it).
+/// `baseline` is the linear-memory size captured at invocation entry by
+/// `MemoryCap::activate`; only the growth past `baseline` is charged against
+/// `memory_limit`, so the mruby image's initial allocation and any high-water
+/// mark left by prior invocations on the same Sandbox do not consume the
+/// budget. An Engine also asks about the module's declared initial allocation
+/// at instantiation time, so the cap stays dormant until `MemoryCap::activate`
+/// arms it for one invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct MemoryCap {
-    max_memory: Option<usize>,
+    memory_limit: Option<usize>,
     baseline: usize,
     cap_active: bool,
     peak: usize,
 }
 
 impl MemoryCap {
-    pub fn new(max_memory: Option<usize>) -> Self {
+    pub fn new(memory_limit: Option<usize>) -> Self {
         Self {
-            max_memory,
+            memory_limit,
             baseline: 0,
             cap_active: false,
             peak: 0,
@@ -48,13 +48,13 @@ impl MemoryCap {
         self.peak
     }
 
-    /// Charge a growth to `desired` bytes, refusing one past the cap.
-    pub fn growing(&mut self, desired: usize) -> Result<(), MemoryLimitExceeded> {
+    /// Charge a growth to `desired` bytes, refusing one past `memory_limit`.
+    pub fn charge(&mut self, desired: usize) -> Result<(), MemoryLimitExceeded> {
         if !self.cap_active {
             return Ok(());
         }
         let delta = desired.saturating_sub(self.baseline);
-        if let Some(limit) = self.max_memory {
+        if let Some(limit) = self.memory_limit {
             if delta > limit {
                 return Err(MemoryLimitExceeded::new(desired, limit));
             }
@@ -97,123 +97,142 @@ impl std::error::Error for MemoryLimitExceeded {}
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests for `MemoryCap` — the per-invocation memory delta cap. The
-    //! Ruby-facing E2E suite exercises the full path through an Engine; these
-    //! tests pin the pure delta arithmetic so a regression that breaks the
-    //! baseline accounting (e.g. dropping the `baseline` subtraction, or
-    //! letting `activate` carry stale state across invocations) is caught
-    //! without spinning one up.
+    //! The pure delta arithmetic, so a regression that breaks the baseline
+    //! accounting (dropping the `baseline` subtraction, or letting `activate`
+    //! carry stale state across invocations) is caught without an Engine.
     use super::MemoryCap;
 
-    fn assert_growing(cap: &mut MemoryCap, desired: usize) {
+    fn assert_charged(cap: &mut MemoryCap, desired: usize, what: &str) {
         assert!(
-            cap.growing(desired).is_ok(),
-            "expected growing({desired}) to allow growth"
+            cap.charge(desired).is_ok(),
+            "{what} through MemoryCap::charge must be allowed"
         );
     }
 
-    fn assert_trapping(cap: &mut MemoryCap, desired: usize) {
+    fn assert_refused(cap: &mut MemoryCap, desired: usize, what: &str) {
         assert!(
-            cap.growing(desired).is_err(),
-            "expected growing({desired}) to refuse growth"
+            cap.charge(desired).is_err(),
+            "{what} through MemoryCap::charge must be refused"
         );
     }
 
     // @behavior S-113
     #[test]
-    fn dormant_limiter_allows_any_growth() {
+    fn a_growth_before_the_cap_is_armed_is_not_bounded() {
         let mut cap = MemoryCap::new(Some(1 << 20));
-        // Without `activate`, the cap is dormant — the module's
-        // declared initial allocation must pass through unconditionally.
-        assert_growing(&mut cap, 100 << 20);
+        assert_charged(&mut cap, 100 << 20, "a 100 MiB growth before activate");
     }
 
     // @behavior S-114
     #[test]
-    fn delta_below_cap_passes_after_activate() {
+    fn a_growth_within_the_limit_is_allowed() {
         let mut cap = MemoryCap::new(Some(1 << 20));
         cap.activate(2 << 20);
-        // baseline=2 MiB, desired=2.5 MiB → delta=0.5 MiB ≤ 1 MiB cap.
-        assert_growing(&mut cap, (2 << 20) + (1 << 19));
+        assert_charged(
+            &mut cap,
+            (2 << 20) + (1 << 19),
+            "a 512 KiB growth past a 2 MiB baseline under a 1 MiB limit",
+        );
     }
 
     // @behavior S-121
     #[test]
-    fn delta_past_cap_traps_with_memory_limit_trap() {
+    fn a_growth_past_the_limit_is_refused() {
         let mut cap = MemoryCap::new(Some(1 << 20));
         cap.activate(2 << 20);
-        // baseline=2 MiB, desired=4 MiB → delta=2 MiB > 1 MiB cap.
-        assert_trapping(&mut cap, 4 << 20);
+        assert_refused(
+            &mut cap,
+            4 << 20,
+            "a 2 MiB growth past a 2 MiB baseline under a 1 MiB limit",
+        );
     }
 
     // @behavior S-008
     #[test]
-    fn activate_resets_baseline_on_each_invocation() {
+    fn each_activation_charges_from_its_own_baseline() {
         let mut cap = MemoryCap::new(Some(1 << 20));
         cap.activate(2 << 20);
-        assert_growing(&mut cap, (2 << 20) + (1 << 20));
-        // Second invocation: linear memory has grown to 3 MiB. Re-arming
-        // must re-anchor the baseline so the next 1 MiB of growth fits
-        // the per-invocation budget rather than being charged against
-        // the prior invocation's residue.
+        assert_charged(&mut cap, 3 << 20, "a 1 MiB growth in the first invocation");
         cap.activate(3 << 20);
-        assert_growing(&mut cap, (3 << 20) + (1 << 20));
+        assert_charged(
+            &mut cap,
+            4 << 20,
+            "a 1 MiB growth in the second invocation, past the first one's residue",
+        );
     }
 
     // @behavior S-009
     #[test]
-    fn disabled_cap_ignores_delta_size() {
+    fn a_cap_without_a_limit_allows_any_growth() {
         let mut cap = MemoryCap::new(None);
         cap.activate(0);
-        assert_growing(&mut cap, 100 << 20);
+        assert_charged(&mut cap, 100 << 20, "a 100 MiB growth with no limit");
     }
 
     // @behavior S-116
     #[test]
-    fn peak_starts_at_zero_before_any_grow() {
+    fn the_peak_is_zero_before_any_growth() {
         let cap = MemoryCap::new(Some(1 << 20));
-        assert_eq!(cap.peak(), 0);
+        assert_eq!(
+            cap.peak(),
+            0,
+            "a new cap through MemoryCap::peak must report 0"
+        );
     }
 
     // @behavior S-115
     #[test]
-    fn peak_tracks_high_water_of_delta_past_baseline() {
+    fn the_peak_is_the_highest_growth_past_the_baseline() {
         let mut cap = MemoryCap::new(Some(1 << 20));
         cap.activate(2 << 20);
-        assert_growing(&mut cap, (2 << 20) + (1 << 18)); // delta=256 KiB
-        assert_growing(&mut cap, (2 << 20) + (1 << 19)); // delta=512 KiB (new peak)
-        assert_growing(&mut cap, (2 << 20) + (1 << 17)); // delta=128 KiB (below peak)
-        assert_eq!(cap.peak(), 1 << 19);
+        assert_charged(&mut cap, (2 << 20) + (1 << 18), "a 256 KiB growth");
+        assert_charged(&mut cap, (2 << 20) + (1 << 19), "a 512 KiB growth");
+        assert_charged(&mut cap, (2 << 20) + (1 << 17), "a 128 KiB growth");
+        assert_eq!(
+            cap.peak(),
+            1 << 19,
+            "growths of 256, 512, and 128 KiB through MemoryCap::peak must report 512 KiB"
+        );
     }
 
     // @behavior S-062
     #[test]
-    fn trap_does_not_update_peak() {
+    fn a_refused_growth_leaves_the_peak_alone() {
         let mut cap = MemoryCap::new(Some(1 << 20));
         cap.activate(2 << 20);
-        assert_growing(&mut cap, (2 << 20) + (1 << 19)); // delta=512 KiB
-        assert_trapping(&mut cap, (2 << 20) + (2 << 20)); // would be 2 MiB > 1 MiB cap
-                                                          // Peak reflects the last accepted grow, not the rejected desired.
-        assert_eq!(cap.peak(), 1 << 19);
+        assert_charged(&mut cap, (2 << 20) + (1 << 19), "a 512 KiB growth");
+        assert_refused(&mut cap, 4 << 20, "a 2 MiB growth under a 1 MiB limit");
+        assert_eq!(
+            cap.peak(),
+            1 << 19,
+            "a refused 2 MiB growth through MemoryCap::peak must leave 512 KiB reported"
+        );
     }
 
     // @behavior S-117
     #[test]
-    fn activate_resets_peak_for_new_invocation() {
+    fn each_activation_resets_the_peak() {
         let mut cap = MemoryCap::new(Some(1 << 20));
         cap.activate(2 << 20);
-        assert_growing(&mut cap, (2 << 20) + (1 << 19));
-        assert_eq!(cap.peak(), 1 << 19);
+        assert_charged(&mut cap, (2 << 20) + (1 << 19), "a 512 KiB growth");
         cap.activate(3 << 20);
-        assert_eq!(cap.peak(), 0);
+        assert_eq!(
+            cap.peak(),
+            0,
+            "a second activate through MemoryCap::peak must report 0"
+        );
     }
 
     // @behavior S-118
     #[test]
-    fn disabled_cap_still_tracks_peak() {
+    fn a_cap_without_a_limit_still_reports_its_peak() {
         let mut cap = MemoryCap::new(None);
         cap.activate(1 << 20);
-        assert_growing(&mut cap, (1 << 20) + (4 << 20));
-        assert_eq!(cap.peak(), 4 << 20);
+        assert_charged(&mut cap, 5 << 20, "a 4 MiB growth with no limit");
+        assert_eq!(
+            cap.peak(),
+            4 << 20,
+            "a 4 MiB growth with no limit through MemoryCap::peak must report 4 MiB"
+        );
     }
 }

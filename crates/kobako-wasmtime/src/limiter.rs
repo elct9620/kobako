@@ -14,7 +14,7 @@ impl ResourceLimiter for MemoryLimiter {
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
-        self.0.growing(desired).map_err(wasmtime::Error::new)?;
+        self.0.charge(desired).map_err(wasmtime::Error::new)?;
         Ok(true)
     }
 
