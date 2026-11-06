@@ -74,16 +74,15 @@ What each rung reveals is in [Security Model](security.md).
 ## Rust SDK
 
 `Options` holds the same caps as `Option` fields, and `Options::default()`
-carries the Ruby defaults. `None` switches a cap off.
+carries the Ruby defaults. `None` switches a cap off. `Options` is
+non-exhaustive, so start from the default and set each field.
 
 ```rust
-let options = Options {
-    timeout: Some(Duration::from_secs(5)),
-    memory_limit: Some(10 * 1024 * 1024),
-    open_file_limit: Some(16),
-    profile: Profile::Hermetic,
-    ..Options::default()
-};
+let mut options = Options::default();
+options.timeout = Some(Duration::from_secs(5));
+options.memory_limit = Some(10 * 1024 * 1024);
+options.open_file_limit = Some(16);
+options.profile = Profile::Hermetic;
 let sandbox = Sandbox::new("kobako.wasm", options)?;
 ```
 
