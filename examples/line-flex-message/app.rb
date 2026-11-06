@@ -109,8 +109,7 @@ module LineFlex
   # everything through their context delegation, so without the gate the DSL
   # vocabulary would not be bounded by the gem's method set. The builder
   # methods are answered dynamically, so the same gate is the object's
-  # `respond_to_guest?` — the names a guest may call are the ones it declares
-  # (docs/guides/security.md).
+  # `respond_to_guest?` — the names a guest may call are the ones it declares.
   class Buildable
     def initialize(node) = (@node = node)
 

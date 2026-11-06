@@ -10,7 +10,7 @@ classes stay the single source of truth.
 guest: header "..."; body do ... end  ─> wrapper ─> Handle ─> host Card / Section / Image
 ```
 
-It is a [`Kobako::Extension`](../../docs/guides/extensions.md) demo that
+It is a `Kobako::Extension` demo that
 installs a builder idiom over host dialects. The
 [line-flex-message](../line-flex-message/README.md) demo drives the same
 mechanism against a real gem.
