@@ -15,7 +15,7 @@ Four crates are the whole toolkit, and the split between the last two is the les
 |---|---|
 | `kobako-wasmtime` | the `Driver`, running a prebuilt Guest Binary on a fresh instance per invocation |
 | `kobako-runtime` | the engine-neutral contract: `Runtime`, `Snapshot`, the dispatch traits |
-| `kobako-transport` | the **core envelope**: the `Preamble`, the `Call` and its `Reply`, the `Outcome` |
+| `kobako-transport` | the **Envelope**: the `Preamble`, the `Call` and its `Reply`, the `Outcome` |
 | `kobako-codec` | only the payload riding *inside* an envelope, under this host's schema |
 
 A port to another host language should copy that boundary first. Everything above the codec stays the same whatever schema you carry, and only the payload half is yours to replace.

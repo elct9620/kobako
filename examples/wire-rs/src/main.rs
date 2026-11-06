@@ -10,7 +10,7 @@
 //!     Binary on a fresh instance per invocation;
 //!   * `kobako-runtime` is the engine-neutral contract the driver
 //!     implements — `Runtime`, `Snapshot`, the dispatch traits;
-//!   * `kobako-transport` owns the core envelope — the Preamble, the
+//!   * `kobako-transport` owns the Envelope — the Preamble, the
 //!     Call and its Reply, the Outcome — every kobako assembly shares;
 //!   * `kobako-codec` owns only what rides *inside* an envelope, the
 //!     payload, under the schema this host happens to speak.
