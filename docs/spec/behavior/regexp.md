@@ -10,7 +10,9 @@ A pattern and a match never cross to the host. What crosses is a result: a subst
 
 ### CRuby fidelity
 
-The surface is a chosen subset of CRuby's `Regexp` and `MatchData` and the `String` methods around them. It adds nothing of its own. Within it, behavior is CRuby's unless a scenario states otherwise. The matching engine stays outside this contract.
+The surface is a chosen subset of CRuby's `Regexp` and `MatchData` and the `String` methods around them. It follows CRuby as closely as the guest can. Within it, behavior is CRuby's unless a scenario states otherwise.
+
+Security, mruby or the matching engine can force a difference. Such a difference stays, and a scenario states it. The matching engine itself stays outside this contract.
 
 The guest sees exactly these constructs, plus the `String` and `MatchData` members their own features list.
 
@@ -25,6 +27,10 @@ nil                    =~
 match globals          $~, $1..$9, $&, $`, $', $+
 errors                 RegexpError
 ```
+
+The capability comes in two builds. The ASCII build answers what CRuby defines over ASCII alone, such as `\d`, `\w` and `[[:xdigit:]]`. A construct whose CRuby answer reads Unicode data is refused there, not answered narrowed. Case-insensitive matching, a word boundary, a property and most POSIX brackets are such constructs.
+
+The Unicode build follows CRuby's Unicode rules as well. It refuses only what neither the engine nor the translation can express.
 
 The guest has no `Encoding` objects. `Regexp.version` and the switches that turn the match globals off stay out, so the globals are always on. The backtracking bound is sized for matches that are truly unbounded. It is not raised to cover a pattern CRuby still answers.
 

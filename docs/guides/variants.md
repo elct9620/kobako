@@ -45,9 +45,9 @@ refuses.
 
 ## Guest Surface
 
-Each capability is a chosen subset of CRuby that adds nothing of its own.
-Within it, a script behaves as on CRuby; the sections below show where each
-subset ends.
+Each capability is a chosen subset of CRuby, followed as closely as the guest
+can. A difference the guest cannot avoid stays, and the capability's spec
+states it; the sections below show where each subset ends.
 
 | Surface | Present in |
 |---|---|

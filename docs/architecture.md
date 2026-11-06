@@ -268,7 +268,7 @@ Behavior lives in the spec under [`spec/`](spec/). Each layer has one reference 
 | WASI encoding | witx, then wasi-testsuite, then Linux | [`filesystem/preview1.md`](filesystem/preview1.md) |
 | `vfs` | Linux's VFS, in behavior and logic | [`filesystem/README.md`](filesystem/README.md) |
 | `filesystem` | the spec | [`spec/`](spec/) |
-| capability gems | CRuby, except where security forbids | [`spec/behavior/json.md`](spec/behavior/json.md), [`spec/behavior/regexp.md`](spec/behavior/regexp.md) |
+| capability gems | CRuby as closely as the guest can; a scenario states each forced difference | [`spec/behavior/json.md`](spec/behavior/json.md), [`spec/behavior/regexp.md`](spec/behavior/regexp.md) |
 | the two Frontends | each other | [`process/parity.md`](process/parity.md) |
 | names | the naming baseline | [`process/convention.md`](process/convention.md) |
 
