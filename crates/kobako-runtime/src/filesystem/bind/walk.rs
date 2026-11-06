@@ -103,7 +103,7 @@ mod kernel {
     /// could ignore a flag it does not know and follow a link.
     const DARWIN_OF_MACOS_26: u32 = 25;
 
-    fn supported() -> bool {
+    fn is_supported() -> bool {
         static SUPPORTED: OnceLock<bool> = OnceLock::new();
         *SUPPORTED.get_or_init(|| {
             rustix::system::uname()
@@ -116,7 +116,7 @@ mod kernel {
     }
 
     pub(super) fn walk(dir: &Dir, names: &[String]) -> Option<Result<Dir, FilesystemError>> {
-        if !supported() {
+        if !is_supported() {
             return None;
         }
         let Ok(path) = CString::new(names.join("/")) else {
