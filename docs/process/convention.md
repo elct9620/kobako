@@ -49,6 +49,8 @@ What a name stands for decides its word class.
 | A variable or field | a noun, or the state it records | `owner`, `live` |
 | A callback, a method or the field holding one | `on_` and the event | `on_dispatch` |
 
+A name, a comment, or a task description says what a step handles, never its number in a process: the mruby archive, not Stage B.
+
 A method names no subject, because its receiver is one: `sandbox.mount(path, fs)` reads as noun, verb, and noun. An attribute answers what a value holds and takes nothing.
 
 ## Method Names
