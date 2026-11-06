@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::filesystem::{
-    DirEntry, FileOperations, FileType, FilesystemError, InodeOperations, Kiocb, Kstat, Lookup,
-    OpenHow, Tmpfs,
+    Dentry, DirContext, DirEntry, FileOperations, FileSystemType, FileType, FilesystemError, Inode,
+    InodeOperations, Kiocb, Kstat, Lookup, OpenHow, Tmpfs,
 };
 use kobako::msgpack::Value;
-use kobako::{Access, Dentry, Error, Filesystem, Inode, Policy, Profile, Sandbox};
+use kobako::{Access, Error, Filesystem, Policy, Profile, Sandbox};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
 use kobako_runtime::grant::Grant;
@@ -246,12 +246,9 @@ impl FileOperations for NoteFile {
 }
 
 /// The directory holding `note.txt`.
-impl kobako_runtime::filesystem::FileSystemType for OneNote {
+impl FileSystemType for OneNote {
     fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
-        sb.d_make_root(kobako_runtime::vfs::Inode::new(
-            &kobako_runtime::Kstat::new(kobako_runtime::FileType::Dir, 0),
-            self,
-        ));
+        sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
         Ok(())
     }
 }
@@ -287,7 +284,7 @@ impl FileOperations for NoteDir {
     fn iterate_shared(
         &mut self,
         dentry: &Dentry,
-        ctx: &mut kobako_runtime::vfs::DirContext<'_>,
+        ctx: &mut DirContext<'_>,
     ) -> Result<(), FilesystemError> {
         if kobako_runtime::vfs::dir_emit_dots(dentry, ctx)
             && ctx.pos() == 2

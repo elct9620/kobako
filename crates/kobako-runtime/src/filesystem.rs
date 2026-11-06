@@ -20,7 +20,7 @@ pub use rdir::Rdir;
 pub use tmpfs::{SeedError, Tmpfs};
 
 pub use crate::vfs::{
-    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, FilesystemError, Finish,
-    Iattr, InodeOperations, Kiocb, Kstat, Lookup, Mask, OpenHow, RenameFlag, SetTime,
-    SuperBlock as Filesystem,
+    Dentry, DentryOperations, DirContext, DirEntry, FMode, FileOperations, FileSystemType,
+    FileType, FilesystemError, Finish, Iattr, Inode, InodeOperations, Kiocb, Kstat, Lookup, Mask,
+    OpenHow, PollMask, RenameFlag, SetTime, SuperBlock as Filesystem, Whence,
 };
