@@ -30,6 +30,16 @@ pub(super) enum Piece<'a> {
         in_class: bool,
         charset: Charset,
     },
+    /// A character an octal or control escape names.
+    Char {
+        value: u32,
+        in_class: bool,
+    },
+    /// The hex code points of a `\u{…}` that names more than one.
+    CodePoints {
+        body: &'a str,
+        in_class: bool,
+    },
     /// `\p{name}`, `\p{^name}` or `\P{name}`.
     Property {
         text: &'a str,
@@ -98,13 +108,17 @@ pub(super) struct Pieces<'a> {
     rest: &'a str,
     class_depth: usize,
     frames: Vec<Frame>,
+    /// How many groups the whole source captures, which decides whether
+    /// `\10` is a backreference or an octal escape.
+    capture_count: usize,
 }
 
 impl<'a> Pieces<'a> {
-    pub(super) fn new(source: &'a str, extended: bool) -> Self {
+    pub(super) fn new(source: &'a str, extended: bool, capture_count: usize) -> Self {
         Self {
             rest: source,
             class_depth: 0,
+            capture_count,
             frames: vec![Frame {
                 extended,
                 charset: Charset::Default,
@@ -163,13 +177,38 @@ impl<'a> Pieces<'a> {
                 };
             }
         }
-        if !in_class {
-            // The brace belongs to the escape, and opens no interval.
-            if matches!(letter, 'u' | 'o') && after[1..].starts_with('{') {
-                if let Some(close) = after.find('}') {
-                    return Piece::Text(self.take(close + 2));
+        // The brace belongs to the escape, and opens no interval.
+        if letter == 'u' && after[1..].starts_with('{') {
+            if let Some(close) = after.find('}') {
+                let text = self.take(close + 2);
+                let body = text[3..text.len() - 1].trim();
+                if body.contains(char::is_whitespace) {
+                    return Piece::CodePoints { body, in_class };
                 }
+                return if in_class {
+                    Piece::ClassText(text)
+                } else {
+                    Piece::Text(text)
+                };
             }
+        }
+        if matches!(letter, 'c' | 'C' | 'M') {
+            return self.control(letter, in_class);
+        }
+        if letter.is_ascii_digit() {
+            if let Some(piece) = self.octal(in_class) {
+                return piece;
+            }
+        } else if letter.is_ascii_alphabetic() && !escape_has_meaning(letter, in_class, after) {
+            self.take(1);
+            let text = self.take(1);
+            return if in_class {
+                Piece::ClassText(text)
+            } else {
+                Piece::Text(text)
+            };
+        }
+        if !in_class {
             let in_look_behind = self.frame().look_behind != LookBehind::Outside;
             if matches!(letter, 'k' | 'g') {
                 if let Some((name, len)) = read_delimited(&after[1..]) {
@@ -184,7 +223,7 @@ impl<'a> Pieces<'a> {
                     };
                 }
             }
-            if ('1'..='9').contains(&letter) {
+            if letter.is_ascii_digit() {
                 let digits = after
                     .find(|c: char| !c.is_ascii_digit())
                     .unwrap_or(after.len());
@@ -201,6 +240,80 @@ impl<'a> Pieces<'a> {
             in_class,
             charset: self.frame().charset,
         }
+    }
+
+    /// `\cX`, `\C-X` or `\M-…`, with the backslash unread. A control escape
+    /// keeps the low five bits of an ASCII character; a meta escape names a
+    /// byte no UTF-8 pattern can hold.
+    fn control(&mut self, letter: char, in_class: bool) -> Piece<'a> {
+        let prefix = match letter {
+            'c' => 2,
+            'C' if self.rest[2..].starts_with('-') => 3,
+            'C' => {
+                self.take(2);
+                return Piece::Refused("too short control escape");
+            }
+            _ => {
+                self.take(2);
+                return Piece::Refused("too short meta escape");
+            }
+        };
+        let target = &self.rest[prefix..];
+        let (byte, len) = match target.as_bytes() {
+            [b'\\', escaped, ..] => match simple_escape(*escaped) {
+                Some(byte) => (byte, 2),
+                None => {
+                    self.take(prefix);
+                    return Piece::Refused("too short control escape");
+                }
+            },
+            [byte, ..] if byte.is_ascii() => (*byte, 1),
+            _ => {
+                self.take(prefix);
+                return Piece::Refused("too short control escape");
+            }
+        };
+        self.take(prefix + len);
+        Piece::Char {
+            value: u32::from(byte & 0x1f),
+            in_class,
+        }
+    }
+
+    /// A digit escape that is no backreference: up to three octal digits, or
+    /// a lone `8` or `9`, which reads as itself. `None` leaves a backreference.
+    /// Outside a class a number is a backreference while it names a group, or
+    /// while it is a single digit.
+    fn octal(&mut self, in_class: bool) -> Option<Piece<'a>> {
+        let after = &self.rest[1..];
+        let decimal_len = after
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(after.len());
+        let number = after[..decimal_len].parse::<usize>().unwrap_or(usize::MAX);
+        let is_reference =
+            !in_class && !after.starts_with('0') && (number <= 9 || number <= self.capture_count);
+        if is_reference {
+            return None;
+        }
+        let octal_len = after[..decimal_len.min(3)]
+            .find(|c: char| !('0'..='7').contains(&c))
+            .unwrap_or(decimal_len.min(3));
+        if octal_len == 0 {
+            self.take(1);
+            let digit = self.take(1);
+            return Some(if in_class {
+                Piece::ClassText(digit)
+            } else {
+                Piece::Text(digit)
+            });
+        }
+        let value = u32::from_str_radix(&after[..octal_len], 8).unwrap_or(u32::MAX);
+        self.take(1 + octal_len);
+        Some(match value {
+            0..=0x7f => Piece::Char { value, in_class },
+            0x80..=0xff => Piece::Refused("invalid multibyte escape"),
+            _ => Piece::Refused("invalid escape code"),
+        })
     }
 
     fn group(&mut self) -> Piece<'a> {
@@ -372,6 +485,33 @@ impl<'a> Iterator for Pieces<'a> {
             c => Piece::Text(self.take(c.len_utf8())),
         })
     }
+}
+
+/// Whether MRI gives `\letter` a meaning of its own; any other letter reads
+/// as itself. `\k` and `\g` mean something only before a delimited name, and
+/// `\p` and `\P` only before a brace.
+fn escape_has_meaning(letter: char, in_class: bool, after: &str) -> bool {
+    match letter {
+        'k' | 'g' => !in_class && read_delimited(&after[1..]).is_some(),
+        'p' | 'P' => after[1..].starts_with('{'),
+        _ if in_class => "abdefhnrstuvwxDHSW".contains(letter),
+        _ => "abdefhnrstuvwxzABDGHKRSWXZ".contains(letter),
+    }
+}
+
+/// The byte a single-letter escape after `\c` stands for.
+fn simple_escape(letter: u8) -> Option<u8> {
+    Some(match letter {
+        b'\\' => b'\\',
+        b'n' => b'\n',
+        b't' => b'\t',
+        b'r' => b'\r',
+        b'f' => 0x0c,
+        b'v' => 0x0b,
+        b'a' => 0x07,
+        b'e' => 0x1b,
+        _ => return None,
+    })
 }
 
 const POSIX_BRACKETS: [&str; 14] = [

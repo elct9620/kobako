@@ -1834,3 +1834,51 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code compiles a pattern holding the absence operator in any of its forms |
 | Then | a `RegexpError` is raised |
+
+## `RX-303` An octal escape names a character unless the number names a group
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches octal escapes in and out of a class, and a two-digit escape around that many groups |
+| Then | each octal escape names its character, and the escape after that many groups refers to the group |
+
+## `RX-304` A control escape names a control character
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-303` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches control escapes in and out of a class |
+| Then | each names the low five bits of its character |
+
+## `RX-305` An escaped letter without a meaning reads as the letter
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches escaped letters the language gives no meaning, in and out of a class |
+| Then | each reads as its letter |
+
+## `RX-306` A braced Unicode escape may name several characters
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a braced Unicode escape naming two code points, in and out of a class |
+| Then | it names both characters |
+
+## `RX-307` A meta escape is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-304` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a pattern holding a meta escape |
+| Then | a `RegexpError` is raised |

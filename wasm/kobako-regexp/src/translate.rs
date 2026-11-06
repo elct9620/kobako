@@ -48,8 +48,15 @@ pub(crate) fn build_pattern(source: &str, options: i64) -> Result<String, String
     out.push(')');
     let extended = options & EXTENDED != 0;
     let names = collect_names(source, extended);
+    let captures = if names.is_empty() {
+        Pieces::new(source, extended, 0)
+            .filter(|piece| matches!(piece, Piece::PlainGroup { .. }))
+            .count()
+    } else {
+        names.iter().map(|(_, numbers)| numbers.len()).sum()
+    };
     let mut rewriter = Rewriter::new(&names, out);
-    for piece in Pieces::new(source, extended) {
+    for piece in Pieces::new(source, extended, captures) {
         rewriter.rewrite(piece)?;
     }
     Ok(rewriter.finish())
@@ -60,7 +67,7 @@ pub(crate) fn build_pattern(source: &str, options: i64) -> Result<String, String
 fn collect_names(source: &str, extended: bool) -> Vec<(&str, Vec<usize>)> {
     let mut names: Vec<(&str, Vec<usize>)> = Vec::new();
     let mut number = 0;
-    for piece in Pieces::new(source, extended) {
+    for piece in Pieces::new(source, extended, 0) {
         let Piece::NamedGroup { name, .. } = piece else {
             continue;
         };
@@ -180,6 +187,26 @@ impl<'n, 's> Rewriter<'n, 's> {
             } => {
                 self.push_escape(letter, true, charset)?;
                 Role::Inert
+            }
+            Piece::Char { value, in_class } => {
+                self.push_code_point(value);
+                if in_class {
+                    Role::Inert
+                } else {
+                    Role::Unit
+                }
+            }
+            Piece::CodePoints { body, in_class } => {
+                for hex in body.split_whitespace() {
+                    let value = u32::from_str_radix(hex, 16)
+                        .map_err(|_| "invalid Unicode escape".to_string())?;
+                    self.push_code_point(value);
+                }
+                if in_class {
+                    Role::Inert
+                } else {
+                    Role::Unit
+                }
             }
             Piece::Property {
                 text,
@@ -343,6 +370,10 @@ impl<'n, 's> Rewriter<'n, 's> {
             }
         }
         Ok(())
+    }
+
+    fn push_code_point(&mut self, value: u32) {
+        self.out.push_str(&format!(r"\x{{{value:X}}}"));
     }
 
     /// The engine reads `{,n}` as literal text, where MRI reads no lower bound
