@@ -14,6 +14,8 @@ The failures are CRuby's classes, so a script handles them as it would on any ho
 
 `File::Stat` answers what preview1 hands the guest. Whatever it could only answer wrongly it leaves undefined, so a script fails instead of reading a wrong answer.
 
+A sync, a truncate, a positioned read or write, and an advice each reach the file's Filesystem. Each answers as CRuby on Linux does, on a file and on a captured stream alike. One answer differs: preview1 counts an offset from zero, so an advice from a negative offset is refused. CRuby on Linux takes that advice and answers `nil`.
+
 ```
 nothing mounted   -> NotImplementedError
 nothing at path   -> Errno::ENOENT
@@ -30,6 +32,9 @@ disable_file flag -> no File constant
 - `test/e2e/test_file_stat_host.rb`
 - `test/e2e/test_file_stat_ino.rb`
 - `test/e2e/test_file_stat_refusal.rb`
+- `test/e2e/test_file_sync.rb`
+- `test/e2e/test_file_truncate.rb`
+- `test/e2e/test_io_positioned.rb`
 
 ## `FL-001` A script reads a file beneath a mounted path
 
@@ -622,3 +627,151 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Bind Mount whose block refuses a path |
 | When | the script asks a report of that path, and opens it |
 | Then | the report answers, and the open raises `Errno::EACCES` |
+
+## `FL-059` A sync reaches the file's Filesystem
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-021`, `FS-140` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting a Ruby Filesystem whose file records each `fsync` |
+| When | the script opens that file and calls `fsync` and `fdatasync` on it |
+| Then | each call answers 0, and the file records two syncs |
+
+## `FL-060` A sync of a captured stream raises EINVAL
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-059` |
+| relates | `IO-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with nothing mounted |
+| When | the script calls `fsync` and `fdatasync` on `$stdout` |
+| Then | each raises `Errno::EINVAL`, as CRuby does on a pipe |
+
+## `FL-061` A truncate sets a file's length
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-032` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount over a file holding `hello` |
+| When | the script truncates the path to 2 bytes, then truncates the open file to 4 bytes |
+| Then | each call answers 0, and the file holds `he` and two zero bytes |
+
+## `FL-062` A truncate a file or a length cannot take raises what CRuby raises
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-061` |
+| relates | `FL-017` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a read-write Mount over a file and a directory |
+| When | the script truncates a file opened to read, a negative length, the directory, and a missing path |
+| Then | they raise `IOError`, `Errno::EINVAL`, `Errno::EISDIR`, and `Errno::ENOENT` |
+
+## `FL-063` A truncate by path with nothing mounted is unimplemented
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-061` |
+| relates | `FL-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed no Mount |
+| When | the script truncates a path with `File.truncate` |
+| Then | the script raises `NotImplementedError` |
+
+## `FL-064` A positioned read and write leave the file's position alone
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-036` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file of a read-write Mount open to read and write, holding `hello` |
+| When | it reads 3 bytes from offset 1 with `pread`, writes `ZZ` at offset 3 and `!` at offset 8 with `pwrite` |
+| Then | `pread` answers `ell`, each `pwrite` answers its length, zero bytes fill the gap, and the position stays 0 |
+
+## `FL-065` A positioned read at the end raises EOFError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-064` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file of 5 bytes open to read |
+| When | it reads 3 bytes and then 0 bytes from offset 10 with `pread` |
+| Then | the first raises `EOFError`, and the second answers an empty String |
+
+## `FL-066` A positioned read or write the stream cannot take raises what CRuby raises
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-064` |
+| relates | `FL-017` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file open only to read, and `$stdout` |
+| When | it writes to the file, reads `$stdout`, writes `$stdout`, and reads from a negative offset or length |
+| Then | they raise `IOError`, `IOError`, `Errno::ESPIPE`, `Errno::EINVAL`, and `ArgumentError` |
+
+## `FL-067` An advice answers nil and changes nothing read
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-064` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file open to read |
+| When | it gives each of the six advices CRuby names with `advise`, then reads the file |
+| Then | each advice answers `nil`, and the read answers what the file holds |
+
+## `FL-068` An advice CRuby refuses is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file open to read, and `$stdout` |
+| When | it advises the file with a String, an unknown Symbol, and a negative length, then advises `$stdout` |
+| Then | they raise `TypeError`, `NotImplementedError`, `Errno::EINVAL`, and `Errno::ESPIPE` |
+
+## `FL-069` An advice from a negative offset raises EINVAL
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file open to read |
+| When | it gives an advice from offset -1 |
+| Then | the script raises `Errno::EINVAL` |
+
+## `FL-070` A closed file refuses a sync, a truncate, a positioned transfer, and an advice
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-045` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file it opened and then closed |
+| When | it calls `fsync`, `fdatasync`, `truncate`, `pread`, `pwrite`, and `advise` on it |
+| Then | each raises `IOError` |
