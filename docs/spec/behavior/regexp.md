@@ -1938,3 +1938,15 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code compiles a level backreference in a pattern with a subexpression call, or to a shared name |
 | Then | a `RegexpError` is raised |
+
+## `RX-313` An isolated extended option ends with its group, comments included, where CRuby keeps reading comments
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-273`, `RX-281` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern whose group holds an isolated extended option, with a hash sign after the group |
+| Then | the hash sign and the text after it read as literal text |

@@ -60,6 +60,16 @@ class TestRegexpGroupSyntax < Minitest::Test
     end
   end
 
+  # CRuby answers ["ab ", "a"] and ["a", "a"] here: its parser keeps `#` a
+  # comment after the group closes, though the option itself has ended.
+  # @behavior RX-313
+  def test_an_isolated_extended_option_ends_with_its_group_comments_included
+    assert_equal [["ab # c", "a", "c"], %w[a#b a b]],
+                 eval_regexp('[Regexp.new("((?x)a # (\n)b # (c)").match("ab # c").to_a, ' \
+                             'Regexp.new("((?x)a)#(b)").match("a#b").to_a]'),
+                 "a hash sign after a group holding (?x) through a match must read as literal text"
+  end
+
   # @behavior RX-311
   def test_a_backreference_level_without_recursion_reads_one_level
     assert_equal [%w[aa a], %w[aa a], nil, ["b", nil]],
