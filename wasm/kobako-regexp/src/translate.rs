@@ -165,9 +165,20 @@ struct Rewriter<'n, 's> {
     literal_run: String,
     literal_run_start: usize,
     literal_run_last: usize,
-    /// A case-insensitive class being read: where it starts in `out`, and
-    /// the characters written inside it.
-    folded_class: Option<(usize, Vec<char>)>,
+    folded_class: Option<FoldedClass>,
+    /// Whether the piece being written reads case-insensitively.
+    folding: bool,
+}
+
+/// A case-insensitive class being read.
+struct FoldedClass {
+    /// Where it starts in `out`.
+    start: usize,
+    /// The characters written inside it.
+    written: Vec<char>,
+    /// Where each class inside it the engine must not fold was written in
+    /// `out`.
+    unfolded_classes: Vec<(usize, usize)>,
 }
 
 impl<'n, 's> Rewriter<'n, 's> {
@@ -191,6 +202,7 @@ impl<'n, 's> Rewriter<'n, 's> {
             literal_run_start: 0,
             literal_run_last: 0,
             folded_class: None,
+            folding: false,
         }
     }
 
@@ -215,13 +227,18 @@ impl<'n, 's> Rewriter<'n, 's> {
             Piece::Quantifier(_) | Piece::Interval { .. } => self.close_literal_run(true)?,
             _ => self.close_literal_run(false)?,
         }
+        self.folding = folding;
         match piece {
             Piece::ClassOpen(_) if folding => {
-                self.folded_class = Some((self.out.len(), Vec::new()))
+                self.folded_class = Some(FoldedClass {
+                    start: self.out.len(),
+                    written: Vec::new(),
+                    unfolded_classes: Vec::new(),
+                })
             }
             Piece::ClassText(text) => {
-                if let Some((_, named)) = self.folded_class.as_mut() {
-                    named.extend(text.chars());
+                if let Some(class) = self.folded_class.as_mut() {
+                    class.written.extend(text.chars());
                 }
             }
             _ => {}
@@ -320,8 +337,16 @@ impl<'n, 's> Rewriter<'n, 's> {
                 negated,
                 charset,
             } => {
-                self.out
-                    .push_str(&classes::posix_bracket(name, negated, charset)?);
+                let start = self.out.len();
+                self.out.push_str(&classes::posix_bracket(
+                    name,
+                    negated,
+                    charset,
+                    self.folding,
+                )?);
+                if classes::is_unfolded_posix_bracket(name, negated, charset, self.folding) {
+                    self.keep_unfolded(start, true);
+                }
                 Role::Inert
             }
             Piece::Quantifier(text) => {
@@ -427,7 +452,11 @@ impl<'n, 's> Rewriter<'n, 's> {
                 in_class: false,
                 charset,
             } => {
+                let start = self.out.len();
                 self.out.push_str(&classes::word_boundary(letter, charset)?);
+                if charset == Charset::Ascii {
+                    self.keep_unfolded(start, false);
+                }
                 Role::Unit
             }
             Piece::Escape {
@@ -497,6 +526,7 @@ impl<'n, 's> Rewriter<'n, 's> {
         in_class: bool,
         charset: Charset,
     ) -> Result<(), String> {
+        let start = self.out.len();
         match classes::shorthand(letter, in_class, charset)? {
             Some(replacement) => self.out.push_str(&replacement),
             None => {
@@ -504,7 +534,28 @@ impl<'n, 's> Rewriter<'n, 's> {
                 self.out.push(letter);
             }
         }
+        if classes::is_ascii_shorthand(letter, charset) {
+            self.keep_unfolded(start, in_class);
+        }
         Ok(())
+    }
+
+    /// Keeps the engine from folding a class whose text already holds what
+    /// MRI matches case-insensitively: an ASCII class, which MRI never folds
+    /// beyond ASCII where the engine adds `ſ` to `s` and `K` (Kelvin) to `k`,
+    /// or a case bracket written out folded. Outside a class the text just
+    /// written is shielded from case-insensitivity; inside one it is set aside
+    /// for the class to write apart when it closes.
+    fn keep_unfolded(&mut self, start: usize, in_class: bool) {
+        if !self.folding {
+            return;
+        }
+        if !in_class {
+            self.out.insert_str(start, "(?-i:");
+            self.out.push(')');
+        } else if let Some(class) = self.folded_class.as_mut() {
+            class.unfolded_classes.push((start, self.out.len()));
+        }
     }
 
     fn push_code_point(&mut self, value: u32) {
@@ -603,23 +654,52 @@ impl<'n, 's> Rewriter<'n, 's> {
     /// A class that writes a character folding to several, a range's ends
     /// included, adds that fold as an alternative. A negated class adds none,
     /// and neither does a character a range only spans.
+    ///
+    /// A class inside it the engine must not fold is written apart from the
+    /// folded rest, and a
+    /// negated class then becomes any one character the positive one refuses.
     fn close_folded_class(&mut self) {
-        let Some((start, written)) = self.folded_class.take() else {
+        let Some(class) = self.folded_class.take() else {
             return;
         };
-        if written.first() == Some(&'^') {
+        let negated = class.written.first() == Some(&'^');
+        let folds = if negated {
+            Vec::new()
+        } else {
+            fold::class_folds(&class.written)
+        };
+        if folds.is_empty() && class.unfolded_classes.is_empty() {
             return;
         }
-        let folds = fold::class_folds(&written);
-        if folds.is_empty() {
-            return;
+        let written = self.out.split_off(class.start);
+        let mut alternatives = Vec::new();
+        if class.unfolded_classes.is_empty() {
+            alternatives.push(written);
+        } else {
+            let mut rest = String::new();
+            let mut ascii = String::from("[");
+            let mut at = class.start;
+            for &(from, to) in &class.unfolded_classes {
+                rest.push_str(&written[at - class.start..from - class.start]);
+                ascii.push_str(&written[from - class.start..to - class.start]);
+                at = to;
+            }
+            rest.push_str(&written[at - class.start..]);
+            ascii.push(']');
+            let body = &rest[1..rest.len() - 1];
+            let body = body.strip_prefix('^').unwrap_or(body);
+            if !body.is_empty() {
+                alternatives.push(format!("[{body}]"));
+            }
+            alternatives.push(format!("(?-i:{ascii})"));
         }
-        self.out.insert_str(start, "(?:");
-        for folded in folds {
-            self.out.push('|');
-            self.out.push_str(&folded);
+        alternatives.extend(folds);
+        let positive = format!("(?:{})", alternatives.join("|"));
+        if negated && !class.unfolded_classes.is_empty() {
+            self.out.push_str(&format!("(?:(?!{positive})(?s:.))"));
+        } else {
+            self.out.push_str(&positive);
         }
-        self.out.push(')');
     }
 
     fn write_quantified_unit(&mut self, start: usize) {

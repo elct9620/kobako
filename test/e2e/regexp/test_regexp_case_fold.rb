@@ -26,4 +26,28 @@ class TestRegexpCaseFold < Minitest::Test
                  eval_regexp('[/[xß]/i, /[^ß]/i, /[à-ÿ]/i, /[ß-ÿ]/i].map { |r| m = r.match("ss"); m && m[0] }'),
                  "a case-insensitive class through a match must add the fold of a character it writes, not one it spans"
   end
+
+  # ſ folds to s and the Kelvin sign to k, but CRuby folds no ASCII class
+  # beyond ASCII; a literal letter still folds.
+  # @behavior RX-317
+  def test_a_case_insensitive_ascii_class_stays_within_ascii
+    assert_equal [nil, nil, nil, 0, 0, 0],
+                 eval_regexp('["ſ" =~ /\w/i, "K" =~ /\w/i, "ſ" =~ /[x\w]/i, ' \
+                             '"ſ" =~ /[^\w]/i, "A" =~ /(?a)[[:lower:]]/i, "ſ" =~ /s/i]'),
+                 "ſ and the Kelvin sign through a case-insensitive ASCII class must not match, but match its negation"
+  end
+
+  # @behavior RX-318
+  def test_a_case_insensitive_negated_case_bracket_negates_before_it_folds
+    assert_equal [0, 0, nil], eval_regexp('["a" =~ /[[:^lower:]]/i, "A" =~ /[[:^upper:]]/i, "ŉ" =~ /[[:^lower:]]/i]'),
+                 "a letter through a case-insensitive negated case bracket must match when its other case lies outside"
+  end
+
+  # CRuby leaves the Latin-1 letters out of these brackets' folds; the
+  # guest folds them as it folds every other letter.
+  # @behavior RX-319
+  def test_a_case_insensitive_case_bracket_folds_latin1_letters_too
+    assert_equal [0, 0], eval_regexp('["À" =~ /[[:lower:]]/i, "à" =~ /[[:upper:]]/i]'),
+                 "a Latin-1 letter through a case-insensitive case bracket of the other case must match"
+  end
 end

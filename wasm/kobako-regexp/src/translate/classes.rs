@@ -4,6 +4,7 @@
 //! The Unicode sets are Onigmo's own, measured against MRI over every code
 //! point, so they differ from the engine's `\w` and POSIX classes.
 
+use super::fold;
 use super::pieces::Charset;
 
 const ASCII_ONLY: &str = "the Unicode build is needed for this class";
@@ -80,6 +81,77 @@ pub(super) fn shorthand(
     }))
 }
 
+/// Whether the engine must not fold the case of a POSIX bracket, since its
+/// text already holds what MRI matches case-insensitively.
+pub(super) fn is_unfolded_posix_bracket(
+    name: &str,
+    negated: bool,
+    charset: Charset,
+    ignore_case: bool,
+) -> bool {
+    is_ascii_posix_bracket(name, charset) || is_negated_case_bracket(name, negated, ignore_case)
+}
+
+fn is_negated_case_bracket(name: &str, negated: bool, ignore_case: bool) -> bool {
+    ignore_case && negated && matches!(name, "lower" | "upper")
+}
+
+/// `ı` uppercases to `I`, yet no character folds to it.
+const DOTLESS_I: &str = r"\x{131}";
+
+/// MRI's case-insensitive `[[:^lower:]]` or `[[:^upper:]]`, which negates
+/// before it folds where the engine folds before it negates: every
+/// character outside the bracket, with each one that folds with such a
+/// character. A letter whose only fold is to several characters no letter
+/// of the other case shares has nothing to fold with.
+fn negated_case_folded(lower: bool) -> String {
+    let case = |c: char| {
+        if lower {
+            c.is_lowercase()
+        } else {
+            c.is_uppercase()
+        }
+    };
+    let (class, exceptions) = if lower {
+        (
+            r"[^\p{Lowercase}&&\P{Changes_When_Uppercased}]",
+            unshared_folds(case, |c| !case(c)) + DOTLESS_I,
+        )
+    } else {
+        (
+            r"[^\p{Uppercase}&&\P{Changes_When_Lowercased}]",
+            unshared_folds(case, |c| !case(c)),
+        )
+    };
+    format!("[{class}&&[^{exceptions}]]")
+}
+
+/// The characters folding to several that `chosen` picks and whose fold no
+/// character `partner` picks shares.
+fn unshared_folds(chosen: impl Fn(char) -> bool, partner: impl Fn(char) -> bool) -> String {
+    let folds: Vec<(char, &str)> = fold::multi_folds().collect();
+    let mut out = String::new();
+    for &(source, folded) in &folds {
+        let shared = folds
+            .iter()
+            .any(|&(other, other_folded)| partner(other) && other_folded == folded);
+        if chosen(source) && !shared {
+            out.push_str(&format!(r"\x{{{:X}}}", u32::from(source)));
+        }
+    }
+    out
+}
+
+/// Whether `\letter` names one of the ASCII shorthand classes.
+pub(super) fn is_ascii_shorthand(letter: char, charset: Charset) -> bool {
+    charset != Charset::Unicode && "wdsWDS".contains(letter)
+}
+
+/// Whether a POSIX bracket reads ASCII alone.
+pub(super) fn is_ascii_posix_bracket(name: &str, charset: Charset) -> bool {
+    charset == Charset::Ascii || matches!(name, "ascii" | "xdigit")
+}
+
 /// `\b` or `\B` outside a class. Under `a` the boundary is ASCII's, which the
 /// engine cannot switch to inline, so it is spelled with look-arounds.
 pub(super) fn word_boundary(letter: char, charset: Charset) -> Result<String, &'static str> {
@@ -120,17 +192,29 @@ pub(super) fn property(name: &str, negated: bool) -> Option<String> {
 }
 
 /// A POSIX bracket as a class nested in the one holding it.
+///
+/// Read case-insensitively, an ASCII bracket folds within ASCII alone: one
+/// case of letters takes in the other, and its negation every character.
 pub(super) fn posix_bracket(
     name: &str,
     negated: bool,
     charset: Charset,
+    ignore_case: bool,
 ) -> Result<String, &'static str> {
-    if charset == Charset::Ascii || matches!(name, "ascii" | "xdigit") {
-        let caret = if negated { "^" } else { "" };
-        return Ok(format!("[[:{caret}{name}:]]"));
+    if is_ascii_posix_bracket(name, charset) {
+        let one_case = matches!(name, "lower" | "upper");
+        return Ok(match (ignore_case && one_case, negated) {
+            (true, true) => r"[\x{0}-\x{10FFFF}]".to_string(),
+            (true, false) => "[[:alpha:]]".to_string(),
+            (false, true) => format!("[[:^{name}:]]"),
+            (false, false) => format!("[[:{name}:]]"),
+        });
     }
     if !cfg!(feature = "unicode") {
         return Err(ASCII_ONLY);
+    }
+    if is_negated_case_bracket(name, negated, ignore_case) {
+        return Ok(negated_case_folded(name == "lower"));
     }
     let set = match name {
         "alnum" => Set::of(r"\p{Alphabetic}\p{Nd}"),

@@ -180,6 +180,11 @@ const SIMPLE: [(char, char); 59] = [
 /// spells too many ways to write out.
 const MAX_SPELLINGS_LEN: usize = 4096;
 
+/// Each character that folds to several, with what it folds to.
+pub(super) fn multi_folds() -> impl Iterator<Item = (char, &'static str)> {
+    MULTI.iter().copied()
+}
+
 fn multi_fold(c: char) -> Option<&'static str> {
     MULTI
         .iter()

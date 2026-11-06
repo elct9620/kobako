@@ -2006,3 +2006,39 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp Guest Binary built with Unicode support |
 | When | guest code matches the text a character folds to against case-insensitive classes holding that character |
 | Then | a class writing the character matches the whole text, and a negated class or a spanning range does not |
+
+## `RX-317` Read case-insensitively, an ASCII class stays within ASCII
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-085`, `RX-316` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches a non-ASCII letter that folds to an ASCII one against a case-insensitive ASCII class |
+| Then | it does not match |
+
+## `RX-318` Read case-insensitively, a negated case bracket negates before it folds
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-293` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches a letter against the case-insensitive negation of the case bracket it belongs to |
+| Then | it matches |
+
+## `RX-319` Case-insensitive case brackets fold Latin-1 letters, where CRuby leaves them out
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-318` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches a Latin-1 letter against the case-insensitive case bracket of its other case |
+| Then | it matches |
