@@ -75,6 +75,17 @@ pub(super) enum Piece<'a> {
     Refused(&'static str),
 }
 
+impl<'a> Piece<'a> {
+    /// Text that reads as itself, inside a class or out of one.
+    fn literal(text: &'a str, in_class: bool) -> Self {
+        if in_class {
+            Self::ClassText(text)
+        } else {
+            Self::Text(text)
+        }
+    }
+}
+
 /// The character set option (`d`, `a` or `u`) that decides what `\w`, `\d`,
 /// `\s`, `\b` and a POSIX bracket reach.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -198,11 +209,7 @@ impl<'a> Pieces<'a> {
                 if body.contains(char::is_whitespace) {
                     return Piece::CodePoints { body, in_class };
                 }
-                return if in_class {
-                    Piece::ClassText(text)
-                } else {
-                    Piece::Text(text)
-                };
+                return Piece::literal(text, in_class);
             }
         }
         if matches!(letter, 'c' | 'C' | 'M') {
@@ -217,11 +224,7 @@ impl<'a> Pieces<'a> {
         {
             self.take(1);
             let text = self.take(letter.len_utf8());
-            return if in_class {
-                Piece::ClassText(text)
-            } else {
-                Piece::Text(text)
-            };
+            return Piece::literal(text, in_class);
         }
         if !in_class {
             let in_look_behind = self.frame().look_behind != LookBehind::Outside;
@@ -316,11 +319,7 @@ impl<'a> Pieces<'a> {
         if octal_len == 0 {
             self.take(1);
             let digit = self.take(1);
-            return Some(if in_class {
-                Piece::ClassText(digit)
-            } else {
-                Piece::Text(digit)
-            });
+            return Some(Piece::literal(digit, in_class));
         }
         let value = u32::from_str_radix(&after[..octal_len], 8).unwrap_or(u32::MAX);
         self.take(1 + octal_len);

@@ -114,6 +114,18 @@ enum Role {
     Closing,
 }
 
+impl Role {
+    /// Text is a unit of its own outside a class, and part of the class
+    /// inside one.
+    fn of_text(in_class: bool) -> Self {
+        if in_class {
+            Self::Inert
+        } else {
+            Self::Unit
+        }
+    }
+}
+
 /// How far the quantifiers after the last unit have gone. MRI reads a
 /// quantifier that cannot modify them as repeating the quantified unit whole,
 /// where the engine refuses it.
@@ -281,11 +293,7 @@ impl<'n, 's> Rewriter<'n, 's> {
             }
             Piece::Char { value, in_class } => {
                 self.push_code_point(value);
-                if in_class {
-                    Role::Inert
-                } else {
-                    Role::Unit
-                }
+                Role::of_text(in_class)
             }
             Piece::CodePoints { body, in_class } => {
                 for hex in body.split_whitespace() {
@@ -293,11 +301,7 @@ impl<'n, 's> Rewriter<'n, 's> {
                         .map_err(|_| "invalid Unicode escape".to_string())?;
                     self.push_code_point(value);
                 }
-                if in_class {
-                    Role::Inert
-                } else {
-                    Role::Unit
-                }
+                Role::of_text(in_class)
             }
             Piece::Property {
                 text,
@@ -309,11 +313,7 @@ impl<'n, 's> Rewriter<'n, 's> {
                     Some(class) => self.out.push_str(&class),
                     None => self.out.push_str(text),
                 }
-                if in_class {
-                    Role::Inert
-                } else {
-                    Role::Unit
-                }
+                Role::of_text(in_class)
             }
             Piece::PosixBracket {
                 name,
