@@ -85,7 +85,7 @@ host objects as opaque Handles.
 
 ### Mounts
 
-`mount` gives the guest's `File` a Filesystem at one path, read-only by default.
+`mount` gives the guest's `File` and `Dir` a Filesystem at one path, read-only by default.
 
 ```ruby
 sandbox.mount("/config", Kobako::Filesystem::Tmpfs.new("app.yml" => yaml))

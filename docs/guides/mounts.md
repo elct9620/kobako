@@ -96,7 +96,7 @@ The guest's `File.open` takes a mode String such as `"r"`, `"w+"`, or `"wx"`, or
 an Integer of `File::Constants` flags valued as CRuby's on Linux. An exclusive
 create lets Sandboxes sharing a directory agree on a lock file.
 
-Beneath a mount, `File.open` and `IO.new` answer as CRuby does over a Linux
+Beneath a mount, `File`, `Dir`, and `IO` answer as CRuby does over a Linux
 directory. Where they differ, they only refuse more.
 
 | When | The guest sees |
@@ -106,7 +106,8 @@ directory. Where they differ, they only refuse more.
 | an Integer mode holds a flag kobako does not honor, or `WRONLY` beside `RDWR` | `Errno::EINVAL` |
 | a mode names an encoding, such as `"r:utf-8"` | `ArgumentError` |
 | `IO.new` wraps stdout or stderr in a mode other than `"w"` | `ArgumentError` |
-| the critical flag `disable_file` is set | no `File` constant |
+| `IO#advise` names a negative offset | `Errno::EINVAL`, where CRuby answers `nil` |
+| the critical flag `disable_file` is set | no `File` or `Dir` constant |
 
 ### File Reports
 
@@ -257,8 +258,6 @@ or a walk from a directory the guest opened.
 
 | A guest call | Preview1 imports it lacks |
 |---|---|
-| list a directory | `fd_readdir` |
-| make a directory | `path_create_directory` |
 | set a time | `path_filestat_set_times`, `fd_filestat_set_times` |
 | make or read a link | `path_symlink`, `path_link`, `path_readlink` |
 
@@ -273,7 +272,7 @@ A Bind is a live host directory, and an Overlay's Layers may be too.
 | a Bind's directories stacked past `PATH_MAX` by moves | the host's own tools may refuse or slow on them |
 | a time a guest sets on a Bind's entry, third-party | it stands on the host; a hermetic guest still reads the epoch |
 | a device swapped into a Bind as the guest opens a file | opened once before its refusal |
-| a directory the guest lists in steps, third-party | a Tmpfs lists as it stands; others hold entries |
+| a directory the guest lists in steps | a Tmpfs lists as it stands; others hold entries |
 | a directory the host swaps in just as a Policy judges an opened one, third-party | the host's race |
 
 A Filesystem holding a listing's entries raises `Errno::ENOMEM` once they pass
