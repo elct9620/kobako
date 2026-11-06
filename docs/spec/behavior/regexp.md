@@ -1638,7 +1638,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code matches a pattern where a plus, a star or an interval follows an interval |
 | Then | the second quantifier repeats the whole interval rather than modifying it |
 
-## `RX-285` A question mark after an interval makes it lazy
+## `RX-285` A question mark after a ranged interval makes it lazy
 
 | Attribute | Value |
 | --- | --- |
@@ -1647,7 +1647,7 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
-| When | guest code matches a pattern where a question mark follows an interval |
+| When | guest code matches a pattern where a question mark follows an interval with two bounds |
 | Then | the interval takes as little as it can |
 
 ## `RX-286` An interval with no lower bound starts at zero
@@ -1882,3 +1882,39 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code compiles a pattern holding a meta escape |
 | Then | a `RegexpError` is raised |
+
+## `RX-308` A question mark after an exact interval makes it optional
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-285` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern where a question mark follows an interval with one count |
+| Then | the interval takes its count or nothing |
+
+## `RX-309` A quantifier on a quantifier folds as the language folds it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-284` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches patterns that stack two or three quantifiers on one unit |
+| Then | each answers what the language folds the stack to |
+
+## `RX-310` A quantified look-around is tried as the quantifier allows
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-309` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches patterns that quantify a look-around |
+| Then | each look-around is tried once, or skipped when the quantifier may skip it |

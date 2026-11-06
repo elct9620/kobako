@@ -9,8 +9,10 @@
 
 mod classes;
 mod pieces;
+mod repeat;
 
 use pieces::{Charset, Piece, Pieces};
+use repeat::Quantity;
 
 /// MRI `Regexp` option bits. The Rust gem exposes these rather than
 /// the engine's internal mask, so `Regexp#options` reads back as MRI does.
@@ -85,19 +87,38 @@ fn collect_names(source: &str, extended: bool) -> Vec<(&str, Vec<usize>)> {
 struct OpenGroup {
     start: usize,
     owed_closes: usize,
+    look_around: bool,
 }
 
 /// What a written piece means to the repeatable unit a later quantifier reaches
 /// back for.
 enum Role {
-    /// Comments, a class's inside, and a quantifier leave the unit in place.
+    /// Comments and a class's inside leave the unit in place.
     Inert,
-    Interval,
+    /// A quantifier keeps the unit, and the state it leaves for the next one.
+    Repeat,
     /// An alternation or an isolated option leaves nothing to repeat.
     Boundary,
     Unit,
-    Opening,
+    Opening {
+        look_around: bool,
+    },
     Closing,
+}
+
+/// How far the quantifiers after the last unit have gone. MRI reads a
+/// quantifier that cannot modify them as repeating the quantified unit whole,
+/// where the engine refuses it.
+#[derive(Clone, Copy, PartialEq)]
+enum Repeat {
+    None,
+    /// `?`, `*` or `+`, which a following `?` or `+` modifies.
+    Greedy,
+    /// An interval, which a following `?` makes lazy unless it is exact.
+    Interval {
+        exact: bool,
+    },
+    Settled,
 }
 
 /// Writes the engine's pattern, keeping what a later piece reaches back for.
@@ -108,7 +129,15 @@ struct Rewriter<'n, 's> {
     groups: Vec<OpenGroup>,
     /// Where the last repeatable unit starts in `out`.
     unit_start: Option<usize>,
-    after_interval: bool,
+    /// The engine refuses to repeat a look-around itself.
+    unit_is_look_around: bool,
+    /// The look-around a skippable quantifier turned into an alternative,
+    /// which a following `?` or `+` rewrites.
+    optional_look_around: Option<String>,
+    /// The last unit as written, and the quantifiers stacked on it so far.
+    quantified_unit: String,
+    quantities: Vec<Quantity>,
+    repeat: Repeat,
 }
 
 impl<'n, 's> Rewriter<'n, 's> {
@@ -119,9 +148,14 @@ impl<'n, 's> Rewriter<'n, 's> {
             groups: vec![OpenGroup {
                 start: 0,
                 owed_closes: 0,
+                look_around: false,
             }],
             unit_start: None,
-            after_interval: false,
+            unit_is_look_around: false,
+            optional_look_around: None,
+            quantified_unit: String::new(),
+            quantities: Vec::new(),
+            repeat: Repeat::None,
         }
     }
 
@@ -134,17 +168,21 @@ impl<'n, 's> Rewriter<'n, 's> {
     fn rewrite(&mut self, piece: Piece) -> Result<(), String> {
         let start = self.out.len();
         let role = self.push_piece(piece)?;
-        if !matches!(role, Role::Inert) {
-            self.after_interval = matches!(role, Role::Interval);
+        if !matches!(role, Role::Inert | Role::Repeat) {
+            self.repeat = Repeat::None;
+            self.unit_is_look_around = false;
+            self.optional_look_around = None;
+            self.quantities.clear();
         }
         match role {
-            Role::Inert | Role::Interval => {}
+            Role::Inert | Role::Repeat => {}
             Role::Boundary => self.unit_start = None,
             Role::Unit => self.unit_start = Some(start),
-            Role::Opening => {
+            Role::Opening { look_around } => {
                 self.groups.push(OpenGroup {
                     start,
                     owed_closes: 0,
+                    look_around,
                 });
                 self.unit_start = None;
             }
@@ -156,6 +194,7 @@ impl<'n, 's> Rewriter<'n, 's> {
                 };
                 let owed = group.as_ref().map_or(0, |group| group.owed_closes);
                 self.out.push_str(&")".repeat(owed + 1));
+                self.unit_is_look_around = group.as_ref().is_some_and(|group| group.look_around);
                 self.unit_start = group.map(|group| group.start);
             }
         }
@@ -234,22 +273,29 @@ impl<'n, 's> Rewriter<'n, 's> {
                 Role::Inert
             }
             Piece::Quantifier(text) => {
-                if self.after_interval && text != "?" {
-                    self.wrap_unit();
+                let modifies = matches!(
+                    (self.repeat, text),
+                    (Repeat::Greedy, "?" | "+") | (Repeat::Interval { exact: false }, "?")
+                );
+                if modifies {
+                    self.modify_repeat(text);
+                } else {
+                    self.repeat_unit(match text {
+                        "?" => Quantity::greedy(0, Some(1)),
+                        "*" => Quantity::greedy(0, None),
+                        _ => Quantity::greedy(1, None),
+                    });
+                    self.repeat = Repeat::Greedy;
                 }
-                self.out.push_str(text);
-                self.after_interval = false;
-                Role::Inert
+                Role::Repeat
             }
             Piece::Interval { lower, upper } => {
-                if is_reversed(lower, upper) {
-                    return Err("upper is smaller than lower in repeat range".to_string());
-                }
-                if self.after_interval {
-                    self.wrap_unit();
-                }
-                self.push_interval(lower, upper);
-                Role::Interval
+                let quantity = read_interval(lower, upper)?;
+                self.repeat_unit(quantity);
+                self.repeat = Repeat::Interval {
+                    exact: upper.is_none(),
+                };
+                Role::Repeat
             }
             Piece::Text("|") => {
                 self.out.push('|');
@@ -271,11 +317,19 @@ impl<'n, 's> Rewriter<'n, 's> {
                 scoped: true,
             } => {
                 push_options(letters, &mut self.out);
-                Role::Opening
+                Role::Opening { look_around: false }
             }
-            Piece::Open(text) | Piece::NamedGroup { text, .. } => {
+            Piece::Open(text) => {
                 self.out.push_str(text);
-                Role::Opening
+                Role::Opening {
+                    look_around: ["(?=", "(?!", "(?<=", "(?<!"]
+                        .iter()
+                        .any(|opener| text.starts_with(opener)),
+                }
+            }
+            Piece::NamedGroup { text, .. } => {
+                self.out.push_str(text);
+                Role::Opening { look_around: false }
             }
             // Beside a named group it captures nothing, so a negative look-behind
             // may hold it.
@@ -286,14 +340,14 @@ impl<'n, 's> Rewriter<'n, 's> {
                     return Err("invalid pattern in look-behind".to_string());
                 }
                 self.out.push_str(if named { "(?:" } else { "(" });
-                Role::Opening
+                Role::Opening { look_around: false }
             }
             Piece::NumberedCondition(text) => {
                 if named {
                     return Err(NUMBERED_REFERENCE.to_string());
                 }
                 self.out.push_str(text);
-                Role::Opening
+                Role::Opening { look_around: false }
             }
             // The engine has no condition by name, and MRI asks a shared name's
             // first group alone.
@@ -306,7 +360,7 @@ impl<'n, 's> Rewriter<'n, 's> {
                     }
                     None => self.out.push_str(text),
                 }
-                Role::Opening
+                Role::Opening { look_around: false }
             }
             Piece::Text(text) | Piece::ClassOpen(text) => {
                 self.out.push_str(text);
@@ -376,38 +430,95 @@ impl<'n, 's> Rewriter<'n, 's> {
         self.out.push_str(&format!(r"\x{{{value:X}}}"));
     }
 
-    /// The engine reads `{,n}` as literal text, where MRI reads no lower bound
-    /// as zero.
-    fn push_interval(&mut self, lower: &str, upper: Option<&str>) {
-        self.out.push('{');
-        self.out
-            .push_str(if lower.is_empty() { "0" } else { lower });
-        if let Some(upper) = upper {
-            self.out.push(',');
-            self.out.push_str(upper);
+    /// Writes a quantifier that repeats the unit before it, folded with the
+    /// quantifiers already on it. The engine repeats no look-around, and
+    /// repeating one changes nothing but whether it is tried, so one tried at
+    /// least once stands alone and one that may be skipped becomes an
+    /// alternative with nothing.
+    fn repeat_unit(&mut self, quantity: Quantity) {
+        self.optional_look_around = None;
+        let Some(start) = self.unit_start else {
+            self.out.push_str(&repeat::write("", &[quantity]));
+            return;
+        };
+        if self.unit_is_look_around {
+            if quantity.lower == 0 {
+                let look_around = self.out.split_off(start);
+                self.out.push_str(&format!("(?:{look_around}|)"));
+                self.optional_look_around = Some(look_around);
+                self.unit_is_look_around = false;
+            }
+            return;
         }
-        self.out.push('}');
+        if self.quantities.is_empty() {
+            self.quantified_unit = self.out[start..].to_string();
+        }
+        self.quantities.push(quantity);
+        self.write_quantified_unit(start);
     }
 
-    /// MRI reads a quantifier after an interval as repeating it, where the
-    /// engine reads the pair as a modifier or refuses it.
-    fn wrap_unit(&mut self) {
-        if let Some(start) = self.unit_start {
-            self.out.insert_str(start, "(?:");
-            self.out.push(')');
+    /// A `?` or `+` that makes the quantifier before it lazy or possessive.
+    fn modify_repeat(&mut self, modifier: &str) {
+        self.repeat = Repeat::Settled;
+        if self.unit_is_look_around {
+            return;
+        }
+        let Some(start) = self.unit_start else {
+            self.out.push_str(modifier);
+            return;
+        };
+        if let Some(look_around) = self.optional_look_around.take() {
+            self.out.truncate(start);
+            let form = if modifier == "?" {
+                "(?:|{})"
+            } else {
+                "(?>{}|)"
+            };
+            self.out.push_str(&form.replace("{}", &look_around));
+            return;
+        }
+        if let Some(last) = self.quantities.last_mut() {
+            if modifier == "?" {
+                last.greedy = false;
+            } else {
+                last.possessive = true;
+            }
+            self.write_quantified_unit(start);
         }
     }
+
+    fn write_quantified_unit(&mut self, start: usize) {
+        self.out.truncate(start);
+        self.out
+            .push_str(&repeat::write(&self.quantified_unit, &self.quantities));
+    }
+}
+
+/// MRI's ceiling on an interval bound.
+const MAX_REPEAT: u64 = 100_000;
+
+/// An interval's bounds as MRI reads them: no lower bound is zero, `{n}` is
+/// exact and `{n,}` has no upper bound.
+fn read_interval(lower: &str, upper: Option<&str>) -> Result<Quantity, String> {
+    let bound = |text: &str| -> Result<u64, String> {
+        match text.parse::<u64>() {
+            Ok(number) if number <= MAX_REPEAT => Ok(number),
+            _ => Err("too big number for repeat range".to_string()),
+        }
+    };
+    let lower_bound = if lower.is_empty() { 0 } else { bound(lower)? };
+    let upper_bound = match upper {
+        None => Some(lower_bound),
+        Some("") => None,
+        Some(upper) => Some(bound(upper)?),
+    };
+    if upper_bound.is_some_and(|upper| upper < lower_bound) {
+        return Err("upper is smaller than lower in repeat range".to_string());
+    }
+    Ok(Quantity::greedy(lower_bound, upper_bound))
 }
 
 const NUMBERED_REFERENCE: &str = "numbered backref/call is not allowed. (use name)";
-
-fn is_reversed(lower: &str, upper: Option<&str>) -> bool {
-    let bound = |text: &str| text.parse::<u64>().ok();
-    matches!(
-        (bound(lower), upper.and_then(bound)),
-        (Some(lower), Some(upper)) if lower > upper
-    )
-}
 
 /// Always as `(?on-off:`, since MRI holds an option through the alternatives
 /// that follow it, where the engine ends it at the next `|`. Ruby's `m` is the

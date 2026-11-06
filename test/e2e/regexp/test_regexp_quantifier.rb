@@ -44,8 +44,28 @@ class TestRegexpQuantifier < Minitest::Test
   def test_a_question_mark_after_an_interval_makes_it_lazy
     assert_equal %w[a], eval_regexp('/a{1,2}?/.match("aaa").to_a'),
                  "a{1,2}? through a match must take as little as it can"
-    assert_equal %w[aa], eval_regexp('/a{2}?/.match("aaaa").to_a'),
-                 "a{2}? through a match must still take its fixed count"
+  end
+
+  # @behavior RX-308
+  def test_a_question_mark_after_an_exact_interval_makes_it_optional
+    assert_equal ["", "aa"], eval_regexp('[/a{2}?/.match("a")[0], /a{2}?/.match("aaaa")[0]]'),
+                 "a{2}? through a match must take its fixed count or nothing"
+  end
+
+  # @behavior RX-309
+  def test_a_quantifier_on_a_quantifier_folds_as_the_language_folds_it
+    assert_equal ["aa", "aaa", "", "aaa"],
+                 eval_regexp('[/a**/.match("aa")[0], /a+?*/.match("aaa")[0], /a**?/.match("aaa")[0], ' \
+                             '/a?+*/.match("aaa")[0]]'),
+                 "stacked quantifiers through a match must answer what the language folds them to"
+  end
+
+  # @behavior RX-310
+  def test_a_quantified_look_around_is_tried_as_the_quantifier_allows
+    assert_equal [[""], ["", "a"], ["", nil], nil, ["b"]],
+                 eval_regexp('[/(?=a)*/.match("b"), /(?=(a))*/.match("a"), /(?=(a))*?/.match("a"), ' \
+                             '/(?=a)+/.match("b"), /(?<=a){2}b/.match("ab")].map { |m| m && m.to_a }'),
+                 "a quantified look-around through a match must be tried once, or skipped when it may be"
   end
 
   # @behavior RX-286
