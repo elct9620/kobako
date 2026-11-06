@@ -83,10 +83,10 @@ The types those seams carry, by grade:
 | **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, six re-exported from `kobako_core` |
 
 A re-export keeps the grade of what it re-exports. The `kobako` root re-exports
-`Usage`, `Fault`, `FaultKind`, `Access`, `Policy`, `Profile`, `Filesystem`, `Dentry`,
-and `Inode`, and `kobako::msgpack::Value` re-exports `kobako_codec::msgpack::Value`.
-`kobako::filesystem` re-exports `kobako_runtime::filesystem`, so each name there keeps
-the grade above.
+`Usage`, `Fault`, `FaultKind`, `Access`, `Policy`, `Profile`, and `Filesystem`, and
+`kobako::msgpack::Value` re-exports `kobako_codec::msgpack::Value`.
+`kobako::filesystem` re-exports `kobako_runtime::filesystem`, which names every type
+a Filesystem's operations take, so each name there keeps the grade above.
 
 ### Fixed Pillar
 
