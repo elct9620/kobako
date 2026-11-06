@@ -12,15 +12,19 @@ contract surface.
 |---|---|
 | Compilation | process-wide Engine and compiled-Module caches |
 | Disk cache | AOT `.cwasm` artifacts on Unix, keyed by Guest Binary content and engine |
-| Instantiation | a pre-linked `InstancePre` per guest path; every invocation runs on a fresh instance and discards its Store afterwards |
+| Instantiation | a pre-linked `InstancePre` per guest path, a fresh instance per invocation |
 | Bounds | epoch-based wall-clock deadlines on setup and on each invocation, and the per-invocation linear-memory cap |
 | Ambient denial | under the default hermetic profile, frozen clocks and a constant RNG |
 | Filesystems | a preopen per Mount, and its own capped descriptor table |
 
-The kobako Ruby gem's native ext is the first frontend; a Rust host
-SDK consumes the same surface.
+Each invocation discards its Store once it ends, so nothing one leaves
+behind reaches the next. The kobako Ruby gem's native ext is the first
+frontend; a Rust host SDK consumes the same surface.
 
 ## Usage
+
+Add the crate beside `kobako-runtime` to run a Guest Binary through its
+`Driver`.
 
 ```toml
 [dependencies]
@@ -29,4 +33,4 @@ kobako-wasmtime = "0.19.0" # x-release-please-version
 
 ## License
 
-Apache-2.0
+Licensed under [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0).

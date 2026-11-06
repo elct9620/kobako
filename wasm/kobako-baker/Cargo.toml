@@ -27,12 +27,15 @@ categories = ["wasm", "development-tools::build-utils"]
 [workspace]
 
 [dependencies]
+# The CLI's errors, each carrying the path or step it failed at.
 anyhow = "1"
 # The wizer maintained inside the wasmtime project, version-locked to
 # the same wasmtime major the kobako host ext drives — the only wizer
 # lineage whose engine accepts the Guest Binary's exception-handling
 # (setjmp/longjmp) instructions.
 wasmtime-wizer = { version = "50.0.0", features = ["wasmtime"] }
+# The engine and the deterministic linker the wizer boots the module
+# against, at the wizer's own wasmtime version.
 wasmtime = "50.0.0"
 # wasmtime-wizer's entry points are async-colored; the bake is fully
 # synchronous, so a minimal executor drives them to completion.

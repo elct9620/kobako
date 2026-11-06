@@ -28,7 +28,7 @@ so that payload reaches its reader as a view rather than a copy.
 
 ```text
 Call { method, payload }
-                  └── opaque here; read by whoever owns the schema
+                  +-- opaque here; read by whoever owns the schema
 ```
 
 ## Dependency Position
@@ -37,8 +37,9 @@ This crate depends on no other, and every kobako tier depends on it —
 including any third-party engine, codec, or guest composing against them.
 
 ```text
-host   kobako-runtime · kobako-wasmtime ──┐
-guest  kobako-core · kobako-mruby ────────┴──> kobako-transport
+host   kobako-runtime, kobako-wasmtime --+
+                                         +--> kobako-transport
+guest  kobako-core, kobako-mruby --------+
 ```
 
 The golden vectors in this crate are derived from the kobako repository's
