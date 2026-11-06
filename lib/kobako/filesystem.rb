@@ -33,6 +33,37 @@ module Kobako
   # exactly, as a mount's block judges them as given. A name may hold a
   # <tt>\\</tt>, which the guest's paths never separate on, so one joined
   # to a Windows host path is the Filesystem's to refuse.
+  #
+  # Each method beyond +open+ and +stat+ is optional, and a change it lacks
+  # raises <tt>Errno::EROFS</tt> in the guest:
+  #
+  # [<tt>children(path)</tt>]
+  #   Entry names, as Dir.children gives them.
+  # [<tt>mkdir(path)</tt>, <tt>rmdir(path)</tt>, <tt>unlink(path)</tt>, <tt>rename(from, to)</tt>]
+  #   The changes a writable mount passes on.
+  #
+  # A +stat+ may also answer +dev+, else the Filesystem stands for one
+  # device, and +ftype+, which says a FIFO, a socket, or a device is one
+  # so the guest's open is refused without asking +open+.
+  #
+  # The file +open+ answers takes the guest's reads and writes, each named
+  # as +IO+ names it:
+  #
+  # [<tt>pread(length, offset)</tt>, +size+]
+  #   Required: the bytes there, +nil+ or EOFError at the end, and the
+  #   length.
+  # [<tt>pwrite(data, offset)</tt>, <tt>truncate(length)</tt>]
+  #   The bytes written, and nothing; without them a write raises
+  #   <tt>Errno::EROFS</tt>.
+  # [<tt>append(data)</tt>]
+  #   Writes all of +data+ at the end in one step, so another writer's
+  #   append never lands over it, and answers where the file then ends;
+  #   without it an append raises <tt>Errno::ENOTSUP</tt>.
+  # [+fsync+, +close+]
+  #   Nothing; without them there is nothing to flush or release.
+  # [+stat+]
+  #   What <tt>stat(path)</tt> answers, for the file's times and count of
+  #   names; without it the file has one name and no time.
   module Filesystem
   end
 end
