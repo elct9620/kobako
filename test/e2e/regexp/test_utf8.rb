@@ -63,6 +63,14 @@ class TestRegexpUtf8 < Minitest::Test
                  "a boundary after a non-ASCII letter through /(?a)\\bb/ must match where /\\bb/ does not"
   end
 
+  # CRuby reads ² ³ ¹ ¼ ½ ¾ as word characters at a boundary; spelling the
+  # boundary out to agree would cost every \b the engine's fast path.
+  # @behavior RX-324
+  def test_a_word_boundary_reads_latin1_numbers_as_no_word_characters
+    assert_equal [0, nil], eval_regexp('["a²" =~ /a\b/, "a²" =~ /a\B/]'),
+                 "a boundary between a and ² through /a\\b/ must match where /a\\B/ does not"
+  end
+
   # U+200B is a format character, which CRuby's Graph and Print take in.
   # @behavior RX-299
   def test_a_property_reads_the_set_cruby_gives_its_name

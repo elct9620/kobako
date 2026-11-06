@@ -2054,3 +2054,51 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches patterns that quantify a non-capturing group holding one quantified unit |
 | Then | each answers what the language folds the quantifiers to |
+
+## `RX-321` A case-insensitive negated class refuses every case it names, where CRuby lets one through
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-316` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches a lowercase letter against a case-insensitive negated class naming its uppercase form |
+| Then | it does not match |
+
+## `RX-322` Case-insensitive text keeps its characters in order, where CRuby matches some reorderings
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-314` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches text whose folds hold the pattern's folds in another order |
+| Then | it does not match |
+
+## `RX-323` A case-insensitive look-behind matches the character it names, where CRuby does not
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-314` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches text after a character folding to several, behind a case-insensitive look-behind naming it |
+| Then | it matches |
+
+## `RX-324` A word boundary reads Latin-1 numbers as no word characters, where CRuby reads them as word characters
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-279` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches a word boundary between a letter and a superscript digit |
+| Then | it matches there |

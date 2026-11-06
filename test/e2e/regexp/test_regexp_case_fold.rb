@@ -43,6 +43,27 @@ class TestRegexpCaseFold < Minitest::Test
                  "a letter through a case-insensitive negated case bracket must match when its other case lies outside"
   end
 
+  # CRuby lets ß past [^ẞ]/i, though ẞ folds to ß.
+  # @behavior RX-321
+  def test_a_case_insensitive_negated_class_refuses_every_case_it_names
+    assert_nil eval_regexp('"ß" =~ /[^ẞ]/i'),
+               "ß through /[^ẞ]/i must not match"
+  end
+
+  # CRuby also matches sß against /ßs/i, though not ßs against /sß/i.
+  # @behavior RX-322
+  def test_case_insensitive_text_keeps_its_characters_in_order
+    assert_equal [nil, 0], eval_regexp('["sß" =~ /ßs/i, "sss" =~ /ßs/i]'),
+                 "sß through /ßs/i must not match, while a spelling in order does"
+  end
+
+  # CRuby refuses ß itself before a look-behind naming ß case-insensitively.
+  # @behavior RX-323
+  def test_a_case_insensitive_look_behind_matches_the_character_it_names
+    assert_equal 2, eval_regexp('"ßa" =~ /(?<=ß)a/i'),
+                 "ßa through /(?<=ß)a/i must match after the ß"
+  end
+
   # CRuby leaves the Latin-1 letters out of these brackets' folds; the
   # guest folds them as it folds every other letter.
   # @behavior RX-319
