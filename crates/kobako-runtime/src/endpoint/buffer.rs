@@ -106,59 +106,87 @@ mod tests {
 
     // @behavior WE-059
     #[test]
-    fn checked_payload_len_accepts_zero_and_the_cap() {
-        assert_eq!(checked_payload_len(0), Ok(0));
+    fn a_transfer_of_nothing_or_at_the_cap_is_admitted() {
         assert_eq!(
-            checked_payload_len(MAX_DISPATCH_PAYLOAD),
-            Ok(MAX_DISPATCH_PAYLOAD as i32)
+            (
+                checked_payload_len(0),
+                checked_payload_len(MAX_DISPATCH_PAYLOAD)
+            ),
+            (Ok(0), Ok(MAX_DISPATCH_PAYLOAD as i32)),
+            "0 bytes and MAX_DISPATCH_PAYLOAD bytes through checked_payload_len must be admitted"
         );
     }
 
     // @behavior WE-060
     #[test]
-    fn checked_payload_len_rejects_past_the_cap() {
-        assert!(checked_payload_len(MAX_DISPATCH_PAYLOAD + 1).is_err());
-        assert!(checked_payload_len(usize::MAX).is_err());
+    fn a_transfer_past_the_cap_is_refused() {
+        assert!(
+            checked_payload_len(MAX_DISPATCH_PAYLOAD + 1).is_err()
+                && checked_payload_len(usize::MAX).is_err(),
+            "one byte past MAX_DISPATCH_PAYLOAD and usize::MAX through checked_payload_len must be \
+             refused"
+        );
     }
 
     // @behavior WE-061
     #[test]
-    fn guest_buffer_range_returns_half_open_range() {
-        assert_eq!(guest_buffer_range(10, 5, 100), Ok(10..15));
+    fn a_guest_buffer_is_read_half_open() {
+        assert_eq!(
+            guest_buffer_range(10, 5, 100),
+            Ok(10..15),
+            "5 bytes at 10 in 100 bytes of memory through guest_buffer_range must answer 10..15"
+        );
     }
 
     // @behavior WE-062
     #[test]
-    fn guest_buffer_range_accepts_zero_length_at_any_in_bounds_ptr() {
-        assert_eq!(guest_buffer_range(0, 0, 0), Ok(0..0));
-        assert_eq!(guest_buffer_range(42, 0, 100), Ok(42..42));
+    fn a_buffer_of_no_length_is_read_at_any_pointer_inside_memory() {
+        assert_eq!(
+            (guest_buffer_range(0, 0, 0), guest_buffer_range(42, 0, 100)),
+            (Ok(0..0), Ok(42..42)),
+            "no bytes at 0 in no memory and at 42 in 100 bytes through guest_buffer_range must \
+             answer an empty range there"
+        );
     }
 
     // @behavior WE-063
     #[test]
-    fn guest_buffer_range_rejects_ptr_plus_len_overflow() {
-        assert!(guest_buffer_range(usize::MAX, 1, usize::MAX).is_err());
+    fn a_pointer_and_length_that_overflow_are_refused() {
+        assert!(
+            guest_buffer_range(usize::MAX, 1, usize::MAX).is_err(),
+            "1 byte at usize::MAX through guest_buffer_range must be refused"
+        );
     }
 
     // @behavior WE-064
     #[test]
-    fn guest_buffer_range_rejects_end_past_memory() {
-        assert!(guest_buffer_range(10, 100, 50).is_err());
-        assert_eq!(guest_buffer_range(0, 50, 50), Ok(0..50));
+    fn a_buffer_ending_past_memory_is_refused() {
+        assert_eq!(
+            (guest_buffer_range(10, 100, 50).is_err(), guest_buffer_range(0, 50, 50)),
+            (true, Ok(0..50)),
+            "100 bytes at 10 in 50 bytes of memory through guest_buffer_range must be refused, and \
+             50 bytes at 0 admitted"
+        );
     }
 
     // @behavior WE-001
     #[test]
-    fn unpack_guest_buffer_extracts_high_ptr_low_len() {
+    fn a_packed_answer_carries_the_pointer_high_and_the_length_low() {
         assert_eq!(
             unpack_guest_buffer(0xAABB_CCDD_1122_3344),
-            (0xAABB_CCDD, 0x1122_3344)
+            (0xAABB_CCDD, 0x1122_3344),
+            "0xAABB_CCDD_1122_3344 through unpack_guest_buffer must answer pointer 0xAABB_CCDD and \
+             length 0x1122_3344"
         );
     }
 
     // @behavior WE-065
     #[test]
-    fn unpack_guest_buffer_zero_decodes_to_zero_pair() {
-        assert_eq!(unpack_guest_buffer(0), (0, 0));
+    fn a_packed_answer_of_nothing_is_a_zero_pair() {
+        assert_eq!(
+            unpack_guest_buffer(0),
+            (0, 0),
+            "0 through unpack_guest_buffer must answer pointer 0 and length 0"
+        );
     }
 }
