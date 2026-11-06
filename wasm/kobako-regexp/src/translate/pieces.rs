@@ -28,6 +28,13 @@ pub(super) enum Piece<'a> {
     Escape {
         letter: char,
         in_class: bool,
+        charset: Charset,
+    },
+    /// `[:name:]` or `[:^name:]` inside a character class.
+    PosixBracket {
+        name: &'a str,
+        negated: bool,
+        charset: Charset,
     },
     PlainGroup {
         in_negative_look_behind: bool,
@@ -51,6 +58,16 @@ pub(super) enum Piece<'a> {
     Refused(&'static str),
 }
 
+/// The character set option (`d`, `a` or `u`) that decides what `\w`, `\d`,
+/// `\s`, `\b` and a POSIX bracket reach.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Charset {
+    /// `\w`, `\d` and `\s` stay ASCII; `\b` and POSIX brackets read Unicode.
+    Default,
+    Ascii,
+    Unicode,
+}
+
 /// The enclosing look-behind a piece sits in.
 #[derive(Clone, Copy, PartialEq)]
 enum LookBehind {
@@ -66,6 +83,7 @@ const UNDEFINED_OPTION: &str = "undefined group option";
 #[derive(Clone, Copy)]
 struct Frame {
     extended: bool,
+    charset: Charset,
     look_behind: LookBehind,
 }
 
@@ -82,6 +100,7 @@ impl<'a> Pieces<'a> {
             class_depth: 0,
             frames: vec![Frame {
                 extended,
+                charset: Charset::Default,
                 look_behind: LookBehind::Outside,
             }],
         }
@@ -150,7 +169,11 @@ impl<'a> Pieces<'a> {
             }
         }
         self.take(1 + letter.len_utf8());
-        Piece::Escape { letter, in_class }
+        Piece::Escape {
+            letter,
+            in_class,
+            charset: self.frame().charset,
+        }
     }
 
     fn group(&mut self) -> Piece<'a> {
@@ -227,6 +250,21 @@ impl<'a> Pieces<'a> {
     }
 
     fn class_piece(&mut self, first: char) -> Piece<'a> {
+        if let Some((body, len)) = read_posix_bracket(self.rest) {
+            self.take(len);
+            let (negated, name) = match body.strip_prefix('^') {
+                Some(name) => (true, name),
+                None => (false, body),
+            };
+            if !POSIX_BRACKETS.contains(&name) {
+                return Piece::Refused("invalid POSIX bracket type");
+            }
+            return Piece::PosixBracket {
+                name,
+                negated,
+                charset: self.frame().charset,
+            };
+        }
         match first {
             '[' => self.class_depth += 1,
             ']' => self.class_depth -= 1,
@@ -255,6 +293,9 @@ impl<'a> Pieces<'a> {
             match letter {
                 '-' => setting = false,
                 'x' => self.frame().extended = setting,
+                'd' => self.frame().charset = Charset::Default,
+                'a' => self.frame().charset = Charset::Ascii,
+                'u' => self.frame().charset = Charset::Unicode,
                 _ => {}
             }
         }
@@ -299,6 +340,23 @@ impl<'a> Iterator for Pieces<'a> {
             c => Piece::Text(self.take(c.len_utf8())),
         })
     }
+}
+
+const POSIX_BRACKETS: [&str; 14] = [
+    "alnum", "alpha", "ascii", "blank", "cntrl", "digit", "graph", "lower", "print", "punct",
+    "space", "upper", "word", "xdigit",
+];
+
+/// The body of a `[:…:]` that opens `text`, with the length it spans. A body
+/// of anything but letters, after an optional `^`, is no bracket.
+fn read_posix_bracket(text: &str) -> Option<(&str, usize)> {
+    let rest = text.strip_prefix("[:")?;
+    let close = rest.find(":]")?;
+    let body = &rest[..close];
+    let name = body.strip_prefix('^').unwrap_or(body);
+    name.bytes()
+        .all(|byte| byte.is_ascii_alphabetic())
+        .then_some((body, close + 4))
 }
 
 /// The name in `<name>` or `'name'`, with the length the delimiters span.

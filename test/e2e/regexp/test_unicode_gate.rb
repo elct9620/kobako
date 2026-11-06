@@ -67,6 +67,22 @@ class TestRegexpUnicodeGate < Minitest::Test
     end
   end
 
+  # @behavior RX-297
+  def test_a_class_that_reads_unicode_is_rejected_without_unicode
+    ["/[[:alpha:]]/", "/[x[:^space:]]/", '/(?u)\w/', '/(?u:[\D])/'].each do |pattern|
+      assert_equal "RegexpError", eval_no_unicode(
+        "begin; #{pattern}.match('x'); 'no-error'; rescue RegexpError; 'RegexpError'; end"
+      ), "#{pattern} through #eval on the no-unicode variant must raise RegexpError"
+    end
+  end
+
+  # @behavior RX-298
+  def test_an_ascii_class_answers_without_unicode
+    assert_equal %w[f a b], eval_no_unicode(
+      '[/[[:xdigit:]]/.match("xf")[0], /(?a)[[:alpha:]]/.match("1a")[0], /(?a)\bb/.match("éb")[0]]'
+    ), "ASCII POSIX brackets and an ASCII boundary through #eval on the no-unicode variant must still match"
+  end
+
   # @behavior RX-278
   def test_a_backspace_class_stands_without_unicode
     assert_equal "\b", eval_no_unicode('/[\b]/.match("\b")[0]'),

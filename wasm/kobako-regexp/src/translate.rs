@@ -7,9 +7,10 @@
 //! and how named groups capture and are referred to. What the engine cannot
 //! answer as MRI would is refused here rather than answered differently.
 
+mod classes;
 mod pieces;
 
-use pieces::{Piece, Pieces};
+use pieces::{Charset, Piece, Pieces};
 
 /// MRI `Regexp` option bits. The Rust gem exposes these rather than
 /// the engine's internal mask, so `Regexp#options` reads back as MRI does.
@@ -175,8 +176,18 @@ impl<'n, 's> Rewriter<'n, 's> {
             Piece::Escape {
                 letter,
                 in_class: true,
+                charset,
             } => {
-                self.push_escape(letter, true);
+                self.push_escape(letter, true, charset)?;
+                Role::Inert
+            }
+            Piece::PosixBracket {
+                name,
+                negated,
+                charset,
+            } => {
+                self.out
+                    .push_str(&classes::posix_bracket(name, negated, charset)?);
                 Role::Inert
             }
             Piece::Quantifier(text) => {
@@ -263,16 +274,19 @@ impl<'n, 's> Rewriter<'n, 's> {
                 Role::Unit
             }
             Piece::Escape {
-                letter: 'b' | 'B',
+                letter: letter @ ('b' | 'B'),
                 in_class: false,
-            } if !cfg!(feature = "unicode") => {
-                return Err("a word boundary needs the Unicode build".to_string());
+                charset,
+            } => {
+                self.out.push_str(&classes::word_boundary(letter, charset)?);
+                Role::Unit
             }
             Piece::Escape {
                 letter,
                 in_class: false,
+                charset,
             } => {
-                self.push_escape(letter, false);
+                self.push_escape(letter, false, charset)?;
                 Role::Unit
             }
             Piece::NumberedReference(text) => {
@@ -299,14 +313,20 @@ impl<'n, 's> Rewriter<'n, 's> {
         })
     }
 
-    fn push_escape(&mut self, letter: char, in_class: bool) {
-        match ascii_class(letter, in_class) {
-            Some(replacement) => self.out.push_str(replacement),
+    fn push_escape(
+        &mut self,
+        letter: char,
+        in_class: bool,
+        charset: Charset,
+    ) -> Result<(), String> {
+        match classes::shorthand(letter, in_class, charset)? {
+            Some(replacement) => self.out.push_str(&replacement),
             None => {
                 self.out.push('\\');
                 self.out.push(letter);
             }
         }
+        Ok(())
     }
 
     /// The engine reads `{,n}` as literal text, where MRI reads no lower bound
@@ -344,13 +364,13 @@ fn is_reversed(lower: &str, upper: Option<&str>) -> bool {
 
 /// Always as `(?on-off:`, since MRI holds an option through the alternatives
 /// that follow it, where the engine ends it at the next `|`. Ruby's `m` is the
-/// engine's `s`.
+/// engine's `s`; the character set letters are read while rewriting classes.
 fn push_options(letters: &str, out: &mut String) {
     let (on, off) = letters.split_once('-').unwrap_or((letters, ""));
     let engine_letters = |letters: &str| -> String {
         letters
             .chars()
-            .filter(|letter| *letter != '-')
+            .filter(|letter| !"-dau".contains(*letter))
             .map(|letter| if letter == 'm' { 's' } else { letter })
             .collect()
     };
@@ -388,23 +408,6 @@ fn push_each_group(numbers: &[usize], out: &mut String) {
 fn is_group_number(name: &str) -> bool {
     let digits = name.strip_prefix('-').unwrap_or(name);
     !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-/// Negated forms only apply outside a character class, where a class
-/// wrapper is meaningful.
-fn ascii_class(letter: char, in_class: bool) -> Option<&'static str> {
-    match letter {
-        'd' if in_class => Some("0-9"),
-        'd' => Some("[0-9]"),
-        'w' if in_class => Some("0-9A-Za-z_"),
-        'w' => Some("[0-9A-Za-z_]"),
-        's' if in_class => Some(r"\x20\t\n\x0b\x0c\r"),
-        's' => Some(r"[\x20\t\n\x0b\x0c\r]"),
-        'D' if !in_class => Some("[^0-9]"),
-        'W' if !in_class => Some("[^0-9A-Za-z_]"),
-        'S' if !in_class => Some(r"[^\x20\t\n\x0b\x0c\r]"),
-        _ => None,
-    }
 }
 
 #[cfg(test)]
@@ -449,12 +452,52 @@ mod tests {
 
     // @behavior RX-172
     #[test]
-    fn keeps_negated_shorthand_inside_a_class_as_unicode() {
-        // `[\D]` / `[\W]` / `[\S]` keep the engine's
-        // Unicode category semantics rather than the ASCII rewrite.
-        assert_eq!(translate(r"[\D]", 0), r"(?m)[\D]");
-        assert_eq!(translate(r"[\W]", 0), r"(?m)[\W]");
-        assert_eq!(translate(r"[\S]", 0), r"(?m)[\S]");
+    fn nests_a_negated_shorthand_inside_a_class() {
+        assert_eq!(translate(r"[\D]", 0), r"(?m)[[^0-9]]");
+        assert_eq!(translate(r"[a\W]", 0), r"(?m)[a[^0-9A-Za-z_]]");
+        assert_eq!(translate(r"[\S]", 0), r"(?m)[[^\x20\t\n\x0b\x0c\r]]");
+    }
+
+    #[test]
+    fn reads_a_character_set_option_until_its_group_closes() {
+        assert_eq!(
+            translate(r"(?a:\w)\w", 0),
+            r"(?m)(?:[0-9A-Za-z_])[0-9A-Za-z_]"
+        );
+        assert_eq!(translate(r"(?ia)a", 0), r"(?m)(?i:a)");
+        assert_eq!(translate(r"[[:^ascii:]x]", 0), r"(?m)[[[:^ascii:]]x]");
+        assert_eq!(translate(r"(?a)[[:alpha:]]", 0), r"(?m)(?:[[[:alpha:]]])");
+        assert_eq!(translate(r"[:alpha:]", 0), r"(?m)[:alpha:]");
+        assert!(build_pattern("[[:Alpha:]]", 0).is_err());
+    }
+
+    #[test]
+    fn spells_an_ascii_word_boundary_with_look_arounds() {
+        let word = "[0-9A-Za-z_]";
+        assert_eq!(
+            translate(r"(?a)\b", 0),
+            format!("(?m)(?:(?:(?<={word})(?!{word})|(?<!{word})(?={word})))")
+        );
+    }
+
+    #[cfg(feature = "unicode")]
+    #[test]
+    fn reads_unicode_classes_under_the_unicode_option() {
+        assert_eq!(translate(r"(?u)\d", 0), r"(?m)(?:[\p{Nd}])");
+        assert_eq!(translate(r"(?u)[\d]", 0), r"(?m)(?:[\p{Nd}])");
+        assert_eq!(translate(r"[[:^alpha:]]", 0), r"(?m)[[^\p{Alphabetic}]]");
+        assert_eq!(
+            translate(r"[[:graph:]]", 0),
+            r"(?m)[[^\p{Zs}\p{Zl}\p{Zp}\p{Cc}\p{Cn}\p{Cs}]]"
+        );
+    }
+
+    #[cfg(not(feature = "unicode"))]
+    #[test]
+    fn refuses_a_class_that_reads_unicode_without_the_unicode_build() {
+        assert!(build_pattern(r"(?u)\w", 0).is_err());
+        assert!(build_pattern(r"[[:alpha:]]", 0).is_err());
+        assert!(build_pattern(r"(?u)a", 0).is_ok());
     }
 
     // @behavior RX-173

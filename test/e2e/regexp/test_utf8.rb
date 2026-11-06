@@ -25,9 +25,8 @@ class TestRegexpUtf8 < Minitest::Test
                  "a multibyte capture group must round-trip through the host wire as an Array of substrings"
   end
 
-  # The shorthand classes are ASCII, but a negated shorthand inside a
-  # character class keeps the engine's Unicode category semantics. The
-  # fullwidth digit ５ (Unicode Nd, not ASCII 0-9) tells the two apart.
+  # The fullwidth digit ５ is a Unicode digit but no ASCII one, so it tells
+  # an ASCII shorthand from a Unicode one.
   # @behavior RX-085
   def test_negated_shorthand_is_ascii_outside_a_class
     assert_equal 0, eval_regexp('"５" =~ /\D/'),
@@ -35,8 +34,32 @@ class TestRegexpUtf8 < Minitest::Test
   end
 
   # @behavior RX-086
-  def test_negated_shorthand_inside_a_class_is_unicode
-    assert_nil eval_regexp('"５" =~ /[\D]/'),
-               "a non-ASCII digit through /[\\D]/ must not match (Unicode category)"
+  def test_negated_shorthand_inside_a_class_is_ascii
+    assert_equal [0, 0], eval_regexp('["５" =~ /[\D]/, "é" =~ /[a\W]/]'),
+                 "a non-ASCII digit through /[\\D]/ and a letter through /[a\\W]/ must match (ASCII negation)"
+  end
+
+  # @behavior RX-293
+  def test_a_posix_bracket_reads_unicode
+    assert_equal [0, nil], eval_regexp('["é" =~ /[[:alpha:]]/, "é" =~ /[[:^alpha:]]/]'),
+                 "a non-ASCII letter through /[[:alpha:]]/ must match and through /[[:^alpha:]]/ must not"
+  end
+
+  # @behavior RX-294
+  def test_the_unicode_option_widens_the_shorthand_classes
+    assert_equal [0, 0, nil], eval_regexp('["é" =~ /(?u)\w/, "５" =~ /(?u:\d)/, "é" =~ /\w/]'),
+                 "a non-ASCII letter and digit through /(?u)\\w/ and /(?u:\\d)/ must match where /\\w/ does not"
+  end
+
+  # @behavior RX-295
+  def test_the_ascii_option_narrows_a_posix_bracket
+    assert_equal [nil, 0], eval_regexp('["é" =~ /(?a)[[:alpha:]]/, "é" =~ /(?a:[[:^alpha:]])/]'),
+                 "a non-ASCII letter through /(?a)[[:alpha:]]/ must not match"
+  end
+
+  # @behavior RX-296
+  def test_the_ascii_option_reads_a_word_boundary_by_ascii
+    assert_equal [2, nil], eval_regexp('["éb" =~ /(?a)\bb/, "éb" =~ /\bb/]'),
+                 "a boundary after a non-ASCII letter through /(?a)\\bb/ must match where /\\bb/ does not"
   end
 end

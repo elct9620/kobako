@@ -746,13 +746,17 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | When | guest code matches a non-ASCII digit against a negated digit shorthand |
 | Then | it matches |
 
-## `RX-086` The same shorthand inside a character class is the engine's Unicode one
+## `RX-086` The same shorthand inside a character class is the same ASCII one
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-085` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches a non-ASCII digit against a negated digit shorthand inside a character class |
-| Then | it does not match |
+| Then | it matches |
 
 ## `RX-087` A subject that is not text is refused, not read as empty
 
@@ -1714,3 +1718,71 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | guest code that saved one match and then ran another |
 | When | it assigns the saved match to the match global and reads the first numbered global |
 | Then | it holds the later match's capture |
+
+## `RX-293` A POSIX bracket reads Unicode in the Unicode build
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches a non-ASCII letter against the alphabetic POSIX bracket |
+| Then | it matches |
+
+## `RX-294` The Unicode option widens the shorthand classes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-085` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches a non-ASCII letter against the word shorthand under the Unicode option |
+| Then | it matches |
+
+## `RX-295` The ASCII option narrows a POSIX bracket to ASCII
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-293` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a non-ASCII letter against the alphabetic POSIX bracket under the ASCII option |
+| Then | it does not match |
+
+## `RX-296` The ASCII option reads a word boundary by ASCII word characters
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-279` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a word boundary under the ASCII option between a non-ASCII letter and an ASCII one |
+| Then | it matches there |
+
+## `RX-297` Without the Unicode build a class that reads Unicode is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-093`, `RX-277` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built without Unicode support |
+| When | guest code compiles a pattern with an alphabetic POSIX bracket or a shorthand under the Unicode option |
+| Then | a pattern error is raised |
+
+## `RX-298` Without the Unicode build an ASCII class still answers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-297` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built without Unicode support |
+| When | guest code matches a hex digit POSIX bracket, an ASCII-option POSIX bracket and an ASCII-option word boundary |
+| Then | each answers the matched substring |
