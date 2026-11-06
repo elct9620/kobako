@@ -1950,3 +1950,39 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code matches a pattern whose group holds an isolated extended option, with a hash sign after the group |
 | Then | the hash sign and the text after it read as literal text |
+
+## `RX-314` Case-insensitive text matches across a multi-character fold
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-093` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches case-insensitive text against a character that folds to that text, and the reverse |
+| Then | each matches |
+
+## `RX-315` A quantifier takes only the last character of case-insensitive text
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-314` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches case-insensitive text with a quantifier after it against one character folding to that text |
+| Then | it does not match |
+
+## `RX-316` A case-insensitive class adds the fold of a character it writes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-314` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp Guest Binary built with Unicode support |
+| When | guest code matches the text a character folds to against case-insensitive classes holding that character |
+| Then | a class writing the character matches the whole text, and a negated class or a spanning range does not |

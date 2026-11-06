@@ -8,6 +8,7 @@
 //! answer as MRI would is refused here rather than answered differently.
 
 mod classes;
+mod fold;
 mod pieces;
 mod repeat;
 
@@ -60,10 +61,13 @@ pub(crate) fn build_pattern(source: &str, options: i64) -> Result<String, String
     let has_calls = Pieces::new(source, extended, captures)
         .any(|piece| matches!(piece, Piece::NamedReference { kind: 'g', .. }));
     let mut rewriter = Rewriter::new(&names, has_calls, out);
-    for piece in Pieces::new(source, extended, captures) {
-        rewriter.rewrite(piece)?;
+    let mut pieces =
+        Pieces::new(source, extended, captures).ignoring_case(options & IGNORECASE != 0);
+    while let Some(piece) = pieces.next() {
+        let folding = cfg!(feature = "unicode") && pieces.ignores_case();
+        rewriter.rewrite(piece, folding)?;
     }
-    Ok(rewriter.finish())
+    rewriter.finish()
 }
 
 /// Each capture name with its group numbers. A named group makes every plain
@@ -142,6 +146,14 @@ struct Rewriter<'n, 's> {
     quantified_unit: String,
     quantities: Vec<Quantity>,
     repeat: Repeat,
+    /// The case-insensitive literal characters read in a row, where they
+    /// start in `out`, and where the last of them starts.
+    literal_run: String,
+    literal_run_start: usize,
+    literal_run_last: usize,
+    /// A case-insensitive class being read: where it starts in `out`, and
+    /// the characters written inside it.
+    folded_class: Option<(usize, Vec<char>)>,
 }
 
 impl<'n, 's> Rewriter<'n, 's> {
@@ -161,18 +173,51 @@ impl<'n, 's> Rewriter<'n, 's> {
             quantified_unit: String::new(),
             quantities: Vec::new(),
             repeat: Repeat::None,
+            literal_run: String::new(),
+            literal_run_start: 0,
+            literal_run_last: 0,
+            folded_class: None,
         }
     }
 
-    fn finish(mut self) -> String {
+    fn finish(mut self) -> Result<String, String> {
+        self.close_literal_run(false)?;
         let owed = self.groups.iter().map(|group| group.owed_closes).sum();
         self.out.push_str(&")".repeat(owed));
-        self.out
+        Ok(self.out)
     }
 
-    fn rewrite(&mut self, piece: Piece) -> Result<(), String> {
+    /// `folding` says whether the piece reads case-insensitively, where a
+    /// run of literal characters or a class may reach a multi-character fold.
+    fn rewrite(&mut self, piece: Piece, folding: bool) -> Result<(), String> {
+        match piece {
+            Piece::Text(text) if folding && is_literal_char(text) => {
+                if self.literal_run.is_empty() {
+                    self.literal_run_start = self.out.len();
+                }
+                self.literal_run_last = self.out.len();
+                self.literal_run.push_str(text);
+            }
+            Piece::Quantifier(_) | Piece::Interval { .. } => self.close_literal_run(true)?,
+            _ => self.close_literal_run(false)?,
+        }
+        match piece {
+            Piece::ClassOpen(_) if folding => {
+                self.folded_class = Some((self.out.len(), Vec::new()))
+            }
+            Piece::ClassText(text) => {
+                if let Some((_, named)) = self.folded_class.as_mut() {
+                    named.extend(text.chars());
+                }
+            }
+            _ => {}
+        }
+        let closes_class = matches!(piece, Piece::ClassClose);
         let start = self.out.len();
         let role = self.push_piece(piece)?;
+        if closes_class {
+            self.close_folded_class();
+        }
         if !matches!(role, Role::Inert | Role::Repeat) {
             self.repeat = Repeat::None;
             self.unit_is_look_around = false;
@@ -521,11 +566,71 @@ impl<'n, 's> Rewriter<'n, 's> {
         }
     }
 
+    /// Rewrites the run of literal characters just written so it also
+    /// matches every spelling its folds join to. MRI splits the last
+    /// character off a run a quantifier follows, so that one is spelled
+    /// alone and stays the unit the quantifier repeats.
+    fn close_literal_run(&mut self, split_last: bool) -> Result<(), String> {
+        if self.literal_run.is_empty() {
+            return Ok(());
+        }
+        let run = std::mem::take(&mut self.literal_run);
+        let last_len = run.chars().next_back().map_or(0, char::len_utf8);
+        let (head, last) = if split_last {
+            run.split_at(run.len() - last_len)
+        } else {
+            (run.as_str(), "")
+        };
+        let head_spelled = fold::expand_run(head)?;
+        let last_spelled = fold::expand_run(last)?;
+        if head_spelled.is_none() && last_spelled.is_none() {
+            return Ok(());
+        }
+        self.out.truncate(self.literal_run_start);
+        self.out.push_str(head_spelled.as_deref().unwrap_or(head));
+        let last_start = self.out.len();
+        self.out.push_str(last_spelled.as_deref().unwrap_or(last));
+        self.unit_start = Some(if split_last {
+            last_start
+        } else {
+            self.literal_run_start
+        });
+        Ok(())
+    }
+
+    /// A class that writes a character folding to several, a range's ends
+    /// included, adds that fold as an alternative. A negated class adds none,
+    /// and neither does a character a range only spans.
+    fn close_folded_class(&mut self) {
+        let Some((start, written)) = self.folded_class.take() else {
+            return;
+        };
+        if written.first() == Some(&'^') {
+            return;
+        }
+        let folds = fold::class_folds(&written);
+        if folds.is_empty() {
+            return;
+        }
+        self.out.insert_str(start, "(?:");
+        for folded in folds {
+            self.out.push('|');
+            self.out.push_str(&folded);
+        }
+        self.out.push(')');
+    }
+
     fn write_quantified_unit(&mut self, start: usize) {
         self.out.truncate(start);
         self.out
             .push_str(&repeat::write(&self.quantified_unit, &self.quantities));
     }
+}
+
+/// A single character MRI reads as itself, and so as part of a string.
+fn is_literal_char(text: &str) -> bool {
+    let mut chars = text.chars();
+    matches!((chars.next(), chars.next()), (Some(c), None) if !matches!(c, '|' | '.' | '^' | '$'))
 }
 
 /// MRI's ceiling on an interval bound.

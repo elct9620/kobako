@@ -100,6 +100,7 @@ const UNDEFINED_OPTION: &str = "undefined group option";
 #[derive(Clone, Copy)]
 struct Frame {
     extended: bool,
+    ignore_case: bool,
     charset: Charset,
     look_behind: LookBehind,
 }
@@ -121,10 +122,22 @@ impl<'a> Pieces<'a> {
             capture_count,
             frames: vec![Frame {
                 extended,
+                ignore_case: false,
                 charset: Charset::Default,
                 look_behind: LookBehind::Outside,
             }],
         }
+    }
+
+    /// Reads the source as case-insensitive from its start.
+    pub(super) fn ignoring_case(mut self, ignore_case: bool) -> Self {
+        self.frame().ignore_case = ignore_case;
+        self
+    }
+
+    /// Whether the piece last read is matched case-insensitively.
+    pub(super) fn ignores_case(&self) -> bool {
+        self.frames.last().is_some_and(|frame| frame.ignore_case)
     }
 
     fn take(&mut self, len: usize) -> &'a str {
@@ -199,9 +212,11 @@ impl<'a> Pieces<'a> {
             if let Some(piece) = self.octal(in_class) {
                 return piece;
             }
-        } else if letter.is_ascii_alphabetic() && !escape_has_meaning(letter, in_class, after) {
+        } else if !letter.is_ascii()
+            || letter.is_ascii_alphabetic() && !escape_has_meaning(letter, in_class, after)
+        {
             self.take(1);
-            let text = self.take(1);
+            let text = self.take(letter.len_utf8());
             return if in_class {
                 Piece::ClassText(text)
             } else {
@@ -438,6 +453,7 @@ impl<'a> Pieces<'a> {
             match letter {
                 '-' => setting = false,
                 'x' => self.frame().extended = setting,
+                'i' => self.frame().ignore_case = setting,
                 'd' => self.frame().charset = Charset::Default,
                 'a' => self.frame().charset = Charset::Ascii,
                 'u' => self.frame().charset = Charset::Unicode,
