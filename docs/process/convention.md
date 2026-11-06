@@ -59,11 +59,14 @@ A method is named for what it does, and each kind shows it this way.
 |---|---|---|
 | acts | a verb, then its object | `preload`, `register_source` |
 | finds a thing by a key | the noun, `_by_`, and the key | `error_by_name` |
+| answers a part of its argument, changing nothing | the noun, then `_of` | `size_of`, `TypeId::of`, `request_of` |
 | makes or converts a value | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_nr_inodes`, `from_posix_name` |
 | adds one more of a member it already holds | the member's noun, as `Command::arg` | `flag` |
 | runs a block under a condition | a preposition and the condition | `within_value_budget { … }` |
 
 A preposition opens a name only where the call reads as a phrase without it, as `with_X(…)` and `within_X { … }` do. Elsewhere it stands after a verb.
+
+A noun names only a method that changes nothing, as the standard library's `size_of` does. One that charges, writes, or changes its receiver acts, so it takes a verb.
 
 ### Call-Site Reading
 
