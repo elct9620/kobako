@@ -22,7 +22,7 @@ class TestE2EFirstRunInterrupt < Minitest::Test
 
   def setup
     super
-    require_child_sigint!
+    require_child_sigint
   end
 
   CHILD = <<~RUBY

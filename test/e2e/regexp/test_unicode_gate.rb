@@ -14,7 +14,7 @@ class TestRegexpUnicodeGate < Minitest::Test
   REGEXP_WASM = TestPaths.data("kobako+regexp.wasm")
 
   def setup
-    require_guest_binary!(REGEXP_WASM, build: "bundle exec rake wasm:build:regexp")
+    require_guest_binary(REGEXP_WASM, build: "bundle exec rake wasm:build:regexp")
   end
 
   # A case-insensitive pattern must raise RegexpError on the no-unicode
@@ -45,7 +45,7 @@ class TestRegexpUnicodeGate < Minitest::Test
   # @behavior RX-216
   def test_case_insensitive_pattern_is_rejected_on_the_full_variant
     full = TestPaths.data("kobako+full.wasm")
-    require_guest_binary!(full, build: "bundle exec rake wasm:build:full")
+    require_guest_binary(full, build: "bundle exec rake wasm:build:full")
 
     result = Kobako::Sandbox.new(wasm_path: full).eval(
       "begin; /foo/i.match('x'); [Object.const_defined?(:JSON), 'no-error']; " \
@@ -98,7 +98,7 @@ class TestRegexpUnicodeGate < Minitest::Test
   # @behavior RX-279
   def test_a_word_boundary_answers_on_the_unicode_variant
     unicode = TestPaths.data("kobako+regexp-unicode.wasm")
-    require_guest_binary!(unicode, build: "bundle exec rake wasm:build:regexp_unicode")
+    require_guest_binary(unicode, build: "bundle exec rake wasm:build:regexp_unicode")
 
     assert_equal "a", Kobako::Sandbox.new(wasm_path: unicode).eval('/(?<=\b)a/.match("x a")[0]').value,
                  "a word boundary inside a look-behind through #eval on the unicode variant must match"

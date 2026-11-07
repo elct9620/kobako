@@ -11,7 +11,7 @@ module Parity
     include E2eGuestHelper
 
     def assert_parity(scenario)
-      require_cargo_oracle!(rust_executor.oracle)
+      require_cargo_oracle(rust_executor.oracle)
       ruby = RubyExecutor.new(E2eGuestHelper::REAL_WASM).execute(scenario)
       rust = rust_executor.execute(scenario)
       assert_equal normalize(ruby), normalize(rust),

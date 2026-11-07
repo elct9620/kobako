@@ -10,7 +10,7 @@ class TestRuntimeConstruction < Minitest::Test
   include GuestGuard
 
   def setup
-    require_native_ext!
+    require_native_ext
   end
 
   # A directory stands where the artifact should be: the path exists, so

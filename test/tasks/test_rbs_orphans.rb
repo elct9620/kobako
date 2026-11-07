@@ -156,7 +156,7 @@ class KobakoRbsOrphansTest < Minitest::Test
 
   # Resolution needs the ext-defined classes loaded.
   def test_every_shipped_signature_names_a_live_definition
-    require_native_ext!
+    require_native_ext
     sources = Dir[TestPaths.source("sig", "kobako", "**", "*.rbs")].to_h { |path| [path, File.read(path)] }
     orphans = Orphans.orphans(Orphans.declarations(sources))
 

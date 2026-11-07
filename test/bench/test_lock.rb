@@ -29,7 +29,7 @@ class KobakoBenchLockTest < Minitest::Test
   end
 
   def test_the_lock_names_the_running_process
-    require_ps!
+    require_ps
     Kobako::Bench::Lock.hold(@path) do
       pid_line, start_line = File.read(@path).lines.map(&:strip)
 

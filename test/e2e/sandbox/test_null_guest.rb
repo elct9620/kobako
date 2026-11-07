@@ -13,7 +13,7 @@ class TestSandboxNullGuest < Minitest::Test
   FIXTURE_PATH = TestPaths.fixture("minimal_null_guest.wat")
 
   def setup
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
     @sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
   end
 

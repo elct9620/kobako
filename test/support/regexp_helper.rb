@@ -12,7 +12,7 @@ module RegexpGuestHelper
   REGEXP_WASM = TestPaths.data("kobako+regexp-unicode.wasm")
 
   def setup
-    require_guest_binary!(REGEXP_WASM, build: "bundle exec rake wasm:build:regexp_unicode")
+    require_guest_binary(REGEXP_WASM, build: "bundle exec rake wasm:build:regexp_unicode")
   end
 
   # Evaluate +code+ in a fresh Sandbox on the regexp guest. A fresh Sandbox

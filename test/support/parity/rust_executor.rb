@@ -7,7 +7,7 @@ module Parity
   class RustExecutor
     CRATE_DIR = TestPaths.source("crates", "kobako-parity")
 
-    # The runner's CargoOracle, for GuestGuard#require_cargo_oracle!.
+    # The runner's CargoOracle, for GuestGuard#require_cargo_oracle.
     attr_reader :oracle
 
     def initialize(wasm_path)

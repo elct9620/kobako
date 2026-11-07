@@ -13,7 +13,7 @@ class TestE2EPreloadCompileCaps < Minitest::Test
   DEADLINE = 0.3
 
   def setup
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
   end
 
   # The fixture's growth fits no budget, so only the deadline stops it.

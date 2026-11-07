@@ -12,7 +12,7 @@ class TestUnframedOutcome < Minitest::Test
   UNFRAMED = TestPaths.fixture("minimal_unframed_outcome.wat")
 
   def setup
-    require_fixture!(UNFRAMED)
+    require_fixture(UNFRAMED)
   end
 
   # @behavior OC-001

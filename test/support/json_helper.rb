@@ -10,7 +10,7 @@ module JsonGuestHelper
   JSON_WASM = TestPaths.data("kobako+json.wasm")
 
   def setup
-    require_guest_binary!(JSON_WASM, build: "bundle exec rake wasm:build:json")
+    require_guest_binary(JSON_WASM, build: "bundle exec rake wasm:build:json")
   end
 
   # Evaluate +code+ in a fresh Sandbox on the json guest. A fresh Sandbox

@@ -13,7 +13,7 @@ class TestSandboxRunPreflight < Minitest::Test
   FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
   def setup
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
     @fixture_sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
   end
 

@@ -12,6 +12,6 @@ module E2eGuestHelper
   REAL_WASM = TestPaths.data("kobako.wasm")
 
   def setup
-    require_guest_binary!(REAL_WASM, build: "bundle exec rake wasm:build")
+    require_guest_binary(REAL_WASM, build: "bundle exec rake wasm:build")
   end
 end

@@ -19,7 +19,7 @@ class TestE2ERubyFilesystemHostFile < Minitest::Test
   # link's target holds what a followed open would read.
   # @behavior RF-011
   def test_a_ruby_filesystems_open_is_told_to_follow_no_link
-    require_nofollow!
+    require_nofollow
     TestPaths.host_directory do |root|
       File.write(File.join(root, "target"), "reached")
       File.symlink("target", File.join(root, "link"))

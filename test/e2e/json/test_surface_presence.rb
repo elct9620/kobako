@@ -14,7 +14,7 @@ class TestJsonSurfacePresence < Minitest::Test
 
   # @behavior JS-058
   def test_only_a_json_capable_guest_defines_the_json_surface
-    require_guest_binary!(DEFAULT_WASM, build: "bundle exec rake wasm:build")
+    require_guest_binary(DEFAULT_WASM, build: "bundle exec rake wasm:build")
 
     with_json = eval_json(PROBE)
     without = Kobako::Sandbox.new(wasm_path: DEFAULT_WASM).eval(PROBE).value

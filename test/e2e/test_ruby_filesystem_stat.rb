@@ -53,7 +53,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
 
   def setup
     super
-    require_fixture!(FIXTURE)
+    require_fixture(FIXTURE)
   end
 
   def fields(filesystem, profile:)

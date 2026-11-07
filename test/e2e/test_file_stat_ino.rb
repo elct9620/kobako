@@ -31,7 +31,7 @@ class TestE2EFileStatIno < Minitest::Test
 
   def setup
     super
-    require_fixture!(FIXTURE)
+    require_fixture(FIXTURE)
   end
 
   def sandbox(wasm_path, filesystem)

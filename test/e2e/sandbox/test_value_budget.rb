@@ -12,7 +12,7 @@ class TestSandboxValueBudget < Minitest::Test
   FIXTURE_PATH = TestPaths.fixture("minimal_wide_outcome.wat")
 
   def setup
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
   end
 
   # 96 bytes of memory cap grant 96 / 16 = 6 values, exactly what the

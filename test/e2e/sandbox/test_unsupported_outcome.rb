@@ -12,7 +12,7 @@ class TestUnsupportedOutcome < Minitest::Test
   FIXTURE_PATH = TestPaths.fixture("minimal_unsupported_guest.wat")
 
   def setup
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
   end
 
   # @behavior OC-052

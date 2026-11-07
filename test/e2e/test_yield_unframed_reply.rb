@@ -23,7 +23,7 @@ class TestYieldUnframedReply < Minitest::Test
   end
 
   def setup
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
     @recorder = Recorder.new
     @sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
     @sandbox.bind("S", @recorder)

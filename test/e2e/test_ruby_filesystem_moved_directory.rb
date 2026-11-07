@@ -86,8 +86,8 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
   end
 
   def setup
-    require_fixture!(FIXTURE)
-    require_fixture!(HELD)
+    require_fixture(FIXTURE)
+    require_fixture(HELD)
   end
 
   # Ruby is asked by the path the descriptor's directory stands at in the

@@ -10,7 +10,7 @@
 # that matches what the test drives.
 module GuestGuard
   # The native ext must be compiled.
-  def require_native_ext!
+  def require_native_ext
     return if defined?(Kobako::Runtime)
 
     flunk "native ext not compiled under CI" if ENV["CI"]
@@ -19,8 +19,8 @@ module GuestGuard
 
   # The ext plus a built Guest Binary artifact — the pure guest or a variant.
   # +build+ is the rake task that produces it.
-  def require_guest_binary!(path, build:)
-    require_native_ext!
+  def require_guest_binary(path, build:)
+    require_native_ext
     return if File.exist?(path)
 
     flunk "#{File.basename(path)} missing under CI" if ENV["CI"]
@@ -29,8 +29,8 @@ module GuestGuard
 
   # The ext plus a committed test fixture (never built), so a miss is an odd
   # local state a plain skip covers.
-  def require_fixture!(path)
-    require_native_ext!
+  def require_fixture(path)
+    require_native_ext
     skip "#{File.basename(path)} fixture missing" unless File.exist?(path)
   end
 
@@ -38,7 +38,7 @@ module GuestGuard
   # one. A local checkout without a Rust toolchain skips; under CI the
   # toolchain is a prerequisite of the default task, so an absent one would
   # silently drop the only coverage these checks provide.
-  def require_cargo_oracle!(oracle)
+  def require_cargo_oracle(oracle)
     build = oracle.ensure_built
     case build.status
     when :no_cargo
@@ -52,14 +52,14 @@ module GuestGuard
   # A host that can send one child process a SIGINT. Windows sends it to
   # the whole console instead, the test runner's shell included, so a test
   # needing it skips there, under CI too.
-  def require_child_sigint!
+  def require_child_sigint
     skip "Windows sends SIGINT to the whole console, not one child process" if Gem.win_platform?
   end
 
   # A host whose +ps+ reports when a process started, which the bench lock
   # records so the Stop hook's guard can tell a reused pid. Windows has no
   # +ps+, so a test needing it skips there.
-  def require_ps!
+  def require_ps
     skip "Windows has no ps to report a process's start time" if Gem.win_platform?
   end
 
@@ -72,14 +72,14 @@ module GuestGuard
   # every Guest Binary itself.
   def disk_cache? = !Gem.win_platform?
 
-  def require_disk_cache!
+  def require_disk_cache
     skip "this host reports no directory owner, so it caches no artifact on disk" unless disk_cache?
   end
 
   # A host whose Ruby defines +File::NOFOLLOW+, which a Ruby Filesystem's
   # open is handed so it follows no link. Windows defines none, so a test
   # needing the flag skips there.
-  def require_nofollow!
+  def require_nofollow
     skip "this host's Ruby defines no File::NOFOLLOW" unless File::Constants.const_defined?(:NOFOLLOW)
   end
 end

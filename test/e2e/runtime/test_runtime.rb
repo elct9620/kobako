@@ -18,7 +18,7 @@ class TestRuntime < Minitest::Test
   FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
   def setup
-    require_native_ext!
+    require_native_ext
   end
 
   def test_default_path_resolves_under_project_data_dir
@@ -28,7 +28,7 @@ class TestRuntime < Minitest::Test
   end
 
   def test_from_path_repeated_calls_return_independent_instances
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
 
     a = Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options)
     b = Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options)
@@ -46,7 +46,7 @@ class TestRuntime < Minitest::Test
     # fixture that ships in the repo so the test is deterministic and
     # the failure mode is "bytes are not wasm" rather than I/O.
     non_wasm = TestPaths.fixture("snippet_answers.rb")
-    require_fixture!(non_wasm)
+    require_fixture(non_wasm)
 
     err = assert_raises(Kobako::SetupError, "a non-wasm file through from_path must raise SetupError") do
       Kobako::Runtime.from_path(non_wasm, **runtime_options)
@@ -77,7 +77,7 @@ class TestRuntime < Minitest::Test
   # posture it built, so the request round-trips through construction to
   # the +#profile+ reader on both rungs of the ladder.
   def test_from_path_builds_and_declares_the_requested_profile
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
 
     assert_equal :hermetic, Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options).profile,
                  "a :hermetic request through from_path must construct a runtime declaring :hermetic"
@@ -118,7 +118,7 @@ class TestRuntime < Minitest::Test
   # default to either form. +Catalog::Snippets+ only ever emits the two,
   # so this exercises the guard on a direct +#eval+ call.
   def test_eval_raises_argument_error_for_an_unrecognized_snippet_kind
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
 
     runtime = Kobako::Runtime.from_path(FIXTURE_PATH, **runtime_options)
     err = assert_raises(ArgumentError) do

@@ -14,7 +14,7 @@ class TestSandboxRunEnvelope < Minitest::Test
   ALLOC_ZERO_FIXTURE_PATH = TestPaths.fixture("minimal_alloc_zero.wat")
 
   def setup
-    require_fixture!(ALLOC_ZERO_FIXTURE_PATH)
+    require_fixture(ALLOC_ZERO_FIXTURE_PATH)
   end
 
   # @behavior S-098

@@ -14,7 +14,7 @@ class TestRegexpPresence < Minitest::Test
 
   # @behavior RX-215
   def test_only_a_regexp_capable_guest_defines_the_regexp_surface
-    require_guest_binary!(DEFAULT_WASM, build: "bundle exec rake wasm:build")
+    require_guest_binary(DEFAULT_WASM, build: "bundle exec rake wasm:build")
 
     with_regexp = eval_regexp(PROBE)
     without = Kobako::Sandbox.new(wasm_path: DEFAULT_WASM).eval(PROBE).value

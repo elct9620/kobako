@@ -11,7 +11,7 @@ class TestDispatchUnsupported < Minitest::Test
   FIXTURE_PATH = TestPaths.fixture("minimal_unknown_upcall.wat")
 
   def setup
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
   end
 
   # @behavior T-277

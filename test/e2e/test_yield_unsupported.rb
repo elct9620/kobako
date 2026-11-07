@@ -23,7 +23,7 @@ class TestYieldUnsupported < Minitest::Test
   end
 
   def setup
-    require_fixture!(FIXTURE_PATH)
+    require_fixture(FIXTURE_PATH)
   end
 
   # @behavior T-278

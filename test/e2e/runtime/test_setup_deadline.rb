@@ -13,8 +13,8 @@ class TestE2ESetupDeadline < Minitest::Test
   DEADLINE = 0.3
 
   def setup
-    require_fixture!(FIXTURE_PATH)
-    require_fixture!(STALLED_START_PATH)
+    require_fixture(FIXTURE_PATH)
+    require_fixture(STALLED_START_PATH)
   end
 
   # The construction-time ABI check instantiates the artifact once, so a

@@ -27,7 +27,7 @@ class TestPayloadOracle < Minitest::Test
   ORACLE    = CargoOracle.new(crate_dir: CRATE_DIR, bin_name: "payload_oracle")
 
   def setup
-    require_cargo_oracle!(ORACLE)
+    require_cargo_oracle(ORACLE)
     @channel = ORACLE.spawn
   end
 

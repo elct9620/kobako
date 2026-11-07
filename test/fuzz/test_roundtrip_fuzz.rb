@@ -38,7 +38,7 @@
 #   KOBAKO_FUZZ_SEED=N        (default: random; printed for reproduction)
 #   KOBAKO_FUZZ_HEAVY=1       (bumps to 100_000 — nightly tier)
 #
-# An absent Rust toolchain is handled by +GuestGuard#require_cargo_oracle!+,
+# An absent Rust toolchain is handled by +GuestGuard#require_cargo_oracle+,
 # which owns the local-skip versus CI-failure split.
 
 require "test_helper"
@@ -53,7 +53,7 @@ class TestCodecRoundtripFuzz < Minitest::Test
   Decoder = Kobako::Codec::Decoder
 
   def setup
-    require_cargo_oracle!(ORACLE)
+    require_cargo_oracle(ORACLE)
     initialize_fuzzer_params
   end
 

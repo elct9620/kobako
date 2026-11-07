@@ -20,7 +20,7 @@ class TestRuntimeSnapshot < Minitest::Test
   KOBAKO_WASM = TestPaths.data("kobako.wasm")
 
   def setup
-    require_guest_binary!(KOBAKO_WASM, build: "bundle exec rake wasm:build")
+    require_guest_binary(KOBAKO_WASM, build: "bundle exec rake wasm:build")
   end
 
   # The ext encodes the Snapshot fields into specific Ruby shapes (binary

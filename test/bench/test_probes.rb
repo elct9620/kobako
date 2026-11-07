@@ -20,7 +20,7 @@ class KobakoBenchProbesTest < Minitest::Test
     name = probe.delete_prefix(PROBES_DIR).delete_suffix(".rb")
 
     define_method("test_#{name.tr("/", "_")}_runs_every_case_under_smoke") do
-      require_guest_binary!(TestPaths.data("kobako.wasm"), build: "rake wasm:build")
+      require_guest_binary(TestPaths.data("kobako.wasm"), build: "rake wasm:build")
       output, status = Open3.capture2e({ Kobako::Bench::Smoke::ENV_NAME => "1" }, RbConfig.ruby, probe,
                                        chdir: TestPaths::ROOT)
 
