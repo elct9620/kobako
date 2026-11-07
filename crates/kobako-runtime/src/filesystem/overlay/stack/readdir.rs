@@ -9,15 +9,15 @@ use crate::vfs::Dentry;
 
 /// What a directory of the view lists, and whether its upper holds a
 /// whiteout, which overlayfs's `ovl_dir_read_merged` keeps on its list.
-struct Merged {
+struct MergedEntries {
     entries: Vec<DirEntry>,
     upper_whiteouts: bool,
 }
 
 /// Each Layer's entries topmost first, a name a Layer above shows or whites
 /// out taken once.
-fn read_merged(level: &Level) -> Result<Merged, FilesystemError> {
-    let mut merged = Merged {
+fn read_merged(level: &Level) -> Result<MergedEntries, FilesystemError> {
+    let mut merged = MergedEntries {
         entries: Vec::new(),
         upper_whiteouts: false,
     };
