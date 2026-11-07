@@ -14,7 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::workers::{charge, Workers};
-use super::{ProtocolFamily, Stream, SOCKET_BUFFER};
+use super::{platform_tls, ProtocolFamily, Stream, SOCKET_BUFFER};
 use crate::network::{Protocol, Ruleset};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -119,6 +119,10 @@ pub enum HttpError {
     ProtocolError,
     /// The request cannot start now, as a full worker cap leaves it.
     ConnectionLimitReached,
+    /// The server's certificate is not one the host's store trusts.
+    TlsCertificate,
+    /// TLS could not be agreed with the server.
+    TlsProtocol,
     /// The seam failed in a way no other code names.
     Internal,
 }
@@ -428,7 +432,7 @@ impl Outbound for UreqOutbound {
     ) -> Result<Response, HttpError> {
         let scheme = match request.scheme {
             Scheme::Http => "http",
-            Scheme::Https => return Err(HttpError::ProtocolError),
+            Scheme::Https => "https",
         };
         let uri = format!(
             "{scheme}://{}{}",
@@ -450,8 +454,20 @@ impl Outbound for UreqOutbound {
             .timeout_global(timeout)
             .build();
         let dial = connector.dial(timeout)?;
+        let wire: Box<dyn transport::Wire> = match request.scheme {
+            Scheme::Http => Box::new(dial),
+            Scheme::Https => {
+                let config = platform_tls().ok_or(HttpError::TlsProtocol)?;
+                let name =
+                    rustls::pki_types::ServerName::try_from(connector.authority().0.to_string())
+                        .map_err(|_| HttpError::ProtocolError)?;
+                let session = rustls::ClientConnection::new(config, name)
+                    .map_err(|_| HttpError::TlsProtocol)?;
+                Box::new(transport::TlsWire(rustls::StreamOwned::new(session, dial)))
+            }
+        };
         let agent =
-            ureq::Agent::with_parts(config, transport::OneShot::new(dial), transport::Unresolved);
+            ureq::Agent::with_parts(config, transport::OneShot::new(wire), transport::Unresolved);
         let response = agent.run(http).map_err(to_http_error)?;
         let head = ResponseHead {
             status: response.status().as_u16(),
@@ -470,6 +486,17 @@ impl Outbound for UreqOutbound {
 }
 
 fn to_http_error(err: ureq::Error) -> HttpError {
+    let tls = match &err {
+        ureq::Error::Io(err) => err
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<rustls::Error>()),
+        _ => None,
+    };
+    match tls {
+        Some(rustls::Error::InvalidCertificate(_)) => return HttpError::TlsCertificate,
+        Some(_) => return HttpError::TlsProtocol,
+        None => {}
+    }
     match err {
         ureq::Error::Timeout(_) => HttpError::ConnectionTimeout,
         ureq::Error::Io(err) if err.kind() == io::ErrorKind::ConnectionRefused => {
@@ -495,12 +522,58 @@ mod transport {
 
     use super::{PoisonError, Read, Stream, Write};
 
-    /// A connector handing ureq the stream already opened, once.
-    pub(super) struct OneShot(Mutex<Option<Box<dyn Stream>>>);
+    /// What ureq reads and writes: a stream in clear, or one TLS wraps.
+    pub(super) trait Wire: Read + Write + Send {
+        fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()>;
+
+        fn is_tls(&self) -> bool {
+            false
+        }
+    }
+
+    impl Wire for Box<dyn Stream> {
+        fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
+            Stream::set_read_timeout(&**self, timeout)
+        }
+    }
+
+    /// A stream TLS wraps, ended on the host.
+    pub(super) struct TlsWire(
+        pub(super) rustls::StreamOwned<rustls::ClientConnection, Box<dyn Stream>>,
+    );
+
+    impl Read for TlsWire {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0.read(buf)
+        }
+    }
+
+    impl Write for TlsWire {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.write(buf)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.0.flush()
+        }
+    }
+
+    impl Wire for TlsWire {
+        fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
+            self.0.sock.set_read_timeout(timeout)
+        }
+
+        fn is_tls(&self) -> bool {
+            true
+        }
+    }
+
+    /// A connector handing ureq the wire already opened, once.
+    pub(super) struct OneShot(Mutex<Option<Box<dyn Wire>>>);
 
     impl OneShot {
-        pub(super) fn new(stream: Box<dyn Stream>) -> Self {
-            Self(Mutex::new(Some(stream)))
+        pub(super) fn new(wire: Box<dyn Wire>) -> Self {
+            Self(Mutex::new(Some(wire)))
         }
     }
 
@@ -529,17 +602,18 @@ mod transport {
                 details.config.output_buffer_size(),
             );
             Ok(Some(StreamTransport {
+                tls: stream.is_tls(),
                 stream: Mutex::new(stream),
                 buffers,
             }))
         }
     }
 
-    /// One stream as ureq's transport.
-    /// One stream as ureq's transport, behind a lock since a transport must be
-    /// shareable and a stream need not be.
+    /// One wire as ureq's transport, behind a lock since a transport must be
+    /// shareable and a wire need not be.
     pub(super) struct StreamTransport {
-        stream: Mutex<Box<dyn Stream>>,
+        stream: Mutex<Box<dyn Wire>>,
+        tls: bool,
         buffers: LazyBuffers,
     }
 
@@ -582,6 +656,11 @@ mod transport {
 
         fn is_open(&mut self) -> bool {
             true
+        }
+
+        /// A wire TLS already wraps needs no TLS of ureq's own.
+        fn is_tls(&self) -> bool {
+            self.tls
         }
     }
 
@@ -740,6 +819,34 @@ mod tests {
                 && listener.accept().is_err(),
             "Namespace::send to an authority only a tcp endpoint names, one no endpoint names, \
              or a virtual address must answer Denied, sending nothing, got {answers:?}"
+        );
+    }
+
+    // @behavior NW-048
+    #[test]
+    fn an_https_request_opens_tls_before_any_byte_of_http() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut first = [0; 1];
+            stream.read_exact(&mut first).unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
+            first[0]
+        });
+        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
+        let cred = prepare_creds_within(&[], None);
+        let mut request = get(&format!("127.0.0.1:{port}"));
+        request.scheme = Scheme::Https;
+        let exchange = namespace
+            .send(&cred, request, None)
+            .expect("an endpoint names the authority");
+        let answer = settled(&exchange).map(|(head, _)| head.status);
+        assert_eq!(
+            (server.join().unwrap(), answer),
+            (0x16, Err(HttpError::TlsProtocol)),
+            "an https request must open TLS with a handshake record before any HTTP, and a server \
+             answering in clear must fail it as a TLS protocol error"
         );
     }
 
