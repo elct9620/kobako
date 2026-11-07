@@ -9,7 +9,7 @@ module Kobako
 
       def initialize: (entrypoint: Symbol | String, ?args: Array[untyped], ?kwargs: Hash[untyped, untyped]) -> void
 
-      def payload: (Kobako::Codec::_HandleTable handles) -> String
+      def encode_payload: (Kobako::Codec::_HandleTable handles) -> String
 
       private
 

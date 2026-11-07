@@ -83,7 +83,7 @@ module Kobako
     def run(request, &block) # :nodoc:
       collect_overrides(&block) if block
       invoke!(:run, entrypoint: request.entrypoint) do
-        @runtime.run(dispatch_handler, setup, request.entrypoint.to_s, request.payload(@handles))
+        @runtime.run(dispatch_handler, setup, request.entrypoint.to_s, request.encode_payload(@handles))
       end
     end
 

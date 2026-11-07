@@ -11,7 +11,7 @@ module Kobako
 
       private
 
-      def install_object: (untyped backend) -> untyped
+      def object_of: (untyped backend) -> untyped
 
       def resolve_backend: (untyped extension, Hash[String, untyped] resolved, Hash[untyped, untyped] by_provider) -> void
 

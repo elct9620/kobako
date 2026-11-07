@@ -19,7 +19,7 @@ module Kobako
         validate!(extension)
         snippets.register(code: extension.source, name: extension.name)
         backend = extension.backend
-        services.bind(backend.path, install_object(backend)) if backend
+        services.bind(backend.path, object_of(backend)) if backend
         @entries << extension
         self
       end
@@ -52,7 +52,7 @@ module Kobako
 
       private
 
-      def install_object(backend) = backend.object.nil? ? Kobako::Unresolved : backend.object
+      def object_of(backend) = backend.object.nil? ? Kobako::Unresolved : backend.object
 
       def resolve_backend(extension, resolved, by_provider)
         backend = extension.backend

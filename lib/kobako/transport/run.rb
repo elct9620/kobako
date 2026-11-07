@@ -21,7 +21,7 @@ module Kobako
       # invocation's table. The walk starts one level down, since +args+ and
       # +kwargs+ ride inside the payload document the wire's nesting bound
       # is counted from.
-      def payload(handles)
+      def encode_payload(handles)
         Payload::Arguments.new(
           args: Codec::HandleWalk.deep_wrap(args, handles, 1),
           kwargs: Codec::HandleWalk.deep_wrap(kwargs, handles, 1)

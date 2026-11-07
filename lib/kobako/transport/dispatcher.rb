@@ -60,7 +60,7 @@ module Kobako
       # stays uncaught and traps the invocation rather than being masked as a
       # rescuable fault.
       rescue StandardError => e
-        [:fault, *caught_fault(e, failure)] # : [Symbol, String, String?]
+        [:fault, *fault_of(e, failure)] # : [Symbol, String, String?]
       ensure
         yielder&.invalidate
       end
@@ -97,7 +97,7 @@ module Kobako
         # The guest's own block failing is not the Service's to report at
         # all, so the Yielder that raised it is asked first — it recognises
         # its own by identity and words the failure the guest's way.
-        def caught_fault(error, failure)
+        def fault_of(error, failure)
           block_failure = failure.fault_text(error)
           return fault("block", block_failure) if block_failure
 
