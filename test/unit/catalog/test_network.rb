@@ -75,5 +75,29 @@ module Kobako
       assert_equal %w[a.example.com b.example.com], network.entry.endpoints.map(&:host),
                    "Catalog::Network.of with an object and a block must answer the object's endpoints, then the block's"
     end
+
+    # An object refusing a connect to one host.
+    Refusing = Struct.new(:refused) do
+      def connect?(connection) = connection.host != refused
+    end
+
+    # @behavior NW-021
+    def test_a_block_policy_and_the_given_objects_connect_both_judge
+      builder = Catalog::Network.of(:guard, Refusing.new("10.0.0.9")) do |net|
+        net.policy(:connect) { |c| c.port != 22 }
+      end.entry
+      answers = [["10.0.0.1", 80], ["10.0.0.1", 22], ["10.0.0.9", 80]].map do |host, port|
+        builder.connect?(Network::Connection.new(host: host, port: port, protocol: :tcp))
+      end
+
+      assert_equal [true, false, false], answers,
+                   "Builder#connect? must refuse what the given object's connect? or a policy(:connect) block refuses"
+    end
+
+    def test_a_policy_for_an_unknown_hook_is_refused
+      assert_raises(ArgumentError, "Builder#policy for a hook other than :connect must be refused") do
+        Catalog::Network.of(:guard, nil) { |net| net.policy(:listen) { true } }
+      end
+    end
   end
 end

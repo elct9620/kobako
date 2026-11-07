@@ -314,8 +314,10 @@ impl Runtime {
         };
         let handler = build_handler(dispatch);
         let preamble = to_preamble(&ruby, setup)?;
-        let (mut grants, _pins) = filesystem::to_grants(&ruby, setup.entry(3)?)?;
-        grants.extend(network::to_grants(&ruby, setup.entry(4)?)?);
+        let (mut grants, mut pins) = filesystem::to_grants(&ruby, setup.entry(3)?)?;
+        let (networks, network_pins) = network::to_grants(&ruby, setup.entry(4)?)?;
+        grants.extend(networks);
+        pins.extend(network_pins);
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch, or a mount's block, re-acquires the GVL).

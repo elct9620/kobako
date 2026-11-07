@@ -54,12 +54,20 @@ module Kobako
       end
     end
 
+    # One connection the guest asks for, as a +connect?+ policy is handed it:
+    # the +host+ it named, a name or a literal address, its +port+, and its
+    # +protocol+. The host is never a real address a name resolved to.
+    class Connection < Data.define(:host, :port, :protocol); end
+
     # The entry a block given to Sandbox#network builds, adding to the object
     # given beside it, as Faraday.new yields its builder.
     class Builder
+      HOOKS = %i[connect].freeze # :nodoc:
+
       def initialize(entry = nil) # :nodoc:
         @entry = entry
         @endpoints = [] # : Array[Endpoint]
+        @connect = [] # : Array[^(Connection) -> boolish]
       end
 
       # Let the guest reach +host+ on +port+, as Endpoint.new takes them.
@@ -69,10 +77,32 @@ module Kobako
         self
       end
 
+      # Judge each decision +hook+ names with the block; a falsy answer or a
+      # raised StandardError refuses. +:connect+ hands the block a Connection.
+      # Raises ArgumentError for another hook. Returns +self+.
+      def policy(hook, &block)
+        unless HOOKS.include?(hook)
+          raise ArgumentError,
+                "a policy hook must be one of #{HOOKS.inspect}, got #{hook.inspect}"
+        end
+        raise ArgumentError, "a policy needs a block" unless block
+
+        @connect << block
+        self
+      end
+
       # The given object's endpoints, then the block's.
       def endpoints
         given = @entry.respond_to?(:endpoints) ? @entry.endpoints.to_a : [] # : Array[untyped]
         given + @endpoints
+      end
+
+      # Whether the given object's +connect?+ and each block's connect policy
+      # allow +connection+.
+      def connect?(connection)
+        return false if @entry.respond_to?(:connect?) && !@entry.connect?(connection)
+
+        @connect.all? { |policy| policy.call(connection) }
       end
     end
   end

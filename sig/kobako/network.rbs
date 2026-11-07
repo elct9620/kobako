@@ -23,15 +23,30 @@ module Kobako
       def refuse_malformed: (String host, untyped port, untyped protocol) -> void
     end
 
+    class Connection < Data
+      attr_reader host: String
+      attr_reader port: Integer
+      attr_reader protocol: protocol
+
+      def self.new: (host: String, port: Integer, protocol: protocol) -> Connection
+    end
+
     class Builder
+      HOOKS: Array[Symbol]
+
       @entry: untyped
       @endpoints: Array[Endpoint]
+      @connect: Array[^(Connection) -> boolish]
 
       def initialize: (?untyped entry) -> void
 
       def endpoint: (untyped host, port: untyped, ?protocol: untyped, ?addresses: untyped) -> self
 
+      def policy: (Symbol hook) ?{ (Connection) -> boolish } -> self
+
       def endpoints: () -> Array[untyped]
+
+      def connect?: (Connection connection) -> bool
     end
   end
 end

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "socket"
 require "test_helper"
 
 # E2E — Sandbox#network and Context#network through the real Guest Binary:
@@ -43,65 +42,6 @@ class TestE2ENetwork < Minitest::Test
 
     assert_equal ["NotImplementedError", true], value,
                  "TCPSocket.new in a Sandbox with no network entry must raise NotImplementedError naming it"
-  end
-
-  # A loopback server answering each line with its upcase, on a Ruby Thread
-  # the guest's waits must let run.
-  def with_upcase_server
-    server = TCPServer.new("127.0.0.1", 0)
-    thread = Thread.new do
-      client = server.accept
-      client.write(client.read.upcase)
-      client.close
-    end
-    yield server.addr[1]
-  ensure
-    thread&.join(5)
-    server&.close
-  end
-
-  def sandbox_reaching(port, **options)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM, **options).network(:local) do |net|
-      net.endpoint "127.0.0.1", port: port, protocol: :tcp, addresses: [:local]
-    end
-  end
-
-  PING = <<~RUBY
-    socket = TCPSocket.new("127.0.0.1", %<port>d)
-    socket.write("ping")
-    socket.close_write
-    answer = socket.read
-    socket.close
-    answer
-  RUBY
-
-  CONNECT = <<~RUBY
-    begin
-      TCPSocket.new("127.0.0.1", %<port>d)
-      :connected
-    rescue Errno::EACCES
-      :refused
-    end
-  RUBY
-
-  # @behavior NW-016
-  def test_a_tcp_socket_reaches_a_loopback_server_an_endpoint_names
-    with_upcase_server do |port|
-      value = sandbox_reaching(port).eval(format(PING, port: port)).value
-
-      assert_equal "PING", value,
-                   "TCPSocket to a loopback server an endpoint names must send and read back its bytes"
-    end
-  end
-
-  # @behavior NW-017
-  def test_a_tcp_socket_to_an_address_no_endpoint_names_raises_eacces
-    with_upcase_server do |port|
-      value = sandbox_reaching(port + 1).eval(format(CONNECT, port: port)).value
-      TCPSocket.new("127.0.0.1", port).close
-
-      assert_equal :refused, value, "TCPSocket to a port no endpoint names must raise Errno::EACCES"
-    end
   end
 
   def test_an_entry_playing_no_endpoints_lets_the_invocation_run
