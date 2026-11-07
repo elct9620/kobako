@@ -7,8 +7,8 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, ExceptionClass, ForEach, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash, RObject,
-    Symbol, TryConvert, Value,
+    Error, ExceptionClass, ForEach, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash, RModule,
+    RObject, Symbol, TryConvert, Value,
 };
 
 use crate::errno;
@@ -66,6 +66,11 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     net.define_error(mrb, c"OpenTimeout", standard)?;
     net.define_error(mrb, c"ReadTimeout", standard)?;
     net.define_error(mrb, c"HTTPBadResponse", standard)?;
+    let openssl = mrb.define_module(c"OpenSSL")?;
+    let openssl_error = openssl.define_error(mrb, c"OpenSSLError", standard)?;
+    openssl
+        .define_module(mrb, c"SSL")?
+        .define_error(mrb, c"SSLError", openssl_error)?;
 
     let http = net.define_class(mrb, c"HTTP", object)?;
     http.define_singleton_method(mrb, c"start", beni::method!(http_s_start, -1))?;
@@ -543,7 +548,24 @@ fn to_error(mrb: &Mrb, outgoing: &Outgoing<'_>, code: ErrorCode) -> Error {
             "end of file reached",
         ),
         ErrorCode::HttpProtocolError => net_error(mrb, c"HTTPBadResponse", "wrong status line"),
+        ErrorCode::TlsCertificateError => ssl_error(mrb, "certificate verify failed"),
+        ErrorCode::TlsProtocolError | ErrorCode::TlsAlertReceived(_) => {
+            ssl_error(mrb, "SSL_connect returned=1 errno=0 state=error")
+        }
         _ => errno::io_error(mrb, "the HTTP request failed"),
+    }
+}
+
+/// The `OpenSSL::SSL::SSLError` CRuby raises for TLS that failed, here ended on
+/// the host.
+fn ssl_error(mrb: &Mrb, message: &str) -> Error {
+    match mrb
+        .module_get(c"OpenSSL")
+        .and_then(|openssl| openssl.const_get::<_, RModule>(mrb, c"SSL"))
+        .and_then(|ssl| ssl.const_get::<_, ExceptionClass>(mrb, c"SSLError"))
+    {
+        Ok(class) => Error::new(mrb, class, message),
+        Err(err) => err,
     }
 }
 
