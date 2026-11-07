@@ -13,6 +13,7 @@ is one Grant, and its endpoints are data the runtime judges on any thread.
 - `crates/kobako-runtime/src/net/lookup.rs`
 - `crates/kobako-runtime/src/net/tls.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
+- `crates/kobako-runtime/src/net/socket.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
 - `crates/kobako-runtime/src/net/workers.rs`
 
@@ -790,7 +791,65 @@ The socket file of a socket, opened for reading and writing, as Linux's
 `sock_alloc_file` makes one. Dropping it releases the socket.
 
 ```rust
-pub fn sock_alloc_file(sock: &Arc<TcpSock>, cred: &Arc<Cred>) -> File {}
+pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, cred: &Arc<Cred>) -> File {}
+```
+
+## `ProtoOps`
+
+What one protocol answers for its socket file, as Linux's `struct proto_ops`.
+
+```rust
+pub trait ProtoOps: Send + Sync {}
+```
+
+## `ProtoOps::recvmsg`
+
+Read what the socket holds; `WouldBlock` while it holds nothing yet.
+
+```rust
+pub trait ProtoOps {
+    fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError>;
+}
+```
+
+## `ProtoOps::sendmsg`
+
+Write what the socket takes now; `WouldBlock` while it takes nothing.
+
+```rust
+pub trait ProtoOps {
+    fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError>;
+}
+```
+
+## `ProtoOps::poll_mask`
+
+What a poll of the socket finds.
+
+```rust
+pub trait ProtoOps {
+    fn poll_mask(&self) -> PollMask;
+}
+```
+
+## `ProtoOps::wait_queue`
+
+What a Guest's poll of the socket waits on.
+
+```rust
+pub trait ProtoOps {
+    fn wait_queue(&self) -> &Arc<WaitQueueHead>;
+}
+```
+
+## `ProtoOps::release`
+
+Let go of the host socket once every view is gone.
+
+```rust
+pub trait ProtoOps {
+    fn release(&self);
+}
 ```
 
 ## `Ruleset::admit_request`
