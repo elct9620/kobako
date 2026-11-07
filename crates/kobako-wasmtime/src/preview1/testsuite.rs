@@ -21,7 +21,7 @@ use kobako_runtime::profile::Profile;
 use wasmtime::{Module, Store};
 use wasmtime_wasi::I32Exit;
 
-use crate::cache::shared_engine;
+use crate::cache::load_engine;
 use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
@@ -53,7 +53,7 @@ fn copy_tree(from: &Path, to: &Path) {
 /// What the test at `wasm` ended with: its exit code, or why it never reached
 /// one.
 fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
-    let engine = shared_engine().map_err(|err| err.to_string())?;
+    let engine = load_engine().map_err(|err| err.to_string())?;
     let bind = Bind::new(root).map_err(|err| err.to_string())?;
     let filesystem = Filesystem::new(Arc::new(bind)).map_err(|err| format!("{err:?}"))?;
     let mount = Mount::new("/", filesystem, Access::ReadWrite).map_err(|err| err.to_string())?;

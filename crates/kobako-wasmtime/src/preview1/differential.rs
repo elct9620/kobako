@@ -15,7 +15,7 @@ use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::WasiCtxBuilder;
 
-use crate::cache::shared_engine;
+use crate::cache::load_engine;
 use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
@@ -283,7 +283,7 @@ fn observe<T>(
 }
 
 fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
-    let engine = shared_engine().expect("shared engine must be constructible");
+    let engine = load_engine().expect("shared engine must be constructible");
     let config = Config {
         timeout: None,
         setup_timeout: None,
@@ -312,7 +312,7 @@ struct Oracle {
 }
 
 fn through_wasmtime_wasi(call: &str, fd: i32, limit: Option<usize>) -> Observation {
-    let engine = shared_engine().expect("shared engine must be constructible");
+    let engine = load_engine().expect("shared engine must be constructible");
     let stdout = MemoryOutputPipe::new(kobako_runtime::endpoint::pipe_capacity(limit));
     let stderr = MemoryOutputPipe::new(kobako_runtime::endpoint::pipe_capacity(limit));
     let ctx = WasiCtxBuilder::new()

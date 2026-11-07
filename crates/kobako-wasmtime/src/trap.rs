@@ -112,7 +112,7 @@ mod tests {
 
     // The no-timeout priming delta is added to the engine's current
     // epoch inside wasmtime, and the process-wide ticker advances that
-    // epoch from the first `shared_engine` call on — so the sum must
+    // epoch from the first `load_engine` call on — so the sum must
     // stay in range for a long-lived engine, not just a fresh one.
     // `increment_epoch` stands in for the ticker to make the ticked
     // state deterministic; under debug overflow checks an overflowing
@@ -120,7 +120,7 @@ mod tests {
     // @behavior S-119
     #[test]
     fn no_timeout_delta_survives_a_ticked_engine_epoch() {
-        let engine = crate::cache::shared_engine().expect("shared engine must be constructible");
+        let engine = crate::cache::load_engine().expect("shared engine must be constructible");
         engine.increment_epoch();
         let mut store = wasmtime::Store::new(engine, ());
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);

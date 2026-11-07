@@ -32,7 +32,7 @@ use wasmtime::{Linker, Module, Store};
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{FsPerms, WasiCtxBuilder};
 
-use crate::cache::shared_engine;
+use crate::cache::load_engine;
 use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
@@ -374,7 +374,7 @@ fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
 
 /// `host` behind a kobako `Bind` Mount at `AT`.
 fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
-    let engine = shared_engine().expect("shared engine must be constructible");
+    let engine = load_engine().expect("shared engine must be constructible");
     let config = Config {
         timeout: None,
         setup_timeout: None,
@@ -404,7 +404,7 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
 
 /// `host` behind wasmtime-wasi's own preopen at `AT`.
 fn wasmtime_wasi_preopen(host: &HostDir) -> (Store<WasiP1Ctx>, Linker<WasiP1Ctx>) {
-    let engine = shared_engine().expect("shared engine must be constructible");
+    let engine = load_engine().expect("shared engine must be constructible");
     let ctx = WasiCtxBuilder::new()
         .preopened_dir(&host.0, AT, FsPerms::ReadWrite)
         .expect("the host directory must preopen")

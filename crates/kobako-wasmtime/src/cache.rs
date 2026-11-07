@@ -48,7 +48,7 @@ const EPOCH_TICK: Duration = Duration::from_millis(10);
 /// new-style exception handling (`-mllvm -wasm-use-legacy-eh=false`) for
 /// its setjmp path. Epoch interruption backs the wall-clock cap, driven by
 /// one process-wide ticker thread.
-pub(crate) fn shared_engine() -> Result<&'static WtEngine, SetupError> {
+pub(crate) fn load_engine() -> Result<&'static WtEngine, SetupError> {
     if let Some(engine) = SHARED_ENGINE.get() {
         return Ok(engine);
     }
@@ -77,7 +77,7 @@ fn spawn_epoch_ticker(engine: WtEngine) {
 
 /// A missing file answers `SetupError::ModuleNotBuilt`, the common state of
 /// a fresh clone before `rake compile`.
-pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
+pub(crate) fn load_module(path: &Path) -> Result<WtModule, SetupError> {
     let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
     if let Some(module) = cache
@@ -102,7 +102,7 @@ pub(crate) fn cached_module(path: &Path) -> Result<WtModule, SetupError> {
             path.display()
         ))
     })?;
-    let engine = shared_engine()?;
+    let engine = load_engine()?;
     let artifact = artifact_path(engine, &bytes);
     let module = match artifact.as_deref().and_then(|p| load_artifact(engine, p)) {
         Some(module) => module,

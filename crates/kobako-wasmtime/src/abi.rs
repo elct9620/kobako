@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use wasmtime::{AsContextMut, InstancePre, Store as WtStore};
 
-use crate::cache::shared_engine;
+use crate::cache::load_engine;
 use crate::invocation::Invocation;
 use crate::trap;
 use crate::wasi::Wasi;
@@ -28,7 +28,7 @@ pub(crate) fn verify(
     let wasi = Wasi::for_probe().map_err(|t| SetupError::Dead(t.to_string()))?;
     // The memory cap stays off: it arms per invocation, and the probe is
     // none.
-    let mut store = WtStore::new(shared_engine()?, Invocation::new(None, wasi));
+    let mut store = WtStore::new(load_engine()?, Invocation::new(None, wasi));
     trap::arm_deadline(&mut store, setup_timeout);
     let past_deadline = |err: &wasmtime::Error| {
         matches!(trap::cap_trap(err), Some(Trap::Timeout(_))).then(|| {

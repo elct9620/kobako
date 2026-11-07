@@ -21,7 +21,7 @@ use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{self, Dentry, Inode, Path, SecurityOperations, SecurityPath, PATH_MAX};
 use wasmtime::{Instance, Module, Store};
 
-use crate::cache::shared_engine;
+use crate::cache::load_engine;
 use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
@@ -535,7 +535,7 @@ impl Guest {
         security: Vec<Arc<dyn SecurityOperations>>,
         grants: &[Grant],
     ) -> Self {
-        let engine = shared_engine().expect("shared engine must be constructible");
+        let engine = load_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
             setup_timeout: None,

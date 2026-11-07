@@ -14,7 +14,7 @@ use wasmtime::{
     AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore, TypedFunc,
 };
 
-use crate::cache::shared_engine;
+use crate::cache::load_engine;
 use crate::config::Config;
 use crate::exports::{self, Exports};
 use crate::guest::Guest;
@@ -34,7 +34,7 @@ use kobako_transport::envelope::Preamble;
 pub struct Driver {
     // Pre-linked instantiation template (import wiring, type checks,
     // and the ABI version check done once in
-    // `instance_pre::cached_instance_pre`). Every invocation
+    // `instance_pre::load_instance_pre`). Every invocation
     // instantiates a fresh instance from it and discards the whole
     // Store afterwards — the per-invocation instance discipline.
     instance_pre: WtInstancePre<Invocation>,
@@ -48,7 +48,7 @@ impl Driver {
     /// neither leaves the driver.
     pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
         Ok(Self {
-            instance_pre: instance_pre::cached_instance_pre(path, config.setup_timeout)?,
+            instance_pre: instance_pre::load_instance_pre(path, config.setup_timeout)?,
             config,
         })
     }
@@ -58,7 +58,7 @@ impl Driver {
     /// `timeout` as the export call does.
     fn new_store(&self, wasi: Wasi) -> Result<WtStore<Invocation>, SetupError> {
         let mut store = WtStore::new(
-            shared_engine()?,
+            load_engine()?,
             Invocation::new(self.config.memory_limit, wasi),
         );
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });

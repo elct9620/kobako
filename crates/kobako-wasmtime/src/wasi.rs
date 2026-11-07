@@ -193,7 +193,7 @@ mod tests {
     use wasmtime::{AsContextMut, Module, Store};
 
     use super::*;
-    use crate::cache::shared_engine;
+    use crate::cache::load_engine;
     use crate::imports;
     use crate::invocation::Invocation;
 
@@ -237,7 +237,7 @@ mod tests {
     /// Instantiate the probe over an invocation's WASI context built at
     /// `profile` and return a reader for its exports.
     fn probe(profile: Profile) -> impl FnMut(&str) -> i64 {
-        let engine = shared_engine().expect("shared engine must be constructible");
+        let engine = load_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
             setup_timeout: None,

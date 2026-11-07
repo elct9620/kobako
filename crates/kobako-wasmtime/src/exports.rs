@@ -66,7 +66,7 @@ mod tests {
 
     use wasmtime::ExternType;
 
-    use crate::cache::cached_module;
+    use crate::cache::load_module;
 
     const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
@@ -87,7 +87,7 @@ mod tests {
             );
             return;
         }
-        let module = cached_module(path).expect("the Guest Binary must load");
+        let module = load_module(path).expect("the Guest Binary must load");
 
         let mut functions: Vec<&str> = module
             .exports()

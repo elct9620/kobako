@@ -8,7 +8,7 @@
 use wasmtime::{AsContextMut, Caller, Linker};
 use wasmtime_wasi::p1;
 
-use crate::cache::shared_engine;
+use crate::cache::load_engine;
 use crate::guest::Guest;
 use crate::invocation::Invocation;
 use crate::preview1;
@@ -16,7 +16,7 @@ use kobako_runtime::endpoint::{self, UpcallEnd, ABANDONED};
 use kobako_runtime::error::SetupError;
 
 pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
-    let mut linker: Linker<Invocation> = Linker::new(shared_engine()?);
+    let mut linker: Linker<Invocation> = Linker::new(load_engine()?);
 
     // Wire the wasmtime-wasi preview1 WASI imports against each
     // invocation's own `Wasi` context, then answer every call that reads

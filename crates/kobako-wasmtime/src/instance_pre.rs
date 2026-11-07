@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use wasmtime::InstancePre;
 
-use crate::cache::cached_module;
+use crate::cache::load_module;
 use crate::invocation::Invocation;
 use crate::{abi, imports, trap};
 use kobako_runtime::error::SetupError;
@@ -26,7 +26,7 @@ static INSTANCE_PRE_CACHE: OnceLock<Mutex<HashMap<PathBuf, InstancePre<Invocatio
 
 /// The probe runs only on the first load of a path, so only that load's
 /// `setup_timeout` bounds it; a path already verified is not set up again.
-pub(crate) fn cached_instance_pre(
+pub(crate) fn load_instance_pre(
     path: &Path,
     setup_timeout: Option<Duration>,
 ) -> Result<InstancePre<Invocation>, SetupError> {
@@ -41,7 +41,7 @@ pub(crate) fn cached_instance_pre(
         return Ok(pre);
     }
 
-    let module = cached_module(path)?;
+    let module = load_module(path)?;
     let linker = imports::linker()?;
     let pre = linker
         .instantiate_pre(&module)

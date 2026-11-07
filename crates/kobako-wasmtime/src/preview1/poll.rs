@@ -185,7 +185,7 @@ mod tests {
 
     use wasmtime::{Module, Store};
 
-    use crate::cache::shared_engine;
+    use crate::cache::load_engine;
     use crate::config::Config;
     use crate::imports;
     use crate::invocation::Invocation;
@@ -214,7 +214,7 @@ mod tests {
         profile: Profile,
         deadline: Option<Duration>,
     ) -> (wasmtime::Result<i32>, Duration) {
-        let engine = shared_engine().expect("shared engine must be constructible");
+        let engine = load_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
             setup_timeout: None,
@@ -271,7 +271,7 @@ mod tests {
                 (i32.store (i32.const 16) (local.get $id))
                 (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96))))
         "#;
-        let engine = shared_engine().expect("shared engine must be constructible");
+        let engine = load_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
             setup_timeout: None,
@@ -322,7 +322,7 @@ mod tests {
                 (i32.store (i32.const 16) (i32.const 1))
                 (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96))))
         "#;
-        let engine = shared_engine().expect("shared engine must be constructible");
+        let engine = load_engine().expect("shared engine must be constructible");
         let config = Config {
             timeout: None,
             setup_timeout: None,
