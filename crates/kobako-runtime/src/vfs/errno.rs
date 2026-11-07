@@ -55,6 +55,27 @@ pub enum FilesystemError {
     /// A directory a lookup found standing elsewhere, which could not be moved
     /// to the name it was found under.
     StaleNetworkFileHandle,
+    /// A peer that refused the connection.
+    ConnectionRefused,
+    /// A peer that reset the connection.
+    ConnectionReset,
+    /// A connection the host gave up on.
+    ConnectionAborted,
+    /// A connect or a read past its time.
+    TimedOut,
+    HostUnreachable,
+    NetworkUnreachable,
+    /// A local address the host cannot hand out.
+    AddressNotAvailable,
+    /// A write to a connection whose writing side is shut down.
+    BrokenPipe,
+    /// A call that needs a connection on a socket that has none.
+    NotConnected,
+    /// A connect on a socket already connected.
+    AlreadyConnected,
+    /// A connect still under way.
+    InProgress,
+    AddressFamilyNotSupported,
     /// Any other failure, with what the Filesystem knows of it.
     Other(String),
 }
@@ -62,7 +83,7 @@ pub enum FilesystemError {
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, FilesystemError); 29] = [
+const POSIX_NAMES: [(&str, FilesystemError); 41] = [
     ("EAGAIN", FilesystemError::WouldBlock),
     ("ENOENT", FilesystemError::NotFound),
     ("EEXIST", FilesystemError::AlreadyExists),
@@ -92,6 +113,18 @@ const POSIX_NAMES: [(&str, FilesystemError); 29] = [
     ("ESPIPE", FilesystemError::NotSeekable),
     ("ENODEV", FilesystemError::NoSuchDevice),
     ("ESTALE", FilesystemError::StaleNetworkFileHandle),
+    ("ECONNREFUSED", FilesystemError::ConnectionRefused),
+    ("ECONNRESET", FilesystemError::ConnectionReset),
+    ("ECONNABORTED", FilesystemError::ConnectionAborted),
+    ("ETIMEDOUT", FilesystemError::TimedOut),
+    ("EHOSTUNREACH", FilesystemError::HostUnreachable),
+    ("ENETUNREACH", FilesystemError::NetworkUnreachable),
+    ("EADDRNOTAVAIL", FilesystemError::AddressNotAvailable),
+    ("EPIPE", FilesystemError::BrokenPipe),
+    ("ENOTCONN", FilesystemError::NotConnected),
+    ("EISCONN", FilesystemError::AlreadyConnected),
+    ("EINPROGRESS", FilesystemError::InProgress),
+    ("EAFNOSUPPORT", FilesystemError::AddressFamilyNotSupported),
 ];
 
 impl From<DownError> for FilesystemError {

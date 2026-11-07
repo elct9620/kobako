@@ -265,8 +265,9 @@ impl FMode {
     }
 }
 
-/// What a file would find ready, as Linux's `__poll_t`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What a file would find ready, as Linux's `__poll_t`; the default finds
+/// nothing ready.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PollMask(u8);
 
 impl PollMask {
