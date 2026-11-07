@@ -1047,3 +1047,127 @@ The TLS client configuration trusting the OS's own store, built once per process
 ```rust
 pub fn platform_tls() -> Option<Arc<ClientConfig>> {}
 ```
+
+## `Network::credentials`
+
+The credentials the entry swaps into requests bound to its own endpoints.
+
+```rust
+impl Network {
+    pub fn credentials(&self) -> Vec<Credential> {}
+}
+```
+
+## `Secret`
+
+A value the Host App hands no Guest. Its `Debug` prints a mask, and its bytes
+are zeroed as it drops.
+
+```rust
+pub struct Secret {}
+```
+
+## `Secret::new`
+
+A secret holding these bytes.
+
+```rust
+impl Secret {
+    pub fn new(value: impl Into<Vec<u8>>) -> Self {}
+}
+```
+
+## `Secret::expose`
+
+The bytes, for the one header they are swapped into.
+
+```rust
+impl Secret {
+    pub fn expose(&self) -> &[u8] {}
+}
+```
+
+## `Placement`
+
+Where a credential's value goes: the `authorization` header as a bearer token
+or a basic pair, or one named header.
+
+```rust
+pub enum Placement {
+    Bearer,
+    Basic,
+    Header(String),
+}
+```
+
+## `Placement::header`
+
+The header the value is swapped into.
+
+```rust
+impl Placement {
+    pub fn header(&self) -> &str {}
+}
+```
+
+## `CredentialSource`
+
+What resolves a credential's value as a bound request leaves. A closure fits.
+
+```rust
+pub trait CredentialSource: Send + Sync {}
+```
+
+## `CredentialSource::value`
+
+The value for a request, or `None` to send nothing.
+
+```rust
+pub trait CredentialSource {
+    fn value(&self, request: &Request<'_>) -> Option<Secret>;
+}
+```
+
+## `Credential`
+
+A placement and a placeholder paired with the source of the value that
+replaces the placeholder there.
+
+```rust
+pub struct Credential {
+    pub placement: Placement,
+    pub placeholder: String,
+    pub source: Arc<dyn CredentialSource>,
+}
+```
+
+## `Credential::new`
+
+The credential of a placement, a placeholder, and a source.
+
+```rust
+impl Credential {
+    pub fn new(placement: Placement, placeholder: impl Into<String>, source: Arc<dyn CredentialSource>) -> Self {}
+}
+```
+
+## `Builder::credential`
+
+Swap one more credential into requests bound to this entry's endpoints.
+
+```rust
+impl Builder {
+    pub fn credential(&mut self, credential: Credential) -> &mut Self {}
+}
+```
+
+## `Ruleset::binds`
+
+Whether a credential of these endpoints' entry is bound to a request. An `http`
+endpoint must name its exact host and allow it, on an unambiguous path.
+
+```rust
+impl Ruleset {
+    pub fn binds(&self, host: &str, port: u16, method: &str, path: &str) -> bool {}
+}
+```

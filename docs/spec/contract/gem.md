@@ -806,3 +806,80 @@ module Kobako
   end
 end
 ```
+
+## `Kobako::Network::Credential`
+
+A value the Host App hands no guest, swapped for its placeholder in one header.
+Its placement is `:bearer`, `:basic`, or a header's name.
+
+```ruby
+module Kobako
+  module Network
+    class Credential
+      attr_reader :placement, :placeholder
+    end
+  end
+end
+```
+
+## `Kobako::Network::Credential#initialize`
+
+A credential of a placement and a placeholder, its block answering the value
+for a Request.
+
+```ruby
+module Kobako
+  module Network
+    class Credential
+      def initialize(placement, placeholder:, &source)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Credential#value`
+
+The value for a Request, or `nil` to send nothing.
+
+```ruby
+module Kobako
+  module Network
+    class Credential
+      def value(request)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Builder#credential`
+
+Swap a credential's value for its placeholder in requests bound to this entry's
+endpoints.
+
+```ruby
+module Kobako
+  module Network
+    class Builder
+      def credential(placement, placeholder:, &source)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Builder#credentials`
+
+The given object's credentials, then the block's.
+
+```ruby
+module Kobako
+  module Network
+    class Builder
+      def credentials
+      end
+    end
+  end
+end
+```

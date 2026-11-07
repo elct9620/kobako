@@ -608,3 +608,39 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a server that answers in clear |
 | When | the script sends a request through `Net::HTTP` with `use_ssl: true` |
 | Then | it raises `OpenSSL::SSL::SSLError`, an `OpenSSL::OpenSSLError`, as CRuby's does |
+
+## `NW-050` A credential binds only to HTTPS, its exact host, and an allowed path
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-044` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry binding a bearer credential to an exact host whose rules allow one path, beside a wildcard endpoint |
+| When | the guest sends requests carrying the placeholder in several ways |
+| Then | only HTTPS to the exact host on an allowed, unambiguous path carries the secret. The placeholder must sit in the credential's header |
+
+## `NW-051` A swap replaces the placeholder in its header only
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-050` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a credential's secret bound to a request |
+| When | the default outbound seam builds the request's headers |
+| Then | the placeholder is replaced in the credential's header only, never in another header, and the secret prints as a mask |
+
+## `NW-052` A credential is never swapped into a request in clear
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-050` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `#network` block binding a bearer credential to a loopback endpoint |
+| When | the script sends the placeholder over plain HTTP through `Net::HTTP` |
+| Then | the server reads the placeholder unchanged, and the credential is never asked for its value |
