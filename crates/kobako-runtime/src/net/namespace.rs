@@ -104,8 +104,9 @@ impl Namespace {
     /// named first, in Linux's order: the modules `cred` holds, then each
     /// entry's policy, any refusal winning. A literal address then passes the
     /// ruleset as itself. A virtual one is translated to its name's real
-    /// addresses, an unmapped one answering `ENETUNREACH`, and the first real
-    /// address the ruleset lets the name lead to is dialed exactly.
+    /// addresses, an unmapped one answering `ENETUNREACH`; each real address
+    /// the ruleset lets the name lead to is dialed exactly, in turn, until one
+    /// answers, so a name answering `::1` first still reaches `127.0.0.1`.
     pub fn connect(
         &self,
         cred: &Cred,
@@ -131,18 +132,23 @@ impl Namespace {
         let real = match translated {
             None => {
                 self.ruleset.admit_literal(addr, Protocol::Tcp)?;
-                addr
+                vec![addr]
             }
             Some((name, real)) => {
                 let local = self.family.local_addresses();
-                real.into_iter()
+                let admitted = real
+                    .into_iter()
                     .map(|ip| SocketAddr::new(ip, addr.port()))
-                    .find(|real| {
+                    .filter(|real| {
                         self.ruleset
                             .admit_resolved(&name, *real, Protocol::Tcp, &local)
                             .is_ok()
                     })
-                    .ok_or(FilesystemError::PermissionDenied)?
+                    .collect::<Vec<_>>();
+                if admitted.is_empty() {
+                    return Err(FilesystemError::PermissionDenied);
+                }
+                admitted
             }
         };
         TcpSock::connect(self.family.clone(), real, deadline, &self.workers)
@@ -499,6 +505,34 @@ mod tests {
             ) && family.dialed.lock().unwrap().is_empty(),
             "a name resolving to the host's own public address must be refused by an endpoint \
              leading only to public addresses, since the host's addresses are local"
+        );
+    }
+
+    // @behavior NW-032
+    #[test]
+    fn each_address_a_name_may_lead_to_is_dialed_in_turn() {
+        let family = Arc::new(Resolving {
+            answers: Mutex::new(vec!["::1".parse().unwrap(), "127.0.0.1".parse().unwrap()]),
+            ..Resolving::default()
+        });
+        let local = tcp("localhost", 6379).with_addresses(vec![Addresses::Local]);
+        let namespace = resolving(vec![local], "", family.clone());
+        let at = looked_up(&namespace, "localhost");
+        let cred = prepare_creds_within(&[], None);
+        let sock = namespace
+            .connect(&cred, at, None)
+            .expect("the endpoint leads there");
+        while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(
+            *family.dialed.lock().unwrap(),
+            vec![
+                "[::1]:6379".parse::<SocketAddr>().unwrap(),
+                "127.0.0.1:6379".parse().unwrap()
+            ],
+            "a connect to a name answering ::1 first must dial 127.0.0.1 once ::1 refuses, as \
+             each address the endpoint leads to is dialed in turn"
         );
     }
 }

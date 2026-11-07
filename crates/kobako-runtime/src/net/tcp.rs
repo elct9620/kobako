@@ -64,13 +64,14 @@ pub struct TcpSock {
 }
 
 impl TcpSock {
-    /// A socket connecting to `addr` through `family`, giving up at
-    /// `deadline`; the connect runs on a worker, so this returns at once. Its
-    /// two workers count against `workers` and the process, and a full count
-    /// answers `EAGAIN`, never a Trap, so one Sandbox cannot end another's run.
+    /// A socket connecting to the first of `addrs` that answers, in turn,
+    /// through `family`, giving up at `deadline`; the connect runs on a worker,
+    /// so this returns at once. Its two workers count against `workers` and the
+    /// process, and a full count answers `EAGAIN`, never a Trap, so one Sandbox
+    /// cannot end another's run.
     pub fn connect(
         family: Arc<dyn ProtocolFamily>,
-        addr: SocketAddr,
+        addrs: Vec<SocketAddr>,
         deadline: Option<Instant>,
         workers: &Arc<Workers>,
     ) -> Result<Arc<Self>, FilesystemError> {
@@ -97,7 +98,7 @@ impl TcpSock {
         let worker = sock.clone();
         thread::spawn(move || {
             let _writer = writer;
-            worker.connect_worker(family, addr, reader);
+            worker.connect_worker(family, addrs, reader);
         });
         Ok(sock)
     }
@@ -122,10 +123,17 @@ impl TcpSock {
     fn connect_worker(
         self: Arc<Self>,
         family: Arc<dyn ProtocolFamily>,
-        addr: SocketAddr,
+        addrs: Vec<SocketAddr>,
         reader_charge: Option<Charge>,
     ) {
-        let connected = family.connect(addr, self.time_left()).and_then(|stream| {
+        let mut connected = Err(io::ErrorKind::InvalidInput.into());
+        for addr in addrs {
+            connected = family.connect(addr, self.time_left());
+            if connected.is_ok() {
+                break;
+            }
+        }
+        let connected = connected.and_then(|stream| {
             let reader = stream.try_clone()?;
             let handle = stream.try_clone()?;
             Ok((stream, reader, handle))
@@ -482,7 +490,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let sock = TcpSock::connect(
             Arc::new(HostInet),
-            listener.local_addr().unwrap(),
+            vec![listener.local_addr().unwrap()],
             Some(Instant::now() + Duration::from_secs(10)),
             &Workers::new(SANDBOX_WORKERS),
         )
@@ -572,7 +580,7 @@ mod tests {
             .unwrap();
         let sock = TcpSock::connect(
             Arc::new(HostInet),
-            addr,
+            vec![addr],
             Some(Instant::now() + Duration::from_secs(10)),
             &Workers::new(SANDBOX_WORKERS),
         )
