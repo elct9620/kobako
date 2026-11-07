@@ -591,13 +591,13 @@ pub struct TcpSock {}
 
 ## `TcpSock::connect`
 
-A socket connecting on a worker, given up at the deadline. It answers at once.
-Its two workers count against the Sandbox's and the process's, and a full
-count answers `WouldBlock`.
+A socket connecting on a worker to the first address that answers, in turn,
+given up at the deadline. It answers at once. Its two workers count against the
+Sandbox's and the process's, and a full count answers `WouldBlock`.
 
 ```rust
 impl TcpSock {
-    pub fn connect(family: Arc<dyn ProtocolFamily>, addr: SocketAddr, deadline: Option<Instant>, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
+    pub fn connect(family: Arc<dyn ProtocolFamily>, addrs: Vec<SocketAddr>, deadline: Option<Instant>, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
 }
 ```
 

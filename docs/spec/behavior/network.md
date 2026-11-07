@@ -337,7 +337,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a name whose lookup answered one address, then the resolver changes its answer |
 | When | the guest connects to the name's virtual address |
-| Then | the address the lookup answered is dialed, and the name is never resolved again, so rebinding has no second answer to use |
+| Then | the address the lookup answered is dialed. The name is never resolved again, so rebinding has no second answer to use |
 
 ## `NW-028` The host's own address is local
 
@@ -362,3 +362,39 @@ endpoint "api.example.com", port: 443
 | Given | a wildcard endpoint whose `addresses` name `private` or `local` |
 | When | the ruleset compiles |
 | Then | it is refused, since a guest-controlled name beneath the wildcard could reach them; `public` and a CIDR stand |
+
+## `NW-030` Without the network, a lookup answers permanent-resolver-failure
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest with no network entry |
+| When | it looks up a name through `wasi:sockets` |
+| Then | the call answers `permanent-resolver-failure` at once, as a host with no resolver does |
+
+## `NW-031` A socket connected through a virtual address reads it back as its peer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a name an endpoint names, looked up through `ip-name-lookup` |
+| When | the guest connects through the one virtual address the lookup hands out |
+| Then | the lookup ends after that address, and `remote-address` answers the virtual address, as cgroup `getpeername4` maps a real peer back |
+
+## `NW-032` Each address a name may lead to is dialed in turn
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a name answering `::1` first, then `127.0.0.1`, through an endpoint leading to `local` |
+| When | the guest connects and `::1` refuses |
+| Then | `127.0.0.1` is dialed next, so a name answering both loopbacks still connects |
