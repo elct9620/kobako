@@ -6,6 +6,7 @@ mod family;
 mod http;
 mod lookup;
 mod namespace;
+mod socket;
 mod tcp;
 mod tls;
 mod workers;
@@ -17,6 +18,7 @@ pub use http::{
 };
 pub use lookup::{LookupError, NameLookup};
 pub use namespace::Namespace;
-pub use tcp::{sock_alloc_file, TcpSock, SOCKET_BUFFER};
+pub use socket::{sock_alloc_file, ProtoOps};
+pub use tcp::{TcpSock, SOCKET_BUFFER};
 pub use tls::platform_tls;
 pub use workers::{Workers, PROCESS_WORKERS, SANDBOX_WORKERS};

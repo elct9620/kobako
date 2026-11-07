@@ -7,17 +7,15 @@
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr};
-use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Instant;
 
 use super::family::{ProtocolFamily, Stream};
+use super::socket::{to_error, ProtoOps};
 use super::workers::{charge, Charge, Workers};
-use crate::vfs::{
-    alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
-    FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
-};
-use crate::wait::{poll_wait, PollTable, WaitQueueHead};
+use crate::vfs::{FilesystemError, PollMask};
+use crate::wait::WaitQueueHead;
 
 /// How much a socket holds each way before its reader stops reading and its
 /// writer refuses more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket,
@@ -393,93 +391,28 @@ impl TcpSock {
     }
 }
 
-/// The POSIX name a host socket's failure stands for; one with none carries
-/// only its kind, so no host address reaches the guest.
-fn to_error(err: &io::Error) -> FilesystemError {
-    match err.kind() {
-        io::ErrorKind::ConnectionRefused => FilesystemError::ConnectionRefused,
-        io::ErrorKind::ConnectionReset => FilesystemError::ConnectionReset,
-        io::ErrorKind::ConnectionAborted => FilesystemError::ConnectionAborted,
-        io::ErrorKind::TimedOut => FilesystemError::TimedOut,
-        io::ErrorKind::HostUnreachable => FilesystemError::HostUnreachable,
-        io::ErrorKind::NetworkUnreachable => FilesystemError::NetworkUnreachable,
-        io::ErrorKind::AddrNotAvailable => FilesystemError::AddressNotAvailable,
-        io::ErrorKind::BrokenPipe => FilesystemError::BrokenPipe,
-        io::ErrorKind::NotConnected => FilesystemError::NotConnected,
-        io::ErrorKind::PermissionDenied => FilesystemError::PermissionDenied,
-        kind => FilesystemError::Other(format!("{kind:?}")),
-    }
-}
-
-/// The one Filesystem every socket stands on, as Linux's `sock_mnt`. No path
-/// reaches it: a socket is only ever open.
-static SOCK_MNT: LazyLock<Arc<VfsMount>> = LazyLock::new(|| {
-    let sb = SuperBlock::new(Arc::new(SockFs)).expect("sockfs fills in nothing that can fail");
-    VfsMount::kern_mount(sb)
-});
-
-/// A socket reports what it is and no length, as `sock_alloc` makes one.
-struct SockFs;
-
-impl FileSystemType for SockFs {
-    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError> {
-        sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
-        Ok(())
-    }
-}
-
-impl InodeOperations for SockFs {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        Ok(Kstat::new(FileType::Sock, 0))
-    }
-}
-
-/// What answers for a socket file, as `socket_file_ops` hands each call to the
-/// socket. The file is opened non-blocking, as a WASI 0.2 socket is, so a
-/// read or write that would wait answers EAGAIN and the guest polls.
-struct SocketOps(Arc<TcpSock>);
-
-impl FileOperations for SocketOps {
-    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        self.0.recv(buf)
+/// TCP's answers for its socket file, as `inet_stream_ops` hands each call to
+/// `tcp_prot`.
+impl ProtoOps for TcpSock {
+    fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.recv(buf)
     }
 
-    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-        self.0.send(buf)
+    fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.send(buf)
     }
 
-    fn poll(&self, _mode: FMode, table: Option<&mut PollTable>) -> PollMask {
-        poll_wait(self.0.wait_queue(), table);
-        self.0.poll_mask()
+    fn poll_mask(&self) -> PollMask {
+        TcpSock::poll_mask(self)
     }
 
-    fn is_stream(&self) -> bool {
-        true
+    fn wait_queue(&self) -> &Arc<WaitQueueHead> {
+        TcpSock::wait_queue(self)
     }
-}
 
-impl Drop for SocketOps {
-    fn drop(&mut self) {
-        self.0.release();
+    fn release(&self) {
+        TcpSock::release(self)
     }
-}
-
-/// The socket file of `sock`, opened as `cred` for reading and writing, as
-/// Linux's `sock_alloc_file` makes one; dropping it releases the socket.
-pub fn sock_alloc_file(sock: &Arc<TcpSock>, cred: &Arc<Cred>) -> File {
-    let inode = Inode::new(&Kstat::new(FileType::Sock, 0), Arc::new(SockFs));
-    alloc_file_pseudo(
-        inode,
-        &SOCK_MNT,
-        &OpenHow {
-            read: true,
-            write: true,
-            nonblock: true,
-            ..OpenHow::default()
-        },
-        Box::new(SocketOps(sock.clone())),
-        cred,
-    )
 }
 
 #[cfg(test)]
@@ -489,8 +422,9 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::net::{HostInet, SANDBOX_WORKERS};
+    use crate::net::{sock_alloc_file, HostInet, SANDBOX_WORKERS};
     use crate::sched::testing::within_max_wait;
+    use crate::vfs::File;
     use crate::wait::do_poll;
 
     /// A socket file connecting to a loopback listener, and the peer the
@@ -504,7 +438,7 @@ mod tests {
             &Workers::new(SANDBOX_WORKERS),
         )
         .expect("a fresh Sandbox has room for a socket's workers");
-        let file = sock_alloc_file(&sock, &Arc::default());
+        let file = sock_alloc_file(sock.clone(), &Arc::default());
         let (peer, _) = listener.accept().expect("the listener accepts");
         wait_for(&file, PollMask::OUT);
         (sock, file, peer)
@@ -594,7 +528,7 @@ mod tests {
             &Workers::new(SANDBOX_WORKERS),
         )
         .expect("a fresh Sandbox has room for a socket's workers");
-        let file = sock_alloc_file(&sock, &Arc::default());
+        let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(&file, PollMask::OUT);
         assert_eq!(
             sock.finish_connect(),

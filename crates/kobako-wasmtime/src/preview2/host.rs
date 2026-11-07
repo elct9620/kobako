@@ -285,7 +285,7 @@ impl SocketsHost for Invocation {
             Ok(sock) => sock,
             Err(err) => return Ok(Err(to_error_code(&err))),
         };
-        let file = sock_alloc_file(&sock, cred);
+        let file = sock_alloc_file(sock.clone(), cred);
         *self.tcp(this)? = table::TcpSocket::Connecting(SocketFile::new(sock, file, addr));
         Ok(Ok(()))
     }
