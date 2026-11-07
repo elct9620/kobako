@@ -9,6 +9,7 @@ is one Grant, and its endpoints are data the runtime judges on any thread.
 - `crates/kobako-runtime/src/network/builder.rs`
 - `crates/kobako-runtime/src/network/ruleset.rs`
 - `crates/kobako-runtime/src/net/family.rs`
+- `crates/kobako-runtime/src/net/lookup.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
 - `crates/kobako-runtime/src/net/workers.rs`
@@ -68,7 +69,38 @@ no opinion, and a policy only narrows.
 
 ```rust
 pub struct Policies {
+    pub resolve: Option<Arc<dyn for<'a> Policy<Name<'a>>>>,
     pub connect: Option<Arc<dyn for<'a> Policy<Connection<'a>>>>,
+}
+```
+
+## `Policies::with_resolve`
+
+These policies with one judging each lookup.
+
+```rust
+impl Policies {
+    pub fn with_resolve(self, policy: Arc<dyn for<'a> Policy<Name<'a>>>) -> Self {}
+}
+```
+
+## `Name`
+
+One name the Guest asks to look up, lowercase and with no trailing dot.
+
+```rust
+pub struct Name<'a> {
+    pub name: &'a str,
+}
+```
+
+## `Name::new`
+
+The name to look up.
+
+```rust
+impl<'a> Name<'a> {
+    pub fn new(name: &'a str) -> Self {}
 }
 ```
 
@@ -108,6 +140,16 @@ Let the Guest reach one more endpoint.
 ```rust
 impl Builder {
     pub fn endpoint(&mut self, endpoint: Endpoint) -> &mut Self {}
+}
+```
+
+## `Builder::resolve_policy`
+
+Judge each lookup with one more policy; any refusal wins.
+
+```rust
+impl Builder {
+    pub fn resolve_policy(&mut self, policy: impl for<'a> Policy<Name<'a>> + 'static) -> &mut Self {}
 }
 ```
 
@@ -261,6 +303,28 @@ impl Ruleset {
 }
 ```
 
+## `Ruleset::admits_name`
+
+Whether any endpoint's host names a name, so a lookup of it may run.
+
+```rust
+impl Ruleset {
+    pub fn admits_name(&self, name: &str) -> bool {}
+}
+```
+
+## `Ruleset::admit_resolved`
+
+Whether the Guest may connect to a real address the name it looked up resolved
+to. An endpoint naming the name must lead there, and the host's own addresses
+are local.
+
+```rust
+impl Ruleset {
+    pub fn admit_resolved(&self, name: &str, addr: SocketAddr, protocol: Protocol, local: &[IpAddr]) -> Result<(), FilesystemError> {}
+}
+```
+
 ## `Namespace`
 
 The network one Invocation's entries make together: the ruleset, the connect
@@ -283,12 +347,88 @@ impl Namespace {
 
 ## `Namespace::connect`
 
-A TCP socket to a literal address, once the socket hooks and the ruleset pass
-it. Any refusal answers `PermissionDenied`, and nothing is dialed.
+A TCP socket to the address the Guest named, once the socket hooks and the
+ruleset pass it. A virtual address dials its name's real address, and an
+unmapped one answers `NetworkUnreachable`. Any refusal answers
+`PermissionDenied`, and nothing is dialed.
 
 ```rust
 impl Namespace {
     pub fn connect(&self, cred: &Cred, addr: SocketAddr, deadline: Option<Instant>) -> Result<Arc<TcpSock>, FilesystemError> {}
+}
+```
+
+## `Namespace::resolve`
+
+A lookup of a name, normalized first. A name a policy refuses or no endpoint
+names answers as NXDOMAIN before any query.
+
+```rust
+impl Namespace {
+    pub fn resolve(&self, name: &str) -> Result<Arc<NameLookup>, LookupError> {}
+}
+```
+
+## `Namespace::virtual_address`
+
+The virtual address a lookup's answer is handed out at. It is never reused for
+a second name, and `None` answers once the range is spent.
+
+```rust
+impl Namespace {
+    pub fn virtual_address(&self, name: &str, real: Vec<IpAddr>) -> Option<Ipv4Addr> {}
+}
+```
+
+## `NameLookup`
+
+One lookup in flight on a worker, then its answer.
+
+```rust
+pub struct NameLookup {}
+```
+
+## `NameLookup::name`
+
+The name looked up, normalized.
+
+```rust
+impl NameLookup {
+    pub fn name(&self) -> &str {}
+}
+```
+
+## `NameLookup::answer`
+
+The real addresses the name resolved to, or why it has none; `None` while the
+lookup is under way.
+
+```rust
+impl NameLookup {
+    pub fn answer(&self) -> Option<Result<Vec<IpAddr>, LookupError>> {}
+}
+```
+
+## `NameLookup::poll`
+
+Whether the lookup has answered, registering on a poll table as a file's poll
+does.
+
+```rust
+impl NameLookup {
+    pub fn poll(&self, table: Option<&mut PollTable>) -> bool {}
+}
+```
+
+## `LookupError`
+
+Why a lookup has no address. A refused name answers as an unresolvable one.
+
+```rust
+pub enum LookupError {
+    NameUnresolvable,
+    PermanentFailure,
+    TemporaryFailure,
 }
 ```
 
@@ -308,6 +448,27 @@ A stream connected to the address, given up once the timeout passes.
 ```rust
 pub trait ProtocolFamily {
     fn connect(&self, addr: SocketAddr, timeout: Option<Duration>) -> io::Result<Box<dyn Stream>>;
+}
+```
+
+## `ProtocolFamily::resolve`
+
+The addresses a fully qualified name resolves to. A family that resolves
+nothing answers `Unsupported`.
+
+```rust
+pub trait ProtocolFamily {
+    fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>>;
+}
+```
+
+## `ProtocolFamily::local_addresses`
+
+The host's own addresses, as Linux's local routing table holds them.
+
+```rust
+pub trait ProtocolFamily {
+    fn local_addresses(&self) -> Vec<IpAddr>;
 }
 ```
 

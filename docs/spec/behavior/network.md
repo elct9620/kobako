@@ -290,3 +290,75 @@ endpoint "api.example.com", port: 443
 | Given | a guest at the strongest posture with the network |
 | When | it polls a silent socket beside a clock fifty milliseconds out |
 | Then | the clock answers once fifty milliseconds of host time pass, since a host-side producer takes host time |
+
+## `NW-024` A name no endpoint names answers as NXDOMAIN unasked
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | endpoints naming an exact name and a wildcard, and a `resolve?` policy refusing one name |
+| When | the guest looks up a name no endpoint names, the refused name, or the wildcard's own apex |
+| Then | each answers `name-unresolvable`, as NXDOMAIN does, and no query reaches the resolver |
+
+## `NW-025` A name connects through its virtual address to where its endpoint leads
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a name its lookup handed a virtual address, from the bottom of `198.18.0.0/15` |
+| When | the guest connects to that virtual address |
+| Then | the real address the endpoint's `addresses` lead to is dialed. An endpoint leading only to public addresses refuses a local one |
+
+## `NW-026` A virtual address no lookup handed out answers ENETUNREACH
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest that looked up no name |
+| When | it connects to an address in the virtual range |
+| Then | the connect answers `ENETUNREACH`, and nothing is dialed |
+
+## `NW-027` A connect dials what the lookup answered
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a name whose lookup answered one address, then the resolver changes its answer |
+| When | the guest connects to the name's virtual address |
+| Then | the address the lookup answered is dialed, and the name is never resolved again, so rebinding has no second answer to use |
+
+## `NW-028` The host's own address is local
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a name resolving to one of the host's own addresses, whatever registry classes it |
+| When | the guest connects through an endpoint leading only to public addresses |
+| Then | the connect is refused, since the host's addresses fall in `local`, as Linux's `local` table holds them |
+
+## `NW-029` A wildcard endpoint leads only to public addresses or a CIDR
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a wildcard endpoint whose `addresses` name `private` or `local` |
+| When | the ruleset compiles |
+| Then | it is refused, since a guest-controlled name beneath the wildcard could reach them; `public` and a CIDR stand |
