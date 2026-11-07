@@ -15,11 +15,11 @@ module Kobako
 
       private
 
-      def register_source!: (String? code, (Symbol | String)? name) -> nil
+      def register_source: (String? code, (Symbol | String)? name) -> nil
 
-      def ensure_source_args!: (String? code, (Symbol | String)? name) -> [String, Symbol | String]
+      def ensure_source_args: (String? code, (Symbol | String)? name) -> [String, Symbol | String]
 
-      def register_binary!: (String bytes) -> nil
+      def register_binary: (String bytes) -> nil
 
       def entry_tuple: (entry) -> tuple
 

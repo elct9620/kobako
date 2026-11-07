@@ -40,17 +40,17 @@ module Kobako
         if binary
           raise ArgumentError, "cannot combine binary: with code: / name:" if code || name
 
-          register_binary!(binary)
+          register_binary(binary)
         else
-          register_source!(code, name)
+          register_source(code, name)
         end
       end
 
       private
 
-      def register_source!(code, name)
-        code, name = ensure_source_args!(code, name)
-        body = Catalog.to_utf8!(code, "code")
+      def register_source(code, name)
+        code, name = ensure_source_args(code, name)
+        body = Catalog.to_utf8(code, "code")
 
         name_sym = normalize_name(name)
         if @entries.any? { |e| e.is_a?(Snippet::Source) && e.name == name_sym }
@@ -63,7 +63,7 @@ module Kobako
 
       # The +code:+ type check runs first so an explicit +code: nil+ reads
       # as a type error rather than a missing keyword.
-      def ensure_source_args!(code, name)
+      def ensure_source_args(code, name)
         raise ArgumentError, "missing keyword: code: + name:, or binary:" if code.nil? && name.nil?
         raise ArgumentError, "code must be a String, got #{code.class}" unless code.is_a?(String)
         raise ArgumentError, "missing keyword: name:" if name.nil?
@@ -73,7 +73,7 @@ module Kobako
 
       # Kept as bytes whatever encoding the caller tagged them with, since
       # the guest reads them as bytecode rather than text.
-      def register_binary!(bytes)
+      def register_binary(bytes)
         raise ArgumentError, "binary must be a String, got #{bytes.class}" unless bytes.is_a?(String)
 
         @entries << Snippet::Bytecode.new(body: bytes.dup.force_encoding(Encoding::ASCII_8BIT))

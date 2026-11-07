@@ -43,7 +43,7 @@ module Kobako
       @extensions = Catalog::Extensions.new
       @grants = Catalog::Grants.new
       @sealed = false
-      @runtime = build_runtime!
+      @runtime = build_runtime
     end
 
     # Make +object+ reachable from the guest as the constant at +path+, a
@@ -62,7 +62,7 @@ module Kobako
     # +Kobako+ namespace, a path that collides with an existing binding, or a
     # call after the first invocation.
     def bind(path, object = Unresolved)
-      refuse_once_invoked!("bind")
+      refuse_once_invoked("bind")
       @services.bind(path, object)
       self
     end
@@ -74,7 +74,7 @@ module Kobako
     # Raises ArgumentError for a malformed Extension, a call after the first
     # invocation, or, at the first invocation, a missing dependency.
     def install(*extensions)
-      refuse_once_invoked!("install")
+      refuse_once_invoked("install")
 
       extensions.each { |extension| @extensions.install(extension, snippets: @snippets, services: @services) }
       self
@@ -99,7 +99,7 @@ module Kobako
     # a Filesystem, and ArgumentError for a malformed or duplicate path, an
     # unknown access, or a call after the first invocation.
     def mount(at, filesystem, access: :read, &policy)
-      refuse_once_invoked!("mount")
+      refuse_once_invoked("mount")
       Runtime.validate_mount!(at, access, filesystem)
       @grants.register(Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy))
       self
@@ -118,7 +118,7 @@ module Kobako
     # after the first invocation. A snippet that fails to load fails every
     # invocation with SandboxError, or BytecodeError for bytecode.
     def preload(code: nil, name: nil, binary: nil)
-      refuse_once_invoked!("preload")
+      refuse_once_invoked("preload")
 
       @snippets.register(code: code, name: name, binary: binary)
       self
@@ -134,7 +134,7 @@ module Kobako
     # Raises ArgumentError for a malformed or duplicate flag, or a call after
     # the first invocation.
     def flag(name, value = "", advisory: false)
-      refuse_once_invoked!("flag")
+      refuse_once_invoked("flag")
 
       @flags.register(name, value, advisory: advisory)
       self
@@ -149,7 +149,7 @@ module Kobako
     # Handle or a non-Symbol keyword. A failed run raises as #eval does.
     def run(target, *args, **kwargs, &block)
       request = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
-      Codec.within_value_budget(@options.value_budget) { begin_invocation!.run(request, &block) }
+      Codec.within_value_budget(@options.value_budget) { begin_invocation.run(request, &block) }
     end
 
     # Evaluate +code+, mruby source as a String, and return the Execution,
@@ -164,16 +164,16 @@ module Kobako
     def eval(code, &block)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
-      Codec.within_value_budget(@options.value_budget) { begin_invocation!.eval(code, &block) }
+      Codec.within_value_budget(@options.value_budget) { begin_invocation.eval(code, &block) }
     end
 
     private
 
     # A runtime whose declared posture falls below the request never runs
     # guest code.
-    def build_runtime!
+    def build_runtime
       runtime = Kobako::Runtime.from_path(@wasm_path, **@options.to_h)
-      @options.enforce_floor!(runtime.profile)
+      @options.enforce_floor(runtime.profile)
       runtime
     end
 
@@ -185,7 +185,7 @@ module Kobako
 
     # Registration closes at the first invocation, so every invocation ships
     # the same Services, snippets, flags, Extensions and mounts.
-    def refuse_once_invoked!(verb)
+    def refuse_once_invoked(verb)
       raise ArgumentError, "cannot #{verb} after first Sandbox invocation" if @sealed
     end
 
@@ -194,9 +194,9 @@ module Kobako
     # before the first invocation replays them. Per-invocation state lives on
     # the Context it answers, so nothing an invocation does is written back
     # onto the shared config.
-    def begin_invocation!
+    def begin_invocation
       @sealed = true
-      @extensions.assert_dependencies!
+      @extensions.assert_dependencies
       @snippets.compile { |entries| @runtime.compile(preamble(entries)) }
       Context.new(runtime: @runtime, services: @services, extensions: @extensions, grants: @grants,
                   preamble: preamble(@snippets.entries))

@@ -58,7 +58,7 @@ pub(super) fn trap_class(ruby: &Ruby, trap: &Trap) -> ExceptionClass {
     }
 }
 
-/// The verb prefix is left to `Kobako::Context#invoke!`.
+/// The verb prefix is left to `Kobako::Context#invoke`.
 pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
     MagnusError::new(trap_class(ruby, &trap), trap.to_string())
 }

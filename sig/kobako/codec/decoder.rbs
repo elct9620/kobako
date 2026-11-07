@@ -6,7 +6,7 @@ module Kobako
 
       private
 
-      def self.validate_utf8!: (untyped value) -> void
+      def self.validate_utf8: (untyped value) -> void
     end
   end
 end

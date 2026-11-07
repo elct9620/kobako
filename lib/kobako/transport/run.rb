@@ -12,8 +12,8 @@ module Kobako
     class Run < Data.define(:entrypoint, :args, :kwargs) # :nodoc:
       def initialize(entrypoint:, args: [], kwargs: {})
         entrypoint = normalize_entrypoint(entrypoint)
-        validate_args!(args)
-        validate_kwargs!(kwargs)
+        validate_args(args)
+        validate_kwargs(kwargs)
         super
       end
 
@@ -46,14 +46,14 @@ module Kobako
         target_str.to_sym
       end
 
-      def validate_args!(args)
+      def validate_args(args)
         raise ArgumentError, "arguments must be an Array" unless args.is_a?(Array)
         raise ArgumentError, forged_handle_message("arguments") if args.any?(Kobako::Handle)
       end
 
       # Checked here so the Host App sees the host-side message before any
       # encode boundary.
-      def validate_kwargs!(kwargs)
+      def validate_kwargs(kwargs)
         raise ArgumentError, "keyword arguments must be a Hash" unless kwargs.is_a?(Hash)
 
         bad_keys = kwargs.each_key.grep_v(Symbol)

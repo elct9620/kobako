@@ -16,7 +16,7 @@ module Kobako
       # The Extension readers are duck-typed, so a malformed +name+ or
       # +backend.path+ surfaces through the registry it routes to.
       def install(extension, snippets:, services:)
-        validate!(extension)
+        validate(extension)
         snippets.register(code: extension.source, name: extension.name)
         backend = extension.backend
         services.bind(backend.path, object_of(backend)) if backend
@@ -27,7 +27,7 @@ module Kobako
       # The asserted flag flips only on success, so a check that failed
       # re-runs on the next invocation rather than silently passing a broken
       # Sandbox.
-      def assert_dependencies!
+      def assert_dependencies
         return self if @asserted
 
         extension, dependency = unmet_dependency
@@ -64,7 +64,7 @@ module Kobako
         resolved[backend.path.to_s] = by_provider.fetch(provider) { by_provider[provider] = provider.call }
       end
 
-      def validate!(extension)
+      def validate(extension)
         source = extension.source
         raise ArgumentError, "Extension #source must be a String, got #{source.class}" unless source.is_a?(String)
 

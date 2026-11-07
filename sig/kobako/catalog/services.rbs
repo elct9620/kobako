@@ -15,7 +15,7 @@ module Kobako
 
       private
 
-      def validate_path!: (Symbol | String path) -> String
+      def validate_path: (Symbol | String path) -> String
 
       def reserved?: (String path) -> bool
 

@@ -8,7 +8,7 @@ module Kobako
       def initialize(args: [], kwargs: {})
         raise ArgumentError, "payload args must be Array" unless args.is_a?(Array)
 
-        validate_kwargs!(kwargs)
+        validate_kwargs(kwargs)
         super
       end
 
@@ -32,7 +32,7 @@ module Kobako
 
       private
 
-      def validate_kwargs!(kwargs)
+      def validate_kwargs(kwargs)
         raise ArgumentError, "payload kwargs must be Hash" unless kwargs.is_a?(Hash)
 
         kwargs.each_key do |key|

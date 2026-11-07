@@ -39,12 +39,12 @@ module Kobako
 
     private
 
-    def build_runtime!: () -> Kobako::Runtime
+    def build_runtime: () -> Kobako::Runtime
 
     def preamble: (Array[Kobako::Catalog::Snippets::tuple] snippets) -> Kobako::Context::preamble
 
-    def refuse_once_invoked!: (String verb) -> void
+    def refuse_once_invoked: (String verb) -> void
 
-    def begin_invocation!: () -> Kobako::Context
+    def begin_invocation: () -> Kobako::Context
   end
 end

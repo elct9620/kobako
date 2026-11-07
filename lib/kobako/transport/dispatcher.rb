@@ -111,7 +111,7 @@ module Kobako
         # unsplatted for methods that take no keywords.
         def invoke(exposure, method, args, kwargs, yielder)
           name = method.to_sym
-          reject_unreachable!(exposure, name)
+          reject_unreachable(exposure, name)
           target = exposure.object
           block = yielder&.to_proc
           if kwargs.empty?
@@ -124,7 +124,7 @@ module Kobako
         # Both the ambient-surface floor and the reference's Exposure answer
         # through Reflection, so a rejected name discloses nothing about
         # which of the two refused.
-        def reject_unreachable!(exposure, name)
+        def reject_unreachable(exposure, name)
           reason = Reflection.refusal(exposure, name)
           raise UndefinedTargetError, reason if reason
         end
@@ -163,7 +163,7 @@ module Kobako
         # Service can change — so it is named here, where the direction is
         # known, instead of falling to the boundary's codec floor.
         def encode_ok(value, handles)
-          Kobako::Codec::Nesting.assert_within_bound!(value)
+          Kobako::Codec::Nesting.assert_within_bound(value)
           Kobako::Codec::Encoder.encode(value)
         rescue Kobako::Codec::UnsupportedTypeError
           encode_ok(handles.alloc(value), handles)

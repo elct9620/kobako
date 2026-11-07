@@ -13,9 +13,9 @@ module Kobako
       # from the decoded payload reports a broken invariant as
       # InvalidTypeError without its own Utils.with_boundary.
       def self.decode(bytes)
-        ValueBudget.assert_within!(bytes, State.current.value_budget)
+        ValueBudget.assert_within(bytes, State.current.value_budget)
         value = FACTORY.load(bytes.b)
-        validate_utf8!(value)
+        validate_utf8(value)
         block_given? ? yield(value) : value
       # msgpack gem raises the format/type errors below; +ArgumentError+
       # covers a yielded block's Value Object invariants — a wire violation
@@ -35,18 +35,18 @@ module Kobako
       # returns UTF-8-tagged Strings for
       # str family but does not validate the bytes; +bin+ family decodes
       # to ASCII-8BIT. Walk the tree once and reject invalid UTF-8 in any
-      # str-typed leaf via Utils.assert_utf8!.
+      # str-typed leaf via Utils.assert_utf8.
       class << self
         private
 
-        def validate_utf8!(value)
+        def validate_utf8(value)
           case value
-          when String then Utils.assert_utf8!(value, "str payload") if value.encoding == Encoding::UTF_8
-          when Array  then value.each { |v| validate_utf8!(v) }
+          when String then Utils.assert_utf8(value, "str payload") if value.encoding == Encoding::UTF_8
+          when Array  then value.each { |v| validate_utf8(v) }
           when Hash
             value.each do |key, val|
-              validate_utf8!(key)
-              validate_utf8!(val)
+              validate_utf8(key)
+              validate_utf8(val)
             end
           end
         end

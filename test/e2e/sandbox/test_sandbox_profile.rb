@@ -6,7 +6,7 @@ require "test_helper"
 # declares. This class covers the request path through the real ext; the
 # floor-check branches (a runtime below the requested posture and the
 # fail-closed off-ladder ranking) live with the PROFILES ladder
-# owner and are witnessed on SandboxOptions#enforce_floor! in
+# owner and are witnessed on SandboxOptions#enforce_floor in
 # test_sandbox_options.rb — the bundled runtime always builds the
 # requested rung, so no real runtime reaches them.
 class TestSandboxProfile < Minitest::Test

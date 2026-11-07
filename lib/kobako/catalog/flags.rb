@@ -18,10 +18,10 @@ module Kobako
         end
         raise ArgumentError, "flag value must be a String, got #{value.class}" unless value.is_a?(String)
 
-        key = Catalog.to_utf8!(name.to_s, "flag name")
+        key = Catalog.to_utf8(name.to_s, "flag name")
         raise ArgumentError, "flag #{key.inspect} already set" if @entries.key?(key)
 
-        @entries[key] = [Catalog.to_utf8!(value, "flag value"), !advisory]
+        @entries[key] = [Catalog.to_utf8(value, "flag value"), !advisory]
         nil
       end
     end

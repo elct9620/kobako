@@ -77,12 +77,12 @@ module Kobako
 
     def eval(code, &block) # :nodoc:
       collect_overrides(&block) if block
-      invoke!(:eval) { @runtime.eval(dispatch_handler, setup, code.b) }
+      invoke(:eval) { @runtime.eval(dispatch_handler, setup, code.b) }
     end
 
     def run(request, &block) # :nodoc:
       collect_overrides(&block) if block
-      invoke!(:run, entrypoint: request.entrypoint) do
+      invoke(:run, entrypoint: request.entrypoint) do
         @runtime.run(dispatch_handler, setup, request.entrypoint.to_s, request.encode_payload(@handles))
       end
     end
@@ -157,7 +157,7 @@ module Kobako
     # that raises propagates unwrapped and leaves the guest unrun. A
     # could-not-start fault ran no invocation at all, so it carries no
     # Execution and gains only the verb prefix.
-    def invoke!(verb, entrypoint: nil)
+    def invoke(verb, entrypoint: nil)
       @resolved = @extensions.resolve.transform_values { |object| Transport::Exposure.of(object) }
       begin
         snapshot = yield

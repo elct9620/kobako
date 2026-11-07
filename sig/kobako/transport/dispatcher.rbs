@@ -25,7 +25,7 @@ module Kobako
 
       def self.invoke: (Kobako::Transport::Exposure exposure, String method, Array[untyped] args, Hash[Symbol, untyped] kwargs, Kobako::Transport::Yielder? yielder) -> untyped
 
-      def self.reject_unreachable!: (Kobako::Transport::Exposure exposure, Symbol name) -> void
+      def self.reject_unreachable: (Kobako::Transport::Exposure exposure, Symbol name) -> void
 
       def self.resolve_arg: (untyped value, Kobako::Codec::_HandleTable handles) -> untyped
 

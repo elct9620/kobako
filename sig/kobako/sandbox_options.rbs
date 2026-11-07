@@ -55,7 +55,7 @@ module Kobako
 
     def value_budget: () -> Integer?
 
-    def enforce_floor!: (Symbol declared) -> void
+    def enforce_floor: (Symbol declared) -> void
 
     private
 

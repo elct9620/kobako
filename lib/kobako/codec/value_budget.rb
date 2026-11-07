@@ -30,7 +30,7 @@ module Kobako
       UINT = { 1 => "C", 2 => "n", 4 => "N" }.freeze
       private_constant :SCALARS, :COUNTS, :LENGTHS, :UINT
 
-      def self.assert_within!(bytes, budget)
+      def self.assert_within(bytes, budget)
         return if budget.nil? || bytes.bytesize <= budget
 
         remaining = budget

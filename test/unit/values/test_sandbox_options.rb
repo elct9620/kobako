@@ -4,7 +4,7 @@ require "test_helper"
 
 # Kobako::SandboxOptions normalises the per-Sandbox caps and the
 # isolation-profile floor, and owns the PROFILES ladder comparison
-# (#enforce_floor!) that Sandbox.new delegates its construction floor
+# (#enforce_floor) that Sandbox.new delegates its construction floor
 # check to. Pure Ruby — no native ext — so it runs on a clean checkout.
 # The profile option is the one non-cap: nil is NOT a disable switch there
 # — the no-floor request is an explicit :permissive.
@@ -134,8 +134,8 @@ class TestSandboxOptions < Minitest::Test
   # Sandbox.new a below-floor declaration.
   def test_enforce_floor_rejects_a_declaration_below_the_requested_floor
     err = assert_raises(Kobako::SetupError,
-                        "a :permissive declaration through #enforce_floor! must fail a :hermetic floor") do
-      Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor!(:permissive)
+                        "a runtime declaring :permissive must fail a :hermetic floor") do
+      Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor(:permissive)
     end
     assert_match(/permissive/, err.message)
     assert_match(/hermetic/, err.message)
@@ -149,7 +149,7 @@ class TestSandboxOptions < Minitest::Test
   def test_enforce_floor_ranks_an_off_ladder_declaration_below_every_floor
     err = assert_raises(Kobako::SetupError,
                         "an off-ladder declaration must rank below even the :permissive floor, failing closed") do
-      Kobako::SandboxOptions.new(profile: :permissive).enforce_floor!(:isolated)
+      Kobako::SandboxOptions.new(profile: :permissive).enforce_floor(:isolated)
     end
     assert_match(/isolated/, err.message)
   end
@@ -161,7 +161,7 @@ class TestSandboxOptions < Minitest::Test
   # without raising" — the return value is void — and minitest turns
   # any raise into a failure, so the bare calls are the whole witness.
   def test_enforce_floor_accepts_a_declaration_at_or_above_the_floor
-    Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor!(:hermetic)
-    Kobako::SandboxOptions.new(profile: :permissive).enforce_floor!(:hermetic)
+    Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor(:hermetic)
+    Kobako::SandboxOptions.new(profile: :permissive).enforce_floor(:hermetic)
   end
 end

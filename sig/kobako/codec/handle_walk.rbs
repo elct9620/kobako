@@ -11,7 +11,7 @@ module Kobako
 
       private
 
-      def self.guard_nesting!: (Integer depth) -> void
+      def self.guard_nesting: (Integer depth) -> void
 
       def self.deep_wrap_hash: (Hash[untyped, untyped] hash, Kobako::Codec::_HandleTable handles, Integer depth) -> Hash[untyped, untyped]
 

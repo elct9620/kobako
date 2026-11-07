@@ -23,8 +23,8 @@ module Kobako
       # call made through this Handle is authorized against the reference
       # the guest was given.
       def alloc(object)
-        reject_unwrappable!(object)
-        ensure_capacity!
+        reject_unwrappable(object)
+        ensure_capacity
         id = @next_id
         @entries[id] = Kobako::Transport::Exposure.of(object, @surfaces)
         @next_id = id + 1
@@ -36,7 +36,7 @@ module Kobako
       end
 
       def exposure(id)
-        require_bound!(id)
+        require_bound(id)
         @entries[id]
       end
 
@@ -61,7 +61,7 @@ module Kobako
       # a surface the floor reads as ordinary Service behaviour. Raising here
       # keeps the rule at the single mint point, so it holds on both the
       # Service-return and the +#run+ host→guest auto-wrap paths.
-      def reject_unwrappable!(object)
+      def reject_unwrappable(object)
         case object
         when Binding, Method, UnboundMethod, Module, Delegator
           # Delegator < BasicObject exposes no static +#class+, so name the
@@ -71,7 +71,7 @@ module Kobako
         end
       end
 
-      def ensure_capacity!
+      def ensure_capacity
         cap = Kobako::Handle::MAX_ID
         return unless @next_id > cap
 
@@ -80,7 +80,7 @@ module Kobako
               "in a single invocation (limit #{cap})"
       end
 
-      def require_bound!(id)
+      def require_bound(id)
         return if @entries.key?(id)
 
         raise SandboxError, "unknown Handle id: #{id.inspect}"

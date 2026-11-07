@@ -25,7 +25,7 @@ module Kobako
 
     def claim_or_wait: (Float? deadline) -> [Symbol, Kobako::Sandbox?]
 
-    def await_slot!: (Float? deadline) -> void
+    def await_slot: (Float? deadline) -> void
 
     def construct_slot: () -> Kobako::Sandbox
 
@@ -35,7 +35,7 @@ module Kobako
 
     def monotonic_now: () -> Float
 
-    def validate_slots!: (untyped slots) -> void
+    def validate_slots: (untyped slots) -> void
 
     def normalize_checkout_timeout: ((Float | Integer)? checkout_timeout) -> Float?
   end

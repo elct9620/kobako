@@ -20,7 +20,7 @@ module Kobako
     # Raises ArgumentError when +slots+ is not a positive Integer or
     # +checkout_timeout+ is not a positive finite number.
     def initialize(slots:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)
-      validate_slots!(slots)
+      validate_slots(slots)
       @slots = slots
       @checkout_timeout = normalize_checkout_timeout(checkout_timeout)
       @sandbox_options = sandbox_options
@@ -69,13 +69,13 @@ module Kobako
           return [:build, nil]
         end
 
-        await_slot!(deadline)
+        await_slot(deadline)
         [:retry, nil]
       end
     end
 
     # Must run while holding +@mutex+.
-    def await_slot!(deadline)
+    def await_slot(deadline)
       remaining = deadline && (deadline - monotonic_now)
       if remaining && remaining <= 0
         raise PoolTimeoutError,
@@ -117,7 +117,7 @@ module Kobako
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    def validate_slots!(slots)
+    def validate_slots(slots)
       return if slots.is_a?(Integer) && slots.positive?
 
       raise ArgumentError, "slots must be a positive Integer, got #{slots.inspect}"

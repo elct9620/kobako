@@ -11,7 +11,7 @@ class TestCodecValueBudget < Minitest::Test
   ValueBudget = Kobako::Codec::ValueBudget
 
   def count_refused?(bytes, limit)
-    ValueBudget.assert_within!(bytes.b, limit)
+    ValueBudget.assert_within(bytes.b, limit)
     false
   rescue Kobako::Codec::InvalidTypeError
     true

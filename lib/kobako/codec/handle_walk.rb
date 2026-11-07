@@ -30,7 +30,7 @@ module Kobako
       # than crossing as a token the guest→host restore walk could not
       # round-trip.
       def self.deep_wrap(value, handles, depth = 0)
-        guard_nesting!(depth)
+        guard_nesting(depth)
         case value
         when ::Array then value.map { |element| deep_wrap(element, handles, depth + 1) }
         when ::Hash  then deep_wrap_hash(value, handles, depth)
@@ -62,7 +62,7 @@ module Kobako
         # A reference cycle necessarily trips the nesting bound, so a +#run+
         # argument fails as a clean +Kobako::SandboxError+ rather than an
         # unbounded host recursion.
-        def guard_nesting!(depth)
+        def guard_nesting(depth)
           return unless depth > MAX_NESTING_DEPTH
 
           raise Kobako::SandboxError,

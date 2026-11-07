@@ -38,6 +38,6 @@ module Kobako
 
     def settle_outcome: (Kobako::Snapshot snapshot, Symbol verb, Symbol? entrypoint) -> Kobako::Execution
 
-    def invoke!: (Symbol verb, ?entrypoint: Symbol?) { () -> Kobako::Snapshot } -> Kobako::Execution
+    def invoke: (Symbol verb, ?entrypoint: Symbol?) { () -> Kobako::Snapshot } -> Kobako::Execution
   end
 end

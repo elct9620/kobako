@@ -5,7 +5,7 @@ require_relative "error"
 module Kobako
   module Codec
     module Utils # :nodoc:
-      def self.assert_utf8!(string, label)
+      def self.assert_utf8(string, label)
         return if string.valid_encoding?
 
         raise InvalidEncodingError, "#{label} is not valid UTF-8"

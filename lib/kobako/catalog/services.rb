@@ -16,7 +16,7 @@ module Kobako
 
       # The binding records +object+'s Exposure as it stands now.
       def bind(path, object)
-        path_str = validate_path!(path)
+        path_str = validate_path(path)
         if reserved?(path_str)
           raise ArgumentError,
                 "Service path #{path_str} is in the reserved #{RESERVED_NAMESPACE} namespace"
@@ -46,7 +46,7 @@ module Kobako
 
       private
 
-      def validate_path!(path)
+      def validate_path(path)
         path_str = path.to_s
         segments = path_str.split("::", -1)
         return path_str if !segments.empty? && segments.all? { |seg| CONSTANT_NAME.match?(seg) }

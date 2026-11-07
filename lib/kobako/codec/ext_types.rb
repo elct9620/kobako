@@ -49,7 +49,7 @@ module Kobako
         # unpacker would otherwise apply to invalid bytes.
         def unpack_symbol(payload)
           name = payload.b.force_encoding(Encoding::UTF_8)
-          Utils.assert_utf8!(name, "Symbol payload")
+          Utils.assert_utf8(name, "Symbol payload")
           name.to_sym
         end
 

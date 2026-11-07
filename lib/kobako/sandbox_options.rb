@@ -84,7 +84,7 @@ module Kobako
 
     # Both fallbacks fail closed: an unknown declaration ranks below every
     # request, and an unknown request refuses every declaration.
-    def enforce_floor!(declared) # :nodoc:
+    def enforce_floor(declared) # :nodoc:
       return if (PROFILES.index(declared) || -1) >= (PROFILES.index(profile) || PROFILES.size)
 
       raise Kobako::SetupError, "runtime declares isolation profile #{declared.inspect}, " \

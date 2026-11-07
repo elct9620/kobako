@@ -92,7 +92,7 @@ module Kobako
       install(extension(name: :Errno, source: "1"))
       install(extension(name: :File, source: "2", depends_on: [:Errno]))
 
-      assert_same @extensions, @extensions.assert_dependencies!
+      assert_same @extensions, @extensions.assert_dependencies
     end
 
     # @behavior EX-030
@@ -101,7 +101,7 @@ module Kobako
     def test_dependency_check_raises_on_an_unmet_dependency_naming_it
       install(extension(name: :File, source: "1", depends_on: [:Errno]))
 
-      err = assert_raises(ArgumentError) { @extensions.assert_dependencies! }
+      err = assert_raises(ArgumentError) { @extensions.assert_dependencies }
       assert_match(/:File/, err.message)
       assert_match(/:Errno/, err.message,
                    "an unmet dependency assertion names the missing Extension")
@@ -112,7 +112,7 @@ module Kobako
       install(extension(name: :Errno, source: "1"))
       install(extension(name: "File", source: "2", depends_on: ["Errno"]))
 
-      assert_same @extensions, @extensions.assert_dependencies!,
+      assert_same @extensions, @extensions.assert_dependencies,
                   "a depends_on entry and a name match by Symbol, so their String/Symbol forms interchange"
     end
 
@@ -121,7 +121,7 @@ module Kobako
       install(extension(name: :A, source: "1", depends_on: [:B]))
       install(extension(name: :B, source: "2", depends_on: [:A]))
 
-      assert_same @extensions, @extensions.assert_dependencies!,
+      assert_same @extensions, @extensions.assert_dependencies,
                   "presence-only assertion permits dependency cycles"
     end
 
@@ -133,11 +133,11 @@ module Kobako
     # check: a second check must neither re-assert nor raise.
     def test_dependency_check_runs_once_then_is_a_silent_no_op
       install(extension(name: :A, source: "1"))
-      assert_same @extensions, @extensions.assert_dependencies!
+      assert_same @extensions, @extensions.assert_dependencies
 
       install(extension(name: :B, source: "2", depends_on: [:Missing]))
-      assert_same @extensions, @extensions.assert_dependencies!,
-                  "assert_dependencies! checks only until it first passes, so a dependency left " \
+      assert_same @extensions, @extensions.assert_dependencies,
+                  "the dependency check runs only until it first passes, so a dependency left " \
                   "unmet afterward does not raise on a later invocation"
     end
 
@@ -148,11 +148,11 @@ module Kobako
     def test_dependency_check_re_runs_after_a_failure_so_a_retry_still_raises
       install(extension(name: :File, source: "1", depends_on: [:Errno]))
 
-      assert_raises(ArgumentError) { @extensions.assert_dependencies! }
+      assert_raises(ArgumentError) { @extensions.assert_dependencies }
       assert_raises(ArgumentError,
                     "a dependency check that failed on an unmet dependency must re-check on retry, " \
                     "not silently pass — the asserted flag flips only on a successful check") do
-        @extensions.assert_dependencies!
+        @extensions.assert_dependencies
       end
     end
 
