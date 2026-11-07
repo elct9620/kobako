@@ -5,7 +5,9 @@
 mod family;
 mod namespace;
 mod tcp;
+mod workers;
 
 pub use family::{HostInet, ProtocolFamily, Stream};
 pub use namespace::Namespace;
 pub use tcp::{sock_alloc_file, TcpSock, SOCKET_BUFFER};
+pub use workers::{Workers, PROCESS_WORKERS, SANDBOX_WORKERS};

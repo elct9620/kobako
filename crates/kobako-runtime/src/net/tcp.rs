@@ -12,6 +12,7 @@ use std::thread;
 use std::time::Instant;
 
 use super::family::{ProtocolFamily, Stream};
+use super::workers::{charge, Charge, Workers};
 use crate::vfs::{
     alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
     FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
@@ -64,12 +65,17 @@ pub struct TcpSock {
 
 impl TcpSock {
     /// A socket connecting to `addr` through `family`, giving up at
-    /// `deadline`; the connect runs on a worker, so this returns at once.
+    /// `deadline`; the connect runs on a worker, so this returns at once. Its
+    /// two workers count against `workers` and the process, and a full count
+    /// answers `EAGAIN`, never a Trap, so one Sandbox cannot end another's run.
     pub fn connect(
         family: Arc<dyn ProtocolFamily>,
         addr: SocketAddr,
         deadline: Option<Instant>,
-    ) -> Arc<Self> {
+        workers: &Arc<Workers>,
+    ) -> Result<Arc<Self>, FilesystemError> {
+        let mut charges = charge(workers, 2).ok_or(FilesystemError::WouldBlock)?;
+        let (writer, reader) = (charges.pop(), charges.pop());
         let sock = Arc::new(Self {
             state: Mutex::new(State {
                 phase: Phase::Connecting,
@@ -89,8 +95,11 @@ impl TcpSock {
             deadline,
         });
         let worker = sock.clone();
-        thread::spawn(move || worker.connect_worker(family, addr));
-        sock
+        thread::spawn(move || {
+            let _writer = writer;
+            worker.connect_worker(family, addr, reader);
+        });
+        Ok(sock)
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -108,7 +117,14 @@ impl TcpSock {
             .map(|at| at.saturating_duration_since(Instant::now()))
     }
 
-    fn connect_worker(self: Arc<Self>, family: Arc<dyn ProtocolFamily>, addr: SocketAddr) {
+    /// Connect, then write as the connect's worker while `reader`'s place
+    /// goes to a second worker reading.
+    fn connect_worker(
+        self: Arc<Self>,
+        family: Arc<dyn ProtocolFamily>,
+        addr: SocketAddr,
+        reader_charge: Option<Charge>,
+    ) {
         let connected = family.connect(addr, self.time_left()).and_then(|stream| {
             let reader = stream.try_clone()?;
             let handle = stream.try_clone()?;
@@ -136,7 +152,10 @@ impl TcpSock {
         };
         self.changed();
         let worker = self.clone();
-        thread::spawn(move || worker.read_worker(reader));
+        thread::spawn(move || {
+            let _reader = reader_charge;
+            worker.read_worker(reader);
+        });
         self.write_worker(writer);
     }
 
@@ -453,7 +472,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::net::HostInet;
+    use crate::net::{HostInet, SANDBOX_WORKERS};
     use crate::sched::testing::within_max_wait;
     use crate::wait::do_poll;
 
@@ -465,7 +484,9 @@ mod tests {
             Arc::new(HostInet),
             listener.local_addr().unwrap(),
             Some(Instant::now() + Duration::from_secs(10)),
-        );
+            &Workers::new(SANDBOX_WORKERS),
+        )
+        .expect("a fresh Sandbox has room for a socket's workers");
         let file = sock_alloc_file(&sock, &Arc::default());
         let (peer, _) = listener.accept().expect("the listener accepts");
         wait_for(&file, PollMask::OUT);
@@ -553,7 +574,9 @@ mod tests {
             Arc::new(HostInet),
             addr,
             Some(Instant::now() + Duration::from_secs(10)),
-        );
+            &Workers::new(SANDBOX_WORKERS),
+        )
+        .expect("a fresh Sandbox has room for a socket's workers");
         let file = sock_alloc_file(&sock, &Arc::default());
         wait_for(&file, PollMask::OUT);
         assert_eq!(

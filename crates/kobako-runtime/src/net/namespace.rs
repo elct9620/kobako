@@ -5,25 +5,28 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::{ProtocolFamily, TcpSock};
+use super::{ProtocolFamily, TcpSock, Workers};
 use crate::grant::Policy;
 use crate::network::{Connection, EntryError, Network, Protocol, Ruleset};
 use crate::vfs::{Cred, FilesystemError};
 
-/// What the guest may reach, which policies judge each connect, and the backend
-/// that dials it.
+/// What the guest may reach, which policies judge each connect, the backend
+/// that dials it, and the Sandbox's workers each socket counts against.
 pub struct Namespace {
     ruleset: Ruleset,
     connect: Vec<Arc<dyn for<'a> Policy<Connection<'a>>>>,
     family: Arc<dyn ProtocolFamily>,
+    workers: Arc<Workers>,
 }
 
 impl Namespace {
     /// The namespace every entry of `networks` makes together, dialing through
-    /// `family`, refused for an endpoint the ruleset cannot compile.
+    /// `family` on workers counted against `workers`, refused for an endpoint
+    /// the ruleset cannot compile.
     pub fn new<'a>(
         networks: impl IntoIterator<Item = &'a Network>,
         family: Arc<dyn ProtocolFamily>,
+        workers: Arc<Workers>,
     ) -> Result<Self, EntryError> {
         let networks = networks.into_iter().collect::<Vec<_>>();
         let ruleset = Ruleset::new(networks.iter().flat_map(|network| network.endpoints()))?;
@@ -35,6 +38,7 @@ impl Namespace {
             ruleset,
             connect,
             family,
+            workers,
         })
     }
 
@@ -56,7 +60,7 @@ impl Namespace {
             return Err(FilesystemError::PermissionDenied);
         }
         self.ruleset.admit_literal(addr, Protocol::Tcp)?;
-        Ok(TcpSock::connect(self.family.clone(), addr, deadline))
+        TcpSock::connect(self.family.clone(), addr, deadline, &self.workers)
     }
 }
 
@@ -68,7 +72,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::net::Stream;
+    use crate::net::{Stream, SANDBOX_WORKERS};
     use crate::network::{Endpoint, Entry, Policies};
     use crate::security::prepare_creds_within;
     use crate::vfs::SecurityOperations;
@@ -119,6 +123,11 @@ mod tests {
     }
 
     fn namespace(allows: &[bool]) -> (Namespace, Arc<Counted>, Seen) {
+        within_workers(allows, SANDBOX_WORKERS)
+    }
+
+    /// A namespace whose Sandbox runs at most `workers` workers.
+    fn within_workers(allows: &[bool], workers: usize) -> (Namespace, Arc<Counted>, Seen) {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let networks = allows
             .iter()
@@ -132,8 +141,23 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let family = Arc::new(Counted::default());
-        let namespace = Namespace::new(&networks, family.clone()).expect("the endpoints compile");
+        let namespace = Namespace::new(&networks, family.clone(), Workers::new(workers))
+            .expect("the endpoints compile");
         (namespace, family, seen)
+    }
+
+    // @behavior NW-022
+    #[test]
+    fn a_connect_past_the_sandboxs_workers_answers_eagain() {
+        let (namespace, family, _) = within_workers(&[true], 1);
+        let cred = prepare_creds_within(&[], None);
+        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap(), None);
+        assert!(
+            matches!(answer, Err(FilesystemError::WouldBlock))
+                && family.0.load(Ordering::SeqCst) == 0,
+            "Namespace::connect whose socket's workers exceed the Sandbox's cap must answer \
+             EAGAIN, dialing nothing"
+        );
     }
 
     fn settle(sock: &TcpSock) {
