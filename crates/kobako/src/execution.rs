@@ -179,7 +179,7 @@ mod tests {
 
     /// An Execution whose table already holds `object`, paired with the
     /// id that invocation issued for it.
-    fn execution_holding(object: Arc<dyn Receiver>) -> (Execution, u32) {
+    fn hold_in_execution(object: Arc<dyn Receiver>) -> (Execution, u32) {
         let table = Arc::new(Mutex::new(HandleTable::default()));
         let id = table
             .lock()
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn resolve_recovers_the_object_the_outcome_handle_id_stands_for() {
         let object: Arc<dyn Receiver> = Arc::new(Probe);
-        let (execution, id) = execution_holding(object.clone());
+        let (execution, id) = hold_in_execution(object.clone());
 
         let resolved = execution.resolve(id).expect("the invocation issued id");
 
@@ -214,7 +214,7 @@ mod tests {
     // @behavior T-017
     #[test]
     fn resolve_refuses_an_id_the_invocation_never_issued() {
-        let (execution, id) = execution_holding(Arc::new(Probe));
+        let (execution, id) = hold_in_execution(Arc::new(Probe));
 
         assert!(
             execution.resolve(id + 1).is_none(),
