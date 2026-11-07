@@ -341,7 +341,7 @@ mod tests {
         // One level past the cap fails as a clean wire error instead of
         // recursing until the wasm stack overflows and hard-traps the
         // guest. The bytes are hand-built — `0x91` is a one-element fixarray, `0xc0` the
-        // innermost nil — because the encoder now refuses to emit an
+        // innermost nil — because the encoder refuses to emit an
         // over-deep tree (encoder_rejects_nesting_past_max_depth), so it
         // cannot serialize this input for us.
         let mut bytes = vec![0x91u8; MAX_NESTING_DEPTH + 1];
