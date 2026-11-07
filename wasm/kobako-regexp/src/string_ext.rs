@@ -147,7 +147,7 @@ fn str_gsub(
         if block.is_some() {
             regexp::set_span_globals(mrb, re, &subject, span);
         }
-        out.push_str(&substitution(mrb, re, &subject, span, block, replacement)?);
+        out.push_str(&replace_span(mrb, re, &subject, span, block, replacement)?);
         last = end;
     }
     regexp::settle_span_globals(mrb, re, &subject, spans.last());
@@ -180,7 +180,7 @@ fn str_sub(
     let (start, end) = span.whole;
     let mut out = String::with_capacity(subject.len());
     out.push_str(&subject[..start]);
-    out.push_str(&substitution(mrb, re, &subject, span, block, replacement)?);
+    out.push_str(&replace_span(mrb, re, &subject, span, block, replacement)?);
     out.push_str(&subject[end..]);
     Ok(mrb.str_new(out.as_bytes()).as_value())
 }
@@ -197,7 +197,7 @@ fn require_replacement(mrb: &Mrb, replacement: Option<Value>) -> Result<(), Erro
 }
 
 /// A replacement argument wins over a block, as in MRI.
-fn substitution(
+fn replace_span(
     mrb: &Mrb,
     re: Value,
     subject: &str,
