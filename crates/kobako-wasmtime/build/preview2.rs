@@ -16,7 +16,15 @@ use wit_bindgen_core::wit_parser::{
 
 /// The packages vendored under `wit/deps`, each depending only on those
 /// before it.
-const PACKAGES: [&str; 3] = ["io.wit", "clocks.wit", "sockets.wit"];
+const PACKAGES: [&str; 7] = [
+    "io.wit",
+    "clocks.wit",
+    "random.wit",
+    "filesystem.wit",
+    "sockets.wit",
+    "cli.wit",
+    "http.wit",
+];
 
 /// The interfaces a Guest Binary imports, and the functions of each it may
 /// call; `None` takes every one.
@@ -33,6 +41,53 @@ const IMPORTS: &[(&str, Option<&[&str]>)] = &[
     ("wasi:sockets/tcp-create-socket@0.2.12", None),
     ("wasi:sockets/tcp@0.2.12", None),
     ("wasi:sockets/ip-name-lookup@0.2.12", None),
+    // A client's half: no incoming request, outgoing response, or outparam,
+    // which only a server handed a request holds.
+    (
+        "wasi:http/types@0.2.12",
+        Some(&[
+            "http-error-code",
+            "[constructor]fields",
+            "[static]fields.from-list",
+            "[method]fields.get",
+            "[method]fields.has",
+            "[method]fields.set",
+            "[method]fields.delete",
+            "[method]fields.append",
+            "[method]fields.entries",
+            "[method]fields.clone",
+            "[constructor]outgoing-request",
+            "[method]outgoing-request.body",
+            "[method]outgoing-request.method",
+            "[method]outgoing-request.set-method",
+            "[method]outgoing-request.path-with-query",
+            "[method]outgoing-request.set-path-with-query",
+            "[method]outgoing-request.scheme",
+            "[method]outgoing-request.set-scheme",
+            "[method]outgoing-request.authority",
+            "[method]outgoing-request.set-authority",
+            "[method]outgoing-request.headers",
+            "[constructor]request-options",
+            "[method]request-options.connect-timeout",
+            "[method]request-options.set-connect-timeout",
+            "[method]request-options.first-byte-timeout",
+            "[method]request-options.set-first-byte-timeout",
+            "[method]request-options.between-bytes-timeout",
+            "[method]request-options.set-between-bytes-timeout",
+            "[method]outgoing-body.write",
+            "[static]outgoing-body.finish",
+            "[method]future-incoming-response.subscribe",
+            "[method]future-incoming-response.get",
+            "[method]incoming-response.status",
+            "[method]incoming-response.headers",
+            "[method]incoming-response.consume",
+            "[method]incoming-body.stream",
+            "[static]incoming-body.finish",
+            "[method]future-trailers.subscribe",
+            "[method]future-trailers.get",
+        ]),
+    ),
+    ("wasi:http/outgoing-handler@0.2.12", None),
 ];
 
 /// Where the generated file is included, so every type has one path.
@@ -275,11 +330,29 @@ fn imported<'a>(
 }
 
 /// The resources an interface declares, each with its drop import.
-fn resources(resolve: &Resolve, id: InterfaceId) -> impl Iterator<Item = (&str, TypeId)> {
+/// The resources of `id` a guest may drop: with `only`, those one of its named
+/// functions constructs or is a method of, so a resource no import hands out
+/// gets no drop either.
+fn resources<'a>(
+    resolve: &'a Resolve,
+    id: InterfaceId,
+    only: Option<&[&str]>,
+) -> impl Iterator<Item = (&'a str, TypeId)> {
+    let held = only.map(|_| {
+        imported(resolve, id, only)
+            .filter_map(|func| match func.kind {
+                FunctionKind::Method(ty)
+                | FunctionKind::Static(ty)
+                | FunctionKind::Constructor(ty) => Some(ty),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    });
     resolve.interfaces[id]
         .types
         .iter()
         .filter(|(_, ty)| matches!(resolve.types[**ty].kind, TypeDefKind::Resource))
+        .filter(move |(_, ty)| held.as_ref().is_none_or(|held| held.contains(ty)))
         .map(|(name, ty)| (name.as_str(), *ty))
 }
 
@@ -307,11 +380,53 @@ fn method_name(resolve: &Resolve, id: InterfaceId, func: &Function) -> String {
     format!("{interface}_{owner}{}", snake(&item))
 }
 
-/// The trait the Wasm Driver implements, one method per import. Each answers,
-/// by default, as for a handle the guest cannot hold, since no such resource
-/// was ever handed out.
+/// The trait one WIT package's imports are answered through, as `IoHost` for
+/// `wasi:io`.
+fn package_trait(resolve: &Resolve, id: InterfaceId) -> String {
+    let package = resolve.interfaces[id]
+        .package
+        .expect("a vendored interface has a package");
+    format!("{}Host", camel(&resolve.packages[package].name.name))
+}
+
+/// The traits the Wasm Driver implements, one per WIT package and one method
+/// per import, and `Host`, which every one of them makes. Each answers, by
+/// default, as for a handle the guest cannot hold, since no such resource was
+/// ever handed out.
 fn host_trait(resolve: &Resolve, imports: &[(InterfaceId, Option<&[&str]>)], out: &mut String) {
-    out.push_str("#[allow(unused_variables, clippy::too_many_arguments)]\npub trait Host {\n");
+    let mut traits = Vec::<String>::new();
+    for (id, _) in imports {
+        let name = package_trait(resolve, *id);
+        if !traits.contains(&name) {
+            traits.push(name);
+        }
+    }
+    for name in &traits {
+        let package = imports
+            .iter()
+            .filter(|(id, _)| package_trait(resolve, *id) == *name)
+            .copied()
+            .collect::<Vec<_>>();
+        let _ = writeln!(
+            out,
+            "#[allow(unused_variables, clippy::too_many_arguments)]\npub trait {name} {{"
+        );
+        package_methods(resolve, &package, out);
+        out.push_str("}\n\n");
+    }
+    let _ = writeln!(
+        out,
+        "pub trait Host: {} {{}}\nimpl<T: {}> Host for T {{}}\n",
+        traits.join(" + "),
+        traits.join(" + ")
+    );
+}
+
+fn package_methods(
+    resolve: &Resolve,
+    imports: &[(InterfaceId, Option<&[&str]>)],
+    out: &mut String,
+) {
     for (id, only) in imports {
         for func in imported(resolve, *id, *only) {
             let params = func
@@ -331,7 +446,7 @@ fn host_trait(resolve: &Resolve, imports: &[(InterfaceId, Option<&[&str]>)], out
                 func.name
             );
         }
-        for (name, ty) in resources(resolve, *id) {
+        for (name, ty) in resources(resolve, *id, *only) {
             let interface = snake(resolve.interfaces[*id].name.as_deref().expect("named"));
             let _ = writeln!(
                 out,
@@ -343,7 +458,6 @@ fn host_trait(resolve: &Resolve, imports: &[(InterfaceId, Option<&[&str]>)], out
             );
         }
     }
-    out.push_str("}\n\n");
 }
 
 fn core_type(ty: &WasmType) -> &'static str {
@@ -397,7 +511,7 @@ fn linker(
                 func.name, body.src
             );
         }
-        for (name, ty) in resources(resolve, *id) {
+        for (name, ty) in resources(resolve, *id, *only) {
             let interface = snake(resolve.interfaces[*id].name.as_deref().expect("named"));
             let _ = writeln!(
                 out,

@@ -1,9 +1,11 @@
 //! The WASI 0.2 imports a Guest Binary links as a core module, encoded onto
 //! `kobako-runtime` as preview1's are. `build.rs` generates each import's
-//! glue from the vendored WIT; the Wasm Driver answers its `Host` trait.
+//! glue from the vendored WIT; the Wasm Driver answers one host trait per WIT
+//! package.
 
 pub(crate) mod abi;
 mod host;
+mod http;
 mod sockets;
 mod table;
 

@@ -20,7 +20,7 @@ use super::bindings::wasi_sockets_network_0_2_12::{
     ErrorCode, IpAddress, IpAddressFamily, IpSocketAddress, Network,
 };
 use super::bindings::wasi_sockets_tcp_0_2_12::{ShutdownType, TcpSocket};
-use super::bindings::Host;
+use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{
     from_socket_addr, hide_host_address, lookup_error_code, to_error_code, to_socket_addr,
 };
@@ -148,7 +148,7 @@ impl Invocation {
     }
 }
 
-impl Host for Invocation {
+impl SocketsHost for Invocation {
     fn instance_network_instance_network(&mut self) -> wasmtime::Result<Network> {
         Ok(Network(
             self.wasi_mut().table_mut().push(Resource::Network)?,
@@ -406,7 +406,9 @@ impl Host for Invocation {
     fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {
         self.wasi_mut().table_mut().delete(handle.0).map(drop)
     }
+}
 
+impl IoHost for Invocation {
     fn streams_input_stream_read(
         &mut self,
         this: InputStream,
@@ -539,23 +541,6 @@ impl Host for Invocation {
         self.wasi_mut().table_mut().delete(handle.0).map(drop)
     }
 
-    fn monotonic_clock_subscribe_duration(
-        &mut self,
-        when: monotonic_clock::Duration,
-    ) -> wasmtime::Result<Pollable> {
-        self.subscribe_clock(when)
-    }
-
-    /// An instant counts from preview1's `clock_time_get` origin, so both
-    /// encodings name one clock.
-    fn monotonic_clock_subscribe_instant(
-        &mut self,
-        when: monotonic_clock::Instant,
-    ) -> wasmtime::Result<Pollable> {
-        let now = self.wasi().clocks().monotonic_now();
-        self.subscribe_clock(when.saturating_sub(now))
-    }
-
     fn poll_pollable_ready(&mut self, this: Pollable) -> wasmtime::Result<bool> {
         let pollable = self.wasi().table().pollable(this.0)?;
         Ok(pollable.ready(None, pollable.is_producer()))
@@ -593,6 +578,25 @@ impl Host for Invocation {
 
     fn poll_pollable_drop(&mut self, handle: Pollable) -> wasmtime::Result<()> {
         self.wasi_mut().table_mut().delete(handle.0).map(drop)
+    }
+}
+
+impl ClocksHost for Invocation {
+    fn monotonic_clock_subscribe_duration(
+        &mut self,
+        when: monotonic_clock::Duration,
+    ) -> wasmtime::Result<Pollable> {
+        self.subscribe_clock(when)
+    }
+
+    /// An instant counts from preview1's `clock_time_get` origin, so both
+    /// encodings name one clock.
+    fn monotonic_clock_subscribe_instant(
+        &mut self,
+        when: monotonic_clock::Instant,
+    ) -> wasmtime::Result<Pollable> {
+        let now = self.wasi().clocks().monotonic_now();
+        self.subscribe_clock(when.saturating_sub(now))
     }
 }
 
