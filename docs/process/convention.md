@@ -124,7 +124,7 @@ The third-person form follows the standard library's `contains` and `starts_with
 
 ## Raising Methods
 
-A Ruby method kobako keeps to itself ends in `!` when it raises where it could not do its work. A guard that only checks is named for the check. A public method follows Ruby instead, where `!` marks only the member of a pair that raises, so `Sandbox#run` raises without one.
+A private Ruby method ends in `!` when it raises where it could not do its work. A guard that only checks is named for the check. A public method follows Ruby instead, where `!` marks only the member of a pair that raises, so `Sandbox#run` raises without one.
 
 | Method | Raises | As in |
 |---|---|---|
