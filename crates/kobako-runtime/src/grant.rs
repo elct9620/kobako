@@ -3,6 +3,7 @@
 //! afresh; the guest reaches it through its system interface.
 
 use crate::mount::Mount;
+use crate::network::Network;
 
 /// One resource handed over for an Invocation. Each kind carries what it
 /// is and decides its own access.
@@ -10,6 +11,7 @@ use crate::mount::Mount;
 #[non_exhaustive]
 pub enum Grant {
     Mount(Mount),
+    Network(Network),
 }
 
 /// The Host App's decision for one request a Grant's access already allows,
@@ -31,4 +33,5 @@ impl<R: ?Sized, F: Fn(&R) -> bool + Send + Sync> Policy<R> for F {
 #[non_exhaustive]
 pub enum GrantKind {
     Mount,
+    Network,
 }

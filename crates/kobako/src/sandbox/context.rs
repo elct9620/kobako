@@ -3,6 +3,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::mount::{Access, Mount, MountRequest};
+use kobako_runtime::network::{Entry, Network};
 
 use crate::catalog::Catalog;
 use crate::dispatch::Resolutions;
@@ -70,13 +71,25 @@ impl Context<'_> {
         self.replace_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))
     }
 
+    /// Use `entry` for the network entry named `name` during this invocation
+    /// only; it may reach more than the Sandbox's own. Replacing a name the
+    /// Sandbox never gave returns `Error::Argument`, so an override never adds
+    /// an entry.
+    pub fn network(&mut self, name: &str, entry: Arc<dyn Entry>) -> Result<(), Error> {
+        let refusal = format!("cannot override undeclared network entry {name:?}");
+        self.replace(Grant::Network(Network::new(name, entry)?), refusal)
+    }
+
     fn replace_mount(&mut self, mount: Mount) -> Result<(), Error> {
-        let at = mount.at().to_string();
-        let grant = Grant::Mount(mount);
+        let refusal = format!("cannot override unmounted path {:?}", mount.at());
+        self.replace(Grant::Mount(mount), refusal)
+    }
+
+    /// Stand `grant` in for the Sandbox's Grant of its kind at its key, or
+    /// refuse with `refusal` when the Sandbox holds none there.
+    fn replace(&mut self, grant: Grant, refusal: String) -> Result<(), Error> {
         if !self.catalog.grants.holds(&grant) {
-            return Err(Error::Argument(format!(
-                "cannot override unmounted path {at:?}"
-            )));
+            return Err(Error::Argument(refusal));
         }
         self.grants.retain(|replaced| !shares_key(replaced, &grant));
         self.grants.push(grant);

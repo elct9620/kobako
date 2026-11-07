@@ -34,6 +34,7 @@ use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::GrantKind;
 use kobako_runtime::grant::Policy;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
+use kobako_runtime::network::{self, Network};
 
 mod context;
 mod options;
@@ -223,6 +224,21 @@ impl Sandbox {
             )));
         }
         catalog.grants.mount(mount)
+    }
+
+    /// Give the guest the network entry `entry` under `name`; what it lets the
+    /// guest reach is its endpoints, read afresh for each invocation. An empty
+    /// or duplicate name is refused, and so is a runtime that presents no
+    /// network to the guest. Refused once sealed.
+    pub fn network(&mut self, name: &str, entry: Arc<dyn network::Entry>) -> Result<(), Error> {
+        let network = Network::new(name, entry)?;
+        let catalog = open_catalog(&mut self.registry)?;
+        if !self.runtime.supports(GrantKind::Network) {
+            return Err(Error::Setup(SetupError::Intact(
+                "this Sandbox's runtime presents no network to the guest".to_string(),
+            )));
+        }
+        catalog.grants.network(network)
     }
 
     /// Install an Extension — a guest idiom (`source`) paired with an

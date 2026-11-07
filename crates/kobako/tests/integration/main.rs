@@ -12,6 +12,7 @@ mod fillable;
 mod flags;
 mod install;
 mod mount;
+mod network;
 mod overrides;
 mod runtime_injection;
 mod snippet_compile;

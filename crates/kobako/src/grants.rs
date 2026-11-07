@@ -3,14 +3,17 @@
 
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
+use kobako_runtime::network::Network;
 
 use crate::error::Error;
 
 /// Whether `grant` and `other` are the same kind of Grant at one key, so
-/// one stands in for the other: a Mount at the same path.
+/// one stands in for the other: a Mount at the same path, or a network entry
+/// of the same name.
 pub(crate) fn shares_key(grant: &Grant, other: &Grant) -> bool {
     match (grant, other) {
         (Grant::Mount(grant), Grant::Mount(other)) => grant.at() == other.at(),
+        (Grant::Network(grant), Grant::Network(other)) => grant.name() == other.name(),
         _ => false,
     }
 }
@@ -28,6 +31,19 @@ impl Grants {
         let grant = Grant::Mount(mount);
         if self.holds(&grant) {
             return Err(Error::Argument(format!("path {at:?} is already mounted")));
+        }
+        self.entries.push(grant);
+        Ok(())
+    }
+
+    /// A name already given is refused, as a path already mounted is.
+    pub(crate) fn network(&mut self, network: Network) -> Result<(), Error> {
+        let name = network.name().to_string();
+        let grant = Grant::Network(network);
+        if self.holds(&grant) {
+            return Err(Error::Argument(format!(
+                "network entry {name:?} is already given"
+            )));
         }
         self.entries.push(grant);
         Ok(())

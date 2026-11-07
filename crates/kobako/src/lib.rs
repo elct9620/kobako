@@ -64,6 +64,9 @@ pub use kobako_runtime::mount::{Access, MountRequest};
 /// The Filesystems a Sandbox mounts, and what a Host App's own one is
 /// written against, so mounting or writing one needs no crate but this.
 pub use kobako_runtime::filesystem;
+/// The entries and endpoints a Sandbox gives the guest, so giving one needs no
+/// crate but this.
+pub use kobako_runtime::network;
 pub use kobako_runtime::profile::Profile;
 pub use payload::RunPayload;
 pub use receiver::{Fault, FaultKind, Receiver};

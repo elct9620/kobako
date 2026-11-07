@@ -138,6 +138,12 @@ impl From<kobako_runtime::mount::MountPathError> for Error {
     }
 }
 
+impl From<kobako_runtime::network::EntryError> for Error {
+    fn from(err: kobako_runtime::network::EntryError) -> Self {
+        Error::Argument(err.to_string())
+    }
+}
+
 impl From<kobako_runtime::error::Trap> for Error {
     fn from(trap: kobako_runtime::error::Trap) -> Self {
         match trap {
