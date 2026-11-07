@@ -944,6 +944,7 @@ dependencies = [
  "rustls",
  "rustls-platform-verifier",
  "ureq",
+ "zeroize",
 ]
 
 [[package]]

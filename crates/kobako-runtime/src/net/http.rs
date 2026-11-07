@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use super::workers::{charge, Workers};
 use super::{platform_tls, ProtocolFamily, Stream, SOCKET_BUFFER};
-use crate::network::{Protocol, Ruleset};
+use crate::network::{Protocol, Ruleset, Secret};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -38,6 +38,38 @@ pub struct OutgoingRequest {
     pub path_with_query: String,
     pub headers: Vec<(String, Vec<u8>)>,
     pub body: Vec<u8>,
+    /// The credentials bound to this request, swapped in only by the default
+    /// outbound seam and only on the way out, so no other seam reads a secret.
+    pub(crate) swaps: Vec<Swap>,
+}
+
+/// One placeholder to replace with a secret in one named header's value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Swap {
+    pub(crate) header: String,
+    pub(crate) placeholder: Vec<u8>,
+    pub(crate) secret: Secret,
+}
+
+impl Swap {
+    /// `value`, the named header's, with each placeholder replaced.
+    fn apply(&self, name: &str, value: &[u8]) -> Vec<u8> {
+        if !name.eq_ignore_ascii_case(&self.header) || self.placeholder.is_empty() {
+            return value.to_vec();
+        }
+        let mut swapped = Vec::with_capacity(value.len());
+        let mut rest = value;
+        while let Some(at) = rest
+            .windows(self.placeholder.len())
+            .position(|window| window == self.placeholder.as_slice())
+        {
+            swapped.extend_from_slice(&rest[..at]);
+            swapped.extend_from_slice(self.secret.expose());
+            rest = &rest[at + self.placeholder.len()..];
+        }
+        swapped.extend_from_slice(rest);
+        swapped
+    }
 }
 
 impl OutgoingRequest {
@@ -49,6 +81,7 @@ impl OutgoingRequest {
             path_with_query: "/".to_string(),
             headers: Vec::new(),
             body: Vec::new(),
+            swaps: Vec::new(),
         }
     }
 }
@@ -442,7 +475,11 @@ impl Outbound for UreqOutbound {
             .method(request.method.as_str())
             .uri(uri);
         for (name, value) in &request.headers {
-            builder = builder.header(name.as_str(), value.as_slice());
+            let value = request
+                .swaps
+                .iter()
+                .fold(value.clone(), |value, swap| swap.apply(name, &value));
+            builder = builder.header(name.as_str(), value);
         }
         let http = builder
             .body(request.body.clone())
@@ -908,6 +945,149 @@ mod tests {
             ),
             "a request policy must see the authority, method, scheme, path with no query, and \
              header names, and its refusal must answer Denied, sending nothing"
+        );
+    }
+
+    /// A seam recording the credentials each request it is handed carries, and
+    /// answering none.
+    #[derive(Default)]
+    struct Recording(Mutex<Vec<Vec<Swap>>>);
+
+    impl Outbound for Recording {
+        fn send_request(
+            &self,
+            request: &OutgoingRequest,
+            _connector: &Connector,
+            _timeout: Option<Duration>,
+        ) -> Result<Response, HttpError> {
+            self.0.lock().unwrap().push(request.swaps.clone());
+            Err(HttpError::Internal)
+        }
+    }
+
+    /// The swaps a request carries once its entry binds a bearer credential to
+    /// `exact.example.com` and `*.example.com` on 443, allowing GET on `/api/**`.
+    fn swaps_for(scheme: Scheme, host: &str, path: &str, header: &str) -> Vec<Swap> {
+        let mut entry = Builder::default();
+        entry
+            .endpoint(
+                Endpoint::new("exact.example.com", 443)
+                    .unwrap()
+                    .with_rules(vec![crate::network::HttpRule::allow(
+                        Some("GET"),
+                        "/api/**",
+                    )]),
+            )
+            .endpoint(Endpoint::new("*.example.com", 443).unwrap())
+            .credential(crate::network::Credential::new(
+                crate::network::Placement::Bearer,
+                "kobako-token",
+                Arc::new(|_: &crate::network::Request<'_>| {
+                    Some(crate::network::Secret::new("s3cret"))
+                }),
+            ));
+        let network = Network::new("api", Arc::new(entry)).unwrap();
+        let seam = Arc::new(Recording::default());
+        let family = Arc::new(Resolving);
+        let namespace = Namespace::new(
+            [&network],
+            family,
+            seam.clone(),
+            Workers::new(SANDBOX_WORKERS),
+        )
+        .unwrap();
+        let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));
+        request.path_with_query = path.to_string();
+        request
+            .headers
+            .push((header.to_string(), b"Bearer kobako-token".to_vec()));
+        let exchange = namespace
+            .send(&prepare_creds_within(&[], None), request, None)
+            .expect("an endpoint names the authority");
+        let _ = settled(&exchange);
+        let recorded = seam.0.lock().unwrap().pop().unwrap_or_default();
+        recorded
+    }
+
+    /// A family resolving every name to loopback and dialing nothing.
+    struct Resolving;
+
+    impl ProtocolFamily for Resolving {
+        fn connect(
+            &self,
+            _addr: SocketAddr,
+            _timeout: Option<Duration>,
+        ) -> io::Result<Box<dyn Stream>> {
+            Err(io::ErrorKind::ConnectionRefused.into())
+        }
+    }
+
+    // @behavior NW-050
+    #[test]
+    fn a_credential_binds_only_to_https_its_exact_host_and_an_allowed_path() {
+        let bound = |scheme, host, path, header| !swaps_for(scheme, host, path, header).is_empty();
+        assert_eq!(
+            [
+                bound(
+                    Scheme::Https,
+                    "exact.example.com",
+                    "/api/repos",
+                    "authorization"
+                ),
+                bound(
+                    Scheme::Http,
+                    "exact.example.com",
+                    "/api/repos",
+                    "authorization"
+                ),
+                bound(
+                    Scheme::Https,
+                    "other.example.com",
+                    "/api/repos",
+                    "authorization"
+                ),
+                bound(
+                    Scheme::Https,
+                    "exact.example.com",
+                    "/admin",
+                    "authorization"
+                ),
+                bound(
+                    Scheme::Https,
+                    "exact.example.com",
+                    "/api/a;b",
+                    "authorization"
+                ),
+                bound(Scheme::Https, "exact.example.com", "/api/repos", "x-other"),
+            ],
+            [true, false, false, false, false, false],
+            "a credential must bind only to https, to its entry's exact host, on a path the \
+             endpoint allows and every server reads alike, and only where its header carries the \
+             placeholder"
+        );
+    }
+
+    // @behavior NW-051
+    #[test]
+    fn a_swap_replaces_the_placeholder_in_its_header_only() {
+        let swap = Swap {
+            header: "authorization".to_string(),
+            placeholder: b"kobako-token".to_vec(),
+            secret: crate::network::Secret::new("s3cret"),
+        };
+        assert_eq!(
+            (
+                swap.apply("Authorization", b"Bearer kobako-token"),
+                swap.apply("x-echo", b"kobako-token"),
+                format!("{:?}", swap.secret),
+            ),
+            (
+                b"Bearer s3cret".to_vec(),
+                b"kobako-token".to_vec(),
+                "Secret(**)".to_string()
+            ),
+            "a swap must replace the placeholder in its named header only, and a secret must \
+             print as a mask"
         );
     }
 }

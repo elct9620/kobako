@@ -294,6 +294,21 @@ impl Ruleset {
         self.rules.iter().any(|rule| rule.names(name))
     }
 
+    /// Whether a credential of these endpoints' entry is bound to a request to
+    /// `host` at `port` by `method` on `path`: an `http` endpoint names that
+    /// exact host, never through a wildcard or an address, and allows the
+    /// request, on a path every server reads alike. The scheme is the caller's
+    /// to hold to `https`.
+    pub fn binds(&self, host: &str, port: u16, method: &str, path: &str) -> bool {
+        unambiguous(path)
+            && self.rules.iter().any(|rule| {
+                rule.port == port
+                    && rule.protocol == Protocol::Http
+                    && matches!(&rule.host, Host::Name(name) if name == host)
+                    && rule.allows_request(method, path)
+            })
+    }
+
     /// Whether an `http` endpoint holding `host` at `port` allows `method` on
     /// `path`, the path with no query: endpoints join, so any one allowing it
     /// admits the request.

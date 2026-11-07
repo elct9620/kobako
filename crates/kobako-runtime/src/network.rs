@@ -47,6 +47,12 @@ impl Network {
     pub fn policies(&self) -> Policies {
         self.entry.policies()
     }
+
+    /// The credentials this entry swaps into requests bound to its own
+    /// endpoints, as it answers for this Invocation.
+    pub fn credentials(&self) -> Vec<Credential> {
+        self.entry.credentials()
+    }
 }
 
 /// What a Host App's entry plays. Each role defaults to nothing, so an entry
@@ -61,6 +67,98 @@ pub trait Entry: Send + Sync {
     /// opinion.
     fn policies(&self) -> Policies {
         Policies::default()
+    }
+
+    /// The credentials swapped into a request bound to this entry's own
+    /// endpoints.
+    fn credentials(&self) -> Vec<Credential> {
+        Vec::new()
+    }
+}
+
+/// A value the Host App hands no guest, its `Debug` a mask and its bytes zeroed
+/// as it drops.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret(Vec<u8>);
+
+impl Secret {
+    pub fn new(value: impl Into<Vec<u8>>) -> Self {
+        Self(value.into())
+    }
+
+    /// The bytes, for the one header they are swapped into.
+    pub fn expose(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Secret(**)")
+    }
+}
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.0);
+    }
+}
+
+/// Where a credential's value goes: the `authorization` header as a bearer
+/// token or a basic pair, or one named header, as OpenShell's `auth_style`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Placement {
+    Bearer,
+    Basic,
+    /// A header by its name, lowercase.
+    Header(String),
+}
+
+impl Placement {
+    /// The header the value is swapped into.
+    pub fn header(&self) -> &str {
+        match self {
+            Placement::Bearer | Placement::Basic => "authorization",
+            Placement::Header(name) => name,
+        }
+    }
+}
+
+/// What resolves a credential's value as a bound request leaves: the value, or
+/// `None` to send nothing. Caching and refresh are its own.
+pub trait CredentialSource: Send + Sync {
+    fn value(&self, request: &Request<'_>) -> Option<Secret>;
+}
+
+impl<F: Fn(&Request<'_>) -> Option<Secret> + Send + Sync> CredentialSource for F {
+    fn value(&self, request: &Request<'_>) -> Option<Secret> {
+        self(request)
+    }
+}
+
+/// A placement and a placeholder paired with the source of the value that
+/// replaces the placeholder there.
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct Credential {
+    pub placement: Placement,
+    /// The string the Host App hands the guest in the value's place.
+    pub placeholder: String,
+    pub source: Arc<dyn CredentialSource>,
+}
+
+impl Credential {
+    pub fn new(
+        placement: Placement,
+        placeholder: impl Into<String>,
+        source: Arc<dyn CredentialSource>,
+    ) -> Self {
+        Self {
+            placement,
+            placeholder: placeholder.into(),
+            source,
+        }
     }
 }
 

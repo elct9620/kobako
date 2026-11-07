@@ -57,6 +57,8 @@ ureq = { version = "=3.5.1", default-features = false }
 # added root follows the host's patches rather than a kobako release.
 rustls = { version = "0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
 rustls-platform-verifier = "0.7.1"
+# Zeroes a credential's value as it drops, so a freed page holds no secret.
+zeroize = "1.9.1"
 
 # rustix switches a Bind's file to append mode for one write, so the
 # host places it at the file's end in one step; std cannot set file flags.

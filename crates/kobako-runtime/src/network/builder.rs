@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use super::{Connection, Endpoint, Entry, Name, Policies, Request};
+use super::{Connection, Credential, Endpoint, Entry, Name, Policies, Request};
 use crate::grant::Policy;
 
 /// An entry whose endpoints and policies are the given entry's, then its own.
@@ -14,6 +14,7 @@ pub struct Builder {
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
     connect: Vec<Arc<dyn for<'a> Policy<Connection<'a>>>>,
     request: Vec<Arc<dyn for<'a> Policy<Request<'a>>>>,
+    credentials: Vec<Credential>,
 }
 
 impl Builder {
@@ -37,6 +38,12 @@ impl Builder {
         self
     }
 
+    /// Swap `credential` into requests bound to this entry's endpoints too.
+    pub fn credential(&mut self, credential: Credential) -> &mut Self {
+        self.credentials.push(credential);
+        self
+    }
+
     /// Judge each HTTP request with `policy` too; any refusal wins.
     pub fn request_policy(
         &mut self,
@@ -57,6 +64,15 @@ impl Builder {
 }
 
 impl Entry for Builder {
+    fn credentials(&self) -> Vec<Credential> {
+        let mut credentials = self
+            .entry
+            .as_ref()
+            .map_or_else(Vec::new, |entry| entry.credentials());
+        credentials.extend(self.credentials.iter().cloned());
+        credentials
+    }
+
     fn endpoints(&self) -> Vec<Endpoint> {
         let mut endpoints = self
             .entry

@@ -9,12 +9,14 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
 use super::http::{
-    split_authority, Connector, Exchange, HttpError, Outbound, OutgoingRequest, Scheme,
+    split_authority, Connector, Exchange, HttpError, Outbound, OutgoingRequest, Scheme, Swap,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::{ProtocolFamily, TcpSock, Workers};
 use crate::grant::Policy;
-use crate::network::{Connection, EntryError, Name, Network, Protocol, Request, Ruleset};
+use crate::network::{
+    Connection, Credential, EntryError, Name, Network, Protocol, Request, Ruleset,
+};
 use crate::vfs::{Cred, FilesystemError};
 
 /// The bottom of the virtual range, `198.18.0.0/15`, inside the reserved set,
@@ -32,6 +34,8 @@ pub struct Namespace {
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
     connect: Vec<Arc<dyn for<'a> Policy<Connection<'a>>>>,
     request: Vec<Arc<dyn for<'a> Policy<Request<'a>>>>,
+    /// Each entry's own endpoints and the credentials bound to them.
+    bound: Vec<(Ruleset, Vec<Credential>)>,
     family: Arc<dyn ProtocolFamily>,
     outbound: Arc<dyn Outbound>,
     workers: Arc<Workers>,
@@ -52,6 +56,12 @@ impl Namespace {
     ) -> Result<Self, EntryError> {
         let networks = networks.into_iter().collect::<Vec<_>>();
         let ruleset = Ruleset::new(networks.iter().flat_map(|network| network.endpoints()))?;
+        let bound = networks
+            .iter()
+            .map(|network| (network, network.credentials()))
+            .filter(|(_, credentials)| !credentials.is_empty())
+            .map(|(network, credentials)| Ok((Ruleset::new(network.endpoints())?, credentials)))
+            .collect::<Result<Vec<_>, EntryError>>()?;
         let policies = networks
             .iter()
             .map(|network| network.policies())
@@ -61,6 +71,7 @@ impl Namespace {
             resolve: policies.iter().filter_map(|p| p.resolve.clone()).collect(),
             connect: policies.iter().filter_map(|p| p.connect.clone()).collect(),
             request: policies.iter().filter_map(|p| p.request.clone()).collect(),
+            bound,
             family,
             outbound,
             workers,
@@ -120,6 +131,12 @@ impl Namespace {
         if !hooked || !admitted {
             return Err(HttpError::Denied);
         }
+        let swaps = match request.scheme {
+            Scheme::Https => self.swaps(&sent, &request.headers),
+            Scheme::Http => Vec::new(),
+        };
+        let mut request = request;
+        request.swaps = swaps;
         let connector = Connector::new(host, port, self.ruleset.clone(), self.family.clone());
         Exchange::start(
             self.outbound.clone(),
@@ -128,6 +145,40 @@ impl Namespace {
             deadline,
             &self.workers,
         )
+    }
+
+    /// The credentials bound to `sent`, a request over `https`: an entry's own
+    /// endpoint names its exact host and allows it, and the placement's header
+    /// carries the placeholder. Each source answers here, on the guest thread,
+    /// so its time counts against the deadline.
+    fn swaps(&self, sent: &Request<'_>, headers: &[(String, Vec<u8>)]) -> Vec<Swap> {
+        let (host, port) = sent.authority;
+        let mut swaps = Vec::new();
+        for (rules, credentials) in &self.bound {
+            if !rules.binds(host, port, sent.method, sent.path) {
+                continue;
+            }
+            for credential in credentials {
+                let header = credential.placement.header();
+                let placeholder = credential.placeholder.as_bytes();
+                let carried = !placeholder.is_empty()
+                    && headers.iter().any(|(name, value)| {
+                        name.eq_ignore_ascii_case(header)
+                            && value.windows(placeholder.len()).any(|w| w == placeholder)
+                    });
+                if !carried {
+                    continue;
+                }
+                if let Some(secret) = credential.source.value(sent) {
+                    swaps.push(Swap {
+                        header: header.to_string(),
+                        placeholder: placeholder.to_vec(),
+                        secret,
+                    });
+                }
+            }
+        }
+        swaps
     }
 
     /// A lookup of `name`. The name is normalized, then each entry's `resolve`
