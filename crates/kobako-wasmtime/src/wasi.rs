@@ -18,7 +18,7 @@ use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
-use kobako_runtime::vfs::Cred;
+use kobako_runtime::vfs::{Cred, OpenFiles};
 
 /// The Cred an invocation's Mounts open as: kobako's own rules, then each
 /// module the Driver was built with, its Filesystems holding at most the
@@ -112,7 +112,7 @@ impl Wasi {
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
             mounts,
-            open_file_limit,
+            OpenFiles::new(open_file_limit),
             opener,
             profile,
         )

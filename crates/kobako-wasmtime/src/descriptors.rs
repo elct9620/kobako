@@ -13,7 +13,7 @@ use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::{restrict_self, WalkGuard};
-use kobako_runtime::vfs::{Cred, File};
+use kobako_runtime::vfs::{Cred, File, OpenFiles};
 
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
 pub(crate) struct Descriptor {
@@ -35,7 +35,8 @@ impl Descriptor {
 pub(crate) struct Descriptors {
     used: BTreeMap<u32, Descriptor>,
     free: BTreeSet<u32>,
-    limit: Option<usize>,
+    /// The count this table shares with every other table of the Invocation.
+    open_files: OpenFiles,
     /// Who the guest's calls are made for, as a task holds its `cred`.
     cred: Arc<Cred>,
     /// What a descriptor's call asks before it starts.
@@ -47,16 +48,16 @@ pub(crate) struct Descriptors {
 
 impl Descriptors {
     /// The table every invocation starts from: stdin, then the two
-    /// Channels, then one preopen per Mount from descriptor 3. It holds at
-    /// most `limit` descriptors, those included, as a process's
-    /// `RLIMIT_NOFILE` counts every one it holds. Each Mount's root opens as
-    /// `opener`, the Cred the Driver prepared, before its Policy applies.
+    /// Channels, then one preopen per Mount from descriptor 3. Each counts
+    /// against `open_files`, those included, as a process's `RLIMIT_NOFILE`
+    /// counts every one it holds. Each Mount's root opens as `opener`, the
+    /// Cred the Driver prepared, before its Policy applies.
     pub(crate) fn new(
         stdin: File,
         stdout: File,
         stderr: File,
         mounts: Vec<Mount>,
-        limit: Option<usize>,
+        open_files: OpenFiles,
         opener: Arc<Cred>,
         profile: Profile,
     ) -> Result<Self, FilesystemError> {
@@ -77,12 +78,15 @@ impl Descriptors {
                 },
             );
         }
+        for _ in &used {
+            open_files.open()?;
+        }
         let cred = restrict_self(&opener, &mounts);
         let walk_guard = WalkGuard::new(&mounts);
         Ok(Self {
             used,
             free: BTreeSet::new(),
-            limit,
+            open_files,
             cred,
             walk_guard,
             profile,
@@ -117,6 +121,7 @@ impl Descriptors {
     pub(crate) fn remove(&mut self, fd: u32) -> Option<Descriptor> {
         let descriptor = self.used.remove(&fd)?;
         self.free.insert(fd);
+        self.open_files.close();
         Some(descriptor)
     }
 
@@ -125,6 +130,9 @@ impl Descriptors {
     pub(crate) fn place(&mut self, fd: u32, descriptor: Descriptor) {
         self.free.remove(&fd);
         self.used.insert(fd, descriptor);
+        self.open_files
+            .open()
+            .expect("a number just freed, or one lowest_unused found, has room in the count");
     }
 
     /// The number the next descriptor takes, the lowest freed one or the one
@@ -132,7 +140,7 @@ impl Descriptors {
     /// `None` when the table holds as many as it may. Nothing is placed
     /// until `place`, as `fd_install` fills what was found.
     pub(crate) fn lowest_unused(&self) -> Option<u32> {
-        if self.limit.is_some_and(|limit| self.used.len() >= limit) {
+        if self.open_files.is_full() {
             return None;
         }
         match self.free.first() {
@@ -172,7 +180,7 @@ mod tests {
             pipe_end(),
             pipe_end(),
             Vec::new(),
-            None,
+            OpenFiles::new(None),
             prepare_creds_within(&[], None),
             Profile::Hermetic,
         )

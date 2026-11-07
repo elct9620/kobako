@@ -36,6 +36,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/vfs/super_block.rs`
 - `crates/kobako-runtime/src/vfs/inode.rs`
 - `crates/kobako-runtime/src/vfs/namei.rs`
+- `crates/kobako-runtime/src/vfs/open_files.rs`
 - `crates/kobako-runtime/src/vfs/openat2.rs`
 - `crates/kobako-runtime/src/vfs/path.rs`
 - `crates/kobako-runtime/src/vfs/readdir.rs`
@@ -2850,6 +2851,55 @@ Run the given wait, which returns once the lock is taken.
 ```rust
 pub trait Blocking {
     fn wait(&self, wait: &mut dyn FnMut());
+}
+```
+
+## `OpenFiles`
+
+The files an Invocation holds across every table it has, against its limit, as
+`RLIMIT_NOFILE` counts them. Each table holding one shares the count.
+
+```rust
+pub struct OpenFiles {}
+```
+
+## `OpenFiles::new`
+
+No file held yet, at most the given limit at once. `None` lifts the limit.
+
+```rust
+impl OpenFiles {
+    pub fn new(limit: Option<usize>) -> Self {}
+}
+```
+
+## `OpenFiles::is_full`
+
+Whether one more would pass the limit.
+
+```rust
+impl OpenFiles {
+    pub fn is_full(&self) -> bool {}
+}
+```
+
+## `OpenFiles::open`
+
+Hold one more, refused as EMFILE at the limit.
+
+```rust
+impl OpenFiles {
+    pub fn open(&self) -> Result<(), FilesystemError> {}
+}
+```
+
+## `OpenFiles::close`
+
+Give one back, as closing a descriptor does.
+
+```rust
+impl OpenFiles {
+    pub fn close(&self) {}
 }
 ```
 

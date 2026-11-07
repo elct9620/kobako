@@ -566,7 +566,7 @@ mod tests {
             ends(PipeInodeInfo::new(1)).1,
             ends(PipeInodeInfo::new(1)).1,
             mounts,
-            limit,
+            kobako_runtime::vfs::OpenFiles::new(limit),
             cred.clone(),
             Profile::Hermetic,
         )
