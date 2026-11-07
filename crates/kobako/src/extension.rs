@@ -109,7 +109,7 @@ pub(crate) fn unresolved() -> Arc<dyn Receiver> {
     Arc::new(Unresolved)
 }
 
-fn install_object(provider: &Provider) -> Arc<dyn Receiver> {
+fn object_of(provider: &Provider) -> Arc<dyn Receiver> {
     match provider {
         Provider::Static(object) => object.clone(),
         Provider::PerInvocation(_) | Provider::Fillable => unresolved(),
@@ -136,7 +136,7 @@ impl Extensions {
             .snippets
             .register_source(extension.name(), extension.source())?;
         if let Some(backend) = extension.backend() {
-            catalog.bind(&backend.path, install_object(&backend.provider))?;
+            catalog.bind(&backend.path, object_of(&backend.provider))?;
         }
         self.entries.push(extension);
         Ok(())
