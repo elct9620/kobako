@@ -10,26 +10,21 @@ module Parity
   # +argument+ faults arise from the scenario's shape (a method the
   # stub lacks), never from a stub declaration, so both dispatchers
   # must derive them from the same conditions.
-  SCENARIO_DEFAULTS = { options: {}, services: [], preloads: [], flags: [], extensions: [], mounts: [] }.freeze
+  SCENARIO_DEFAULTS = {
+    options: {}, services: [], preloads: [], flags: [], extensions: [], mounts: [], networks: []
+  }.freeze
 
-  Scenario = Data.define(:name, :options, :services, :preloads, :flags, :extensions, :mounts, :invocations) do
+  Scenario = Data.define(
+    :name, :options, :services, :preloads, :flags, :extensions, :mounts, :networks, :invocations
+  ) do
     def initialize(name:, invocations:, **rest)
       super(name:, invocations:, **SCENARIO_DEFAULTS.merge(rest))
     end
 
-    # The JSON-ready payload the Rust runner consumes; the Ruby
-    # executor reads the Scenario directly.
+    # The JSON-ready payload the Rust runner consumes, every part but the
+    # name; the Ruby executor reads the Scenario directly.
     def to_payload(wasm_path)
-      {
-        "wasm_path" => wasm_path,
-        "options" => options,
-        "services" => services,
-        "preloads" => preloads,
-        "flags" => flags,
-        "extensions" => extensions,
-        "mounts" => mounts,
-        "invocations" => invocations
-      }
+      { "wasm_path" => wasm_path }.merge(to_h.except(:name).transform_keys(&:to_s))
     end
   end
 end

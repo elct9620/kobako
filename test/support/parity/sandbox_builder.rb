@@ -2,10 +2,16 @@
 
 module Parity
   # Assembles a +Kobako::Sandbox+ from a Scenario's declarative setup —
-  # caps, Services, preloads, flags, Extensions, mounts. Invocation-side
-  # observation stays in +RubyExecutor+; the Rust runner interprets the
-  # same closed tag sets on its side.
+  # caps, Services, preloads, flags, Extensions, mounts, networks.
+  # Invocation-side observation stays in +RubyExecutor+; the Rust runner
+  # interprets the same closed tag sets on its side.
   class SandboxBuilder
+    # Each scenario part, in the order it registers, and what registers one item.
+    PARTS = {
+      services: :bind_service, preloads: :apply_preload, flags: :apply_flag,
+      extensions: :install_extension, mounts: :apply_mount, networks: :apply_network
+    }.freeze
+
     def initialize(wasm_path)
       @wasm_path = wasm_path
     end
@@ -19,11 +25,9 @@ module Parity
     private
 
     def register(sandbox, scenario)
-      scenario.services.each { |service| bind_service(sandbox, service) }
-      scenario.preloads.each { |preload| apply_preload(sandbox, preload) }
-      scenario.flags.each { |flag| apply_flag(sandbox, flag) }
-      scenario.extensions.each { |extension| install_extension(sandbox, extension) }
-      scenario.mounts.each { |mount| apply_mount(sandbox, mount) }
+      PARTS.each do |part, apply|
+        scenario.public_send(part).each { |item| send(apply, sandbox, item) }
+      end
     end
 
     # An Extension composes a preloaded source with an optional stub
@@ -80,6 +84,18 @@ module Parity
     def apply_mount(sandbox, mount)
       filesystem = Kobako::Filesystem::Tmpfs.new(mount.fetch(:files))
       sandbox.mount(mount.fetch(:at), filesystem, access: mount.fetch(:access).to_sym)
+    end
+
+    # A scenario's network entry holds endpoints only, the one role both
+    # frontends build from plain data.
+    def apply_network(sandbox, network)
+      sandbox.network(network.fetch(:name).to_sym) do |net|
+        network.fetch(:endpoints).each do |endpoint|
+          net.endpoint endpoint.fetch(:host), port: endpoint.fetch(:port),
+                                              protocol: endpoint.fetch(:protocol).to_sym,
+                                              addresses: endpoint.fetch(:addresses).map(&:to_sym)
+        end
+      end
     end
 
     # Scenario caps ride in the runner's neutral spelling; translate
