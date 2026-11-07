@@ -2,9 +2,13 @@
 //! network namespace holds every socket its tasks open. Each entry is one
 //! Grant, so a Context replaces it by its name, as one Mount by its path.
 
+mod ruleset;
+
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::Arc;
+
+pub use ruleset::{address_set, AddressSet, Ruleset};
 
 /// One named entry of the network, handed over for an Invocation.
 #[derive(Clone)]
