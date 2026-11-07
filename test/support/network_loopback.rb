@@ -20,6 +20,37 @@ module NetworkLoopback
     server&.close
   end
 
+  # A loopback HTTP server answering one request with `created` and the body
+  # it read, handing back the request line and headers it saw.
+  def with_http_server
+    server = TCPServer.new("127.0.0.1", 0)
+    seen = Queue.new
+    thread = Thread.new { serve_http_once(server, seen) }
+    yield server.addr[1], seen
+  ensure
+    thread&.join(5)
+    server&.close
+  end
+
+  def serve_http_once(server, seen)
+    client = server.accept
+    head = read_head(client)
+    length = head.find { |h| h.downcase.start_with?("content-length:") }.to_s.split(":").last.to_i
+    body = length.positive? ? client.read(length) : ""
+    seen << [head, body]
+    client.write("HTTP/1.1 201 Created\r\ncontent-length: #{body.bytesize + 2}\r\nx-kind: test\r\n\r\nok#{body}")
+    client.close
+  end
+
+  # The request line and headers, up to the blank line.
+  def read_head(client)
+    head = []
+    while (line = client.gets) && line != "\r\n"
+      head << line.chomp
+    end
+    head
+  end
+
   def sandbox_reaching(port, **options)
     Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM, **options).network(:local) do |net|
       net.endpoint "127.0.0.1", port: port, protocol: :tcp, addresses: [:local]

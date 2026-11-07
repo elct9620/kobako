@@ -11,10 +11,11 @@ module Kobako
       attr_reader port: Integer
       attr_reader protocol: protocol
       attr_reader addresses: Array[Symbol | String]
+      attr_reader rules: Array[Rule]
 
-      def self.new: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped) -> Endpoint
+      def self.new: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped, ?rules: untyped) -> Endpoint
 
-      def initialize: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped) -> void
+      def initialize: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped, ?rules: untyped) -> void
 
       private
 
@@ -31,6 +32,37 @@ module Kobako
       def self.new: (host: String, port: Integer, protocol: protocol) -> Connection
     end
 
+    class Rule
+      attr_reader allow: bool
+      attr_reader method: String?
+      attr_reader path: String
+
+      def initialize: (allow: boolish, method: untyped, path: untyped) -> void
+    end
+
+    class Rules
+      @rules: Array[Rule]
+
+      def initialize: () -> void
+
+      def allow: (untyped method, untyped path) -> self
+
+      def deny: (untyped method, untyped path) -> self
+
+      def to_a: () -> Array[Rule]
+    end
+
+    class Request
+      attr_reader host: String
+      attr_reader port: Integer
+      attr_reader method: String
+      attr_reader scheme: String
+      attr_reader path: String
+      attr_reader header_names: Array[String]
+
+      def initialize: ([String, Integer] authority, String method, String scheme, String path, Array[String] header_names) -> void
+    end
+
     class Builder
       HOOKS: Array[Symbol]
 
@@ -40,7 +72,7 @@ module Kobako
 
       def initialize: (?untyped entry) -> void
 
-      def endpoint: (untyped host, port: untyped, ?protocol: untyped, ?addresses: untyped) -> self
+      def endpoint: (untyped host, port: untyped, ?protocol: untyped, ?addresses: untyped) ?{ (Rules) -> void } -> self
 
       def policy: (Symbol hook) ?{ (untyped) -> boolish } -> self
 
@@ -49,6 +81,8 @@ module Kobako
       def resolve?: (String name) -> bool
 
       def connect?: (Connection connection) -> bool
+
+      def request?: (Request request) -> bool
 
       private
 

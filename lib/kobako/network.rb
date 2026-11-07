@@ -18,16 +18,20 @@ module Kobako
     # address is +:public+, +:private+, +:local+, or a CIDR as a String or an
     # IPAddr, kept as <tt>"address/prefix"</tt>.
     #
+    # An +:http+ endpoint's +rules+ say which methods and paths it allows and
+    # denies; with none, it allows every request.
+    #
     # Raises ArgumentError for an empty host, a port outside 1 to 65535, a
     # protocol other than +:http+, +:tcp+, or +:udp+, or another address.
-    class Endpoint < Data.define(:host, :port, :protocol, :addresses)
+    class Endpoint < Data.define(:host, :port, :protocol, :addresses, :rules)
       PROTOCOLS = %i[http tcp udp].freeze # :nodoc:
       ADDRESS_SETS = %i[public private local].freeze # :nodoc:
 
-      def initialize(host:, port:, protocol: :http, addresses: [:public])
+      def initialize(host:, port:, protocol: :http, addresses: [:public], rules: [])
         host = host.to_s.freeze
         refuse_malformed(host, port, protocol)
         addresses = Array(addresses).map { |address| to_address(address) }.freeze
+        rules = Array(rules).freeze
         super
       end
 
@@ -59,10 +63,63 @@ module Kobako
     # +protocol+. The host is never a real address a name resolved to.
     class Connection < Data.define(:host, :port, :protocol); end
 
+    # One rule an +:http+ endpoint judges a request by: whether it +allow+s or
+    # denies, its +method+ uppercase or +nil+ for any, and a +path+ pattern,
+    # where <tt>*</tt> stands for one segment and <tt>**</tt> for any number.
+    class Rule
+      attr_reader :allow, :method, :path
+
+      def initialize(allow:, method:, path:)
+        @allow = allow ? true : false
+        @method = method.nil? || method == :any ? nil : method.to_s.upcase.freeze
+        @path = path.to_s.freeze
+        freeze
+      end
+    end
+
+    # The rules a block given to Builder#endpoint adds to its endpoint.
+    class Rules
+      def initialize # :nodoc:
+        @rules = [] # : Array[Rule]
+      end
+
+      # Allow +method+, or +:any+, on paths +path+ matches. Returns +self+.
+      def allow(method, path)
+        @rules << Rule.new(allow: true, method: method, path: path)
+        self
+      end
+
+      # Deny +method+, or +:any+, on paths +path+ matches; a denial wins over
+      # any allowance. Returns +self+.
+      def deny(method, path)
+        @rules << Rule.new(allow: false, method: method, path: path)
+        self
+      end
+
+      def to_a = @rules.dup # :nodoc:
+    end
+
+    # One HTTP request the guest sends, as a +request?+ policy is handed it:
+    # the +host+ lowercase and the +port+, the +method+ uppercase, the
+    # +scheme+, the +path+ with no query, and the +header_names+ lowercase,
+    # never a header's value.
+    class Request
+      attr_reader :host, :port, :method, :scheme, :path, :header_names
+
+      def initialize(authority, method, scheme, path, header_names) # :nodoc:
+        @host, @port = authority
+        @method = method
+        @scheme = scheme
+        @path = path
+        @header_names = header_names
+        freeze
+      end
+    end
+
     # The entry a block given to Sandbox#network builds, adding to the object
     # given beside it, as Faraday.new yields its builder.
     class Builder
-      HOOKS = %i[resolve connect].freeze # :nodoc:
+      HOOKS = %i[resolve connect request].freeze # :nodoc:
 
       def initialize(entry = nil) # :nodoc:
         @entry = entry
@@ -72,8 +129,13 @@ module Kobako
 
       # Let the guest reach +host+ on +port+, as Endpoint.new takes them.
       # Returns +self+.
+      # A given block yields a Rules adding the methods and paths an +:http+
+      # endpoint allows and denies.
       def endpoint(host, port:, protocol: :http, addresses: [:public])
-        @endpoints << Endpoint.new(host: host, port: port, protocol: protocol, addresses: addresses)
+        rules = Rules.new
+        yield rules if block_given?
+        @endpoints << Endpoint.new(host: host, port: port, protocol: protocol, addresses: addresses,
+                                   rules: rules.to_a)
         self
       end
 
@@ -105,6 +167,10 @@ module Kobako
       # Whether the given object's +connect?+ and each block's connect policy
       # allow +connection+.
       def connect?(connection) = allows?(:connect, connection)
+
+      # Whether the given object's +request?+ and each block's request policy
+      # allow +request+.
+      def request?(request) = allows?(:request, request)
 
       private
 

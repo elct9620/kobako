@@ -13,7 +13,7 @@ use magnus::{
 
 use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::network::{
-    Addresses, Connection, Endpoint, Entry, Name, Network, Policies, Protocol,
+    Addresses, Connection, Endpoint, Entry, HttpRule, Name, Network, Policies, Protocol, Request,
 };
 
 use super::pinned_value::PinnedValue;
@@ -25,6 +25,7 @@ struct Answered {
     endpoints: Vec<Endpoint>,
     resolve: Option<Arc<RubyPolicy>>,
     connect: Option<Arc<RubyPolicy>>,
+    request: Option<Arc<RubyPolicy>>,
 }
 
 impl Entry for Answered {
@@ -39,6 +40,9 @@ impl Entry for Answered {
         }
         if let Some(connect) = &self.connect {
             policies = policies.with_connect(connect.clone());
+        }
+        if let Some(request) = &self.request {
+            policies = policies.with_request(request.clone());
         }
         policies
     }
@@ -80,13 +84,41 @@ impl Policy<Connection<'_>> for RubyPolicy {
     }
 }
 
+impl Policy<Request<'_>> for RubyPolicy {
+    fn allows(&self, request: &Request<'_>) -> bool {
+        self.ask("request?", |ruby| to_request(ruby, request))
+    }
+}
+
+/// `request` as the `Kobako::Network::Request` a Ruby policy reads.
+fn to_request(ruby: &Ruby, request: &Request<'_>) -> Result<Value, MagnusError> {
+    let class: RClass = network_module(ruby)?.const_get("Request")?;
+    let (host, port) = request.authority;
+    let names = ruby.ary_from_iter(request.header_names.iter().map(|name| ruby.str_new(name)));
+    class.funcall(
+        "new",
+        (
+            ruby.ary_from_iter([
+                ruby.str_new(host).as_value(),
+                ruby.integer_from_i64(i64::from(port)).as_value(),
+            ]),
+            ruby.str_new(request.method),
+            ruby.str_new(request.scheme),
+            ruby.str_new(request.path),
+            names,
+        ),
+    )
+}
+
+fn network_module(ruby: &Ruby) -> Result<RModule, MagnusError> {
+    ruby.class_object()
+        .const_get::<_, RModule>("Kobako")?
+        .const_get::<_, RModule>("Network")
+}
+
 /// `request` as the `Kobako::Network::Connection` a Ruby policy reads.
 fn to_connection(ruby: &Ruby, request: &Connection<'_>) -> Result<Value, MagnusError> {
-    let class: RClass = ruby
-        .class_object()
-        .const_get::<_, RModule>("Kobako")?
-        .const_get::<_, RModule>("Network")?
-        .const_get("Connection")?;
+    let class: RClass = network_module(ruby)?.const_get("Connection")?;
     let protocol = ruby.to_symbol(match request.protocol {
         Protocol::Http => "http",
         Protocol::Tcp => "tcp",
@@ -125,14 +157,16 @@ pub(super) fn to_grants(
                 })
             }))
         };
-        let (resolve, connect) = (plays("resolve?")?, plays("connect?")?);
-        if resolve.is_some() || connect.is_some() {
+        let (resolve, connect, request) =
+            (plays("resolve?")?, plays("connect?")?, plays("request?")?);
+        if resolve.is_some() || connect.is_some() || request.is_some() {
             pins.push(PinnedValue::new(ruby, entry));
         }
         let answered = Answered {
             endpoints,
             resolve,
             connect,
+            request,
         };
         let network = Network::new(name, Arc::new(answered))
             .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))?;
@@ -163,9 +197,36 @@ fn to_endpoint(ruby: &Ruby, endpoint: Value) -> Result<Endpoint, MagnusError> {
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let rules = match endpoint.respond_to("rules", false)? {
+        true => {
+            let rules: RArray = endpoint.funcall("rules", ())?;
+            (0..rules.len() as isize)
+                .map(|index| to_rule(rules.entry(index)?))
+                .collect::<Result<Vec<_>, _>>()?
+        }
+        false => Vec::new(),
+    };
     Endpoint::new(host, port)
-        .map(|endpoint| endpoint.with_protocol(protocol).with_addresses(addresses))
+        .map(|endpoint| {
+            endpoint
+                .with_protocol(protocol)
+                .with_addresses(addresses)
+                .with_rules(rules)
+        })
         .map_err(|err| refused(err.to_string()))
+}
+
+/// The rule a Ruby object answering `allow`, `method`, and `path` stands for.
+fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
+    let allow: bool = rule.funcall::<_, _, Value>("allow", ())?.to_bool();
+    let method: Option<String> = rule.funcall("method", ())?;
+    let path: String = rule
+        .funcall::<_, _, Value>("path", ())?
+        .funcall("to_s", ())?;
+    Ok(match allow {
+        true => HttpRule::allow(method.as_deref(), path),
+        false => HttpRule::deny(method.as_deref(), path),
+    })
 }
 
 /// An address set's symbol, or a CIDR as `address/prefix`.
