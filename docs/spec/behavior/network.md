@@ -32,6 +32,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/workers.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
+- `crates/kobako-wasmtime/src/preview2/http.rs`
 
 ## `NW-001` An entry after the first invocation is refused
 
@@ -472,3 +473,39 @@ endpoint "api.example.com", port: 443
 | Given | entries whose only endpoint is a `tcp` one |
 | When | the guest sends a request to its authority, to a name no endpoint names, or to a virtual address |
 | Then | each answers `Denied`, and nothing reaches the server |
+
+## `NW-039` Without the network, a request answers HTTP-request-denied
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest with no network entry |
+| When | it hands a request to `outgoing-handler` |
+| Then | the call answers `HTTP-request-denied` at once, doing nothing first |
+
+## `NW-040` A request built through wasi:http reads back the response
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a server's address |
+| When | the guest builds a GET through `wasi:http`, hands it to `outgoing-handler`, and reads the response |
+| Then | the server reads the request line. The guest reads the status, a header by any case, and the body to its end |
+
+## `NW-041` A forbidden header or a response's header cannot be set
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-040` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest building headers through `wasi:http` |
+| When | it sets `host`, `content-length`, a name that is no token, or a header of a response |
+| Then | the first two answer `forbidden`, the name `invalid-syntax`, and the response's header `immutable`; the seam frames the body itself |

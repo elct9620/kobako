@@ -905,3 +905,43 @@ impl Exchange {
     pub fn release(&self) {}
 }
 ```
+
+## `RequestBody`
+
+The body a Guest writes for a request. Its bytes count against the
+Invocation's memory, so a Guest cannot grow the host past its allotment.
+
+```rust
+pub struct RequestBody {}
+```
+
+## `RequestBody::new`
+
+An empty body, its bytes charged to a Cred.
+
+```rust
+impl RequestBody {
+    pub fn new(cred: Arc<Cred>) -> Arc<Self> {}
+}
+```
+
+## `RequestBody::write`
+
+Append bytes, refused past the Invocation's memory as `OutOfMemory`.
+
+```rust
+impl RequestBody {
+    pub fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {}
+}
+```
+
+## `RequestBody::take`
+
+Take what was written, given back to the Invocation's memory as the request
+leaves.
+
+```rust
+impl RequestBody {
+    pub fn take(&self) -> Vec<u8> {}
+}
+```
