@@ -5,8 +5,8 @@
 #   * `rake wasm:build` — cross-compiles the kobako-wasm shell crate against
 #                         the vendored wasi-sdk + libmruby.a and writes the
 #                         Guest Binary to `data/kobako.wasm`. Depends on
-#                         `beni:build` (Stages A+B: toolchain vendoring +
-#                         libmruby.a) so the full pipeline runs end-to-end
+#                         `beni:build` (the mruby build: toolchain vendoring
+#                         + libmruby.a) so the full pipeline runs end-to-end
 #                         from a clean clone with a single command.
 #   * `rake wasm:clean` — removes every Guest Binary variant and the wasm
 #                         crate's `target/` cache directory.

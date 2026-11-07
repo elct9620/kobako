@@ -40,34 +40,34 @@ namespace :bench do
     end
   end
 
-  desc "Run concurrent characterization benchmark (#7; not in release gate)."
+  desc "Run concurrent characterization benchmark (not in release gate)."
   task(:concurrent) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/concurrent/threads.rb" } }
 
   desc "Run gvl: hold-vs-release scaling characterization (not in release gate)."
   task(:gvl_scheduling) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/concurrent/gvl_scheduling.rb" } }
 
-  desc "Run memory characterization benchmark (#8; not in release gate)."
+  desc "Run memory characterization benchmark (not in release gate)."
   task(:memory) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/memory.rb" } }
 
-  desc "Run the #preload + #run dispatch benchmark on its own (#9; bench:release runs it too)."
+  desc "Run the #preload + #run dispatch benchmark on its own (bench:release runs it too)."
   task(:preload_dispatch) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/preload_dispatch.rb" } }
 
-  desc "Run the dispatch-glue isolation benchmark on its own (#10; bench:release runs it too)."
+  desc "Run the dispatch-glue isolation benchmark on its own (bench:release runs it too)."
   task(:dispatch_glue) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/dispatch_glue.rb" } }
 
-  desc "Run the host per-invocation benchmark on its own (#12; bench:release runs it too)."
+  desc "Run the host per-invocation benchmark on its own (bench:release runs it too)."
   task(:host_invocation) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/host_invocation.rb" } }
 
-  desc "Run guest-side setup characterization — compile and binding scaling (#13; not in release gate)."
+  desc "Run guest-side setup characterization — compile and binding scaling (not in release gate)."
   task(:guest_setup) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/guest_setup.rb" } }
 
-  desc "Run the Mount block characterization — per-open callback cost (#14; not in release gate)."
+  desc "Run the Mount block characterization — per-open callback cost (not in release gate)."
   task(:mount) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/mount.rb" } }
 
-  # The whole-round sweep for a manual capture: the 16 MiB gated set plus
-  # every characterization, merged into one results file. bench:full stays
-  # lean and pure-binary for the release gate; bench:all additionally builds
-  # the regexp-unicode variant #11 drives. The characterization roster lives
+  # The full sweep for a manual capture: the 16 MiB gated set plus every
+  # characterization, merged into one results file. bench:full stays lean
+  # and pure-binary for the release gate; bench:all additionally builds the
+  # regexp-unicode variant the regexp characterization drives. The characterization roster lives
   # in benchmark/support/roster.rb; when a json characterization lands, add
   # its variant prerequisite here and its task there.
   desc "Run the whole sweep: the gated set (16 MiB) plus every characterization."

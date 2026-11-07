@@ -48,7 +48,7 @@ end
 
 require "beni/tasks"
 
-# Stages A+B of the Build Pipeline: `rake beni:build` vendors the pinned
+# The mruby build: `rake beni:build` vendors the pinned
 # wasi-sdk + mruby toolchains and drives mruby's own rake against
 # build_config/wasi.rb, producing vendor/mruby/build/wasi/lib/libmruby.a
 # (+ its libmruby.flags.mak sidecar) for the Guest Binary, and the host
