@@ -134,32 +134,33 @@ The same test applies beyond the filesystem. kobako answers only what native WAS
 | Preamble, Channel | `kobako-runtime` | kobako's own concepts |
 | kobako ABI host side | `kobako-runtime` | no Engine supports it |
 | memory cap accounting | `kobako-runtime` | the growth hook stays in the Wasm Driver |
-| networking (planned) | `kobako-runtime` | a new kind of Grant |
+| networking | `kobako-runtime` | a new kind of Grant |
 
-Networking is not provided yet. Preview1 has `sock_accept`, `sock_recv`, `sock_send`, and `sock_shutdown`, but no connect. Networking therefore needs another ABI to encode onto.
+Preview1 has `sock_accept`, `sock_recv`, `sock_send`, and `sock_shutdown`, but no connect. Networking is therefore encoded as WASI 0.2's `wasi:sockets` and `wasi:io`, as imports a core module links.
 
 ## Standard Bridging
 
 Each ABI version gets its own syscall table, and every table asks the same `kobako-runtime` for answers. As WASI evolves, kobako adds an entry and rewrites nothing beneath it.
 
 ```
-   preview1 module          preview2/3 component
-         |                          |
-         v                          v
-+-----------------+       +-------------------+
-| p1 table (now)  |       | wasi:filesystem   |
-|                 |       | (later)           |
-+--------+--------+       +---------+---------+
-         |                          |
-         +------------+-------------+
-                      v
+          one core module
+         |               |
+         v               v
++-----------------+  +-------------------+
+| p1 fd table     |  | p2 resource table |
+| files           |  | wasi:sockets, io  |
++--------+--------+  +---------+---------+
+         |                     |
+         +----------+----------+
+                    v
           +-----------------------+
           | kobako-runtime        |
-          | Open File, VFS        |
+          | Open File, VFS,       |
+          | OpenFiles             |
           +-----------------------+
 ```
 
-The fd table belongs to each ABI's encoding, and preview2 uses resources instead, so no table is shared. Every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
+Each ABI's encoding keeps its own table: preview1's fd table and preview2's resource table. Both count against one `OpenFiles`, as `RLIMIT_NOFILE` counts every descriptor a process holds, and every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
 
 | Precedent | Shape |
 |---|---|
@@ -176,4 +177,4 @@ kobako stays at L5 until one of these holds; then L6 or the bridging is reconsid
 | the guest builds for preview2 | add a `wasi:filesystem` entry |
 | `wasmtime-wasi` opens a filesystem backend | weigh moving onto it |
 
-kobako does not move to preview2 or preview3 before then. WIT carries a boundary cost, and adopting it means reshaping the design. Every other Engine speaks preview1, so none of them is a condition.
+kobako takes preview2 only where preview1 has no call, as networking, and as imports a core module links rather than a component. The filesystem stays on preview1 until a condition holds. Every other Engine speaks preview1, so none of them is a condition.

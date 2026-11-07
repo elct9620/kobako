@@ -24,6 +24,7 @@ endpoint "api.example.com", port: 443
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
 - `crates/kobako-runtime/src/network.rs`
+- `crates/kobako-wasmtime/src/preview2/host.rs`
 
 ## `NW-001` An entry after the first invocation is refused
 
@@ -112,3 +113,23 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox |
 | When | an entry is given an empty name, or an endpoint whose host is empty or whose port is zero |
 | Then | the entry is refused |
+
+## `NW-009` Without the network, creating a socket answers not-supported
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest with no network entry |
+| When | it creates a TCP socket through `wasi:sockets` |
+| Then | the call answers `not-supported` at once, as WASI's host without a network does |
+
+## `NW-010` The guest's network is one handle it may drop
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest |
+| When | it asks `instance-network` for its network and drops the handle |
+| Then | the drop succeeds, and dropping it again traps |

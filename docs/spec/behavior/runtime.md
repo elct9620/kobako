@@ -64,6 +64,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/abi.rs`
 - `crates/kobako-wasmtime/src/wasi.rs`
 - `crates/kobako-wasmtime/src/preview1/poll.rs`
+- `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako-wasmtime/src/preview1/fd.rs`
 - `crates/kobako-wasmtime/src/preview1/path.rs`
 - `crates/kobako-wasmtime/src/preview1/mount_view.rs`
@@ -3813,3 +3814,47 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest at the weaker posture waiting ten seconds on a clock |
 | When | its thread is interrupted |
 | Then | the wait answers EINTR at once, as a signal ends Linux's `poll` |
+
+## `RT-338` A preview2 clock wait on the strongest posture ends at once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-073` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest running at the strongest posture |
+| When | it subscribes to ten seconds of `wasi:clocks` and blocks on the pollable |
+| Then | the wait returns without the host waiting |
+
+## `RT-339` A preview2 poll on a clock waits until the clock is due
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-074` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest at the weaker posture subscribed to fifty milliseconds of `wasi:clocks` |
+| When | it polls the pollable |
+| Then | `poll` answers its index once the fifty milliseconds have passed |
+
+## `RT-340` A preview2 poll of no pollable traps
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest |
+| When | it polls an empty list |
+| Then | the call traps, as WASI says it does |
+
+## `RT-341` A preview2 resource counts against the open file limit
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-189` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest whose open file limit its standard streams already fill |
+| When | it subscribes to a clock through `wasi:clocks` |
+| Then | the call traps, since no handle is left to hand out |
