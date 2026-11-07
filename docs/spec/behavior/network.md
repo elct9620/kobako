@@ -25,6 +25,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_policy.rb`
+- `test/e2e/test_network_https.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
 - `crates/kobako-runtime/src/network.rs`
@@ -583,3 +584,27 @@ endpoint "api.example.com", port: 443
 | Given | a `policy(:request)` block beside an `http` endpoint |
 | When | the script sends a POST with a query and a header through `Net::HTTP` |
 | Then | the block is handed a `Kobako::Network::Request` with the method, scheme, path, and header names. A falsy answer raises `Errno::EACCES` |
+
+## `NW-048` An HTTPS request opens TLS before any HTTP
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a server that speaks only clear text |
+| When | the guest sends a request there over `https` |
+| Then | the server reads a TLS handshake record first. The request fails as a TLS protocol error, never sent in clear |
+
+## `NW-049` A script's TLS to a server speaking clear raises OpenSSL::SSL::SSLError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-048` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a server that answers in clear |
+| When | the script sends a request through `Net::HTTP` with `use_ssl: true` |
+| Then | it raises `OpenSSL::SSL::SSLError`, an `OpenSSL::OpenSSLError`, as CRuby's does |
