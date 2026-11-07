@@ -124,13 +124,30 @@ end
 ## `Kobako::Network::Builder#policy`
 
 Judge each decision a hook names with the block. A falsy answer or a raised
-StandardError refuses; `:connect` hands the block a Connection.
+StandardError refuses. `:resolve` hands the block the name a lookup asks for,
+and `:connect` a Connection.
 
 ```ruby
 module Kobako
   module Network
     class Builder
       def policy(hook, &block)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Builder#resolve?`
+
+Whether the given object's `resolve?` and each block's resolve policy allow a
+lookup of a name.
+
+```ruby
+module Kobako
+  module Network
+    class Builder
+      def resolve?(name)
       end
     end
   end

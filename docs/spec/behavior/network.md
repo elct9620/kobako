@@ -22,6 +22,7 @@ endpoint "api.example.com", port: 443
 
 - `test/e2e/test_network.rb`
 - `test/e2e/test_network_tcp.rb`
+- `test/e2e/test_network_names.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
 - `crates/kobako-runtime/src/network.rs`
@@ -398,3 +399,51 @@ endpoint "api.example.com", port: 443
 | Given | a name answering `::1` first, then `127.0.0.1`, through an endpoint leading to `local` |
 | When | the guest connects and `::1` refuses |
 | Then | `127.0.0.1` is dialed next, so a name answering both loopbacks still connects |
+
+## `NW-033` A TCPSocket reaches a name and shows its virtual address
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-031` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming `localhost` and leading to `local`, with a server listening |
+| When | the script opens a `TCPSocket` to `localhost`, writes, and reads |
+| Then | the bytes round-trip, and `peeraddr` shows the virtual address, where CRuby shows the real one |
+
+## `NW-034` A TCPSocket to a name no endpoint names raises Socket::ResolutionError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | entries whose endpoints name no such name |
+| When | the script opens a `TCPSocket` to it |
+| Then | it raises `Socket::ResolutionError`, a `SocketError`, with Linux's `getaddrinfo` words and its `EAI_NONAME` code, as CRuby does |
+
+## `NW-035` A DNS endpoint needs an exact name
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-029` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an endpoint on port 53 or 853 whose host is a wildcard, an address, or a prefix |
+| When | the ruleset compiles |
+| Then | it is refused, since such an endpoint opens a channel past kobako's resolver; an exact name stands |
+
+## `NW-036` A Ruby resolve policy refuses a name an endpoint names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry's `resolve?`, or a `policy(:resolve)` block, beside an endpoint naming a name |
+| When | the script opens a `TCPSocket` to that name, in any case or with a trailing dot |
+| Then | the policy is handed the name lowercase with no trailing dot. A falsy answer raises `Socket::ResolutionError` |
