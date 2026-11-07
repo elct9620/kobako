@@ -139,11 +139,11 @@ mod macos {
             .ok()
             .and_then(|offset| offset.checked_sub(size_of::<libc::attrreference_t>()));
         let len = (reply.name.attr_length as usize).checked_sub(1);
-        let stored = start
+        let stored_name = start
             .zip(len)
             .and_then(|(start, len)| reply.data.get(start..start.checked_add(len)?))
             .ok_or(io::ErrorKind::InvalidData)?;
-        String::from_utf8(stored.to_vec()).map_err(|_| io::ErrorKind::InvalidData.into())
+        String::from_utf8(stored_name.to_vec()).map_err(|_| io::ErrorKind::InvalidData.into())
     }
 }
 

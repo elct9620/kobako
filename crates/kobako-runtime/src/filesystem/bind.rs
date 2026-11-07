@@ -573,8 +573,8 @@ impl InodeOperations for Bind {
     /// runtime's back. That costs one host stat a name.
     fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
         self.at(dentry, |dir, name| {
-            let stored = lookup::lookup(dir, name)?;
-            match dir.symlink_metadata(&stored).map_err(to_error) {
+            let stored_name = lookup::lookup(dir, name)?;
+            match dir.symlink_metadata(&stored_name).map_err(to_error) {
                 Ok(found) => {
                     let found = to_kstat(found);
                     let ops: Arc<dyn InodeOperations> = match found.file_type {
@@ -583,10 +583,10 @@ impl InodeOperations for Bind {
                         _ => Arc::new(BindRegular(self.clone())),
                     };
                     let inode = Inode::new(&found, ops);
-                    match stored == name {
+                    match stored_name == name {
                         true => Ok(Lookup::Found(inode)),
                         false => Ok(Lookup::Spelled {
-                            name: stored,
+                            name: stored_name,
                             inode,
                         }),
                     }

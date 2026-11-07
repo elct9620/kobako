@@ -303,14 +303,14 @@ impl InodeOperations for Overlay {
         let Some(found) = self.fs.lookup_layer(&level, &name)? else {
             return Ok(Lookup::Absent);
         };
-        let stored = found.1.stored().to_string();
+        let stored_name = found.1.stored_name().to_string();
         let inode = self
             .fs
-            .lookup(&level, &stored, found, |kind| self.ops_of(kind))?;
-        match stored == name {
+            .lookup(&level, &stored_name, found, |kind| self.ops_of(kind))?;
+        match stored_name == name {
             true => Ok(Lookup::Found(inode)),
             false => Ok(Lookup::Spelled {
-                name: stored,
+                name: stored_name,
                 inode,
             }),
         }

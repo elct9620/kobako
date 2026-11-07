@@ -71,14 +71,14 @@ enum Presence {
 
 /// An entry a Layer holds: its name as the Layer stores it, and its dentry there.
 pub(super) struct LayerEntry {
-    stored: String,
+    stored_name: String,
     dentry: Arc<Dentry>,
 }
 
 impl LayerEntry {
     /// The name as the Layer stores it.
-    pub(super) fn stored(&self) -> &str {
-        &self.stored
+    pub(super) fn stored_name(&self) -> &str {
+        &self.stored_name
     }
 
     /// What kind of entry it is, as its lookup recorded it.
@@ -98,7 +98,10 @@ impl Presence {
 fn entry(dir: &OverlayPath, name: &str) -> Result<Presence, FilesystemError> {
     match dir.lookup_single(name) {
         Ok(Some((_, dentry))) if dir.is_whiteout_dentry(&dentry) => Ok(Presence::Whiteout),
-        Ok(Some((stored, dentry))) => Ok(Presence::Entry(LayerEntry { stored, dentry })),
+        Ok(Some((stored_name, dentry))) => Ok(Presence::Entry(LayerEntry {
+            stored_name,
+            dentry,
+        })),
         Ok(None) | Err(FilesystemError::NotFound | FilesystemError::InvalidFilename) => {
             Ok(Presence::Nothing)
         }
