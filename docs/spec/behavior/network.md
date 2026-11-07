@@ -28,6 +28,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/network.rs`
 - `crates/kobako-runtime/src/network/builder.rs`
 - `crates/kobako-runtime/src/network/ruleset.rs`
+- `crates/kobako-runtime/src/net/http.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/workers.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
@@ -447,3 +448,27 @@ endpoint "api.example.com", port: 443
 | Given | an entry's `resolve?`, or a `policy(:resolve)` block, beside an endpoint naming a name |
 | When | the script opens a `TCPSocket` to that name, in any case or with a trailing dot |
 | Then | the policy is handed the name lowercase with no trailing dot. A falsy answer raises `Socket::ResolutionError` |
+
+## `NW-037` A request to an HTTP endpoint reads back the response
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a name and leading to `local`, with a server listening |
+| When | the guest sends a request to that authority, in any case |
+| Then | the request line reaches the server, and the guest reads back the status, the headers, and the body |
+
+## `NW-038` A request no HTTP endpoint names is denied unsent
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | entries whose only endpoint is a `tcp` one |
+| When | the guest sends a request to its authority, to a name no endpoint names, or to a virtual address |
+| Then | each answers `Denied`, and nothing reaches the server |

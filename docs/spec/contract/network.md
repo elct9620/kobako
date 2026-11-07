@@ -9,6 +9,7 @@ is one Grant, and its endpoints are data the runtime judges on any thread.
 - `crates/kobako-runtime/src/network/builder.rs`
 - `crates/kobako-runtime/src/network/ruleset.rs`
 - `crates/kobako-runtime/src/net/family.rs`
+- `crates/kobako-runtime/src/net/http.rs`
 - `crates/kobako-runtime/src/net/lookup.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
@@ -336,12 +337,13 @@ pub struct Namespace {}
 
 ## `Namespace::new`
 
-The namespace of every entry given, dialing through a Protocol Family. It is
-refused for an endpoint the ruleset cannot compile.
+The namespace of every entry given, dialing through a Protocol Family and sending
+HTTP through an outbound seam. It is refused for an endpoint the ruleset cannot
+compile.
 
 ```rust
 impl Namespace {
-    pub fn new<'a>(networks: impl IntoIterator<Item = &'a Network>, family: Arc<dyn ProtocolFamily>, workers: Arc<Workers>) -> Result<Self, EntryError> {}
+    pub fn new<'a>(networks: impl IntoIterator<Item = &'a Network>, family: Arc<dyn ProtocolFamily>, outbound: Arc<dyn Outbound>, workers: Arc<Workers>) -> Result<Self, EntryError> {}
 }
 ```
 
@@ -698,4 +700,208 @@ The socket file of a socket, opened for reading and writing, as Linux's
 
 ```rust
 pub fn sock_alloc_file(sock: &Arc<TcpSock>, cred: &Arc<Cred>) -> File {}
+```
+
+## `Ruleset::admits_endpoint`
+
+Whether an endpoint names a name at a port and protocol, before anything is
+resolved.
+
+```rust
+impl Ruleset {
+    pub fn admits_endpoint(&self, name: &str, port: u16, protocol: Protocol) -> bool {}
+}
+```
+
+## `Namespace::send`
+
+An HTTP request in flight, once the socket hooks and an `http` endpoint pass
+its authority. Any refusal answers `Denied`, and nothing is sent.
+
+```rust
+impl Namespace {
+    pub fn send(&self, cred: &Cred, request: OutgoingRequest, deadline: Option<Instant>) -> Result<Arc<Exchange>, HttpError> {}
+}
+```
+
+## `Scheme`
+
+Whether a request travels in clear or over TLS.
+
+```rust
+pub enum Scheme {
+    Http,
+    Https,
+}
+```
+
+## `OutgoingRequest`
+
+One request the Guest sends: its method, scheme, authority, path with its query,
+headers, and body.
+
+```rust
+pub struct OutgoingRequest {
+    pub method: String,
+    pub scheme: Scheme,
+    pub authority: String,
+    pub path_with_query: String,
+    pub headers: Vec<(String, Vec<u8>)>,
+    pub body: Vec<u8>,
+}
+```
+
+## `OutgoingRequest::new`
+
+A request for a method, a scheme, and an authority, at the root path.
+
+```rust
+impl OutgoingRequest {
+    pub fn new(method: impl Into<String>, scheme: Scheme, authority: impl Into<String>) -> Self {}
+}
+```
+
+## `HttpError`
+
+Why a request has no response, as `wasi:http` names each a client meets. None
+carries host text.
+
+```rust
+pub enum HttpError {
+    Denied,
+    DestinationNotFound,
+    ConnectionRefused,
+    ConnectionTimeout,
+    ConnectionTerminated,
+    ProtocolError,
+    ConnectionLimitReached,
+    Internal,
+}
+```
+
+## `ResponseHead`
+
+A response's status and headers.
+
+```rust
+pub struct ResponseHead {
+    pub status: u16,
+    pub headers: Vec<(String, Vec<u8>)>,
+}
+```
+
+## `Response`
+
+What the outbound seam answers: the head, and the body to read.
+
+```rust
+pub struct Response {
+    pub head: ResponseHead,
+    pub body: Box<dyn Read + Send>,
+}
+```
+
+## `Outbound`
+
+The replaceable HTTP sender. It dials only through the connector it is handed.
+
+```rust
+pub trait Outbound: Send + Sync {}
+```
+
+## `Outbound::send_request`
+
+Send a request through the connector, given up once the timeout passes.
+
+```rust
+pub trait Outbound {
+    fn send_request(&self, request: &OutgoingRequest, connector: &Connector, timeout: Option<Duration>) -> Result<Response, HttpError>;
+}
+```
+
+## `UreqOutbound`
+
+The default outbound seam: ureq with no redirect, proxy, or decompression, and
+no status read as an error.
+
+```rust
+pub struct UreqOutbound {}
+```
+
+## `Connector`
+
+The outbound seam's only dialer. It reaches the one authority the request
+named, each address the ruleset admits, exactly, in turn.
+
+```rust
+pub struct Connector {}
+```
+
+## `Connector::authority`
+
+The host and port the request named.
+
+```rust
+impl Connector {
+    pub fn authority(&self) -> (&str, u16) {}
+}
+```
+
+## `Connector::dial`
+
+A stream to the authority, given up once the timeout passes.
+
+```rust
+impl Connector {
+    pub fn dial(&self, timeout: Option<Duration>) -> Result<Box<dyn Stream>, HttpError> {}
+}
+```
+
+## `Exchange`
+
+One request in flight, then its response's head and body.
+
+```rust
+pub struct Exchange {}
+```
+
+## `Exchange::response`
+
+The response's head, or why it has none; `None` while the request is under way.
+
+```rust
+impl Exchange {
+    pub fn response(&self) -> Option<Result<ResponseHead, HttpError>> {}
+}
+```
+
+## `Exchange::read`
+
+Read what the body holds: zero at its end and `WouldBlock` while it holds
+nothing yet.
+
+```rust
+impl Exchange {
+    pub fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {}
+}
+```
+
+## `Exchange::poll`
+
+What a poll finds, the head or the body ready, registering on a poll table.
+
+```rust
+impl Exchange {
+    pub fn poll(&self, table: Option<&mut PollTable>) -> PollMask {}
+}
+```
+
+## `Exchange::release`
+
+Let the exchange go, so a worker blocked on a full buffer ends.
+
+```rust
+impl Exchange {
+    pub fn release(&self) {}
+}
 ```
