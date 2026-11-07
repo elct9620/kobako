@@ -2,7 +2,7 @@ module Kobako
   class Context
     type preamble = [Array[String], Array[Kobako::Catalog::Snippets::tuple], Array[Kobako::Catalog::Flags::tuple]]
 
-    @mounts: Hash[String, Kobako::Catalog::Mount]?
+    @mounts: Hash[Kobako::Catalog::Grants::key, Kobako::Catalog::Mount]?
 
     def initialize: (
       runtime: Kobako::Runtime,

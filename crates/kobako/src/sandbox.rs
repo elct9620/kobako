@@ -349,11 +349,11 @@ impl Sandbox {
     ) -> Result<Execution, Error> {
         let Overrides {
             mut resolved,
-            mounts,
+            grants,
         } = overrides;
         resolved.extend(self.extensions.resolve());
         let preamble = catalog.preamble();
-        let grants = catalog.grants.for_invocation(&mounts);
+        let grants = catalog.grants.for_invocation(&grants);
         let verb = match entry {
             Entry::Eval { .. } => "eval",
             Entry::Run { .. } => "run",

@@ -4,7 +4,7 @@ module Kobako
   module Catalog
     class Grants # :nodoc:
       def initialize
-        @entries = {} # : Hash[String, Mount]
+        @entries = {} # : Hash[key, Mount]
       end
 
       # Each Grant decides what it cannot stand beside.

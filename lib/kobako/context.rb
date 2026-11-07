@@ -60,7 +60,7 @@ module Kobako
       mount = Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy)
       raise ArgumentError, "cannot override unmounted path #{at.inspect}" unless @grants.include?(mount)
 
-      mounts = @mounts ||= {} # : Hash[String, Catalog::Mount]
+      mounts = @mounts ||= {} # : Hash[Catalog::Grants::key, Catalog::Mount]
       mounts[mount.key] = mount
       self
     end

@@ -6,10 +6,12 @@ use kobako_runtime::mount::Mount;
 
 use crate::error::Error;
 
-fn to_mount_path(grant: &Grant) -> Option<&str> {
-    match grant {
-        Grant::Mount(mount) => Some(mount.at()),
-        _ => None,
+/// Whether `grant` and `other` are the same kind of Grant at one key, so
+/// one stands in for the other: a Mount at the same path.
+pub(crate) fn shares_key(grant: &Grant, other: &Grant) -> bool {
+    match (grant, other) {
+        (Grant::Mount(grant), Grant::Mount(other)) => grant.at() == other.at(),
+        _ => false,
     }
 }
 
@@ -22,35 +24,32 @@ impl Grants {
     /// A path already mounted is refused, as Docker refuses a duplicate
     /// mount point; one beneath another Mount is not.
     pub(crate) fn mount(&mut self, mount: Mount) -> Result<(), Error> {
-        let at = mount.at();
-        if self.is_mounted(at) {
+        let at = mount.at().to_string();
+        let grant = Grant::Mount(mount);
+        if self.holds(&grant) {
             return Err(Error::Argument(format!("path {at:?} is already mounted")));
         }
-        self.entries.push(Grant::Mount(mount));
+        self.entries.push(grant);
         Ok(())
     }
 
-    pub(crate) fn is_mounted(&self, at: &str) -> bool {
-        self.mounts().any(|mounted| mounted == at)
+    /// Whether a Grant of `grant`'s kind stands at its key.
+    pub(crate) fn holds(&self, grant: &Grant) -> bool {
+        self.entries.iter().any(|entry| shares_key(entry, grant))
     }
 
-    /// One invocation's Grants, an override standing in for the Mount at
-    /// its path.
-    pub(crate) fn for_invocation(&self, overrides: &[Mount]) -> Vec<Grant> {
+    /// One invocation's Grants, each override standing in for the Grant of
+    /// its kind at its key.
+    pub(crate) fn for_invocation(&self, overrides: &[Grant]) -> Vec<Grant> {
         self.entries
             .iter()
             .map(|grant| {
-                let overridden = to_mount_path(grant)
-                    .and_then(|at| overrides.iter().find(|mount| mount.at() == at));
-                match overridden {
-                    Some(mount) => Grant::Mount(mount.clone()),
-                    None => grant.clone(),
-                }
+                overrides
+                    .iter()
+                    .find(|other| shares_key(grant, other))
+                    .unwrap_or(grant)
+                    .clone()
             })
             .collect()
-    }
-
-    fn mounts(&self) -> impl Iterator<Item = &str> {
-        self.entries.iter().filter_map(to_mount_path)
     }
 }

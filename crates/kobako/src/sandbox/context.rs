@@ -1,19 +1,20 @@
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::Filesystem;
-use kobako_runtime::grant::Policy;
+use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::mount::{Access, Mount, MountRequest};
 
 use crate::catalog::Catalog;
 use crate::dispatch::Resolutions;
 use crate::error::Error;
+use crate::grants::shares_key;
 use crate::receiver::Receiver;
 
 /// What one invocation's override closure chose: the Services it rebound
-/// and the Mounts it replaced.
+/// and the Grants it replaced.
 pub(super) struct Overrides {
     pub(super) resolved: Resolutions,
-    pub(super) mounts: Vec<Mount>,
+    pub(super) grants: Vec<Grant>,
 }
 
 pub(super) fn collect_overrides<F>(catalog: &Catalog, overrides: F) -> Result<Overrides, Error>
@@ -23,12 +24,12 @@ where
     let mut ctx = Context {
         catalog,
         overrides: Vec::new(),
-        mounts: Vec::new(),
+        grants: Vec::new(),
     };
     overrides(&mut ctx)?;
     Ok(Overrides {
         resolved: ctx.overrides,
-        mounts: ctx.mounts,
+        grants: ctx.grants,
     })
 }
 
@@ -42,7 +43,7 @@ where
 pub struct Context<'a> {
     catalog: &'a Catalog,
     overrides: Resolutions,
-    mounts: Vec<Mount>,
+    grants: Vec<Grant>,
 }
 
 impl Context<'_> {
@@ -70,14 +71,15 @@ impl Context<'_> {
     }
 
     fn replace_mount(&mut self, mount: Mount) -> Result<(), Error> {
-        let at = mount.at();
-        if !self.catalog.grants.is_mounted(at) {
+        let at = mount.at().to_string();
+        let grant = Grant::Mount(mount);
+        if !self.catalog.grants.holds(&grant) {
             return Err(Error::Argument(format!(
                 "cannot override unmounted path {at:?}"
             )));
         }
-        self.mounts.retain(|mounted| mounted.at() != at);
-        self.mounts.push(mount);
+        self.grants.retain(|replaced| !shares_key(replaced, &grant));
+        self.grants.push(grant);
         Ok(())
     }
 
