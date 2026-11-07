@@ -215,13 +215,22 @@ pub struct Ruleset {
 
 impl Ruleset {
     /// The ruleset of `endpoints`, refused for an endpoint whose host names no
-    /// address, prefix, or name, and for a wildcard leading to `private` or
-    /// `local`, where a guest-controlled name beneath it could reach.
+    /// address, prefix, or name, for a wildcard leading to `private` or
+    /// `local`, where a guest-controlled name beneath it could reach, and for a
+    /// port 53 or 853 endpoint with no exact name.
     pub fn new(endpoints: impl IntoIterator<Item = Endpoint>) -> Result<Self, EntryError> {
         let rules = endpoints
             .into_iter()
             .map(|endpoint| {
                 let host = parse_host(&endpoint.host)?;
+                // A DNS or DNS-over-TLS endpoint opens a channel past kobako's
+                // resolver, so only an exact name may hold one.
+                if matches!(endpoint.port, 53 | 853) && !matches!(host, Host::Name(_)) {
+                    return Err(EntryError(format!(
+                        "an endpoint on port {} needs an exact host: {}",
+                        endpoint.port, endpoint.host
+                    )));
+                }
                 if matches!(host, Host::Wildcard(_))
                     && endpoint
                         .addresses
@@ -418,6 +427,24 @@ mod tests {
                 .admit_literal("127.0.0.1:8080".parse().unwrap(), Protocol::Tcp)
                 .is_err(),
             "Ruleset::admit_literal of raw TCP to an http endpoint's address must be refused"
+        );
+    }
+
+    // @behavior NW-035
+    #[test]
+    fn a_dns_endpoint_without_an_exact_name_is_refused() {
+        let compiles =
+            |host: &str, port| Ruleset::new([Endpoint::new(host, port).unwrap()]).is_ok();
+        assert_eq!(
+            [
+                compiles("*.example.com", 53),
+                compiles("10.0.0.0/8", 853),
+                compiles("dns.example.com", 53),
+                compiles("*.example.com", 443),
+            ],
+            [false, false, true, true],
+            "Ruleset::new must refuse a port 53 or 853 endpoint whose host is a wildcard or an \
+             address, and keep one naming an exact host"
         );
     }
 
