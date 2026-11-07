@@ -23,6 +23,7 @@ mod io;
 mod kernel_ext;
 mod socket;
 mod stream;
+mod udp;
 
 use beni::{Error, Gem, Mrb};
 
@@ -41,6 +42,7 @@ impl Gem for KobakoIo {
         file::init(mrb, io)?;
         dir::init(mrb)?;
         socket::init(mrb)?;
+        udp::init(mrb)?;
         http::init(mrb)?;
         kernel_ext::init(mrb)?;
         Ok(())

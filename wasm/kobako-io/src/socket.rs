@@ -1,4 +1,5 @@
-//! `TCPSocket` over WASI 0.2's `wasi:sockets`, which the guest imports as a
+//! `TCPSocket`, and what `UDPSocket` shares with it, over WASI 0.2's
+//! `wasi:sockets`, which the guest imports as a
 //! core module, as wasi-libc imports preview1. A Sandbox giving the guest no
 //! network answers every socket as unsupported, so the guest raises
 //! `NotImplementedError`, as it does with no Mount; a refusal raises the
@@ -16,7 +17,7 @@ use beni::{
 use crate::errno;
 use crate::io::argument_error;
 
-mod wasi {
+pub(crate) mod wasi {
     wit_bindgen_rust_macro::generate!({
         path: ["wit/deps/io.wit", "wit/deps/clocks.wit", "wit/deps/sockets.wit"],
         world: "wasi:sockets/imports@0.2.12",
@@ -143,16 +144,21 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     Ok(())
 }
 
-/// The `Errno` a WASI error code stands for, from a call on `peer`.
-fn to_error(mrb: &Mrb, code: ErrorCode, peer: &str) -> Error {
+/// The `NotImplementedError` a `class` raises when the Sandbox gives the guest
+/// no network.
+fn no_network(mrb: &Mrb, class: &str) -> Error {
+    errno::not_implemented(
+        mrb,
+        &format!("{class} is unimplemented: this Sandbox gives the guest no network"),
+    )
+}
+
+/// The `Errno` a WASI error code stands for, from `call` on a `class`.
+pub(crate) fn to_error(mrb: &Mrb, code: ErrorCode, class: &str, call: &str) -> Error {
     let name = match code {
-        ErrorCode::NotSupported => {
-            return errno::not_implemented(
-                mrb,
-                "TCPSocket is unimplemented: this Sandbox gives the guest no network",
-            )
-        }
+        ErrorCode::NotSupported => return no_network(mrb, class),
         ErrorCode::AccessDenied => c"EACCES",
+        ErrorCode::DatagramTooLarge => c"EMSGSIZE",
         ErrorCode::ConnectionRefused => c"ECONNREFUSED",
         ErrorCode::ConnectionReset => c"ECONNRESET",
         ErrorCode::ConnectionAborted => c"ECONNABORTED",
@@ -166,7 +172,12 @@ fn to_error(mrb: &Mrb, code: ErrorCode, peer: &str) -> Error {
         ErrorCode::InvalidState => c"ENOTCONN",
         _ => c"EIO",
     };
-    errno::error_by_name(mrb, name, &format!("connect(2) for {peer}"))
+    errno::error_by_name(mrb, name, call)
+}
+
+/// The words CRuby's `Errno` carries for a call on `host` and `port`.
+pub(crate) fn on_peer(call: &str, host: &str, port: u16) -> String {
+    format!("{call} for \"{host}\" port {port}")
 }
 
 /// `Socket::ResolutionError#error_code`: the `getaddrinfo` code, as Linux
@@ -212,17 +223,14 @@ pub(crate) fn resolution_error_with(mrb: &Mrb, code: i32, message: &str) -> Erro
 /// The IPv4 address `name` leads to, as kobako's resolver hands out a virtual
 /// one; a name with no address raises `Socket::ResolutionError`, as an
 /// unallowed one does.
-fn resolve(mrb: &Mrb, name: &str, peer: &str) -> Result<Ipv4Addr, Error> {
+fn resolve(mrb: &Mrb, name: &str, class: &str, call: &str) -> Result<Ipv4Addr, Error> {
     let to_error = |code| match code {
-        ErrorCode::PermanentResolverFailure => errno::not_implemented(
-            mrb,
-            "TCPSocket is unimplemented: this Sandbox gives the guest no network",
-        ),
+        ErrorCode::PermanentResolverFailure => no_network(mrb, class),
         ErrorCode::TemporaryResolverFailure => resolution_error(mrb, EAI_AGAIN),
         ErrorCode::NameUnresolvable | ErrorCode::InvalidArgument => {
             resolution_error(mrb, EAI_NONAME)
         }
-        code => to_error(mrb, code, peer),
+        code => to_error(mrb, code, class, call),
     };
     let stream = resolve_addresses(&instance_network(), name).map_err(to_error)?;
     let pollable = stream.subscribe();
@@ -237,37 +245,55 @@ fn resolve(mrb: &Mrb, name: &str, peer: &str) -> Result<Ipv4Addr, Error> {
     }
 }
 
-/// `TCPSocket.new(host, port)` connects to the IPv4 address `host` names, or
-/// the one its name leads to, as the network the Sandbox gives allows.
-fn tcp_socket_s_new(mrb: &Mrb, class: RClass, host: Value, port: Value) -> Result<Value, Error> {
+/// The peer `host` and `port` name for `call` on a `class`: the IPv4 address
+/// `host` spells, or the one its name leads to.
+pub(crate) fn peer_of(
+    mrb: &Mrb,
+    host: Value,
+    port: Value,
+    class: &str,
+    call: &str,
+) -> Result<(Ipv4Addr, u16, String), Error> {
     let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
     let port = u16::try_from(i64::try_convert(port, mrb)?)
         .map_err(|_| argument_error(mrb, "port out of range"))?;
-    let peer = format!("\"{host_text}\" port {port}");
+    let call = on_peer(call, &host_text, port);
     let ip = match host_text.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(ip)) => ip,
         Ok(std::net::IpAddr::V6(_)) => {
-            return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &peer))
+            return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call))
         }
-        Err(_) => resolve(mrb, &host_text, &peer)?,
+        Err(_) => resolve(mrb, &host_text, class, &call)?,
     };
-    let socket =
-        create_tcp_socket(IpAddressFamily::Ipv4).map_err(|code| to_error(mrb, code, &peer))?;
-    let network = instance_network();
+    Ok((ip, port, call))
+}
+
+/// `(ip, port)` as WASI names a socket address.
+pub(crate) fn to_ip_socket_address((ip, port): (Ipv4Addr, u16)) -> IpSocketAddress {
     let [a, b, c, d] = ip.octets();
-    let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+    IpSocketAddress::Ipv4(Ipv4SocketAddress {
         port,
         address: (a, b, c, d),
-    });
+    })
+}
+
+/// `TCPSocket.new(host, port)` connects to the IPv4 address `host` names, or
+/// the one its name leads to, as the network the Sandbox gives allows.
+fn tcp_socket_s_new(mrb: &Mrb, class: RClass, host: Value, port: Value) -> Result<Value, Error> {
+    const TCP: &str = "TCPSocket";
+    let (ip, port, call) = peer_of(mrb, host, port, TCP, "connect(2)")?;
+    let failed = |code| to_error(mrb, code, TCP, &call);
+    let socket = create_tcp_socket(IpAddressFamily::Ipv4).map_err(failed)?;
+    let network = instance_network();
     socket
-        .start_connect(&network, remote)
-        .map_err(|code| to_error(mrb, code, &peer))?;
+        .start_connect(&network, to_ip_socket_address((ip, port)))
+        .map_err(failed)?;
     let pollable = socket.subscribe();
     let (input, output) = loop {
         match socket.finish_connect() {
             Ok(streams) => break streams,
             Err(ErrorCode::WouldBlock) => pollable.block(),
-            Err(code) => return Err(to_error(mrb, code, &peer)),
+            Err(code) => return Err(failed(code)),
         }
     };
     let connection = Connection {
@@ -416,7 +442,12 @@ fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// `peeraddr` answers the peer as CRuby's `["AF_INET", port, host, host]`.
 fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (ip, port) = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.peer))?;
+    let peer = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.peer))?;
+    addr_array(mrb, peer)
+}
+
+/// An address as CRuby's `["AF_INET", port, host, host]`.
+pub(crate) fn addr_array(mrb: &Mrb, (ip, port): (Ipv4Addr, u16)) -> Result<Value, Error> {
     let host = mrb.str_new(ip.to_string().as_bytes()).as_value();
     let addr = mrb.ary_new();
     addr.push(mrb, mrb.str_new(b"AF_INET").as_value())?;
