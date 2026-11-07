@@ -2,7 +2,7 @@ module Kobako
   class Context
     type preamble = [Array[String], Array[Kobako::Catalog::Snippets::tuple], Array[Kobako::Catalog::Flags::tuple]]
 
-    @mounts: Hash[Kobako::Catalog::Grants::key, Kobako::Catalog::Mount]?
+    @replacements: Kobako::Catalog::Replacements
 
     def initialize: (
       runtime: Kobako::Runtime,
@@ -15,6 +15,8 @@ module Kobako
     def bind: (Symbol | String path, untyped object) -> self
 
     def mount: (String at, Kobako::Filesystem::mountable filesystem, ?access: Kobako::Filesystem::access) ?{ (String path, Kobako::Filesystem::access access) -> boolish } -> self
+
+    def network: (Symbol | String name, ?untyped entry) ?{ (Kobako::Network::Builder) -> void } -> self
 
     def lookup: (Symbol | String path) -> Kobako::Transport::Exposure
 

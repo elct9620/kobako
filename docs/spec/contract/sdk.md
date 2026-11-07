@@ -182,6 +182,16 @@ impl Sandbox {
 }
 ```
 
+## `Sandbox::network`
+
+Give the guest a named network entry, its endpoints read for each invocation.
+
+```rust
+impl Sandbox {
+    pub fn network(&mut self, name: &str, entry: Arc<dyn network::Entry>) -> Result<(), Error> {}
+}
+```
+
 ## `Sandbox::install`
 
 Compose an Extension into the Sandbox.
@@ -287,6 +297,17 @@ Bind a Service at a path for this invocation alone.
 ```rust
 impl Context<'_> {
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {}
+}
+```
+
+## `Context::network`
+
+Replace a named network entry for this invocation alone. It may reach more than
+the Sandbox's own.
+
+```rust
+impl Context<'_> {
+    pub fn network(&mut self, name: &str, entry: Arc<dyn Entry>) -> Result<(), Error> {}
 }
 ```
 

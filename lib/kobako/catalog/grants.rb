@@ -4,7 +4,7 @@ module Kobako
   module Catalog
     class Grants # :nodoc:
       def initialize
-        @entries = {} # : Hash[key, Mount]
+        @entries = {} # : Hash[key, Mount | Network]
       end
 
       # Each Grant decides what it cannot stand beside.
@@ -20,10 +20,11 @@ module Kobako
         @entries.key?(grant.key)
       end
 
-      # Each Grant as the native side reads it, an override standing in for
-      # the Grant it shares a key with.
+      # The Mounts, then the network entries, each as the native side reads
+      # it, an override standing in for the Grant it shares a key with.
       def entries(overrides = {})
-        @entries.merge(overrides).values.map(&:to_native)
+        grants = @entries.merge(overrides).values
+        [grants.grep(Mount).map(&:to_native), grants.grep(Network).map(&:to_native)]
       end
     end
   end

@@ -20,7 +20,8 @@ module Kobako
       Array[String],
       Array[Kobako::Catalog::Snippets::tuple],
       Array[Kobako::Catalog::Flags::tuple],
-      Array[Kobako::Catalog::Mount::tuple]
+      Array[Kobako::Catalog::Mount::tuple],
+      Array[Kobako::Catalog::Network::tuple]
     ]
 
     def eval: (Kobako::Transport::dispatch_proc dispatch, setup setup, String source) -> Kobako::Snapshot

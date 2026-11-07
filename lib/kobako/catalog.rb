@@ -6,7 +6,9 @@ require_relative "catalog/snippets"
 require_relative "catalog/flags"
 require_relative "catalog/extensions"
 require_relative "catalog/mount"
+require_relative "catalog/network"
 require_relative "catalog/grants"
+require_relative "catalog/replacements"
 
 module Kobako
   module Catalog # :nodoc:

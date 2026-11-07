@@ -28,6 +28,8 @@ module Kobako
 
     def mount: (String at, Kobako::Filesystem::mountable filesystem, ?access: Kobako::Filesystem::access) ?{ (String path, Kobako::Filesystem::access access) -> boolish } -> Kobako::Sandbox
 
+    def network: (Symbol | String name, ?untyped entry) ?{ (Kobako::Network::Builder) -> void } -> Kobako::Sandbox
+
     def preload: (code: String, name: Symbol | String) -> Kobako::Sandbox
                | (binary: String) -> Kobako::Sandbox
 

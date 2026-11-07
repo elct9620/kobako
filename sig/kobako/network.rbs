@@ -1,0 +1,37 @@
+module Kobako
+  module Network
+    type protocol = :http | :tcp | :udp
+
+
+    class Endpoint < Data
+      PROTOCOLS: Array[protocol]
+      ADDRESS_SETS: Array[Symbol]
+
+      attr_reader host: String
+      attr_reader port: Integer
+      attr_reader protocol: protocol
+      attr_reader addresses: Array[Symbol | String]
+
+      def self.new: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped) -> Endpoint
+
+      def initialize: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped) -> void
+
+      private
+
+      def to_address: (untyped address) -> (Symbol | String)
+
+      def refuse_malformed: (String host, untyped port, untyped protocol) -> void
+    end
+
+    class Builder
+      @entry: untyped
+      @endpoints: Array[Endpoint]
+
+      def initialize: (?untyped entry) -> void
+
+      def endpoint: (untyped host, port: untyped, ?protocol: untyped, ?addresses: untyped) -> self
+
+      def endpoints: () -> Array[untyped]
+    end
+  end
+end

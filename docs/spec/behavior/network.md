@@ -1,0 +1,114 @@
+# Network
+
+How a Host App hands the guest the network. Each named entry is one Grant, seals with the Sandbox, and is replaceable for one invocation.
+
+```
+sandbox.network(name, entry) ─ sealed at the first invocation
+ctx.network(name, ...)       ─ replaces it for that invocation only
+each invocation ─ Grants ─> runtime ─ wasi:sockets, wasi:http ─> guest
+```
+
+### Why these scenarios
+
+An entry is a registration, as a mount is, so it is refused once the Sandbox is sealed. A name means one entry, as a path means one mount. A Context replaces an entry by its name but never adds one. An endpoint is data, so its defaults are what an endpoint written without them reaches.
+
+```
+endpoint "api.example.com", port: 443
+  protocol  -> :http
+  addresses -> [:public]
+```
+
+## Includes
+
+- `test/e2e/test_network.rb`
+- `test/unit/catalog/test_network.rb`
+- `crates/kobako/tests/integration/network.rs`
+- `crates/kobako-runtime/src/network.rs`
+
+## `NW-001` An entry after the first invocation is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-002` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox that has run an invocation |
+| When | a network entry is given to it |
+| Then | the entry is refused |
+
+## `NW-002` A name given twice is refused
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a network entry named `github` |
+| When | another entry named `github` is given to it |
+| Then | the second entry is refused |
+
+## `NW-003` A name and a mount path never meet
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-002`, `MT-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Filesystem mounted at `/data` |
+| When | a network entry named `/data` is given to it |
+| Then | both stand, each judged only against its own kind |
+
+## `NW-004` A runtime presenting no network refuses the entry
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-006` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over a runtime that supports no network |
+| When | a network entry is given to it |
+| Then | the entry is refused as a setup failure |
+
+## `NW-005` A Context cannot replace a name the Sandbox never declared
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-010` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with no network entry named `other` |
+| When | an invocation's Context replaces the entry named `other` |
+| Then | the override is refused before the guest runs |
+
+## `NW-006` A Context replaces an entry for its invocation only
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a network entry named `api` |
+| When | an invocation's Context replaces the entry named `api` |
+| Then | that invocation receives the replacement, and the next receives the Sandbox's own |
+
+## `NW-007` An endpoint reaches HTTP and public addresses unless written otherwise
+
+| Step | Statement |
+| --- | --- |
+| Given | an endpoint written with only a host and a port |
+| When | its protocol and its addresses are read |
+| Then | the protocol is HTTP and the addresses are the public set |
+
+## `NW-008` An empty name or a malformed endpoint is refused
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an entry is given an empty name, or an endpoint whose host is empty or whose port is zero |
+| Then | the entry is refused |

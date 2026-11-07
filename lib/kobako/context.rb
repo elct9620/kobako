@@ -21,7 +21,7 @@ module Kobako
       @runtime = runtime
       @services = services
       @extensions = extensions
-      @grants = grants
+      @replacements = Catalog::Replacements.new(grants)
       @preamble = preamble
       @resolved = {} # : Hash[String, Transport::Exposure]
       @overrides = {} # : Hash[String, Transport::Exposure]
@@ -57,11 +57,22 @@ module Kobako
       raise ArgumentError, "Kobako::Context is spent; ctx.mount is only valid inside the #eval / #run block" if @spent
 
       Runtime.validate_mount(at, access, filesystem)
-      mount = Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy)
-      raise ArgumentError, "cannot override unmounted path #{at.inspect}" unless @grants.include?(mount)
+      @replacements.replace(Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy),
+                            "cannot override unmounted path #{at.inspect}")
+      self
+    end
 
-      mounts = @mounts ||= {} # : Hash[Catalog::Grants::key, Catalog::Mount]
-      mounts[mount.key] = mount
+    # Use +entry+ for the network entry named +name+ during this invocation
+    # only, built and added to as Sandbox#network takes them; it may reach more
+    # than the Sandbox's own. Returns +self+.
+    #
+    # Raises ArgumentError when +name+ was never given on the Sandbox, or when
+    # called after the block has returned.
+    def network(name, entry = nil, &builder)
+      raise ArgumentError, "Kobako::Context is spent; ctx.network is only valid inside the #eval / #run block" if @spent
+
+      @replacements.replace(Catalog::Network.of(name, entry, &builder),
+                            "cannot override undeclared network entry #{name.to_s.inspect}")
       self
     end
 
@@ -90,10 +101,11 @@ module Kobako
     private
 
     # What the Runtime builds the invocation from: the Preamble's parts,
-    # then this invocation's mounts.
+    # then this invocation's Mounts and network entries.
     def setup
       paths, snippets, flags = @preamble
-      [paths, snippets, flags, @grants.entries(@mounts || {})]
+      mounts, networks = @replacements.entries
+      [paths, snippets, flags, mounts, networks]
     end
 
     # The Context is spent once the block returns, so a captured +ctx+ used

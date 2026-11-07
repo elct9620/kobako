@@ -18,6 +18,7 @@ plainly the code works.
 - `lib/kobako/extension.rb`
 - `lib/kobako/filesystem.rb`
 - `lib/kobako/handle.rb`
+- `lib/kobako/network.rb`
 - `lib/kobako/pool.rb`
 - `lib/kobako/sandbox.rb`
 - `lib/kobako/transport/error.rb`
@@ -55,6 +56,65 @@ Mount a Filesystem at a guest path, its block refusing what the access allows.
 module Kobako
   class Sandbox
     def mount(at, filesystem, access: :read, &policy)
+    end
+  end
+end
+```
+
+## `Kobako::Sandbox#network`
+
+Give the guest a named network entry, a given block adding endpoints to it.
+
+```ruby
+module Kobako
+  class Sandbox
+    def network(name, entry = nil, &builder)
+    end
+  end
+end
+```
+
+## `Kobako::Network::Endpoint#initialize`
+
+What the guest may reach: a host, a port, a protocol, and where the host's name
+may lead. Unless written otherwise it speaks HTTP to public addresses.
+
+```ruby
+module Kobako
+  module Network
+    class Endpoint
+      def initialize(host:, port:, protocol: :http, addresses: [:public])
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Builder#endpoint`
+
+Let the guest reach a host on a port, as an endpoint takes them.
+
+```ruby
+module Kobako
+  module Network
+    class Builder
+      def endpoint(host, port:, protocol: :http, addresses: [:public])
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Builder#endpoints`
+
+The given object's endpoints, then the block's.
+
+```ruby
+module Kobako
+  module Network
+    class Builder
+      def endpoints
+      end
     end
   end
 end
@@ -328,6 +388,19 @@ Give a mounted path a different Filesystem for this one invocation.
 module Kobako
   class Context
     def mount(at, filesystem, access: :read, &policy)
+    end
+  end
+end
+```
+
+## `Kobako::Context#network`
+
+Give a named network entry a different entry for this one invocation.
+
+```ruby
+module Kobako
+  class Context
+    def network(name, entry = nil, &builder)
     end
   end
 end

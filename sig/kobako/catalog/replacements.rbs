@@ -1,0 +1,14 @@
+module Kobako
+  module Catalog
+    class Replacements
+      @grants: Grants
+      @replaced: Hash[Grants::key, Grants::grant]
+
+      def initialize: (Grants grants) -> void
+
+      def replace: (Grants::grant grant, String refusal) -> nil
+
+      def entries: () -> [Array[Mount::tuple], Array[Network::tuple]]
+    end
+  end
+end

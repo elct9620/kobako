@@ -415,3 +415,28 @@ An entry the guest reached beneath a Mount, as the Filesystem mounted there and 
 ```
 Path = mounted Filesystem + Dentry ─▶ Inode ─▶ lookup ─▶ the next Path
 ```
+
+## Network
+
+### Includes
+
+- `crates/kobako-runtime/src/network.rs`
+- `ext/kobako/src/runtime/network.rs`
+- `lib/kobako/network.rb`
+- `lib/kobako/catalog/network.rb`
+
+### Entry
+
+One named unit of the network a Host App hands a Sandbox, each one Grant. The Sandbox holds each name once, and a Context may replace one by its name for an invocation. An entry plays any of three roles: its endpoints, its credentials, and its policies.
+
+```
+sandbox.network(name, entry) -> one Grant -> endpoints, credentials, policies
+```
+
+### Endpoint
+
+What one entry lets the guest reach: a host, a port, a protocol, and where its name may lead. It is data, so the runtime judges it on any thread. Unless written otherwise, an endpoint speaks HTTP and leads only to public addresses.
+
+```
+host:port, protocol (HTTP | TCP | UDP), addresses ([:public] unless written)
+```

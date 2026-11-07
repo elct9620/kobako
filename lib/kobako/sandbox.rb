@@ -105,6 +105,19 @@ module Kobako
       self
     end
 
+    # Give the guest the network entry +entry+ under +name+, any object
+    # answering +endpoints+. A given block yields a Kobako::Network::Builder
+    # adding to +entry+, so the block's +self+ stays the caller's. Each entry's
+    # endpoints are read afresh for every invocation. Returns +self+.
+    #
+    # Raises ArgumentError for an empty or duplicate name, a malformed
+    # endpoint, or a call after the first invocation.
+    def network(name, entry = nil, &builder)
+      refuse_once_invoked("network")
+      @grants.register(Catalog::Network.of(name, entry, &builder))
+      self
+    end
+
     # Register a snippet that every invocation runs, in the order registered,
     # before its own code. Returns +self+.
     #

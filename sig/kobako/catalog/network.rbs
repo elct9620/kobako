@@ -1,0 +1,20 @@
+module Kobako
+  module Catalog
+    class Network < Data
+      type tuple = [String, untyped]
+
+      attr_reader name: String
+      attr_reader entry: untyped
+
+      def self.new: (name: String, entry: untyped) -> Network
+
+      def self.of: (untyped name, untyped entry) ?{ (Kobako::Network::Builder) -> void } -> Network
+
+      def key: () -> Grants::key
+
+      def conflict: (Mount | Network other) -> String?
+
+      def to_native: () -> tuple
+    end
+  end
+end

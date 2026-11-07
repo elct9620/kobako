@@ -22,6 +22,7 @@ mod errors;
 mod escape;
 mod filesystem;
 mod gvl;
+mod network;
 mod pinned_value;
 mod snapshot;
 
@@ -265,9 +266,10 @@ impl Runtime {
     // or a fault before the export call) raises directly, as the class
     // `errors::to_magnus` gives its cause, since it yields no `Snapshot`.
     //
-    // `setup` is the invocation's `[paths, snippets, flags, mounts]`: the
-    // Preamble's three parts, then the Mounts as
-    // `filesystem::to_grants` reads them.
+    // `setup` is the invocation's `[paths, snippets, flags, mounts,
+    // networks]`: the Preamble's three parts, then the Mounts as
+    // `filesystem::to_grants` reads them and the network entries as
+    // `network::to_grants` reads them.
     // -----------------------------------------------------------------
 
     fn eval(
@@ -312,7 +314,8 @@ impl Runtime {
         };
         let handler = build_handler(dispatch);
         let preamble = to_preamble(&ruby, setup)?;
-        let (grants, _pins) = filesystem::to_grants(&ruby, setup.entry(3)?)?;
+        let (mut grants, _pins) = filesystem::to_grants(&ruby, setup.entry(3)?)?;
+        grants.extend(network::to_grants(&ruby, setup.entry(4)?)?);
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the driver is magnus-free, and a
         // guest→host dispatch, or a mount's block, re-acquires the GVL).

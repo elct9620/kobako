@@ -3,13 +3,14 @@ module Kobako
     class Grants
       type key = [Symbol, String]
 
+      type grant = Mount | Network
+
       def initialize: () -> void
 
-      def register: (Mount grant) -> nil
+      def register: (grant grant) -> nil
 
-      def include?: (Mount grant) -> bool
-
-      def entries: (?Hash[key, Mount] overrides) -> Array[Mount::tuple]
+      def include?: (grant grant) -> bool
+      def entries: (?Hash[key, grant] overrides) -> [Array[Mount::tuple], Array[Network::tuple]]
     end
   end
 end

@@ -44,6 +44,7 @@ rescue LoadError
 end
 
 require_relative "kobako/filesystem"
+require_relative "kobako/network"
 require_relative "kobako/errors"
 require_relative "kobako/unresolved"
 require_relative "kobako/extension"
