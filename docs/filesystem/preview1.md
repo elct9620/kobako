@@ -13,17 +13,17 @@ A judgment belongs to the Wasm Driver when it would vanish with preview2, or whe
 
 ## Two ABIs
 
-The Guest Binary crosses only two ABIs. `wasm-tools print` shows the same 18 imports in all five variants.
+The Guest Binary crosses only two ABIs. `wasm-tools print` shows the same 26 imports in all five variants.
 
 | ABI | Imports | Answered by |
 |---|---|---|
 | kobako ABI | `env.__kobako_upcall` | `kobako-runtime`'s `endpoint` |
-| WASI file calls | 13 `fd_*` and `path_*` | kobako |
+| WASI file calls | 21 `fd_*` and `path_*` | kobako |
 | WASI rest | `environ_*`, `random_get`, `proc_exit` | wasmtime-wasi |
 
 The Wasm Driver only wires the kobako ABI's import to `endpoint`.
 
-kobako answers 36 of the 46 preview1 imports: every `fd_*`, `path_*`, and `sock_*` call, and `poll_oneoff`. Those are the calls that read the descriptor table, so the guest stays on one table where each Mount is a preopen. The 23 the Guest Binary never imports serve a third-party guest. The other ten read no descriptor and stay wasmtime-wasi's.
+kobako answers 36 of the 46 preview1 imports: every `fd_*`, `path_*`, and `sock_*` call, and `poll_oneoff`. Those are the calls that read the descriptor table, so the guest stays on one table where each Mount is a preopen. The 15 the Guest Binary never imports serve a third-party guest. The other ten read no descriptor and stay wasmtime-wasi's.
 
 ## Syscall Table
 
@@ -46,7 +46,7 @@ Each preview1 behavior is decided by these sources in order; an earlier one wins
 3. Take semantics neither defines from Linux.
 4. Consult wasmtime-wasi as a reference, never as a baseline.
 
-Aligning with Linux in step 3 never departs from POSIX, so a divergence stays a subset: kobako may refuse more, never succeed differently.
+Taking semantics from Linux never departs from POSIX, so a divergence stays a subset: kobako may refuse more, never succeed differently.
 
 ## Runtime Decisions
 

@@ -19,6 +19,7 @@ engine stays swappable.
 | `filesystem` | the `FileSystemType` and `InodeOperations` traits and the three kinds kobako ships |
 | `endpoint` | the host side of the kobako ABI, over the `GuestInstance` an engine implements |
 | `vfs` | the walk, open files, and pipes each engine's calls reach, whichever ABI it encodes |
+| `security` | the security modules an invocation registers: kobako's own rules and each Mount's `Policy` |
 | `sched` | the `Blocking` a frontend registers, how its threads wait for a lock |
 | `dispatch` / `yielder` | the `DispatchHandler` and `Yielder` traits a frontend supplies for guest→host dispatch and block-yield re-entry |
 

@@ -23,7 +23,7 @@ match offsets and substring slices are byte-based.
 | `Regexp` | matching | `match`, `match?`, `=~`, `===`, `last_match` |
 | `Regexp` | reading | `source`, `options`, `casefold?`, `names`, `named_captures` |
 | `Regexp` | display | `inspect`, `to_s`, `==` |
-| `Regexp` | match globals | `$~`, `$1` |
+| `Regexp` | match globals | `$~`, `$1`..`$9`, `` $` ``, `$'`, `$+` |
 | `MatchData` | groups | positional and named groups, `to_a`, `to_s` |
 | `MatchData` | byte offsets | `begin`, `end`, `offset` |
 | `MatchData` | context | `pre_match`, `post_match`, `string`, `regexp` |
@@ -39,15 +39,16 @@ Each row names what holds for a guest's patterns or subjects.
 
 | Area | What holds |
 |---|---|
-| Unicode property classes (`\p{...}`) | need the `unicode` feature |
+| Unicode property classes (`\p{...}`) | need the `unicode` feature, except ASCII ones such as `\p{XDigit}` |
 | Case-insensitive matching | needs the `unicode` feature |
-| Word boundaries (`\b` / `\B`) | need the `unicode` feature |
+| Word boundaries (`\b` / `\B`) | need the `unicode` feature, except under `(?a)` |
 | ASCII `\d` / `\w` / `\s` | rewritten to explicit classes either way |
 | Subject encoding | UTF-8; an invalid subject is treated as empty |
 | Backtracking | past the engine's limit raises `RegexpError` |
 
-fancy-regex's flag is coarse, so with `unicode` off every `(?i)` pattern
-and word boundary is rejected, and a guest using either needs it on. A subject that is not
+With `unicode` off, a construct that reads Unicode data in CRuby is
+rejected, never narrowed to ASCII. Every `(?i)` pattern is one, and so is a
+word boundary outside `(?a)`. A subject that is not
 valid UTF-8 never matches and never crashes. Byte-oriented matching is
 out of scope.
 
