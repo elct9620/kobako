@@ -192,6 +192,17 @@ impl Sandbox {
 }
 ```
 
+## `Sandbox::network_with`
+
+Give the guest a named entry with what a builder adds to it. The builder's
+endpoints and policies follow the entry's.
+
+```rust
+impl Sandbox {
+    pub fn network_with(&mut self, name: &str, entry: Arc<dyn network::Entry>, build: impl FnOnce(&mut network::Builder)) -> Result<(), Error> {}
+}
+```
+
 ## `Sandbox::install`
 
 Compose an Extension into the Sandbox.

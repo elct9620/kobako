@@ -63,7 +63,8 @@ end
 
 ## `Kobako::Sandbox#network`
 
-Give the guest a named network entry, a given block adding endpoints to it.
+Give the guest a named network entry, a given block adding endpoints and
+policies to it.
 
 ```ruby
 module Kobako
@@ -115,6 +116,53 @@ module Kobako
     class Builder
       def endpoints
       end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Builder#policy`
+
+Judge each decision a hook names with the block. A falsy answer or a raised
+StandardError refuses; `:connect` hands the block a Connection.
+
+```ruby
+module Kobako
+  module Network
+    class Builder
+      def policy(hook, &block)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Builder#connect?`
+
+Whether the given object's `connect?` and each block's connect policy allow a
+Connection.
+
+```ruby
+module Kobako
+  module Network
+    class Builder
+      def connect?(connection)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Connection`
+
+One connection the guest asks for: the host it named, its port, and its
+protocol. The host is never a real address a name resolved to.
+
+```ruby
+module Kobako
+  module Network
+    class Connection
+      attr_reader :host, :port, :protocol
     end
   end
 end

@@ -1100,6 +1100,17 @@ pub trait SecurityOperations {
 }
 ```
 
+## `SecurityOperations::socket_connect`
+
+Whether a socket may connect where a Connection names, judged on what the Guest
+named.
+
+```rust
+pub trait SecurityOperations {
+    fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), FilesystemError>;
+}
+```
+
 ## `SecurityOperations::path_rename`
 
 Whether what one path names may move to another, the dentries of each given.

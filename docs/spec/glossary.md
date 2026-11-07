@@ -347,11 +347,14 @@ Mount -> at a guest path, read or read-write, or a Policy -> a Filesystem
 
 ### Policy
 
-The Host App's decision on each path a guest opens or changes beneath a Mount. It is asked after the Mount's access allows the call, and can only refuse more. It judges the guest's path as the Filesystem spells it, so a directory beneath it does not move. In Ruby it is the block a mount is given.
+The Host App's decision on what a guest asks of a Grant. Each kind of request has its own hook, as an LSM hooks each kind of object. It is asked after the Grant itself allows the call, and can only refuse more.
+
+A Mount's Policy judges each path opened or changed beneath it, as the Filesystem spells it. In Ruby it is the block a mount is given. A network entry's Policy judges each connection the guest names. In Ruby it is the entry's `connect?` or a `policy(:connect)` block.
 
 ```
-open or change at a path ─> Policy ─┬─ allows -> the call proceeds
-                                    └─ refuses -> denied, the script goes on
+a path beneath a Mount  ─┐
+a connection the guest  ─┴─> Policy ─┬─ allows -> the call proceeds
+names                                └─ refuses -> denied, the script goes on
 ```
 
 ### Filesystem

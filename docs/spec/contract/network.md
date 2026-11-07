@@ -6,8 +6,10 @@ is one Grant, and its endpoints are data the runtime judges on any thread.
 ## Includes
 
 - `crates/kobako-runtime/src/network.rs`
+- `crates/kobako-runtime/src/network/builder.rs`
 - `crates/kobako-runtime/src/network/ruleset.rs`
 - `crates/kobako-runtime/src/net/family.rs`
+- `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
 
 ## `Network`
@@ -45,6 +47,99 @@ What the entry lets the Guest reach, as it answers for this Invocation.
 ```rust
 impl Network {
     pub fn endpoints(&self) -> Vec<Endpoint> {}
+}
+```
+
+## `Network::policies`
+
+What the entry's policies judge, as it answers for this Invocation.
+
+```rust
+impl Network {
+    pub fn policies(&self) -> Policies {}
+}
+```
+
+## `Policies`
+
+An entry's policies, one optional hook per decision point. A missing hook has
+no opinion, and a policy only narrows.
+
+```rust
+pub struct Policies {
+    pub connect: Option<Arc<dyn for<'a> Policy<Connection<'a>>>>,
+}
+```
+
+## `Policies::with_connect`
+
+These policies with one judging each connect.
+
+```rust
+impl Policies {
+    pub fn with_connect(self, policy: Arc<dyn for<'a> Policy<Connection<'a>>>) -> Self {}
+}
+```
+
+## `Builder`
+
+An entry built in code, as Ruby's DSL block builds one. Its endpoints and
+policies add to those of an entry given beside it.
+
+```rust
+pub struct Builder {}
+```
+
+## `Builder::on`
+
+A builder adding to an entry.
+
+```rust
+impl Builder {
+    pub fn on(entry: Arc<dyn Entry>) -> Self {}
+}
+```
+
+## `Builder::endpoint`
+
+Let the Guest reach one more endpoint.
+
+```rust
+impl Builder {
+    pub fn endpoint(&mut self, endpoint: Endpoint) -> &mut Self {}
+}
+```
+
+## `Builder::connect_policy`
+
+Judge each connect with one more policy; any refusal wins.
+
+```rust
+impl Builder {
+    pub fn connect_policy(&mut self, policy: impl for<'a> Policy<Connection<'a>> + 'static) -> &mut Self {}
+}
+```
+
+## `Connection`
+
+One connection the Guest asks for: the host it named, its port, and its
+protocol. The host is never a real address a name resolved to.
+
+```rust
+pub struct Connection<'a> {
+    pub host: &'a str,
+    pub port: u16,
+    pub protocol: Protocol,
+}
+```
+
+## `Connection::new`
+
+The connection to a host, a port, and a protocol.
+
+```rust
+impl<'a> Connection<'a> {
+    pub fn new(host: &'a str, port: u16, protocol: Protocol) -> Self {}
 }
 ```
 
@@ -162,6 +257,37 @@ refuse whatever an endpoint says.
 ```rust
 impl Ruleset {
     pub fn admit_literal(&self, addr: SocketAddr, protocol: Protocol) -> Result<(), FilesystemError> {}
+}
+```
+
+## `Namespace`
+
+The network one Invocation's entries make together: the ruleset, the connect
+policies, and the Protocol Family that dials.
+
+```rust
+pub struct Namespace {}
+```
+
+## `Namespace::new`
+
+The namespace of every entry given, dialing through a Protocol Family. It is
+refused for an endpoint the ruleset cannot compile.
+
+```rust
+impl Namespace {
+    pub fn new<'a>(networks: impl IntoIterator<Item = &'a Network>, family: Arc<dyn ProtocolFamily>) -> Result<Self, EntryError> {}
+}
+```
+
+## `Namespace::connect`
+
+A TCP socket to a literal address, once the socket hooks and the ruleset pass
+it. Any refusal answers `PermissionDenied`, and nothing is dialed.
+
+```rust
+impl Namespace {
+    pub fn connect(&self, cred: &Cred, addr: SocketAddr, deadline: Option<Instant>) -> Result<Arc<TcpSock>, FilesystemError> {}
 }
 ```
 

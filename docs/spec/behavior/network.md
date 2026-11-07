@@ -21,10 +21,13 @@ endpoint "api.example.com", port: 443
 ## Includes
 
 - `test/e2e/test_network.rb`
+- `test/e2e/test_network_tcp.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
 - `crates/kobako-runtime/src/network.rs`
+- `crates/kobako-runtime/src/network/builder.rs`
 - `crates/kobako-runtime/src/network/ruleset.rs`
+- `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 
 ## `NW-001` An entry after the first invocation is refused
@@ -214,3 +217,51 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a different port than the one the script reaches |
 | When | the script opens a `TCPSocket` to that address and port |
 | Then | it raises `Errno::EACCES`, as a denied `connect` does on Linux |
+
+## `NW-018` Any entry's connect policy refuses what the endpoints allow
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an endpoint admitting an address, and entries whose connect policies judge it |
+| When | the guest connects to that address |
+| Then | each policy sees the host the guest named, its port, and its protocol. One refusal answers `EACCES`, and nothing is dialed |
+
+## `NW-019` A Wasm Driver's security module refuses before an entry's policy
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Wasm Driver built with a security module refusing every connect |
+| When | the guest connects to an address an endpoint admits |
+| Then | the connect answers `EACCES` before any entry's policy is asked, as Linux stacks its modules |
+
+## `NW-020` A builder adds its endpoints and policies to the entry it is given
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry, and a builder adding an endpoint and a connect policy to it |
+| When | the built entry is read |
+| Then | its endpoints are the entry's then the builder's, and either's connect policy refusing refuses |
+
+## `NW-021` A Ruby connect policy refuses a TCPSocket the endpoints allow
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry's `connect?`, or a `policy(:connect)` block, beside an endpoint admitting an address |
+| When | the script opens a `TCPSocket` there |
+| Then | the policy is handed a `Kobako::Network::Connection`. A falsy answer raises `Errno::EACCES` in the script |
