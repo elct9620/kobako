@@ -34,6 +34,7 @@ A name, a comment, a task description, or a message says what it is about where 
 | the thing a step handles | its number in a process: the mruby archive, not Stage B |
 | the outside thing by its own name | a label only one document defines: `d_make_root`, not "step 3" |
 | what a check guards | the finding or round that raised it |
+| an earlier item of the same list | its number: the mrbgem allowlist, not "rule #1" |
 
 A reference to something outside stays, as long as it names that thing: a Linux function, a CRuby method, a POSIX error.
 
@@ -47,7 +48,7 @@ A name is settled by three steps, in order; the first that decides it ends the s
 2. Give it the word class of what it names, as Word Classes and Method Names lay out.
 3. Read it where it is used, as Call-Site Reading shows.
 
-A name kept in step 1 may look like an exception to step 2. It stays, because a reader of that language expects it.
+A name another side fixes may look like an exception to its word class. It stays, because a reader of that language expects it.
 
 ## Word Classes
 
@@ -103,7 +104,8 @@ A word ending in `-ed` or `-ing` says what state a thing is in. It never names a
 | An enum variant naming a state | a variant such as `Sealed` |
 | After a verb | `add_hashed` |
 | A dictionary noun, in that sense | `Blocking`, `nesting` |
-| A name step 1 keeps | `method_missing`, `respond_to_missing?` |
+| Before a noun, as its adjective | `FrozenWallClock`, `uncovered_lines` |
+| A name another side fixes | `method_missing`, `respond_to_missing?` |
 
 A Rust attribute recording a state keeps the same name as its Ruby peer without the `?`, so `Execution::stdout_truncated` mirrors `Execution#stdout_truncated?`.
 
@@ -122,10 +124,11 @@ The third-person form follows the standard library's `contains` and `starts_with
 
 ## Raising Methods
 
-A Ruby method ends in `!` when it raises where it could not do its work. A guard that only checks is named for the check.
+A Ruby method kobako keeps to itself ends in `!` when it raises where it could not do its work. A guard that only checks is named for the check. A public method follows Ruby instead, where `!` marks only the member of a pair that raises, so `Sandbox#run` raises without one.
 
 | Method | Raises | As in |
 |---|---|---|
+| an act | where it could not do its work | `build_runtime!`, `run_baker!` |
 | a guard | when its condition fails | `ensure_capacity!`, `reject_unwrappable!` |
 | a pair | the `!` member, where the other answers | ActiveRecord's `save` and `save!` |
 | a change | never, so no `!` | `invalidate`, `record_handle` |
@@ -152,7 +155,7 @@ Four words name a bound, each for one origin.
 | `X_limit`, `limit` | a bound the Host App sets; `nil` or `None` turns it off | `memory_limit`, `stdout_limit` |
 | `budget` | a bound worked out from another, spent as one piece of work runs | `value_budget` |
 | `MAX_X` | a constant kobako fixes | `MAX_NESTING_DEPTH` |
-| `X_MAX` | a constant an outside standard names, kept by step 1 | `PATH_MAX` |
+| `X_MAX` | a constant an outside standard names, as it spells it | `PATH_MAX` |
 
 ## Files and Tests
 
@@ -166,11 +169,13 @@ Files and tests are named for what they hold.
 | A Rust test | the behaviour as a sentence | `the_guest_wall_clock_reads_the_unix_epoch` |
 | A Minitest test | `test_`, then the behaviour | `test_a_block_run_on_another_thread_refuses` |
 
+Test code follows every rule here, save that a test double's type is named for the behaviour it stands in for, as `CountsLookups`.
+
 Where a file goes follows the part that owns its concern. Part Ownership in [`architecture.md`](../architecture.md) places the crates, and the comment atop `lib/kobako.rb` places the Ruby tiers. A test's assertion message follows How We Work in `AGENTS.md`.
 
 ## Fixed Names
 
-These names come from another side, and step 1 keeps each as that side spells it. The side is the layer a name stands at. The standard library's file functions wrap system calls, a layer above the VFS, so the VFS spells its names as Linux does. A type drops the prefix C needs for want of one, so `d_revalidate` is `DentryOperations::revalidate`. A function with no type to hang from keeps its whole name.
+These names come from another side, and each stays as that side spells it. The side is the layer a name stands at. The standard library's file functions wrap system calls, a layer above the VFS, so the VFS spells its names as Linux does. A type drops the prefix C needs for want of one, so `d_revalidate` is `DentryOperations::revalidate`. A function with no type to hang from keeps its whole name.
 
 | Side | As in |
 |---|---|
@@ -181,6 +186,8 @@ These names come from another side, and step 1 keeps each as that side spells it
 | magnus and beni | `funcall`, `define_method` |
 | WASI and POSIX | `fd_readdir`, `PATH_MAX`, `ELOOP` |
 | wasmtime-wasi's preview1, for the Wasm Driver's descriptor table, where a name there means the same | `Descriptors`, `push`, `remove`, `preopen_path` |
+| rustc_lexer, for a lexer's methods, each named for the token it lexes | `group`, `brace`, `octal` |
+| fancy-regex, for a value kobako hands it | `BACKTRACK_LIMIT`, for `backtrack_limit` |
 | MessagePack | `ext`, `bin`, `str` |
 | Minitest | `test_`, `assert_equal` |
 | connection_pool | `Pool#with` |
