@@ -880,7 +880,7 @@ mod tests {
 
         /// What a stat of `path` beneath `root` reports as its modified time, once
         /// it was set.
-        fn modified_after_setting(root: &VfsPath, path: &str) -> Option<std::time::SystemTime> {
+        fn set_and_read_modified(root: &VfsPath, path: &str) -> Option<std::time::SystemTime> {
             do_utimes_path(&Arc::default(), root, path, false, &set_modified())
                 .expect("the time must be set");
             vfs_fstatat(&Arc::default(), root, path, false)
@@ -917,8 +917,8 @@ mod tests {
             ];
             let answers = roots.map(|root| {
                 (
-                    modified_after_setting(&root, "dir/file.txt"),
-                    modified_after_setting(&root, "dir"),
+                    set_and_read_modified(&root, "dir/file.txt"),
+                    set_and_read_modified(&root, "dir"),
                 )
             });
             let set = Some(moment());
@@ -935,7 +935,7 @@ mod tests {
         fn a_directory_time_set_through_an_overlay_leaves_its_lower_layer() {
             let host = host_with_a_file("overlay-dir-time");
             let before = host_modified(&host.0.join("dir"));
-            let seen = modified_after_setting(&root_of(overlay_of(bind_of(&host))), "dir");
+            let seen = set_and_read_modified(&root_of(overlay_of(bind_of(&host))), "dir");
             assert_eq!(
             (seen, host_modified(&host.0.join("dir")) == before),
             (Some(moment()), true),
