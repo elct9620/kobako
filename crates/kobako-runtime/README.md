@@ -16,6 +16,7 @@ engine stays swappable.
 | `profile` | the isolation `Profile` a runtime declares |
 | `grant` | the `Grant` each invocation receives, the supported `GrantKind`s, and the `Policy` |
 | `mount` | the `Mount` at a guest path, its `Access`, and the `MountRequest` its `Policy` judges |
+| `network` | the named `Network` entry a frontend hands each invocation, and its `Endpoint`s |
 | `filesystem` | the `FileSystemType` and `InodeOperations` traits and the three kinds kobako ships |
 | `endpoint` | the host side of the kobako ABI, over the `GuestInstance` an engine implements |
 | `vfs` | the walk, open files, and pipes each engine's calls reach, whichever ABI it encodes |
