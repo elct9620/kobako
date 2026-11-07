@@ -25,7 +25,7 @@ Every change follows these rules. An earlier row wins on conflict.
 | Docs | Project-wide in `architecture.md`; one module's detail in its doc comment; cross-crate in `docs/<context>/` |
 | Docs | Ruby: RDoc prose, no YARD tags; Rust: backticks, no intra-doc links |
 | Tests | Drive the real `data/kobako.wasm`; build no fixture wasm crate |
-| Tests | A scenario test's message: "<input> through <public API> must <behaviour>" |
+| Tests | A scenario test's message states the promise in public terms — input, public API, behaviour — never an internal name; one lacking it gains it when next touched |
 | Tests | A helper's failure states what decides the next step |
 
 These commands are missing from `rake -T`.
