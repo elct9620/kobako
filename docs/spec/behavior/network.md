@@ -27,6 +27,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_http_policy.rb`
 - `test/e2e/test_network_https.rb`
 - `test/e2e/test_network_udp.rb`
+- `test/parity/test_network.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
 - `crates/kobako-runtime/src/network.rs`

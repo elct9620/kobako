@@ -981,6 +981,17 @@ no status read as an error.
 pub struct UreqOutbound {}
 ```
 
+## `UreqOutbound::new`
+
+A seam holding its own TLS configuration, so its sessions end with the
+Invocation that holds it.
+
+```rust
+impl UreqOutbound {
+    pub fn new() -> Self {}
+}
+```
+
 ## `Connector`
 
 The outbound seam's only dialer. It reaches the one authority the request
@@ -1101,8 +1112,9 @@ impl RequestBody {
 
 ## `platform_tls`
 
-The TLS client configuration trusting the OS's own store, built once per process;
-`None` where the platform offers no store.
+A TLS client configuration trusting the OS's own store, with its own session
+store. It is `None` where the platform offers no store. Its verifier is built
+once per process.
 
 ```rust
 pub fn platform_tls() -> Option<Arc<ClientConfig>> {}
