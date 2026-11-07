@@ -4,7 +4,7 @@
 //! `hostinet` is one choice of backend.
 
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::Duration;
 
 /// What dials the host network.
@@ -22,6 +22,40 @@ pub trait ProtocolFamily: Send + Sync {
     /// read at each connect. A family with none answers an empty list.
     fn local_addresses(&self) -> Vec<IpAddr> {
         Vec::new()
+    }
+
+    /// A datagram socket bound to an ephemeral port and connected to `addr`,
+    /// so it sends to and hears from that one peer. A family with no datagrams
+    /// answers `Unsupported`.
+    fn connect_datagram(&self, _addr: SocketAddr) -> io::Result<Box<dyn Datagram>> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+}
+
+/// One datagram socket the backend handed out, connected to one peer.
+pub trait Datagram: Send + Sync {
+    fn send(&self, buf: &[u8]) -> io::Result<usize>;
+    fn recv(&self, buf: &mut [u8]) -> io::Result<usize>;
+    /// How long a receive waits before it gives up.
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+    fn local_addr(&self) -> io::Result<SocketAddr>;
+}
+
+impl Datagram for UdpSocket {
+    fn send(&self, buf: &[u8]) -> io::Result<usize> {
+        UdpSocket::send(self, buf)
+    }
+
+    fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        UdpSocket::recv(self, buf)
+    }
+
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        UdpSocket::set_read_timeout(self, timeout.map(|t| t.max(Duration::from_millis(1))))
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        UdpSocket::local_addr(self)
     }
 }
 
@@ -65,6 +99,17 @@ impl ProtocolFamily for HostInet {
             }
         }
         Ok(addresses)
+    }
+
+    /// The host's own UDP, bound to an ephemeral port of `addr`'s family.
+    fn connect_datagram(&self, addr: SocketAddr) -> io::Result<Box<dyn Datagram>> {
+        let any: SocketAddr = match addr {
+            SocketAddr::V4(_) => ([0, 0, 0, 0], 0).into(),
+            SocketAddr::V6(_) => (std::net::Ipv6Addr::UNSPECIFIED, 0).into(),
+        };
+        let socket = UdpSocket::bind(any)?;
+        socket.connect(addr)?;
+        Ok(Box::new(socket))
     }
 
     fn local_addresses(&self) -> Vec<IpAddr> {

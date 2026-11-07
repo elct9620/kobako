@@ -12,7 +12,7 @@ use super::http::{
     split_authority, Connector, Exchange, HttpError, Outbound, OutgoingRequest, Scheme, Swap,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
-use super::{ProtocolFamily, TcpSock, Workers};
+use super::{ProtocolFamily, TcpSock, UdpSock, Workers};
 use crate::grant::Policy;
 use crate::network::{
     Connection, Credential, EntryError, Name, Network, Protocol, Request, Ruleset,
@@ -234,6 +234,32 @@ impl Namespace {
         addr: SocketAddr,
         deadline: Option<Instant>,
     ) -> Result<Arc<TcpSock>, FilesystemError> {
+        let real = self.admit(cred, addr, Protocol::Tcp)?;
+        TcpSock::connect(self.family.clone(), real, deadline, &self.workers)
+    }
+
+    /// A UDP socket streaming with `addr`, the one peer the guest named, as
+    /// `cred`, giving up at `deadline`. It passes the same steps a TCP connect
+    /// does, as `udp_pre_connect` runs `connect4`; UDP opens no handshake, so
+    /// the first real address the ruleset admits is its peer.
+    pub fn connect_datagram(
+        &self,
+        cred: &Cred,
+        addr: SocketAddr,
+        deadline: Option<Instant>,
+    ) -> Result<Arc<UdpSock>, FilesystemError> {
+        let real = self.admit(cred, addr, Protocol::Udp)?;
+        UdpSock::connect(self.family.clone(), real[0], deadline, &self.workers)
+    }
+
+    /// The real addresses a `protocol` connection to `addr` may dial, once the
+    /// socket hooks and the ruleset pass it.
+    fn admit(
+        &self,
+        cred: &Cred,
+        addr: SocketAddr,
+        protocol: Protocol,
+    ) -> Result<Vec<SocketAddr>, FilesystemError> {
         let translated = match addr.ip() {
             IpAddr::V4(ip) if u32::from(ip) & !(VIRTUAL_SIZE - 1) == VIRTUAL_BASE => Some(
                 self.translate(ip)
@@ -245,15 +271,15 @@ impl Namespace {
             Some((name, _)) => name.clone(),
             None => addr.ip().to_string(),
         };
-        let connection = Connection::new(&host, addr.port(), Protocol::Tcp);
+        let connection = Connection::new(&host, addr.port(), protocol);
         cred.security_socket_connect(&connection)?;
         if !self.connect.iter().all(|policy| policy.allows(&connection)) {
             return Err(FilesystemError::PermissionDenied);
         }
-        let real = match translated {
+        match translated {
             None => {
-                self.ruleset.admit_literal(addr, Protocol::Tcp)?;
-                vec![addr]
+                self.ruleset.admit_literal(addr, protocol)?;
+                Ok(vec![addr])
             }
             Some((name, real)) => {
                 let local = self.family.local_addresses();
@@ -262,17 +288,16 @@ impl Namespace {
                     .map(|ip| SocketAddr::new(ip, addr.port()))
                     .filter(|real| {
                         self.ruleset
-                            .admit_resolved(&name, *real, Protocol::Tcp, &local)
+                            .admit_resolved(&name, *real, protocol, &local)
                             .is_ok()
                     })
                     .collect::<Vec<_>>();
                 if admitted.is_empty() {
                     return Err(FilesystemError::PermissionDenied);
                 }
-                admitted
+                Ok(admitted)
             }
-        };
-        TcpSock::connect(self.family.clone(), real, deadline, &self.workers)
+        }
     }
 }
 
@@ -664,6 +689,45 @@ mod tests {
             ],
             "a connect to a name answering ::1 first must dial 127.0.0.1 once ::1 refuses, as \
              each address the endpoint leads to is dialed in turn"
+        );
+    }
+
+    // @behavior NW-054
+    #[test]
+    fn a_datagram_stream_passes_only_a_udp_endpoint() {
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = peer.local_addr().unwrap().port();
+        let udp = Endpoint::new("127.0.0.1", port)
+            .unwrap()
+            .with_protocol(Protocol::Udp);
+        let tcp_only = tcp("127.0.0.2", port);
+        let network = Network::new(
+            "dgram",
+            Arc::new({
+                let mut entry = crate::network::Builder::default();
+                entry.endpoint(udp).endpoint(tcp_only);
+                entry
+            }),
+        )
+        .unwrap();
+        let namespace = Namespace::new(
+            [&network],
+            Arc::new(crate::net::HostInet),
+            Arc::new(crate::net::UreqOutbound),
+            Workers::new(SANDBOX_WORKERS),
+        )
+        .unwrap();
+        let cred = prepare_creds_within(&[], None);
+        let admitted = namespace.connect_datagram(&cred, peer.local_addr().unwrap(), None);
+        let refused =
+            namespace.connect_datagram(&cred, format!("127.0.0.2:{port}").parse().unwrap(), None);
+        if let Ok(sock) = &admitted {
+            crate::net::ProtoOps::release(&**sock);
+        }
+        assert!(
+            admitted.is_ok() && matches!(refused, Err(FilesystemError::PermissionDenied)),
+            "Namespace::connect_datagram must pass an address a udp endpoint names and refuse one \
+             only a tcp endpoint names"
         );
     }
 }

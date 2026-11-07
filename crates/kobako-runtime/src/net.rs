@@ -9,9 +9,10 @@ mod namespace;
 mod socket;
 mod tcp;
 mod tls;
+mod udp;
 mod workers;
 
-pub use family::{HostInet, ProtocolFamily, Stream};
+pub use family::{Datagram, HostInet, ProtocolFamily, Stream};
 pub use http::{
     Connector, Exchange, HttpError, Outbound, OutgoingRequest, RequestBody, Response, ResponseHead,
     Scheme, UreqOutbound,
@@ -21,4 +22,5 @@ pub use namespace::Namespace;
 pub use socket::{sock_alloc_file, ProtoOps};
 pub use tcp::{TcpSock, SOCKET_BUFFER};
 pub use tls::platform_tls;
+pub use udp::{UdpSock, MAX_DATAGRAM};
 pub use workers::{Workers, PROCESS_WORKERS, SANDBOX_WORKERS};
