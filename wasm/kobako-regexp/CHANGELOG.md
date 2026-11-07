@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.19.0...kobako-regexp-v0.20.0) (2026-11-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **regexp:** refuse a braced hex escape and the absence operator
+* **regexp:** read \w, \d, \s, \b and POSIX brackets by the (?a), (?d) and (?u) options
+* **regexp:** These patterns now raise RegexpError where they used to answer. Remove the backreference, look-ahead or atomic group from a look-behind, and use `(?:...)` for a group inside a negative look-behind. Replace `(?s)` with `(?m)`, the language's spelling of the same option, and drop `(?U)`, `(?R)` and any other option outside `(?imxdau-imx)`. Rename a group whose name opens with a digit, and order an interval's bounds as `{lower,upper}`.
+* **regexp:** `/(?<n>a)(b)/` no longer captures `(b)`, so `to_a`, `size`, `captures` and `$1` change; name the group to keep it. `\1`, `\k<1>`, `\g<1>` and `(?(1)...)` beside a named group now raise RegexpError; refer by name instead. `(?P<n>...)`, `(?P=n)` and `(?P>n)` now raise RegexpError; write `(?<n>...)`, `\k<n>` and `\g<n>`.
+
+### Bug Fixes
+
+* **regexp:** answer a condition that names a group ([faedca6](https://github.com/elct9620/kobako/commit/faedca617db4c859cd8bc9fcab3a599c6a188b22))
+* **regexp:** carry capture names into a substitution block's match ([e3230b7](https://github.com/elct9620/kobako/commit/e3230b7213c2a70e14396408526a85ffa487621b))
+* **regexp:** fold a quantifier on a group holding one quantified unit ([09ff373](https://github.com/elct9620/kobako/commit/09ff37345d31d81fb27fc59c5db5213aea0bc00a))
+* **regexp:** fold case-insensitive classes as CRuby folds them ([ad1b211](https://github.com/elct9620/kobako/commit/ad1b211afd8bad77247bd9428d0242abe6cbae03))
+* **regexp:** fold stacked quantifiers and repeat a look-around as CRuby does ([0ea692d](https://github.com/elct9620/kobako/commit/0ea692d1dce5622b90dc54d55c4a64efb90ff38d))
+* **regexp:** leave the match globals as MRI does after finding every match ([3d3a7f9](https://github.com/elct9620/kobako/commit/3d3a7f9673f15fd63cb810dc4bf564388fa8e24b))
+* **regexp:** match case-insensitive text across a multi-character fold ([0cb10e1](https://github.com/elct9620/kobako/commit/0cb10e1a363ab51a31198af9363e9493d77991e2))
+* **regexp:** read \p{Graph}, \p{Print} and the properties the engine lacks as CRuby does ([8784d73](https://github.com/elct9620/kobako/commit/8784d73184f090cc915a97d4dcef65ef0d98efe5))
+* **regexp:** read \w, \d, \s, \b and POSIX brackets by the (?a), (?d) and (?u) options ([655b5e5](https://github.com/elct9620/kobako/commit/655b5e5a6125726b91ceaaf540394d429a38709d))
+* **regexp:** read a backreference level when the pattern does not recurse ([7ac2b7b](https://github.com/elct9620/kobako/commit/7ac2b7b648576e5160141436b905bac29945479f))
+* **regexp:** read a pattern's groups as MRI does beside a named group ([15f6742](https://github.com/elct9620/kobako/commit/15f6742a141c506ef013623f79062a3d8a84964f))
+* **regexp:** read a shared capture name as MRI does ([e855a5c](https://github.com/elct9620/kobako/commit/e855a5cc6588773e5852bc1b8d7230b569352dec))
+* **regexp:** read inline options as MRI does ([191515b](https://github.com/elct9620/kobako/commit/191515b9cb49170156e4c78fac66c710a16e315b))
+* **regexp:** read intervals as MRI does ([6eb853e](https://github.com/elct9620/kobako/commit/6eb853e6bfd69fd4a30f6f43f0df9c4f45965756))
+* **regexp:** read octal, control and meaningless letter escapes as CRuby does ([e7b4355](https://github.com/elct9620/kobako/commit/e7b4355ad0bd597c7dce85ea7a5bd5270a1663e8))
+* **regexp:** refuse a braced hex escape and the absence operator ([0c29dd8](https://github.com/elct9620/kobako/commit/0c29dd8358845f733a0de9ef5d816749655e857e))
+* **regexp:** refuse a word boundary without the Unicode build ([d666e1f](https://github.com/elct9620/kobako/commit/d666e1fd54d890ffea61d9e78ae6723f7ceacd07))
+* **regexp:** refuse the syntax MRI refuses ([da26615](https://github.com/elct9620/kobako/commit/da26615b7aa8378767574a7b579aea1d79b75bd9))
+* **regexp:** resolve a backreference by a shared name as MRI does ([90a7100](https://github.com/elct9620/kobako/commit/90a7100fcba1122c5f132658df68a709ecec1755))
+
 ## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.18.0...kobako-regexp-v0.19.0) (2026-10-26)
 
 

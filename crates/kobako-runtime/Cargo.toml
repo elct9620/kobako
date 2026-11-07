@@ -16,7 +16,7 @@
 
 [package]
 name = "kobako-runtime"
-version = "0.19.0"
+version = "0.20.0"
 edition = "2021"
 description = "Engine-neutral host runtime contract for embedding kobako Wasm guests."
 license = "Apache-2.0"
@@ -30,7 +30,7 @@ categories = ["wasm", "virtualization"]
 # in-tree builds (and the Ruby gem, which ships both crates) resolving
 # locally.
 [dependencies]
-kobako-transport = { version = "0.19.0", path = "../kobako-transport" }
+kobako-transport = { version = "0.20.0", path = "../kobako-transport" }
 # cap-std resolves each name a Bind is asked beneath its host directory,
 # on every host Windows included. The VFS already hands one name and
 # follows links itself; cap-std still refuses a `..` or a symbolic link

@@ -32,7 +32,7 @@ own schema builds on it unchanged.
 crate-type = ["cdylib"]
 
 [dependencies]
-kobako-core = "0.19.0" # x-release-please-version
+kobako-core = "0.20.0" # x-release-please-version
 ```
 
 ```rust

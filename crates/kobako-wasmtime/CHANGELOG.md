@@ -1,5 +1,156 @@
 # Changelog
 
+## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.19.0...kobako-wasmtime-v0.20.0) (2026-11-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **io:** a path holding a NUL byte now raises ArgumentError from every File and Dir call, including the exist?, file?, and directory? questions that answered false before.
+* **runtime:** Policy::allows is asked Access::ReadWrite before an open that may create finds what stands, so an open of an existing file asking to create is asked ReadWrite and then the access it opens for, where it was asked that access alone.
+* **runtime:** Kstat's len, accessed, modified, and changed fields are now size, atime, mtime, and ctime, and Profile::guest_metadata is now
+* **runtime:** spell each file type as Linux's FT_* names it
+* **runtime:** name what a path reports Kstat, as Linux's struct kstat
+* **runtime:** build an open's flags once and hand them to do_file_open
+* **runtime:** answer EAGAIN to a `..` a move landed before
+* **runtime:** judge a path through a link where the link leads
+* **runtime:** kobako_runtime::Denial is gone. A Denial::ReadOnly is now
+* **runtime:** name a Filesystem's make-and-open atomic_open
+* **runtime:** kobako_runtime::filesystem::Access moved to kobako_runtime::mount::Access. kobako::Access and kobako_runtime::Access are unchanged.
+* **runtime:** a mount's block or Policy no longer allows writing beneath a read-only Mount, and access defaults to read. Pass access: :read_write in Ruby, or Access::ReadWrite in Rust, where the block should decide about changes. A change beneath a read-only Mount answers EROFS without asking it.
+* **runtime:** File::metadata and File::set_len are gone from what an open file answers. Implement InodeOperations::getattr and setattr, answering from what the file holds where the entry must still answer once its name is gone.
+* **runtime:** File::read_at is FileOperations::read_iter, and File::write_at and File::append are FileOperations::write_iter, which take a Kiocb for the offset. A write finding Kiocb::append set lands at the end and answers Unsupported if it cannot take that as one step; each moves Kiocb::pos past what it took.
+* **runtime:** File::close is FileOperations::flush and takes &mut self. Move what a close reports there, and what a file lets go of to Drop.
+* **runtime:** File::sync is FileOperations::fsync, and a file that does not implement it now answers EINVAL instead of success. Implement fsync returning Ok where a file has nothing to flush.
+* **runtime:** the File trait is FileOperations. Rename it where a Filesystem implements it.
+* **runtime:** the Filesystem trait is InodeOperations, whatever earlier notes call it. Each entry answers through its own: a lookup returns a Lookup, whose Inode holds them, and an operation an entry lacks answers None.
+* Inode::stored_name is replaced by Inode::lookup, which the runtime asks before keeping a name's dentry. A rename that changes only a name's case on a host folding case leaves it as it was, as a rename of an entry onto itself does.
+* Inode::rename takes the source, the target directory, and the target, without a Rename; Rename and Rename::check are removed. A Filesystem written in Ruby answers rename(from, to) instead of rename(from, to, directory:).
+* Overlay::new() and Overlay::layer are replaced by Overlay::new(lower, upper), which refuses an upper that is no Tmpfs. In Ruby, Overlay.new.layer(fs, access:) is replaced by Overlay.new(lower: [...], upper: tmpfs).
+* a Filesystem is the instance a Mount places, made with Filesystem::new from its root Inode. Mount::new, the Rust Sandbox's and Context's mount and mount_with_policy, and Overlay::layer take one, and
+* Kobako::Filesystem::Memory is Kobako::Filesystem::Tmpfs with size: and nr_inodes: in place of limit: and inodes:, and Kobako::Filesystem::Directory is Kobako::Filesystem::Bind. In Rust, Memory is Tmpfs with with_size, with_nr_inodes, and DEFAULT_SIZE; Directory is Bind; and the Filesystem trait is Inode.
+* Overlay::layer takes the instance a Filesystem is mounted by instead of the Filesystem itself.
+* the Filesystem trait's open, open_dir, symlink_metadata, stored_name, read_link, create_dir, remove_dir, remove_file, and rename take a &Dentry instead of a name; open_dir_nofollow is now open_dir, and metadata() has no default. The kobako crate re-exports Dentry.
+* the Filesystem trait's metadata(path) is removed; metadata() reports the directory itself and defaults to what symlink_metadata answers for the empty path.
+* the Filesystem trait's open_dir is removed; open_dir_nofollow opens a directory by name and refuses a link.
+* Mount::new, and the Rust Sandbox's and Context's mount and mount_with_policy, take a shared instance made from the Filesystem instead of the Filesystem itself.
+* Mount's check, guest_path, moves_directories, and follows_links are no longer public; an engine calls the vfs operations, which ask the Mount itself.
+* the Filesystem trait's canonicalize_beneath and for_policy are removed and read_link is added; a Filesystem holding no links answers read_link with InvalidInput. The Mount's for_invocation is removed, and a Directory no longer has a mode following no link.
+* the Filesystem trait's hold_directory and the Hold type are removed; a directory a Filesystem opens holds what it needs open itself. Beneath a Policy, a directory opened on a Filesystem that reports no inode number now answers ENOENT.
+* **runtime:** a Filesystem implementation answers open_dir, open_dir_nofollow, entries and stored_name in place of read_dir and stored_path, and its rename takes the target directory before the target path.
+* Kobako::Filesystem::Temporary and the Rust Temporary are removed; mount a Memory, and mount a new one through the Context where each run should start empty. A Filesystem implementation drops its for_invocation method.
+
+### Features
+
+* answer every path call from the runtime's VFS ([39d0292](https://github.com/elct9620/kobako/commit/39d0292c3b5d3ec8ea563fe4720c8449e92ae86a))
+* ask a Filesystem about a directory itself, never through a link ([5881b87](https://github.com/elct9620/kobako/commit/5881b87d8e06cdabd12fe958c65f5bc67b24375d))
+* check what a rename moves in the VFS, as Linux does ([dd5e267](https://github.com/elct9620/kobako/commit/dd5e267b7d3f09591864575ce8b16aaf2f703a07))
+* hand a Filesystem the dentry the VFS made for each name ([5a2f85a](https://github.com/elct9620/kobako/commit/5a2f85a030918f329b98874af843385ea5ba12a8))
+* hand every invocation the Filesystem its Mount holds ([17bb576](https://github.com/elct9620/kobako/commit/17bb576803f8366a073993efa17df788949f8a69))
+* key each dentry by the name its directory stores, as Linux's d_add_ci ([fc0267b](https://github.com/elct9620/kobako/commit/fc0267b9df310482842e0695d0350b7dc7f3a65f))
+* layer an Overlay over the instance its Filesystem is mounted by ([c321548](https://github.com/elct9620/kobako/commit/c321548d294698d4b8f16336c0b035f0ee909511))
+* let no Filesystem follow a link to open a directory ([79a6a0b](https://github.com/elct9620/kobako/commit/79a6a0bbec78e273f218e863e2c22a3bb960b4de))
+* mount a Filesystem instance whose Mounts share what moves ([bead3f8](https://github.com/elct9620/kobako/commit/bead3f84ebd9f4a8b240afc52aa7e0967a3a400a))
+* name the Filesystems kobako ships after the Linux ones they mirror ([4fb367b](https://github.com/elct9620/kobako/commit/4fb367beefedf89ee424ff32b33837c000760f4b))
+* name the instance a Mount places a Filesystem ([50ca78e](https://github.com/elct9620/kobako/commit/50ca78e405e3cd567095b49c77d3b26b2d104c57))
+* reach an opened directory wherever it moves ([34522df](https://github.com/elct9620/kobako/commit/34522df97bd625f298d1a280fa73adf091879f59))
+* report a file's link count and times to the guest ([5e95113](https://github.com/elct9620/kobako/commit/5e95113a056bd676bd5736f6ffa79f210a036647))
+* **runtime:** answer every Filesystem call from a directory handle ([5a4376c](https://github.com/elct9620/kobako/commit/5a4376c6a8d3ede3272f8d6393ab27589f733eeb))
+* **runtime:** ask a Filesystem whether a held dentry still names its entry ([13f56a4](https://github.com/elct9620/kobako/commit/13f56a40bd9622ba15ee6b34dc93393c92b3e270))
+* **runtime:** judge a path through a link where the link leads ([7407a71](https://github.com/elct9620/kobako/commit/7407a71cfbcb9c4f5faa3ef954c592d0687174cc))
+* **runtime:** keep the times a caller sets on a Tmpfs, a Bind, and an Overlay ([d53d547](https://github.com/elct9620/kobako/commit/d53d5479c48e4d423addf02b7d373784409d1604))
+* stack an Overlay as overlayfs does, under an upper Tmpfs ([2b59780](https://github.com/elct9620/kobako/commit/2b597806809d7a810d29265e9e377d7d648d77f9))
+* walk a guest path one name at a time and follow links there ([2e57fdc](https://github.com/elct9620/kobako/commit/2e57fdc11c5cbeb00697e9b287f59c15f0c91e2d))
+* **wasmtime:** judge every invocation by the security modules a Driver is built with ([ba42b85](https://github.com/elct9620/kobako/commit/ba42b85f43ba8eb4bacba807a4c5af1788a614ae))
+
+
+### Bug Fixes
+
+* **io:** answer Dir, NUL paths, pread, and advise as CRuby does ([fd9accd](https://github.com/elct9620/kobako/commit/fd9accd485d3aad2f0f36a20a292d27b81f4777b))
+* keep an opened directory's identity through the directory itself ([28ee9e0](https://github.com/elct9620/kobako/commit/28ee9e003a30fb9159ff3f6c47dce2da25586eb2))
+* **runtime:** answer a dot path or a slash create through a link as Linux ([8aafe42](https://github.com/elct9620/kobako/commit/8aafe42cd517cdc9730ac41b092000570c065511))
+* **runtime:** answer a link call by what stands, as filename_linkat does ([5a0ac25](https://github.com/elct9620/kobako/commit/5a0ac257a260f8638caf794df50d95ad11fb139d))
+* **runtime:** answer a move's flags and a link's source where Linux does ([be7af48](https://github.com/elct9620/kobako/commit/be7af48aa4dce202f9a2d1342a3cd0e314240cd4))
+* **runtime:** answer about a name through DentryOperations ([ae6ca8a](https://github.com/elct9620/kobako/commit/ae6ca8abaebdbfd289378ba9299a6446bb611e02))
+* **runtime:** answer EAGAIN to a `..` a move landed before ([1aa66dd](https://github.com/elct9620/kobako/commit/1aa66dda78bd63aff91a78bfe8d6bff6306a9c19))
+* **runtime:** answer ENODEV to an allocation on a device ([0ba099b](https://github.com/elct9620/kobako/commit/0ba099b474890179e3c4c4e8a13837b9be5b5ead))
+* **runtime:** ask a walk's start whether it still stands under its directory's lock ([4b14e4e](https://github.com/elct9620/kobako/commit/4b14e4e91aaf1a91d2815789ed41c2da9c50e97d))
+* **runtime:** ask an entry about itself however a guest reached it, as fstat and ftruncate do ([1166426](https://github.com/elct9620/kobako/commit/1166426d3f4bc27d9c2d0d3a8f2b7f1a6a23f59e))
+* **runtime:** ask atomic_open for an open's last name no walk looked up ([9860ae9](https://github.com/elct9620/kobako/commit/9860ae9391874cf27bf63345b4672458f696a8a8))
+* **runtime:** ask to make a file before an open finds what stands ([0b3ecf5](https://github.com/elct9620/kobako/commit/0b3ecf54c6975576dee13decb1904ccb371f30be))
+* **runtime:** build an open's flags once and hand them to do_file_open ([6672734](https://github.com/elct9620/kobako/commit/6672734fc42af8c2040402c8ed2b14d562c31328))
+* **runtime:** empty a file an open truncates through setattr ([0ee006f](https://github.com/elct9620/kobako/commit/0ee006f4683ed3059a9f3251d450bf3de0eb365d))
+* **runtime:** hand a listed entry where it stands, as dir_emit does ([804f8b2](https://github.com/elct9620/kobako/commit/804f8b2ce93a8d5b935d400d295ba5f2ce7c5a32))
+* **runtime:** hold a directory the guest opens from the moment it opens ([1dcca08](https://github.com/elct9620/kobako/commit/1dcca089ffc5ce8459940565999ca09b20bee44a))
+* **runtime:** hold what a guest's listings keep within its memory limit ([e4d74a5](https://github.com/elct9620/kobako/commit/e4d74a5ad2d5554e1b509ee606c1911811f66be8))
+* **runtime:** keep a Bind's walk and allocation answers true under a race ([cce1a2a](https://github.com/elct9620/kobako/commit/cce1a2a0e64bf44648e01caf14e901f1cb04fad3))
+* **runtime:** keep a Cred without kobako's rules inside the runtime ([775bb5c](https://github.com/elct9620/kobako/commit/775bb5c09c1fb8ce4412208df8113e26260e89c9))
+* **runtime:** keep pipes among the Filesystems, reading nothing into no room ([79a2240](https://github.com/elct9620/kobako/commit/79a22401f9c8ab3c8fe777955a4b39e880418686))
+* **runtime:** leave the descriptor table to the Driver, as FD_ADD reserves first ([12e6b65](https://github.com/elct9620/kobako/commit/12e6b65b4b47bdd4e73465f904c9cef92c27e1bd))
+* **runtime:** let a descriptor's stat and listing ask no hook ([48d265a](https://github.com/elct9620/kobako/commit/48d265ab83773e1ee436f06d4f822bf57f372ba2))
+* **runtime:** let a directory answer as one open to read does ([3919be4](https://github.com/elct9620/kobako/commit/3919be4a542fc0d63fcc18422c3465b06fd6c6d1))
+* **runtime:** let a link leading out escape as a `..` does ([47d7ec7](https://github.com/elct9620/kobako/commit/47d7ec7dfa97bd1d3d1a9bfee0c536372e42108d))
+* **runtime:** let a listing hand its own dots and answer for a removed directory ([88a3fc7](https://github.com/elct9620/kobako/commit/88a3fc7e491206b23a3eab2b4c91bf9aa0f00786))
+* **runtime:** let a permissive guest tell entries apart by inode number ([e651562](https://github.com/elct9620/kobako/commit/e651562d40fd55028415975f4305f6f3f512ca28))
+* **runtime:** let a Policy only refuse more than a Mount's access allows ([f1502b5](https://github.com/elct9620/kobako/commit/f1502b522bcb9d8fc8fffd29a7714b5d777bb793))
+* **runtime:** let an entry's setattr decide whether it keeps a time the guest sets ([fdfa3fb](https://github.com/elct9620/kobako/commit/fdfa3fb197909c1f027db5e5c540bc5cbfd5f013))
+* **runtime:** let an open file answer for its mode and the largest offset ([a737685](https://github.com/elct9620/kobako/commit/a7376851ba17aa5e9c84a5158424d2ce5d367eaf))
+* **runtime:** list a directory as its Filesystem says, through dir_emit ([c7447a1](https://github.com/elct9620/kobako/commit/c7447a137a5237b2e071ba6500fddd736abe5092))
+* **runtime:** merge only directory over directory in an Overlay ([6473956](https://github.com/elct9620/kobako/commit/6473956fd773a858ea34880b6a1d7b8e60018f3f))
+* **runtime:** move seeking, flags, hints, allocation and readiness into File ([5d1cd6b](https://github.com/elct9620/kobako/commit/5d1cd6b1d1d626945b5f5c70a5342a8576a017f8))
+* **runtime:** name a listing's dots as Linux's drivers do ([ef26d61](https://github.com/elct9620/kobako/commit/ef26d61318ad3f489f5d1379db690854d46a2900))
+* **runtime:** open a file made by create alone after the security modules ([5f8d30c](https://github.com/elct9620/kobako/commit/5f8d30c48e08450fa3b1065954fad8ea8e8e5a26))
+* **runtime:** open a made file once its directory is unlocked ([1a61088](https://github.com/elct9620/kobako/commit/1a61088b4adbbeaef052e83ad6d8ac19b79d7523))
+* **runtime:** open a standard stream as a pipe's end, as create_pipe_files does ([58b3f68](https://github.com/elct9620/kobako/commit/58b3f686db485bd39f44e69bca25675acdad215a))
+* **runtime:** open each Mount's root before its Policy applies ([4580697](https://github.com/elct9620/kobako/commit/45806973ab0b99f977b7d90253f8dafa9b1f8e8b))
+* **runtime:** read a call's flags and path before where it starts ([70bce0f](https://github.com/elct9620/kobako/commit/70bce0f0d5b282e1324ab042d5c29b2e523cb0ae))
+* **runtime:** read a link at an empty path from the descriptor itself ([c59f6c2](https://github.com/elct9620/kobako/commit/c59f6c2a9c69d40ec08afd961bc6f71ea66cc020))
+* **runtime:** refuse a change at an Overlay's super block when it has no upper ([7f4c31e](https://github.com/elct9620/kobako/commit/7f4c31e8db91d09fc6a133708e14f28a26d60675))
+* **runtime:** refuse a path no call can take in the VFS ([e752648](https://github.com/elct9620/kobako/commit/e7526485f91ca2acbfe59ad4431d2385c91caa19))
+* **runtime:** refuse a sync of a file without one, as vfs_fsync_range does ([0f26730](https://github.com/elct9620/kobako/commit/0f267304ef9966fb797194817ccfc21134389570))
+* **runtime:** refuse an advice from past the largest signed offset ([3ff54a2](https://github.com/elct9620/kobako/commit/3ff54a2f0859c694f012a2ab228295050a500e76))
+* **runtime:** refuse removing a path ending in .. as ENOTEMPTY, as Linux does ([a02bac9](https://github.com/elct9620/kobako/commit/a02bac9e9ea300013e90ab396226fe03fbf45f1d))
+* **runtime:** report the kind a host gives a special file ([b421805](https://github.com/elct9620/kobako/commit/b421805dc4b76cc76f541d1b9e0579329e72a502))
+* **runtime:** reserve the room a guest allocates in a Tmpfs and a Bind ([dd94317](https://github.com/elct9620/kobako/commit/dd94317257c3bbbbfd2a2a170a9d5a3783801f43))
+* **runtime:** sync only as far as asked, cap one call, and let a writer through ([5e2902f](https://github.com/elct9620/kobako/commit/5e2902f95312c985f78053cacf6374db893e174f))
+* **runtime:** take O_SYNC and O_DIRECTORY's other flags as Linux does ([ba6bc57](https://github.com/elct9620/kobako/commit/ba6bc57e1ad8264e9035d9808098efe5b846f32f))
+* **runtime:** walk a path's last name as Linux's namei does ([591435b](https://github.com/elct9620/kobako/commit/591435b5abedf30c62c00fc634bbafe7f1dc68fc))
+* **runtime:** walk out of a link and create through one as Linux does ([c6e4054](https://github.com/elct9620/kobako/commit/c6e40547e52421bb7f8a1f86e549c40f365002ad))
+* **wasmtime:** answer a call setting no time before its descriptor ([31a58a3](https://github.com/elct9620/kobako/commit/31a58a3ccd541c27120c31d5f42fcaee4be5201d))
+* **wasmtime:** answer a path call's flags and name before its descriptor ([d8771ff](https://github.com/elct9620/kobako/commit/d8771ff42a967c04452e74a1f1f35d47ecf0b985))
+* **wasmtime:** answer a path call's names and descriptors in Linux's order ([a2f2db4](https://github.com/elct9620/kobako/commit/a2f2db47be863037f904367af9a5cc9750e0111d))
+* **wasmtime:** answer the entries a listing wrote before it failed ([67364af](https://github.com/elct9620/kobako/commit/67364afb2bed53a9b3685e299a82d8a61801a4e9))
+* **wasmtime:** answer what a listing wrote before a name it stops at ([89974ff](https://github.com/elct9620/kobako/commit/89974fff2fc5fefad99ce8ff26befe91e92130aa))
+* **wasmtime:** encode ESTALE as preview1's stale ([625371e](https://github.com/elct9620/kobako/commit/625371e961c370e73f49aae771ed3b9f5253d51b))
+* **wasmtime:** hand down the right to write from a directory a guest opens ([c3e2297](https://github.com/elct9620/kobako/commit/c3e229780ecb666f18b7c9b9d85c35bb14cb96c3))
+* **wasmtime:** let a directory renamed onto its own path stay ([5fa99ab](https://github.com/elct9620/kobako/commit/5fa99ab7052cf4dbbd6be34bc2d79351d42e6311))
+* **wasmtime:** make a path call again a few times on EAGAIN ([a47b33e](https://github.com/elct9620/kobako/commit/a47b33e39c24eb77b193cfef7f57ab3d1cd17790))
+* **wasmtime:** make the start's check part of the call made again ([858643a](https://github.com/elct9620/kobako/commit/858643a471d372df99b0eb92bb49d4d8d78fef7d))
+* **wasmtime:** move a renumbered descriptor before closing what it replaces ([bcf5f46](https://github.com/elct9620/kobako/commit/bcf5f464566788b41aca771287908bfd01bf347e))
+* **wasmtime:** open to read a file made or emptied without a right ([7e86943](https://github.com/elct9620/kobako/commit/7e869434bd93db4760ee6c6a04edbd6b8bb3a622))
+* **wasmtime:** refuse a descriptor that stands only for its path as fdget does ([52be6ed](https://github.com/elct9620/kobako/commit/52be6edc630fe8db5537d0910a9a28eb2324c0ee))
+* **wasmtime:** refuse a link to an absolute path through preview1 ([3477e84](https://github.com/elct9620/kobako/commit/3477e840cd15ac4bd6f06105e4ee9842717a05bc))
+* **wasmtime:** refuse a readlink into no room before its path ([37f8c13](https://github.com/elct9620/kobako/commit/37f8c1360920712490a9c86409cc427560b7f5c3))
+* **wasmtime:** report a descriptor's kind from its open file ([18c4c7e](https://github.com/elct9620/kobako/commit/18c4c7eecc96a8588574ad8a80853c31d93466fc))
+* **wasmtime:** report a stream's flags and rights as it holds them ([cfa3475](https://github.com/elct9620/kobako/commit/cfa3475c65be7ba730fb0bb6e6e490c22078c544))
+* **wasmtime:** report a wait on a descriptor not open in its event ([479b545](https://github.com/elct9620/kobako/commit/479b5459940ae62645ee62737363383679e22571))
+* **wasmtime:** reserve an open's descriptor before reading its name ([a85dfe6](https://github.com/elct9620/kobako/commit/a85dfe65763a55c6993f5420c3b76cf068ee693e))
+* **wasmtime:** stop a guest's waits for a lock at its deadline ([e102796](https://github.com/elct9620/kobako/commit/e102796b34b63098f3cce0050fb5ed1f16349b94))
+* **wasmtime:** take a socket call's descriptor as fdget does ([5e5205f](https://github.com/elct9620/kobako/commit/5e5205fd3403f1cbbd167a9e87879f88797d8421))
+
+
+### Code Refactoring
+
+* **runtime:** answer a close through flush, as close(2) reads f_op-&gt;flush ([c34eb58](https://github.com/elct9620/kobako/commit/c34eb58b297e5be6ef249af03c6d7655cfd94729))
+* **runtime:** answer every VFS call with an errno ([84a0a38](https://github.com/elct9620/kobako/commit/84a0a385149f5a9194fcab9598849cf7c92c46ae))
+* **runtime:** hang each entry's operations on its inode, as Linux does ([e21470b](https://github.com/elct9620/kobako/commit/e21470b625255eb85b4b5ff868872f2db5a7967e))
+* **runtime:** land each read and write through a Kiocb, as read_iter and write_iter ([bc35dfd](https://github.com/elct9620/kobako/commit/bc35dfd13085b6aee517748996647bd7083cdbc8))
+* **runtime:** let the mount layer own what a Guest may do beneath a Mount ([0dcde21](https://github.com/elct9620/kobako/commit/0dcde2143d7935a8e4b205bb03d664974af7edfb))
+* **runtime:** name a Filesystem's make-and-open atomic_open ([57a6e10](https://github.com/elct9620/kobako/commit/57a6e10cb14e7a7f6ff02d2a7a88b5e18e459165))
+* **runtime:** name what a path reports Kstat, as Linux's struct kstat ([0f43bed](https://github.com/elct9620/kobako/commit/0f43bed4242c2236e02c88d00470d1d31180219e))
+* **runtime:** name what an open file answers as Linux's file_operations ([ca835e9](https://github.com/elct9620/kobako/commit/ca835e99b821845bcfa56648ff7336c67242bbd7))
+* **runtime:** spell a Kstat's fields as Linux's struct kstat does ([ec73cac](https://github.com/elct9620/kobako/commit/ec73cac38e9b7e8b9162ea59ebc35de7e9394c8d))
+* **runtime:** spell each file type as Linux's FT_* names it ([796fac4](https://github.com/elct9620/kobako/commit/796fac412cae9c70b6f80e7f33946fe960ed520e))
+
 ## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.18.0...kobako-wasmtime-v0.19.0) (2026-10-26)
 
 
