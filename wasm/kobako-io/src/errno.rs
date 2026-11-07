@@ -247,6 +247,21 @@ pub(crate) fn from_io(mrb: &Mrb, err: &io::Error, path: &str) -> Error {
     }
 }
 
+/// The `Errno` class `name` names, carrying `message` whole, as CRuby's
+/// `raise e, message` re-raises one with a message of its own.
+pub(crate) fn error_with_message(mrb: &Mrb, name: &core::ffi::CStr, message: &str) -> Error {
+    to_error(mrb, errno_class(mrb, name), message)
+}
+
+/// The message the `Errno` class `name` carries for an operation on `path`.
+pub(crate) fn message_of(name: &core::ffi::CStr, path: &str) -> String {
+    let message = CODES
+        .iter()
+        .find(|code| code.name == name)
+        .map_or("unknown error", |code| code.message);
+    format!("{message} - {path}")
+}
+
 /// The `Errno` class `name` names, from an operation on `path`.
 pub(crate) fn error_by_name(mrb: &Mrb, name: &core::ffi::CStr, path: &str) -> Error {
     let message = CODES

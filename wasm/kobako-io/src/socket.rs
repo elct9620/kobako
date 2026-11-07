@@ -179,11 +179,22 @@ fn resolution_error_code(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 /// Linux's `EAI_NONAME` and `EAI_AGAIN`, with `gai_strerror`'s words for each.
-const EAI_NONAME: (i32, &str) = (-2, "Name or service not known");
-const EAI_AGAIN: (i32, &str) = (-3, "Temporary failure in name resolution");
+pub(crate) const EAI_NONAME: (i32, &str) = (-2, "Name or service not known");
+pub(crate) const EAI_AGAIN: (i32, &str) = (-3, "Temporary failure in name resolution");
+
+/// Whether the Sandbox gives the guest the network: without it, no socket is
+/// made, which answers at once and does nothing first.
+pub(crate) fn network_given() -> bool {
+    create_tcp_socket(IpAddressFamily::Ipv4).is_ok()
+}
 
 /// The `Socket::ResolutionError` CRuby raises for a `getaddrinfo` failure.
-fn resolution_error(mrb: &Mrb, (code, words): (i32, &str)) -> Error {
+pub(crate) fn resolution_error(mrb: &Mrb, (code, words): (i32, &str)) -> Error {
+    resolution_error_with(mrb, code, &format!("getaddrinfo: {words}"))
+}
+
+/// The `Socket::ResolutionError` for `code`, carrying `message` whole.
+pub(crate) fn resolution_error_with(mrb: &Mrb, code: i32, message: &str) -> Error {
     let class = match mrb
         .class_get(c"Socket")
         .and_then(|socket| socket.const_get::<_, ExceptionClass>(mrb, c"ResolutionError"))
@@ -191,7 +202,7 @@ fn resolution_error(mrb: &Mrb, (code, words): (i32, &str)) -> Error {
         Ok(class) => class,
         Err(err) => return err,
     };
-    let exception = class.new_str(mrb, mrb.str_new(format!("getaddrinfo: {words}").as_bytes()));
+    let exception = class.new_str(mrb, mrb.str_new(message.as_bytes()));
     if let Err(err) = exception.ivar_set(mrb, c"@error_code", code) {
         return err;
     }

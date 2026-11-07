@@ -18,6 +18,7 @@ mod descriptors;
 mod dir;
 mod errno;
 mod file;
+mod http;
 mod io;
 mod kernel_ext;
 mod socket;
@@ -40,6 +41,7 @@ impl Gem for KobakoIo {
         file::init(mrb, io)?;
         dir::init(mrb)?;
         socket::init(mrb)?;
+        http::init(mrb)?;
         kernel_ext::init(mrb)?;
         Ok(())
     }
