@@ -188,7 +188,7 @@ impl Cred {
 
     /// This Cred with `more` modules registered after its own, sharing the
     /// memory held on its behalf, as `landlock_restrict_self` adds a domain.
-    pub(crate) fn restricted(&self, more: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
+    pub(crate) fn with_modules(&self, more: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
         let mut security = self.security.clone();
         security.extend(more);
         Self::within(security, self.committed.clone())

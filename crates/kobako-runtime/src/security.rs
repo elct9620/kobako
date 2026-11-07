@@ -263,7 +263,7 @@ pub fn prepare_creds_within(
 /// held on its behalf shared, so what either Cred charges counts against one
 /// limit, as `landlock_restrict_self` adds a domain to the task's Cred.
 pub fn restrict_self<'a>(cred: &Cred, mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {
-    cred.restricted(policies_of(mounts))
+    cred.with_modules(policies_of(mounts))
 }
 
 fn policies_of<'a>(
