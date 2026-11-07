@@ -26,6 +26,7 @@ pub mod sched;
 pub mod security;
 pub mod snapshot;
 pub mod vfs;
+pub mod wait;
 pub mod yielder;
 
 // Every name an engine implementation writes into its own signatures, at

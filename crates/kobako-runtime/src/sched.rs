@@ -7,16 +7,18 @@
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
-/// How a thread waits for a lock another thread holds. A frontend whose
-/// threads share a lock of their own, as Ruby's threads share the GVL,
-/// gives that lock up for the wait, or a holder that needs it to finish
-/// never could.
+use crate::wait::Waiter;
+
+/// How a thread waits for a lock another thread holds, or for what another
+/// thread brings. A frontend whose threads share a lock of their own, as
+/// Ruby's threads share the GVL, gives that lock up for the wait, or a holder
+/// that needs it to finish never could.
 pub trait Blocking: Send + Sync {
-    /// Run `wait`, which returns once the lock is taken.
+    /// Run `wait`, which returns once the lock is taken or the event arrived.
     fn wait(&self, wait: &mut dyn FnMut());
 }
 
@@ -52,6 +54,9 @@ pub(crate) fn current() -> ThreadId {
 #[derive(Clone, Default)]
 pub struct Task {
     interrupted: Arc<AtomicBool>,
+    /// The waiter the thread sleeps on, woken by an interrupt as
+    /// `signal_wake_up` wakes a sleeping task.
+    sleeping: Arc<Mutex<Option<Arc<Waiter>>>>,
 }
 
 impl Task {
@@ -64,7 +69,32 @@ impl Task {
     /// signal ends a killable wait; it holds until that run ends.
     pub fn interrupt(&self) {
         self.interrupted.store(true, Ordering::SeqCst);
+        if let Some(waiter) = self.sleeping().as_ref() {
+            waiter.wake();
+        }
     }
+
+    fn sleeping(&self) -> std::sync::MutexGuard<'_, Option<Arc<Waiter>>> {
+        self.sleeping.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Have an interrupt of the calling thread wake `waiter` while `sleep` runs,
+/// as a task sleeping in `TASK_KILLABLE` is woken by a fatal signal.
+pub(crate) fn sleep_on<T>(waiter: &Arc<Waiter>, sleep: impl FnOnce() -> T) -> T {
+    /// Takes the waiter back however `sleep` ends.
+    struct Awake(Task);
+
+    impl Drop for Awake {
+        fn drop(&mut self) {
+            *self.0.sleeping() = None;
+        }
+    }
+
+    let task = Task::current();
+    *task.sleeping() = Some(waiter.clone());
+    let _awake = Awake(task);
+    sleep()
 }
 
 /// The task this thread carries out, as Linux's `current`, and when its run is
@@ -119,6 +149,11 @@ pub(crate) fn fatal_signal_pending() -> bool {
         running.task.interrupted.load(Ordering::SeqCst)
             || running.deadline.is_some_and(|at| Instant::now() >= at)
     })
+}
+
+/// When the calling thread's run is to stop, once it has a deadline.
+pub(crate) fn deadline() -> Option<Instant> {
+    TASK.with(|task| task.borrow().deadline)
 }
 
 /// The most a wait sleeps before it looks again whether its run is to stop.

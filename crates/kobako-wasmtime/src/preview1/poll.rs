@@ -4,13 +4,14 @@
 //! Every descriptor kobako holds is ready at once, so only a clock ever
 //! waits. A wait passes on the guest's own clocks: the hermetic rung's
 //! never advance, so its waits end at once, and a permissive wait takes
-//! host time but never past the invocation's deadline — the host is the
-//! one waiting, where no epoch check can interrupt it.
+//! host time but never past the invocation's deadline. The host is the one
+//! waiting, where no epoch check reaches, so the wait sleeps on the runtime's
+//! wait primitive, which a deadline or an interrupt ends.
 
-use std::thread;
 use std::time::{Duration, Instant};
 
 use kobako_runtime::vfs::PollMask;
+use kobako_runtime::wait::do_poll;
 use wiggle::{GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -143,21 +144,19 @@ fn read_clock(invocation: &Invocation, clock: &types::SubscriptionClock) -> Answ
 
 /// Wait `nanos` of the guest's time: none on frozen clocks, and on live
 /// ones no further than the invocation's deadline, which ends it as a
-/// timeout.
+/// timeout. An interrupt of the thread ends it with EINTR, as a signal ends
+/// Linux's `poll`.
 fn wait(invocation: &Invocation, nanos: u64) -> Answer {
     if nanos == 0 || !invocation.wasi().clocks().advances() {
         return Ok(());
     }
-    let wanted = Duration::from_nanos(nanos);
-    if let Some(deadline) = invocation.deadline() {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if wanted >= left {
-            thread::sleep(left);
-            return Err(types::Error::trap(wasmtime::Error::new(TimeoutTrap)));
+    match do_poll(Some(Duration::from_nanos(nanos)), |_| None::<()>) {
+        Ok(_) => Ok(()),
+        Err(_) if invocation.deadline().is_some_and(|at| Instant::now() >= at) => {
+            Err(types::Error::trap(wasmtime::Error::new(TimeoutTrap)))
         }
+        Err(_) => Err(Errno::Intr.into()),
     }
-    thread::sleep(wanted);
-    Ok(())
 }
 
 fn to_event(sub: &Subscription, nbytes: u64) -> types::Event {
@@ -193,6 +192,7 @@ mod tests {
     use crate::wasi::Wasi;
     use kobako_runtime::error::Trap;
     use kobako_runtime::profile::Profile;
+    use kobako_runtime::sched::{run_task, Task};
 
     /// One relative monotonic-clock subscription of ten seconds at 0,
     /// its event written at 64 and the event count at 96.
@@ -208,11 +208,13 @@ mod tests {
             (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96))))
     "#;
 
-    /// Run the ten-second wait at `profile` under `deadline`, answering
-    /// how it ended and how long the host spent on it.
+    /// Run the ten-second wait at `profile` under `deadline`, handing the
+    /// running thread's Task to `interrupted` first, answering how it ended
+    /// and how long the host spent on it.
     fn wait_ten_seconds(
         profile: Profile,
         deadline: Option<Duration>,
+        interrupted: Option<fn(Task)>,
     ) -> (wasmtime::Result<i32>, Duration) {
         let engine = load_engine().expect("shared engine must be constructible");
         let config = Config {
@@ -237,17 +239,44 @@ mod tests {
             .get_typed_func::<(), i32>(&mut store, "wait_ten_seconds")
             .expect("wait export must resolve");
         let started = Instant::now();
-        store
-            .data_mut()
-            .set_deadline(deadline.map(|left| started + left));
-        let ended = wait.call(&mut store, ());
+        let deadline = deadline.map(|left| started + left);
+        store.data_mut().set_deadline(deadline);
+        let ended = run_task(deadline, || {
+            if let Some(interrupted) = interrupted {
+                interrupted(Task::current());
+            }
+            wait.call(&mut store, ())
+        });
         (ended, started.elapsed())
     }
+
+    // @behavior RT-337
+    #[test]
+    fn an_interrupted_wait_answers_eintr_at_once() {
+        let (ended, spent) = wait_ten_seconds(
+            Profile::Permissive,
+            Some(Duration::from_secs(20)),
+            Some(|task: Task| {
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(50));
+                    task.interrupt();
+                });
+            }),
+        );
+        assert!(
+            ended.as_ref().ok() == Some(&ERRNO_INTR) && spent < Duration::from_secs(5),
+            "a ten-second clock wait through a permissive guest's poll_oneoff, its thread \
+             interrupted, must answer EINTR at once, got {:?} after {spent:?}",
+            ended.map_err(|trap| trap.to_string())
+        );
+    }
+
+    const ERRNO_INTR: i32 = 27;
 
     // @behavior RT-073
     #[test]
     fn a_hermetic_wait_ends_without_the_host_waiting() {
-        let (ended, spent) = wait_ten_seconds(Profile::Hermetic, None);
+        let (ended, spent) = wait_ten_seconds(Profile::Hermetic, None, None);
         assert_eq!(
             ended.ok(),
             Some(0),
@@ -365,7 +394,8 @@ mod tests {
     // @behavior RT-074
     #[test]
     fn a_permissive_wait_ends_at_the_deadline_as_a_timeout() {
-        let (ended, spent) = wait_ten_seconds(Profile::Permissive, Some(Duration::from_millis(50)));
+        let (ended, spent) =
+            wait_ten_seconds(Profile::Permissive, Some(Duration::from_millis(50)), None);
         let trap = ended.expect_err("a wait past the deadline must not return to the guest");
         assert!(
             matches!(to_trap(trap), Trap::Timeout(_)),

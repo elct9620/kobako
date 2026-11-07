@@ -20,7 +20,8 @@ engine stays swappable.
 | `endpoint` | the host side of the kobako ABI, over the `GuestInstance` an engine implements |
 | `vfs` | the walk, open files, and pipes each engine's calls reach, whichever ABI it encodes |
 | `security` | the security modules an invocation registers: kobako's own rules and each Mount's `Policy` |
-| `sched` | the `Blocking` a frontend registers, how its threads wait for a lock |
+| `sched` | the `Blocking` a frontend registers, how its threads wait |
+| `wait` | the wait queues and `do_poll` a host-side wait sleeps on |
 | `dispatch` / `yielder` | the `DispatchHandler` and `Yielder` traits a frontend supplies for guest→host dispatch and block-yield re-entry |
 
 Engine implementations such as `kobako-wasmtime` implement `Runtime`.
