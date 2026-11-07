@@ -23,6 +23,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network.rb`
 - `test/e2e/test_network_tcp.rb`
 - `test/e2e/test_network_names.rb`
+- `test/e2e/test_network_http.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
 - `crates/kobako-runtime/src/network.rs`
@@ -509,3 +510,27 @@ endpoint "api.example.com", port: 443
 | Given | a guest building headers through `wasi:http` |
 | When | it sets `host`, `content-length`, a name that is no token, or a header of a response |
 | Then | the first two answer `forbidden`, the name `invalid-syntax`, and the response's header `immutable`; the seam frames the body itself |
+
+## `NW-042` A script's Net::HTTP reaches a server an HTTP endpoint names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-040` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a loopback server's address and port |
+| When | the script sends a GET with a header, or a POST with a body, through `Net::HTTP` |
+| Then | the server reads the path, the header, and the body. The script reads the code, message, body, and headers as CRuby's `Net::HTTPResponse` gives them |
+
+## `NW-043` A Net::HTTP request no endpoint admits raises what CRuby would
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-042` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose endpoints name no such authority, or one with no network entry |
+| When | the script sends a request through `Net::HTTP` |
+| Then | it raises `Errno::EACCES` wrapped as CRuby wraps a failed open, or `NotImplementedError` with no network |
