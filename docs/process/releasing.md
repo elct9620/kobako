@@ -52,7 +52,7 @@ Standard semver applies once the project is stable (≥ 1.0).
 
 A commit releases only when its type has a changelog section. The config overrides no `changelog-sections`, so `release-please`'s defaults apply: `perf` gets Performance Improvements, while an unmarked `refactor`, `docs`, or `test` commit never releases. A change shipped only under those types is invisible to `release-please`. The breaking marker overrides the type: a `refactor!` both releases and reaches the changelog.
 
-`release-please` reads only the newest `commit-search-depth` commits, 500 by default. A release whose window holds more drops the oldest from its changelog, so the config raises the depth to 1000.
+`release-please` reads only the newest `commit-search-depth` commits, 500 by default. A release whose window holds more drops the oldest from its changelog, so the config raises the depth to 1000. Its `last-release-sha` ends every scan before a fork merge whose subject the commit parser rejects, which would leave a release untagged.
 
 ### Pre-1.0 Override
 
