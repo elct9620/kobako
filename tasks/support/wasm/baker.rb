@@ -30,8 +30,8 @@ module KobakoWasm
     def bake_reproducibly!(input, dir)
       first  = File.join(dir, "bake-1.wasm")
       second = File.join(dir, "bake-2.wasm")
-      run_baker(input, first)
-      run_baker(input, second)
+      run_baker!(input, first)
+      run_baker!(input, second)
       unless FileUtils.identical?(first, second)
         raise "[wasm:build] bake is not reproducible — two runs over #{input} diverged"
       end
@@ -46,7 +46,7 @@ module KobakoWasm
       raise "[wasm:build] kobako-baker built but #{BAKER_BIN} is missing" unless File.exist?(BAKER_BIN)
     end
 
-    def run_baker(input, output)
+    def run_baker!(input, output)
       return if system(BAKER_BIN, input, output)
 
       raise "[wasm:build] kobako-baker failed on #{input}"
