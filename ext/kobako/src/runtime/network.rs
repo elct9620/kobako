@@ -13,7 +13,8 @@ use magnus::{
 
 use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::network::{
-    Addresses, Connection, Endpoint, Entry, HttpRule, Name, Network, Policies, Protocol, Request,
+    Addresses, Connection, Credential, CredentialSource, Endpoint, Entry, HttpRule, Name, Network,
+    Placement, Policies, Protocol, Request, Secret,
 };
 
 use super::pinned_value::PinnedValue;
@@ -26,11 +27,16 @@ struct Answered {
     resolve: Option<Arc<RubyPolicy>>,
     connect: Option<Arc<RubyPolicy>>,
     request: Option<Arc<RubyPolicy>>,
+    credentials: Vec<Credential>,
 }
 
 impl Entry for Answered {
     fn endpoints(&self) -> Vec<Endpoint> {
         self.endpoints.clone()
+    }
+
+    fn credentials(&self) -> Vec<Credential> {
+        self.credentials.clone()
     }
 
     fn policies(&self) -> Policies {
@@ -88,6 +94,76 @@ impl Policy<Request<'_>> for RubyPolicy {
     fn allows(&self, request: &Request<'_>) -> bool {
         self.ask("request?", |ruby| to_request(ruby, request))
     }
+}
+
+/// A Ruby credential's `value(request)`, asked as a bound request leaves. A
+/// String answers the value, `nil` sends nothing, and a raised StandardError
+/// sends nothing too; anything else it raises is held for the host.
+struct RubyCredential {
+    credential: Opaque<Value>,
+}
+
+impl CredentialSource for RubyCredential {
+    fn value(&self, request: &Request<'_>) -> Option<Secret> {
+        gvl::reenter(|| {
+            let ruby = Ruby::get().expect("Ruby handle unavailable in a credential's value");
+            let credential: Value = ruby.get_inner(self.credential);
+            let answer = to_request(&ruby, request).and_then(|request| {
+                credential.funcall::<_, _, Option<RString>>("value", (request,))
+            });
+            match answer {
+                // SAFETY: the bytes are copied out before Ruby runs again.
+                Ok(Some(value)) => Some(Secret::new(unsafe { value.as_slice() }.to_vec())),
+                Ok(None) => None,
+                Err(error) => {
+                    let _ = escape::hold(&ruby, error);
+                    None
+                }
+            }
+        })
+    }
+}
+
+/// The credentials a Ruby entry answers, each pinned while the guest may ask
+/// it for a value.
+fn to_credentials(
+    ruby: &Ruby,
+    entry: Value,
+    pins: &mut Vec<PinnedValue>,
+) -> Result<Vec<Credential>, MagnusError> {
+    if !entry.respond_to("credentials", false)? {
+        return Ok(Vec::new());
+    }
+    let refused = |message: &str| MagnusError::new(ruby.exception_arg_error(), message.to_string());
+    let credentials: RArray = entry.funcall("credentials", ())?;
+    (0..credentials.len() as isize)
+        .map(|index| {
+            let credential: Value = credentials.entry(index)?;
+            let placement: Value = credential.funcall("placement", ())?;
+            let placement = match symbol_name(placement)?.as_deref() {
+                Some("bearer") => Placement::Bearer,
+                Some("basic") => Placement::Basic,
+                Some(_) => {
+                    return Err(refused(
+                        "a credential's placement must be :bearer or :basic",
+                    ))
+                }
+                None => Placement::Header(
+                    RString::try_convert(placement)?
+                        .to_string()?
+                        .to_ascii_lowercase(),
+                ),
+            };
+            let placeholder: String = credential
+                .funcall::<_, _, Value>("placeholder", ())?
+                .funcall("to_s", ())?;
+            pins.push(PinnedValue::new(ruby, credential));
+            let source = Arc::new(RubyCredential {
+                credential: Opaque::from(credential),
+            });
+            Ok(Credential::new(placement, placeholder, source))
+        })
+        .collect()
 }
 
 /// `request` as the `Kobako::Network::Request` a Ruby policy reads.
@@ -162,11 +238,13 @@ pub(super) fn to_grants(
         if resolve.is_some() || connect.is_some() || request.is_some() {
             pins.push(PinnedValue::new(ruby, entry));
         }
+        let credentials = to_credentials(ruby, entry, &mut pins)?;
         let answered = Answered {
             endpoints,
             resolve,
             connect,
             request,
+            credentials,
         };
         let network = Network::new(name, Arc::new(answered))
             .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))?;

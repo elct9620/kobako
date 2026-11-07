@@ -99,6 +99,31 @@ module Kobako
       def to_a = @rules.dup # :nodoc:
     end
 
+    # A value the Host App hands no guest, swapped in place of +placeholder+ in
+    # one header of a request bound to its entry's own endpoints. The
+    # +placement+ is +:bearer+ or +:basic+ for the +authorization+ header, or a
+    # header's name. The block answers the value for a Request, or +nil+ to
+    # send nothing, as the request leaves.
+    class Credential
+      PLACEMENTS = %i[bearer basic].freeze # :nodoc:
+
+      attr_reader :placement, :placeholder
+
+      def initialize(placement, placeholder:, &source)
+        unless PLACEMENTS.include?(placement) || placement.is_a?(String)
+          raise ArgumentError, "a credential's placement must be :bearer, :basic, or a header name"
+        end
+        raise ArgumentError, "a credential needs a block answering its value" unless source
+
+        @placement = placement.is_a?(String) ? placement.downcase.freeze : placement
+        @placeholder = placeholder.to_s.freeze
+        @source = source
+      end
+
+      # The value for +request+, or +nil+ to send nothing.
+      def value(request) = @source.call(request)
+    end
+
     # One HTTP request the guest sends, as a +request?+ policy is handed it:
     # the +host+ lowercase and the +port+, the +method+ uppercase, the
     # +scheme+, the +path+ with no query, and the +header_names+ lowercase,
@@ -125,6 +150,7 @@ module Kobako
         @entry = entry
         @endpoints = [] # : Array[Endpoint]
         @policies = HOOKS.to_h { |hook| [hook, []] } # : Hash[Symbol, Array[^(untyped) -> boolish]]
+        @credentials = [] # : Array[Credential]
       end
 
       # Let the guest reach +host+ on +port+, as Endpoint.new takes them.
@@ -158,6 +184,19 @@ module Kobako
       def endpoints
         given = @entry.respond_to?(:endpoints) ? @entry.endpoints.to_a : [] # : Array[untyped]
         given + @endpoints
+      end
+
+      # Swap a Credential's value in place of +placeholder+ in requests bound
+      # to this entry's endpoints. Returns +self+.
+      def credential(placement, placeholder:, &source)
+        @credentials << Credential.new(placement, placeholder: placeholder, &source)
+        self
+      end
+
+      # The given object's credentials, then the block's.
+      def credentials
+        given = @entry.respond_to?(:credentials) ? @entry.credentials.to_a : [] # : Array[untyped]
+        given + @credentials
       end
 
       # Whether the given object's +resolve?+ and each block's resolve policy

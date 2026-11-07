@@ -109,6 +109,24 @@ module Kobako
                    "Builder#resolve? must refuse what the given object's resolve? or a policy(:resolve) block refuses"
     end
 
+    def test_a_block_adds_credentials_after_the_given_objects
+      given = Struct.new(:credentials).new([:given])
+      builder = Catalog::Network.of(:api, given) do |net|
+        net.credential(:bearer, placeholder: "kobako-token") { "s3cret" }
+      end.entry
+
+      assert_equal [:given, :bearer, "kobako-token"],
+                   [builder.credentials.first, builder.credentials.last.placement,
+                    builder.credentials.last.placeholder],
+                   "Builder#credential must add after the given object's credentials"
+    end
+
+    def test_a_credential_with_another_placement_is_refused
+      assert_raises(ArgumentError, "Kobako::Network::Credential with another placement must be refused") do
+        Kobako::Network::Credential.new(:digest, placeholder: "x") { "y" }
+      end
+    end
+
     def test_a_policy_for_an_unknown_hook_is_refused
       assert_raises(ArgumentError, "Builder#policy for a hook other than :connect must be refused") do
         Catalog::Network.of(:guard, nil) { |net| net.policy(:listen) { true } }

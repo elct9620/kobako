@@ -52,6 +52,30 @@ class TestE2ENetworkHttpPolicy < Minitest::Test
                  "Net::HTTP through an endpoint allowing GET /repos/** must send a GET there and refuse a POST"
   end
 
+  BEARER = <<~RUBY
+    Net::HTTP.new("127.0.0.1", %<port>d).get("/", { "Authorization" => "Bearer kobako-token" }).code
+  RUBY
+
+  # A Sandbox reaching `port`, binding a bearer credential the block answers.
+  def bearing(port, &value)
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:api) do |net|
+      net.endpoint "127.0.0.1", port: port
+      net.credential(:bearer, placeholder: "kobako-token", &value)
+    end
+  end
+
+  # @behavior NW-052
+  def test_a_credential_is_never_swapped_into_a_request_in_clear
+    asked = 0
+    with_http_server do |port, seen|
+      bearing(port) { (asked += 1) && "s3cret" }.eval(format(BEARER, port: port))
+      sent = seen.pop.first.grep(/\Aauthorization:/i).first&.split(": ", 2)&.last
+
+      assert_equal ["Bearer kobako-token", 0], [sent, asked],
+                   "a credential must never be swapped into a request over http, nor asked for its value"
+    end
+  end
+
   # @behavior NW-047
   def test_a_request_policy_is_handed_the_request_and_refuses_it
     value, request = handed_post

@@ -52,6 +52,19 @@ module Kobako
       def to_a: () -> Array[Rule]
     end
 
+    class Credential
+      PLACEMENTS: Array[Symbol]
+
+      @source: ^(Request) -> String?
+
+      attr_reader placement: Symbol | String
+      attr_reader placeholder: String
+
+      def initialize: (Symbol | String placement, placeholder: untyped) ?{ (Request) -> String? } -> void
+
+      def value: (Request request) -> String?
+    end
+
     class Request
       attr_reader host: String
       attr_reader port: Integer
@@ -69,8 +82,13 @@ module Kobako
       @entry: untyped
       @endpoints: Array[Endpoint]
       @policies: Hash[Symbol, Array[^(untyped) -> boolish]]
+      @credentials: Array[Credential]
 
       def initialize: (?untyped entry) -> void
+
+      def credential: (Symbol | String placement, placeholder: untyped) ?{ (Request) -> String? } -> self
+
+      def credentials: () -> Array[untyped]
 
       def endpoint: (untyped host, port: untyped, ?protocol: untyped, ?addresses: untyped) ?{ (Rules) -> void } -> self
 

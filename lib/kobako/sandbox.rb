@@ -106,12 +106,13 @@ module Kobako
     end
 
     # Give the guest the network entry +entry+ under +name+, any object
-    # answering any of +endpoints+, +resolve?+, and +connect?+. A given block
-    # yields a Kobako::Network::Builder adding to +entry+, so the block's
-    # +self+ stays the caller's. Each entry's endpoints are read afresh for
-    # every invocation. Its +resolve?+ is handed each name the guest looks up,
-    # and its +connect?+ each Kobako::Network::Connection the guest asks for;
-    # any entry refusing refuses. Returns +self+.
+    # answering any of +endpoints+, +credentials+, +resolve?+, +connect?+, and
+    # +request?+. A given block yields a Kobako::Network::Builder adding to
+    # +entry+, so the block's +self+ stays the caller's. Each entry's endpoints
+    # and credentials are read afresh for every invocation. Its +resolve?+ is
+    # handed each name the guest looks up, its +connect?+ each
+    # Kobako::Network::Connection, and its +request?+ each
+    # Kobako::Network::Request; any entry refusing refuses. Returns +self+.
     #
     # Raises ArgumentError for an empty or duplicate name, a malformed
     # endpoint, or a call after the first invocation.
