@@ -109,7 +109,7 @@ module CodeMode
 
     def get(url)
       uri = parse_url(url)
-      enforce_allowlist!(uri)
+      enforce_allowlist(uri)
       perform_get(uri)
     end
 
@@ -128,7 +128,7 @@ module CodeMode
       raise ArgumentError, "invalid url: #{e.message}"
     end
 
-    def enforce_allowlist!(uri)
+    def enforce_allowlist(uri)
       return if @allowlist.allowed?(uri.host)
 
       display_host = uri.host.downcase

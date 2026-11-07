@@ -11,7 +11,7 @@ class Behavior
   RAISE = 0.3
 
   def self.call(_msg)
-    cold_start! unless Memory.get("warm")
+    cold_start unless Memory.get("warm")
 
     ceiling = Wallet.reservation
     bid = Memory.get("bid") || (ceiling * OPENING).round
@@ -20,7 +20,7 @@ class Behavior
     { to: :seller, type: :bid, price: bid }
   end
 
-  def self.cold_start!
+  def self.cold_start
     Memory.set("warm", true)
     raise "buyer strategy cold-start hiccup"
   end
