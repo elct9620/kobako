@@ -379,7 +379,7 @@ mod tests {
 
     // @behavior WP-009 WP-010 WP-011
     #[test]
-    fn roundtrip_nil_and_bools() {
+    fn nil_and_both_bools_survive_a_round_trip() {
         assert_eq!(roundtrip(Value::Nil), Value::Nil);
         assert_eq!(roundtrip(Value::Bool(true)), Value::Bool(true));
         assert_eq!(roundtrip(Value::Bool(false)), Value::Bool(false));
@@ -387,7 +387,7 @@ mod tests {
 
     // @behavior WP-012 WP-013 WP-014
     #[test]
-    fn roundtrip_int_boundaries() {
+    fn an_int_at_each_frame_boundary_survives_a_round_trip() {
         let cases: &[i64] = &[
             0,
             1,
@@ -420,7 +420,7 @@ mod tests {
 
     // @behavior WP-080 WP-081
     #[test]
-    fn roundtrip_uint_max_preserves_uint_variant() {
+    fn a_round_trip_keeps_a_uint_only_above_the_i64_range() {
         assert_eq!(roundtrip(Value::UInt(u64::MAX)), Value::UInt(u64::MAX));
         assert_eq!(
             roundtrip(Value::UInt(i64::MAX as u64)),
@@ -430,7 +430,7 @@ mod tests {
 
     // @behavior WP-016
     #[test]
-    fn roundtrip_floats_special() {
+    fn zero_and_the_infinities_survive_a_round_trip() {
         match roundtrip(Value::Float(0.0)) {
             Value::Float(f) => {
                 assert_eq!(f, 0.0);
@@ -458,7 +458,7 @@ mod tests {
 
     // @behavior WP-017
     #[test]
-    fn roundtrip_float_nan() {
+    fn nan_survives_a_round_trip() {
         match roundtrip(Value::Float(f64::NAN)) {
             Value::Float(f) => assert!(f.is_nan()),
             other => panic!("unexpected: {:?}", other),
@@ -467,7 +467,7 @@ mod tests {
 
     // @behavior WP-099
     #[test]
-    fn roundtrip_negative_zero_keeps_its_sign() {
+    fn negative_zero_keeps_its_sign_through_a_round_trip() {
         match roundtrip(Value::Float(-0.0)) {
             Value::Float(f) => assert!(f.is_sign_negative()),
             other => panic!("unexpected: {:?}", other),
@@ -476,7 +476,7 @@ mod tests {
 
     // @behavior WP-018 WP-019 WP-020 WP-021 WP-022
     #[test]
-    fn roundtrip_str_lengths_and_multibyte() {
+    fn a_string_of_each_frame_length_or_multibyte_survives_a_round_trip() {
         let cases = vec![
             String::new(),
             "a".to_string(),
@@ -496,7 +496,7 @@ mod tests {
 
     // @behavior WP-023
     #[test]
-    fn roundtrip_bin_with_non_utf8_bytes() {
+    fn a_binary_of_non_utf8_bytes_survives_a_round_trip() {
         let cases = vec![
             Vec::<u8>::new(),
             vec![0x00, 0xff, 0xfe, 0x80, 0xc0],
@@ -511,7 +511,7 @@ mod tests {
 
     // @behavior WP-025 WP-027
     #[test]
-    fn roundtrip_arrays_empty_and_nested() {
+    fn an_empty_or_nested_array_survives_a_round_trip() {
         assert_eq!(roundtrip(Value::Array(vec![])), Value::Array(vec![]));
         let nested = Value::Array(vec![
             Value::Int(1),
@@ -525,7 +525,7 @@ mod tests {
 
     // @behavior WP-029 WP-030 WP-032
     #[test]
-    fn roundtrip_maps_empty_and_nested() {
+    fn an_empty_or_nested_map_survives_a_round_trip() {
         assert_eq!(roundtrip(Value::Map(vec![])), Value::Map(vec![]));
         let m = Value::Map(vec![
             (Value::Str("a".into()), Value::Int(1)),
@@ -543,7 +543,7 @@ mod tests {
 
     // @behavior WP-038
     #[test]
-    fn roundtrip_sym_payload_sizes() {
+    fn a_symbol_of_each_frame_width_survives_a_round_trip() {
         // Empty Symbol (`:""`) is wire-legal — exercised explicitly so a
         // future encoder regression that emits no-payload framing fails.
         // The sweep spans every ext frame width so each decode arm runs:
@@ -566,7 +566,7 @@ mod tests {
 
     // @behavior WP-041 WP-042
     #[test]
-    fn roundtrip_handle_boundaries() {
+    fn the_lowest_and_highest_handles_survive_a_round_trip() {
         // Handle id 0 is a wire-violation at the codec layer (caller built
         // an invalid Value); narrow round-trip to legal ids only.
         assert_eq!(roundtrip(Value::Handle(1)), Value::Handle(1));
@@ -578,7 +578,7 @@ mod tests {
 
     // @behavior WP-033
     #[test]
-    fn roundtrip_deeply_nested_mixed() {
+    fn a_deeply_nested_mixed_value_survives_a_round_trip() {
         let v = Value::Array(vec![
             Value::Handle(7),
             Value::Map(vec![

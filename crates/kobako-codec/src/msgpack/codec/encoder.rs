@@ -170,67 +170,67 @@ mod tests {
 
     // @behavior WP-058
     #[test]
-    fn golden_nil() {
+    fn nil_encodes_as_c0() {
         assert_eq!(encode(&Value::Nil), vec![0xc0]);
     }
 
     // @behavior WP-084
     #[test]
-    fn golden_bool_false() {
+    fn false_encodes_as_c2() {
         assert_eq!(encode(&Value::Bool(false)), vec![0xc2]);
     }
 
     // @behavior WP-083
     #[test]
-    fn golden_bool_true() {
+    fn true_encodes_as_c3() {
         assert_eq!(encode(&Value::Bool(true)), vec![0xc3]);
     }
 
     // @behavior WP-071
     #[test]
-    fn golden_int_zero() {
+    fn zero_encodes_as_00() {
         assert_eq!(encode(&Value::Int(0)), vec![0x00]);
     }
 
     // @behavior WP-060
     #[test]
-    fn golden_int_neg_one() {
+    fn minus_one_encodes_as_ff() {
         assert_eq!(encode(&Value::Int(-1)), vec![0xff]);
     }
 
     // @behavior WP-072
     #[test]
-    fn golden_int_127_is_positive_fixint() {
+    fn int_127_encodes_as_a_positive_fixint() {
         assert_eq!(encode(&Value::Int(127)), vec![0x7f]);
     }
 
     // @behavior WP-073
     #[test]
-    fn golden_int_neg_32_is_negative_fixint() {
+    fn int_minus_32_encodes_as_a_negative_fixint() {
         assert_eq!(encode(&Value::Int(-32)), vec![0xe0]);
     }
 
     // @behavior WP-067
     #[test]
-    fn golden_empty_string() {
+    fn an_empty_string_encodes_as_a0() {
         assert_eq!(encode(&Value::Str(String::new())), vec![0xa0]);
     }
 
     // @behavior WP-069
     #[test]
-    fn golden_empty_array() {
+    fn an_empty_array_encodes_as_90() {
         assert_eq!(encode(&Value::Array(Vec::new())), vec![0x90]);
     }
 
     // @behavior WP-070
     #[test]
-    fn golden_empty_map() {
+    fn an_empty_map_encodes_as_80() {
         assert_eq!(encode(&Value::Map(Vec::new())), vec![0x80]);
     }
 
     // @behavior WP-065
     #[test]
-    fn golden_handle_one_is_fixext4() {
+    fn handle_one_encodes_as_a_fixext4() {
         assert_eq!(
             encode(&Value::Handle(1)),
             vec![0xd6, 0x01, 0x00, 0x00, 0x00, 0x01]
@@ -239,7 +239,7 @@ mod tests {
 
     // @behavior WP-066
     #[test]
-    fn golden_handle_max() {
+    fn the_highest_handle_encodes_as_a_fixext4_of_7fffffff() {
         assert_eq!(
             encode(&Value::Handle(MAX_HANDLE_ID)),
             vec![0xd6, 0x01, 0x7f, 0xff, 0xff, 0xff]
@@ -248,14 +248,14 @@ mod tests {
 
     // @behavior WP-063
     #[test]
-    fn golden_sym_empty_uses_ext8_with_zero_length() {
+    fn an_empty_symbol_encodes_as_an_ext8_of_zero_length() {
         // `c7 00 00` is the empty Symbol: ext 8, zero length, ext type 0x00.
         assert_eq!(encode(&Value::Sym(String::new())), vec![0xc7, 0x00, 0x00]);
     }
 
     // @behavior WP-064
     #[test]
-    fn golden_sym_5byte_uses_ext8() {
+    fn a_five_byte_symbol_encodes_as_an_ext8() {
         let bytes = encode(&Value::Sym("hello".into()));
         // `c7 05 00 'h' 'e' 'l' 'l' 'o'`
         assert_eq!(bytes, vec![0xc7, 0x05, 0x00, b'h', b'e', b'l', b'l', b'o']);
@@ -263,7 +263,7 @@ mod tests {
 
     // @behavior WP-088
     #[test]
-    fn narrowest_int_boundaries() {
+    fn an_int_takes_the_narrowest_frame_at_each_boundary() {
         assert_eq!(encode(&Value::Int(127))[0], 0x7f);
         assert_eq!(encode(&Value::Int(128))[0], 0xcc);
         assert_eq!(encode(&Value::Int(256))[0], 0xcd);
@@ -284,7 +284,7 @@ mod tests {
 
     // @behavior WP-090
     #[test]
-    fn narrowest_str_boundaries() {
+    fn a_string_takes_the_narrowest_frame_at_each_boundary() {
         assert_eq!(encode(&Value::Str("a".repeat(31)))[0], 0xbf);
         assert_eq!(encode(&Value::Str("a".repeat(32)))[0], 0xd9);
         assert_eq!(encode(&Value::Str("a".repeat(256)))[0], 0xda);
@@ -293,7 +293,7 @@ mod tests {
 
     // @behavior WP-091
     #[test]
-    fn narrowest_bin_boundaries() {
+    fn a_binary_takes_the_narrowest_frame_at_each_boundary() {
         assert_eq!(encode(&Value::Bin(vec![0u8; 255]))[0], 0xc4);
         assert_eq!(encode(&Value::Bin(vec![0u8; 256]))[0], 0xc5);
         assert_eq!(encode(&Value::Bin(vec![0u8; 65_536]))[0], 0xc6);
@@ -301,14 +301,14 @@ mod tests {
 
     // @behavior WP-092
     #[test]
-    fn narrowest_array_boundaries() {
+    fn an_array_takes_the_narrowest_frame_at_each_boundary() {
         assert_eq!(encode(&Value::Array(vec![Value::Nil; 15]))[0], 0x9f);
         assert_eq!(encode(&Value::Array(vec![Value::Nil; 16]))[0], 0xdc);
     }
 
     // @behavior WP-093
     #[test]
-    fn narrowest_map_boundaries() {
+    fn a_map_takes_the_narrowest_frame_at_each_boundary() {
         let m15: Vec<(Value, Value)> = (0..15).map(|i| (Value::Int(i), Value::Nil)).collect();
         assert_eq!(encode(&Value::Map(m15))[0], 0x8f);
         let m16: Vec<(Value, Value)> = (0..16).map(|i| (Value::Int(i), Value::Nil)).collect();
