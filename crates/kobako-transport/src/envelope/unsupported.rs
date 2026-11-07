@@ -38,8 +38,8 @@ impl Unsupported {
     }
 
     pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
-        reader.u8()?;
-        let message = reader.text()?.to_owned();
+        reader.read_u8()?;
+        let message = reader.read_text()?.to_owned();
         // The last thing its answer carries, so whatever follows belongs
         // to a later version of these fields, as for a Fault.
         reader.skip_unknown_fields();

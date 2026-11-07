@@ -66,12 +66,12 @@ pub struct Panic {
 impl Outcome {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        match reader.u8()? {
+        match reader.read_u8()? {
             tag::OK => Ok(Outcome::Ok(reader.remaining().to_vec())),
             tag::PANIC => {
-                let origin = Origin::from_name(reader.text()?);
+                let origin = Origin::from_name(reader.read_text()?);
                 let error = ErrorRecord::read(&mut reader)?;
-                let available = reader.text_list()?;
+                let available = reader.read_text_list()?;
                 reader.finish()?;
                 Ok(Outcome::Panic(Panic {
                     origin,

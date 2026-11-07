@@ -27,7 +27,7 @@ pub enum Reply {
 impl Reply {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        match reader.u8()? {
+        match reader.read_u8()? {
             tag::OK => Ok(Reply::Ok(reader.remaining().to_vec())),
             // No `finish` here: a Fault owns everything after the tag,
             // including the fields a later contract version appends.
@@ -80,7 +80,7 @@ pub enum YieldReply {
 impl YieldReply {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        match reader.u8()? {
+        match reader.read_u8()? {
             tag::OK => Ok(YieldReply::Ok(reader.remaining().to_vec())),
             tag::BREAK => {
                 reader.finish()?;

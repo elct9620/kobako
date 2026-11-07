@@ -22,13 +22,13 @@ impl<'a> Reader<'a> {
         Reader { bytes, pos: 0 }
     }
 
-    pub(crate) fn u8(&mut self) -> Result<u8, DecodeError> {
+    pub(crate) fn read_u8(&mut self) -> Result<u8, DecodeError> {
         let byte = *self.bytes.get(self.pos).ok_or(MALFORMED)?;
         self.pos += 1;
         Ok(byte)
     }
 
-    pub(crate) fn u32(&mut self) -> Result<u32, DecodeError> {
+    pub(crate) fn read_u32(&mut self) -> Result<u32, DecodeError> {
         let end = self.pos.checked_add(4).ok_or(MALFORMED)?;
         let slice = self.bytes.get(self.pos..end).ok_or(MALFORMED)?;
         self.pos = end;
@@ -37,8 +37,8 @@ impl<'a> Reader<'a> {
     }
 
     /// A `u32` length followed by that many bytes.
-    pub(crate) fn bytes(&mut self) -> Result<&'a [u8], DecodeError> {
-        let len = self.u32()? as usize;
+    pub(crate) fn read_bytes(&mut self) -> Result<&'a [u8], DecodeError> {
+        let len = self.read_u32()? as usize;
         let end = self.pos.checked_add(len).ok_or(MALFORMED)?;
         let slice = self.bytes.get(self.pos..end).ok_or(MALFORMED)?;
         self.pos = end;
@@ -48,8 +48,8 @@ impl<'a> Reader<'a> {
     /// A byte string carrying UTF-8. Every text field in the envelope is
     /// validated at decode so a frontend receives `&str` without repeating
     /// the check.
-    pub(crate) fn text(&mut self) -> Result<&'a str, DecodeError> {
-        core::str::from_utf8(self.bytes()?)
+    pub(crate) fn read_text(&mut self) -> Result<&'a str, DecodeError> {
+        core::str::from_utf8(self.read_bytes()?)
             .map_err(|_| DecodeError::new("Envelope text field is not valid UTF-8"))
     }
 
@@ -58,21 +58,21 @@ impl<'a> Reader<'a> {
     ///
     /// The elements are copied rather than borrowed: a binding's path and
     /// a panic's `available` names outlive the frame buffer they arrive in.
-    pub(crate) fn text_list(&mut self) -> Result<Vec<String>, DecodeError> {
-        self.list(|reader| Ok(reader.text()?.to_owned()))
+    pub(crate) fn read_text_list(&mut self) -> Result<Vec<String>, DecodeError> {
+        self.read_list(|reader| Ok(reader.read_text()?.to_owned()))
     }
 
     /// A `u32` count followed by that many byte strings of any content,
-    /// copied for the same reason as `text_list`.
-    pub(crate) fn bytes_list(&mut self) -> Result<Vec<Vec<u8>>, DecodeError> {
-        self.list(|reader| Ok(reader.bytes()?.to_vec()))
+    /// copied for the same reason as `read_text_list`.
+    pub(crate) fn read_bytes_list(&mut self) -> Result<Vec<Vec<u8>>, DecodeError> {
+        self.read_list(|reader| Ok(reader.read_bytes()?.to_vec()))
     }
 
-    fn list<T>(
+    fn read_list<T>(
         &mut self,
         mut element: impl FnMut(&mut Self) -> Result<T, DecodeError>,
     ) -> Result<Vec<T>, DecodeError> {
-        let count = self.u32()? as usize;
+        let count = self.read_u32()? as usize;
         // Every element opens with a `u32` length, so a count past what the
         // bytes left can hold is refused before it sizes the allocation.
         if count > self.remaining().len() / size_of::<u32>() {
@@ -175,15 +175,23 @@ mod tests {
         let encoded = w.into_bytes();
 
         let mut r = Reader::new(&encoded);
-        assert_eq!(r.u8(), Ok(7), "a u8 must round-trip through the writer");
-        assert_eq!(r.u32(), Ok(0xdead_beef), "a u32 must round-trip big-endian");
         assert_eq!(
-            r.bytes(),
+            r.read_u8(),
+            Ok(7),
+            "a u8 must round-trip through the writer"
+        );
+        assert_eq!(
+            r.read_u32(),
+            Ok(0xdead_beef),
+            "a u32 must round-trip big-endian"
+        );
+        assert_eq!(
+            r.read_bytes(),
             Ok(&b"kv"[..]),
             "a length-prefixed byte string must round-trip"
         );
         assert_eq!(
-            r.text_list(),
+            r.read_text_list(),
             Ok(vec!["a".to_owned(), "bc".to_owned()]),
             "a counted list must round-trip element for element"
         );
@@ -213,7 +221,7 @@ mod tests {
         let bytes = [0, 0, 0, 8, b'h', b'i'];
         let mut r = Reader::new(&bytes);
         assert!(
-            r.bytes().is_err(),
+            r.read_bytes().is_err(),
             "a byte string whose length overruns the message must be rejected, not truncated"
         );
     }
@@ -225,7 +233,7 @@ mod tests {
         let bytes = [0xff, 0xff, 0xff, 0xff];
         let mut r = Reader::new(&bytes);
         assert!(
-            r.text_list().is_err(),
+            r.read_text_list().is_err(),
             "a list count the message cannot satisfy must be rejected before any allocation"
         );
     }
@@ -238,7 +246,7 @@ mod tests {
         let encoded = w.into_bytes();
         let mut r = Reader::new(&encoded);
         assert!(
-            r.text().is_err(),
+            r.read_text().is_err(),
             "a text field carrying non-UTF-8 bytes must be rejected at decode"
         );
     }
@@ -250,7 +258,7 @@ mod tests {
         w.bytes(b"ok").remainder(b"!");
         let encoded = w.into_bytes();
         let mut r = Reader::new(&encoded);
-        r.bytes().unwrap();
+        r.read_bytes().unwrap();
         assert!(
             r.finish().is_err(),
             "bytes past an envelope's last field must fail loudly as a framing desync"

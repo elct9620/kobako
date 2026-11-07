@@ -21,9 +21,9 @@ pub struct ErrorRecord {
 impl ErrorRecord {
     pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
         Ok(ErrorRecord {
-            name: reader.text()?.to_owned(),
-            message: reader.text()?.to_owned(),
-            backtrace: reader.text_list()?,
+            name: reader.read_text()?.to_owned(),
+            message: reader.read_text()?.to_owned(),
+            backtrace: reader.read_text_list()?,
         })
     }
 

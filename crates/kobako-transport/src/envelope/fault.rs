@@ -116,8 +116,8 @@ impl Fault {
     }
 
     pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
-        let kind = FaultKind::from_tag(reader.u8()?);
-        let message = reader.text()?.to_owned();
+        let kind = FaultKind::from_tag(reader.read_u8()?);
+        let message = reader.read_text()?.to_owned();
         // A Fault gains fields as the contract does, and it is the last
         // thing a Reply carries, so whatever follows the fields this
         // reader knows belongs to a later version of them.

@@ -38,7 +38,7 @@ impl Downcall {
             tag::EVAL => Downcall::Eval(body.to_vec()),
             tag::RUN => Downcall::Run(Run::decode(body)?),
             tag::YIELD => Downcall::Yield {
-                frame: reader.u32()?,
+                frame: reader.read_u32()?,
                 args: reader.remaining().to_vec(),
             },
             tag::COMPILE if body.is_empty() => Downcall::Compile,
@@ -115,7 +115,7 @@ impl UnknownTag {
 }
 
 fn read_tag(reader: &mut Reader<'_>) -> Result<u8, DecodeError> {
-    match reader.u8()? {
+    match reader.read_u8()? {
         tag::INVALID => Err(DecodeError::new("request tag 0x00 is invalid")),
         tag => Ok(tag),
     }

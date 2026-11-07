@@ -36,9 +36,9 @@ pub struct Call<'a> {
 impl<'a> Call<'a> {
     pub fn decode(bytes: &'a [u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        let target = match reader.u8()? {
-            KIND_PATH => Target::Path(reader.text()?),
-            KIND_HANDLE => Target::Handle(reader.u32()?),
+        let target = match reader.read_u8()? {
+            KIND_PATH => Target::Path(reader.read_text()?),
+            KIND_HANDLE => Target::Handle(reader.read_u32()?),
             _ => return Err(DecodeError::new("Call kind must be 0 (path) or 1 (handle)")),
         };
         if let Target::Handle(0) = target {
@@ -46,8 +46,8 @@ impl<'a> Call<'a> {
                 "Call target Handle id 0 is the invalid sentinel",
             ));
         }
-        let method = reader.text()?;
-        let block_given = match reader.u8()? {
+        let method = reader.read_text()?;
+        let block_given = match reader.read_u8()? {
             0 => false,
             1 => true,
             _ => return Err(DecodeError::new("Call block_given must be 0 or 1")),

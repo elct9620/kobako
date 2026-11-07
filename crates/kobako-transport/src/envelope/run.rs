@@ -18,7 +18,7 @@ pub struct Run {
 impl Run {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        let entrypoint = reader.text()?.to_owned();
+        let entrypoint = reader.read_text()?.to_owned();
         Ok(Run {
             entrypoint,
             payload: reader.remaining().to_vec(),

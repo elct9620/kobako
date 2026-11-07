@@ -66,7 +66,7 @@ impl Preamble {
     /// appear at most once; an absent one reads as empty.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        let count = reader.u32()? as usize;
+        let count = reader.read_u32()? as usize;
         // Each record costs at least six bytes, its two leading bytes and a
         // body length, so a count past the bytes left can never be
         // satisfied; refusing it bounds the work.
@@ -79,13 +79,13 @@ impl Preamble {
         let mut snippets = None;
         let mut flags = Vec::new();
         for _ in 0..count {
-            let critical = match reader.u8()? {
+            let critical = match reader.read_u8()? {
                 ADVISORY => false,
                 CRITICAL => true,
                 _ => return Err(DecodeError::new("Preamble criticality must be 0 or 1")),
             };
-            let kind = reader.u8()?;
-            let body = reader.bytes()?;
+            let kind = reader.read_u8()?;
+            let body = reader.read_bytes()?;
             match kind {
                 tag::BINDINGS => once(&mut bindings, decode_bindings(body)?)?,
                 tag::SNIPPETS => once(&mut snippets, decode_snippets(body)?)?,
@@ -147,7 +147,7 @@ fn once<T>(slot: &mut Option<T>, value: T) -> Result<(), DecodeError> {
 
 fn decode_bindings(bytes: &[u8]) -> Result<Bindings, DecodeError> {
     let mut reader = Reader::new(bytes);
-    let paths = reader.text_list()?;
+    let paths = reader.read_text_list()?;
     reader.finish()?;
     Ok(Bindings { paths })
 }
@@ -160,7 +160,7 @@ fn encode_bindings(bindings: &Bindings) -> Vec<u8> {
 
 fn decode_snippets(bytes: &[u8]) -> Result<Snippets, DecodeError> {
     let mut reader = Reader::new(bytes);
-    let count = reader.u32()? as usize;
+    let count = reader.read_u32()? as usize;
     // Each entry costs at least a kind byte and a `u32` length, so a count
     // past what the bytes left can hold is refused before it sizes the
     // allocation.
@@ -171,13 +171,13 @@ fn decode_snippets(bytes: &[u8]) -> Result<Snippets, DecodeError> {
     }
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        entries.push(match reader.u8()? {
+        entries.push(match reader.read_u8()? {
             SNIPPET_SOURCE => Snippet::Source {
-                name: reader.text()?.to_owned(),
-                body: reader.text()?.to_owned(),
+                name: reader.read_text()?.to_owned(),
+                body: reader.read_text()?.to_owned(),
             },
             SNIPPET_BYTECODE => Snippet::Bytecode {
-                body: reader.bytes()?.to_vec(),
+                body: reader.read_bytes()?.to_vec(),
             },
             _ => return Err(DecodeError::new("Preamble snippet kind must be 0 or 1")),
         });
@@ -207,8 +207,8 @@ fn encode_snippets(snippets: &Snippets) -> Vec<u8> {
 
 fn decode_flag(bytes: &[u8], critical: bool) -> Result<Flag, DecodeError> {
     let mut reader = Reader::new(bytes);
-    let name = reader.text()?.to_owned();
-    let value = reader.text()?.to_owned();
+    let name = reader.read_text()?.to_owned();
+    let value = reader.read_text()?.to_owned();
     reader.finish()?;
     Ok(Flag {
         name,

@@ -20,9 +20,9 @@ pub enum CompileReply {
 impl CompileReply {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        match reader.u8()? {
+        match reader.read_u8()? {
             tag::OK => {
-                let bytecodes = reader.bytes_list()?;
+                let bytecodes = reader.read_bytes_list()?;
                 reader.finish()?;
                 Ok(CompileReply::Ok(bytecodes))
             }
