@@ -7,8 +7,7 @@
 use std::net::Shutdown;
 use std::time::{Duration, Instant};
 
-use kobako_runtime::net::{sock_alloc_file, TcpSock, SOCKET_BUFFER};
-use kobako_runtime::network::Protocol;
+use kobako_runtime::net::{sock_alloc_file, SOCKET_BUFFER};
 use kobako_runtime::vfs::{FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
 
@@ -162,8 +161,8 @@ impl Host for Invocation {
         )))
     }
 
-    /// A connect passes the ruleset on what the guest named, then dials that
-    /// exact address on a worker, so this answers at once.
+    /// A connect passes the Invocation's namespace on what the guest named,
+    /// which dials that exact address on a worker, so this answers at once.
     fn tcp_tcp_socket_start_connect(
         &mut self,
         this: TcpSocket,
@@ -182,16 +181,18 @@ impl Host for Invocation {
         let Some(addr) = to_socket_addr(&remote_address) else {
             return Ok(Err(ErrorCode::InvalidArgument));
         };
-        let network = self
+        let cred = self.wasi().descriptors().cred();
+        let connected = self
             .wasi()
             .table()
             .network()
-            .expect("a socket is only made with a network");
-        if let Err(err) = network.ruleset.admit_literal(addr, Protocol::Tcp) {
-            return Ok(Err(to_error_code(&err)));
-        }
-        let sock = TcpSock::connect(network.family.clone(), addr, self.deadline());
-        let file = sock_alloc_file(&sock, self.wasi().descriptors().cred());
+            .expect("a socket is only made with a network")
+            .connect(cred, addr, self.deadline());
+        let sock = match connected {
+            Ok(sock) => sock,
+            Err(err) => return Ok(Err(to_error_code(&err))),
+        };
+        let file = sock_alloc_file(&sock, cred);
         *self.tcp(this)? = table::TcpSocket::Connecting(SocketFile::new(sock, file));
         Ok(Ok(()))
     }

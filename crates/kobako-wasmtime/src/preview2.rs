@@ -8,7 +8,7 @@ mod sockets;
 mod table;
 
 pub(crate) use bindings::add_to_linker;
-pub(crate) use table::{Network, Table};
+pub(crate) use table::Table;
 
 #[allow(clippy::all, unused_parens)]
 pub(crate) mod bindings {

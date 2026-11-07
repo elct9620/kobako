@@ -17,8 +17,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
-use kobako_runtime::net::HostInet;
-use kobako_runtime::network::Ruleset;
+use kobako_runtime::net::{HostInet, Namespace};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{Cred, OpenFiles};
@@ -194,10 +193,9 @@ impl Wasi {
     }
 }
 
-/// The network an invocation's Grants make, one namespace for every entry:
-/// what all their endpoints let the guest reach, dialed through the host's own
-/// TCP. No network Grant makes none.
-fn to_network(grants: &[Grant]) -> Result<Option<preview2::Network>, Trap> {
+/// The network an invocation's Grants make, one namespace for every entry,
+/// dialed through the host's own TCP. No network Grant makes none.
+fn to_network(grants: &[Grant]) -> Result<Option<Namespace>, Trap> {
     let entries = grants
         .iter()
         .filter_map(|grant| match grant {
@@ -208,12 +206,9 @@ fn to_network(grants: &[Grant]) -> Result<Option<preview2::Network>, Trap> {
     if entries.is_empty() {
         return Ok(None);
     }
-    let ruleset = Ruleset::new(entries.iter().flat_map(|entry| entry.endpoints()))
-        .map_err(|err| Trap::Other(format!("a network entry did not compile: {err}")))?;
-    Ok(Some(preview2::Network {
-        ruleset,
-        family: Arc::new(HostInet),
-    }))
+    Namespace::new(entries, Arc::new(HostInet))
+        .map(Some)
+        .map_err(|err| Trap::Other(format!("a network entry did not compile: {err}")))
 }
 
 /// A Mount as this invocation presents it. A kind this driver does not

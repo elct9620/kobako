@@ -6,8 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
-use kobako_runtime::net::{ProtocolFamily, TcpSock};
-use kobako_runtime::network::Ruleset;
+use kobako_runtime::net::{Namespace, TcpSock};
 use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
 
@@ -95,18 +94,11 @@ impl Pollable {
     }
 }
 
-/// The network an Invocation's Grants make: what may be reached, and the
-/// backend that reaches it.
-pub(crate) struct Network {
-    pub(crate) ruleset: Ruleset,
-    pub(crate) family: Arc<dyn ProtocolFamily>,
-}
-
 pub(crate) struct Table {
     entries: BTreeMap<u32, Resource>,
     next: u32,
     open_files: OpenFiles,
-    network: Option<Network>,
+    network: Option<Namespace>,
 }
 
 impl Table {
@@ -122,11 +114,11 @@ impl Table {
     }
 
     /// Give the guest `network`, as an Invocation's network Grants make it.
-    pub(crate) fn grant(&mut self, network: Network) {
+    pub(crate) fn grant(&mut self, network: Namespace) {
         self.network = Some(network);
     }
 
-    pub(crate) fn network(&self) -> Option<&Network> {
+    pub(crate) fn network(&self) -> Option<&Namespace> {
         self.network.as_ref()
     }
 
