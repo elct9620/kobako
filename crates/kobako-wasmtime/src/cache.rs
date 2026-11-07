@@ -276,7 +276,7 @@ fn prune_stale(dir: &rustix::fd::OwnedFd, keep: &std::ffi::OsStr) {
     };
     while let Some(Ok(entry)) = entries.read() {
         let name = entry.file_name();
-        if name.to_bytes() == keep.as_bytes() || !name.to_str().is_ok_and(cache_entry_name) {
+        if name.to_bytes() == keep.as_bytes() || !name.to_str().is_ok_and(is_cache_entry_name) {
             continue;
         }
         let stale = statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)
@@ -295,7 +295,7 @@ fn prune_stale(dir: &rustix::fd::OwnedFd, keep: &std::ffi::OsStr) {
 }
 
 #[cfg(unix)]
-fn cache_entry_name(name: &str) -> bool {
+fn is_cache_entry_name(name: &str) -> bool {
     name.ends_with(".cwasm") || name.contains(".tmp")
 }
 
