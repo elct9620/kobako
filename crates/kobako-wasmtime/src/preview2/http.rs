@@ -137,6 +137,8 @@ fn to_error_code(err: HttpError) -> ErrorCode {
         HttpError::ConnectionTerminated => ErrorCode::ConnectionTerminated,
         HttpError::ProtocolError => ErrorCode::HTTPProtocolError,
         HttpError::ConnectionLimitReached => ErrorCode::ConnectionLimitReached,
+        HttpError::TlsCertificate => ErrorCode::TLSCertificateError,
+        HttpError::TlsProtocol => ErrorCode::TLSProtocolError,
         _ => ErrorCode::InternalError(None),
     }
 }
