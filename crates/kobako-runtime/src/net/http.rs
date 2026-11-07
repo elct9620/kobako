@@ -452,9 +452,25 @@ impl Exchange {
 
 /// The default outbound seam: ureq, with no redirect, proxy, or decompression,
 /// no status read as an error, and every connection opened by kobako's
-/// connector.
-#[derive(Default)]
-pub struct UreqOutbound;
+/// connector. Each seam holds its own TLS configuration, so its sessions end
+/// with the Invocation that holds it.
+pub struct UreqOutbound {
+    tls: Option<Arc<rustls::ClientConfig>>,
+}
+
+impl UreqOutbound {
+    pub fn new() -> Self {
+        Self {
+            tls: platform_tls(),
+        }
+    }
+}
+
+impl Default for UreqOutbound {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Outbound for UreqOutbound {
     fn send_request(
@@ -494,7 +510,7 @@ impl Outbound for UreqOutbound {
         let wire: Box<dyn transport::Wire> = match request.scheme {
             Scheme::Http => Box::new(dial),
             Scheme::Https => {
-                let config = platform_tls().ok_or(HttpError::TlsProtocol)?;
+                let config = self.tls.clone().ok_or(HttpError::TlsProtocol)?;
                 let name =
                     rustls::pki_types::ServerName::try_from(connector.authority().0.to_string())
                         .map_err(|_| HttpError::ProtocolError)?;
@@ -774,7 +790,7 @@ mod tests {
         Namespace::new(
             [&network],
             Arc::new(HostInet),
-            Arc::new(UreqOutbound),
+            Arc::new(UreqOutbound::new()),
             Workers::new(SANDBOX_WORKERS),
         )
         .expect("the endpoints compile")
@@ -915,7 +931,7 @@ mod tests {
         let namespace = Namespace::new(
             [&network],
             Arc::new(HostInet),
-            Arc::new(UreqOutbound),
+            Arc::new(UreqOutbound::new()),
             Workers::new(SANDBOX_WORKERS),
         )
         .unwrap();

@@ -218,7 +218,7 @@ fn to_network(grants: &[Grant], workers: &Arc<Workers>) -> Result<Option<Namespa
     Namespace::new(
         entries,
         Arc::new(HostInet),
-        Arc::new(UreqOutbound),
+        Arc::new(UreqOutbound::new()),
         workers.clone(),
     )
     .map(Some)

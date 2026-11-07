@@ -381,7 +381,7 @@ mod tests {
         let namespace = Namespace::new(
             &networks,
             family.clone(),
-            Arc::new(crate::net::UreqOutbound),
+            Arc::new(crate::net::UreqOutbound::new()),
             Workers::new(workers),
         )
         .expect("the endpoints compile");
@@ -514,7 +514,7 @@ mod tests {
         Namespace::new(
             [&network],
             family,
-            Arc::new(crate::net::UreqOutbound),
+            Arc::new(crate::net::UreqOutbound::new()),
             Workers::new(SANDBOX_WORKERS),
         )
         .expect("the endpoints compile")
@@ -713,7 +713,7 @@ mod tests {
         let namespace = Namespace::new(
             [&network],
             Arc::new(crate::net::HostInet),
-            Arc::new(crate::net::UreqOutbound),
+            Arc::new(crate::net::UreqOutbound::new()),
             Workers::new(SANDBOX_WORKERS),
         )
         .unwrap();
