@@ -124,16 +124,16 @@ The third-person form follows the standard library's `contains` and `starts_with
 
 ## Raising Methods
 
-A private Ruby method ends in `!` when it raises where it could not do its work. A guard that only checks is named for the check. A public method follows Ruby instead, where `!` marks only the member of a pair that raises, so `Sandbox#run` raises without one.
+A Ruby method ends in `!` only as the dangerous member of a pair, as Ruby marks one. A method with no safe counterpart raises without it, as `Integer()` and `Hash#fetch` do.
 
-| Method | Raises | As in |
+| Method | Its name | As in |
 |---|---|---|
-| an act | where it could not do its work | `build_runtime!`, `run_baker!` |
-| a guard | when its condition fails | `ensure_capacity!`, `reject_unwrappable!` |
-| a pair | the `!` member, where the other answers | ActiveRecord's `save` and `save!` |
-| a change | never, so no `!` | `invalidate`, `record_handle` |
+| an act that raises where it could not do its work | its verb | `build_runtime`, `run_baker` |
+| a guard that raises when its condition fails | the check | `ensure_capacity`, `reject_unwrappable` |
+| a change to its receiver | its verb | `invalidate`, `record_handle` |
+| the dangerous member of a pair | the safe member's name and `!` | `sort!`, ActiveRecord's `save!` |
 
-A change that only updates its receiver is told by its verb, not by `!`.
+Raising alone does not earn `!`, since every method may raise.
 
 ## Kinds and Markers
 
