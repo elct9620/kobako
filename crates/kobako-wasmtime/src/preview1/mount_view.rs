@@ -524,7 +524,7 @@ impl Guest {
     }
 
     /// A guest whose Driver was built with `security`.
-    fn judged_by(security: Vec<Arc<dyn SecurityOperations>>, grants: &[Grant]) -> Self {
+    fn with_security(security: Vec<Arc<dyn SecurityOperations>>, grants: &[Grant]) -> Self {
         Self::build(None, None, Profile::Hermetic, security, grants)
     }
 
@@ -2415,7 +2415,7 @@ impl SecurityOperations for RefusesMkdir {
 #[test]
 fn a_security_module_the_driver_was_built_with_judges_the_guest() {
     let tmpfs = file_and_directory();
-    let mut guest = Guest::judged_by(
+    let mut guest = Guest::with_security(
         vec![Arc::new(RefusesMkdir)],
         &[grant(tmpfs.clone(), Access::ReadWrite, None)],
     );

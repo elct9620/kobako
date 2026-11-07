@@ -267,7 +267,7 @@ mod tests {
 
     /// What `retry_eagain` answers when the first `moves` calls each had a move
     /// land in them, and how many calls it made.
-    fn retried(moves: usize) -> (Result<(), FilesystemError>, usize) {
+    fn retry_after_moves(moves: usize) -> (Result<(), FilesystemError>, usize) {
         let mut made = 0;
         let answer = retry_eagain(|| {
             made += 1;
@@ -285,7 +285,11 @@ mod tests {
     #[test]
     fn a_path_call_a_move_landed_in_is_made_again_four_times_at_most() {
         assert_eq!(
-            [retried(0), retried(3), retried(4)],
+            [
+                retry_after_moves(0),
+                retry_after_moves(3),
+                retry_after_moves(4)
+            ],
             [
                 (Ok(()), 1),
                 (Ok(()), 4),
