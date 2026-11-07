@@ -78,13 +78,91 @@ end
 ## `Kobako::Network::Endpoint#initialize`
 
 What the guest may reach: a host, a port, a protocol, and where the host's name
-may lead. Unless written otherwise it speaks HTTP to public addresses.
+may lead. An HTTP endpoint also holds the rules it judges requests by. Unless
+written otherwise it speaks HTTP to public addresses and allows every request.
 
 ```ruby
 module Kobako
   module Network
     class Endpoint
-      def initialize(host:, port:, protocol: :http, addresses: [:public])
+      def initialize(host:, port:, protocol: :http, addresses: [:public], rules: [])
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Rules#allow`
+
+Allow a method, or `:any`, on the paths a pattern matches.
+
+```ruby
+module Kobako
+  module Network
+    class Rules
+      def allow(method, path)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Rules#deny`
+
+Deny a method, or `:any`, on the paths a pattern matches. A denial wins over
+any allowance.
+
+```ruby
+module Kobako
+  module Network
+    class Rules
+      def deny(method, path)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Rule`
+
+One rule an HTTP endpoint judges a request by. It holds whether it allows, its
+method or `nil` for any, and its path pattern.
+
+```ruby
+module Kobako
+  module Network
+    class Rule
+      attr_reader :allow, :method, :path
+    end
+  end
+end
+```
+
+## `Kobako::Network::Request`
+
+One HTTP request the guest sends: the host, port, method, scheme, path with no
+query, and header names. It never holds a header's value.
+
+```ruby
+module Kobako
+  module Network
+    class Request
+      attr_reader :host, :port, :method, :scheme, :path, :header_names
+    end
+  end
+end
+```
+
+## `Kobako::Network::Builder#request?`
+
+Whether the given object's `request?` and each block's request policy allow a
+Request.
+
+```ruby
+module Kobako
+  module Network
+    class Builder
+      def request?(request)
       end
     end
   end
@@ -93,7 +171,8 @@ end
 
 ## `Kobako::Network::Builder#endpoint`
 
-Let the guest reach a host on a port, as an endpoint takes them.
+Let the guest reach a host on a port, as an endpoint takes them. A given block
+adds the rules an HTTP endpoint allows and denies.
 
 ```ruby
 module Kobako

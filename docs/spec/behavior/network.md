@@ -24,6 +24,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_tcp.rb`
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
+- `test/e2e/test_network_http_policy.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
 - `crates/kobako-runtime/src/network.rs`
@@ -534,3 +535,51 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox whose endpoints name no such authority, or one with no network entry |
 | When | the script sends a request through `Net::HTTP` |
 | Then | it raises `Errno::EACCES` wrapped as CRuby wraps a failed open, or `NotImplementedError` with no network |
+
+## `NW-044` An HTTP endpoint's rules admit only what they allow
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint allowing GET on `/repos/**` and denying `/repos/*/secrets`, and one with no rules |
+| When | the guest sends requests by several methods and paths |
+| Then | only an allowed method and path that no rule denies passes. A path servers may split differently is refused, and an endpoint with no rules passes any request |
+
+## `NW-045` A request policy sees the request and refuses it unsent
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry's request policy beside an `http` endpoint |
+| When | the guest sends a request with a header |
+| Then | the policy sees the authority, method, scheme, path with no query, and header names, never a value. Its refusal answers `Denied`, and nothing is sent |
+
+## `NW-046` A Ruby endpoint's rules refuse a request they do not allow
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-044` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `#network` block whose endpoint allows only GET on `/repos/**` |
+| When | the script sends a GET and a POST there through `Net::HTTP` |
+| Then | the GET reaches the server, and the POST raises `Errno::EACCES` |
+
+## `NW-047` A Ruby request policy is handed the request
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-045` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `policy(:request)` block beside an `http` endpoint |
+| When | the script sends a POST with a query and a header through `Net::HTTP` |
+| Then | the block is handed a `Kobako::Network::Request` with the method, scheme, path, and header names. A falsy answer raises `Errno::EACCES` |

@@ -72,6 +72,52 @@ no opinion, and a policy only narrows.
 pub struct Policies {
     pub resolve: Option<Arc<dyn for<'a> Policy<Name<'a>>>>,
     pub connect: Option<Arc<dyn for<'a> Policy<Connection<'a>>>>,
+    pub request: Option<Arc<dyn for<'a> Policy<Request<'a>>>>,
+}
+```
+
+## `Policies::with_request`
+
+These policies with one judging each HTTP request.
+
+```rust
+impl Policies {
+    pub fn with_request(self, policy: Arc<dyn for<'a> Policy<Request<'a>>>) -> Self {}
+}
+```
+
+## `Request`
+
+One HTTP request the Guest sends: the authority, method, scheme, path with no
+query, and header names. It never holds a header's value.
+
+```rust
+pub struct Request<'a> {
+    pub authority: (&'a str, u16),
+    pub method: &'a str,
+    pub scheme: &'a str,
+    pub path: &'a str,
+    pub header_names: &'a [&'a str],
+}
+```
+
+## `Request::new`
+
+The request to an authority by a method, scheme, path, and header names.
+
+```rust
+impl<'a> Request<'a> {
+    pub fn new(authority: (&'a str, u16), method: &'a str, scheme: &'a str, path: &'a str, header_names: &'a [&'a str]) -> Self {}
+}
+```
+
+## `Builder::request_policy`
+
+Judge each HTTP request with one more policy; any refusal wins.
+
+```rust
+impl Builder {
+    pub fn request_policy(&mut self, policy: impl for<'a> Policy<Request<'a>> + 'static) -> &mut Self {}
 }
 ```
 
@@ -198,6 +244,50 @@ pub struct Endpoint {
     pub port: u16,
     pub protocol: Protocol,
     pub addresses: Vec<Addresses>,
+    pub rules: Vec<HttpRule>,
+}
+```
+
+## `Endpoint::with_rules`
+
+This endpoint judging each request by the rules given.
+
+```rust
+impl Endpoint {
+    pub fn with_rules(self, rules: Vec<HttpRule>) -> Self {}
+}
+```
+
+## `HttpRule`
+
+One rule an `http` endpoint judges a request by: a method or any, and a path
+pattern. `*` stands for one segment, and `**` for any number.
+
+```rust
+pub struct HttpRule {
+    pub allow: bool,
+    pub method: Option<String>,
+    pub path: String,
+}
+```
+
+## `HttpRule::allow`
+
+A rule allowing a method, or any, on the paths a pattern matches.
+
+```rust
+impl HttpRule {
+    pub fn allow(method: Option<&str>, path: impl Into<String>) -> Self {}
+}
+```
+
+## `HttpRule::deny`
+
+A rule denying a method, or any, on the paths a pattern matches.
+
+```rust
+impl HttpRule {
+    pub fn deny(method: Option<&str>, path: impl Into<String>) -> Self {}
 }
 ```
 
@@ -702,14 +792,14 @@ The socket file of a socket, opened for reading and writing, as Linux's
 pub fn sock_alloc_file(sock: &Arc<TcpSock>, cred: &Arc<Cred>) -> File {}
 ```
 
-## `Ruleset::admits_endpoint`
+## `Ruleset::admit_request`
 
-Whether an endpoint names a name at a port and protocol, before anything is
-resolved.
+Whether an `http` endpoint holding a host at a port allows a method on a path.
+With no rules it allows every request.
 
 ```rust
 impl Ruleset {
-    pub fn admits_endpoint(&self, name: &str, port: u16, protocol: Protocol) -> bool {}
+    pub fn admit_request(&self, host: &str, port: u16, method: &str, path: &str) -> bool {}
 }
 ```
 
