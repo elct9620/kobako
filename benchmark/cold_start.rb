@@ -45,4 +45,4 @@ runner.case_with_usage("1b-sandbox-new+eval-nil") do
   Kobako::Sandbox.new(wasm_path: guest).eval("nil")
 end
 
-puts runner.write!
+puts runner.write

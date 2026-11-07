@@ -59,4 +59,4 @@ bound.eval("warm")
 
 runner.case("12d-eval-8-bound-services") { bound.eval("nil") }
 
-puts runner.write!
+puts runner.write

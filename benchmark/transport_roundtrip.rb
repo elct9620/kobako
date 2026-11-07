@@ -89,4 +89,4 @@ runner.case_with_usage("2f-1000-allowlist-calls-in-one-eval") do
   sandbox.eval("1000.times { Bench::Allow.ping }")
 end
 
-puts runner.write!
+puts runner.write

@@ -34,7 +34,7 @@ module Kobako
     # +wall_time+ (guest export seconds) and +memory_peak+
     # (per-invocation +memory.grow+ delta) — into the same result
     # row via {#case_with_usage} or the lower-level
-    # {#annotate_usage!}. Host throughput and guest budget land
+    # {#annotate_usage}. Host throughput and guest budget land
     # together so the JSON output makes per-invocation overhead and
     # VM execution time directly readable instead of derived by
     # subtraction.
@@ -79,7 +79,7 @@ module Kobako
       # last invocation returned. The two readers land alongside +ips+ in
       # the same JSON row so host throughput and per-invocation guest
       # budget surface together; the measurement loop is untouched.
-      def annotate_usage!(execution)
+      def annotate_usage(execution)
         usage = execution.usage
         @results.last.merge!(
           wall_time: usage.wall_time,
@@ -91,7 +91,7 @@ module Kobako
       # +memory_peak+ across a fresh sampling loop into the row. The
       # block must return the invocation's +Execution+ (an +#eval+ or
       # +#run+ call) so each call carries its own usage. Unlike the bare
-      # {#annotate_usage!} point sample, this surfaces the guest budget
+      # {#annotate_usage} point sample, this surfaces the guest budget
       # as a distribution, so a single GC-inflated invocation does not
       # become the row's recorded +wall_time+.
       def case_with_usage(label, &block)

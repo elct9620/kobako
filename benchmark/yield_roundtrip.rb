@@ -63,4 +63,4 @@ runner.case_with_usage("6d-yield-break") do
   sandbox.eval("Bench::EachBreak.call(Array.new(1000, 0)) { |_x| break }")
 end
 
-puts runner.write!
+puts runner.write

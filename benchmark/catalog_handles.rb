@@ -70,4 +70,4 @@ sandbox.eval("nil") # warm
 # distinguishes this case from cold_start.rb 1b.
 runner.case_with_usage("5c-warm-eval-nil-under-gc-pressure") { sandbox.eval("nil") }
 
-puts runner.write!
+puts runner.write

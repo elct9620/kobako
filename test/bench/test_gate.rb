@@ -6,7 +6,7 @@ require "tmpdir"
 require_relative "../../benchmark/support/gate"
 
 # Unit coverage for the release-gate runner: path resolution defaulting to the committed anchor, and
-# the {Gate.bless!} guards that refuse to overwrite the anchor from an
+# the {Gate.bless} guards that refuse to overwrite the anchor from an
 # absent or non-results source. The judgment itself lives in
 # Kobako::Bench::Comparator and is covered separately.
 class KobakoBenchGateTest < Minitest::Test
@@ -45,13 +45,13 @@ class KobakoBenchGateTest < Minitest::Test
 
   def test_bless_refuses_a_nil_source
     assert_raises(RuntimeError, "bless with no source must refuse rather than touch the anchor") do
-      Gate.bless!(nil)
+      Gate.bless(nil)
     end
   end
 
   def test_bless_refuses_a_missing_source
     assert_raises(RuntimeError, "bless from a non-existent path must refuse rather than touch the anchor") do
-      Gate.bless!("/no/such/run.json")
+      Gate.bless("/no/such/run.json")
     end
   end
 
@@ -62,7 +62,7 @@ class KobakoBenchGateTest < Minitest::Test
 
       assert_raises(RuntimeError,
                     "bless from a non-results file must refuse so a malformed anchor cannot crash the next gate") do
-        Gate.bless!(path)
+        Gate.bless(path)
       end
     end
   end

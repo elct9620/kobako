@@ -33,7 +33,7 @@ module Kobako
       # captured under. A smoke pass writes nothing: its rows carry no
       # measurement, and merging them would replace a real capture's suite
       # under the same +(date, sha)+ name.
-      def write!
+      def write
         return "#{@suite}: smoked, not measured — no results written" if smoke?
 
         FileUtils.mkdir_p(results_dir)

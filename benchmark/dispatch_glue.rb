@@ -113,4 +113,4 @@ runner.case("10e-large-return-256") do
   Kobako::Transport::Dispatcher.dispatch(LARGE_CALL, services, handles, failure, guest_yielder)
 end
 
-puts runner.write!
+puts runner.write

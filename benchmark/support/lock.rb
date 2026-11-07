@@ -23,7 +23,7 @@ module Kobako
       def hold(path = Paths::LOCK)
         return yield if held_by_us?(path)
 
-        write!(path)
+        write(path)
         begin
           yield
         ensure
@@ -33,7 +33,7 @@ module Kobako
 
       # Write +pid+ and the process start time as two lines — the shape the
       # Stop-hook guard reads back to check liveness.
-      def write!(path = Paths::LOCK)
+      def write(path = Paths::LOCK)
         FileUtils.mkdir_p(File.dirname(path))
         File.write(path, "#{Process.pid}\n#{process_start}\n")
       end

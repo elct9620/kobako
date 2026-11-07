@@ -35,7 +35,7 @@ class KobakoBenchResultsTest < Minitest::Test
     lock_at(Time.now)
 
     refute_equal PRIOR_SHA, env_of(write_suite("second"))["git_sha"],
-                 "a file stamped by an earlier round, written through Runner#write! under a newer " \
+                 "a file stamped by an earlier round, written through Runner#write under a newer " \
                  "round marker, must carry a re-stamped env"
   end
 
@@ -46,7 +46,7 @@ class KobakoBenchResultsTest < Minitest::Test
     lock_at(Time.utc(2019))
 
     assert_equal PRIOR_SHA, env_of(write_suite("second"))["git_sha"],
-                 "a file written through Runner#write! under the round marker it was already stamped " \
+                 "a file written through Runner#write under the round marker it was already stamped " \
                  "in must keep that stamp"
   end
 
@@ -56,7 +56,7 @@ class KobakoBenchResultsTest < Minitest::Test
     seed_prior_round
 
     refute_equal PRIOR_SHA, env_of(write_suite("second"))["git_sha"],
-                 "a file written through Runner#write! with no round marker present must carry a " \
+                 "a file written through Runner#write with no round marker present must carry a " \
                  "re-stamped env"
   end
 
@@ -67,7 +67,7 @@ class KobakoBenchResultsTest < Minitest::Test
     lock_at(Time.now)
 
     assert_equal %w[first second], JSON.parse(File.read(write_suite("second")))["suites"].keys.sort,
-                 "a re-stamping write through Runner#write! must keep every suite already merged " \
+                 "a re-stamping write through Runner#write must keep every suite already merged " \
                  "into the file"
   end
 
@@ -78,7 +78,7 @@ class KobakoBenchResultsTest < Minitest::Test
     methods = JSON.parse(File.read(write_suite("codec")))["methods"]
 
     assert_equal Kobako::Bench::METHOD_VERSIONS.fetch("codec"), methods["codec"],
-                 "a suite carrying a method version through Runner#write! must record it beside " \
+                 "a suite carrying a method version through Runner#write must record it beside " \
                  "its rows"
   end
 
@@ -98,7 +98,7 @@ class KobakoBenchResultsTest < Minitest::Test
     lock_at(Time.now)
 
     assert_equal %w[codec first], JSON.parse(File.read(write_suite("codec")))["methods"].keys.sort,
-                 "a re-stamping write through Runner#write! must keep the method of every suite " \
+                 "a re-stamping write through Runner#write must keep the method of every suite " \
                  "already merged into the file, the way it keeps their rows"
   end
 
@@ -106,7 +106,7 @@ class KobakoBenchResultsTest < Minitest::Test
     methods = JSON.parse(File.read(write_suite("never-remethoded")))["methods"]
 
     assert_equal 1, methods["never-remethoded"],
-                 "a suite absent from METHOD_VERSIONS through Runner#write! must record version 1, " \
+                 "a suite absent from METHOD_VERSIONS through Runner#write must record version 1, " \
                  "so every capture carries a complete map rather than a partial one"
   end
 
@@ -129,7 +129,7 @@ class KobakoBenchResultsTest < Minitest::Test
     ENV[Results::RESULTS_DIR_ENV] = @dir
     runner = Runner.new(name, lock: @lock)
     runner.results << { label: "a", ips: 1.0 }
-    runner.write!
+    runner.write
   ensure
     ENV[Results::RESULTS_DIR_ENV] = prior
   end

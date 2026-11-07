@@ -20,18 +20,18 @@ module Kobako
     # Anchored release gate: compare a run against benchmark/baseline.json
     # (or explicit +current+ / +baseline+ paths).
     def gate(current = nil, baseline = nil)
-      Gate.gate!(current, baseline)
+      Gate.gate(current, baseline)
     end
 
     # Re-bless the anchor (benchmark/baseline.json) from a results JSON.
     def bless(run)
-      Gate.bless!(run)
+      Gate.bless(run)
     end
 
     # Stage-2 arbiter: paired alternation against a released Guest Binary
     # (a version reference or an explicit wasm path).
     def confirm(ref, pairs: Confirm::PAIRS)
-      Confirm.confirm!(ref, pairs: pairs)
+      Confirm.confirm(ref, pairs: pairs)
     end
 
     # Markdown head-vs-base comparison for the PR job summary, from two

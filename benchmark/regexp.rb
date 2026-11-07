@@ -119,4 +119,4 @@ runner.case_with_usage("11g-scan") { sandbox.eval(SCAN) }
 runner.case_with_usage("11h-gsub") { sandbox.eval(GSUB) }
 runner.case_with_usage("11i-split") { sandbox.eval(SPLIT) }
 
-puts runner.write!
+puts runner.write

@@ -38,7 +38,7 @@ class KobakoBenchSmokeTest < Minitest::Test
 
     assert_equal ["a"], runner.results.map { |row| row[:label] },
                  "a smoked case must still record its row so a probe's follow-on " \
-                 "annotate_usage! has a target instead of raising on an empty result set"
+                 "annotate_usage has a target instead of raising on an empty result set"
   end
 
   def test_case_with_usage_under_smoke_does_not_drive_the_sampling_loop
@@ -102,7 +102,7 @@ class KobakoBenchSmokeTest < Minitest::Test
   def smoked_write_into(dir)
     prior = ENV.fetch(Results::RESULTS_DIR_ENV, nil)
     ENV[Results::RESULTS_DIR_ENV] = dir
-    within_smoke { Runner.new("t").tap { |runner| runner.case("a") { nil } }.write! }
+    within_smoke { Runner.new("t").tap { |runner| runner.case("a") { nil } }.write }
   ensure
     ENV[Results::RESULTS_DIR_ENV] = prior
   end

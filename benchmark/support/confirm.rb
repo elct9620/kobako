@@ -38,7 +38,7 @@ module Kobako
       # Resolve the baseline, run the paired arms, judge, and report. Each
       # arm runs the probe against a Guest Binary injected through the
       # environment, so the in-place data/kobako.wasm is never touched.
-      def confirm!(ref, pairs: PAIRS)
+      def confirm(ref, pairs: PAIRS)
         abort "bench:confirm needs a baseline — a released version or a wasm path." unless ref
 
         baseline = BaselineWasm.resolve(ref)

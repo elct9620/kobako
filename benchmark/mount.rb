@@ -45,4 +45,4 @@ runner.case_with_usage("14b-read-1-block") { guarded.eval(READ_ONCE) }
 runner.case_with_usage("14c-read-100") { plain.eval(READ_100) }
 runner.case_with_usage("14d-read-100-block") { guarded.eval(READ_100) }
 
-puts runner.write!
+puts runner.write

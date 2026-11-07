@@ -223,4 +223,4 @@ runner.case_with_usage("9f-run-dispatch-autowrap") do
   autowrap_sandbox.run(:Wrap, autowrap_arg)
 end
 
-puts runner.write!
+puts runner.write

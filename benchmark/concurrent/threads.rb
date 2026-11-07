@@ -132,4 +132,4 @@ Kobako::Sandbox.new(wasm_path: GUEST).eval("nil") # warm process-wide caches
 end
 measure_7c(runner)
 
-puts runner.write!
+puts runner.write

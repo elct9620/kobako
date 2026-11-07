@@ -108,4 +108,4 @@ end
   runner.case_with_usage("3b-guest-return-depth-#{depth}") { sandbox.eval(script) }
 end
 
-puts runner.write!
+puts runner.write

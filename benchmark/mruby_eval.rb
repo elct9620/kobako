@@ -89,4 +89,4 @@ runner.case_with_usage("4c-exception-raise-rescue-100") { sandbox.eval(EXCEPTION
 runner.case_with_usage("4e-stdout-puts-1000") { sandbox.eval(STDOUT_LOOP_SCRIPT) }
 runner.case_with_usage("4f-stdout-cap-saturation") { sandbox.eval(STDOUT_NEAR_CAP_SCRIPT) }
 
-puts runner.write!
+puts runner.write

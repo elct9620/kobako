@@ -15,7 +15,7 @@ module Kobako
     # so the release pipeline fails. The anchor (+benchmark/baseline.json+)
     # is fixed, not the previous run, so sub-threshold drift accumulates
     # against it instead of resetting each release; it advances only by
-    # {bless!}. The gated set is the roster's to say (+benchmark/support/roster.rb+).
+    # {bless}. The gated set is the roster's to say (+benchmark/support/roster.rb+).
     module Gate
       ANCHOR_PATH = Paths::BASELINE_ANCHOR
       RESULTS_GLOB = Paths::RESULTS_GLOB
@@ -25,7 +25,7 @@ module Kobako
       # Resolve the run and the anchor, judge the run via {Comparator}, and
       # abort on any blocking issue. The rake task delegates here so the
       # .rake stays DSL.
-      def gate!(current = nil, baseline = nil)
+      def gate(current = nil, baseline = nil)
         current, baseline = locate(current, baseline)
         run = load_payload(current)
         anchor = load_payload(baseline)
@@ -51,7 +51,7 @@ module Kobako
       # anchor moves; the cumulative budget then resets to the blessed
       # numbers, so the accepted shift and its justification must be
       # recorded in the benchmark README's "Baseline changes" section.
-      def bless!(run)
+      def bless(run)
         raise "bench:bless needs a results JSON to bless as the anchor" unless run
         raise "bench:bless: #{run} does not exist" unless File.exist?(run)
         raise "bench:bless: #{run} is not a benchmark results JSON" unless results_payload?(run)
@@ -85,7 +85,7 @@ module Kobako
       end
 
       # True when +path+ parses as a benchmark results payload (a JSON
-      # object carrying a "suites" map). Guards {bless!} so a malformed or
+      # object carrying a "suites" map). Guards {bless} so a malformed or
       # unrelated file cannot become the anchor and crash the next gate.
       def results_payload?(path)
         parsed = JSON.parse(File.read(path))

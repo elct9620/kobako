@@ -83,4 +83,4 @@ BINDING_SHAPES.each do |shape, path_for|
   runner.case_with_usage("13b-eval-bindings-#{BINDING_COUNT}-#{shape}") { sandbox.eval("nil") }
 end
 
-puts runner.write!
+puts runner.write

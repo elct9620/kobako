@@ -126,4 +126,4 @@ run_workload(runner, "compute", COMPUTE_SCRIPT)
 run_workload(runner, "dispatch", DISPATCH_SCRIPT) { |s| s.bind("Counter::Bump", ->(n) { n + 1 }) }
 run_shared_workload(runner, "compute-shared", COMPUTE_SCRIPT)
 
-puts runner.write!
+puts runner.write

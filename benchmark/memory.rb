@@ -82,7 +82,7 @@ end
 
 def record(runner, label, execution: nil, **fields)
   runner.results << { label: label, mode: "memory", **fields }
-  runner.annotate_usage!(execution) if execution
+  runner.annotate_usage(execution) if execution
 end
 
 # ---- 8a: per-Sandbox RSS cost -------------------------------------------
@@ -232,4 +232,4 @@ measure_invocation_drift(runner)
 measure_large_payload(runner)
 measure_near_cap_stdout(runner)
 
-puts runner.write!
+puts runner.write
