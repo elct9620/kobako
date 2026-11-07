@@ -140,16 +140,20 @@ impl TcpSock {
         });
         let (writer, reader) = match connected {
             Ok((writer, reader, handle)) => {
+                let (local, peer) = (handle.local_addr().ok(), handle.peer_addr().ok());
+                // The handle is stored before the socket reads as connected, so
+                // a release either finds it or is seen here: one of the two
+                // shuts the host socket down.
+                *self.stream.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
                 let mut state = self.state();
-                state.local = handle.local_addr().ok();
-                state.peer = handle.peer_addr().ok();
+                state.local = local;
+                state.peer = peer;
                 state.phase = Phase::Connected;
                 let released = state.released;
                 drop(state);
                 if released {
-                    let _ = handle.shutdown(Shutdown::Both);
+                    self.shutdown_host();
                 }
-                *self.stream.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
                 (writer, reader)
             }
             Err(err) => {
@@ -372,6 +376,12 @@ impl TcpSock {
     /// runs on the last `fput`: a blocked read wakes, and the workers end.
     fn release(&self) {
         self.state().released = true;
+        self.shutdown_host();
+        self.changed();
+    }
+
+    /// Shut the host socket down both ways, waking a read blocked on it.
+    fn shutdown_host(&self) {
         if let Some(stream) = self
             .stream
             .lock()
@@ -380,7 +390,6 @@ impl TcpSock {
         {
             let _ = stream.shutdown(Shutdown::Both);
         }
-        self.changed();
     }
 }
 
