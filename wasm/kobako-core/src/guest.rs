@@ -44,8 +44,9 @@ pub trait Guest {
 }
 
 /// Emit every wasm export of the Guest ABI in the invoking crate: the
-/// downcall, answered through `crate::abi::serve`, and the
-/// pre-message shims (`__kobako_alloc` / `__kobako_abi_version`).
+/// downcall, answered through `crate::abi::serve`, the pre-message shims
+/// (`__kobako_alloc` / `__kobako_abi_version`), and the Canonical ABI's
+/// `cabi_realloc` the host lowers a WASI 0.2 answer's list through.
 ///
 /// No `_initialize` is emitted — rustc links a wasm32-wasip1 `cdylib`
 /// with `--no-entry`, and wasm-ld runs any static constructors
@@ -77,6 +78,16 @@ macro_rules! export_guest {
         #[no_mangle]
         pub extern "C" fn __kobako_abi_version() -> u32 {
             $crate::abi::ABI_VERSION
+        }
+
+        #[no_mangle]
+        pub extern "C" fn cabi_realloc(
+            old_ptr: u32,
+            old_len: u32,
+            align: u32,
+            new_len: u32,
+        ) -> u32 {
+            $crate::abi::realloc(old_ptr, old_len, align, new_len)
         }
     };
 }

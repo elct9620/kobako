@@ -13,7 +13,7 @@ mod memory;
 
 pub use downcall::serve;
 pub use kobako_transport::abi::{pack_ptr_len, unpack_ptr_len, ABI_VERSION};
-pub use memory::{alloc, answer};
+pub use memory::{alloc, answer, realloc};
 
 // ---------------------------------------------------------------------------
 // Host import declaration.

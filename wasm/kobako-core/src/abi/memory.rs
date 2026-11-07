@@ -29,6 +29,45 @@ pub fn alloc(size: u32) -> u32 {
     }
 }
 
+/// The Canonical ABI's `cabi_realloc` behind the export of that name: room
+/// for `new_len` bytes at `align`, holding what stood at `old_ptr` when the
+/// host grows a list, or 0 when none is left. The old buffer stays, as every
+/// buffer here lives until the instance is dropped.
+pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        extern "C" {
+            fn aligned_alloc(align: usize, size: usize) -> *mut u8;
+        }
+        let align = (align as usize).max(1);
+        // `aligned_alloc` takes a size that is a multiple of its alignment.
+        let size = (new_len as usize).div_ceil(align).max(1) * align;
+        // SAFETY: wasi-libc `aligned_alloc` takes a power-of-two alignment,
+        // which the Canonical ABI always passes, and a size it divides.
+        let ptr = unsafe { aligned_alloc(align, size) };
+        if ptr.is_null() {
+            return 0;
+        }
+        if old_ptr != 0 {
+            // SAFETY: the host handed back a buffer this guest allocated, of
+            // `old_len` bytes, and the new one holds at least as many as copied.
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    old_ptr as *const u8,
+                    ptr,
+                    old_len.min(new_len) as usize,
+                );
+            }
+        }
+        ptr as u32
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (old_ptr, old_len, align, new_len);
+        0
+    }
+}
+
 /// Copy an encoded answer into a buffer the host can read, returning its
 /// packed `(ptr << 32) | len`, or 0 when no buffer could hold it — which
 /// the host refuses as an unframed answer.
