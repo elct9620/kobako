@@ -11,8 +11,8 @@ mod workers;
 
 pub use family::{HostInet, ProtocolFamily, Stream};
 pub use http::{
-    Connector, Exchange, HttpError, Outbound, OutgoingRequest, Response, ResponseHead, Scheme,
-    UreqOutbound,
+    Connector, Exchange, HttpError, Outbound, OutgoingRequest, RequestBody, Response, ResponseHead,
+    Scheme, UreqOutbound,
 };
 pub use lookup::{LookupError, NameLookup};
 pub use namespace::Namespace;

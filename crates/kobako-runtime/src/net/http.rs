@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use super::workers::{charge, Workers};
 use super::{ProtocolFamily, Stream, SOCKET_BUFFER};
 use crate::network::{Protocol, Ruleset};
-use crate::vfs::{FilesystemError, PollMask};
+use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
 /// Whether a request travels in clear or over TLS.
@@ -50,6 +50,53 @@ impl OutgoingRequest {
             headers: Vec::new(),
             body: Vec::new(),
         }
+    }
+}
+
+/// The body a guest writes for a request, its bytes held on the guest's behalf
+/// against the Invocation's memory, as `vm_committed_as` counts a mapping, so a
+/// guest cannot grow the host past what it was allotted.
+pub struct RequestBody {
+    cred: Arc<Cred>,
+    bytes: Mutex<Vec<u8>>,
+}
+
+impl RequestBody {
+    /// An empty body, its bytes charged to `cred`.
+    pub fn new(cred: Arc<Cred>) -> Arc<Self> {
+        Arc::new(Self {
+            cred,
+            bytes: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// Append `buf`, refused past the Invocation's memory as `ENOMEM`.
+    pub fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.cred.security_vm_enough_memory(buf.len())?;
+        self.bytes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    /// Take what was written, given back to the Invocation's memory, as the
+    /// request leaves with it.
+    pub fn take(&self) -> Vec<u8> {
+        let bytes = std::mem::take(&mut *self.bytes.lock().unwrap_or_else(PoisonError::into_inner));
+        self.cred.vm_unacct_memory(bytes.len());
+        bytes
+    }
+}
+
+impl Drop for RequestBody {
+    fn drop(&mut self) {
+        let held = self
+            .bytes
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len();
+        self.cred.vm_unacct_memory(held);
     }
 }
 
