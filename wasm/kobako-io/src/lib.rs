@@ -10,8 +10,9 @@
 //!
 //! Pure Rust over `beni`: the entire Ruby-level surface is defined
 //! through the typed wrapper — no mrblib, no mrbc / RITE pipeline.
-//! The gem is kobako-free; it reaches the host only through wasi-libc,
-//! so any guest shell can compose it.
+//! The gem is kobako-free; it reaches the host only through WASI, preview1
+//! through wasi-libc and the sockets through WASI 0.2, so any guest shell
+//! exporting `cabi_realloc` can compose it.
 
 mod descriptors;
 mod dir;
@@ -19,6 +20,7 @@ mod errno;
 mod file;
 mod io;
 mod kernel_ext;
+mod socket;
 mod stream;
 
 use beni::{Error, Gem, Mrb};
@@ -37,6 +39,7 @@ impl Gem for KobakoIo {
         stream::init(mrb, io)?;
         file::init(mrb, io)?;
         dir::init(mrb)?;
+        socket::init(mrb)?;
         kernel_ext::init(mrb)?;
         Ok(())
     }

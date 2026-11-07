@@ -11,13 +11,15 @@ A `beni::Gem` installing the Ruby IO and File surface.
 | The IO surface | the `::IO` class, the `STDOUT` / `STDERR` constants, and the assignable `$stdout` / `$stderr` globals |
 | The File surface | `::File < IO` and `File::Stat` over the directories the host preopens, raising `NotImplementedError` where it preopens none |
 | The Dir surface | `::Dir`, listing, making, and removing directories beneath those preopens, unimplemented alike without one |
+| The socket surface | `::TCPSocket` over WASI 0.2's `wasi:sockets`, raising `NotImplementedError` where the host gives no network |
 | The errors | `IOError`, `EOFError`, `SystemCallError`, and the `Errno` classes a file operation raises |
 | The Kernel delegators | `print` / `puts` / `printf` / `p` / `putc` / `warn`, private, dispatching through those globals at call time |
 
 Pure Rust over [beni](https://crates.io/crates/beni) — the whole
 Ruby-level surface is defined through the typed wrapper; no mrblib,
 no mrbc / RITE pipeline. The gem is kobako-free: it reaches the host
-only through wasi-libc, so any guest shell can compose it.
+only through WASI, preview1 through wasi-libc and the sockets through WASI
+0.2. Any guest shell exporting `cabi_realloc` can compose it.
 
 ## Usage
 

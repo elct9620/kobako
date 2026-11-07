@@ -5,8 +5,9 @@
 # the private Kernel output delegators for a kobako mruby guest. Pure
 # Rust over beni — the whole Ruby-level surface is defined through the
 # typed wrapper; no mrblib, no mrbc / RITE pipeline. kobako-free by
-# design: it reaches the host only through wasi-libc, so the gem depends
-# on the `beni` wrapper alone and any guest shell can compose it.
+# design: it reaches the host only through WASI, preview1 through
+# wasi-libc and the sockets through WASI 0.2, so any guest shell exporting
+# `cabi_realloc` can compose it.
 
 [package]
 name = "kobako-io"
@@ -21,6 +22,9 @@ categories = ["wasm"]
 
 [dependencies]
 # Typed mruby wrapper — the `Gem` trait this crate implements plus
-# every `Mrb` / `Value` seam the bridges use; the gem's only
-# dependency.
+# every `Mrb` / `Value` seam the bridges use.
 beni = "0.25.0"
+# Generates the WASI 0.2 sockets a socket reaches from `wit/`, as wasi-libc
+# imports preview1. Its runtime is `socket::rt`, not the `wit-bindgen`
+# crate's, so the Guest Binary exports only the ABI's own `cabi_realloc`.
+wit-bindgen-rust-macro = "0.63.0"
