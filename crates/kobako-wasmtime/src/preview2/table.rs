@@ -60,9 +60,10 @@ pub(crate) enum TcpSocket {
 /// What a pollable waits for.
 #[derive(Clone)]
 pub(crate) enum Pollable {
-    /// A clock, ready once `Instant` passes; one subscribed on frozen clocks is
-    /// ready at once, as a wait with no host-side producer ends at once.
-    Clock(Option<Instant>),
+    /// A clock, ready once `at` passes. One subscribed on frozen clocks is
+    /// ready at once in a wait with no host-side producer, which then ends at
+    /// once; beside a producer it elapses in host time from when it was made.
+    Clock { at: Instant, frozen: bool },
     /// A socket file, ready once its poll finds `PollMask`, or an error or a
     /// hang-up.
     Socket(SocketFile, PollMask),
@@ -71,10 +72,11 @@ pub(crate) enum Pollable {
 }
 
 impl Pollable {
-    /// Whether it is ready, registering on `table` for a poll that will sleep.
-    pub(crate) fn ready(&self, table: Option<&mut PollTable>) -> bool {
+    /// Whether it is ready, in a wait that holds a host-side producer when
+    /// `producer` says so, registering on `table` for a poll that will sleep.
+    pub(crate) fn ready(&self, table: Option<&mut PollTable>, producer: bool) -> bool {
         match self {
-            Pollable::Clock(at) => at.is_none_or(|at| Instant::now() >= at),
+            Pollable::Clock { at, frozen } => (*frozen && !producer) || Instant::now() >= *at,
             Pollable::Socket(socket, mask) => {
                 let found = socket.file().poll(table);
                 found.contains(*mask)
@@ -88,9 +90,14 @@ impl Pollable {
     /// The soonest this could become ready by itself.
     pub(crate) fn due(&self) -> Option<Instant> {
         match self {
-            Pollable::Clock(at) => *at,
+            Pollable::Clock { at, .. } => Some(*at),
             Pollable::Socket(..) | Pollable::Ready => None,
         }
+    }
+
+    /// Whether a host-side producer makes this ready, as a socket's peer does.
+    pub(crate) fn is_producer(&self) -> bool {
+        matches!(self, Pollable::Socket(..))
     }
 }
 

@@ -29,11 +29,10 @@ impl Invocation {
     /// A pollable on the guest's own clocks: ready at once on frozen ones,
     /// and `nanos` of host time from now on live ones.
     fn subscribe_clock(&mut self, nanos: u64) -> wasmtime::Result<Pollable> {
-        let at = match self.wasi().clocks().advances() {
-            true => Some(Instant::now() + Duration::from_nanos(nanos)),
-            false => None,
+        let pollable = table::Pollable::Clock {
+            at: Instant::now() + Duration::from_nanos(nanos),
+            frozen: !self.wasi().clocks().advances(),
         };
-        let pollable = table::Pollable::Clock(at);
         Ok(Pollable(
             self.wasi_mut()
                 .table_mut()
@@ -131,7 +130,7 @@ impl Invocation {
     /// Wait until `file`'s poll finds `mask`, or an error or a hang-up.
     fn wait_on(&self, file: &SocketFile, mask: PollMask) -> wasmtime::Result<()> {
         let pollable = table::Pollable::Socket(file.clone(), mask);
-        self.wait_for(None, |table| pollable.ready(table).then_some(()))
+        self.wait_for(None, |table| pollable.ready(table, true).then_some(()))
     }
 }
 
@@ -472,12 +471,16 @@ impl Host for Invocation {
     }
 
     fn poll_pollable_ready(&mut self, this: Pollable) -> wasmtime::Result<bool> {
-        Ok(self.wasi().table().pollable(this.0)?.ready(None))
+        let pollable = self.wasi().table().pollable(this.0)?;
+        Ok(pollable.ready(None, pollable.is_producer()))
     }
 
     fn poll_pollable_block(&mut self, this: Pollable) -> wasmtime::Result<()> {
         let pollable = self.wasi().table().pollable(this.0)?;
-        self.wait_for(pollable.due(), |table| pollable.ready(table).then_some(()))
+        let producer = pollable.is_producer();
+        self.wait_for(pollable.due(), |table| {
+            pollable.ready(table, producer).then_some(())
+        })
     }
 
     /// The indices of the pollables ready, once one is, as WASI's `poll`
@@ -490,10 +493,13 @@ impl Host for Invocation {
             .iter()
             .map(|handle| self.wasi().table().pollable(handle.0))
             .collect::<wasmtime::Result<Vec<_>>>()?;
+        // A wait beside a host-side producer takes host time, so a frozen clock
+        // in it elapses as a live one does.
+        let producer = pollables.iter().any(table::Pollable::is_producer);
         let due = pollables.iter().filter_map(table::Pollable::due).min();
         self.wait_for(due, |mut table| {
             let ready = (0..pollables.len() as u32)
-                .filter(|i| pollables[*i as usize].ready(table.as_deref_mut()))
+                .filter(|i| pollables[*i as usize].ready(table.as_deref_mut(), producer))
                 .collect::<Vec<_>>();
             (!ready.is_empty()).then_some(ready)
         })
@@ -517,7 +523,13 @@ mod tests {
     use crate::imports;
     use crate::invocation::Invocation;
     use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
+    use std::sync::Arc;
+
+    use super::super::bindings::wasi_sockets_network_0_2_12::Ipv4SocketAddress;
+    use super::*;
     use crate::wasi::{sandbox_workers, Wasi};
+    use kobako_runtime::grant::Grant;
+    use kobako_runtime::network;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::run_task;
 
@@ -659,6 +671,67 @@ mod tests {
                 && spent < Duration::from_secs(5),
             "poll of one pollable on fifty milliseconds of subscribe-duration at the permissive \
              posture must answer [0] once they pass, got {len} index {index} after {spent:?}"
+        );
+    }
+
+    /// A hermetic invocation whose network reaches `port` on loopback over TCP.
+    fn networked(port: u16) -> Invocation {
+        let config = Config {
+            timeout: None,
+            setup_timeout: None,
+            memory_limit: None,
+            stdout_limit: None,
+            stderr_limit: None,
+            open_file_limit: None,
+            profile: Profile::Hermetic,
+            security: Vec::new(),
+        };
+        let mut entry = network::Builder::default();
+        entry.endpoint(
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Tcp),
+        );
+        let grant = Grant::Network(network::Network::new("local", Arc::new(entry)).unwrap());
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_workers())
+            .expect("WASI context must build");
+        Invocation::new(None, wasi)
+    }
+
+    // @behavior NW-023
+    #[test]
+    fn a_frozen_clock_beside_a_socket_elapses_in_host_time() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut guest = networked(listener.local_addr().unwrap().port());
+        let started = Instant::now();
+        let answer = run_task(Some(started + Duration::from_secs(10)), || {
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            let network = guest.instance_network_instance_network()?;
+            let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port: listener.local_addr().unwrap().port(),
+                address: (127, 0, 0, 1),
+            });
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, remote)?
+                .expect("an endpoint names the address");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (input, _output) = guest
+                .tcp_tcp_socket_finish_connect(socket)?
+                .expect("the listener accepts");
+            let silent = guest.streams_input_stream_subscribe(input)?;
+            let clock = guest.monotonic_clock_subscribe_duration(50_000_000)?;
+            guest.poll_poll(vec![silent, clock])
+        })
+        .expect("the poll answers");
+        let spent = started.elapsed();
+        assert!(
+            answer == vec![1] && spent >= Duration::from_millis(50),
+            "poll of a silent socket beside fifty milliseconds of subscribe-duration at the \
+             hermetic posture must answer the clock once they pass, got {answer:?} after \
+             {spent:?}"
         );
     }
 
