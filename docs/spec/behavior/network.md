@@ -26,6 +26,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_policy.rb`
 - `test/e2e/test_network_https.rb`
+- `test/e2e/test_network_udp.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
 - `crates/kobako-runtime/src/network.rs`
@@ -669,3 +670,39 @@ endpoint "api.example.com", port: 443
 | Given | a `udp` endpoint naming one address and a `tcp` endpoint naming another |
 | When | the guest opens a datagram stream to each |
 | Then | the first passes, and the second answers `EACCES`, since an endpoint's protocol bounds what reaches it |
+
+## `NW-055` A UDP socket streams only with a peer it names
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-053` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket in a network whose `udp` endpoint names a loopback peer |
+| When | it binds a fixed port, streams with no peer, then streams with the peer |
+| Then | the bind and the peerless stream answer `access-denied`. The datagram stream to the peer carries datagrams both ways |
+
+## `NW-056` A UDPSocket carries a datagram both ways with the peer it connects to
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-055` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `#network` block naming a loopback peer as a `udp` endpoint |
+| When | the script connects a `UDPSocket` to the peer, sends, and calls `recvfrom` |
+| Then | it reads the peer's answer and the peer's address as CRuby's `["AF_INET", port, host, host]` |
+
+## `NW-057` A UDPSocket with no named peer raises what Linux would
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-055` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `UDPSocket` no `connect` has named a peer for |
+| When | the script binds a chosen port, sends with no address, sends to an address, then binds port `0` |
+| Then | the bind raises `Errno::EACCES` and the first send `Errno::EDESTADDRREQ`. The send to an address raises `Errno::EACCES`, and the bind to port `0` passes |
