@@ -278,3 +278,15 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox whose sockets' workers fill its cap, or the process's |
 | When | the guest connects once more |
 | Then | the connect answers `EAGAIN`, never a Trap, and dials nothing. A worker that ends gives its place back, and a forked child starts from none |
+
+## `NW-023` A frozen clock beside a socket elapses in host time
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-338` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest at the strongest posture with the network |
+| When | it polls a silent socket beside a clock fifty milliseconds out |
+| Then | the clock answers once fifty milliseconds of host time pass, since a host-side producer takes host time |
