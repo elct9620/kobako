@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::Filesystem;
-use kobako_runtime::mount::{Access, Mount, Policy};
+use kobako_runtime::grant::Policy;
+use kobako_runtime::mount::{Access, Mount, MountRequest};
 
 use crate::catalog::Catalog;
 use crate::dispatch::Resolutions;
@@ -63,7 +64,7 @@ impl Context<'_> {
         &mut self,
         at: &str,
         filesystem: Arc<Filesystem>,
-        policy: Arc<dyn Policy>,
+        policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
     ) -> Result<(), Error> {
         self.replace_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))
     }

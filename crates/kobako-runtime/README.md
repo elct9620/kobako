@@ -14,8 +14,8 @@ engine stays swappable.
 | `snapshot` | each invocation's `Completion` (outcome or trap), both output `Capture`s, and `Usage` |
 | `error` | the neutral failure types: `Trap`, `SetupError`, and `InvokeError` over both |
 | `profile` | the isolation `Profile` a runtime declares |
-| `grant` | the `Grant` a frontend hands each invocation, and the `GrantKind`s a runtime supports |
-| `mount` | the `Mount` at a guest path, its `Access`, and the `Policy` judging its paths |
+| `grant` | the `Grant` each invocation receives, the supported `GrantKind`s, and the `Policy` |
+| `mount` | the `Mount` at a guest path, its `Access`, and the `MountRequest` its `Policy` judges |
 | `filesystem` | the `FileSystemType` and `InodeOperations` traits and the three kinds kobako ships |
 | `endpoint` | the host side of the kobako ABI, over the `GuestInstance` an engine implements |
 | `vfs` | the walk, open files, and pipes each engine's calls reach, whichever ABI it encodes |

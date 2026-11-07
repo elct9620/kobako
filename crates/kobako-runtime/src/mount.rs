@@ -7,6 +7,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::filesystem::Filesystem;
+use crate::grant::Policy;
 use crate::vfs::VfsMount;
 
 /// What a Mount allows a guest beneath it, and what a Policy is asked to allow
@@ -17,12 +18,15 @@ pub enum Access {
     ReadWrite,
 }
 
-/// The Host App's decision for one path a guest opens or changes, made after
-/// a Mount's access allows it, so it can only refuse more.
-pub trait Policy: Send + Sync {
-    /// Whether the guest may reach `path`, the absolute guest path, with
-    /// `access`.
-    fn allows(&self, path: &str, access: Access) -> bool;
+/// One path a guest opens or changes beneath a Mount, as its Policy is asked
+/// about it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct MountRequest<'a> {
+    /// The absolute guest path.
+    pub path: &'a str,
+    /// The access the guest asks for there.
+    pub access: Access,
 }
 
 /// A Filesystem instance at an absolute guest path. Its path bounds what a
@@ -30,7 +34,7 @@ pub trait Policy: Send + Sync {
 #[derive(Clone)]
 pub struct Mount {
     at: String,
-    policy: Option<Arc<dyn Policy>>,
+    policy: Option<Arc<dyn for<'a> Policy<MountRequest<'a>>>>,
     mnt: Arc<VfsMount>,
 }
 
@@ -81,7 +85,7 @@ impl Mount {
 
     /// This Mount with `policy` also judging each open and each change its
     /// access allows; it can only refuse more, as an LSM can.
-    pub fn with_policy(self, policy: Arc<dyn Policy>) -> Self {
+    pub fn with_policy(self, policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>) -> Self {
         Self {
             policy: Some(policy),
             ..self
@@ -94,7 +98,7 @@ impl Mount {
     }
 
     /// The Policy deciding beneath this Mount, once one was given.
-    pub(crate) fn policy(&self) -> Option<&Arc<dyn Policy>> {
+    pub(crate) fn policy(&self) -> Option<&Arc<dyn for<'a> Policy<MountRequest<'a>>>> {
         self.policy.as_ref()
     }
 

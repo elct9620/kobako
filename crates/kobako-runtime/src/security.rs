@@ -5,7 +5,8 @@
 
 use std::sync::Arc;
 
-use crate::mount::{Access, Mount, Policy};
+use crate::grant::Policy;
+use crate::mount::{Access, Mount, MountRequest};
 use crate::vfs::{
     d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, FilesystemError, OpenHow, Path,
     SecurityOperations, SecurityPath, VfsMount, VmCommitted, PATH_MAX,
@@ -68,7 +69,7 @@ impl SecurityOperations for KobakoSecurity {
 struct MountPolicy {
     mnt: Arc<VfsMount>,
     at: String,
-    policy: Arc<dyn Policy>,
+    policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
 }
 
 impl MountPolicy {
@@ -99,7 +100,10 @@ impl MountPolicy {
         if path.len() >= PATH_MAX {
             return Err(FilesystemError::InvalidFilename);
         }
-        match self.policy.allows(&path, access) {
+        match self.policy.allows(&MountRequest {
+            path: &path,
+            access,
+        }) {
             true => Ok(()),
             false => Err(FilesystemError::PermissionDenied),
         }
@@ -292,8 +296,8 @@ mod tests {
     #[derive(Default)]
     struct Counts(std::sync::atomic::AtomicUsize);
 
-    impl Policy for Counts {
-        fn allows(&self, _path: &str, _access: Access) -> bool {
+    impl Policy<MountRequest<'_>> for Counts {
+        fn allows(&self, _request: &MountRequest<'_>) -> bool {
             self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             true
         }
@@ -302,9 +306,9 @@ mod tests {
     /// A Policy refusing every change beneath `/guarded/q`.
     struct RefusesChangesInQ;
 
-    impl Policy for RefusesChangesInQ {
-        fn allows(&self, path: &str, access: Access) -> bool {
-            access == Access::Read || !path.starts_with("/guarded/q/")
+    impl Policy<MountRequest<'_>> for RefusesChangesInQ {
+        fn allows(&self, request: &MountRequest<'_>) -> bool {
+            request.access == Access::Read || !request.path.starts_with("/guarded/q/")
         }
     }
 

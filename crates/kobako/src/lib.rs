@@ -58,8 +58,8 @@ pub use execution::{Execution, Usage};
 pub use extension::{Backend, Extension, Provider};
 pub use handles::Handles;
 pub use kobako_runtime::filesystem::Filesystem;
-pub use kobako_runtime::mount::Access;
-pub use kobako_runtime::mount::Policy;
+pub use kobako_runtime::grant::Policy;
+pub use kobako_runtime::mount::{Access, MountRequest};
 
 /// The Filesystems a Sandbox mounts, and what a Host App's own one is
 /// written against, so mounting or writing one needs no crate but this.

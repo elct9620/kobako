@@ -846,8 +846,8 @@ mod tests {
     #[derive(Default)]
     struct CountsAsks(std::sync::atomic::AtomicUsize);
 
-    impl kobako_runtime::mount::Policy for CountsAsks {
-        fn allows(&self, _path: &str, _access: Access) -> bool {
+    impl kobako_runtime::grant::Policy<kobako_runtime::mount::MountRequest<'_>> for CountsAsks {
+        fn allows(&self, _request: &kobako_runtime::mount::MountRequest<'_>) -> bool {
             self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             true
         }

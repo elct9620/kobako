@@ -12,7 +12,7 @@ use kobako::filesystem::{
     InodeOperations, Kiocb, Kstat, Lookup, OpenHow, Tmpfs,
 };
 use kobako::msgpack::Value;
-use kobako::{Access, Error, Filesystem, Policy, Profile, Sandbox};
+use kobako::{Access, Error, Filesystem, MountRequest, Profile, Sandbox};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
 use kobako_runtime::grant::Grant;
@@ -43,15 +43,6 @@ fn text(value: Value) -> String {
     match value {
         Value::Str(text) => text,
         other => panic!("expected a String, got {other:?}"),
-    }
-}
-
-/// Refuses every path, standing in for a Host App's narrower rule.
-struct Refuses;
-
-impl Policy for Refuses {
-    fn allows(&self, _path: &str, _access: Access) -> bool {
-        false
     }
 }
 
@@ -191,7 +182,11 @@ fn a_policy_refusing_an_open_denies_it_and_the_script_goes_on() {
         return;
     };
     sandbox
-        .mount_with_policy("/data", tmpfs("hello"), Arc::new(Refuses))
+        .mount_with_policy(
+            "/data",
+            tmpfs("hello"),
+            Arc::new(|_: &MountRequest<'_>| false),
+        )
         .unwrap();
     let value = sandbox.eval(RESCUE_DENIED).unwrap().value().unwrap();
 

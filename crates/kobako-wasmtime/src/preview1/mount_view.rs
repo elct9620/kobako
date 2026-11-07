@@ -14,8 +14,8 @@ use kobako_runtime::filesystem::{
     FileOperations, FileSystemType, FileType, FilesystemError, InodeOperations, Kiocb, Kstat,
     Lookup, OpenHow, Overlay, RenameFlag, Tmpfs,
 };
-use kobako_runtime::grant::Grant;
-use kobako_runtime::mount::{Access, Mount, Policy};
+use kobako_runtime::grant::{Grant, Policy};
+use kobako_runtime::mount::{Access, Mount, MountRequest};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{self, Dentry, Inode, Path, SecurityOperations, SecurityPath, PATH_MAX};
@@ -477,7 +477,7 @@ fn build_how(set: impl FnOnce(&mut OpenHow)) -> OpenHow {
 fn grant(
     filesystem: Arc<dyn FileSystemType>,
     access: Access,
-    policy: Option<Arc<dyn Policy>>,
+    policy: Option<Arc<dyn for<'a> Policy<MountRequest<'a>>>>,
 ) -> Grant {
     let mount = Mount::new(
         "/data",
@@ -743,16 +743,16 @@ fn overwrite(root: &Path, path: &str) {
 
 struct Refuses(&'static str);
 
-impl Policy for Refuses {
-    fn allows(&self, path: &str, _access: Access) -> bool {
-        path != self.0
+impl Policy<MountRequest<'_>> for Refuses {
+    fn allows(&self, request: &MountRequest<'_>) -> bool {
+        request.path != self.0
     }
 }
 
 struct AllowsAll;
 
-impl Policy for AllowsAll {
-    fn allows(&self, _path: &str, _access: Access) -> bool {
+impl Policy<MountRequest<'_>> for AllowsAll {
+    fn allows(&self, _request: &MountRequest<'_>) -> bool {
         true
     }
 }
@@ -817,7 +817,7 @@ impl InodeOperations for StoresUpperCase {
 // @behavior RT-120
 #[test]
 fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
-    let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/FILE.TXT"));
+    let policy: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(Refuses("/data/FILE.TXT"));
     let mut guest = Guest::new(&[grant(
         Arc::new(StoresUpperCase(&["FILE.TXT"])),
         Access::Read,
@@ -837,7 +837,7 @@ fn a_policy_judges_a_path_as_its_filesystem_stores_it() {
 #[test]
 fn a_policy_judges_a_path_beneath_an_opened_directory_as_its_filesystem_stores_it() {
     const INNER: (i32, i32) = (960, 5);
-    let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/DIR/INNER"));
+    let policy: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(Refuses("/data/DIR/INNER"));
     let mut guest = Guest::new(&[grant(
         Arc::new(StoresUpperCase(&["DIR/INNER"])),
         Access::Read,
@@ -1172,7 +1172,10 @@ fn a_path_above_the_directory_it_is_opened_beneath_is_refused() {
 /// What `stat_inner` answers through `dir` opened, beneath a Mount with
 /// `policy`, before `change` runs on the host's root of the Tmpfs
 /// holding it.
-fn stat_after(policy: Option<Arc<dyn Policy>>, change: impl FnOnce(&Path)) -> i32 {
+fn stat_after(
+    policy: Option<Arc<dyn for<'a> Policy<MountRequest<'a>>>>,
+    change: impl FnOnce(&Path),
+) -> i32 {
     let tmpfs = file_and_directory();
     let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, policy)]);
     assert_eq!(
@@ -1304,7 +1307,7 @@ fn a_descriptor_moved_beneath_a_policy_still_lists_itself() {
 // @behavior RT-170
 #[test]
 fn a_directory_moved_beneath_another_mount_of_its_instance_is_reached_beneath_a_policy() {
-    let open_after_move = |policy: Arc<dyn Policy>| {
+    let open_after_move = |policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>| {
         let instance = Filesystem::new(file_and_directory()).expect("the instance must stand");
         let mount = Mount::new("/data", instance.clone(), Access::ReadWrite)
             .expect("/data is a guest path");
@@ -1593,7 +1596,7 @@ fn a_directory_moved_back_to_its_path_is_reached_through_its_descriptor_again() 
 #[test]
 fn a_policy_refusing_an_open_answers_access_denied() {
     let tmpfs: Tmpfs = [("file.txt", "granted")].into_iter().collect();
-    let policy: Arc<dyn Policy> = Arc::new(Refuses("/data/file.txt"));
+    let policy: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(Refuses("/data/file.txt"));
     let mut guest = Guest::new(&[grant(Arc::new(tmpfs), Access::Read, Some(policy))]);
     assert_eq!(
         guest.call("read_file", FILE),
@@ -1606,7 +1609,7 @@ fn a_policy_refusing_an_open_answers_access_denied() {
 #[test]
 fn a_policy_cannot_widen_a_mounts_access() {
     let tmpfs = Arc::new(Tmpfs::new());
-    let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+    let policy: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(AllowsAll);
     let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::Read, Some(policy))]);
     assert_eq!(
         (
@@ -1697,7 +1700,7 @@ impl Hook for ChangeCounter {
 #[test]
 fn a_directory_beneath_a_mount_with_a_policy_does_not_move() {
     let tmpfs = Arc::new([("dir/secret", "x")].into_iter().collect::<Tmpfs>());
-    let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+    let policy: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(AllowsAll);
     let mut guest = Guest::new(&[grant(tmpfs.clone(), Access::ReadWrite, Some(policy))]);
     assert_eq!(
         (
@@ -1808,7 +1811,7 @@ fn mount_link_under(
     name: &str,
     make_target: fn(&std::path::Path),
     access: Access,
-    policy: Option<Arc<dyn Policy>>,
+    policy: Option<Arc<dyn for<'a> Policy<MountRequest<'a>>>>,
 ) -> (std::path::PathBuf, Guest) {
     let host = std::env::temp_dir().join(format!("kobako-granted-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&host);
@@ -2025,7 +2028,10 @@ fn a_stat_of_a_link_named_with_a_trailing_slash_reports_its_directory() {
 /// `policy`, and whether the link stays; `name` keeps its host directory
 /// its own.
 #[cfg(unix)]
-fn change_link_named_as_directory(name: &str, policy: Option<Arc<dyn Policy>>) -> ([i32; 2], bool) {
+fn change_link_named_as_directory(
+    name: &str,
+    policy: Option<Arc<dyn for<'a> Policy<MountRequest<'a>>>>,
+) -> ([i32; 2], bool) {
     let (host, mut guest) = mount_link_under(name, directory_with_key, Access::ReadWrite, policy);
     let answers = [
         guest.call("unlink_path", FILE_AS_DIRECTORY),
@@ -2241,7 +2247,8 @@ fn directory_with_key(target: &std::path::Path) {
 #[cfg(unix)]
 #[test]
 fn a_path_through_a_link_beneath_a_mount_with_a_policy_is_judged_where_it_leads() {
-    let refuses_key: Arc<dyn Policy> = Arc::new(Refuses("/data/target/key"));
+    let refuses_key: Arc<dyn for<'a> Policy<MountRequest<'a>>> =
+        Arc::new(Refuses("/data/target/key"));
     let (host, mut guest) = mount_link_under(
         "policy-link-refused",
         directory_with_key,
@@ -2254,7 +2261,7 @@ fn a_path_through_a_link_beneath_a_mount_with_a_policy_is_judged_where_it_leads(
     ];
     let kept = host.join("target/key").exists();
     let _ = std::fs::remove_dir_all(&host);
-    let allows: Arc<dyn Policy> = Arc::new(AllowsAll);
+    let allows: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(AllowsAll);
     let (host, mut guest) = mount_link_under(
         "policy-link-allowed",
         directory_with_key,
@@ -2302,7 +2309,7 @@ fn a_link_out_of_a_directory_or_into_a_loop_answers_as_without_a_policy() {
             std::os::unix::fs::symlink(target, host.join("file.txt"))
                 .expect("the link must be made");
             let directory = Bind::new(&host).expect("the host directory must open");
-            let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+            let policy: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(AllowsAll);
             let mut guest =
                 Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, Some(policy))]);
             let answers = [
@@ -2339,7 +2346,7 @@ fn a_link_out_of_a_directory_or_into_a_loop_answers_as_without_a_policy() {
 fn a_lookup_that_fails_fails_the_call_beneath_a_policy() {
     let tmpfs: Tmpfs = [("dir/file.txt", "granted")].into_iter().collect();
     let failing = Wrap::new(Arc::new(tmpfs), Arc::new(FailsLookingUpDir));
-    let policy: Arc<dyn Policy> = Arc::new(AllowsAll);
+    let policy: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(AllowsAll);
     let mut guest = Guest::new(&[grant(failing, Access::Read, Some(policy))]);
     assert_eq!(
         guest.call("read_file", DIR_FILE),
@@ -2803,9 +2810,12 @@ fn sizing_a_file_opened_only_to_read_answers_by_its_mount_then_as_linux_does() {
 #[derive(Default)]
 struct RecordsAsks(std::sync::Mutex<Vec<(String, Access)>>);
 
-impl Policy for RecordsAsks {
-    fn allows(&self, path: &str, access: Access) -> bool {
-        self.0.lock().unwrap().push((path.to_owned(), access));
+impl Policy<MountRequest<'_>> for RecordsAsks {
+    fn allows(&self, request: &MountRequest<'_>) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .push((request.path.to_owned(), request.access));
         true
     }
 }
@@ -2822,7 +2832,7 @@ fn a_mount_whose_policy_decides_may_be_written() {
         let errno = Guest::new(&[grant(
             file_and_directory(),
             Access::ReadWrite,
-            Some(policy.clone() as Arc<dyn Policy>),
+            Some(policy.clone() as Arc<dyn for<'a> Policy<MountRequest<'a>>>),
         )])
         .call_at(name, rights);
         let asked = policy.0.lock().unwrap().clone();
@@ -2855,7 +2865,7 @@ fn an_open_that_may_create_asks_to_make_the_file_before_it_finds_what_stands() {
         let errno = Guest::new(&[grant(
             file_and_directory(),
             Access::ReadWrite,
-            Some(policy.clone() as Arc<dyn Policy>),
+            Some(policy.clone() as Arc<dyn for<'a> Policy<MountRequest<'a>>>),
         )])
         .call_flagged(path, OFLAGS_CREAT, 0);
         let asked = policy.0.lock().unwrap().clone();
@@ -2884,10 +2894,10 @@ fn an_open_that_may_create_asks_to_make_the_file_before_it_finds_what_stands() {
 #[derive(Default)]
 struct RefusesTheRoot(std::sync::Mutex<Vec<String>>);
 
-impl Policy for RefusesTheRoot {
-    fn allows(&self, path: &str, _access: Access) -> bool {
-        self.0.lock().unwrap().push(path.to_owned());
-        path != "/data"
+impl Policy<MountRequest<'_>> for RefusesTheRoot {
+    fn allows(&self, request: &MountRequest<'_>) -> bool {
+        self.0.lock().unwrap().push(request.path.to_owned());
+        request.path != "/data"
     }
 }
 
@@ -2901,7 +2911,7 @@ fn a_mount_whose_policy_refuses_its_root_still_reads_beneath_it() {
     let mut guest = Guest::new(&[grant(
         file_and_directory(),
         Access::Read,
-        Some(policy.clone() as Arc<dyn Policy>),
+        Some(policy.clone() as Arc<dyn for<'a> Policy<MountRequest<'a>>>),
     )]);
     let read = guest.call("read_file", FILE);
     let asked = policy.0.lock().unwrap().clone();
@@ -2926,7 +2936,7 @@ fn an_open_of_a_missing_path_that_makes_nothing_answers_enoent() {
     let policed = Guest::new(&[grant(
         file_and_directory(),
         Access::Read,
-        Some(policy.clone() as Arc<dyn Policy>),
+        Some(policy.clone() as Arc<dyn for<'a> Policy<MountRequest<'a>>>),
     )])
     .call("append_file", NEW);
     let asked = policy.0.lock().unwrap().clone();
@@ -3723,14 +3733,14 @@ const PUB_X: (i32, i32) = (1150, 5);
 struct SwapsWhileAsked(std::path::PathBuf, std::sync::atomic::AtomicBool);
 
 #[cfg(unix)]
-impl Policy for SwapsWhileAsked {
-    fn allows(&self, path: &str, _access: Access) -> bool {
+impl Policy<MountRequest<'_>> for SwapsWhileAsked {
+    fn allows(&self, request: &MountRequest<'_>) -> bool {
         if self.1.swap(false, Ordering::SeqCst) {
             std::fs::rename(self.0.join("pub"), self.0.join("pub_old")).expect("pub must move");
             std::os::unix::fs::symlink("secret", self.0.join("pub"))
                 .expect("the link must be made");
         }
-        path.starts_with("/data/pub/")
+        request.path.starts_with("/data/pub/")
     }
 }
 

@@ -1438,7 +1438,8 @@ mod tests {
         DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError,
         Finish, InodeOperations, Kstat, Lookup, Tmpfs,
     };
-    use crate::mount::{Access, Mount, Policy};
+    use crate::grant::Policy;
+    use crate::mount::{Access, Mount, MountRequest};
     use crate::sched::testing::count_waits;
     use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{
@@ -3736,8 +3737,8 @@ mod tests {
 
     struct RefusesAll;
 
-    impl Policy for RefusesAll {
-        fn allows(&self, _path: &str, _access: Access) -> bool {
+    impl Policy<MountRequest<'_>> for RefusesAll {
+        fn allows(&self, _request: &MountRequest<'_>) -> bool {
             false
         }
     }
@@ -4060,8 +4061,8 @@ mod tests {
         resume: Mutex<mpsc::Receiver<()>>,
     }
 
-    impl Policy for PausesFirst {
-        fn allows(&self, _path: &str, _access: Access) -> bool {
+    impl Policy<MountRequest<'_>> for PausesFirst {
+        fn allows(&self, _request: &MountRequest<'_>) -> bool {
             if !self.answered.swap(true, Ordering::SeqCst) {
                 self.reached.lock().expect("unpoisoned").send(()).ok();
                 let _ = self
@@ -5552,9 +5553,9 @@ mod tests {
     /// Refuses every change to the one path the move may not touch.
     struct RefusesMovedName;
 
-    impl Policy for RefusesMovedName {
-        fn allows(&self, path: &str, _access: Access) -> bool {
-            path != "/data/a/moved"
+    impl Policy<MountRequest<'_>> for RefusesMovedName {
+        fn allows(&self, request: &MountRequest<'_>) -> bool {
+            request.path != "/data/a/moved"
         }
     }
 

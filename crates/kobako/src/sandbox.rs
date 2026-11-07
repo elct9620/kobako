@@ -32,7 +32,8 @@ use crate::receiver::Receiver;
 use crate::snippet;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::GrantKind;
-use kobako_runtime::mount::{Access, Mount, Policy};
+use kobako_runtime::grant::Policy;
+use kobako_runtime::mount::{Access, Mount, MountRequest};
 
 mod context;
 mod options;
@@ -209,7 +210,7 @@ impl Sandbox {
         &mut self,
         at: &str,
         filesystem: Arc<Filesystem>,
-        policy: Arc<dyn Policy>,
+        policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
     ) -> Result<(), Error> {
         self.register_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))
     }

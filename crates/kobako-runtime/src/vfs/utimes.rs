@@ -50,7 +50,8 @@ mod tests {
     use crate::filesystem::{
         FileSystemType, FileType, Filesystem, InodeOperations, Kstat, SetTime, Tmpfs,
     };
-    use crate::mount::{Access as MountAccess, Mount, Policy};
+    use crate::grant::Policy;
+    use crate::mount::{Access as MountAccess, Mount, MountRequest};
     use crate::security::{prepare_creds_within, restrict_self};
     use crate::vfs::Dentry;
 
@@ -221,9 +222,9 @@ mod tests {
     #[derive(Default)]
     struct RecordsPaths(Mutex<Vec<String>>);
 
-    impl Policy for RecordsPaths {
-        fn allows(&self, path: &str, _access: MountAccess) -> bool {
-            self.0.lock().unwrap().push(path.to_string());
+    impl Policy<MountRequest<'_>> for RecordsPaths {
+        fn allows(&self, request: &MountRequest<'_>) -> bool {
+            self.0.lock().unwrap().push(request.path.to_string());
             true
         }
     }
@@ -258,8 +259,8 @@ mod tests {
 
     struct RefusesAll;
 
-    impl Policy for RefusesAll {
-        fn allows(&self, _path: &str, _access: MountAccess) -> bool {
+    impl Policy<MountRequest<'_>> for RefusesAll {
+        fn allows(&self, _request: &MountRequest<'_>) -> bool {
             false
         }
     }
