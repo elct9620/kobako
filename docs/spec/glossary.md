@@ -352,9 +352,9 @@ The Host App's decision on what a guest asks of a Grant. Each kind of request ha
 A Mount's Policy judges each path opened or changed beneath it, as the Filesystem spells it. In Ruby it is the block a mount is given. A network entry's Policies judge each name looked up, each connection, and each HTTP request. In Ruby each is the entry's `resolve?`, `connect?`, or `request?`, or a `policy` block.
 
 ```
-a path beneath a Mount  ─┐
-a name, a connection,   ─┴─> Policy ─┬─ allows -> the call proceeds
-or a request                         └─ refuses -> denied, the script goes on
+a path beneath a Mount  --+
+a name, a connection,   --+--> Policy --+-- allows -> the call proceeds
+or a request                            +-- refuses -> denied, the script goes on
 ```
 
 ### Filesystem
