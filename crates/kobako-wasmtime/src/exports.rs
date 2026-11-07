@@ -70,10 +70,11 @@ mod tests {
 
     const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
-    const ABI_EXPORTS: [&str; 3] = [
+    const ABI_EXPORTS: [&str; 4] = [
         "__kobako_abi_version",
         "__kobako_alloc",
         "__kobako_downcall",
+        "cabi_realloc",
     ];
 
     // @behavior RT-068
