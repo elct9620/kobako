@@ -335,6 +335,12 @@ the same path with the bundled `kobako_wasmtime::Driver`.
 A Wasm Driver encodes each ABI onto its Engine, and the runtime beneath it decides
 every answer (→ [`isolation/README.md`](../isolation/README.md)).
 
+| Imports a Guest Binary links | The Driver answers them through |
+|---|---|
+| preview1's descriptor calls, `fd_*`, `path_*`, `poll_oneoff` | `vfs` and a descriptor table |
+| `wasi:sockets`, `wasi:http`, and the `wasi:io` they stand on | `net::Namespace` and a resource table |
+| the kobako ABI's `__kobako_upcall` | `endpoint` |
+
 ### Engine Options
 
 Only the Posture and each Invocation's Grants cross that seam. The Engine's own caps
