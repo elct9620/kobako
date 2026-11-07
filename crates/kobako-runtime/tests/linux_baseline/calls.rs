@@ -109,8 +109,8 @@ impl Rng {
         self.next() % bound
     }
 
-    fn random_bool(&mut self, percent: u64) -> bool {
-        self.random_below(100) < percent
+    fn random_ratio(&mut self, numerator: u64, denominator: u64) -> bool {
+        self.random_below(denominator) < numerator
     }
 
     fn choose_path(&mut self, paths: &[String]) -> String {
@@ -121,20 +121,20 @@ impl Rng {
     pub fn call(&mut self, paths: &[String]) -> Call {
         let slot = self.random_below(SLOTS as u64) as usize;
         let base = self
-            .random_bool(25)
+            .random_ratio(25, 100)
             .then(|| self.random_below(SLOTS as u64) as usize);
         match self.random_below(100) {
             0..=27 => Call::Open(Open {
                 base,
                 path: self.choose_path(paths),
-                read: self.random_bool(70),
-                write: self.random_bool(45),
-                create: self.random_bool(30),
-                exclusive: self.random_bool(10),
-                truncate: self.random_bool(10),
-                append: self.random_bool(12),
-                directory: self.random_bool(12),
-                nofollow: self.random_bool(15),
+                read: self.random_ratio(70, 100),
+                write: self.random_ratio(45, 100),
+                create: self.random_ratio(30, 100),
+                exclusive: self.random_ratio(10, 100),
+                truncate: self.random_ratio(10, 100),
+                append: self.random_ratio(12, 100),
+                directory: self.random_ratio(12, 100),
+                nofollow: self.random_ratio(15, 100),
                 slot,
             }),
             28..=32 => Call::Close(slot),
@@ -154,7 +154,7 @@ impl Rng {
             69..=73 => Call::Stat {
                 base,
                 path: self.choose_path(paths),
-                follow: self.random_bool(50),
+                follow: self.random_ratio(50, 100),
             },
             74..=79 => Call::Mkdir(base, self.choose_path(paths)),
             80..=85 => Call::Rmdir(base, self.choose_path(paths)),
@@ -163,7 +163,7 @@ impl Rng {
             91 => Call::Utimes {
                 base,
                 path: self.choose_path(paths),
-                follow: self.random_bool(50),
+                follow: self.random_ratio(50, 100),
             },
             _ => Call::Rename(base, self.choose_path(paths), self.choose_path(paths)),
         }
