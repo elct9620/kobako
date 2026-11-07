@@ -18,6 +18,7 @@ use super::readdir::DirContext;
 use super::readdir::{DirEmit, DirEntry};
 use super::stat::special_file;
 use super::{FileType, FilesystemError, Iattr, Kstat};
+use crate::wait::PollTable;
 
 /// The largest offset a file holds, as Linux's `OFFSET_MAX` ends its signed
 /// `loff_t`.
@@ -43,6 +44,9 @@ pub struct Kiocb {
     /// Whether everything a write changed is durable before it answers, as
     /// `IOCB_SYNC` asks along with `IOCB_DSYNC`.
     pub sync: bool,
+    /// Whether a call that would wait answers EAGAIN instead, as
+    /// `IOCB_NOWAIT` asks.
+    pub nowait: bool,
 }
 
 impl Kiocb {
@@ -53,6 +57,15 @@ impl Kiocb {
             append: false,
             dsync: false,
             sync: false,
+            nowait: false,
+        }
+    }
+
+    /// This call, answering EAGAIN where it would wait.
+    pub fn with_nowait(self) -> Self {
+        Self {
+            nowait: true,
+            ..self
         }
     }
 
@@ -139,9 +152,10 @@ pub trait FileOperations: Any + Send + Sync {
     }
 
     /// What a call would find ready on this end, opened for `mode`, as
-    /// `f_op->poll` answers. A file without it is always ready, as Linux's
-    /// `vfs_poll` answers `DEFAULT_POLLMASK`.
-    fn poll(&self, _mode: FMode) -> PollMask {
+    /// `f_op->poll` answers; a file that can become ready later registers
+    /// its wait queue on `table` through `poll_wait`. A file without it is
+    /// always ready, as Linux's `vfs_poll` answers `DEFAULT_POLLMASK`.
+    fn poll(&self, _mode: FMode, _table: Option<&mut PollTable>) -> PollMask {
         PollMask::IN | PollMask::OUT
     }
 
@@ -260,6 +274,10 @@ impl PollMask {
     pub const IN: Self = Self(1);
     /// A write would not wait, as `EPOLLOUT`.
     pub const OUT: Self = Self(1 << 1);
+    /// The file failed, and a call would answer its error, as `EPOLLERR`.
+    pub const ERR: Self = Self(1 << 2);
+    /// The peer hung up, and a read would answer the end, as `EPOLLHUP`.
+    pub const HUP: Self = Self(1 << 3);
 
     /// Whether this holds all of `mask`.
     pub fn contains(self, mask: Self) -> bool {
@@ -555,9 +573,10 @@ impl File {
         self.ops.fallocate(offset, len)
     }
 
-    /// What a call would find ready, as `vfs_poll` asks `f_op->poll`.
-    pub fn poll(&self) -> PollMask {
-        self.ops.poll(self.mode)
+    /// What a call would find ready, as `vfs_poll` asks `f_op->poll`,
+    /// registering on `table` for a poll that will sleep.
+    pub fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
+        self.ops.poll(self.mode, table)
     }
 
     /// Whether it reads and writes what comes next, with no position.

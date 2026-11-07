@@ -119,7 +119,7 @@ fn poll_descriptor(
     let Ok(file) = file(descriptors, subscribed.file_descriptor.into()) else {
         return Ok(Errno::Badf);
     };
-    match file.poll().contains(event) {
+    match file.poll(None).contains(event) {
         true => Ok(Errno::Success),
         false => Err(Errno::Badf.into()),
     }
