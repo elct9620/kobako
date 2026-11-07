@@ -5,7 +5,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use super::{Addresses, Endpoint, EntryError, Protocol};
+use super::{Addresses, Endpoint, EntryError, HttpRule, Protocol};
 use crate::vfs::FilesystemError;
 
 /// Where an address falls, by IANA's special-purpose registries.
@@ -179,9 +179,44 @@ struct Rule {
     port: u16,
     protocol: Protocol,
     addresses: Vec<Addresses>,
+    requests: Vec<HttpRule>,
+}
+
+/// Whether `path` reads as one path to every server: a segment of `..`, an
+/// encoded dot or slash, a backslash, or a `;` lets servers split it
+/// differently, so a rule matching one spelling would pass another.
+fn unambiguous(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    !(path.split('/').any(|segment| segment == "..")
+        || ["%2e", "%2f", "%5c", "\\", ";"]
+            .iter()
+            .any(|sign| lower.contains(sign)))
 }
 
 impl Rule {
+    /// Whether this rule's host holds `host`, a name or a literal address.
+    fn holds(&self, host: &str) -> bool {
+        match host.parse::<IpAddr>() {
+            Ok(ip) => matches!(self.host, Host::Prefix(net, prefix) if contains(net, prefix, ip)),
+            Err(_) => self.names(host),
+        }
+    }
+
+    /// Whether this endpoint's rules allow `method` on `path`: with none,
+    /// every request; with some, one allowing it and none denying it.
+    fn allows_request(&self, method: &str, path: &str) -> bool {
+        self.requests.is_empty()
+            || (unambiguous(path)
+                && self
+                    .requests
+                    .iter()
+                    .any(|rule| rule.allow && rule.matches(method, path))
+                && !self
+                    .requests
+                    .iter()
+                    .any(|rule| !rule.allow && rule.matches(method, path)))
+    }
+
     /// Whether this rule's host names `name`, exactly or beneath its wildcard
     /// on a label boundary.
     fn names(&self, name: &str) -> bool {
@@ -247,6 +282,7 @@ impl Ruleset {
                     port: endpoint.port,
                     protocol: endpoint.protocol,
                     addresses: endpoint.addresses,
+                    requests: endpoint.rules,
                 })
             })
             .collect::<Result<_, EntryError>>()?;
@@ -258,12 +294,16 @@ impl Ruleset {
         self.rules.iter().any(|rule| rule.names(name))
     }
 
-    /// Whether an endpoint names `name` at `port` and `protocol`, as a request
-    /// to that authority needs before anything is resolved.
-    pub fn admits_endpoint(&self, name: &str, port: u16, protocol: Protocol) -> bool {
-        self.rules
-            .iter()
-            .any(|rule| rule.port == port && rule.protocol == protocol && rule.names(name))
+    /// Whether an `http` endpoint holding `host` at `port` allows `method` on
+    /// `path`, the path with no query: endpoints join, so any one allowing it
+    /// admits the request.
+    pub fn admit_request(&self, host: &str, port: u16, method: &str, path: &str) -> bool {
+        self.rules.iter().any(|rule| {
+            rule.port == port
+                && rule.protocol == Protocol::Http
+                && rule.holds(host)
+                && rule.allows_request(method, path)
+        })
     }
 
     /// Whether the guest may open a `protocol` connection to `ip`, a real
@@ -477,6 +517,38 @@ mod tests {
             [false, false, true],
             "Ruleset::new must refuse a wildcard endpoint leading to private or local addresses, \
              and keep one leading to public addresses or a CIDR"
+        );
+    }
+
+    // @behavior NW-044
+    #[test]
+    fn an_http_endpoints_rules_admit_only_the_methods_and_paths_they_allow() {
+        let rules = Ruleset::new([
+            Endpoint::new("api.example.com", 443)
+                .unwrap()
+                .with_rules(vec![
+                    HttpRule::allow(Some("get"), "/repos/**"),
+                    HttpRule::allow(None, "/status"),
+                    HttpRule::deny(None, "/repos/*/secrets"),
+                ]),
+            Endpoint::new("open.example.com", 443).unwrap(),
+        ])
+        .unwrap();
+        let admit = |host, method, path| rules.admit_request(host, 443, method, path);
+        assert_eq!(
+            [
+                admit("api.example.com", "GET", "/repos/a/b"),
+                admit("api.example.com", "POST", "/repos/a/b"),
+                admit("api.example.com", "DELETE", "/status"),
+                admit("api.example.com", "GET", "/repos/a/secrets"),
+                admit("api.example.com", "GET", "/repos/../admin"),
+                admit("api.example.com", "GET", "/repos/a%2fb"),
+                admit("open.example.com", "PUT", "/anything/at/all"),
+            ],
+            [true, false, true, false, false, false, true],
+            "Ruleset::admit_request must pass only what an http endpoint's rules allow and none \
+             denies, refuse a path servers may split differently, and pass any request to an \
+             endpoint with no rules"
         );
     }
 }

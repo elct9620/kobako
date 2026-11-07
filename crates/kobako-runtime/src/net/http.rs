@@ -742,4 +742,65 @@ mod tests {
              or a virtual address must answer Denied, sending nothing, got {answers:?}"
         );
     }
+
+    // @behavior NW-045
+    #[test]
+    fn a_request_policy_sees_the_request_and_refuses_it_unsent() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorded = seen.clone();
+        let mut entry = Builder::default();
+        entry
+            .endpoint(Endpoint::new("127.0.0.1", port).unwrap())
+            .request_policy(move |sent: &crate::network::Request<'_>| {
+                recorded.lock().unwrap().push((
+                    sent.authority.0.to_string(),
+                    sent.method.to_string(),
+                    sent.scheme.to_string(),
+                    sent.path.to_string(),
+                    sent.header_names
+                        .iter()
+                        .map(|n| n.to_string())
+                        .collect::<Vec<_>>(),
+                ));
+                false
+            });
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let namespace = Namespace::new(
+            [&network],
+            Arc::new(HostInet),
+            Arc::new(UreqOutbound),
+            Workers::new(SANDBOX_WORKERS),
+        )
+        .unwrap();
+        let mut request = get(&format!("127.0.0.1:{port}"));
+        request
+            .headers
+            .push(("x-probe".to_string(), b"secret".to_vec()));
+        let cred = prepare_creds_within(&[], None);
+        let answer = namespace.send(&cred, request, None).err();
+        thread::sleep(Duration::from_millis(20));
+        assert_eq!(
+            (
+                answer,
+                seen.lock().unwrap().clone(),
+                listener.accept().is_err()
+            ),
+            (
+                Some(HttpError::Denied),
+                vec![(
+                    "127.0.0.1".to_string(),
+                    "GET".to_string(),
+                    "http".to_string(),
+                    "/greeting".to_string(),
+                    vec!["x-probe".to_string()]
+                )],
+                true
+            ),
+            "a request policy must see the authority, method, scheme, path with no query, and \
+             header names, and its refusal must answer Denied, sending nothing"
+        );
+    }
 }

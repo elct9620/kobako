@@ -73,6 +73,44 @@ pub struct Policies {
     pub resolve: Option<Arc<dyn for<'a> Policy<Name<'a>>>>,
     /// Asked at each connect.
     pub connect: Option<Arc<dyn for<'a> Policy<Connection<'a>>>>,
+    /// Asked at each HTTP request.
+    pub request: Option<Arc<dyn for<'a> Policy<Request<'a>>>>,
+}
+
+/// One HTTP request the guest sends, as the `request?` hook judges it: the
+/// authority, method, scheme, and path it named, and its header names, never
+/// a header's value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Request<'a> {
+    /// The host, lowercase, and the port.
+    pub authority: (&'a str, u16),
+    /// Uppercase.
+    pub method: &'a str,
+    /// `http` or `https`.
+    pub scheme: &'a str,
+    /// The path, with no query.
+    pub path: &'a str,
+    /// Lowercase.
+    pub header_names: &'a [&'a str],
+}
+
+impl<'a> Request<'a> {
+    pub fn new(
+        authority: (&'a str, u16),
+        method: &'a str,
+        scheme: &'a str,
+        path: &'a str,
+        header_names: &'a [&'a str],
+    ) -> Self {
+        Self {
+            authority,
+            method,
+            scheme,
+            path,
+            header_names,
+        }
+    }
 }
 
 impl Policies {
@@ -88,6 +126,14 @@ impl Policies {
     pub fn with_connect(self, policy: Arc<dyn for<'a> Policy<Connection<'a>>>) -> Self {
         Self {
             connect: Some(policy),
+            ..self
+        }
+    }
+
+    /// These policies with `policy` judging each HTTP request.
+    pub fn with_request(self, policy: Arc<dyn for<'a> Policy<Request<'a>>>) -> Self {
+        Self {
+            request: Some(policy),
             ..self
         }
     }
@@ -139,6 +185,65 @@ pub struct Endpoint {
     pub protocol: Protocol,
     /// Where the host's name may lead.
     pub addresses: Vec<Addresses>,
+    /// For an `http` endpoint, the methods and paths it allows and denies;
+    /// with none, it allows every request.
+    pub rules: Vec<HttpRule>,
+}
+
+/// One rule an `http` endpoint judges a request by: a method, or any, and a
+/// path pattern, where `*` stands for one segment and `**` for any number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct HttpRule {
+    pub allow: bool,
+    /// Uppercase, or `None` for any method.
+    pub method: Option<String>,
+    pub path: String,
+}
+
+impl HttpRule {
+    /// A rule allowing `method`, or any, on paths `path` matches.
+    pub fn allow(method: Option<&str>, path: impl Into<String>) -> Self {
+        Self {
+            allow: true,
+            method: method.map(str::to_ascii_uppercase),
+            path: path.into(),
+        }
+    }
+
+    /// A rule denying `method`, or any, on paths `path` matches.
+    pub fn deny(method: Option<&str>, path: impl Into<String>) -> Self {
+        Self {
+            allow: false,
+            ..Self::allow(method, path)
+        }
+    }
+
+    /// Whether this rule speaks to `method` on `path`.
+    pub(crate) fn matches(&self, method: &str, path: &str) -> bool {
+        self.method
+            .as_deref()
+            .is_none_or(|own| own.eq_ignore_ascii_case(method))
+            && glob(&self.path, path)
+    }
+}
+
+/// Whether `path` fits `pattern`, segment by segment, as a path glob does.
+fn glob(pattern: &str, path: &str) -> bool {
+    fn fits(pattern: &[&str], path: &[&str]) -> bool {
+        match (pattern.first(), path.first()) {
+            (None, None) => true,
+            (Some(&"**"), _) => {
+                fits(&pattern[1..], path) || (!path.is_empty() && fits(pattern, &path[1..]))
+            }
+            (Some(&"*"), Some(_)) => fits(&pattern[1..], &path[1..]),
+            (Some(own), Some(segment)) if own == segment => fits(&pattern[1..], &path[1..]),
+            _ => false,
+        }
+    }
+    let pattern = pattern.split('/').collect::<Vec<_>>();
+    let path = path.split('/').collect::<Vec<_>>();
+    fits(&pattern, &path)
 }
 
 impl Endpoint {
@@ -162,6 +267,7 @@ impl Endpoint {
             port,
             protocol: Protocol::Http,
             addresses: vec![Addresses::Public],
+            rules: Vec::new(),
         })
     }
 
@@ -173,6 +279,11 @@ impl Endpoint {
     /// This endpoint leading to `addresses`.
     pub fn with_addresses(self, addresses: Vec<Addresses>) -> Self {
         Self { addresses, ..self }
+    }
+
+    /// This endpoint judging each request by `rules`.
+    pub fn with_rules(self, rules: Vec<HttpRule>) -> Self {
+        Self { rules, ..self }
     }
 }
 

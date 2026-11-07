@@ -8,11 +8,13 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
-use super::http::{split_authority, Connector, Exchange, HttpError, Outbound, OutgoingRequest};
+use super::http::{
+    split_authority, Connector, Exchange, HttpError, Outbound, OutgoingRequest, Scheme,
+};
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::{ProtocolFamily, TcpSock, Workers};
 use crate::grant::Policy;
-use crate::network::{Connection, EntryError, Name, Network, Protocol, Ruleset};
+use crate::network::{Connection, EntryError, Name, Network, Protocol, Request, Ruleset};
 use crate::vfs::{Cred, FilesystemError};
 
 /// The bottom of the virtual range, `198.18.0.0/15`, inside the reserved set,
@@ -29,6 +31,7 @@ pub struct Namespace {
     ruleset: Arc<Ruleset>,
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
     connect: Vec<Arc<dyn for<'a> Policy<Connection<'a>>>>,
+    request: Vec<Arc<dyn for<'a> Policy<Request<'a>>>>,
     family: Arc<dyn ProtocolFamily>,
     outbound: Arc<dyn Outbound>,
     workers: Arc<Workers>,
@@ -57,6 +60,7 @@ impl Namespace {
             ruleset: Arc::new(ruleset),
             resolve: policies.iter().filter_map(|p| p.resolve.clone()).collect(),
             connect: policies.iter().filter_map(|p| p.connect.clone()).collect(),
+            request: policies.iter().filter_map(|p| p.request.clone()).collect(),
             family,
             outbound,
             workers,
@@ -85,17 +89,34 @@ impl Namespace {
         let connection = Connection::new(&host, port, Protocol::Http);
         let hooked = cred.security_socket_connect(&connection).is_ok()
             && self.connect.iter().all(|policy| policy.allows(&connection));
-        let admitted = match literal {
+        let reachable = match literal {
             Some(ip) => self
                 .ruleset
                 .admit_literal(SocketAddr::new(ip, port), Protocol::Http)
                 .is_ok(),
-            None => {
-                let name = Name::new(&host);
-                self.resolve.iter().all(|policy| policy.allows(&name))
-                    && self.ruleset.admits_endpoint(&host, port, Protocol::Http)
-            }
+            None => self
+                .resolve
+                .iter()
+                .all(|policy| policy.allows(&Name::new(&host))),
         };
+        let path = request
+            .path_with_query
+            .split_once('?')
+            .map_or(request.path_with_query.as_str(), |(path, _)| path);
+        let method = request.method.to_ascii_uppercase();
+        let names = request
+            .headers
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>();
+        let scheme = match request.scheme {
+            Scheme::Http => "http",
+            Scheme::Https => "https",
+        };
+        let sent = Request::new((&host, port), &method, scheme, path, &names);
+        let admitted = reachable
+            && self.ruleset.admit_request(&host, port, &method, path)
+            && self.request.iter().all(|policy| policy.allows(&sent));
         if !hooked || !admitted {
             return Err(HttpError::Denied);
         }

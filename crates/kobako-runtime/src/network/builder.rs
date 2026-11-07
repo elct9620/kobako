@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use super::{Connection, Endpoint, Entry, Name, Policies};
+use super::{Connection, Endpoint, Entry, Name, Policies, Request};
 use crate::grant::Policy;
 
 /// An entry whose endpoints and policies are the given entry's, then its own.
@@ -13,6 +13,7 @@ pub struct Builder {
     endpoints: Vec<Endpoint>,
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
     connect: Vec<Arc<dyn for<'a> Policy<Connection<'a>>>>,
+    request: Vec<Arc<dyn for<'a> Policy<Request<'a>>>>,
 }
 
 impl Builder {
@@ -33,6 +34,15 @@ impl Builder {
     /// Judge each lookup with `policy` too; any refusal wins.
     pub fn resolve_policy(&mut self, policy: impl for<'a> Policy<Name<'a>> + 'static) -> &mut Self {
         self.resolve.push(Arc::new(policy));
+        self
+    }
+
+    /// Judge each HTTP request with `policy` too; any refusal wins.
+    pub fn request_policy(
+        &mut self,
+        policy: impl for<'a> Policy<Request<'a>> + 'static,
+    ) -> &mut Self {
+        self.request.push(Arc::new(policy));
         self
     }
 
@@ -81,6 +91,16 @@ impl Entry for Builder {
         if !connect.is_empty() {
             policies = policies.with_connect(Arc::new(move |connection: &Connection<'_>| {
                 connect.iter().all(|policy| policy.allows(connection))
+            }));
+        }
+        let request = given
+            .request
+            .into_iter()
+            .chain(self.request.iter().cloned())
+            .collect::<Vec<_>>();
+        if !request.is_empty() {
+            policies = policies.with_request(Arc::new(move |sent: &Request<'_>| {
+                request.iter().all(|policy| policy.allows(sent))
             }));
         }
         policies
