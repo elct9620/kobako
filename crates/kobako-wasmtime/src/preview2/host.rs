@@ -4,10 +4,10 @@
 //! its Protocol Family. The clock subscriptions, the streams, and `poll` wait
 //! on the runtime's wait primitive.
 
-use std::net::Shutdown;
+use std::net::{Ipv4Addr, Shutdown};
 use std::time::{Duration, Instant};
 
-use kobako_runtime::net::{sock_alloc_file, SOCKET_BUFFER};
+use kobako_runtime::net::{sock_alloc_file, MAX_DATAGRAM, SOCKET_BUFFER};
 use kobako_runtime::vfs::{FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
 
@@ -20,11 +20,14 @@ use super::bindings::wasi_sockets_network_0_2_12::{
     ErrorCode, IpAddress, IpAddressFamily, IpSocketAddress, Network,
 };
 use super::bindings::wasi_sockets_tcp_0_2_12::{ShutdownType, TcpSocket};
+use super::bindings::wasi_sockets_udp_0_2_12::{
+    IncomingDatagram, IncomingDatagramStream, OutgoingDatagram, OutgoingDatagramStream, UdpSocket,
+};
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{
     from_socket_addr, hide_host_address, lookup_error_code, to_error_code, to_socket_addr,
 };
-use super::table::{self, Resource, SocketFile, Stream};
+use super::table::{self, Datagrams, Resource, SocketFile, Stream};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
@@ -103,6 +106,31 @@ impl Invocation {
                 "the guest named a handle that is not a tcp-socket",
             )),
         }
+    }
+
+    fn udp(&mut self, handle: UdpSocket) -> wasmtime::Result<&mut table::UdpSocket> {
+        match self.wasi_mut().table_mut().get_mut(handle.0)? {
+            Resource::UdpSocket(socket) => Ok(socket),
+            _ => Err(wasmtime::Error::msg(
+                "the guest named a handle that is not a udp-socket",
+            )),
+        }
+    }
+
+    fn datagrams(&self, handle: u32) -> wasmtime::Result<Datagrams> {
+        match self.wasi().table().get(handle)? {
+            Resource::Datagrams(datagrams) => Ok(datagrams.clone()),
+            _ => Err(wasmtime::Error::msg(
+                "the guest named a handle that is not a datagram stream",
+            )),
+        }
+    }
+
+    fn pollable_on_datagrams(&mut self, handle: u32, mask: PollMask) -> wasmtime::Result<Pollable> {
+        let datagrams = self.datagrams(handle)?;
+        Ok(Pollable(self.push(Resource::Pollable(
+            table::Pollable::Datagrams(datagrams, mask),
+        ))?))
     }
 
     fn stream(&self, handle: u32) -> wasmtime::Result<Stream> {
@@ -409,6 +437,234 @@ impl SocketsHost for Invocation {
     }
 
     fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {
+        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+    }
+
+    /// Without a network Grant no socket is made, and the guest is IPv4-only,
+    /// as a TCP socket's creation answers.
+    fn udp_create_socket_create_udp_socket(
+        &mut self,
+        address_family: IpAddressFamily,
+    ) -> wasmtime::Result<Result<UdpSocket, ErrorCode>> {
+        if self.wasi().table().network().is_none() || address_family == IpAddressFamily::Ipv6 {
+            return Ok(Err(ErrorCode::NotSupported));
+        }
+        Ok(Ok(UdpSocket(
+            self.push(Resource::UdpSocket(table::UdpSocket::Unbound))?,
+        )))
+    }
+
+    /// The guest only sends to a peer it names, so the one bind it makes is
+    /// the implicit one, to any address on an ephemeral port; any other is
+    /// refused, as Landlock's `BIND_*` rights refuse one.
+    fn udp_udp_socket_start_bind(
+        &mut self,
+        this: UdpSocket,
+        network: Network,
+        local_address: IpSocketAddress,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        self.network_held(network)?;
+        if !matches!(self.udp(this)?, table::UdpSocket::Unbound) {
+            return Ok(Err(ErrorCode::InvalidState));
+        }
+        match to_socket_addr(&local_address) {
+            None => return Ok(Err(ErrorCode::InvalidArgument)),
+            Some(addr) if addr.ip().is_unspecified() && addr.port() == 0 => {}
+            Some(_) => return Ok(Err(ErrorCode::AccessDenied)),
+        }
+        *self.udp(this)? = table::UdpSocket::Binding;
+        Ok(Ok(()))
+    }
+
+    fn udp_udp_socket_finish_bind(
+        &mut self,
+        this: UdpSocket,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        let socket = self.udp(this)?;
+        if !matches!(socket, table::UdpSocket::Binding) {
+            return Ok(Err(ErrorCode::NotInProgress));
+        }
+        *socket = table::UdpSocket::Bound;
+        Ok(Ok(()))
+    }
+
+    /// The streams to the one peer the guest names, which passes the
+    /// Invocation's namespace as a connect does. A stream with no peer would
+    /// send each datagram anywhere, so it is refused.
+    fn udp_udp_socket_stream(
+        &mut self,
+        this: UdpSocket,
+        remote_address: Option<IpSocketAddress>,
+    ) -> wasmtime::Result<Result<(IncomingDatagramStream, OutgoingDatagramStream), ErrorCode>> {
+        if !matches!(
+            self.udp(this)?,
+            table::UdpSocket::Bound | table::UdpSocket::Streaming(_)
+        ) {
+            return Ok(Err(ErrorCode::InvalidState));
+        }
+        let Some(remote_address) = remote_address else {
+            return Ok(Err(ErrorCode::AccessDenied));
+        };
+        let Some(addr) = to_socket_addr(&remote_address) else {
+            return Ok(Err(ErrorCode::InvalidArgument));
+        };
+        let cred = self.wasi().descriptors().cred();
+        let connected = self
+            .wasi()
+            .table()
+            .network()
+            .expect("a socket is only made with a network")
+            .connect_datagram(cred, addr, self.deadline());
+        let sock = match connected {
+            Ok(sock) => sock,
+            Err(err) => return Ok(Err(to_error_code(&err))),
+        };
+        let file = sock_alloc_file(sock.clone(), cred);
+        let datagrams = Datagrams::new(sock, file, addr);
+        *self.udp(this)? = table::UdpSocket::Streaming(datagrams.clone());
+        let incoming = IncomingDatagramStream(self.push(Resource::Datagrams(datagrams.clone()))?);
+        let outgoing = OutgoingDatagramStream(self.push(Resource::Datagrams(datagrams))?);
+        Ok(Ok((incoming, outgoing)))
+    }
+
+    /// The guest's own end, which shows no host address; one bound but not
+    /// yet streaming has no port yet, as Linux's autobind waits for a send.
+    fn udp_udp_socket_local_address(
+        &mut self,
+        this: UdpSocket,
+    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
+        match self.udp(this)? {
+            table::UdpSocket::Streaming(datagrams) => Ok(datagrams
+                .sock
+                .local_addr()
+                .map(hide_host_address)
+                .ok_or(ErrorCode::InvalidState)),
+            table::UdpSocket::Bound => Ok(Ok(from_socket_addr((Ipv4Addr::UNSPECIFIED, 0).into()))),
+            _ => Ok(Err(ErrorCode::InvalidState)),
+        }
+    }
+
+    /// The peer as the guest named it.
+    fn udp_udp_socket_remote_address(
+        &mut self,
+        this: UdpSocket,
+    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
+        match self.udp(this)? {
+            table::UdpSocket::Streaming(datagrams) => Ok(Ok(from_socket_addr(datagrams.peer))),
+            _ => Ok(Err(ErrorCode::InvalidState)),
+        }
+    }
+
+    fn udp_udp_socket_address_family(
+        &mut self,
+        this: UdpSocket,
+    ) -> wasmtime::Result<IpAddressFamily> {
+        self.udp(this)?;
+        Ok(IpAddressFamily::Ipv4)
+    }
+
+    /// Ready at once, since a bind settles as it starts.
+    fn udp_udp_socket_subscribe(&mut self, this: UdpSocket) -> wasmtime::Result<Pollable> {
+        self.udp(this)?;
+        Ok(Pollable(
+            self.push(Resource::Pollable(table::Pollable::Ready))?,
+        ))
+    }
+
+    fn udp_udp_socket_drop(&mut self, handle: UdpSocket) -> wasmtime::Result<()> {
+        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+    }
+
+    /// Up to `max_results` datagrams the peer sent, without waiting; none yet
+    /// is an empty list.
+    fn udp_incoming_datagram_stream_receive(
+        &mut self,
+        this: IncomingDatagramStream,
+        max_results: u64,
+    ) -> wasmtime::Result<Result<Vec<IncomingDatagram>, ErrorCode>> {
+        let datagrams = self.datagrams(this.0)?;
+        let mut received = Vec::new();
+        let mut buf = vec![0; MAX_DATAGRAM];
+        while (received.len() as u64) < max_results {
+            match datagrams.file().read(&mut buf) {
+                Ok(n) => received.push(IncomingDatagram {
+                    data: buf[..n].to_vec(),
+                    remote_address: from_socket_addr(datagrams.peer),
+                }),
+                Err(FilesystemError::WouldBlock) => break,
+                Err(err) if received.is_empty() => return Ok(Err(to_error_code(&err))),
+                Err(_) => break,
+            }
+        }
+        Ok(Ok(received))
+    }
+
+    fn udp_incoming_datagram_stream_subscribe(
+        &mut self,
+        this: IncomingDatagramStream,
+    ) -> wasmtime::Result<Pollable> {
+        self.pollable_on_datagrams(this.0, PollMask::IN)
+    }
+
+    fn udp_incoming_datagram_stream_drop(
+        &mut self,
+        handle: IncomingDatagramStream,
+    ) -> wasmtime::Result<()> {
+        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+    }
+
+    /// One datagram while the send queue has room, none while it is full.
+    fn udp_outgoing_datagram_stream_check_send(
+        &mut self,
+        this: OutgoingDatagramStream,
+    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        let datagrams = self.datagrams(this.0)?;
+        let found = datagrams.file().poll(None);
+        Ok(Ok(u64::from(found.contains(PollMask::OUT))))
+    }
+
+    /// The datagrams sent in order, until the queue is full; one addressed to
+    /// another peer, or past what UDP carries, is refused.
+    fn udp_outgoing_datagram_stream_send(
+        &mut self,
+        this: OutgoingDatagramStream,
+        datagrams: Vec<OutgoingDatagram>,
+    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        let stream = self.datagrams(this.0)?;
+        let mut sent = 0;
+        for datagram in datagrams {
+            let addressed = datagram.remote_address.as_ref().map(to_socket_addr);
+            let refused = if addressed.is_some_and(|addr| addr != Some(stream.peer)) {
+                Some(ErrorCode::InvalidArgument)
+            } else if datagram.data.len() > MAX_DATAGRAM {
+                Some(ErrorCode::DatagramTooLarge)
+            } else {
+                match stream.file().write(&datagram.data) {
+                    Ok(_) => None,
+                    Err(FilesystemError::WouldBlock) => break,
+                    Err(err) => Some(to_error_code(&err)),
+                }
+            };
+            match refused {
+                None => sent += 1,
+                Some(code) if sent == 0 => return Ok(Err(code)),
+                Some(_) => break,
+            }
+        }
+        Ok(Ok(sent))
+    }
+
+    fn udp_outgoing_datagram_stream_subscribe(
+        &mut self,
+        this: OutgoingDatagramStream,
+    ) -> wasmtime::Result<Pollable> {
+        self.pollable_on_datagrams(this.0, PollMask::OUT)
+    }
+
+    fn udp_outgoing_datagram_stream_drop(
+        &mut self,
+        handle: OutgoingDatagramStream,
+    ) -> wasmtime::Result<()> {
         self.wasi_mut().table_mut().delete(handle.0).map(drop)
     }
 }
@@ -866,6 +1122,91 @@ mod tests {
                 ),
             "a lookup of a name an endpoint names must hand out one virtual address then end, and \
              a socket connected through it must read that virtual address back as its peer"
+        );
+    }
+
+    // @behavior NW-055
+    #[test]
+    fn a_udp_socket_streams_only_with_a_peer_it_names() {
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let port = peer.local_addr().unwrap().port();
+        let mut guest = within_network(
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Udp),
+        );
+        let at = |port| {
+            IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port,
+                address: (127, 0, 0, 1),
+            })
+        };
+        let any = |port| {
+            IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port,
+                address: (0, 0, 0, 0),
+            })
+        };
+        let started = Instant::now();
+        let (fixed, peerless, answer) = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let fixed_socket = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            let fixed = guest.udp_udp_socket_start_bind(fixed_socket, network, any(4000))?;
+            let socket = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            guest
+                .udp_udp_socket_start_bind(socket, network, any(0))?
+                .expect("an ephemeral bind is the implicit one");
+            guest
+                .udp_udp_socket_finish_bind(socket)?
+                .expect("the bind settles");
+            let peerless = guest.udp_udp_socket_stream(socket, None)?.map(drop);
+            let (incoming, outgoing) = guest
+                .udp_udp_socket_stream(socket, Some(at(port)))?
+                .expect("the udp endpoint names the peer");
+            let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
+            guest.poll_pollable_block(room)?;
+            let sent = guest.udp_outgoing_datagram_stream_send(
+                outgoing,
+                vec![OutgoingDatagram {
+                    data: b"ping".to_vec(),
+                    remote_address: None,
+                }],
+            )?;
+            if !matches!(sent, Ok(1)) {
+                return Err(wasmtime::Error::msg("the datagram was not sent"));
+            }
+            let mut buf = [0; 16];
+            let (n, from) = peer.recv_from(&mut buf)?;
+            peer.send_to(&buf[..n].to_ascii_uppercase(), from)?;
+            let arrived = guest.udp_incoming_datagram_stream_subscribe(incoming)?;
+            guest.poll_pollable_block(arrived)?;
+            let answer = guest
+                .udp_incoming_datagram_stream_receive(incoming, 4)?
+                .expect("the peer's datagram is received");
+            Ok((fixed, peerless, answer))
+        })
+        .expect("the bind, the stream, and the round trip answer");
+        assert!(
+            matches!(fixed, Err(ErrorCode::AccessDenied))
+                && matches!(peerless, Err(ErrorCode::AccessDenied))
+                && answer.len() == 1
+                && answer[0].data == b"PING"
+                && matches!(
+                    answer[0].remote_address,
+                    IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                        address: (127, 0, 0, 1),
+                        port: p,
+                    }) if p == port
+                ),
+            "a UDP socket must refuse a fixed-port bind and a stream with no peer as \
+             access-denied, and carry a datagram both ways with the peer a udp endpoint names; \
+             got bind {fixed:?}, peerless {peerless:?}, received {} datagram(s)",
+            answer.len()
         );
     }
 

@@ -7,7 +7,9 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
-use kobako_runtime::net::{Exchange, NameLookup, Namespace, RequestBody, TcpSock, SOCKET_BUFFER};
+use kobako_runtime::net::{
+    Exchange, NameLookup, Namespace, RequestBody, TcpSock, UdpSock, SOCKET_BUFFER,
+};
 use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
 
@@ -90,6 +92,37 @@ impl Stream {
     }
 }
 
+/// One UDP socket file the guest's incoming and outgoing datagram streams both
+/// view, and the peer as the guest named it.
+#[derive(Clone)]
+pub(crate) struct Datagrams {
+    pub(crate) sock: Arc<UdpSock>,
+    file: Arc<Mutex<File>>,
+    pub(crate) peer: SocketAddr,
+}
+
+impl Datagrams {
+    pub(crate) fn new(sock: Arc<UdpSock>, file: File, peer: SocketAddr) -> Self {
+        Self {
+            sock,
+            file: Arc::new(Mutex::new(file)),
+            peer,
+        }
+    }
+
+    pub(crate) fn file(&self) -> MutexGuard<'_, File> {
+        self.file.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Where a UDP socket stands, as WASI's state machine walks it.
+pub(crate) enum UdpSocket {
+    Unbound,
+    Binding,
+    Bound,
+    Streaming(Datagrams),
+}
+
 /// What one handle stands for.
 pub(crate) enum Resource {
     /// The one network a Sandbox's Grants make, as `instance-network` hands it
@@ -97,6 +130,9 @@ pub(crate) enum Resource {
     Network,
     Pollable(Pollable),
     TcpSocket(TcpSocket),
+    UdpSocket(UdpSocket),
+    /// An incoming or outgoing datagram stream.
+    Datagrams(Datagrams),
     InputStream(Stream),
     OutputStream(Stream),
     /// One of `wasi:http`'s resources.
@@ -131,6 +167,8 @@ pub(crate) enum Pollable {
     Lookup(Arc<NameLookup>),
     /// A request in flight, ready once its response's head arrives.
     Response(Arc<Exchange>),
+    /// A datagram stream, ready once its poll finds `PollMask`, or an error.
+    Datagrams(Datagrams, PollMask),
     /// Something that is always ready, as an unconnected socket is.
     Ready,
 }
@@ -149,6 +187,10 @@ impl Pollable {
             }
             Pollable::Lookup(lookup) => lookup.poll(table),
             Pollable::Response(exchange) => exchange.poll(table).contains(PollMask::OUT),
+            Pollable::Datagrams(datagrams, mask) => {
+                let found = datagrams.file().poll(table);
+                found.contains(*mask) || found.contains(PollMask::ERR)
+            }
             Pollable::Ready => true,
         }
     }
@@ -166,7 +208,10 @@ impl Pollable {
     pub(crate) fn is_producer(&self) -> bool {
         matches!(
             self,
-            Pollable::Stream(..) | Pollable::Lookup(_) | Pollable::Response(_)
+            Pollable::Stream(..)
+                | Pollable::Lookup(_)
+                | Pollable::Response(_)
+                | Pollable::Datagrams(..)
         )
     }
 }

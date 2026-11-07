@@ -41,6 +41,24 @@ const IMPORTS: &[(&str, Option<&[&str]>)] = &[
     ("wasi:sockets/tcp-create-socket@0.2.12", None),
     ("wasi:sockets/tcp@0.2.12", None),
     ("wasi:sockets/ip-name-lookup@0.2.12", None),
+    ("wasi:sockets/udp-create-socket@0.2.12", None),
+    (
+        "wasi:sockets/udp@0.2.12",
+        Some(&[
+            "[method]udp-socket.start-bind",
+            "[method]udp-socket.finish-bind",
+            "[method]udp-socket.stream",
+            "[method]udp-socket.local-address",
+            "[method]udp-socket.remote-address",
+            "[method]udp-socket.address-family",
+            "[method]udp-socket.subscribe",
+            "[method]incoming-datagram-stream.receive",
+            "[method]incoming-datagram-stream.subscribe",
+            "[method]outgoing-datagram-stream.check-send",
+            "[method]outgoing-datagram-stream.send",
+            "[method]outgoing-datagram-stream.subscribe",
+        ]),
+    ),
     // A client's half: no incoming request, outgoing response, or outparam,
     // which only a server handed a request holds.
     (
