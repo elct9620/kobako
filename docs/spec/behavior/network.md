@@ -28,6 +28,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/network/builder.rs`
 - `crates/kobako-runtime/src/network/ruleset.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
+- `crates/kobako-runtime/src/net/workers.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 
 ## `NW-001` An entry after the first invocation is refused
@@ -265,3 +266,15 @@ endpoint "api.example.com", port: 443
 | Given | an entry's `connect?`, or a `policy(:connect)` block, beside an endpoint admitting an address |
 | When | the script opens a `TCPSocket` there |
 | Then | the policy is handed a `Kobako::Network::Connection`. A falsy answer raises `Errno::EACCES` in the script |
+
+## `NW-022` A full worker cap answers EAGAIN
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose sockets' workers fill its cap, or the process's |
+| When | the guest connects once more |
+| Then | the connect answers `EAGAIN`, never a Trap, and dials nothing. A worker that ends gives its place back, and a forked child starts from none |

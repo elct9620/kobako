@@ -11,6 +11,7 @@ is one Grant, and its endpoints are data the runtime judges on any thread.
 - `crates/kobako-runtime/src/net/family.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
+- `crates/kobako-runtime/src/net/workers.rs`
 
 ## `Network`
 
@@ -276,7 +277,7 @@ refused for an endpoint the ruleset cannot compile.
 
 ```rust
 impl Namespace {
-    pub fn new<'a>(networks: impl IntoIterator<Item = &'a Network>, family: Arc<dyn ProtocolFamily>) -> Result<Self, EntryError> {}
+    pub fn new<'a>(networks: impl IntoIterator<Item = &'a Network>, family: Arc<dyn ProtocolFamily>, workers: Arc<Workers>) -> Result<Self, EntryError> {}
 }
 ```
 
@@ -384,6 +385,41 @@ How much a socket holds each way, as `sk_rcvbuf` and `sk_sndbuf` bound one.
 pub const SOCKET_BUFFER: usize = 64 * 1024;
 ```
 
+## `Workers`
+
+How many worker threads one owner runs, and the most it may, as a cgroup's
+`pids.max` bounds its tasks. A forked child starts from none.
+
+```rust
+pub struct Workers {}
+```
+
+## `Workers::new`
+
+An owner running at most this many workers.
+
+```rust
+impl Workers {
+    pub fn new(limit: usize) -> Arc<Self> {}
+}
+```
+
+## `SANDBOX_WORKERS`
+
+The most worker threads one Sandbox runs at once, two per open socket.
+
+```rust
+pub const SANDBOX_WORKERS: usize = 64;
+```
+
+## `PROCESS_WORKERS`
+
+The most worker threads the process runs at once, across every Sandbox.
+
+```rust
+pub const PROCESS_WORKERS: usize = 1024;
+```
+
 ## `TcpSock`
 
 One TCP socket, shared by its socket file and the workers doing its host I/O.
@@ -395,10 +431,12 @@ pub struct TcpSock {}
 ## `TcpSock::connect`
 
 A socket connecting on a worker, given up at the deadline. It answers at once.
+Its two workers count against the Sandbox's and the process's, and a full
+count answers `WouldBlock`.
 
 ```rust
 impl TcpSock {
-    pub fn connect(family: Arc<dyn ProtocolFamily>, addr: SocketAddr, deadline: Option<Instant>) -> Arc<Self> {}
+    pub fn connect(family: Arc<dyn ProtocolFamily>, addr: SocketAddr, deadline: Option<Instant>, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
 }
 ```
 
