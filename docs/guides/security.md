@@ -20,10 +20,11 @@ Mounts have their own guide in [mounts](mounts.md).
 - (c) Isolation per Invocation and across Sandboxes.
 - (d) One Sandbox per trust context.
 
-The guest reaches outward only through a Service you bound or a Filesystem you
-mounted. Guest code can name any `MyService::KV` path, but a forged name resolves
-only to something you bound. **What you bind and mount, and each object's Exposure,
-is the real authorization gate.**
+The guest reaches outward only through a Service you bound, a Filesystem you
+mounted, or a network entry you gave it. Guest code can name any `MyService::KV`
+path, but a forged name resolves only to something you bound. **What you bind,
+mount, and give as network, and each object's Exposure, is the real authorization
+gate.**
 
 ## Built-in Guarantees
 
@@ -39,6 +40,9 @@ feature that specifies it.
 | a binding belongs to its own Sandbox | [services](../spec/behavior/services.md) |
 | no ambient filesystem, environment, or socket | [runtime](../spec/behavior/runtime.md) |
 | a path the guest gives stays within its Mount, and the Mount's access holds | [runtime](../spec/behavior/runtime.md) |
+| a socket reaches only what an endpoint admits | [network](../spec/behavior/network.md) |
+| a name is looked up only when an endpoint names it | [network](../spec/behavior/network.md) |
+| a credential leaves only over HTTPS, to the host it binds | [network](../spec/behavior/network.md) |
 | no live time or entropy under the default `:hermetic` | [runtime](../spec/behavior/runtime.md) |
 | timeout, memory cap, and output clipping fail cleanly | [sandbox](../spec/behavior/sandbox.md) |
 | the guest holds no more files open than its cap | [sandbox](../spec/behavior/sandbox.md) |
@@ -57,7 +61,8 @@ one and defaults to `:hermetic`. The rungs differ in what the guest reads of tim
 
 A permissive guest's inode number tells entries apart, and nothing outside the process can compute it from a host's numbers.
 
-`hermetic` keeps the guest deterministic except for values a Service injects.
+`hermetic` keeps the guest deterministic except for values a Service injects or a
+network entry brings.
 Requesting `:permissive` trades that reproducibility for real time and entropy;
 every other guarantee holds on both rungs. Live time and entropy reach only a
 third-party guest: the bundled Guest Binaries import no clock and give scripts
@@ -76,10 +81,12 @@ leaves the host exposed in its own way.
 | `nil` cap | What the guest can then cost the host |
 |---|---|
 | `timeout` | a thread held for as long as the guest runs |
+| `timeout`, with a network | a worker a silent peer holds until it closes |
 | `setup_timeout` | `Sandbox.new` held for as long as the Guest Binary takes to start |
 | `memory_limit` | up to 4 GiB of memory, no value budget, every listing a guest holds |
 | `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
 | `open_file_limit` | host descriptors for each file or directory open beneath a Bind |
+| `open_file_limit`, with a network | sockets bounded only by the worker cap |
 | a Tmpfs's `size:` | host memory without bound; one write far past a file's end fills the gap |
 | a Tmpfs's `nr_inodes:` | an entry for every file and directory it makes |
 
@@ -87,6 +94,66 @@ An uncapped output is the sharpest: a guest writing one buffer in a loop grows t
 capture on the host, not in its own memory. Reading that capture back also runs
 after the timeout fires, so the call returns late. Keep both output caps set for
 untrusted code.
+
+## Network
+
+kobako keeps a socket to what an endpoint admits. What the endpoint itself does
+with what the guest sends is yours to judge, as a Service's behavior is.
+
+```
+guest name --> endpoint names it? --> host resolver --> address in its sets?
+                 | no: NXDOMAIN, unasked                  | no: EACCES
+                                                          +--> connect, past the policies
+```
+
+### Names and Lookups
+
+A name an endpoint names goes to the host's resolver, so each lookup is egress.
+
+| Endpoint | What the guest can still do |
+|---|---|
+| a wildcard, `*.example.com` | spell data into labels the zone's server reads, even when the connect is refused |
+| an exact name | look up that one name |
+| a name the host resolves to a private address, as split-horizon DNS does | reach it only if the endpoint lists `:private` or a CIDR holding it |
+
+A wildcard leads only to `:public` addresses or a CIDR you write, so a name under it never reaches your own network.
+
+### Echoing Endpoints
+
+A credential is swapped in only on the way out, and a response passes untouched.
+An endpoint that echoes a request back, in a header or a body, hands the secret to
+the guest. Bind a credential only to an endpoint that never echoes it.
+
+| Endpoint | Bind a credential to it |
+|---|---|
+| an API that only authenticates the header | yes |
+| a debug, echo, or proxy endpoint | no |
+
+### Trust Roots
+
+TLS trusts the OS's own store, so a revoked or added root follows the host's
+patches, not a kobako release.
+
+| Platform | Store | Revocation |
+|---|---|---|
+| macOS | Security.framework | online, end certificate |
+| Windows | the system certificate store | online, end certificate |
+| Linux | the distribution's CA bundle, or `SSL_CERT_FILE` | none |
+
+The store is read once per process, when the first Sandbox is built. Revocation
+fetches on macOS and Windows are host egress no endpoint judges. Setting
+`SSL_CERT_FILE` changes what every guest trusts, and an inspection root installed
+on the host sees each credential swapped in.
+
+### Image Requirements
+
+A container image without a CA bundle refuses every TLS connection.
+
+| Image | Do |
+|---|---|
+| Debian, Ubuntu | install `ca-certificates` |
+| Alpine | install `ca-certificates` |
+| `scratch` | copy a CA bundle in, or set `SSL_CERT_FILE` |
 
 ## Preloaded Bytecode
 

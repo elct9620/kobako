@@ -35,6 +35,7 @@ host memory, I/O, or credentials. The scenarios under
 | Preload and dispatch | preload source or bytecode once, dispatch many `#run` calls |
 | Service injection | Services and Grants are guest code's only reach outside the Sandbox |
 | File access | `#mount` hands guest `File` and `Dir` a Filesystem the Host App chose |
+| Network access | `#network` hands guest sockets and `Net::HTTP` only the endpoints the Host App named |
 | Block yield | a Service method yields to a guest block, still isolated |
 | Error attribution | each failure is a Trap, a Sandbox failure, or a Service failure |
 | Output capture | each Channel, output and error, captured apart from the Transport |

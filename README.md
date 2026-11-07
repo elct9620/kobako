@@ -98,6 +98,29 @@ sandbox.eval('File.read("/config/app.yml")').value
 | `Bind` | one host directory |
 | `Overlay` | read-only Layers under a Tmpfs |
 
+### Network
+
+`network` gives the guest's `TCPSocket`, `UDPSocket`, and `Net::HTTP` only the
+endpoints you name. A credential's secret never enters the guest: the host swaps
+it in for its placeholder on the way out.
+
+```ruby
+sandbox.network(:api) do |net|
+  net.endpoint("api.example.com", port: 443) { |rules| rules.allow("GET", "/v1/**") }
+  net.credential(:bearer, placeholder: "API_TOKEN") { ENV.fetch("API_TOKEN") }
+end
+sandbox.eval(<<~RUBY).value
+  http = Net::HTTP.new("api.example.com", 443)
+  http.use_ssl = true
+  http.get("/v1/status", "Authorization" => "Bearer API_TOKEN").code
+RUBY
+```
+
+| Endpoint part | Default |
+|---|---|
+| `protocol:` | `:http`; `:tcp` or `:udp` only when written |
+| `addresses:` | `[:public]`; `:private`, `:local`, or a CIDR only when written |
+
 ### Execution Records
 
 An Execution carries the value, the output, and the usage. A failed run raises

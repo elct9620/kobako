@@ -51,6 +51,7 @@ grows append-only with the corpus.
 | flags | Flags, each advisory or critical |
 | extensions | Extensions to install |
 | mounts | a Tmpfs seeded with files, its guest path and access |
+| networks | a named entry holding endpoints only |
 | invocations | the verbs run in order |
 
 Both executors interpret the same closed sets, so a new member lands on
@@ -172,3 +173,4 @@ each Frontend.
 | Extensions | composition, backend resolution | the dependency assertion, install-error shapes |
 | Posture | the requested Posture | the floor-refusal spelling |
 | Mount | what the guest reads and its refusals | path validation, a Mount's Policy |
+| Network | the ruleset, its refusals, and the guest's view of each | an entry's Policies, the Protocol Family, the outbound seam |

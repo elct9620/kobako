@@ -64,7 +64,11 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 | Wasm engine | `impl Runtime` + `GuestInstance`, handed to `Sandbox::with_runtime` | Rust SDK | replaceable |
 | Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a Frontend of your own | replaceable |
 | Filesystem | `impl FileSystemType` + `InodeOperations` + `FileOperations` + `DentryOperations`, behind a Mount | Rust SDK | replaceable · methods append-only |
-| Lock wait | `impl Blocking`, handed once to `sched::register_blocking` | a Frontend of your own | replaceable · methods append-only |
+| Host wait, for a lock or for I/O | `impl Blocking`, handed once to `sched::register_blocking` | a Frontend of your own | replaceable · methods append-only |
+| Network policy | `impl Policy<Name>`, `Policy<Connection>`, or `Policy<Request>`, handed to a `network::Builder` | Rust SDK | replaceable |
+| Credential | `impl CredentialSource`, handed to `Credential::new` | Rust SDK | replaceable |
+| Protocol Family | `impl ProtocolFamily`, handed to `Namespace::new` | a Wasm Driver of your own | replaceable · methods append-only |
+| Outbound HTTP | `impl Outbound`, handed to `Namespace::new` | a Wasm Driver of your own | replaceable · methods append-only |
 | security module | `impl SecurityOperations`, handed to `kobako_wasmtime::Config::security` | Rust SDK | replaceable · methods append-only |
 
 ### Graded Names

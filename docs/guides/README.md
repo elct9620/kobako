@@ -15,6 +15,7 @@ section mapping the Ruby calls to the SDK's.
 | bound what a run may consume | [Resource Limits](limits.md) |
 | run many invocations at once | [Concurrency](concurrency.md) |
 | let guest code read and write files | [Mounts](mounts.md) |
+| let guest code reach named hosts | [Security Model § Network](security.md#network) |
 | ship guest code with the Sandbox | [Snippets](snippets.md), [Extensions](extensions.md) |
 | give the guest Regexp or JSON | [Guest Binary Variants](variants.md) |
 | decide what the guest may reach | [Security Model](security.md) |

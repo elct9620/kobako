@@ -136,7 +136,7 @@ The same test applies beyond the filesystem. kobako answers only what native WAS
 | memory cap accounting | `kobako-runtime` | the growth hook stays in the Wasm Driver |
 | networking | `kobako-runtime` | a new kind of Grant |
 
-Preview1 has `sock_accept`, `sock_recv`, `sock_send`, and `sock_shutdown`, but no connect. Networking is therefore encoded as WASI 0.2's `wasi:sockets` and `wasi:io`, as imports a core module links.
+Preview1 has `sock_accept`, `sock_recv`, `sock_send`, and `sock_shutdown`, but no connect. Networking is therefore encoded as WASI 0.2's `wasi:sockets`, `wasi:http`, and `wasi:io`, as imports a core module links.
 
 ## Standard Bridging
 
@@ -148,7 +148,7 @@ Each ABI version gets its own syscall table, and every table asks the same `koba
          v               v
 +-----------------+  +-------------------+
 | p1 fd table     |  | p2 resource table |
-| files           |  | wasi:sockets, io  |
+| files           |  | sockets, http, io |
 +--------+--------+  +---------+---------+
          |                     |
          +----------+----------+

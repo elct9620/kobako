@@ -32,7 +32,7 @@ Each variant names the capabilities it adds beyond the base.
 
 | Variant | Artifact | Capabilities beyond the base |
 |---------|----------|------------------------------|
-| default | `kobako.wasm` | none — pure compute |
+| default | `kobako.wasm` | none; files and sockets reach only what a Sandbox grants |
 | regexp | `kobako+regexp.wasm` | ASCII Regexp / MatchData |
 | regexp-unicode | `kobako+regexp-unicode.wasm` | Regexp / MatchData with Unicode case-insensitive matching |
 | json | `kobako+json.wasm` | JSON parse / generate |

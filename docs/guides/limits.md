@@ -39,11 +39,22 @@ global budget.
 | `timeout` | wall time inside the guest, Service calls included |
 | `setup_timeout` | instantiating a Guest Binary and reading its ABI version, not compiling it |
 | `memory_limit` | the run's `memory.grow` past its starting memory |
-| `open_file_limit` | every descriptor one run holds, the standard three and Mounts' included |
+| `open_file_limit` | every descriptor one run holds, the standard three, Mounts', and sockets' included |
 
 `setup_timeout` applies the first time a path is loaded, and later Sandboxes on
 that path skip the check. A Pool builds each Sandbox at its first checkout, so
 its `SetupError` raises from `with`.
+
+## Network Caps
+
+Each open socket runs two host worker threads, and each HTTP request one. Two
+fixed caps bound them. A socket past either cap raises `Errno::EAGAIN` in the
+guest, and the script goes on.
+
+| Cap | Value | Measures |
+|---|---|---|
+| per Sandbox | 64 workers | every socket and request its runs hold at once |
+| per process | 1024 workers | every Sandbox's together |
 
 ## Usage Report
 

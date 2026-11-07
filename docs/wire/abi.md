@@ -111,6 +111,15 @@ A host implements exactly one ABI version, so an increment is the cost of a chan
 
 A Sandbox is short-lived, so no connection or stored payload outlasts a version. An independently built Guest Binary conforms by rebuilding against the new one. Release notes list wire-affecting changes under Breaking Changes.
 
+### Version 6
+
+Version `6` adds the `cabi_realloc` export, so the guest can import WASI 0.2 as a core module. The host lowers each list a `wasi:sockets` or `wasi:http` import answers through it.
+
+| Decision | Consequence |
+|----------|-------------|
+| WASI 0.2 imports a core module links, not a component | the Guest Binary stays one core module beside preview1 |
+| the guest owns its allocator | a list the host answers lands in memory the guest frees |
+
 ### Version 5
 
 Version `5` carries the operation in the message, so an added operation is a registry entry rather than a new symbol. A Yield Call names the open Call whose block it runs.

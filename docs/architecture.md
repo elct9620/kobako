@@ -23,6 +23,7 @@ An Engine is the WebAssembly runtime that executes a Guest Binary, such as wasmt
 | kobako provides | Because |
 |---|---|
 | every preview1 call that reads the descriptor table: `fd_*`, `path_*`, `sock_*`, `poll_oneoff` | each Mount is a descriptor, and one table must answer every call that reads one |
+| every `wasi:sockets` and `wasi:http` import, and the `wasi:io` they stand on | a socket must pass the endpoints a Grant names, which no Engine knows |
 | the host side of the kobako ABI | no Engine knows that ABI |
 
 Arguments, environment, clocks, process, scheduling, and randomness stay with the Engine's native WASI.
@@ -198,6 +199,8 @@ A seam carries typed Envelopes and payload bytes, never encoded Envelope bytes. 
 | a result that does not frame | a `Trap` |
 | a host resource the guest reaches through WASI | a `Grant`, such as a `Mount` |
 | a path call the guest makes beneath a Mount | a `vfs` operation |
+| a lookup, a connection, or a request the guest makes | a `net::Namespace` call, past the entries' policies |
+| how a connection or a request leaves the host | a `ProtocolFamily`, an `Outbound` |
 | how a Frontend's thread waits on any lock or host-side event | a `Blocking`, registered once |
 | a Frontend giving up on an Invocation its callback cannot answer | `DispatchHandler::abandoned` |
 | an Engine's memory and exports | a `GuestInstance` |
@@ -270,6 +273,7 @@ Behavior lives in the spec under [`spec/`](spec/). Each layer has one reference 
 | WASI encoding | witx, then wasi-testsuite, then Linux | [`filesystem/preview1.md`](filesystem/preview1.md) |
 | `vfs` | Linux's VFS, in behavior and logic | [`filesystem/README.md`](filesystem/README.md) |
 | `filesystem` | the spec | [`spec/`](spec/) |
+| `net` | Linux's sockets: sockfs, `proto_ops`, the LSM and cgroup connect hooks | [`spec/behavior/network.md`](spec/behavior/network.md) |
 | capability gems | CRuby as closely as the guest can; a scenario states each forced difference | [`spec/behavior/json.md`](spec/behavior/json.md), [`spec/behavior/regexp.md`](spec/behavior/regexp.md) |
 | the two Frontends | each other | [`process/parity.md`](process/parity.md) |
 | names and wording | the naming baseline | [`process/convention.md`](process/convention.md) |
