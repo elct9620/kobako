@@ -80,14 +80,14 @@ module Kobako
           return service_refusal(name) if name == :method_missing
 
           klass = lookup_class(target)
-          return defined_refusal(target, name, klass) if klass.public_method_defined?(name)
+          return public_method_refusal(target, name, klass) if klass.public_method_defined?(name)
           return "no public method #{name.inspect} on target" unless target.respond_to?(name)
           return service_refusal(name) if klass.method_defined?(name) || klass.private_method_defined?(name)
 
           owner_refusal(target, name, klass)
         end
 
-        def defined_refusal(target, name, klass)
+        def public_method_refusal(target, name, klass)
           method = klass.instance_method(name)
           owner_refusal(target, name, method.owner) ||
             (authored_for?(target, name, method, klass) ? nil : service_refusal(name))

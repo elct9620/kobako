@@ -31,7 +31,7 @@ module Kobako
 
       def self.narrows_itself?: (untyped object, Module klass) -> bool
 
-      def self.default_names: (untyped object, Module klass, Hash[Module, Set[Symbol]] surfaces) -> Set[Symbol]
+      def self.resolve_default_names: (untyped object, Module klass, Hash[Module, Set[Symbol]] surfaces) -> Set[Symbol]
 
       def self.class_names: (untyped object, Module klass) -> Set[Symbol]
 

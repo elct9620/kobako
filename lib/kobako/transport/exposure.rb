@@ -32,7 +32,7 @@ module Kobako
       # once (a Handle table), so two objects of one class enumerate it once.
       def self.of(object, surfaces = {})
         klass = CLASS_OF.bind_call(object)
-        names = narrows_itself?(object, klass) ? nil : default_names(object, klass, surfaces)
+        names = narrows_itself?(object, klass) ? nil : resolve_default_names(object, klass, surfaces)
         new(object: object, names: names)
       end
 
@@ -59,7 +59,7 @@ module Kobako
 
         # A callable keeps its callable names; a class-level surface or a
         # forwarder has no surface of its own to expose.
-        def default_names(object, klass, surfaces)
+        def resolve_default_names(object, klass, surfaces)
           case object
           when Proc, Method then CALLABLE
           when Module, Delegator then NOTHING

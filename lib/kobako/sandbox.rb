@@ -149,7 +149,7 @@ module Kobako
     # Handle or a non-Symbol keyword. A failed run raises as #eval does.
     def run(target, *args, **kwargs, &block)
       request = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
-      Codec.within_value_budget(@options.value_budget) { new_invocation.run(request, &block) }
+      Codec.within_value_budget(@options.value_budget) { begin_invocation!.run(request, &block) }
     end
 
     # Evaluate +code+, mruby source as a String, and return the Execution,
@@ -164,7 +164,7 @@ module Kobako
     def eval(code, &block)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
-      Codec.within_value_budget(@options.value_budget) { new_invocation.eval(code, &block) }
+      Codec.within_value_budget(@options.value_budget) { begin_invocation!.eval(code, &block) }
     end
 
     private
@@ -175,14 +175,6 @@ module Kobako
       runtime = Kobako::Runtime.from_path(@wasm_path, **@options.to_h)
       @options.enforce_floor!(runtime.profile)
       runtime
-    end
-
-    # Per-invocation state lives on the Context, so nothing an invocation
-    # does is written back onto the shared config.
-    def new_invocation
-      begin_invocation!
-      Context.new(runtime: @runtime, services: @services, extensions: @extensions, grants: @grants,
-                  preamble: preamble(@snippets.entries))
     end
 
     # The one place the Preamble's parts are put together, for a compile
@@ -199,11 +191,15 @@ module Kobako
 
     # Sealing before the dependency check keeps a Sandbox whose check failed
     # closed to further registration. The sealed snippets are compiled once,
-    # before the first invocation replays them.
+    # before the first invocation replays them. Per-invocation state lives on
+    # the Context it answers, so nothing an invocation does is written back
+    # onto the shared config.
     def begin_invocation!
       @sealed = true
       @extensions.assert_dependencies!
       @snippets.compile { |entries| @runtime.compile(preamble(entries)) }
+      Context.new(runtime: @runtime, services: @services, extensions: @extensions, grants: @grants,
+                  preamble: preamble(@snippets.entries))
     end
   end
 end
