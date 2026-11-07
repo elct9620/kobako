@@ -7,8 +7,8 @@ use std::sync::Arc;
 use magnus::value::{Opaque, ReprValue};
 use magnus::{prelude::*, Error as MagnusError, RArray, RString, Ruby, Symbol, Value};
 
-use kobako_runtime::grant::Grant;
-use kobako_runtime::mount::{Access, Mount, Policy};
+use kobako_runtime::grant::{Grant, Policy};
+use kobako_runtime::mount::{Access, Mount, MountRequest};
 
 use super::to_filesystem;
 use crate::runtime::pinned_value::PinnedValue;
@@ -58,17 +58,17 @@ struct RubyPolicy {
     block: Opaque<Value>,
 }
 
-impl Policy for RubyPolicy {
-    fn allows(&self, path: &str, access: Access) -> bool {
+impl Policy<MountRequest<'_>> for RubyPolicy {
+    fn allows(&self, request: &MountRequest<'_>) -> bool {
         gvl::reenter(|| {
             let ruby = Ruby::get().expect("Ruby handle unavailable in a mount's block");
             let block: Value = ruby.get_inner(self.block);
-            let access = ruby.to_symbol(match access {
+            let access = ruby.to_symbol(match request.access {
                 Access::Read => "read",
                 Access::ReadWrite => "read_write",
             });
             block
-                .funcall::<_, _, Value>("call", (ruby.str_new(path), access))
+                .funcall::<_, _, Value>("call", (ruby.str_new(request.path), access))
                 .map(|answer| answer.to_bool())
                 .unwrap_or_else(|error| {
                     let _ = escape::hold(&ruby, error);
