@@ -1381,13 +1381,34 @@ impl PollMask {
 }
 ```
 
+## `PollMask::ERR`
+
+The file failed, and a call answers its error.
+
+```rust
+impl PollMask {
+    pub const ERR: Self;
+}
+```
+
+## `PollMask::HUP`
+
+The peer hung up, and a read answers the end.
+
+```rust
+impl PollMask {
+    pub const HUP: Self;
+}
+```
+
 ## `File::poll`
 
-What a call would find ready, as `vfs_poll` asks the file.
+What a call would find ready, as `vfs_poll` asks the file. A poll that will
+sleep passes the table the file registers on.
 
 ```rust
 impl File {
-    pub fn poll(&self) -> PollMask {}
+    pub fn poll(&self, table: Option<&mut PollTable>) -> PollMask {}
 }
 ```
 
@@ -2329,6 +2350,16 @@ impl Kiocb {
 }
 ```
 
+## `Kiocb::with_nowait`
+
+The same call, answering EAGAIN where it would wait, as `IOCB_NOWAIT` asks.
+
+```rust
+impl Kiocb {
+    pub fn with_nowait(self) -> Self {}
+}
+```
+
 ## `generic_write_sync`
 
 Make what a write changed durable through the file where the call asks. A
@@ -2494,12 +2525,13 @@ pub trait FileOperations {
 
 ## `FileOperations::poll`
 
-What a call would find ready on this end. A file without it is always ready, as
-`vfs_poll` answers.
+What a call would find ready on this end. A file that can become ready later
+registers its wait queue on the table through `poll_wait`. A file without it
+is always ready, as `vfs_poll` answers.
 
 ```rust
 pub trait FileOperations {
-    fn poll(&self, _mode: FMode) -> PollMask;
+    fn poll(&self, _mode: FMode, _table: Option<&mut PollTable>) -> PollMask;
 }
 ```
 
