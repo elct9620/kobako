@@ -9,7 +9,9 @@ use std::net::Ipv4Addr;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
+use beni::{
+    Error, Exception, ExceptionClass, IntoValue, Module, Mrb, RClass, TryConvert, TypedData, Value,
+};
 
 use crate::errno;
 use crate::io::argument_error;
@@ -25,8 +27,9 @@ mod wasi {
 
 use wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use wasi::wasi::sockets::instance_network::instance_network;
+use wasi::wasi::sockets::ip_name_lookup::resolve_addresses;
 use wasi::wasi::sockets::network::{
-    ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
+    ErrorCode, IpAddress, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
 };
 use wasi::wasi::sockets::tcp::{ShutdownType, TcpSocket};
 use wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
@@ -109,6 +112,13 @@ impl Connection {
 }
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
+    let socket_error =
+        mrb.class_object()
+            .define_error(mrb, c"SocketError", mrb.exception_standard_error())?;
+    let resolution = mrb
+        .define_class(c"Socket", mrb.class_object())?
+        .define_error(mrb, c"ResolutionError", socket_error)?;
+    resolution.define_method(mrb, c"error_code", beni::method!(resolution_error_code, 0))?;
     let socket = mrb.define_class(c"TCPSocket", mrb.class_object())?;
     Connection::mark_carriers(mrb)?;
     socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, 2))?;
@@ -159,8 +169,65 @@ fn to_error(mrb: &Mrb, code: ErrorCode, peer: &str) -> Error {
     errno::error_by_name(mrb, name, &format!("connect(2) for {peer}"))
 }
 
-/// `TCPSocket.new(host, port)` connects to the IPv4 address `host` names, as
-/// the network the Sandbox gives allows.
+/// `Socket::ResolutionError#error_code`: the `getaddrinfo` code, as Linux
+/// numbers it.
+fn resolution_error_code(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    match Exception::from_value(self_) {
+        Some(exception) => exception.ivar_get(mrb, c"@error_code"),
+        None => Ok(qnil().as_value()),
+    }
+}
+
+/// Linux's `EAI_NONAME` and `EAI_AGAIN`, with `gai_strerror`'s words for each.
+const EAI_NONAME: (i32, &str) = (-2, "Name or service not known");
+const EAI_AGAIN: (i32, &str) = (-3, "Temporary failure in name resolution");
+
+/// The `Socket::ResolutionError` CRuby raises for a `getaddrinfo` failure.
+fn resolution_error(mrb: &Mrb, (code, words): (i32, &str)) -> Error {
+    let class = match mrb
+        .class_get(c"Socket")
+        .and_then(|socket| socket.const_get::<_, ExceptionClass>(mrb, c"ResolutionError"))
+    {
+        Ok(class) => class,
+        Err(err) => return err,
+    };
+    let exception = class.new_str(mrb, mrb.str_new(format!("getaddrinfo: {words}").as_bytes()));
+    if let Err(err) = exception.ivar_set(mrb, c"@error_code", code) {
+        return err;
+    }
+    Error::Exception(exception.as_value())
+}
+
+/// The IPv4 address `name` leads to, as kobako's resolver hands out a virtual
+/// one; a name with no address raises `Socket::ResolutionError`, as an
+/// unallowed one does.
+fn resolve(mrb: &Mrb, name: &str, peer: &str) -> Result<Ipv4Addr, Error> {
+    let to_error = |code| match code {
+        ErrorCode::PermanentResolverFailure => errno::not_implemented(
+            mrb,
+            "TCPSocket is unimplemented: this Sandbox gives the guest no network",
+        ),
+        ErrorCode::TemporaryResolverFailure => resolution_error(mrb, EAI_AGAIN),
+        ErrorCode::NameUnresolvable | ErrorCode::InvalidArgument => {
+            resolution_error(mrb, EAI_NONAME)
+        }
+        code => to_error(mrb, code, peer),
+    };
+    let stream = resolve_addresses(&instance_network(), name).map_err(to_error)?;
+    let pollable = stream.subscribe();
+    loop {
+        match stream.resolve_next_address() {
+            Ok(Some(IpAddress::Ipv4((a, b, c, d)))) => return Ok(Ipv4Addr::new(a, b, c, d)),
+            Ok(Some(IpAddress::Ipv6(_))) => {}
+            Ok(None) => return Err(resolution_error(mrb, EAI_NONAME)),
+            Err(ErrorCode::WouldBlock) => pollable.block(),
+            Err(code) => return Err(to_error(code)),
+        }
+    }
+}
+
+/// `TCPSocket.new(host, port)` connects to the IPv4 address `host` names, or
+/// the one its name leads to, as the network the Sandbox gives allows.
 fn tcp_socket_s_new(mrb: &Mrb, class: RClass, host: Value, port: Value) -> Result<Value, Error> {
     let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
     let port = u16::try_from(i64::try_convert(port, mrb)?)
@@ -171,12 +238,7 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, host: Value, port: Value) -> Resul
         Ok(std::net::IpAddr::V6(_)) => {
             return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &peer))
         }
-        Err(_) => {
-            return Err(errno::not_implemented(
-                mrb,
-                &format!("TCPSocket.new is unimplemented for a host name: {host_text}"),
-            ))
-        }
+        Err(_) => resolve(mrb, &host_text, &peer)?,
     };
     let socket =
         create_tcp_socket(IpAddressFamily::Ipv4).map_err(|code| to_error(mrb, code, &peer))?;
