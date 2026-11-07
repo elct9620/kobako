@@ -241,6 +241,20 @@ impl Sandbox {
         catalog.grants.network(network)
     }
 
+    /// Give the guest `entry` under `name` with what `build` adds to it, as
+    /// `network` gives an entry: the endpoints and policies are the entry's,
+    /// then the builder's.
+    pub fn network_with(
+        &mut self,
+        name: &str,
+        entry: Arc<dyn network::Entry>,
+        build: impl FnOnce(&mut network::Builder),
+    ) -> Result<(), Error> {
+        let mut builder = network::Builder::on(entry);
+        build(&mut builder);
+        self.network(name, Arc::new(builder))
+    }
+
     /// Install an Extension — a guest idiom (`source`) paired with an
     /// optional host backend. A `PerInvocation` provider is resolved fresh
     /// at every invocation. Refused once sealed; an Extension whose
