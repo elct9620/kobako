@@ -66,6 +66,14 @@ wiggle = { version = "50.0.0", default-features = false, features = ["wasmtime"]
 # hash must be cryptographic.
 sha2 = "0.11"
 
+[build-dependencies]
+# build.rs generates the WASI 0.2 imports a Guest Binary links as a core
+# module from `wit/`, as wiggle generates preview1's from `witx/`.
+# wit-bindgen-core walks the Canonical ABI and re-exports the wit-parser
+# it was built against.
+wit-bindgen-core = "0.63.0"
+anyhow = "1.0.102"
+
 # rustix reaches the cache directory through one descriptor, checked by
 # owner, so the unsafe artifact deserialize reads only what that
 # directory holds (see cache.rs); std has no `*at` calls.

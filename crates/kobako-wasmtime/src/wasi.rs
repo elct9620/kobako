@@ -9,6 +9,7 @@ use wasmtime_wasi::WasiCtxBuilder;
 use crate::ambient::{self, Clocks};
 use crate::config::Config;
 use crate::descriptors::Descriptors;
+use crate::preview2;
 use kobako_runtime::endpoint;
 use kobako_runtime::error::Trap;
 use std::sync::Arc;
@@ -34,6 +35,7 @@ fn prepare_creds(config: &Config) -> Arc<Cred> {
 pub(crate) struct Wasi {
     ctx: WasiP1Ctx,
     descriptors: Descriptors,
+    table: preview2::Table,
     clocks: Clocks,
     stdout: Arc<PipeInodeInfo>,
     stderr: Arc<PipeInodeInfo>,
@@ -106,13 +108,16 @@ impl Wasi {
 
         // stdio lives in kobako's descriptor table, which answers every
         // call that reads a descriptor (`crate::preview1`); the builder
-        // keeps only what the remaining imports read.
+        // keeps only what the remaining imports read. preview2's resource
+        // table counts against the same open files.
+        let open_files = OpenFiles::new(open_file_limit);
+        let table = preview2::Table::new(open_files.clone());
         let descriptors = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
             mounts,
-            OpenFiles::new(open_file_limit),
+            open_files,
             opener,
             profile,
         )
@@ -143,6 +148,7 @@ impl Wasi {
         Ok(Self {
             ctx: builder.build_p1(),
             descriptors,
+            table,
             clocks,
             stdout,
             stderr,
@@ -155,6 +161,14 @@ impl Wasi {
 
     pub(crate) fn descriptors(&self) -> &Descriptors {
         &self.descriptors
+    }
+
+    pub(crate) fn table(&self) -> &preview2::Table {
+        &self.table
+    }
+
+    pub(crate) fn table_mut(&mut self) -> &mut preview2::Table {
+        &mut self.table
     }
 
     pub(crate) fn descriptors_mut(&mut self) -> &mut Descriptors {

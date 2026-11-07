@@ -888,6 +888,7 @@ version = "0.20.0"
 name = "kobako-wasmtime"
 version = "0.20.0"
 dependencies = [
+ "anyhow",
  "kobako-runtime",
  "kobako-transport",
  "rustix",
@@ -895,6 +896,7 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi",
  "wiggle",
+ "wit-bindgen-core 0.63.0",
 ]
 
 [[package]]
@@ -1684,6 +1686,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmparser"
+version = "0.262.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "974d643b125b272607e2fff8012ea14a8328acd7621e4bafa7afb32500052b1b"
+dependencies = [
+ "bitflags",
+ "indexmap",
+ "semver",
+]
+
+[[package]]
 name = "wasmprinter"
 version = "0.261.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2138,6 +2151,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "wit-bindgen-core"
+version = "0.63.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "775e122e390603abfacd548027016cd0113a6e2bf2f8ce6bdd3658b013456ea8"
+dependencies = [
+ "anyhow",
+ "heck",
+ "wit-parser 0.262.0",
+]
+
+[[package]]
 name = "wit-bindgen-rust"
 version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2149,7 +2173,7 @@ dependencies = [
  "prettyplease",
  "syn 2.0.117",
  "wasm-metadata 0.244.0",
- "wit-bindgen-core",
+ "wit-bindgen-core 0.51.0",
  "wit-component 0.244.0",
 ]
 
@@ -2164,7 +2188,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
- "wit-bindgen-core",
+ "wit-bindgen-core 0.51.0",
  "wit-bindgen-rust",
 ]
 
@@ -2241,6 +2265,25 @@ dependencies = [
  "serde_json",
  "unicode-ident",
  "wasmparser 0.261.0",
+]
+
+[[package]]
+name = "wit-parser"
+version = "0.262.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00f0dc051466ffe46787721fca3d088536f158ae400be044f1b1c386ba9397ad"
+dependencies = [
+ "anyhow",
+ "hashbrown 0.17.0",
+ "id-arena",
+ "indexmap",
+ "log",
+ "semver",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "unicode-ident",
+ "wasmparser 0.262.0",
 ]
 
 [[package]]

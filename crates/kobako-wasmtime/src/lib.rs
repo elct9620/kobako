@@ -23,6 +23,7 @@ mod instance_pre;
 mod invocation;
 mod limiter;
 mod preview1;
+mod preview2;
 mod trap;
 mod wasi;
 

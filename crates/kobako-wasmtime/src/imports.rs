@@ -12,6 +12,7 @@ use crate::cache::load_engine;
 use crate::guest::Guest;
 use crate::invocation::Invocation;
 use crate::preview1;
+use crate::preview2;
 use kobako_runtime::endpoint::{self, UpcallEnd, ABANDONED};
 use kobako_runtime::error::SetupError;
 
@@ -26,6 +27,7 @@ pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
         state.wasi_mut().ctx_mut()
     })
     .and_then(|_| preview1::shadow(&mut linker))
+    .and_then(|_| preview2::add_to_linker(&mut linker))
     .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
 
     // `__kobako_upcall`, `(ptr: i32, len: i32) -> i64` in the ABI;

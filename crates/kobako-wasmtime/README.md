@@ -16,6 +16,7 @@ contract surface.
 | Bounds | epoch-based wall-clock deadlines on setup and on each invocation, and the per-invocation linear-memory cap |
 | Ambient denial | under the default hermetic profile, frozen clocks and a constant RNG |
 | Filesystems | a preopen per Mount, and its own capped descriptor table |
+| WASI 0.2 imports | the `wasi:sockets`, `wasi:io`, and clock subscriptions a core module links, generated from `wit/` |
 
 Each invocation discards its Store once it ends, so nothing one leaves
 behind reaches the next. The kobako Ruby gem's native ext is the first
