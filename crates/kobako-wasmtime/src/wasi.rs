@@ -17,7 +17,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
-use kobako_runtime::net::{HostInet, Namespace};
+use kobako_runtime::net::{HostInet, Namespace, Workers};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{Cred, OpenFiles};
@@ -50,6 +50,7 @@ impl Wasi {
         config: &Config,
         stdin: Vec<u8>,
         grants: &[Grant],
+        workers: &Arc<Workers>,
     ) -> Result<Self, Trap> {
         let mut wasi = Self::new(
             stdin,
@@ -60,7 +61,7 @@ impl Wasi {
             config.profile,
             grants.iter().filter_map(to_mount).collect(),
         )?;
-        if let Some(network) = to_network(grants)? {
+        if let Some(network) = to_network(grants, workers)? {
             wasi.table.grant(network);
         }
         Ok(wasi)
@@ -193,9 +194,17 @@ impl Wasi {
     }
 }
 
+/// The workers a fresh Sandbox's sockets count against, for a test building
+/// an invocation's context as a Driver does.
+#[cfg(test)]
+pub(crate) fn sandbox_workers() -> Arc<Workers> {
+    Workers::new(kobako_runtime::net::SANDBOX_WORKERS)
+}
+
 /// The network an invocation's Grants make, one namespace for every entry,
-/// dialed through the host's own TCP. No network Grant makes none.
-fn to_network(grants: &[Grant]) -> Result<Option<Namespace>, Trap> {
+/// dialed through the host's own TCP on workers counted against the
+/// Sandbox's `workers`. No network Grant makes none.
+fn to_network(grants: &[Grant], workers: &Arc<Workers>) -> Result<Option<Namespace>, Trap> {
     let entries = grants
         .iter()
         .filter_map(|grant| match grant {
@@ -206,7 +215,7 @@ fn to_network(grants: &[Grant]) -> Result<Option<Namespace>, Trap> {
     if entries.is_empty() {
         return Ok(None);
     }
-    Namespace::new(entries, Arc::new(HostInet))
+    Namespace::new(entries, Arc::new(HostInet), workers.clone())
         .map(Some)
         .map_err(|err| Trap::Other(format!("a network entry did not compile: {err}")))
 }
@@ -285,7 +294,8 @@ mod tests {
             profile,
             security: Vec::new(),
         };
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[]).expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_workers())
+            .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
 

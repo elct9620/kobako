@@ -517,7 +517,7 @@ mod tests {
     use crate::imports;
     use crate::invocation::Invocation;
     use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
-    use crate::wasi::Wasi;
+    use crate::wasi::{sandbox_workers, Wasi};
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::run_task;
 
@@ -563,7 +563,8 @@ mod tests {
             profile,
             security: Vec::new(),
         };
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[]).expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_workers())
+            .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let module = Module::new(engine, GUEST_WAT).expect("the guest module must compile");

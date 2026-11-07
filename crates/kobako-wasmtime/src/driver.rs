@@ -25,6 +25,7 @@ use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::endpoint;
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::grant::{Grant, GrantKind};
+use kobako_runtime::net::{Workers, SANDBOX_WORKERS};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
@@ -40,6 +41,9 @@ pub struct Driver {
     instance_pre: WtInstancePre<Invocation>,
     // Every cap forwarded from the Sandbox; see `Config`.
     config: Config,
+    // The worker threads this Sandbox's sockets run, across its invocations,
+    // as one cgroup counts its tasks.
+    workers: Arc<Workers>,
 }
 
 impl Driver {
@@ -50,6 +54,7 @@ impl Driver {
         Ok(Self {
             instance_pre: instance_pre::load_instance_pre(path, config.setup_timeout)?,
             config,
+            workers: Workers::new(SANDBOX_WORKERS),
         })
     }
 
@@ -154,7 +159,7 @@ impl ContractRuntime for Driver {
     ) -> Result<Snapshot, InvokeError> {
         let stdin =
             endpoint::stdin_content(preamble).map_err(|msg| Trap::Other(msg.to_string()))?;
-        let wasi = Wasi::for_invocation(&self.config, stdin, grants)?;
+        let wasi = Wasi::for_invocation(&self.config, stdin, grants, &self.workers)?;
         let mut store = self.new_store(wasi)?;
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
