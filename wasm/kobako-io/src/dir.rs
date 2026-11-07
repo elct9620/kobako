@@ -26,10 +26,10 @@ use crate::io::argument_error;
 #[beni::wrap(class = "Dir", name = "Kobako::Dir")]
 struct Listing {
     path: String,
-    opened: RefCell<Option<Opened>>,
+    opened: RefCell<Option<OpenEntries>>,
 }
 
-struct Opened {
+struct OpenEntries {
     entries: Vec<Vec<u8>>,
     next: usize,
 }
@@ -123,7 +123,7 @@ fn open_listing(mrb: &Mrb, class: RClass, call: &str, value: Value) -> Result<Va
     let entries = entries(&path).map_err(|err| errno::from_io(mrb, &err, &path))?;
     let listing = Listing {
         path,
-        opened: RefCell::new(Some(Opened { entries, next: 0 })),
+        opened: RefCell::new(Some(OpenEntries { entries, next: 0 })),
     };
     Ok(mrb.wrap_as(listing, class).as_value())
 }
@@ -197,7 +197,7 @@ fn dir_s_rmdir(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
 fn with_opened<R>(
     mrb: &Mrb,
     self_: Value,
-    body: impl FnOnce(&mut Opened) -> R,
+    body: impl FnOnce(&mut OpenEntries) -> R,
 ) -> Result<R, Error> {
     let listing = Listing::of(mrb, self_)?;
     let mut held = listing.opened.borrow_mut();

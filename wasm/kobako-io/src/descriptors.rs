@@ -11,7 +11,7 @@ use std::sync::Mutex;
 
 static OPENED: Mutex<BTreeSet<i32>> = Mutex::new(BTreeSet::new());
 
-fn opened() -> std::sync::MutexGuard<'static, BTreeSet<i32>> {
+fn lock_opened() -> std::sync::MutexGuard<'static, BTreeSet<i32>> {
     OPENED
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -23,14 +23,14 @@ pub(crate) fn is_channel(fd: i32) -> bool {
 }
 
 pub(crate) fn is_reachable(fd: i32) -> bool {
-    is_channel(fd) || opened().contains(&fd)
+    is_channel(fd) || lock_opened().contains(&fd)
 }
 
 pub(crate) fn remember(fd: i32) {
-    opened().insert(fd);
+    lock_opened().insert(fd);
 }
 
 /// Whether `fd` was one this guest opened, forgetting it either way.
 pub(crate) fn forget(fd: i32) -> bool {
-    opened().remove(&fd)
+    lock_opened().remove(&fd)
 }
