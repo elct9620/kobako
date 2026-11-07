@@ -56,6 +56,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-runtime/src/wait.rs`
+- `crates/kobako-runtime/src/net/tcp.rs`
 - `crates/kobako-runtime/src/endpoint.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/descriptors.rs`
@@ -3858,3 +3859,51 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest whose open file limit its standard streams already fill |
 | When | it subscribes to a clock through `wasi:clocks` |
 | Then | the call traps, since no handle is left to hand out |
+
+## `RT-342` A socket connects on a worker and its poll wakes once connected
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-335` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a socket connecting to a listening peer |
+| When | a poll waits on its socket file for writing |
+| Then | the poll wakes once the connect lands, and the connect answers success |
+
+## `RT-343` A socket reads what its peer sent, then the end
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket whose peer sends bytes and then closes |
+| When | the socket file is read until it answers zero |
+| Then | it answers EAGAIN while nothing arrived, then the bytes in order, then the end |
+
+## `RT-344` A socket sends what it was handed, then its FIN
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket handed bytes and then shut down for writing |
+| When | the peer reads until the end |
+| Then | it reads every byte in order, then the end, as the FIN follows the send buffer |
+
+## `RT-345` A connect the peer refuses answers ECONNREFUSED
+
+| Step | Statement |
+| --- | --- |
+| Given | an address no peer listens on |
+| When | a socket connects to it |
+| Then | the connect answers ECONNREFUSED once it settles |
+
+## `RT-346` Dropping a socket file releases the host socket
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-342` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket whose peer is reading |
+| When | the last view of its socket file is dropped |
+| Then | the peer reads the end, as `sock_close` shuts the socket down |

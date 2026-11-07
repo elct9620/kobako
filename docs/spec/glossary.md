@@ -421,6 +421,8 @@ Path = mounted Filesystem + Dentry ─▶ Inode ─▶ lookup ─▶ the next Pa
 ### Includes
 
 - `crates/kobako-runtime/src/network.rs`
+- `crates/kobako-runtime/src/net.rs`
+- `crates/kobako-runtime/src/net/**/*.rs`
 - `ext/kobako/src/runtime/network.rs`
 - `lib/kobako/network.rb`
 - `lib/kobako/catalog/network.rb`
