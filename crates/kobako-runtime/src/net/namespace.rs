@@ -8,6 +8,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
+use super::http::{split_authority, Connector, Exchange, HttpError, Outbound, OutgoingRequest};
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::{ProtocolFamily, TcpSock, Workers};
 use crate::grant::Policy;
@@ -25,10 +26,11 @@ const VIRTUAL_SIZE: u32 = 1 << 17;
 /// backend that dials it, the Sandbox's workers each socket counts against, and
 /// the virtual addresses handed out.
 pub struct Namespace {
-    ruleset: Ruleset,
+    ruleset: Arc<Ruleset>,
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
     connect: Vec<Arc<dyn for<'a> Policy<Connection<'a>>>>,
     family: Arc<dyn ProtocolFamily>,
+    outbound: Arc<dyn Outbound>,
     workers: Arc<Workers>,
     /// Each name looked up and its real addresses, at its virtual address's
     /// offset from the bottom of the range.
@@ -37,11 +39,12 @@ pub struct Namespace {
 
 impl Namespace {
     /// The namespace every entry of `networks` makes together, dialing through
-    /// `family` on workers counted against `workers`, refused for an endpoint
-    /// the ruleset cannot compile.
+    /// `family` and sending HTTP through `outbound` on workers counted against
+    /// `workers`, refused for an endpoint the ruleset cannot compile.
     pub fn new<'a>(
         networks: impl IntoIterator<Item = &'a Network>,
         family: Arc<dyn ProtocolFamily>,
+        outbound: Arc<dyn Outbound>,
         workers: Arc<Workers>,
     ) -> Result<Self, EntryError> {
         let networks = networks.into_iter().collect::<Vec<_>>();
@@ -51,13 +54,59 @@ impl Namespace {
             .map(|network| network.policies())
             .collect::<Vec<_>>();
         Ok(Self {
-            ruleset,
+            ruleset: Arc::new(ruleset),
             resolve: policies.iter().filter_map(|p| p.resolve.clone()).collect(),
             connect: policies.iter().filter_map(|p| p.connect.clone()).collect(),
             family,
+            outbound,
             workers,
             virtuals: Mutex::new(Vec::new()),
         })
+    }
+
+    /// An HTTP request in flight, as `cred`, giving up at `deadline`. The
+    /// socket hooks judge the authority the guest named, a name passing the
+    /// `resolve` policies too, and an `http` endpoint must name it at its port;
+    /// a literal address passes the ruleset as itself, so a virtual one is
+    /// refused. Any refusal answers `Denied`, and nothing is sent.
+    pub fn send(
+        &self,
+        cred: &Cred,
+        request: OutgoingRequest,
+        deadline: Option<Instant>,
+    ) -> Result<Arc<Exchange>, HttpError> {
+        let (host, port) =
+            split_authority(&request.authority, request.scheme).ok_or(HttpError::Denied)?;
+        let literal = host.parse::<IpAddr>().ok();
+        let host = match literal {
+            Some(_) => host,
+            None => normalize(&host).map_err(|_| HttpError::Denied)?,
+        };
+        let connection = Connection::new(&host, port, Protocol::Http);
+        let hooked = cred.security_socket_connect(&connection).is_ok()
+            && self.connect.iter().all(|policy| policy.allows(&connection));
+        let admitted = match literal {
+            Some(ip) => self
+                .ruleset
+                .admit_literal(SocketAddr::new(ip, port), Protocol::Http)
+                .is_ok(),
+            None => {
+                let name = Name::new(&host);
+                self.resolve.iter().all(|policy| policy.allows(&name))
+                    && self.ruleset.admits_endpoint(&host, port, Protocol::Http)
+            }
+        };
+        if !hooked || !admitted {
+            return Err(HttpError::Denied);
+        }
+        let connector = Connector::new(host, port, self.ruleset.clone(), self.family.clone());
+        Exchange::start(
+            self.outbound.clone(),
+            request,
+            connector,
+            deadline,
+            &self.workers,
+        )
     }
 
     /// A lookup of `name`. The name is normalized, then each entry's `resolve`
@@ -232,8 +281,13 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let family = Arc::new(Counted::default());
-        let namespace = Namespace::new(&networks, family.clone(), Workers::new(workers))
-            .expect("the endpoints compile");
+        let namespace = Namespace::new(
+            &networks,
+            family.clone(),
+            Arc::new(crate::net::UreqOutbound),
+            Workers::new(workers),
+        )
+        .expect("the endpoints compile");
         (namespace, family, seen)
     }
 
@@ -360,8 +414,13 @@ mod tests {
         });
         entry.resolve_policy(move |name: &Name<'_>| name.name != refused);
         let network = Network::new("names", Arc::new(entry)).unwrap();
-        Namespace::new([&network], family, Workers::new(SANDBOX_WORKERS))
-            .expect("the endpoints compile")
+        Namespace::new(
+            [&network],
+            family,
+            Arc::new(crate::net::UreqOutbound),
+            Workers::new(SANDBOX_WORKERS),
+        )
+        .expect("the endpoints compile")
     }
 
     fn tcp(host: &str, port: u16) -> Endpoint {

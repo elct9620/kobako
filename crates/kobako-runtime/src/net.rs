@@ -3,12 +3,17 @@
 //! socket's wait queue. What may be reached is the Network Grant's to say.
 
 mod family;
+mod http;
 mod lookup;
 mod namespace;
 mod tcp;
 mod workers;
 
 pub use family::{HostInet, ProtocolFamily, Stream};
+pub use http::{
+    Connector, Exchange, HttpError, Outbound, OutgoingRequest, Response, ResponseHead, Scheme,
+    UreqOutbound,
+};
 pub use lookup::{LookupError, NameLookup};
 pub use namespace::Namespace;
 pub use tcp::{sock_alloc_file, TcpSock, SOCKET_BUFFER};

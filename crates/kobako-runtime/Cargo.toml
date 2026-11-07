@@ -48,6 +48,11 @@ if-addrs = "0.15.0"
 # Turns a name the guest looks up into its A-label, so the hooks and the
 # endpoints judge one spelling of it.
 idna = "1.1.0"
+# The default outbound seam: a synchronous HTTP/1 client dialing only through
+# kobako's connector. Pinned, since its Connector sits under `unversioned`,
+# which may break in a minor release; no default feature, so it decompresses
+# nothing and bundles no roots.
+ureq = { version = "=3.5.1", default-features = false }
 
 # rustix switches a Bind's file to append mode for one write, so the
 # host places it at the file's end in one step; std cannot set file flags.

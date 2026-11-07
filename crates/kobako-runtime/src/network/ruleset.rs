@@ -258,6 +258,14 @@ impl Ruleset {
         self.rules.iter().any(|rule| rule.names(name))
     }
 
+    /// Whether an endpoint names `name` at `port` and `protocol`, as a request
+    /// to that authority needs before anything is resolved.
+    pub fn admits_endpoint(&self, name: &str, port: u16, protocol: Protocol) -> bool {
+        self.rules
+            .iter()
+            .any(|rule| rule.port == port && rule.protocol == protocol && rule.names(name))
+    }
+
     /// Whether the guest may open a `protocol` connection to `ip`, a real
     /// address the name it looked up resolved to, at `port`. The fixed sets
     /// refuse whatever an endpoint says; otherwise an endpoint naming the name

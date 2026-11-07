@@ -17,7 +17,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
-use kobako_runtime::net::{HostInet, Namespace, Workers};
+use kobako_runtime::net::{HostInet, Namespace, UreqOutbound, Workers};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{Cred, OpenFiles};
@@ -215,9 +215,14 @@ fn to_network(grants: &[Grant], workers: &Arc<Workers>) -> Result<Option<Namespa
     if entries.is_empty() {
         return Ok(None);
     }
-    Namespace::new(entries, Arc::new(HostInet), workers.clone())
-        .map(Some)
-        .map_err(|err| Trap::Other(format!("a network entry did not compile: {err}")))
+    Namespace::new(
+        entries,
+        Arc::new(HostInet),
+        Arc::new(UreqOutbound),
+        workers.clone(),
+    )
+    .map(Some)
+    .map_err(|err| Trap::Other(format!("a network entry did not compile: {err}")))
 }
 
 /// A Mount as this invocation presents it. A kind this driver does not
