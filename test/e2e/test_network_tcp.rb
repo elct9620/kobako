@@ -1,33 +1,12 @@
 # frozen_string_literal: true
 
-require "socket"
 require "test_helper"
 
 # E2E — a script's TCPSocket through the real Guest Binary against a loopback
 # server: what an endpoint admits, and what a connect policy refuses.
 class TestE2ENetworkTcp < Minitest::Test
   include E2eGuestHelper
-
-  # A loopback server answering what it reads with its upcase, on a Ruby
-  # Thread the guest's waits must let run.
-  def with_upcase_server
-    server = TCPServer.new("127.0.0.1", 0)
-    thread = Thread.new do
-      client = server.accept
-      client.write(client.read.upcase)
-      client.close
-    end
-    yield server.addr[1]
-  ensure
-    thread&.join(5)
-    server&.close
-  end
-
-  def sandbox_reaching(port, **options)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM, **options).network(:local) do |net|
-      net.endpoint "127.0.0.1", port: port, protocol: :tcp, addresses: [:local]
-    end
-  end
+  include NetworkLoopback
 
   PING = <<~RUBY
     socket = TCPSocket.new("127.0.0.1", %<port>d)

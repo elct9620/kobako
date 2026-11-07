@@ -94,6 +94,21 @@ module Kobako
                    "Builder#connect? must refuse what the given object's connect? or a policy(:connect) block refuses"
     end
 
+    # An object refusing a lookup of one name.
+    Unnaming = Struct.new(:refused) do
+      def resolve?(name) = name != refused
+    end
+
+    # @behavior NW-036
+    def test_a_block_policy_and_the_given_objects_resolve_both_judge
+      builder = Catalog::Network.of(:guard, Unnaming.new("a.example.com")) do |net|
+        net.policy(:resolve) { |name| !name.end_with?(".internal") }
+      end.entry
+
+      assert_equal [true, false, false], %w[b.example.com a.example.com db.internal].map { builder.resolve?(_1) },
+                   "Builder#resolve? must refuse what the given object's resolve? or a policy(:resolve) block refuses"
+    end
+
     def test_a_policy_for_an_unknown_hook_is_refused
       assert_raises(ArgumentError, "Builder#policy for a hook other than :connect must be refused") do
         Catalog::Network.of(:guard, nil) { |net| net.policy(:listen) { true } }

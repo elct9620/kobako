@@ -62,12 +62,12 @@ module Kobako
     # The entry a block given to Sandbox#network builds, adding to the object
     # given beside it, as Faraday.new yields its builder.
     class Builder
-      HOOKS = %i[connect].freeze # :nodoc:
+      HOOKS = %i[resolve connect].freeze # :nodoc:
 
       def initialize(entry = nil) # :nodoc:
         @entry = entry
         @endpoints = [] # : Array[Endpoint]
-        @connect = [] # : Array[^(Connection) -> boolish]
+        @policies = HOOKS.to_h { |hook| [hook, []] } # : Hash[Symbol, Array[^(untyped) -> boolish]]
       end
 
       # Let the guest reach +host+ on +port+, as Endpoint.new takes them.
@@ -78,8 +78,9 @@ module Kobako
       end
 
       # Judge each decision +hook+ names with the block; a falsy answer or a
-      # raised StandardError refuses. +:connect+ hands the block a Connection.
-      # Raises ArgumentError for another hook. Returns +self+.
+      # raised StandardError refuses. +:resolve+ hands the block the name a
+      # lookup asks for, lowercase with no trailing dot, and +:connect+ a
+      # Connection. Raises ArgumentError for another hook. Returns +self+.
       def policy(hook, &block)
         unless HOOKS.include?(hook)
           raise ArgumentError,
@@ -87,7 +88,7 @@ module Kobako
         end
         raise ArgumentError, "a policy needs a block" unless block
 
-        @connect << block
+        @policies.fetch(hook) << block
         self
       end
 
@@ -97,12 +98,21 @@ module Kobako
         given + @endpoints
       end
 
+      # Whether the given object's +resolve?+ and each block's resolve policy
+      # allow a lookup of +name+.
+      def resolve?(name) = allows?(:resolve, name)
+
       # Whether the given object's +connect?+ and each block's connect policy
       # allow +connection+.
-      def connect?(connection)
-        return false if @entry.respond_to?(:connect?) && !@entry.connect?(connection)
+      def connect?(connection) = allows?(:connect, connection)
 
-        @connect.all? { |policy| policy.call(connection) }
+      private
+
+      def allows?(hook, request)
+        question = :"#{hook}?"
+        return false if @entry.respond_to?(question) && !@entry.public_send(question, request)
+
+        @policies.fetch(hook).all? { |policy| policy.call(request) }
       end
     end
   end

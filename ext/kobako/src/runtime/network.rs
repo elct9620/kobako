@@ -13,17 +13,18 @@ use magnus::{
 
 use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::network::{
-    Addresses, Connection, Endpoint, Entry, Network, Policies, Protocol,
+    Addresses, Connection, Endpoint, Entry, Name, Network, Policies, Protocol,
 };
 
 use super::pinned_value::PinnedValue;
 use super::{escape, gvl};
 
 /// What one entry answered for this invocation: its endpoints, and its own
-/// `connect?` when it plays a policy.
+/// `resolve?` and `connect?` for each it plays.
 struct Answered {
     endpoints: Vec<Endpoint>,
-    connect: Option<Arc<RubyConnect>>,
+    resolve: Option<Arc<RubyPolicy>>,
+    connect: Option<Arc<RubyPolicy>>,
 }
 
 impl Entry for Answered {
@@ -32,33 +33,50 @@ impl Entry for Answered {
     }
 
     fn policies(&self) -> Policies {
-        match &self.connect {
-            Some(connect) => Policies::default().with_connect(connect.clone()),
-            None => Policies::default(),
+        let mut policies = Policies::default();
+        if let Some(resolve) = &self.resolve {
+            policies = policies.with_resolve(resolve.clone());
         }
+        if let Some(connect) = &self.connect {
+            policies = policies.with_connect(connect.clone());
+        }
+        policies
     }
 }
 
-/// An entry's `connect?`, handed a `Kobako::Network::Connection`. A falsy
-/// answer or a raised StandardError refuses, so the guest's connect fails
-/// and its script goes on; anything else it raises is held for the host.
-struct RubyConnect {
+/// An entry asked one of its policy hooks: `resolve?` handed the name, and
+/// `connect?` a `Kobako::Network::Connection`. A falsy answer or a raised
+/// StandardError refuses, so the guest's call fails and its script goes on;
+/// anything else it raises is held for the host.
+struct RubyPolicy {
     entry: Opaque<Value>,
 }
 
-impl Policy<Connection<'_>> for RubyConnect {
-    fn allows(&self, request: &Connection<'_>) -> bool {
+impl RubyPolicy {
+    fn ask(&self, hook: &str, request: impl FnOnce(&Ruby) -> Result<Value, MagnusError>) -> bool {
         gvl::reenter(|| {
-            let ruby = Ruby::get().expect("Ruby handle unavailable in an entry's connect?");
+            let ruby = Ruby::get().expect("Ruby handle unavailable in an entry's policy");
             let entry: Value = ruby.get_inner(self.entry);
-            to_connection(&ruby, request)
-                .and_then(|connection| entry.funcall::<_, _, Value>("connect?", (connection,)))
+            request(&ruby)
+                .and_then(|request| entry.funcall::<_, _, Value>(hook, (request,)))
                 .map(|answer| answer.to_bool())
                 .unwrap_or_else(|error| {
                     let _ = escape::hold(&ruby, error);
                     false
                 })
         })
+    }
+}
+
+impl Policy<Name<'_>> for RubyPolicy {
+    fn allows(&self, request: &Name<'_>) -> bool {
+        self.ask("resolve?", |ruby| Ok(ruby.str_new(request.name).as_value()))
+    }
+}
+
+impl Policy<Connection<'_>> for RubyPolicy {
+    fn allows(&self, request: &Connection<'_>) -> bool {
+        self.ask("connect?", |ruby| to_connection(ruby, request))
     }
 }
 
@@ -100,16 +118,23 @@ pub(super) fn to_grants(
         let endpoints = (0..endpoints.len() as isize)
             .map(|index| to_endpoint(ruby, endpoints.entry(index)?))
             .collect::<Result<Vec<_>, _>>()?;
-        let connect = match entry.respond_to("connect?", false)? {
-            true => {
-                pins.push(PinnedValue::new(ruby, entry));
-                Some(Arc::new(RubyConnect {
+        let plays = |hook| -> Result<Option<Arc<RubyPolicy>>, MagnusError> {
+            Ok(entry.respond_to(hook, false)?.then(|| {
+                Arc::new(RubyPolicy {
                     entry: Opaque::from(entry),
-                }))
-            }
-            false => None,
+                })
+            }))
         };
-        let network = Network::new(name, Arc::new(Answered { endpoints, connect }))
+        let (resolve, connect) = (plays("resolve?")?, plays("connect?")?);
+        if resolve.is_some() || connect.is_some() {
+            pins.push(PinnedValue::new(ruby, entry));
+        }
+        let answered = Answered {
+            endpoints,
+            resolve,
+            connect,
+        };
+        let network = Network::new(name, Arc::new(answered))
             .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))?;
         grants.push(Grant::Network(network));
     }

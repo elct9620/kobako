@@ -36,17 +36,23 @@ module Kobako
 
       @entry: untyped
       @endpoints: Array[Endpoint]
-      @connect: Array[^(Connection) -> boolish]
+      @policies: Hash[Symbol, Array[^(untyped) -> boolish]]
 
       def initialize: (?untyped entry) -> void
 
       def endpoint: (untyped host, port: untyped, ?protocol: untyped, ?addresses: untyped) -> self
 
-      def policy: (Symbol hook) ?{ (Connection) -> boolish } -> self
+      def policy: (Symbol hook) ?{ (untyped) -> boolish } -> self
 
       def endpoints: () -> Array[untyped]
 
+      def resolve?: (String name) -> bool
+
       def connect?: (Connection connection) -> bool
+
+      private
+
+      def allows?: (Symbol hook, untyped request) -> bool
     end
   end
 end
