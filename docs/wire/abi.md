@@ -11,7 +11,7 @@ The ABI is the set of Wasm functions that carry both [wire](README.md) layers be
 
 ## ABI Signatures
 
-The surface is four symbols. Signatures here use Wasm's own types; a Rust side spells the same values as `u32` and `u64`.
+The surface is five symbols. Signatures here use Wasm's own types; a Rust side spells the same values as `u32` and `u64`.
 
 | Symbol | Linkage | Wasm signature | Layer |
 |---|---|---|---|
@@ -19,8 +19,9 @@ The surface is four symbols. Signatures here use Wasm's own types; a Rust side s
 | `__kobako_alloc` | export | `(size: i32) -> i32` | pre-message |
 | `__kobako_downcall` | export | `(ptr: i32, len: i32) -> i64` | message |
 | `__kobako_upcall` | import | `(ptr: i32, len: i32) -> i64` | message |
+| `cabi_realloc` | export | `(ptr: i32, len: i32, align: i32, new: i32) -> i32` | WASI 0.2 |
 
-The pre-message layer works before any message exists. The version is agreed before a tag can be read. `__kobako_alloc` gives the host guest memory to write a message into, answering `0` on failure. Adding, removing, or renaming a symbol is an ABI version increment (→ [§ ABI Version](#abi-version)).
+The pre-message layer works before any message exists. The version is agreed before a tag can be read. `__kobako_alloc` gives the host guest memory to write a message into, answering `0` on failure. `cabi_realloc` is the Canonical ABI's, through which the host lowers a list a WASI 0.2 import answers. Adding, removing, or renaming a symbol is an ABI version increment (→ [§ ABI Version](#abi-version)).
 
 ### Downcall and Upcall
 
@@ -88,7 +89,7 @@ The Preamble arrives as a `u32` big-endian length followed by that many bytes. I
 
 ## ABI Version
 
-The ABI version is one u32 defined in `kobako-transport`, independent of every package version. The current version is `5`.
+The ABI version is one u32 defined in `kobako-transport`, independent of every package version. The current version is `6`.
 
 | Inside the version | Outside the version |
 |--------------------|---------------------|

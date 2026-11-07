@@ -30,6 +30,20 @@ class TestE2ENetwork < Minitest::Test
                     "ctx.network of a name the Sandbox never gave must say the name is undeclared"
   end
 
+  # @behavior NW-011
+  def test_without_the_network_a_tcp_socket_raises_not_implemented_error
+    value = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(<<~RUBY).value
+      begin
+        TCPSocket.new("127.0.0.1", 80)
+      rescue NotImplementedError => e
+        [e.class.to_s, e.message.include?("no network")]
+      end
+    RUBY
+
+    assert_equal ["NotImplementedError", true], value,
+                 "TCPSocket.new in a Sandbox with no network entry must raise NotImplementedError naming it"
+  end
+
   def test_an_entry_playing_no_endpoints_lets_the_invocation_run
     value = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:audit, Object.new).eval("1 + 1").value
 

@@ -80,4 +80,4 @@
     (call $put_stat (i32.const 59) (i32.const 320))
     (call $put (i32.const 104) (call $listed))
     (i64.or (i64.shl (i64.const 8) (i64.const 32)) (i64.const 105)))
-  (func (export "__kobako_abi_version") (result i32) (i32.const 5)))
+  (func (export "__kobako_abi_version") (result i32) (i32.const 6)))

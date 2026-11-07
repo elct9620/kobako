@@ -133,3 +133,15 @@ endpoint "api.example.com", port: 443
 | Given | a guest |
 | When | it asks `instance-network` for its network and drops the handle |
 | Then | the drop succeeds, and dropping it again traps |
+
+## `NW-011` Without the network, a TCPSocket raises NotImplementedError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with no network entry |
+| When | the script opens a `TCPSocket` |
+| Then | it raises `NotImplementedError`, as a file opened with no Mount does |
