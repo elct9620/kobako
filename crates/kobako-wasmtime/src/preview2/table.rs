@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
-use kobako_runtime::net::{NameLookup, Namespace, TcpSock};
+use kobako_runtime::net::{Exchange, NameLookup, Namespace, RequestBody, TcpSock, SOCKET_BUFFER};
 use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
 
@@ -39,6 +39,57 @@ impl SocketFile {
     }
 }
 
+/// What an `input-stream` or an `output-stream` reads or writes: a socket file,
+/// a response's body, or a request's body.
+#[derive(Clone)]
+pub(crate) enum Stream {
+    Socket(SocketFile),
+    Response(Arc<Exchange>),
+    Request(Arc<RequestBody>),
+}
+
+impl Stream {
+    /// Read what the stream holds now; `WouldBlock` while it holds nothing yet.
+    pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        match self {
+            Stream::Socket(socket) => socket.file().read(buf),
+            Stream::Response(exchange) => exchange.read(buf),
+            Stream::Request(_) => Err(FilesystemError::BadDescriptor),
+        }
+    }
+
+    /// Write what the stream takes now.
+    pub(crate) fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
+        match self {
+            Stream::Socket(socket) => socket.file().write(buf),
+            Stream::Request(body) => body.write(buf),
+            Stream::Response(_) => Err(FilesystemError::BadDescriptor),
+        }
+    }
+
+    /// How many bytes a write takes now.
+    pub(crate) fn room(&self) -> usize {
+        match self {
+            Stream::Socket(socket) => socket.sock.send_room(),
+            Stream::Request(_) | Stream::Response(_) => SOCKET_BUFFER,
+        }
+    }
+
+    /// Whether what was written has left for the host, so a flush is done.
+    pub(crate) fn drained(&self) -> bool {
+        self.room() == SOCKET_BUFFER
+    }
+
+    /// What a poll finds, registering on `table` for a poll that will sleep.
+    pub(crate) fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
+        match self {
+            Stream::Socket(socket) => socket.file().poll(table),
+            Stream::Response(exchange) => exchange.poll(table),
+            Stream::Request(_) => PollMask::OUT,
+        }
+    }
+}
+
 /// What one handle stands for.
 pub(crate) enum Resource {
     /// The one network a Sandbox's Grants make, as `instance-network` hands it
@@ -46,8 +97,10 @@ pub(crate) enum Resource {
     Network,
     Pollable(Pollable),
     TcpSocket(TcpSocket),
-    InputStream(SocketFile),
-    OutputStream(SocketFile),
+    InputStream(Stream),
+    OutputStream(Stream),
+    /// One of `wasi:http`'s resources.
+    Http(super::http::Held),
     /// A stream's failure, as `wasi:io/error` hands one out.
     Error(FilesystemError),
     /// A lookup, and whether its one address was handed out.
@@ -71,11 +124,13 @@ pub(crate) enum Pollable {
     /// ready at once in a wait with no host-side producer, which then ends at
     /// once; beside a producer it elapses in host time from when it was made.
     Clock { at: Instant, frozen: bool },
-    /// A socket file, ready once its poll finds `PollMask`, or an error or a
+    /// A stream, ready once its poll finds `PollMask`, or an error or a
     /// hang-up.
-    Socket(SocketFile, PollMask),
+    Stream(Stream, PollMask),
     /// A lookup, ready once it answers.
     Lookup(Arc<NameLookup>),
+    /// A request in flight, ready once its response's head arrives.
+    Response(Arc<Exchange>),
     /// Something that is always ready, as an unconnected socket is.
     Ready,
 }
@@ -86,13 +141,14 @@ impl Pollable {
     pub(crate) fn ready(&self, table: Option<&mut PollTable>, producer: bool) -> bool {
         match self {
             Pollable::Clock { at, frozen } => (*frozen && !producer) || Instant::now() >= *at,
-            Pollable::Socket(socket, mask) => {
-                let found = socket.file().poll(table);
+            Pollable::Stream(stream, mask) => {
+                let found = stream.poll(table);
                 found.contains(*mask)
                     || found.contains(PollMask::ERR)
                     || found.contains(PollMask::HUP)
             }
             Pollable::Lookup(lookup) => lookup.poll(table),
+            Pollable::Response(exchange) => exchange.poll(table).contains(PollMask::OUT),
             Pollable::Ready => true,
         }
     }
@@ -101,14 +157,17 @@ impl Pollable {
     pub(crate) fn due(&self) -> Option<Instant> {
         match self {
             Pollable::Clock { at, .. } => Some(*at),
-            Pollable::Socket(..) | Pollable::Lookup(_) | Pollable::Ready => None,
+            _ => None,
         }
     }
 
-    /// Whether a host-side producer makes this ready, as a socket's peer or a
-    /// resolver does.
+    /// Whether a host-side producer makes this ready, as a socket's peer, a
+    /// resolver, or a server does.
     pub(crate) fn is_producer(&self) -> bool {
-        matches!(self, Pollable::Socket(..) | Pollable::Lookup(_))
+        matches!(
+            self,
+            Pollable::Stream(..) | Pollable::Lookup(_) | Pollable::Response(_)
+        )
     }
 }
 

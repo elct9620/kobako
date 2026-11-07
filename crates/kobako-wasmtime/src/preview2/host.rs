@@ -24,7 +24,7 @@ use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{
     from_socket_addr, hide_host_address, lookup_error_code, to_error_code, to_socket_addr,
 };
-use super::table::{self, Resource, SocketFile};
+use super::table::{self, Resource, SocketFile, Stream};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
@@ -86,9 +86,13 @@ impl Invocation {
         self.wasi_mut().table_mut().push(resource)
     }
 
-    fn pollable_on(&mut self, file: SocketFile, mask: PollMask) -> wasmtime::Result<Pollable> {
+    pub(super) fn pollable_on(
+        &mut self,
+        stream: Stream,
+        mask: PollMask,
+    ) -> wasmtime::Result<Pollable> {
         Ok(Pollable(self.push(Resource::Pollable(
-            table::Pollable::Socket(file, mask),
+            table::Pollable::Stream(stream, mask),
         ))?))
     }
 
@@ -101,9 +105,9 @@ impl Invocation {
         }
     }
 
-    fn stream_file(&self, handle: u32) -> wasmtime::Result<SocketFile> {
+    fn stream(&self, handle: u32) -> wasmtime::Result<Stream> {
         match self.wasi().table().get(handle)? {
-            Resource::InputStream(file) | Resource::OutputStream(file) => Ok(file.clone()),
+            Resource::InputStream(stream) | Resource::OutputStream(stream) => Ok(stream.clone()),
             _ => Err(wasmtime::Error::msg(
                 "the guest named a handle that is not a stream",
             )),
@@ -121,15 +125,15 @@ impl Invocation {
         }
     }
 
-    /// Read what the socket holds, up to `len`, without waiting: nothing yet
+    /// Read what the stream holds, up to `len`, without waiting: nothing yet
     /// reads as an empty list, and the end as `closed`.
     fn read_now(
         &mut self,
-        file: &SocketFile,
+        stream: &Stream,
         len: u64,
     ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
         let mut buf = vec![0; len.min(SOCKET_BUFFER as u64) as usize];
-        let read = file.file().read(&mut buf);
+        let read = stream.read(&mut buf);
         match read {
             Ok(0) if !buf.is_empty() => Ok(Err(StreamError::Closed)),
             Ok(n) => {
@@ -141,9 +145,9 @@ impl Invocation {
         }
     }
 
-    /// Wait until `file`'s poll finds `mask`, or an error or a hang-up.
-    fn wait_on(&self, file: &SocketFile, mask: PollMask) -> wasmtime::Result<()> {
-        let pollable = table::Pollable::Socket(file.clone(), mask);
+    /// Wait until `stream`'s poll finds `mask`, or an error or a hang-up.
+    fn wait_on(&self, stream: &Stream, mask: PollMask) -> wasmtime::Result<()> {
+        let pollable = table::Pollable::Stream(stream.clone(), mask);
         self.wait_for(None, |table| pollable.ready(table, true).then_some(()))
     }
 }
@@ -300,8 +304,9 @@ impl SocketsHost for Invocation {
         match socket.sock.finish_connect() {
             Ok(()) => {
                 *self.tcp(this)? = table::TcpSocket::Connected(socket.clone());
-                let input = InputStream(self.push(Resource::InputStream(socket.clone()))?);
-                let output = OutputStream(self.push(Resource::OutputStream(socket))?);
+                let stream = Stream::Socket(socket);
+                let input = InputStream(self.push(Resource::InputStream(stream.clone()))?);
+                let output = OutputStream(self.push(Resource::OutputStream(stream))?);
                 Ok(Ok((input, output)))
             }
             Err(FilesystemError::WouldBlock) => Ok(Err(ErrorCode::WouldBlock)),
@@ -321,7 +326,7 @@ impl SocketsHost for Invocation {
             _ => None,
         };
         match socket {
-            Some(file) => self.pollable_on(file, PollMask::OUT),
+            Some(socket) => self.pollable_on(Stream::Socket(socket), PollMask::OUT),
             None => Ok(Pollable(
                 self.push(Resource::Pollable(table::Pollable::Ready))?,
             )),
@@ -414,8 +419,8 @@ impl IoHost for Invocation {
         this: InputStream,
         len: u64,
     ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
-        let file = self.stream_file(this.0)?;
-        self.read_now(&file, len)
+        let stream = self.stream(this.0)?;
+        self.read_now(&stream, len)
     }
 
     fn streams_input_stream_blocking_read(
@@ -423,14 +428,14 @@ impl IoHost for Invocation {
         this: InputStream,
         len: u64,
     ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
-        let file = self.stream_file(this.0)?;
-        self.wait_on(&file, PollMask::IN)?;
-        self.read_now(&file, len)
+        let stream = self.stream(this.0)?;
+        self.wait_on(&stream, PollMask::IN)?;
+        self.read_now(&stream, len)
     }
 
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
-        let file = self.stream_file(this.0)?;
-        self.pollable_on(file, PollMask::IN)
+        let stream = self.stream(this.0)?;
+        self.pollable_on(stream, PollMask::IN)
     }
 
     fn streams_input_stream_drop(&mut self, handle: InputStream) -> wasmtime::Result<()> {
@@ -443,10 +448,10 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Result<u64, StreamError>> {
-        let socket = self.stream_file(this.0)?;
-        let written = socket.file().write(&[]);
+        let stream = self.stream(this.0)?;
+        let written = stream.write(&[]);
         match written {
-            Ok(_) => Ok(Ok(socket.sock.send_room() as u64)),
+            Ok(_) => Ok(Ok(stream.room() as u64)),
             Err(err) => self.stream_error(err).map(Err),
         }
     }
@@ -456,7 +461,7 @@ impl IoHost for Invocation {
         this: OutputStream,
         contents: Vec<u8>,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        let written = self.stream_file(this.0)?.file().write(&contents);
+        let written = self.stream(this.0)?.write(&contents);
         match written {
             Ok(n) if n == contents.len() => Ok(Ok(())),
             Ok(_) | Err(FilesystemError::WouldBlock) => Err(wasmtime::Error::msg(
@@ -473,11 +478,11 @@ impl IoHost for Invocation {
         this: OutputStream,
         contents: Vec<u8>,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        let file = self.stream_file(this.0)?;
+        let stream = self.stream(this.0)?;
         let mut rest = &contents[..];
         while !rest.is_empty() {
-            self.wait_on(&file, PollMask::OUT)?;
-            let written = file.file().write(rest);
+            self.wait_on(&stream, PollMask::OUT)?;
+            let written = stream.write(rest);
             match written {
                 Ok(n) => rest = &rest[n..],
                 Err(FilesystemError::WouldBlock) => {}
@@ -492,23 +497,23 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        self.stream_file(this.0)?;
+        self.stream(this.0)?;
         Ok(Ok(()))
     }
 
-    /// Wait until the send buffer drained to the host socket.
+    /// Wait until what was written has left for the host.
     fn streams_output_stream_blocking_flush(
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        let socket = self.stream_file(this.0)?;
-        // Registering through the file's poll puts the wait on the socket's
-        // queue, which the writer wakes after each chunk it sends.
+        let stream = self.stream(this.0)?;
+        // Registering through the stream's poll puts the wait on its queue,
+        // which a socket's writer wakes after each chunk it sends.
         self.wait_for(None, |table| {
-            let failed = socket.file().poll(table).contains(PollMask::ERR);
-            (failed || socket.sock.send_room() == SOCKET_BUFFER).then_some(())
+            let failed = stream.poll(table).contains(PollMask::ERR);
+            (failed || stream.drained()).then_some(())
         })?;
-        let written = socket.file().write(&[]);
+        let written = stream.write(&[]);
         match written {
             Ok(_) => Ok(Ok(())),
             Err(err) => self.stream_error(err).map(Err),
@@ -519,8 +524,8 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Pollable> {
-        let file = self.stream_file(this.0)?;
-        self.pollable_on(file, PollMask::OUT)
+        let stream = self.stream(this.0)?;
+        self.pollable_on(stream, PollMask::OUT)
     }
 
     fn streams_output_stream_drop(&mut self, handle: OutputStream) -> wasmtime::Result<()> {
