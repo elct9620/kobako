@@ -42,7 +42,7 @@ module KobakoWasm
     # Raises with a +beni:build+ hint when +libmruby.a+ is missing, and raises
     # again if cargo succeeds but the expected output file is absent.
     def build
-      ensure_libmruby_present
+      ensure_libmruby_present!
       run_cargo_release_build
       bake_into_data_dir
     end
@@ -52,7 +52,7 @@ module KobakoWasm
     # The mruby archive's sentinel check. The Guest Binary cannot link
     # without +libmruby.a+, so we assert it explicitly with a message that points at the rake
     # task that produces it.
-    def ensure_libmruby_present
+    def ensure_libmruby_present!
       return if File.exist?(LIBMRUBY_PATH)
 
       raise "[wasm:build] expected libmruby.a at #{LIBMRUBY_PATH}; " \

@@ -16,9 +16,9 @@ module KobakoWasm
 
     # Bake +input+ into +output+, building the baker tool on demand.
     def bake(input, output)
-      ensure_baker_built
+      ensure_baker_built!
       Dir.mktmpdir("kobako-bake") do |dir|
-        FileUtils.cp(reproducible_bake(input, dir), output)
+        FileUtils.cp(bake_reproducibly!(input, dir), output)
       end
       puts "[wasm:build] canonical boot state baked into #{output} (#{File.size(output)} bytes)"
     end
@@ -27,7 +27,7 @@ module KobakoWasm
 
     # Run the bake twice into +dir+ and return the artifact path only
     # when both runs agree byte-for-byte — the reproducibility gate.
-    def reproducible_bake(input, dir)
+    def bake_reproducibly!(input, dir)
       first  = File.join(dir, "bake-1.wasm")
       second = File.join(dir, "bake-2.wasm")
       run_baker(input, first)
@@ -39,7 +39,7 @@ module KobakoWasm
       first
     end
 
-    def ensure_baker_built
+    def ensure_baker_built!
       args = ["cargo", "build", "--release", "--manifest-path", BAKER_MANIFEST]
       puts "[wasm:build] ==> #{args.join(" ")}"
       raise "[wasm:build] kobako-baker build failed" unless system(*args)
