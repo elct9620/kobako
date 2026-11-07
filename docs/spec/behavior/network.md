@@ -190,3 +190,27 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming an address |
 | When | the guest opens raw TCP to that address and port |
 | Then | the connection is refused, so its rules cannot be framed around |
+
+## `NW-016` A TCPSocket to an endpoint's address carries bytes both ways
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback address and port with a server listening |
+| When | the script opens a `TCPSocket` there, writes, closes its write side, and reads |
+| Then | the server receives the bytes, and the script reads the server's answer up to its close |
+
+## `NW-017` A TCPSocket no endpoint admits raises Errno::EACCES
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a different port than the one the script reaches |
+| When | the script opens a `TCPSocket` to that address and port |
+| Then | it raises `Errno::EACCES`, as a denied `connect` does on Linux |
