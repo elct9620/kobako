@@ -55,6 +55,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/vfs/dentry.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
+- `crates/kobako-runtime/src/wait.rs`
 - `crates/kobako-runtime/src/endpoint.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
 - `crates/kobako-wasmtime/src/descriptors.rs`
@@ -642,7 +643,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Sandbox constructed to hold the lock |
 | Given | another Thread ready to run |
 | When | the Sandbox evaluates guest source |
-| Then | the other Thread makes no progress until the guest code finishes |
+| Then | the other Thread makes no progress until the guest code finishes, except while the guest waits on the host |
 
 ## `RT-071` A reference from an earlier invocation resolves to nothing under either mode
 
@@ -3776,3 +3777,39 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file moved after the open found it and before the open asks `file_open` |
 | When | the security module reads the name `file_open` is handed |
 | Then | the name is where the file stands after the move, as `struct path` gives it |
+
+## `RT-335` A wait looks again once the queue it stands on wakes
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-267` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a wait registered on what another thread produces |
+| When | that thread wakes the queue once its event arrives, or the wait's timeout passes |
+| Then | the wait looks again and answers what it then finds, or nothing ready |
+
+## `RT-336` A host-side wait waits through the registered Blocking
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-166` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Blocking registered |
+| When | a guest's wait finds nothing ready and sleeps on the host |
+| Then | it sleeps through that Blocking, as a call waiting for a lock does |
+
+## `RT-337` A clock wait ends with EINTR once its thread is interrupted
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-267` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest at the weaker posture waiting ten seconds on a clock |
+| When | its thread is interrupted |
+| Then | the wait answers EINTR at once, as a signal ends Linux's `poll` |

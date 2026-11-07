@@ -38,8 +38,9 @@ where
         return f();
     }
     let _guard = ReleasedGuard::set(true);
-    // An interrupt the thread receives meanwhile stops each wait for a lock the
-    // run meets; the interrupt itself still waits for the run to end.
+    // An interrupt the thread receives meanwhile stops each wait the run meets,
+    // for a lock or a host-side event; the interrupt itself still waits for the
+    // run to end.
     let task = Task::current();
     let task_ptr = ptr::addr_of!(task).cast_mut().cast::<c_void>();
     call_via(f, |func, data| unsafe {
@@ -60,9 +61,9 @@ fn holds() -> bool {
     !GVL_RELEASED.with(|g| g.get())
 }
 
-/// A thread waits for a lock without the GVL, so a holder asking a
-/// Filesystem written in Ruby, or a mount's block, can take the GVL and
-/// finish.
+/// A thread waits for a lock or a host-side event without the GVL, so a
+/// holder asking a Filesystem written in Ruby, or a mount's block, can take
+/// the GVL and finish, and other Threads run while the guest sleeps.
 pub(crate) struct GvlFreeWait;
 
 impl Blocking for GvlFreeWait {

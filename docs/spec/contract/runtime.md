@@ -41,6 +41,7 @@ Guest through these, so an engine answering them serves either.
 - `crates/kobako-runtime/src/vfs/readdir.rs`
 - `crates/kobako-runtime/src/vfs/stat.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
+- `crates/kobako-runtime/src/wait.rs`
 - `crates/kobako-runtime/src/yielder.rs`
 
 ## `Runtime`
@@ -2796,8 +2797,8 @@ pub fn register_blocking(blocking: Box<dyn Blocking>) -> Result<(), Box<dyn Bloc
 
 ## `run_task`
 
-Run the given closure as one run. Its waits for a lock end at the deadline or
-once its thread is interrupted. A run within another keeps the outer one's
+Run the given closure as one run. Its waits end at the deadline or once its
+thread is interrupted. A run within another keeps the outer one's
 interrupt.
 
 ```rust
@@ -2834,8 +2835,9 @@ impl Task {
 
 ## `Blocking`
 
-How a thread waits for a lock another thread holds. A frontend whose threads
-share a lock of their own gives it up for the wait.
+How a thread waits for a lock another thread holds, or for what another thread
+brings. A frontend whose threads share a lock of their own gives it up for the
+wait.
 
 ```rust
 pub trait Blocking: Send + Sync {}
@@ -2849,4 +2851,53 @@ Run the given wait, which returns once the lock is taken.
 pub trait Blocking {
     fn wait(&self, wait: &mut dyn FnMut());
 }
+```
+
+## `WaitQueueHead`
+
+Where the waiters for one event stand, as Linux's `wait_queue_head_t`.
+
+```rust
+pub struct WaitQueueHead {}
+```
+
+## `WaitQueueHead::wake_up`
+
+Wake every waiter standing on the queue once its event arrived.
+
+```rust
+impl WaitQueueHead {
+    pub fn wake_up(&self) {}
+}
+```
+
+## `PollTable`
+
+The queues one poll registered on, as Linux's `poll_table`. Dropping it leaves
+each queue.
+
+```rust
+pub struct PollTable {}
+```
+
+## `poll_wait`
+
+Have a poll woken by the given queue, as a file's `->poll` calls `poll_wait`.
+A poll that will not sleep passes no table.
+
+```rust
+pub fn poll_wait(queue: &Arc<WaitQueueHead>, table: Option<&mut PollTable>) {}
+```
+
+## `do_poll`
+
+Ask the poll until it finds something ready, the timeout passes, or the run is
+to stop. It sleeps through the registered Blocking. Nothing ready answers
+`None`, and a run that is to stop answers EINTR.
+
+```rust
+pub fn do_poll<T>(
+    timeout: Option<Duration>,
+    poll: impl FnMut(Option<&mut PollTable>) -> Option<T>,
+) -> Result<Option<T>, FilesystemError> {}
 ```

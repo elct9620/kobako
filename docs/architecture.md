@@ -106,7 +106,7 @@ Each part owns one concern. Its dependencies on other kobako parts may only poin
 | `kobako-transport` | the Envelope and the ABI's values | none, ever |
 | `kobako-codec` | the payload Codecs, one namespace and feature per Codec | none |
 | `kobako-runtime` | the contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant` | transport |
-| `kobako-runtime` | what every Wasm Driver keeps: `endpoint`, `vfs`, `security`, `Mount`, `sched`, the Filesystems | transport |
+| `kobako-runtime` | what every Wasm Driver keeps: `endpoint`, `vfs`, `security`, `Mount`, `sched`, `wait`, the Filesystems | transport |
 | `kobako-wasmtime` | one Wasm Driver, `kobako_wasmtime::Driver`, and its preview1 encoding | runtime, transport |
 | `kobako` | the Rust SDK: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby gem and its own Codec | the native ext |
@@ -198,7 +198,7 @@ A seam carries typed Envelopes and payload bytes, never encoded Envelope bytes. 
 | a result that does not frame | a `Trap` |
 | a host resource the guest reaches through WASI | a `Grant`, such as a `Mount` |
 | a path call the guest makes beneath a Mount | a `vfs` operation |
-| how a Frontend's thread waits on any lock | a `Blocking`, registered once |
+| how a Frontend's thread waits on any lock or host-side event | a `Blocking`, registered once |
 | a Frontend giving up on an Invocation its callback cannot answer | `DispatchHandler::abandoned` |
 | an Engine's memory and exports | a `GuestInstance` |
 

@@ -26,8 +26,9 @@ one request's user from another's.
 ## GVL Modes
 
 By default an Invocation holds Ruby's GVL for its whole span, so guest code
-across Threads runs one at a time. `gvl: :release` drops the GVL while the guest
-runs and takes it back for each Service call.
+across Threads runs one at a time. Each wait on the host gives the GVL up in
+either mode, so a sleeping guest never stalls other Threads. `gvl: :release`
+drops the GVL while the guest runs and takes it back for each Service call.
 
 ```ruby
 sandbox = Kobako::Sandbox.new(gvl: :release)
