@@ -73,6 +73,10 @@ pub(crate) mod rt {
 /// The most `blocking-write-and-flush` takes in one call, as WASI bounds it.
 const WRITE_CHUNK: usize = 4096;
 
+/// The most a read without a length asks of one blocking read, the size of
+/// the host's socket buffer.
+const READ_CHUNK: usize = 64 * 1024;
+
 /// One connection, its streams dropped before the socket, as WASI asks of a
 /// child resource.
 struct Open {
@@ -265,7 +269,7 @@ fn tcp_socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     };
     let mut read = Vec::new();
     while length.is_none_or(|length| read.len() < length) {
-        let want = length.map_or(64 * 1024, |length| length - read.len());
+        let want = length.map_or(READ_CHUNK, |length| length - read.len());
         match read_some(mrb, connection, want)? {
             Some(bytes) => read.extend(bytes),
             None => break,
@@ -296,10 +300,7 @@ fn tcp_socket_readpartial(mrb: &Mrb, self_: Value, maxlen: Value) -> Result<Valu
 fn tcp_socket_gets(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let connection = Connection::of(mrb, self_)?;
     let mut line = Vec::new();
-    loop {
-        let Some(bytes) = read_some(mrb, connection, 64 * 1024)? else {
-            break;
-        };
+    while let Some(bytes) = read_some(mrb, connection, READ_CHUNK)? {
         match bytes.iter().position(|b| *b == b'\n') {
             Some(at) => {
                 line.extend_from_slice(&bytes[..=at]);
@@ -312,10 +313,10 @@ fn tcp_socket_gets(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
             None => line.extend(bytes),
         }
     }
-    match line.is_empty() {
-        true => Ok(qnil().as_value()),
-        false => Ok(mrb.str_new(&line).as_value()),
+    if line.is_empty() {
+        return Ok(qnil().as_value());
     }
+    Ok(mrb.str_new(&line).as_value())
 }
 
 /// `close_write` sends the FIN once what was written is sent.
