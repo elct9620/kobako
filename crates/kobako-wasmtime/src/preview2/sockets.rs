@@ -4,6 +4,7 @@
 
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
+use kobako_runtime::net::LookupError;
 use kobako_runtime::vfs::FilesystemError;
 
 use super::bindings::wasi_sockets_network_0_2_12::{ErrorCode, IpSocketAddress, Ipv4SocketAddress};
@@ -41,6 +42,18 @@ pub(crate) fn from_socket_addr(addr: SocketAddr) -> IpSocketAddress {
 /// so no host address reaches the guest.
 pub(crate) fn hide_host_address(addr: SocketAddr) -> IpSocketAddress {
     from_socket_addr((Ipv4Addr::UNSPECIFIED, addr.port()).into())
+}
+
+/// The error code a lookup's failure answers. A name no A-label spells is
+/// refused as it is handed over, as an invalid argument; the same failure from
+/// a lookup's answer is a name that resolves to nothing.
+pub(crate) fn lookup_error_code(err: LookupError, handed_over: bool) -> ErrorCode {
+    match err {
+        LookupError::NameUnresolvable if handed_over => ErrorCode::InvalidArgument,
+        LookupError::NameUnresolvable => ErrorCode::NameUnresolvable,
+        LookupError::TemporaryFailure => ErrorCode::TemporaryResolverFailure,
+        _ => ErrorCode::PermanentResolverFailure,
+    }
 }
 
 /// The error code a failure's POSIX name maps to.

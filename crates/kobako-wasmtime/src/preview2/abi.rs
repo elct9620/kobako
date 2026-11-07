@@ -79,6 +79,18 @@ pub(crate) fn load_list<S: Scalar>(
         .collect())
 }
 
+/// The string at `at`, `len` bytes of UTF-8 as the Canonical ABI encodes one;
+/// other bytes trap, as the ABI's lift does.
+pub(crate) fn load_string(
+    caller: &mut Caller<'_, impl Sized>,
+    at: i32,
+    len: i32,
+) -> wasmtime::Result<String> {
+    let mut bytes = vec![0; len as u32 as usize];
+    read(caller, at, &mut bytes)?;
+    String::from_utf8(bytes).map_err(|_| invalid("string"))
+}
+
 /// Room in the guest's memory, from its `cabi_realloc`.
 pub(crate) fn realloc(
     caller: &mut Caller<'_, impl Sized>,

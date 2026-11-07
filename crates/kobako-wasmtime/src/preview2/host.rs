@@ -15,12 +15,15 @@ use super::bindings::wasi_clocks_monotonic_clock_0_2_12 as monotonic_clock;
 use super::bindings::wasi_io_error_0_2_12::Error;
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream, StreamError};
+use super::bindings::wasi_sockets_ip_name_lookup_0_2_12::ResolveAddressStream;
 use super::bindings::wasi_sockets_network_0_2_12::{
-    ErrorCode, IpAddressFamily, IpSocketAddress, Network,
+    ErrorCode, IpAddress, IpAddressFamily, IpSocketAddress, Network,
 };
 use super::bindings::wasi_sockets_tcp_0_2_12::{ShutdownType, TcpSocket};
 use super::bindings::Host;
-use super::sockets::{from_socket_addr, hide_host_address, to_error_code, to_socket_addr};
+use super::sockets::{
+    from_socket_addr, hide_host_address, lookup_error_code, to_error_code, to_socket_addr,
+};
 use super::table::{self, Resource, SocketFile};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
@@ -65,6 +68,17 @@ impl Invocation {
                 }
                 Err(_) => return Err(wasmtime::Error::msg("the guest's wait was interrupted")),
             }
+        }
+    }
+
+    /// The handle is the capability to connect or look up, so it must name a
+    /// network, as WASI's host checks it.
+    fn network_held(&self, network: Network) -> wasmtime::Result<()> {
+        match self.wasi().table().get(network.0)? {
+            Resource::Network => Ok(()),
+            _ => Err(wasmtime::Error::msg(
+                "the guest named a handle that is not a network",
+            )),
         }
     }
 
@@ -145,6 +159,87 @@ impl Host for Invocation {
         self.wasi_mut().table_mut().delete(handle.0).map(drop)
     }
 
+    /// A lookup of `name`, answered through the stream it hands out. Without a
+    /// network Grant no resolver answers, as WASI's `permanent-resolver-failure`
+    /// says of a host without one.
+    fn ip_name_lookup_resolve_addresses(
+        &mut self,
+        network: Network,
+        name: String,
+    ) -> wasmtime::Result<Result<ResolveAddressStream, ErrorCode>> {
+        self.network_held(network)?;
+        let Some(namespace) = self.wasi().table().network() else {
+            return Ok(Err(ErrorCode::PermanentResolverFailure));
+        };
+        match namespace.resolve(&name) {
+            Ok(lookup) => Ok(Ok(ResolveAddressStream(
+                self.push(Resource::ResolveStream(lookup, false))?,
+            ))),
+            Err(err) => Ok(Err(lookup_error_code(err, true))),
+        }
+    }
+
+    /// The name's one virtual address, then the end; a lookup still under way
+    /// answers `would-block`.
+    fn ip_name_lookup_resolve_address_stream_resolve_next_address(
+        &mut self,
+        this: ResolveAddressStream,
+    ) -> wasmtime::Result<Result<Option<IpAddress>, ErrorCode>> {
+        let Resource::ResolveStream(lookup, handed) =
+            self.wasi_mut().table_mut().get_mut(this.0)?
+        else {
+            return Err(wasmtime::Error::msg(
+                "the guest named a handle that is not a resolve-address-stream",
+            ));
+        };
+        if *handed {
+            return Ok(Ok(None));
+        }
+        let lookup = lookup.clone();
+        let real = match lookup.answer() {
+            None => return Ok(Err(ErrorCode::WouldBlock)),
+            Some(Err(err)) => return Ok(Err(lookup_error_code(err, false))),
+            Some(Ok(real)) => real,
+        };
+        let namespace = self
+            .wasi()
+            .table()
+            .network()
+            .expect("a lookup is only made with a network");
+        let Some(at) = namespace.virtual_address(lookup.name(), real) else {
+            return Ok(Err(ErrorCode::TemporaryResolverFailure));
+        };
+        if let Resource::ResolveStream(_, handed) = self.wasi_mut().table_mut().get_mut(this.0)? {
+            *handed = true;
+        }
+        let [a, b, c, d] = at.octets();
+        Ok(Ok(Some(IpAddress::Ipv4((a, b, c, d)))))
+    }
+
+    fn ip_name_lookup_resolve_address_stream_subscribe(
+        &mut self,
+        this: ResolveAddressStream,
+    ) -> wasmtime::Result<Pollable> {
+        let lookup = match self.wasi().table().get(this.0)? {
+            Resource::ResolveStream(lookup, _) => lookup.clone(),
+            _ => {
+                return Err(wasmtime::Error::msg(
+                    "the guest named a handle that is not a resolve-address-stream",
+                ))
+            }
+        };
+        Ok(Pollable(self.push(Resource::Pollable(
+            table::Pollable::Lookup(lookup),
+        ))?))
+    }
+
+    fn ip_name_lookup_resolve_address_stream_drop(
+        &mut self,
+        handle: ResolveAddressStream,
+    ) -> wasmtime::Result<()> {
+        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+    }
+
     /// Without a network Grant no socket is made, as WASI's `not-supported`
     /// says of a host without one; the guest is IPv4-only, so IPv6 is not
     /// supported either.
@@ -168,12 +263,7 @@ impl Host for Invocation {
         network: Network,
         remote_address: IpSocketAddress,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        // The handle is the capability to connect, so it must name a network.
-        if !matches!(self.wasi().table().get(network.0)?, Resource::Network) {
-            return Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a network",
-            ));
-        }
+        self.network_held(network)?;
         if !matches!(self.tcp(this)?, table::TcpSocket::Unbound) {
             return Ok(Err(ErrorCode::InvalidState));
         }
@@ -192,7 +282,7 @@ impl Host for Invocation {
             Err(err) => return Ok(Err(to_error_code(&err))),
         };
         let file = sock_alloc_file(&sock, cred);
-        *self.tcp(this)? = table::TcpSocket::Connecting(SocketFile::new(sock, file));
+        *self.tcp(this)? = table::TcpSocket::Connecting(SocketFile::new(sock, file, addr));
         Ok(Ok(()))
     }
 
@@ -260,11 +350,7 @@ impl Host for Invocation {
         this: TcpSocket,
     ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
         match self.tcp(this)? {
-            table::TcpSocket::Connected(socket) => Ok(socket
-                .sock
-                .peer_addr()
-                .map(from_socket_addr)
-                .ok_or(ErrorCode::InvalidState)),
+            table::TcpSocket::Connected(socket) => Ok(Ok(from_socket_addr(socket.peer))),
             _ => Ok(Err(ErrorCode::InvalidState)),
         }
     }
@@ -676,6 +762,15 @@ mod tests {
 
     /// A hermetic invocation whose network reaches `port` on loopback over TCP.
     fn networked(port: u16) -> Invocation {
+        within_network(
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Tcp),
+        )
+    }
+
+    /// A hermetic invocation whose network holds `endpoint`, or none.
+    fn within_network(endpoint: network::Endpoint) -> Invocation {
         let config = Config {
             timeout: None,
             setup_timeout: None,
@@ -687,15 +782,82 @@ mod tests {
             security: Vec::new(),
         };
         let mut entry = network::Builder::default();
-        entry.endpoint(
-            network::Endpoint::new("127.0.0.1", port)
-                .unwrap()
-                .with_protocol(network::Protocol::Tcp),
-        );
+        entry.endpoint(endpoint);
         let grant = Grant::Network(network::Network::new("local", Arc::new(entry)).unwrap());
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_workers())
             .expect("WASI context must build");
         Invocation::new(None, wasi)
+    }
+
+    // @behavior NW-030
+    #[test]
+    fn without_the_network_a_lookup_answers_permanent_resolver_failure() {
+        let (mut store, _instance) = guest(Profile::Hermetic, None);
+        let guest = store.data_mut();
+        let network = guest.instance_network_instance_network().unwrap();
+        assert!(
+            matches!(
+                guest.ip_name_lookup_resolve_addresses(network, "example.com".to_string()),
+                Ok(Err(ErrorCode::PermanentResolverFailure))
+            ),
+            "resolve-addresses with no network entry must answer permanent-resolver-failure"
+        );
+    }
+
+    // @behavior NW-031
+    #[test]
+    fn a_looked_up_name_connects_and_reads_back_its_virtual_address() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut guest = within_network(
+            network::Endpoint::new("localhost", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Tcp)
+                .with_addresses(vec![network::Addresses::Local]),
+        );
+        let started = Instant::now();
+        let (handed, end, remote) = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let stream = guest
+                .ip_name_lookup_resolve_addresses(network, "localhost".to_string())?
+                .expect("an endpoint names the name");
+            let answered = guest.ip_name_lookup_resolve_address_stream_subscribe(stream)?;
+            guest.poll_pollable_block(answered)?;
+            let handed = guest
+                .ip_name_lookup_resolve_address_stream_resolve_next_address(stream)?
+                .expect("localhost resolves");
+            let end = guest.ip_name_lookup_resolve_address_stream_resolve_next_address(stream)?;
+            let Some(IpAddress::Ipv4(address)) = handed else {
+                return Err(wasmtime::Error::msg("no IPv4 address handed out"));
+            };
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress { port, address });
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, remote)?
+                .expect("the endpoint leads to loopback");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            guest
+                .tcp_tcp_socket_finish_connect(socket)?
+                .expect("the listener accepts");
+            Ok((handed, end, guest.tcp_tcp_socket_remote_address(socket)?))
+        })
+        .expect("the lookup and the connect answer");
+        assert!(
+            matches!(handed, Some(IpAddress::Ipv4((198, 18, 0, 0))))
+                && matches!(end, Ok(None))
+                && matches!(
+                    remote,
+                    Ok(IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                        address: (198, 18, 0, 0),
+                        ..
+                    }))
+                ),
+            "a lookup of a name an endpoint names must hand out one virtual address then end, and \
+             a socket connected through it must read that virtual address back as its peer"
+        );
     }
 
     // @behavior NW-023

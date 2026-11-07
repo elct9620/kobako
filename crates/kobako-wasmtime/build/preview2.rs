@@ -32,6 +32,7 @@ const IMPORTS: &[(&str, Option<&[&str]>)] = &[
     ("wasi:sockets/instance-network@0.2.12", None),
     ("wasi:sockets/tcp-create-socket@0.2.12", None),
     ("wasi:sockets/tcp@0.2.12", None),
+    ("wasi:sockets/ip-name-lookup@0.2.12", None),
 ];
 
 /// Where the generated file is included, so every type has one path.

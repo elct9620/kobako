@@ -3,10 +3,11 @@
 //! `OpenFiles` as preview1's descriptors, since a socket is a file.
 
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
-use kobako_runtime::net::{Namespace, TcpSock};
+use kobako_runtime::net::{NameLookup, Namespace, TcpSock};
 use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
 
@@ -17,13 +18,17 @@ use kobako_runtime::wait::PollTable;
 pub(crate) struct SocketFile {
     pub(crate) sock: Arc<TcpSock>,
     file: Arc<Mutex<File>>,
+    /// The peer as the guest named it, a virtual address standing for its
+    /// name, as cgroup `getpeername4` maps a real peer back.
+    pub(crate) peer: SocketAddr,
 }
 
 impl SocketFile {
-    pub(crate) fn new(sock: Arc<TcpSock>, file: File) -> Self {
+    pub(crate) fn new(sock: Arc<TcpSock>, file: File, peer: SocketAddr) -> Self {
         Self {
             sock,
             file: Arc::new(Mutex::new(file)),
+            peer,
         }
     }
 
@@ -45,6 +50,8 @@ pub(crate) enum Resource {
     OutputStream(SocketFile),
     /// A stream's failure, as `wasi:io/error` hands one out.
     Error(FilesystemError),
+    /// A lookup, and whether its one address was handed out.
+    ResolveStream(Arc<NameLookup>, bool),
 }
 
 /// Where a TCP socket stands, as WASI's state machine walks it.
@@ -67,6 +74,8 @@ pub(crate) enum Pollable {
     /// A socket file, ready once its poll finds `PollMask`, or an error or a
     /// hang-up.
     Socket(SocketFile, PollMask),
+    /// A lookup, ready once it answers.
+    Lookup(Arc<NameLookup>),
     /// Something that is always ready, as an unconnected socket is.
     Ready,
 }
@@ -83,6 +92,7 @@ impl Pollable {
                     || found.contains(PollMask::ERR)
                     || found.contains(PollMask::HUP)
             }
+            Pollable::Lookup(lookup) => lookup.poll(table),
             Pollable::Ready => true,
         }
     }
@@ -91,13 +101,14 @@ impl Pollable {
     pub(crate) fn due(&self) -> Option<Instant> {
         match self {
             Pollable::Clock { at, .. } => Some(*at),
-            Pollable::Socket(..) | Pollable::Ready => None,
+            Pollable::Socket(..) | Pollable::Lookup(_) | Pollable::Ready => None,
         }
     }
 
-    /// Whether a host-side producer makes this ready, as a socket's peer does.
+    /// Whether a host-side producer makes this ready, as a socket's peer or a
+    /// resolver does.
     pub(crate) fn is_producer(&self) -> bool {
-        matches!(self, Pollable::Socket(..))
+        matches!(self, Pollable::Socket(..) | Pollable::Lookup(_))
     }
 }
 
