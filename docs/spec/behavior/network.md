@@ -34,6 +34,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/net/http.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/workers.rs`
+- `crates/kobako-runtime/src/net/udp.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako-wasmtime/src/preview2/http.rs`
 
@@ -644,3 +645,27 @@ endpoint "api.example.com", port: 443
 | Given | a `#network` block binding a bearer credential to a loopback endpoint |
 | When | the script sends the placeholder over plain HTTP through `Net::HTTP` |
 | Then | the server reads the placeholder unchanged, and the credential is never asked for its value |
+
+## `NW-053` A datagram round-trips with one peer
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket connected to a loopback peer |
+| When | it sends a datagram, and the peer answers one longer than the read |
+| Then | the peer hears the datagram. The read takes one datagram cut to the buffer, and the rest of it is gone |
+
+## `NW-054` A datagram stream passes only a UDP endpoint
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `udp` endpoint naming one address and a `tcp` endpoint naming another |
+| When | the guest opens a datagram stream to each |
+| Then | the first passes, and the second answers `EACCES`, since an endpoint's protocol bounds what reaches it |

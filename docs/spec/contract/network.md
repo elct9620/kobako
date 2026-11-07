@@ -12,6 +12,7 @@ is one Grant, and its endpoints are data the runtime judges on any thread.
 - `crates/kobako-runtime/src/net/http.rs`
 - `crates/kobako-runtime/src/net/lookup.rs`
 - `crates/kobako-runtime/src/net/tls.rs`
+- `crates/kobako-runtime/src/net/udp.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/socket.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
@@ -1228,5 +1229,113 @@ endpoint must name its exact host and allow it, on an unambiguous path.
 ```rust
 impl Ruleset {
     pub fn binds(&self, host: &str, port: u16, method: &str, path: &str) -> bool {}
+}
+```
+
+## `ProtocolFamily::connect_datagram`
+
+A datagram socket bound to an ephemeral port and connected to one peer. A family
+with no datagrams answers `Unsupported`.
+
+```rust
+pub trait ProtocolFamily {
+    fn connect_datagram(&self, _addr: SocketAddr) -> io::Result<Box<dyn Datagram>>;
+}
+```
+
+## `Datagram`
+
+One datagram socket the backend handed out, connected to one peer.
+
+```rust
+pub trait Datagram: Send + Sync {}
+```
+
+## `Datagram::send`
+
+Send one datagram to the peer.
+
+```rust
+pub trait Datagram {
+    fn send(&self, buf: &[u8]) -> io::Result<usize>;
+}
+```
+
+## `Datagram::recv`
+
+Receive one datagram from the peer.
+
+```rust
+pub trait Datagram {
+    fn recv(&self, buf: &mut [u8]) -> io::Result<usize>;
+}
+```
+
+## `Datagram::set_read_timeout`
+
+How long a receive waits before it gives up.
+
+```rust
+pub trait Datagram {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+}
+```
+
+## `Datagram::local_addr`
+
+The host's own end of the socket.
+
+```rust
+pub trait Datagram {
+    fn local_addr(&self) -> io::Result<SocketAddr>;
+}
+```
+
+## `MAX_DATAGRAM`
+
+The most one IPv4 datagram carries.
+
+```rust
+pub const MAX_DATAGRAM: usize = 65_507;
+```
+
+## `UdpSock`
+
+One UDP socket connected to one peer, shared by the socket file and its
+workers. A read takes one datagram.
+
+```rust
+pub struct UdpSock {}
+```
+
+## `UdpSock::connect`
+
+A socket connected to a peer, its host socket opened on a worker. Its two
+workers count against the Sandbox's and the process's.
+
+```rust
+impl UdpSock {
+    pub fn connect(family: Arc<dyn ProtocolFamily>, addr: SocketAddr, deadline: Option<Instant>, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
+}
+```
+
+## `UdpSock::local_addr`
+
+The host's own end, once the socket opened.
+
+```rust
+impl UdpSock {
+    pub fn local_addr(&self) -> Option<SocketAddr> {}
+}
+```
+
+## `Namespace::connect_datagram`
+
+A UDP socket streaming with the one peer the Guest named. The socket hooks and
+the ruleset pass it first, as they pass a TCP connect.
+
+```rust
+impl Namespace {
+    pub fn connect_datagram(&self, cred: &Cred, addr: SocketAddr, deadline: Option<Instant>) -> Result<Arc<UdpSock>, FilesystemError> {}
 }
 ```
