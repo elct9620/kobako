@@ -102,7 +102,7 @@ fn class(event: &Event) -> String {
 fn sequence(seed: u64, thread: usize, longest: u64) -> Vec<Call> {
     let paths = PATHS.map(str::to_string);
     let mut rng = Rng::new(seed.wrapping_mul(31).wrapping_add(thread as u64 + 1));
-    let length = 1 + rng.below(longest);
+    let length = 1 + rng.random_below(longest);
     (0..length)
         .map(|_| {
             let mut call = rng.call(&paths);

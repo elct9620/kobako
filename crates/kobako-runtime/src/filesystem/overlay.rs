@@ -1455,7 +1455,7 @@ mod tests {
         vfs::vfs_fstatat(&cred, &overlay, "a/x", false).expect("a/x must stand");
         vfs::filename_renameat2(&cred, &upper, "upper/a", &upper, "upper/b")
             .expect("the upper's directory must move");
-        let answered = crate::sched::testing::bounded(|| {
+        let answered = crate::sched::testing::within_max_wait(|| {
             vfs::filename_renameat2(&cred, &overlay, "a/x", &overlay, "a/y").err()
         });
         assert_ne!(
@@ -2374,7 +2374,7 @@ mod tests {
     }
 
     /// The path `dentry` stands at beneath the root, folded.
-    fn folded(dentry: &Dentry) -> String {
+    fn folded_path_of(dentry: &Dentry) -> String {
         dentry.path_raw()[1..].to_lowercase()
     }
 
@@ -2387,7 +2387,7 @@ mod tests {
             dentry: &Dentry,
             ctx: &mut DirContext<'_>,
         ) -> Result<(), FilesystemError> {
-            let entries = match folded(dentry).as_str() {
+            let entries = match folded_path_of(dentry).as_str() {
                 "" => self.0.iterate_dir(),
                 at => self.0.open_dir(at)?.iterate_dir(),
             }?;
@@ -2404,13 +2404,13 @@ mod tests {
 
     impl InodeOperations for FoldsCase {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            self.root.vfs_lstat(&folded(dentry))
+            self.root.vfs_lstat(&folded_path_of(dentry))
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let name = dentry.name();
             let lower = name.to_lowercase();
-            match self.root.vfs_lstat(&folded(dentry)) {
+            match self.root.vfs_lstat(&folded_path_of(dentry)) {
                 Ok(found) if lower != name => Ok(Lookup::Spelled {
                     name: lower,
                     inode: Inode::new(&found, Arc::new(self.clone())),
@@ -2429,7 +2429,7 @@ mod tests {
             if dentry.kind() == Ok(FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
-            self.root.open(&folded(dentry), how)
+            self.root.open(&folded_path_of(dentry), how)
         }
 
         fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
@@ -2442,7 +2442,7 @@ mod tests {
             if !how.create {
                 return Ok(Finish::NoOpen { created: false });
             }
-            let file = self.root.create(&folded(dentry), how)?;
+            let file = self.root.create(&folded_path_of(dentry), how)?;
             Ok(Finish::Open {
                 file,
                 created: true,
@@ -2450,15 +2450,15 @@ mod tests {
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.vfs_mkdir(&folded(dentry))
+            self.root.vfs_mkdir(&folded_path_of(dentry))
         }
 
         fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.vfs_rmdir(&folded(dentry))
+            self.root.vfs_rmdir(&folded_path_of(dentry))
         }
 
         fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.vfs_unlink(&folded(dentry))
+            self.root.vfs_unlink(&folded_path_of(dentry))
         }
 
         fn rename(
@@ -2468,7 +2468,8 @@ mod tests {
             to: &Dentry,
             _flag: Option<RenameFlag>,
         ) -> Result<(), FilesystemError> {
-            self.root.rename(&folded(from), &self.root, &folded(to))
+            self.root
+                .rename(&folded_path_of(from), &self.root, &folded_path_of(to))
         }
     }
 
@@ -2808,8 +2809,9 @@ mod tests {
                         .map(|file| file.getattr().map(|metadata| metadata.file_type))
                 });
                 ready.store(true, Ordering::SeqCst);
-                let removed =
-                    crate::sched::testing::bounded(|| vfs::filename_unlinkat(&cred, &root, "d/f"));
+                let removed = crate::sched::testing::within_max_wait(|| {
+                    vfs::filename_unlinkat(&cred, &root, "d/f")
+                });
                 (
                     removed,
                     crate::sched::testing::join_scoped("the open", opening),
@@ -3323,7 +3325,8 @@ mod tests {
         crate::sched::testing::wait_until("the first copy up opening its lower file", || {
             sleeps.opening.load(Ordering::SeqCst)
         });
-        let waited = crate::sched::testing::bounded(|| write_over(&second, "note", b"later"));
+        let waited =
+            crate::sched::testing::within_max_wait(|| write_over(&second, "note", b"later"));
         assert_eq!(
             (
                 crate::sched::testing::join("the first copy up", copying),

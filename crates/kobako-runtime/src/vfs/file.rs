@@ -1233,7 +1233,7 @@ mod tests {
     }
 
     /// The identities a listing of `dir` from the start hands `.` and `..`.
-    fn dots_of(dir: &mut File) -> Vec<Option<Identity>> {
+    fn read_dots(dir: &mut File) -> Vec<Option<Identity>> {
         let mut dots = Vec::new();
         dir.iterate_dir(&mut DirContext::new(0, &mut |entry| {
             if entry.name.starts_with('.') {
@@ -1261,7 +1261,7 @@ mod tests {
         };
         let one = Identity::from_numbers(7, 9);
         assert_eq!(
-            dots_of(&mut dir),
+            read_dots(&mut dir),
             [one, one],
             "File::iterate_dir through Rdir of a root must name . and .. as the Filesystem's \
              stat of it names them"
@@ -1293,7 +1293,7 @@ mod tests {
             panic!("the directory must open");
         };
         assert_eq!(
-            dots_of(&mut dir),
+            read_dots(&mut dir),
             [stat("d"), stat(".")],
             "File::iterate_dir of a Tmpfs directory must name . and .. as a stat of the \
              directory and of the one above it names them"

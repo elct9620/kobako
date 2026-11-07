@@ -2174,7 +2174,7 @@ mod tests {
             let root = root.clone();
             thread::spawn(move || {
                 counted.send(count_waits()).ok();
-                crate::sched::testing::bounded(|| second(&root, "b"))
+                crate::sched::testing::within_max_wait(|| second(&root, "b"))
             })
         };
         let counts = counts
@@ -3565,7 +3565,7 @@ mod tests {
     }
 
     /// The path `dentry` stands at beneath the root, folded.
-    fn folded(dentry: &Dentry) -> String {
+    fn folded_path_of(dentry: &Dentry) -> String {
         dentry.path_raw()[1..].to_uppercase()
     }
 
@@ -3578,7 +3578,7 @@ mod tests {
             dentry: &Dentry,
             ctx: &mut vfs::DirContext<'_>,
         ) -> Result<(), FilesystemError> {
-            let entries = match folded(dentry).as_str() {
+            let entries = match folded_path_of(dentry).as_str() {
                 "" => self.0.iterate_dir(),
                 at => self.0.open_dir(at)?.iterate_dir(),
             }?;
@@ -3598,13 +3598,13 @@ mod tests {
 
     impl InodeOperations for FoldsToUpper {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            self.root.vfs_lstat(&folded(dentry))
+            self.root.vfs_lstat(&folded_path_of(dentry))
         }
 
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
             let name = dentry.name();
             let upper = name.to_uppercase();
-            match self.root.vfs_lstat(&folded(dentry)) {
+            match self.root.vfs_lstat(&folded_path_of(dentry)) {
                 Ok(found) if upper != name => Ok(Lookup::Spelled {
                     name: upper,
                     inode: Inode::new(&found, Arc::new(self.clone())),
@@ -3623,7 +3623,7 @@ mod tests {
             if dentry.kind() == Ok(crate::filesystem::FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
-            self.root.open(&folded(dentry), how)
+            self.root.open(&folded_path_of(dentry), how)
         }
 
         fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
@@ -3636,7 +3636,7 @@ mod tests {
             if !how.create {
                 return Ok(Finish::NoOpen { created: false });
             }
-            let file = self.root.create(&folded(dentry), how)?;
+            let file = self.root.create(&folded_path_of(dentry), how)?;
             Ok(Finish::Open {
                 file,
                 created: true,
@@ -3644,15 +3644,15 @@ mod tests {
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.vfs_mkdir(&folded(dentry))
+            self.root.vfs_mkdir(&folded_path_of(dentry))
         }
 
         fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.vfs_rmdir(&folded(dentry))
+            self.root.vfs_rmdir(&folded_path_of(dentry))
         }
 
         fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
-            self.root.vfs_unlink(&folded(dentry))
+            self.root.vfs_unlink(&folded_path_of(dentry))
         }
 
         fn rename(
@@ -3663,7 +3663,8 @@ mod tests {
             _flag: Option<RenameFlag>,
         ) -> Result<(), FilesystemError> {
             (self.renaming)()?;
-            self.root.rename(&folded(from), &self.root, &folded(to))
+            self.root
+                .rename(&folded_path_of(from), &self.root, &folded_path_of(to))
         }
     }
 
@@ -4275,7 +4276,7 @@ mod tests {
         renaming
             .recv_timeout(crate::sched::testing::MAX_WAIT)
             .expect("the move must reach the Filesystem");
-        let made = crate::sched::testing::bounded(|| {
+        let made = crate::sched::testing::within_max_wait(|| {
             vfs::filename_mkdirat(&Arc::default(), &replaced, "made")
         });
         let moved = crate::sched::testing::join("the mover", mover);
@@ -4320,8 +4321,9 @@ mod tests {
         removing
             .recv_timeout(crate::sched::testing::MAX_WAIT)
             .expect("the removal must reach the Filesystem");
-        let made =
-            crate::sched::testing::bounded(|| vfs::filename_mkdirat(&Arc::default(), &root, "e"));
+        let made = crate::sched::testing::within_max_wait(|| {
+            vfs::filename_mkdirat(&Arc::default(), &root, "e")
+        });
         crate::sched::testing::join("the remover", remover).expect("the removal must succeed");
         assert_eq!(
             (made, counts.load(Ordering::SeqCst)),
@@ -4368,7 +4370,7 @@ mod tests {
         // Bounded, so a move that never reaches the Filesystem fails the
         // assertion rather than hanging the test.
         reaching.recv_timeout(crate::sched::testing::MAX_WAIT).ok();
-        let removed = crate::sched::testing::bounded(|| {
+        let removed = crate::sched::testing::within_max_wait(|| {
             vfs::filename_unlinkat(&Arc::default(), &root, "DIR/F")
         });
         let moved = crate::sched::testing::join("the mover", mover);
@@ -5176,7 +5178,7 @@ mod tests {
         let filesystem = Arc::new(AsksItsOwnName::default());
         let root = root_of(Filesystem::new(filesystem.clone()).expect("the instance must stand"));
         filesystem.root.set(root.clone()).ok();
-        let answer = crate::sched::testing::bounded(|| {
+        let answer = crate::sched::testing::within_max_wait(|| {
             vfs::vfs_fstatat(&Arc::default(), &root, "x", false).map(|found| found.file_type)
         });
         assert_eq!(

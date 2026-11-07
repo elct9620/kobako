@@ -177,7 +177,7 @@ pub(crate) mod testing {
 
     /// What `run` answers, each wait for a lock in it ending past `MAX_WAIT`, so a
     /// test thread waiting on a lock itself fails rather than hangs.
-    pub(crate) fn bounded<T>(run: impl FnOnce() -> T) -> T {
+    pub(crate) fn within_max_wait<T>(run: impl FnOnce() -> T) -> T {
         super::run_task(Some(Instant::now() + MAX_WAIT), run)
     }
 

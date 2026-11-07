@@ -423,7 +423,7 @@ fn holds(setup: Setup, runs: u64, longest: u64) {
     let mut succeeded = BTreeSet::new();
     for seed in 1..=runs {
         let mut rng = Rng::new(seed);
-        let length = 1 + rng.below(longest);
+        let length = 1 + rng.random_below(longest);
         let sequence: Vec<Call> = (0..length).map(|_| rng.call(&paths)).collect();
         let (mut kobako, mut linux) = setup.start(false);
         let mut agreed = true;
@@ -491,7 +491,7 @@ fn moves_the_same_times(setup: Setup, runs: u64, longest: u64) {
     let mut calls_moving_a_time = 0;
     for seed in 1..=runs {
         let mut rng = Rng::new(seed);
-        let length = 1 + rng.below(longest);
+        let length = 1 + rng.random_below(longest);
         let sequence: Vec<Call> = (0..length).map(|_| rng.call(&paths)).collect();
         let (mut kobako, mut linux) = setup.start(true);
         for (at, call) in sequence.iter().enumerate() {

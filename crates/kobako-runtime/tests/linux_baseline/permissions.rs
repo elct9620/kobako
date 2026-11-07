@@ -117,7 +117,7 @@ fn compare(
 
 fn sequence(seed: u64, longest: u64, paths: &[String]) -> Vec<Call> {
     let mut rng = Rng::new(seed);
-    let length = 1 + rng.below(longest);
+    let length = 1 + rng.random_below(longest);
     (0..length).map(|_| rng.call(paths)).collect()
 }
 

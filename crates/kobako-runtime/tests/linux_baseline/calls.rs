@@ -105,61 +105,67 @@ impl Rng {
         self.0
     }
 
-    pub fn below(&mut self, bound: u64) -> u64 {
+    pub fn random_below(&mut self, bound: u64) -> u64 {
         self.next() % bound
     }
 
-    fn chance(&mut self, percent: u64) -> bool {
-        self.below(100) < percent
+    fn random_bool(&mut self, percent: u64) -> bool {
+        self.random_below(100) < percent
     }
 
-    fn path(&mut self, paths: &[String]) -> String {
-        paths[self.below(paths.len() as u64) as usize].clone()
+    fn choose_path(&mut self, paths: &[String]) -> String {
+        paths[self.random_below(paths.len() as u64) as usize].clone()
     }
 
     /// The next call of a sequence over `paths`.
     pub fn call(&mut self, paths: &[String]) -> Call {
-        let slot = self.below(SLOTS as u64) as usize;
-        let base = self.chance(25).then(|| self.below(SLOTS as u64) as usize);
-        match self.below(100) {
+        let slot = self.random_below(SLOTS as u64) as usize;
+        let base = self
+            .random_bool(25)
+            .then(|| self.random_below(SLOTS as u64) as usize);
+        match self.random_below(100) {
             0..=27 => Call::Open(Open {
                 base,
-                path: self.path(paths),
-                read: self.chance(70),
-                write: self.chance(45),
-                create: self.chance(30),
-                exclusive: self.chance(10),
-                truncate: self.chance(10),
-                append: self.chance(12),
-                directory: self.chance(12),
-                nofollow: self.chance(15),
+                path: self.choose_path(paths),
+                read: self.random_bool(70),
+                write: self.random_bool(45),
+                create: self.random_bool(30),
+                exclusive: self.random_bool(10),
+                truncate: self.random_bool(10),
+                append: self.random_bool(12),
+                directory: self.random_bool(12),
+                nofollow: self.random_bool(15),
                 slot,
             }),
             28..=32 => Call::Close(slot),
-            33..=38 => Call::Read(slot, self.below(8) as usize),
-            39..=45 => Call::Write(slot, self.below(4) as usize),
-            46..=48 => Call::Pread(slot, self.below(8) as usize, self.below(10)),
-            49..=51 => Call::Pwrite(slot, self.below(4) as usize, self.below(10)),
-            52..=54 => Call::Seek(slot, self.below(14) as i64 - 4, self.below(3) as u8),
-            55..=58 => Call::Truncate(slot, self.below(12)),
+            33..=38 => Call::Read(slot, self.random_below(8) as usize),
+            39..=45 => Call::Write(slot, self.random_below(4) as usize),
+            46..=48 => Call::Pread(slot, self.random_below(8) as usize, self.random_below(10)),
+            49..=51 => Call::Pwrite(slot, self.random_below(4) as usize, self.random_below(10)),
+            52..=54 => Call::Seek(
+                slot,
+                self.random_below(14) as i64 - 4,
+                self.random_below(3) as u8,
+            ),
+            55..=58 => Call::Truncate(slot, self.random_below(12)),
             59..=62 => Call::Fstat(slot),
             63..=64 => Call::Fsync(slot),
             65..=68 => Call::Readdir(slot),
             69..=73 => Call::Stat {
                 base,
-                path: self.path(paths),
-                follow: self.chance(50),
+                path: self.choose_path(paths),
+                follow: self.random_bool(50),
             },
-            74..=79 => Call::Mkdir(base, self.path(paths)),
-            80..=85 => Call::Rmdir(base, self.path(paths)),
-            86..=89 => Call::Unlink(base, self.path(paths)),
-            90 => Call::Fallocate(slot, self.below(10), self.below(5)),
+            74..=79 => Call::Mkdir(base, self.choose_path(paths)),
+            80..=85 => Call::Rmdir(base, self.choose_path(paths)),
+            86..=89 => Call::Unlink(base, self.choose_path(paths)),
+            90 => Call::Fallocate(slot, self.random_below(10), self.random_below(5)),
             91 => Call::Utimes {
                 base,
-                path: self.path(paths),
-                follow: self.chance(50),
+                path: self.choose_path(paths),
+                follow: self.random_bool(50),
             },
-            _ => Call::Rename(base, self.path(paths), self.path(paths)),
+            _ => Call::Rename(base, self.choose_path(paths), self.choose_path(paths)),
         }
     }
 }
