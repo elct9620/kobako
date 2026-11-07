@@ -23,8 +23,8 @@ use serde_json::{json, Map, Value as Json};
 use kobako::filesystem::Tmpfs;
 use kobako::msgpack::{RunArg, Value, ValueReceiver};
 use kobako::{
-    Access, Backend, Error, Execution, Extension, Fault, FaultKind, Filesystem, Handles, Options,
-    Profile, Provider, Receiver, RunPayload, Sandbox, Yielder,
+    network, Access, Backend, Error, Execution, Extension, Fault, FaultKind, Filesystem, Handles,
+    Options, Profile, Provider, Receiver, RunPayload, Sandbox, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
@@ -93,6 +93,9 @@ fn run_scenario(frame: &[u8]) -> Result<Json, String> {
     for mount in scenario["mounts"].as_array().unwrap_or(&Vec::new()) {
         apply_mount(&mut sandbox, mount)?;
     }
+    for network in scenario["networks"].as_array().unwrap_or(&Vec::new()) {
+        apply_network(&mut sandbox, network)?;
+    }
 
     let invocations = scenario["invocations"]
         .as_array()
@@ -118,6 +121,58 @@ fn apply_flag(sandbox: &mut Sandbox, flag: &Json) -> Result<(), String> {
         sandbox.flag(name, value)
     }
     .map_err(|err| format!("flag failed: {err}"))
+}
+
+/// A scenario's network entry holds endpoints only, the one role both
+/// frontends build from plain data.
+fn apply_network(sandbox: &mut Sandbox, network: &Json) -> Result<(), String> {
+    let name = network["name"].as_str().ok_or("network must carry name")?;
+    let mut entry = network::Builder::default();
+    for endpoint in network["endpoints"]
+        .as_array()
+        .ok_or("network must carry endpoints")?
+    {
+        entry.endpoint(to_endpoint(endpoint)?);
+    }
+    sandbox
+        .network(name, Arc::new(entry))
+        .map_err(|err| format!("network failed: {err}"))
+}
+
+fn to_endpoint(endpoint: &Json) -> Result<network::Endpoint, String> {
+    let host = endpoint["host"]
+        .as_str()
+        .ok_or("endpoint must carry host")?;
+    let port = endpoint["port"]
+        .as_u64()
+        .and_then(|port| u16::try_from(port).ok())
+        .ok_or("endpoint must carry a port")?;
+    let protocol = match endpoint["protocol"].as_str() {
+        Some("tcp") => network::Protocol::Tcp,
+        Some("udp") => network::Protocol::Udp,
+        Some("http") => network::Protocol::Http,
+        other => {
+            return Err(format!(
+                "endpoint protocol must be tcp, udp, or http, got {other:?}"
+            ))
+        }
+    };
+    let addresses = endpoint["addresses"]
+        .as_array()
+        .ok_or("endpoint must carry addresses")?
+        .iter()
+        .map(|set| match set.as_str() {
+            Some("public") => Ok(network::Addresses::Public),
+            Some("private") => Ok(network::Addresses::Private),
+            Some("local") => Ok(network::Addresses::Local),
+            other => Err(format!(
+                "endpoint address set must be public, private, or local, got {other:?}"
+            )),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    network::Endpoint::new(host, port)
+        .map(|endpoint| endpoint.with_protocol(protocol).with_addresses(addresses))
+        .map_err(|err| format!("endpoint failed: {err}"))
 }
 
 /// A scenario mounts a Tmpfs seeded from its files, the one kind both
