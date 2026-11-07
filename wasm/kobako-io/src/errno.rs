@@ -33,12 +33,23 @@ const fn code(
 
 const CODES: &[Code] = &[
     code(c"EACCES", 2, 13, "Permission denied"),
+    code(c"EADDRNOTAVAIL", 4, 99, "Cannot assign requested address"),
+    code(
+        c"EAFNOSUPPORT",
+        5,
+        97,
+        "Address family not supported by protocol",
+    ),
     code(c"EAGAIN", 6, 11, "Resource temporarily unavailable"),
     code(c"EBADF", 8, 9, "Bad file descriptor"),
     code(c"EBUSY", 10, 16, "Device or resource busy"),
+    code(c"ECONNABORTED", 13, 103, "Software caused connection abort"),
+    code(c"ECONNREFUSED", 14, 111, "Connection refused"),
+    code(c"ECONNRESET", 15, 104, "Connection reset by peer"),
     code(c"EDEADLK", 16, 35, "Resource deadlock avoided"),
     code(c"EEXIST", 20, 17, "File exists"),
     code(c"EFBIG", 22, 27, "File too large"),
+    code(c"EHOSTUNREACH", 23, 113, "No route to host"),
     code(
         c"EILSEQ",
         25,
@@ -52,10 +63,12 @@ const CODES: &[Code] = &[
     code(c"ELOOP", 32, 40, "Too many levels of symbolic links"),
     code(c"EMFILE", 33, 24, "Too many open files"),
     code(c"ENAMETOOLONG", 37, 36, "File name too long"),
+    code(c"ENETUNREACH", 40, 101, "Network is unreachable"),
     code(c"ENODEV", 43, 19, "No such device"),
     code(c"ENOENT", 44, 2, "No such file or directory"),
     code(c"ENOMEM", 48, 12, "Cannot allocate memory"),
     code(c"ENOSPC", 51, 28, "No space left on device"),
+    code(c"ENOTCONN", 53, 107, "Transport endpoint is not connected"),
     code(c"ENOTDIR", 54, 20, "Not a directory"),
     code(c"ENOTEMPTY", 55, 39, "Directory not empty"),
     code(c"ENOTSOCK", 57, 88, "Socket operation on non-socket"),
@@ -67,8 +80,10 @@ const CODES: &[Code] = &[
         "Value too large for defined data type",
     ),
     code(c"EPERM", 63, 1, "Operation not permitted"),
+    code(c"EPIPE", 64, 32, "Broken pipe"),
     code(c"EROFS", 69, 30, "Read-only file system"),
     code(c"ESPIPE", 70, 29, "Illegal seek"),
+    code(c"ETIMEDOUT", 73, 110, "Connection timed out"),
     code(c"EXDEV", 75, 18, "Invalid cross-device link"),
 ];
 

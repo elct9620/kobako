@@ -1,12 +1,18 @@
 //! `TCPSocket` over WASI 0.2's `wasi:sockets`, which the guest imports as a
 //! core module, as wasi-libc imports preview1. A Sandbox giving the guest no
 //! network answers every socket as unsupported, so the guest raises
-//! `NotImplementedError`, as it does with no Mount.
+//! `NotImplementedError`, as it does with no Mount; a refusal raises the
+//! `Errno` CRuby's would.
+
+use std::cell::RefCell;
+use std::net::Ipv4Addr;
 
 use beni::prelude::*;
-use beni::{Error, Mrb, RClass, Value};
+use beni::value::qnil;
+use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use crate::errno;
+use crate::io::argument_error;
 
 mod wasi {
     wit_bindgen_rust_macro::generate!({
@@ -16,6 +22,14 @@ mod wasi {
         generate_all,
     });
 }
+
+use wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
+use wasi::wasi::sockets::instance_network::instance_network;
+use wasi::wasi::sockets::network::{
+    ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
+};
+use wasi::wasi::sockets::tcp::{ShutdownType, TcpSocket};
+use wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
 
 /// What the generated bindings call into, in place of the `wit-bindgen`
 /// crate's runtime, whose versioned `cabi_realloc` would join the Guest
@@ -56,31 +70,284 @@ pub(crate) mod rt {
     }
 }
 
-use wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
-use wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
+/// The most `blocking-write-and-flush` takes in one call, as WASI bounds it.
+const WRITE_CHUNK: usize = 4096;
+
+/// One connection, its streams dropped before the socket, as WASI asks of a
+/// child resource.
+struct Open {
+    input: InputStream,
+    output: OutputStream,
+    socket: TcpSocket,
+    peer: (Ipv4Addr, u16),
+}
+
+/// What a `TCPSocket` stands for, kept in its payload so a script's instance
+/// variables cannot rewrite it; `None` once closed.
+#[beni::wrap(class = "TCPSocket", name = "Kobako::TCPSocket")]
+struct Connection {
+    open: RefCell<Option<Open>>,
+    /// What a `gets` read past the line it answered.
+    buffered: RefCell<Vec<u8>>,
+}
+
+impl Connection {
+    fn of<'a>(mrb: &Mrb, value: Value) -> Result<&'a Connection, Error> {
+        <&Connection>::try_convert(value, mrb)
+    }
+
+    fn with<T>(&self, mrb: &Mrb, call: impl FnOnce(&Open) -> Result<T, Error>) -> Result<T, Error> {
+        match self.open.borrow().as_ref() {
+            Some(open) => call(open),
+            None => Err(errno::io_error(mrb, "closed stream")),
+        }
+    }
+}
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     let socket = mrb.define_class(c"TCPSocket", mrb.class_object())?;
-    socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, -1))?;
-    socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, -1))?;
+    Connection::mark_carriers(mrb)?;
+    socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, 2))?;
+    socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, 2))?;
+    socket.define_method(mrb, c"write", beni::method!(tcp_socket_write, 1))?;
+    socket.define_method(mrb, c"print", beni::method!(tcp_socket_write, 1))?;
+    socket.define_method(mrb, c"read", beni::method!(tcp_socket_read, -1))?;
+    socket.define_method(
+        mrb,
+        c"readpartial",
+        beni::method!(tcp_socket_readpartial, 1),
+    )?;
+    socket.define_method(mrb, c"gets", beni::method!(tcp_socket_gets, 0))?;
+    socket.define_method(
+        mrb,
+        c"close_write",
+        beni::method!(tcp_socket_close_write, 0),
+    )?;
+    socket.define_method(mrb, c"close", beni::method!(tcp_socket_close, 0))?;
+    socket.define_method(mrb, c"closed?", beni::method!(tcp_socket_closed_p, 0))?;
+    socket.define_method(mrb, c"peeraddr", beni::method!(tcp_socket_peeraddr, 0))?;
     Ok(())
 }
 
-/// `TCPSocket.new(host, port)` makes the socket it connects; a Sandbox with
-/// no network makes none.
-fn tcp_socket_s_new(mrb: &Mrb, _class: RClass, _args: &[Value]) -> Result<Value, Error> {
-    match create_tcp_socket(IpAddressFamily::Ipv4) {
-        Err(ErrorCode::NotSupported) => Err(errno::not_implemented(
+/// The `Errno` a WASI error code stands for, from a call on `peer`.
+fn to_error(mrb: &Mrb, code: ErrorCode, peer: &str) -> Error {
+    let name = match code {
+        ErrorCode::NotSupported => {
+            return errno::not_implemented(
+                mrb,
+                "TCPSocket is unimplemented: this Sandbox gives the guest no network",
+            )
+        }
+        ErrorCode::AccessDenied => c"EACCES",
+        ErrorCode::ConnectionRefused => c"ECONNREFUSED",
+        ErrorCode::ConnectionReset => c"ECONNRESET",
+        ErrorCode::ConnectionAborted => c"ECONNABORTED",
+        ErrorCode::Timeout => c"ETIMEDOUT",
+        ErrorCode::RemoteUnreachable => c"EHOSTUNREACH",
+        ErrorCode::AddressNotBindable => c"EADDRNOTAVAIL",
+        ErrorCode::NewSocketLimit => c"EMFILE",
+        ErrorCode::WouldBlock => c"EAGAIN",
+        ErrorCode::InvalidArgument => c"EINVAL",
+        ErrorCode::OutOfMemory => c"ENOMEM",
+        ErrorCode::InvalidState => c"ENOTCONN",
+        _ => c"EIO",
+    };
+    errno::error_by_name(mrb, name, &format!("connect(2) for {peer}"))
+}
+
+/// `TCPSocket.new(host, port)` connects to the IPv4 address `host` names, as
+/// the network the Sandbox gives allows.
+fn tcp_socket_s_new(mrb: &Mrb, class: RClass, host: Value, port: Value) -> Result<Value, Error> {
+    let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
+    let port = u16::try_from(i64::try_convert(port, mrb)?)
+        .map_err(|_| argument_error(mrb, "port out of range"))?;
+    let peer = format!("\"{host_text}\" port {port}");
+    let ip = match host_text.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip,
+        Ok(std::net::IpAddr::V6(_)) => {
+            return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &peer))
+        }
+        Err(_) => {
+            return Err(errno::not_implemented(
+                mrb,
+                &format!("TCPSocket.new is unimplemented for a host name: {host_text}"),
+            ))
+        }
+    };
+    let socket =
+        create_tcp_socket(IpAddressFamily::Ipv4).map_err(|code| to_error(mrb, code, &peer))?;
+    let network = instance_network();
+    let [a, b, c, d] = ip.octets();
+    let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+        port,
+        address: (a, b, c, d),
+    });
+    socket
+        .start_connect(&network, remote)
+        .map_err(|code| to_error(mrb, code, &peer))?;
+    let pollable = socket.subscribe();
+    let (input, output) = loop {
+        match socket.finish_connect() {
+            Ok(streams) => break streams,
+            Err(ErrorCode::WouldBlock) => pollable.block(),
+            Err(code) => return Err(to_error(mrb, code, &peer)),
+        }
+    };
+    let connection = Connection {
+        open: RefCell::new(Some(Open {
+            input,
+            output,
+            socket,
+            peer: (ip, port),
+        })),
+        buffered: RefCell::new(Vec::new()),
+    };
+    Ok(mrb.wrap_as(connection, class).as_value())
+}
+
+fn stream_failed(mrb: &Mrb, err: StreamError) -> Error {
+    match err {
+        StreamError::Closed => errno::error_by_name(mrb, c"EPIPE", "write(2)"),
+        StreamError::LastOperationFailed(err) => {
+            let name = err.to_debug_string();
+            errno::io_error(mrb, &name)
+        }
+    }
+}
+
+/// `write(string)` sends every byte, answering how many it sent.
+fn tcp_socket_write(mrb: &Mrb, self_: Value, data: Value) -> Result<Value, Error> {
+    let data = data
+        .funcall::<_, _, Value>(mrb, c"to_s", ())?
+        .to_r_string(mrb)?;
+    // SAFETY: the bytes are copied before the next mruby call.
+    let bytes = unsafe { data.as_bytes(mrb) }.to_vec();
+    Connection::of(mrb, self_)?.with(mrb, |open| {
+        for chunk in bytes.chunks(WRITE_CHUNK) {
+            open.output
+                .blocking_write_and_flush(chunk)
+                .map_err(|err| stream_failed(mrb, err))?;
+        }
+        Ok(())
+    })?;
+    Ok((bytes.len() as i64).into_value(mrb))
+}
+
+/// What one blocking read brings, after what a `gets` held back; `None` at the
+/// end.
+fn read_some(mrb: &Mrb, connection: &Connection, len: usize) -> Result<Option<Vec<u8>>, Error> {
+    let mut held = connection.buffered.borrow_mut();
+    if !held.is_empty() {
+        let take = held.len().min(len);
+        return Ok(Some(held.drain(..take).collect()));
+    }
+    drop(held);
+    connection.with(mrb, |open| loop {
+        match open.input.blocking_read(len as u64) {
+            Ok(bytes) if bytes.is_empty() => continue,
+            Ok(bytes) => return Ok(Some(bytes)),
+            Err(StreamError::Closed) => return Ok(None),
+            Err(err) => return Err(stream_failed(mrb, err)),
+        }
+    })
+}
+
+/// `read(length = nil)` reads `length` bytes, or to the end without one, as
+/// CRuby's `IO#read` does; `nil` at the end when a length was asked for.
+fn tcp_socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let connection = Connection::of(mrb, self_)?;
+    let length = match args.first().filter(|v| !v.is_nil()) {
+        Some(v) => Some(
+            usize::try_from(i64::try_convert(*v, mrb)?)
+                .map_err(|_| argument_error(mrb, "negative length given"))?,
+        ),
+        None => None,
+    };
+    let mut read = Vec::new();
+    while length.is_none_or(|length| read.len() < length) {
+        let want = length.map_or(64 * 1024, |length| length - read.len());
+        match read_some(mrb, connection, want)? {
+            Some(bytes) => read.extend(bytes),
+            None => break,
+        }
+    }
+    if read.is_empty() && length.is_some_and(|length| length > 0) {
+        return Ok(qnil().as_value());
+    }
+    Ok(mrb.str_new(&read).as_value())
+}
+
+/// `readpartial(maxlen)` answers what one read brings, raising `EOFError` at
+/// the end, as CRuby does.
+fn tcp_socket_readpartial(mrb: &Mrb, self_: Value, maxlen: Value) -> Result<Value, Error> {
+    let maxlen = usize::try_from(i64::try_convert(maxlen, mrb)?)
+        .map_err(|_| argument_error(mrb, "negative length given"))?;
+    match read_some(mrb, Connection::of(mrb, self_)?, maxlen)? {
+        Some(bytes) => Ok(mrb.str_new(&bytes).as_value()),
+        None => Err(Error::new(
             mrb,
-            "TCPSocket.new is unimplemented: this Sandbox gives the guest no network",
-        )),
-        Err(code) => Err(errno::not_implemented(
-            mrb,
-            &format!("TCPSocket.new is unimplemented: the network answered {code:?}"),
-        )),
-        Ok(_socket) => Err(errno::not_implemented(
-            mrb,
-            "TCPSocket.new is unimplemented: connecting is not yet supported",
+            mrb.exc_get(c"EOFError")?,
+            "end of file reached",
         )),
     }
+}
+
+/// `gets` answers the next line, its newline kept, or `nil` at the end.
+fn tcp_socket_gets(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let connection = Connection::of(mrb, self_)?;
+    let mut line = Vec::new();
+    loop {
+        let Some(bytes) = read_some(mrb, connection, 64 * 1024)? else {
+            break;
+        };
+        match bytes.iter().position(|b| *b == b'\n') {
+            Some(at) => {
+                line.extend_from_slice(&bytes[..=at]);
+                connection
+                    .buffered
+                    .borrow_mut()
+                    .splice(0..0, bytes[at + 1..].iter().copied());
+                return Ok(mrb.str_new(&line).as_value());
+            }
+            None => line.extend(bytes),
+        }
+    }
+    match line.is_empty() {
+        true => Ok(qnil().as_value()),
+        false => Ok(mrb.str_new(&line).as_value()),
+    }
+}
+
+/// `close_write` sends the FIN once what was written is sent.
+fn tcp_socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Connection::of(mrb, self_)?.with(mrb, |open| {
+        let _ = open.socket.shutdown(ShutdownType::Send);
+        Ok(())
+    })?;
+    Ok(qnil().as_value())
+}
+
+fn tcp_socket_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Connection::of(mrb, self_)?.open.borrow_mut().take();
+    Ok(qnil().as_value())
+}
+
+fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Ok(Connection::of(mrb, self_)?
+        .open
+        .borrow()
+        .is_none()
+        .into_value(mrb))
+}
+
+/// `peeraddr` answers the peer as CRuby's `["AF_INET", port, host, host]`.
+fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let (ip, port) = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.peer))?;
+    let host = mrb.str_new(ip.to_string().as_bytes()).as_value();
+    let addr = mrb.ary_new();
+    addr.push(mrb, mrb.str_new(b"AF_INET").as_value())?;
+    addr.push(mrb, i64::from(port).into_value(mrb))?;
+    addr.push(mrb, host)?;
+    addr.push(mrb, host)?;
+    Ok(addr.as_value())
 }
