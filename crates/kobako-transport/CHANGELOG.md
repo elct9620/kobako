@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.19.0...kobako-transport-v0.20.0) (2026-11-07)
+
+
+### Bug Fixes
+
+* **transport:** call the Envelope by its name when one fails to decode ([411c8d5](https://github.com/elct9620/kobako/commit/411c8d505e2d939b8014b5406b1a9625b865f02b))
+
 ## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.18.0...kobako-transport-v0.19.0) (2026-10-26)
 
 

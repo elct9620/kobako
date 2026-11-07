@@ -786,7 +786,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "kobako"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "kobako-codec",
  "kobako-runtime",
@@ -796,7 +796,7 @@ dependencies = [
 
 [[package]]
 name = "kobako-codec"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "rmp",
 ]
@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "kobako-runtime"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
@@ -825,11 +825,11 @@ dependencies = [
 
 [[package]]
 name = "kobako-transport"
-version = "0.19.0"
+version = "0.20.0"
 
 [[package]]
 name = "kobako-wasmtime"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "kobako-runtime",
  "kobako-transport",

@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.19.0...kobako-io-v0.20.0) (2026-11-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **io:** a path holding a NUL byte now raises ArgumentError from every File and Dir call, including the exist?, file?, and directory? questions that answered false before.
+
+### Features
+
+* **io:** add File::Stat and the calls built on one ([c7174e6](https://github.com/elct9620/kobako/commit/c7174e6d43ffc9aa6503d237d7e08a3e4e0df9ab))
+* **io:** list, make, and remove directories through Dir ([1b862a4](https://github.com/elct9620/kobako/commit/1b862a4b9d0d7d16a287585bef8d2615d4457242))
+* **io:** name EAGAIN in the guest ([2ba8d24](https://github.com/elct9620/kobako/commit/2ba8d249dda1bbec2f4ac68b708e87116a07d3b1))
+* **io:** name ENODEV in the guest ([6f00e26](https://github.com/elct9620/kobako/commit/6f00e262e2f5a8d823805cf165f0d0420144df7e))
+* **io:** sync, truncate, and read or write a file at an offset ([7f61b7b](https://github.com/elct9620/kobako/commit/7f61b7b26fef46e1cb5996e04a5c1d1c6ae81536))
+
+
+### Bug Fixes
+
+* **io:** answer Dir, NUL paths, pread, and advise as CRuby does ([fd9accd](https://github.com/elct9620/kobako/commit/fd9accd485d3aad2f0f36a20a292d27b81f4777b))
+
 ## [0.19.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.18.0...kobako-io-v0.19.0) (2026-10-26)
 
 
