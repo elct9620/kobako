@@ -6,6 +6,7 @@ is one Grant, and its endpoints are data the runtime judges on any thread.
 ## Includes
 
 - `crates/kobako-runtime/src/network.rs`
+- `crates/kobako-runtime/src/network/ruleset.rs`
 - `crates/kobako-runtime/src/net/family.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
 
@@ -114,6 +115,54 @@ An entry or an endpoint no connection could follow.
 
 ```rust
 pub struct EntryError {}
+```
+
+## `AddressSet`
+
+Where an address falls, by IANA's special-purpose registries.
+
+```rust
+pub enum AddressSet {}
+```
+
+## `address_set`
+
+The set an address falls in. An IPv6 address carrying an IPv4 one is judged as
+the IPv4 inside.
+
+```rust
+pub fn address_set(ip: IpAddr) -> AddressSet {}
+```
+
+## `Ruleset`
+
+What one Invocation's entries let the Guest reach, compiled from every
+endpoint.
+
+```rust
+pub struct Ruleset {}
+```
+
+## `Ruleset::new`
+
+The ruleset of the endpoints, refused for a host naming no address, prefix, or
+name.
+
+```rust
+impl Ruleset {
+    pub fn new(endpoints: impl IntoIterator<Item = Endpoint>) -> Result<Self, EntryError> {}
+}
+```
+
+## `Ruleset::admit_literal`
+
+Whether the Guest may connect to a literal address it named. The fixed sets
+refuse whatever an endpoint says.
+
+```rust
+impl Ruleset {
+    pub fn admit_literal(&self, addr: SocketAddr, protocol: Protocol) -> Result<(), FilesystemError> {}
+}
 ```
 
 ## `ProtocolFamily`

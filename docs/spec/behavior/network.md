@@ -24,6 +24,7 @@ endpoint "api.example.com", port: 443
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
 - `crates/kobako-runtime/src/network.rs`
+- `crates/kobako-runtime/src/network/ruleset.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 
 ## `NW-001` An entry after the first invocation is refused
@@ -145,3 +146,47 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox with no network entry |
 | When | the script opens a `TCPSocket` |
 | Then | it raises `NotImplementedError`, as a file opened with no Mount does |
+
+## `NW-012` Each address falls in one address set
+
+| Step | Statement |
+| --- | --- |
+| Given | an address the guest may reach |
+| When | its address set is read |
+| Then | IANA's registries class it public, private, local, metadata, or reserved; an IPv6 address carrying an IPv4 one is that IPv4 |
+
+## `NW-013` A literal address passes only an endpoint naming it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-007` |
+
+| Step | Statement |
+| --- | --- |
+| Given | entries whose endpoints name an address and a prefix |
+| When | the guest connects to a literal address |
+| Then | only an address an endpoint's host holds, at its port and protocol, passes; any other is refused |
+
+## `NW-014` Metadata and reserved addresses never open
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an endpoint naming a metadata or a reserved address |
+| When | the guest connects to that address |
+| Then | the connection is refused, since kobako's fixed sets sit in no entry |
+
+## `NW-015` An HTTP endpoint admits no raw TCP
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming an address |
+| When | the guest opens raw TCP to that address and port |
+| Then | the connection is refused, so its rules cannot be framed around |
