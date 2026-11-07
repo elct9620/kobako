@@ -182,9 +182,10 @@ impl ContractRuntime for Driver {
     }
 
     /// A Mount becomes a preopen of kobako's own descriptor table, which
-    /// answers every preview1 call beneath it.
+    /// answers every preview1 call beneath it; the network entries become one
+    /// network the preview2 sockets reach.
     fn supports(&self, kind: GrantKind) -> bool {
-        matches!(kind, GrantKind::Mount)
+        matches!(kind, GrantKind::Mount | GrantKind::Network)
     }
 
     /// Bounded by the same caps as an invocation, on an instance of its

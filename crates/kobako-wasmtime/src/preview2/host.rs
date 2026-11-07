@@ -1,18 +1,28 @@
-//! What the Wasm Driver answers each preview2 import. A guest holds no socket
-//! until the network is granted, so a call needing one answers as WASI says a
-//! host without it does; the clock subscriptions and `poll` wait on the
-//! runtime's wait primitive.
+//! What the Wasm Driver answers each preview2 import. Without a network Grant
+//! the guest makes no socket, as WASI says a host without a network answers;
+//! with one, each connect passes the Invocation's ruleset and dials through
+//! its Protocol Family. The clock subscriptions, the streams, and `poll` wait
+//! on the runtime's wait primitive.
 
+use std::net::Shutdown;
 use std::time::{Duration, Instant};
 
-use kobako_runtime::wait::do_poll;
+use kobako_runtime::net::{sock_alloc_file, TcpSock, SOCKET_BUFFER};
+use kobako_runtime::network::Protocol;
+use kobako_runtime::vfs::{FilesystemError, PollMask};
+use kobako_runtime::wait::{do_poll, PollTable};
 
 use super::bindings::wasi_clocks_monotonic_clock_0_2_12 as monotonic_clock;
+use super::bindings::wasi_io_error_0_2_12::Error;
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
-use super::bindings::wasi_sockets_network_0_2_12::{ErrorCode, IpAddressFamily, Network};
-use super::bindings::wasi_sockets_tcp_0_2_12::TcpSocket;
+use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream, StreamError};
+use super::bindings::wasi_sockets_network_0_2_12::{
+    ErrorCode, IpAddressFamily, IpSocketAddress, Network,
+};
+use super::bindings::wasi_sockets_tcp_0_2_12::{ShutdownType, TcpSocket};
 use super::bindings::Host;
-use super::table::{self, Resource};
+use super::sockets::{from_socket_addr, hide_host_address, to_error_code, to_socket_addr};
+use super::table::{self, Resource, SocketFile};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
@@ -33,21 +43,22 @@ impl Invocation {
     }
 
     /// Wait until `ready` answers, or trap as the deadline or an interrupt
-    /// ends the run; the wait sleeps until the soonest pollable is due.
+    /// ends the run; the wait sleeps until the soonest pollable is due, or a
+    /// queue `ready` registered on wakes.
     fn wait_for<T>(
         &self,
         due: Option<Instant>,
-        mut ready: impl FnMut() -> Option<T>,
+        mut ready: impl FnMut(Option<&mut PollTable>) -> Option<T>,
     ) -> wasmtime::Result<T> {
-        if let Some(answer) = ready() {
+        if let Some(answer) = ready(None) {
             return Ok(answer);
         }
         loop {
             let timeout = due.map(|at| at.saturating_duration_since(Instant::now()));
-            match do_poll(timeout, |_| ready()) {
+            match do_poll(timeout, &mut ready) {
                 Ok(Some(answer)) => return Ok(answer),
                 Ok(None) => {
-                    if let Some(answer) = ready() {
+                    if let Some(answer) = ready(None) {
                         return Ok(answer);
                     }
                 }
@@ -57,6 +68,71 @@ impl Invocation {
                 Err(_) => return Err(wasmtime::Error::msg("the guest's wait was interrupted")),
             }
         }
+    }
+
+    fn push(&mut self, resource: Resource) -> wasmtime::Result<u32> {
+        self.wasi_mut().table_mut().push(resource)
+    }
+
+    fn pollable_on(&mut self, file: SocketFile, mask: PollMask) -> wasmtime::Result<Pollable> {
+        Ok(Pollable(self.push(Resource::Pollable(
+            table::Pollable::Socket(file, mask),
+        ))?))
+    }
+
+    fn tcp(&mut self, handle: TcpSocket) -> wasmtime::Result<&mut table::TcpSocket> {
+        match self.wasi_mut().table_mut().get_mut(handle.0)? {
+            Resource::TcpSocket(socket) => Ok(socket),
+            _ => Err(wasmtime::Error::msg(
+                "the guest named a handle that is not a tcp-socket",
+            )),
+        }
+    }
+
+    fn stream_file(&self, handle: u32) -> wasmtime::Result<SocketFile> {
+        match self.wasi().table().get(handle)? {
+            Resource::InputStream(file) | Resource::OutputStream(file) => Ok(file.clone()),
+            _ => Err(wasmtime::Error::msg(
+                "the guest named a handle that is not a stream",
+            )),
+        }
+    }
+
+    /// A stream's failure as WASI hands it out: the end as `closed`, anything
+    /// else as an error the guest may read.
+    fn stream_error(&mut self, err: FilesystemError) -> wasmtime::Result<StreamError> {
+        match err {
+            FilesystemError::BrokenPipe => Ok(StreamError::Closed),
+            err => Ok(StreamError::LastOperationFailed(Error(
+                self.push(Resource::Error(err))?,
+            ))),
+        }
+    }
+
+    /// Read what the socket holds, up to `len`, without waiting: nothing yet
+    /// reads as an empty list, and the end as `closed`.
+    fn read_now(
+        &mut self,
+        file: &SocketFile,
+        len: u64,
+    ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
+        let mut buf = vec![0; len.min(SOCKET_BUFFER as u64) as usize];
+        let read = file.file().read(&mut buf);
+        match read {
+            Ok(0) if !buf.is_empty() => Ok(Err(StreamError::Closed)),
+            Ok(n) => {
+                buf.truncate(n);
+                Ok(Ok(buf))
+            }
+            Err(FilesystemError::WouldBlock) => Ok(Ok(Vec::new())),
+            Err(err) => self.stream_error(err).map(Err),
+        }
+    }
+
+    /// Wait until `file`'s poll finds `mask`, or an error or a hang-up.
+    fn wait_on(&self, file: &SocketFile, mask: PollMask) -> wasmtime::Result<()> {
+        let pollable = table::Pollable::Socket(file.clone(), mask);
+        self.wait_for(None, |table| pollable.ready(table).then_some(()))
     }
 }
 
@@ -71,13 +147,310 @@ impl Host for Invocation {
         self.wasi_mut().table_mut().delete(handle.0).map(drop)
     }
 
-    /// No network is granted, so no socket is made, as WASI's
-    /// `not-supported` says of a host without one.
+    /// Without a network Grant no socket is made, as WASI's `not-supported`
+    /// says of a host without one; the guest is IPv4-only, so IPv6 is not
+    /// supported either.
     fn tcp_create_socket_create_tcp_socket(
         &mut self,
-        _address_family: IpAddressFamily,
+        address_family: IpAddressFamily,
     ) -> wasmtime::Result<Result<TcpSocket, ErrorCode>> {
-        Ok(Err(ErrorCode::NotSupported))
+        if self.wasi().table().network().is_none() || address_family == IpAddressFamily::Ipv6 {
+            return Ok(Err(ErrorCode::NotSupported));
+        }
+        Ok(Ok(TcpSocket(
+            self.push(Resource::TcpSocket(table::TcpSocket::Unbound))?,
+        )))
+    }
+
+    /// A connect passes the ruleset on what the guest named, then dials that
+    /// exact address on a worker, so this answers at once.
+    fn tcp_tcp_socket_start_connect(
+        &mut self,
+        this: TcpSocket,
+        network: Network,
+        remote_address: IpSocketAddress,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        // The handle is the capability to connect, so it must name a network.
+        if !matches!(self.wasi().table().get(network.0)?, Resource::Network) {
+            return Err(wasmtime::Error::msg(
+                "the guest named a handle that is not a network",
+            ));
+        }
+        if !matches!(self.tcp(this)?, table::TcpSocket::Unbound) {
+            return Ok(Err(ErrorCode::InvalidState));
+        }
+        let Some(addr) = to_socket_addr(&remote_address) else {
+            return Ok(Err(ErrorCode::InvalidArgument));
+        };
+        let network = self
+            .wasi()
+            .table()
+            .network()
+            .expect("a socket is only made with a network");
+        if let Err(err) = network.ruleset.admit_literal(addr, Protocol::Tcp) {
+            return Ok(Err(to_error_code(&err)));
+        }
+        let sock = TcpSock::connect(network.family.clone(), addr, self.deadline());
+        let file = sock_alloc_file(&sock, self.wasi().descriptors().cred());
+        *self.tcp(this)? = table::TcpSocket::Connecting(SocketFile::new(sock, file));
+        Ok(Ok(()))
+    }
+
+    /// The streams of a connect that landed, as WASI hands them out once; one
+    /// still under way answers `would-block`, and a failed one closes the
+    /// socket.
+    fn tcp_tcp_socket_finish_connect(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<(InputStream, OutputStream), ErrorCode>> {
+        let socket = match self.tcp(this)? {
+            table::TcpSocket::Connecting(socket) => socket.clone(),
+            _ => return Ok(Err(ErrorCode::NotInProgress)),
+        };
+        match socket.sock.finish_connect() {
+            Ok(()) => {
+                *self.tcp(this)? = table::TcpSocket::Connected(socket.clone());
+                let input = InputStream(self.push(Resource::InputStream(socket.clone()))?);
+                let output = OutputStream(self.push(Resource::OutputStream(socket))?);
+                Ok(Ok((input, output)))
+            }
+            Err(FilesystemError::WouldBlock) => Ok(Err(ErrorCode::WouldBlock)),
+            Err(err) => {
+                *self.tcp(this)? = table::TcpSocket::Closed;
+                Ok(Err(to_error_code(&err)))
+            }
+        }
+    }
+
+    /// Ready once a connect settles; a socket not connecting is ready at once.
+    fn tcp_tcp_socket_subscribe(&mut self, this: TcpSocket) -> wasmtime::Result<Pollable> {
+        let socket = match self.tcp(this)? {
+            table::TcpSocket::Connecting(socket) | table::TcpSocket::Connected(socket) => {
+                Some(socket.clone())
+            }
+            _ => None,
+        };
+        match socket {
+            Some(file) => self.pollable_on(file, PollMask::OUT),
+            None => Ok(Pollable(
+                self.push(Resource::Pollable(table::Pollable::Ready))?,
+            )),
+        }
+    }
+
+    fn tcp_tcp_socket_shutdown(
+        &mut self,
+        this: TcpSocket,
+        shutdown_type: ShutdownType,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        let table::TcpSocket::Connected(socket) = self.tcp(this)? else {
+            return Ok(Err(ErrorCode::InvalidState));
+        };
+        socket.sock.shutdown(match shutdown_type {
+            ShutdownType::Receive => Shutdown::Read,
+            ShutdownType::Send => Shutdown::Write,
+            ShutdownType::Both => Shutdown::Both,
+        });
+        Ok(Ok(()))
+    }
+
+    /// The peer as the guest named it.
+    fn tcp_tcp_socket_remote_address(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
+        match self.tcp(this)? {
+            table::TcpSocket::Connected(socket) => Ok(socket
+                .sock
+                .peer_addr()
+                .map(from_socket_addr)
+                .ok_or(ErrorCode::InvalidState)),
+            _ => Ok(Err(ErrorCode::InvalidState)),
+        }
+    }
+
+    /// The guest's own end, which shows no host address.
+    fn tcp_tcp_socket_local_address(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
+        match self.tcp(this)? {
+            table::TcpSocket::Connected(socket) => Ok(socket
+                .sock
+                .local_addr()
+                .map(hide_host_address)
+                .ok_or(ErrorCode::InvalidState)),
+            _ => Ok(Err(ErrorCode::InvalidState)),
+        }
+    }
+
+    fn tcp_tcp_socket_address_family(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<IpAddressFamily> {
+        self.tcp(this)?;
+        Ok(IpAddressFamily::Ipv4)
+    }
+
+    fn tcp_tcp_socket_is_listening(&mut self, this: TcpSocket) -> wasmtime::Result<bool> {
+        self.tcp(this)?;
+        Ok(false)
+    }
+
+    /// The guest only connects out, so a bind or a listen is refused, as
+    /// Landlock's `BIND_*` rights refuse one.
+    fn tcp_tcp_socket_start_bind(
+        &mut self,
+        this: TcpSocket,
+        _network: Network,
+        _local_address: IpSocketAddress,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        self.tcp(this)?;
+        Ok(Err(ErrorCode::AccessDenied))
+    }
+
+    fn tcp_tcp_socket_start_listen(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        self.tcp(this)?;
+        Ok(Err(ErrorCode::AccessDenied))
+    }
+
+    fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {
+        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+    }
+
+    fn streams_input_stream_read(
+        &mut self,
+        this: InputStream,
+        len: u64,
+    ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
+        let file = self.stream_file(this.0)?;
+        self.read_now(&file, len)
+    }
+
+    fn streams_input_stream_blocking_read(
+        &mut self,
+        this: InputStream,
+        len: u64,
+    ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
+        let file = self.stream_file(this.0)?;
+        self.wait_on(&file, PollMask::IN)?;
+        self.read_now(&file, len)
+    }
+
+    fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
+        let file = self.stream_file(this.0)?;
+        self.pollable_on(file, PollMask::IN)
+    }
+
+    fn streams_input_stream_drop(&mut self, handle: InputStream) -> wasmtime::Result<()> {
+        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+    }
+
+    /// How many bytes a write takes now; a failed or shut-down stream answers
+    /// its failure.
+    fn streams_output_stream_check_write(
+        &mut self,
+        this: OutputStream,
+    ) -> wasmtime::Result<Result<u64, StreamError>> {
+        let socket = self.stream_file(this.0)?;
+        let written = socket.file().write(&[]);
+        match written {
+            Ok(_) => Ok(Ok(socket.sock.send_room() as u64)),
+            Err(err) => self.stream_error(err).map(Err),
+        }
+    }
+
+    fn streams_output_stream_write(
+        &mut self,
+        this: OutputStream,
+        contents: Vec<u8>,
+    ) -> wasmtime::Result<Result<(), StreamError>> {
+        let written = self.stream_file(this.0)?.file().write(&contents);
+        match written {
+            Ok(n) if n == contents.len() => Ok(Ok(())),
+            Ok(_) | Err(FilesystemError::WouldBlock) => Err(wasmtime::Error::msg(
+                "output-stream.write was handed more than check-write allowed",
+            )),
+            Err(err) => self.stream_error(err).map(Err),
+        }
+    }
+
+    /// Write every byte, waiting for room as it goes, then for the send
+    /// buffer to drain.
+    fn streams_output_stream_blocking_write_and_flush(
+        &mut self,
+        this: OutputStream,
+        contents: Vec<u8>,
+    ) -> wasmtime::Result<Result<(), StreamError>> {
+        let file = self.stream_file(this.0)?;
+        let mut rest = &contents[..];
+        while !rest.is_empty() {
+            self.wait_on(&file, PollMask::OUT)?;
+            let written = file.file().write(rest);
+            match written {
+                Ok(n) => rest = &rest[n..],
+                Err(FilesystemError::WouldBlock) => {}
+                Err(err) => return self.stream_error(err).map(Err),
+            }
+        }
+        self.streams_output_stream_blocking_flush(this)
+    }
+
+    /// The writer sends as the buffer fills, so a flush starts nothing.
+    fn streams_output_stream_flush(
+        &mut self,
+        this: OutputStream,
+    ) -> wasmtime::Result<Result<(), StreamError>> {
+        self.stream_file(this.0)?;
+        Ok(Ok(()))
+    }
+
+    /// Wait until the send buffer drained to the host socket.
+    fn streams_output_stream_blocking_flush(
+        &mut self,
+        this: OutputStream,
+    ) -> wasmtime::Result<Result<(), StreamError>> {
+        let socket = self.stream_file(this.0)?;
+        // Registering through the file's poll puts the wait on the socket's
+        // queue, which the writer wakes after each chunk it sends.
+        self.wait_for(None, |table| {
+            let failed = socket.file().poll(table).contains(PollMask::ERR);
+            (failed || socket.sock.send_room() == SOCKET_BUFFER).then_some(())
+        })?;
+        let written = socket.file().write(&[]);
+        match written {
+            Ok(_) => Ok(Ok(())),
+            Err(err) => self.stream_error(err).map(Err),
+        }
+    }
+
+    fn streams_output_stream_subscribe(
+        &mut self,
+        this: OutputStream,
+    ) -> wasmtime::Result<Pollable> {
+        let file = self.stream_file(this.0)?;
+        self.pollable_on(file, PollMask::OUT)
+    }
+
+    fn streams_output_stream_drop(&mut self, handle: OutputStream) -> wasmtime::Result<()> {
+        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+    }
+
+    /// The failure's POSIX name, so no host text reaches the guest.
+    fn error_error_to_debug_string(&mut self, this: Error) -> wasmtime::Result<String> {
+        match self.wasi().table().get(this.0)? {
+            Resource::Error(err) => Ok(err.posix_name().unwrap_or("EIO").to_string()),
+            _ => Err(wasmtime::Error::msg(
+                "the guest named a handle that is not an error",
+            )),
+        }
+    }
+
+    fn error_error_drop(&mut self, handle: Error) -> wasmtime::Result<()> {
+        self.wasi_mut().table_mut().delete(handle.0).map(drop)
     }
 
     fn monotonic_clock_subscribe_duration(
@@ -98,12 +471,12 @@ impl Host for Invocation {
     }
 
     fn poll_pollable_ready(&mut self, this: Pollable) -> wasmtime::Result<bool> {
-        Ok(self.wasi().table().pollable(this.0)?.ready())
+        Ok(self.wasi().table().pollable(this.0)?.ready(None))
     }
 
     fn poll_pollable_block(&mut self, this: Pollable) -> wasmtime::Result<()> {
         let pollable = self.wasi().table().pollable(this.0)?;
-        self.wait_for(pollable.due(), || pollable.ready().then_some(()))
+        self.wait_for(pollable.due(), |table| pollable.ready(table).then_some(()))
     }
 
     /// The indices of the pollables ready, once one is, as WASI's `poll`
@@ -117,9 +490,9 @@ impl Host for Invocation {
             .map(|handle| self.wasi().table().pollable(handle.0))
             .collect::<wasmtime::Result<Vec<_>>>()?;
         let due = pollables.iter().filter_map(table::Pollable::due).min();
-        self.wait_for(due, || {
+        self.wait_for(due, |mut table| {
             let ready = (0..pollables.len() as u32)
-                .filter(|i| pollables[*i as usize].ready())
+                .filter(|i| pollables[*i as usize].ready(table.as_deref_mut()))
                 .collect::<Vec<_>>();
             (!ready.is_empty()).then_some(ready)
         })
