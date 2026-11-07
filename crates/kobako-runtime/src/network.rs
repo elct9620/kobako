@@ -69,16 +69,41 @@ pub trait Entry: Send + Sync {
 #[derive(Clone, Default)]
 #[non_exhaustive]
 pub struct Policies {
+    /// Asked at each lookup.
+    pub resolve: Option<Arc<dyn for<'a> Policy<Name<'a>>>>,
     /// Asked at each connect.
     pub connect: Option<Arc<dyn for<'a> Policy<Connection<'a>>>>,
 }
 
 impl Policies {
+    /// These policies with `policy` judging each lookup.
+    pub fn with_resolve(self, policy: Arc<dyn for<'a> Policy<Name<'a>>>) -> Self {
+        Self {
+            resolve: Some(policy),
+            ..self
+        }
+    }
+
     /// These policies with `policy` judging each connect.
     pub fn with_connect(self, policy: Arc<dyn for<'a> Policy<Connection<'a>>>) -> Self {
         Self {
             connect: Some(policy),
+            ..self
         }
+    }
+}
+
+/// One name the guest asks to look up, as the `resolve?` hook judges it:
+/// lowercase, with no trailing dot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Name<'a> {
+    pub name: &'a str,
+}
+
+impl<'a> Name<'a> {
+    pub fn new(name: &'a str) -> Self {
+        Self { name }
     }
 }
 

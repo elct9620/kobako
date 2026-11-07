@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use super::{Connection, Endpoint, Entry, Policies};
+use super::{Connection, Endpoint, Entry, Name, Policies};
 use crate::grant::Policy;
 
 /// An entry whose endpoints and policies are the given entry's, then its own.
@@ -11,6 +11,7 @@ use crate::grant::Policy;
 pub struct Builder {
     entry: Option<Arc<dyn Entry>>,
     endpoints: Vec<Endpoint>,
+    resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
     connect: Vec<Arc<dyn for<'a> Policy<Connection<'a>>>>,
 }
 
@@ -26,6 +27,12 @@ impl Builder {
     /// Let the guest reach `endpoint` too.
     pub fn endpoint(&mut self, endpoint: Endpoint) -> &mut Self {
         self.endpoints.push(endpoint);
+        self
+    }
+
+    /// Judge each lookup with `policy` too; any refusal wins.
+    pub fn resolve_policy(&mut self, policy: impl for<'a> Policy<Name<'a>> + 'static) -> &mut Self {
+        self.resolve.push(Arc::new(policy));
         self
     }
 
@@ -53,17 +60,30 @@ impl Entry for Builder {
         let given = self
             .entry
             .as_ref()
-            .and_then(|entry| entry.policies().connect);
+            .map(|entry| entry.policies())
+            .unwrap_or_default();
+        let resolve = given
+            .resolve
+            .into_iter()
+            .chain(self.resolve.iter().cloned())
+            .collect::<Vec<_>>();
         let connect = given
+            .connect
             .into_iter()
             .chain(self.connect.iter().cloned())
             .collect::<Vec<_>>();
-        if connect.is_empty() {
-            return Policies::default();
+        let mut policies = Policies::default();
+        if !resolve.is_empty() {
+            policies = policies.with_resolve(Arc::new(move |name: &Name<'_>| {
+                resolve.iter().all(|policy| policy.allows(name))
+            }));
         }
-        Policies::default().with_connect(Arc::new(move |connection: &Connection<'_>| {
-            connect.iter().all(|policy| policy.allows(connection))
-        }))
+        if !connect.is_empty() {
+            policies = policies.with_connect(Arc::new(move |connection: &Connection<'_>| {
+                connect.iter().all(|policy| policy.allows(connection))
+            }));
+        }
+        policies
     }
 }
 

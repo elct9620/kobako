@@ -5,7 +5,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use super::{Endpoint, EntryError, Protocol};
+use super::{Addresses, Endpoint, EntryError, Protocol};
 use crate::vfs::FilesystemError;
 
 /// Where an address falls, by IANA's special-purpose registries.
@@ -178,6 +178,34 @@ struct Rule {
     host: Host,
     port: u16,
     protocol: Protocol,
+    addresses: Vec<Addresses>,
+}
+
+impl Rule {
+    /// Whether this rule's host names `name`, exactly or beneath its wildcard
+    /// on a label boundary.
+    fn names(&self, name: &str) -> bool {
+        match &self.host {
+            Host::Name(host) => host == name,
+            Host::Wildcard(suffix) => name
+                .strip_suffix(suffix.as_str())
+                .is_some_and(|head| head.len() > 1 && head.ends_with('.')),
+            Host::Prefix(..) => false,
+        }
+    }
+
+    /// Whether `ip`, a real address `name` resolved to, falls where this
+    /// rule's `addresses` let the name lead. `local` holds the host's own
+    /// addresses, which are local whatever registry classes them.
+    fn leads_to(&self, ip: IpAddr, local: &[IpAddr]) -> bool {
+        let own = local.contains(&ip);
+        self.addresses.iter().any(|addresses| match addresses {
+            Addresses::Public => !own && address_set(ip) == AddressSet::Public,
+            Addresses::Private => !own && address_set(ip) == AddressSet::Private,
+            Addresses::Local => own || address_set(ip) == AddressSet::Local,
+            Addresses::Cidr(net, prefix) => contains(*net, *prefix, ip),
+        })
+    }
 }
 
 /// Every endpoint one Invocation's entries let the guest reach.
@@ -187,19 +215,72 @@ pub struct Ruleset {
 
 impl Ruleset {
     /// The ruleset of `endpoints`, refused for an endpoint whose host names no
-    /// address, prefix, or name.
+    /// address, prefix, or name, and for a wildcard leading to `private` or
+    /// `local`, where a guest-controlled name beneath it could reach.
     pub fn new(endpoints: impl IntoIterator<Item = Endpoint>) -> Result<Self, EntryError> {
         let rules = endpoints
             .into_iter()
             .map(|endpoint| {
+                let host = parse_host(&endpoint.host)?;
+                if matches!(host, Host::Wildcard(_))
+                    && endpoint
+                        .addresses
+                        .iter()
+                        .any(|a| matches!(a, Addresses::Private | Addresses::Local))
+                {
+                    return Err(EntryError(format!(
+                        "a wildcard endpoint may lead only to public addresses or a CIDR: {}",
+                        endpoint.host
+                    )));
+                }
                 Ok(Rule {
-                    host: parse_host(&endpoint.host)?,
+                    host,
                     port: endpoint.port,
                     protocol: endpoint.protocol,
+                    addresses: endpoint.addresses,
                 })
             })
             .collect::<Result<_, EntryError>>()?;
         Ok(Self { rules })
+    }
+
+    /// Whether any endpoint's host names `name`, so a lookup of it may run.
+    pub fn admits_name(&self, name: &str) -> bool {
+        self.rules.iter().any(|rule| rule.names(name))
+    }
+
+    /// Whether the guest may open a `protocol` connection to `ip`, a real
+    /// address the name it looked up resolved to, at `port`. The fixed sets
+    /// refuse whatever an endpoint says; otherwise an endpoint naming the name
+    /// at that port and protocol must lead to the address, so another allowed
+    /// name answering the same address never borrows it.
+    pub fn admit_resolved(
+        &self,
+        name: &str,
+        addr: SocketAddr,
+        protocol: Protocol,
+        local: &[IpAddr],
+    ) -> Result<(), FilesystemError> {
+        if matches!(
+            address_set(addr.ip()),
+            AddressSet::Metadata | AddressSet::Reserved
+        ) {
+            return Err(FilesystemError::PermissionDenied);
+        }
+        let ip = match addr.ip() {
+            IpAddr::V6(v6) => unwrap_v4(v6).map_or(addr.ip(), IpAddr::V4),
+            v4 => v4,
+        };
+        let led = self.rules.iter().any(|rule| {
+            rule.port == addr.port()
+                && rule.protocol == protocol
+                && rule.names(name)
+                && rule.leads_to(ip, local)
+        });
+        match led {
+            true => Ok(()),
+            false => Err(FilesystemError::PermissionDenied),
+        }
     }
 
     /// Whether the guest may open a `protocol` connection to `addr`, the
@@ -337,6 +418,30 @@ mod tests {
                 .admit_literal("127.0.0.1:8080".parse().unwrap(), Protocol::Tcp)
                 .is_err(),
             "Ruleset::admit_literal of raw TCP to an http endpoint's address must be refused"
+        );
+    }
+
+    // @behavior NW-029
+    #[test]
+    fn a_wildcard_leading_to_private_or_local_addresses_is_refused() {
+        let wildcard = |addresses| {
+            Ruleset::new([Endpoint::new("*.example.com", 443)
+                .unwrap()
+                .with_addresses(addresses)])
+            .is_ok()
+        };
+        assert_eq!(
+            [
+                wildcard(vec![Addresses::Private]),
+                wildcard(vec![Addresses::Local]),
+                wildcard(vec![
+                    Addresses::Public,
+                    Addresses::Cidr("10.0.0.0".parse().unwrap(), 8)
+                ]),
+            ],
+            [false, false, true],
+            "Ruleset::new must refuse a wildcard endpoint leading to private or local addresses, \
+             and keep one leading to public addresses or a CIDR"
         );
     }
 }

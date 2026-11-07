@@ -3,11 +3,13 @@
 //! socket's wait queue. What may be reached is the Network Grant's to say.
 
 mod family;
+mod lookup;
 mod namespace;
 mod tcp;
 mod workers;
 
 pub use family::{HostInet, ProtocolFamily, Stream};
+pub use lookup::{LookupError, NameLookup};
 pub use namespace::Namespace;
 pub use tcp::{sock_alloc_file, TcpSock, SOCKET_BUFFER};
 pub use workers::{Workers, PROCESS_WORKERS, SANDBOX_WORKERS};

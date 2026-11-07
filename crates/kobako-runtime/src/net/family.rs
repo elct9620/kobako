@@ -4,13 +4,25 @@
 //! `hostinet` is one choice of backend.
 
 use std::io::{self, Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpStream};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 /// What dials the host network.
 pub trait ProtocolFamily: Send + Sync {
     /// A stream connected to `addr`, given up once `timeout` passes.
     fn connect(&self, addr: SocketAddr, timeout: Option<Duration>) -> io::Result<Box<dyn Stream>>;
+
+    /// The addresses `name`, a fully qualified name, resolves to. A family
+    /// that resolves nothing answers `Unsupported`.
+    fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+
+    /// The host's own addresses, as Linux's `local` routing table holds them,
+    /// read at each connect. A family with none answers an empty list.
+    fn local_addresses(&self) -> Vec<IpAddr> {
+        Vec::new()
+    }
 }
 
 /// One connected stream the backend handed out.
@@ -41,6 +53,24 @@ impl ProtocolFamily for HostInet {
         };
         stream.set_nodelay(true)?;
         Ok(Box::new(stream))
+    }
+
+    /// The host's resolver, asked for `name` with its trailing dot, so no
+    /// search domain lengthens it.
+    fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
+        let mut addresses = Vec::new();
+        for addr in (format!("{name}."), 0).to_socket_addrs()? {
+            if !addresses.contains(&addr.ip()) {
+                addresses.push(addr.ip());
+            }
+        }
+        Ok(addresses)
+    }
+
+    fn local_addresses(&self) -> Vec<IpAddr> {
+        if_addrs::get_if_addrs()
+            .map(|interfaces| interfaces.into_iter().map(|i| i.ip()).collect())
+            .unwrap_or_default()
     }
 }
 
