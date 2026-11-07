@@ -21,7 +21,7 @@ require_relative "../support/wasm"
 namespace :wasm do
   desc "Build Guest Binary (data/kobako.wasm) from kobako-wasm crate + libmruby.a"
   task build: ["beni:build"] do
-    KobakoWasm.ensure_cargo!
+    KobakoWasm.ensure_cargo
     KobakoWasm::GuestBuilder.new.build
   end
 
@@ -31,7 +31,7 @@ namespace :wasm do
   KobakoWasm::VARIANT_BUILDS.each do |name, (features, output)|
     desc "Build the #{name.delete_prefix("build:")} variant Guest Binary (#{File.basename(output)})"
     task name => ["beni:build"] do
-      KobakoWasm.ensure_cargo!
+      KobakoWasm.ensure_cargo
       KobakoWasm::GuestBuilder.new(features: features, output: output).build
     end
   end

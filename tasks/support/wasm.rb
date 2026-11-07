@@ -88,14 +88,14 @@ module KobakoWasm
 
   # Shared guard for the Guest Binary build tasks: abort with an install hint
   # when cargo is absent, so each task body stays a single build call.
-  def self.ensure_cargo!
+  def self.ensure_cargo
     abort "cargo not on PATH; install the Rust toolchain to build the Guest Binary" unless cargo_available?
   end
 
   # Shared guard for the Rust coverage tasks: abort with a targeted
   # install hint when cargo or the llvm-cov add-on is missing, so each
   # coverage task body stays a single measurement call.
-  def self.ensure_llvm_cov!
+  def self.ensure_llvm_cov
     abort "cargo not on PATH; install the Rust toolchain to measure Rust coverage" unless cargo_available?
     return if llvm_cov_available?
 

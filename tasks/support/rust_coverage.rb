@@ -20,7 +20,7 @@ module KobakoRustCoverage
   # the coverage task's own name; the two Rust workspaces differ only in
   # what +scope+, +reads_as+ and +env+ say.
   def report(task, scope:, manifest:, reads_as:, env: {})
-    KobakoWasm.ensure_llvm_cov!
+    KobakoWasm.ensure_llvm_cov
     json, status = Open3.capture2(env, "cargo", "llvm-cov", "--manifest-path", manifest, "--workspace", "--json")
     abort "#{task}: cargo llvm-cov failed" unless status.success?
 

@@ -42,9 +42,9 @@ module KobakoWasm
     # Raises with a +beni:build+ hint when +libmruby.a+ is missing, and raises
     # again if cargo succeeds but the expected output file is absent.
     def build
-      ensure_libmruby_present!
-      run_cargo_release_build!
-      bake_into_data_dir!
+      ensure_libmruby_present
+      run_cargo_release_build
+      bake_into_data_dir
     end
 
     private
@@ -52,14 +52,14 @@ module KobakoWasm
     # The mruby archive's sentinel check. The Guest Binary cannot link
     # without +libmruby.a+, so we assert it explicitly with a message that points at the rake
     # task that produces it.
-    def ensure_libmruby_present!
+    def ensure_libmruby_present
       return if File.exist?(LIBMRUBY_PATH)
 
       raise "[wasm:build] expected libmruby.a at #{LIBMRUBY_PATH}; " \
             "run `rake beni:build` first"
     end
 
-    def run_cargo_release_build!
+    def run_cargo_release_build
       args = ["cargo", "build", "--manifest-path", MANIFEST, "--release", "--target", WASM_TARGET]
       args += ["--features", @features.join(",")] unless @features.empty?
       env  = cargo_build_env
@@ -73,7 +73,7 @@ module KobakoWasm
     # linked module and place the result as the shipped artifact — the
     # bake output IS the Guest Binary; the raw cargo output never lands
     # in data/.
-    def bake_into_data_dir!
+    def bake_into_data_dir
       FileUtils.mkdir_p(DATA_DIR)
       Baker.new.bake(CRATE_WASM_OUTPUT, @output)
       puts "[wasm:build] Guest Binary ready at #{@output} (#{File.size(@output)} bytes)"

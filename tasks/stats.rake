@@ -13,7 +13,7 @@ STATS_ROOT = File.expand_path("..", __dir__)
 
 # Every stats task needs cloc for the line classification; abort with an
 # install hint rather than a bare backtrace when it is off the PATH.
-def stats_require_cloc!
+def stats_require_cloc
   abort "cloc not on PATH; install cloc (e.g. `brew install cloc`) to run stats" unless KobakoStats.cloc_available?
 end
 
@@ -36,7 +36,7 @@ end
 
 desc "Report code statistics per architectural tier (rails-stats-style; not in release gate)."
 task :stats do
-  stats_require_cloc!
+  stats_require_cloc
 
   tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
   uncategorized = KobakoRoster.uncategorized_dirs(tracked)
@@ -58,7 +58,7 @@ end
 namespace :stats do
   desc "Report the code-to-test footer per publishable module (gem + each crate; not in release gate)."
   task :all do
-    stats_require_cloc!
+    stats_require_cloc
 
     tracked = KobakoStats.tracked_files([], root: STATS_ROOT)
     puts KobakoReport.banner("stats:all — code-to-test per publishable module",
@@ -77,7 +77,7 @@ namespace :stats do
   # left out of +rake -T+ to keep the catalog to the two headline tasks.
   KobakoRoster.modules(KobakoStats.tracked_files([], root: STATS_ROOT)).each do |mod|
     task mod[:slug] do
-      stats_require_cloc!
+      stats_require_cloc
 
       puts "#{mod[:name]}:"
       puts KobakoStats.grid(KobakoStats.measure_languages(mod[:paths], root: STATS_ROOT))
