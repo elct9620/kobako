@@ -3,7 +3,9 @@
 //! socket's wait queue. What may be reached is the Network Grant's to say.
 
 mod family;
+mod namespace;
 mod tcp;
 
 pub use family::{HostInet, ProtocolFamily, Stream};
+pub use namespace::Namespace;
 pub use tcp::{sock_alloc_file, TcpSock, SOCKET_BUFFER};

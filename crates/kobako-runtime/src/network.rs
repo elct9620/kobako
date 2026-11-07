@@ -2,13 +2,17 @@
 //! network namespace holds every socket its tasks open. Each entry is one
 //! Grant, so a Context replaces it by its name, as one Mount by its path.
 
+mod builder;
 mod ruleset;
 
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::Arc;
 
+pub use builder::Builder;
 pub use ruleset::{address_set, AddressSet, Ruleset};
+
+use crate::grant::Policy;
 
 /// One named entry of the network, handed over for an Invocation.
 #[derive(Clone)]
@@ -38,6 +42,11 @@ impl Network {
     pub fn endpoints(&self) -> Vec<Endpoint> {
         self.entry.endpoints()
     }
+
+    /// What this entry's policies judge, as it answers for this Invocation.
+    pub fn policies(&self) -> Policies {
+        self.entry.policies()
+    }
 }
 
 /// What a Host App's entry plays. Each role defaults to nothing, so an entry
@@ -46,6 +55,51 @@ pub trait Entry: Send + Sync {
     /// What the guest may reach through this entry.
     fn endpoints(&self) -> Vec<Endpoint> {
         Vec::new()
+    }
+
+    /// The hooks this entry's policies answer; one it leaves out has no
+    /// opinion.
+    fn policies(&self) -> Policies {
+        Policies::default()
+    }
+}
+
+/// An entry's policies, one hook per decision point, as an LSM registers a
+/// hook per kind of object. A policy only narrows what the endpoints allow.
+#[derive(Clone, Default)]
+#[non_exhaustive]
+pub struct Policies {
+    /// Asked at each connect.
+    pub connect: Option<Arc<dyn for<'a> Policy<Connection<'a>>>>,
+}
+
+impl Policies {
+    /// These policies with `policy` judging each connect.
+    pub fn with_connect(self, policy: Arc<dyn for<'a> Policy<Connection<'a>>>) -> Self {
+        Self {
+            connect: Some(policy),
+        }
+    }
+}
+
+/// One connection the guest asks for, as the socket hooks judge it: the host
+/// it named, its port, and its protocol. The host is what the guest named, a
+/// name or a literal address, never a real address it resolved to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Connection<'a> {
+    pub host: &'a str,
+    pub port: u16,
+    pub protocol: Protocol,
+}
+
+impl<'a> Connection<'a> {
+    pub fn new(host: &'a str, port: u16, protocol: Protocol) -> Self {
+        Self {
+            host,
+            port,
+            protocol,
+        }
     }
 }
 

@@ -12,6 +12,7 @@ use super::inode::Mask;
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
 use super::{FileType, FilesystemError};
+use crate::network::Connection;
 
 /// What one security module keeps on an open file, as Linux's `f_security`
 /// blob holds each module's part; `None` where it keeps nothing.
@@ -127,6 +128,12 @@ pub trait SecurityOperations: Send + Sync {
     /// Whether where the link `dentry` names points may be read, as
     /// `security_inode_readlink` is handed the link.
     fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
+        Ok(())
+    }
+
+    /// Whether a socket may connect where `connection` names, judged on what
+    /// the guest named, as `security_socket_connect`.
+    fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), FilesystemError> {
         Ok(())
     }
 }
@@ -306,6 +313,13 @@ impl Cred {
 
     pub(crate) fn security_inode_readlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
         self.call_int_hook(|module| module.inode_readlink(dentry))
+    }
+
+    pub(crate) fn security_socket_connect(
+        &self,
+        connection: &Connection<'_>,
+    ) -> Result<(), FilesystemError> {
+        self.call_int_hook(|module| module.socket_connect(connection))
     }
 
     /// Count `bytes` more held on this caller's behalf, refusing them past its
