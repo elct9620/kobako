@@ -168,7 +168,7 @@ Hand-written text-format module that looks up through a directory it holds open 
 1. Open `dir` as a directory.
 2. Rename `dir` to `moved`.
 3. Make another `dir`.
-4. Stat `inner` through the descriptor from step 1, and answer its errno as an Integer.
+4. Stat `inner` through the descriptor opened on `dir`, and answer its errno as an Integer.
 
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 

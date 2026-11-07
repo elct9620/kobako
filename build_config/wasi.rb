@@ -21,11 +21,12 @@
 #      mrb_value layout pinned to MRB_NO_BOXING.
 #   5. VM dispatch mode left at mruby default (no MRB_USE_VM_SWITCH_DISPATCH).
 #
-# Rules #2 and #3 are implemented by the `:wasi` toolchain file the beni
-# gem stages into `vendor/mruby/tasks/toolchains/` during
-# `beni:vendor:setup`; the CrossBuild block below activates it with
-# `conf.toolchain :wasi` and keeps only the kobako-specific pieces
-# (rules #1, #4, #5).
+# The pinned toolchain and the setjmp/longjmp flags are implemented by the
+# `:wasi` toolchain file the beni gem stages into
+# `vendor/mruby/tasks/toolchains/` during `beni:vendor:setup`; the
+# CrossBuild block below activates it with `conf.toolchain :wasi` and keeps
+# only the kobako-specific pieces: the mrbgem allowlist, the `-D` flags,
+# and the default VM dispatch mode.
 #
 # This file is loaded by mruby's own rake when beni's Builder sets
 # `MRUBY_CONFIG=$PWD/build_config/wasi.rb` (`rake beni:build`). The
@@ -61,7 +62,7 @@ unless defined?(KobakoBuildConfig)
     # here so paths derived from the build subdir stay in sync.
     MRUBY_BUILD_NAME = "wasi"
 
-    # The kobako mrbgem allowlist (rule #1, core gems).
+    # The kobako mrbgem allowlist, core gems only.
     # Strict allowlist: anything not enumerated here MUST NOT enter the
     # guest binary. I/O, network, sleep, random-seed gems are deliberately
     # excluded to shrink the attack surface. Bumping this list is a wire- /
@@ -83,7 +84,7 @@ unless defined?(KobakoBuildConfig)
       mruby-metaprog
     ].freeze
 
-    # The `-D` flags (rule #4). MRB_INT64 gives the guest a 64-bit Integer,
+    # The `-D` flags. MRB_INT64 gives the guest a 64-bit Integer,
     # which a 32-bit target holds only without boxing, hence MRB_NO_BOXING.
     GUEST_DEFINES = %w[MRB_NO_BOXING MRB_INT64].freeze
   end
@@ -113,16 +114,16 @@ end
 # Windows builds no Guest Binary; it tests the one another host built.
 unless Gem.win_platform?
   MRuby::CrossBuild.new(KobakoBuildConfig::MRUBY_BUILD_NAME) do |conf|
-    # Rules #2 + #3 (wasi-sdk tool paths, target/sysroot flags, sjlj
-    # three-flag set, GNU archive format) — the toolchain file beni stages
+    # The wasi-sdk tool paths, target/sysroot flags, sjlj three-flag set,
+    # and GNU archive format — the toolchain file beni stages
     # into vendor/mruby/tasks/toolchains/ during beni:vendor:setup.
     conf.toolchain :wasi
 
-    # mrbgem allowlist (rule #1) — anything not enumerated is omitted by
+    # The mrbgem allowlist — anything not enumerated is omitted by
     # construction. Bumping the list is a security-review-bearing change.
     KobakoBuildConfig::MRBGEM_ALLOWLIST.each { |gem_name| conf.gem core: gem_name }
 
-    # `-D` flags (rule #4).
+    # The `-D` flags.
     KobakoBuildConfig::GUEST_DEFINES.each do |flag|
       conf.cc.defines << flag
       conf.cxx.defines << flag

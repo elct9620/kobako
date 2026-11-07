@@ -29,7 +29,7 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(frame: u32, req: &[u8]) -> Yiel
     use crate::runtime::block_stack::BLOCK_STACK;
     use crate::runtime::Kobako;
 
-    // Step 1: resolve the active VM + Kobako runtime + bound block. The
+    // Resolve the active VM + Kobako runtime + bound block. The
     // codec needs the VM to build values, so the buffer is read after it.
     let Some(mrb) = MRB.as_ref() else {
         return error_reply(
@@ -51,7 +51,7 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(frame: u32, req: &[u8]) -> Yiel
         return error_reply("LocalJumpError", "no block given (yield)", Vec::new());
     };
 
-    // Step 2: read the yield arguments through the guest's codec. One it
+    // Read the yield arguments through the guest's codec. One it
     // cannot read fails the round-trip rather than reaching the block.
     let args = match G::Codec::decode_yield_arguments(&kobako, req) {
         Ok(args) => args,
@@ -61,13 +61,13 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(frame: u32, req: &[u8]) -> Yiel
         }
     };
 
-    // Step 3: protected yield via beni's `Proc::call`, which folds the
+    // Protected yield via beni's `Proc::call`, which folds the
     // `mrb_yield_argv` + protect machinery — a guest-side raise / break /
     // Proc-`return` surfaces as `Err` instead of long-jumping past the
     // Rust frame.
     let result = block.call(mrb, args.as_slice());
 
-    // Step 4: classify the outcome. Hold any exit object immediately on
+    // Classify the outcome. Hold any exit object immediately on
     // the Err path, before any other mruby allocation could sweep it out
     // of the GC arena.
     match result {
