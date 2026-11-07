@@ -15,9 +15,9 @@ use crate::vfs::{FileType, Identity, Kstat};
 /// The ordered isolation ladder a runtime builds one rung of.
 ///
 /// `Hermetic` is the full ambient-denial posture: ambient time and
-/// entropy denied at the WASI boundary, no ambient filesystem /
-/// environment / network reachability, and no host import beyond the wire ABI's
-/// `__kobako_upcall`. `Permissive` differs only in the ambient
+/// entropy denied at the WASI boundary, and no ambient filesystem /
+/// environment / network reachability: only a Grant reaches a file or a
+/// socket. `Permissive` differs only in the ambient
 /// authority it grants — live time and entropy at the WASI boundary — and in
 /// the times and inode numbers it shows of an entry. Ordering
 /// follows strength (`Permissive < Hermetic`), so a floor check is a
