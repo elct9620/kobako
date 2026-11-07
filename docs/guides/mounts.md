@@ -355,4 +355,4 @@ let fs = Filesystem::new(Arc::new(tmpfs)).expect("a seeded Tmpfs stands");
 sandbox.mount("/config", fs, Access::Read)?;
 ```
 
-A Policy implements `allows(path, access)`, answering `false` to refuse.
+A Policy is a closure, or a type implementing `Policy<MountRequest>`, answering `false` to refuse.

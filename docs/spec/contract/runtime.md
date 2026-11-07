@@ -587,7 +587,7 @@ Let a Policy also judge each open and each change the access allows.
 
 ```rust
 impl Mount {
-    pub fn with_policy(self, policy: Arc<dyn Policy>) -> Self {}
+    pub fn with_policy(self, policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>) -> Self {}
 }
 ```
 
@@ -1937,20 +1937,33 @@ pub enum Access {}
 
 ## `Policy`
 
-The Host App's decision for each path the Guest opens or changes, made after a
-Mount's access allows it.
+The Host App's decision for one request a Grant's access already allows, so it
+only refuses more. Each kind of Grant brings its own request, and a closure
+over that request is a Policy.
 
 ```rust
-pub trait Policy {}
+pub trait Policy<R: ?Sized> {}
 ```
 
 ## `Policy::allows`
 
-Whether the Guest may reach the absolute guest path with the given access.
+Whether the Guest may go on with the request.
 
 ```rust
-pub trait Policy {
-    fn allows(&self, path: &str, access: Access) -> bool;
+pub trait Policy<R: ?Sized> {
+    fn allows(&self, request: &R) -> bool;
+}
+```
+
+## `MountRequest`
+
+One path the Guest opens or changes beneath a Mount. It holds the absolute
+guest path and the access asked for there.
+
+```rust
+pub struct MountRequest<'a> {
+    pub path: &'a str,
+    pub access: Access,
 }
 ```
 
