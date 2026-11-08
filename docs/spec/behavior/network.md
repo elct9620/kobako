@@ -792,3 +792,15 @@ endpoint "api.example.com", port: 443
 | Given | an `outgoing-body` whose `output-stream` the guest still holds |
 | When | it drops or finishes the body |
 | Then | the call traps, as the WIT traps a parent dropped before its child. Once the stream is dropped, the body finishes |
+
+## `NW-065` A script's TCPSocket is an IO that IO.select waits on
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers once the script closes its write side |
+| When | the script selects the socket to read, closes its write side, and selects again. Then it selects `$stdout` and the socket to write |
+| Then | `TCPSocket` descends from `IPSocket`, `BasicSocket`, and `IO`, and its `fileno` is an Integer. The first select times out with `nil`. The second answers the socket readable, and the third answers both writable |
