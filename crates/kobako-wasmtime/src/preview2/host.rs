@@ -613,6 +613,16 @@ impl IoHost for Invocation {
         self.read_now(&stream, len)
     }
 
+    /// What the stream holds now, none while it holds nothing yet.
+    fn streams_input_stream_read(
+        &mut self,
+        this: InputStream,
+        len: u64,
+    ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
+        let stream = self.stream(this.0)?;
+        self.read_now(&stream, len)
+    }
+
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
         let stream = self.stream(this.0)?;
@@ -655,6 +665,61 @@ impl IoHost for Invocation {
             Ok(_) => Ok(Ok(())),
             Err(err) => self.stream_error(err).map(Err),
         }
+    }
+
+    /// How many bytes a write takes now, zero while the stream is full; a
+    /// failed stream answers its failure.
+    fn streams_output_stream_check_write(
+        &mut self,
+        this: OutputStream,
+    ) -> wasmtime::Result<Result<u64, StreamError>> {
+        let stream = self.stream(this.0)?;
+        match stream.write(&[]) {
+            Ok(_) => Ok(Ok(stream.room() as u64)),
+            Err(err) => self.stream_error(err).map(Err),
+        }
+    }
+
+    /// Write what `check-write` permitted; more than it permits traps, as
+    /// `io.wit` says a write past the permit must.
+    fn streams_output_stream_write(
+        &mut self,
+        this: OutputStream,
+        contents: Vec<u8>,
+    ) -> wasmtime::Result<Result<(), StreamError>> {
+        let stream = self.stream(this.0)?;
+        if contents.len() > stream.room() {
+            return Err(wasmtime::Error::msg(
+                "the guest wrote past what check-write permitted",
+            ));
+        }
+        match stream.write(&contents) {
+            Ok(_) => Ok(Ok(())),
+            Err(err) => self.stream_error(err).map(Err),
+        }
+    }
+
+    /// What was written already goes to the host as it is taken, so a flush
+    /// asks nothing more of it.
+    fn streams_output_stream_flush(
+        &mut self,
+        this: OutputStream,
+    ) -> wasmtime::Result<Result<(), StreamError>> {
+        self.streams_output_stream_check_write(this)
+            .map(|answer| answer.map(drop))
+    }
+
+    /// A pollable ready once the stream takes a write, the stream its parent,
+    /// as `io.wit` makes it a child.
+    fn streams_output_stream_subscribe(
+        &mut self,
+        this: OutputStream,
+    ) -> wasmtime::Result<Pollable> {
+        let stream = self.stream(this.0)?;
+        Ok(Pollable(self.wasi_mut().table_mut().push_child(
+            Resource::Pollable(table::Pollable::Stream(stream, PollMask::OUT)),
+            this.0,
+        )?))
     }
 
     fn streams_output_stream_drop(&mut self, handle: OutputStream) -> wasmtime::Result<()> {
@@ -1131,24 +1196,11 @@ mod tests {
 
     /// The preview2 functions a scenario answers before a Guest Binary
     /// imports them, each beside the scenario that holds the answer.
-    const ANSWERED_AHEAD: [(&str, &str, &str); 4] = [
-        (
-            "wasi:clocks/monotonic-clock@0.2.12",
-            "subscribe-duration",
-            "RT-338",
-        ),
-        ("wasi:io/poll@0.2.12", "poll", "RT-339"),
-        (
-            "wasi:io/streams@0.2.12",
-            "[method]input-stream.subscribe",
-            "NW-023",
-        ),
-        (
-            "wasi:sockets/tcp@0.2.12",
-            "[method]tcp-socket.remote-address",
-            "NW-031",
-        ),
-    ];
+    const ANSWERED_AHEAD: [(&str, &str, &str); 1] = [(
+        "wasi:sockets/tcp@0.2.12",
+        "[method]tcp-socket.remote-address",
+        "NW-031",
+    )];
 
     #[test]
     fn the_driver_links_only_the_preview2_functions_a_guest_or_a_scenario_calls() {
