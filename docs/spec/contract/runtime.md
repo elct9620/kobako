@@ -511,6 +511,18 @@ impl Profile {
 }
 ```
 
+## `Profile::clock_due`
+
+When a Guest's clock is due in a wait on one posture, whichever ABI encodes the
+wait. A hermetic clock alone is due at once. Beside a
+host-side producer it is due in host time.
+
+```rust
+impl Profile {
+    pub fn clock_due(self, at: Instant, producer: bool) -> Instant {}
+}
+```
+
 ## `Trap`
 
 Why the engine stopped the Guest.
