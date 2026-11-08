@@ -5,7 +5,7 @@
 //! as a host that sends nothing does.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use kobako_runtime::net::{self, Exchange, FieldError, HttpError, RequestBody};
 use kobako_runtime::vfs::PollMask;
@@ -19,14 +19,6 @@ use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::table::{self, Stream};
 use crate::invocation::Invocation;
-
-/// One header list, shared between a request and the `fields` its `headers`
-/// hands out.
-type Entries = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
-
-fn lock(entries: &Entries) -> MutexGuard<'_, Vec<(String, Vec<u8>)>> {
-    entries.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// A request's body and whether the guest ended it, shared between the request
 /// and the `outgoing-body` its `body` hands out.
@@ -57,7 +49,7 @@ pub(crate) struct Request {
     scheme: Option<Scheme>,
     authority: Option<String>,
     path_with_query: Option<String>,
-    headers: Entries,
+    headers: Arc<net::Fields>,
     link: Arc<BodyLink>,
 }
 
@@ -76,12 +68,12 @@ pub(crate) enum Future {
 pub(crate) mod resource {
     use std::sync::Arc;
 
-    use kobako_runtime::net::{Exchange, ResponseHead};
+    use kobako_runtime::net::{self, Exchange, ResponseHead};
 
-    use super::{BodyLink, Entries, Future, Request};
+    use super::{BodyLink, Future, Request};
 
     pub(crate) struct Fields {
-        pub(crate) entries: Entries,
+        pub(crate) entries: Arc<net::Fields>,
         pub(crate) mutable: bool,
     }
 
@@ -116,6 +108,15 @@ fn to_header_error(err: FieldError) -> HeaderError {
     match err {
         FieldError::Forbidden => HeaderError::Forbidden,
         _ => HeaderError::InvalidSyntax,
+    }
+}
+
+/// The trap a header list past its room ends the run with, since
+/// `header-error` has no case for it.
+fn to_field_trap(err: FieldError) -> wasmtime::Error {
+    match err {
+        FieldError::OutOfMemory => wasmtime::Error::msg("the guest's headers outgrow its memory"),
+        _ => wasmtime::Error::msg("the guest's headers outgrow the most one list may hold"),
     }
 }
 
@@ -178,7 +179,7 @@ impl Invocation {
         if let Some(path) = request.path_with_query {
             outgoing.path_with_query = path;
         }
-        outgoing.headers = lock(&request.headers).clone();
+        outgoing.headers = request.headers.entries();
         outgoing.body = request.link.body.take();
         let Some(namespace) = self.wasi().table().network() else {
             return Future::Refused(ErrorCode::HTTPRequestDenied);
@@ -212,12 +213,16 @@ impl Invocation {
 
 impl HttpHost for Invocation {
     fn types_fields_constructor_new(&mut self) -> wasmtime::Result<Fields> {
+        let entries = net::Fields::new(self.wasi().descriptors().cred().clone());
         self.table().push(resource::Fields {
-            entries: Entries::default(),
+            entries,
             mutable: true,
         })
     }
 
+    /// A header appended, or the `header-error` refusing it; a list past
+    /// `MAX_FIELD_SIZE` or the Invocation's memory traps, as wasmtime's
+    /// field limit does.
     fn types_fields_append(
         &mut self,
         this: Fields,
@@ -228,22 +233,15 @@ impl HttpHost for Invocation {
         if !fields.mutable {
             return Ok(Err(HeaderError::Immutable));
         }
-        let entries = fields.entries.clone();
-        match (
-            net::to_field_name(&name).map_err(to_header_error),
-            net::to_field_value(value).map_err(to_header_error),
-        ) {
-            (Ok(name), Ok(value)) => {
-                lock(&entries).push((name, value));
-                Ok(Ok(()))
-            }
-            (Err(err), _) | (_, Err(err)) => Ok(Err(err)),
+        match fields.entries.append(&name, value) {
+            Ok(()) => Ok(Ok(())),
+            Err(err @ (FieldError::TooLarge | FieldError::OutOfMemory)) => Err(to_field_trap(err)),
+            Err(err) => Ok(Err(to_header_error(err))),
         }
     }
 
     fn types_fields_entries(&mut self, this: Fields) -> wasmtime::Result<Vec<(String, Vec<u8>)>> {
-        let entries = lock(&self.table().get(this)?.entries).clone();
-        Ok(entries)
+        Ok(self.table().get(this)?.entries.entries())
     }
 
     fn types_fields_drop(&mut self, handle: Fields) -> wasmtime::Result<()> {
@@ -454,10 +452,12 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingResponse,
     ) -> wasmtime::Result<Fields> {
-        let entries = self.table().get(this)?.head.headers.clone();
+        let headers = self.table().get(this)?.head.headers.clone();
+        let cred = self.wasi().descriptors().cred().clone();
+        let entries = net::Fields::with_entries(cred, headers).map_err(to_field_trap)?;
         self.table().push_child(
             resource::Fields {
-                entries: Arc::new(Mutex::new(entries)),
+                entries,
                 mutable: false,
             },
             this,
@@ -574,10 +574,18 @@ mod tests {
 
     /// A hermetic invocation whose network holds `endpoints`, or none at all.
     fn guest(endpoints: Option<Vec<network::Endpoint>>) -> Invocation {
+        guest_within(endpoints, None)
+    }
+
+    /// A guest as `guest` makes one, allotted `memory_limit` bytes.
+    fn guest_within(
+        endpoints: Option<Vec<network::Endpoint>>,
+        memory_limit: Option<usize>,
+    ) -> Invocation {
         let config = Config {
             timeout: None,
             setup_timeout: None,
-            memory_limit: None,
+            memory_limit,
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit: None,
@@ -713,8 +721,9 @@ mod tests {
             set(&mut guest, fields, "bad name"),
             set(&mut guest, fields, "x-ok"),
         ];
+        let entries = net::Fields::new(guest.wasi().descriptors().cred().clone());
         let frozen = guest.table().push(resource::Fields {
-            entries: Entries::default(),
+            entries,
             mutable: false,
         });
         let immutable = set(&mut guest, frozen.unwrap(), "x-ok");
@@ -731,6 +740,41 @@ mod tests {
             ),
             "fields.append must refuse a forbidden name, content-length, a name that is no \
              token, and any change to an immutable list"
+        );
+    }
+
+    // @behavior NW-081
+    #[test]
+    fn a_header_list_past_its_room_or_the_guests_memory_traps() {
+        // How many 1 KiB headers a new list takes before its trap, and the trap.
+        let fill = |guest: &mut Invocation| {
+            let fields = guest.types_fields_constructor_new().unwrap();
+            let mut taken = 0;
+            for i in 0..200 {
+                if let Err(trap) =
+                    guest.types_fields_append(fields, format!("x-{i}"), vec![b'v'; 1024])
+                {
+                    guest.types_fields_drop(fields).unwrap();
+                    return (taken, trap.to_string());
+                }
+                taken += 1;
+            }
+            (taken, "no trap".to_string())
+        };
+        let (_, roomy) = fill(&mut guest(None));
+        let mut tight = guest_within(None, Some(16 * 1024));
+        let (first, short) = fill(&mut tight);
+        let (again, _) = fill(&mut tight);
+        assert_eq!(
+            (roomy.as_str(), short.as_str(), first > 0 && again == first),
+            (
+                "the guest's headers outgrow the most one list may hold",
+                "the guest's headers outgrow its memory",
+                true
+            ),
+            "fields.append of 1 KiB values must trap once the list passes 128 KiB, and sooner \
+             once it passes a 16 KiB memory_limit; a dropped list must give its room back, so \
+             a new one takes as many"
         );
     }
 

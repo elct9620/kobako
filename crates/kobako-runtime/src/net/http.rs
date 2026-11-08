@@ -61,6 +61,103 @@ const FORBIDDEN: [&str; 11] = [
 pub enum FieldError {
     InvalidSyntax,
     Forbidden,
+    /// The list would outgrow `MAX_FIELD_SIZE`.
+    TooLarge,
+    /// The list would outgrow the Invocation's memory.
+    OutOfMemory,
+}
+
+/// The most room one header list the guest builds may take, as wasmtime's
+/// `DEFAULT_FIELD_SIZE_LIMIT`; each entry counts its name, its value, and its
+/// own place, so even an empty value counts.
+pub const MAX_FIELD_SIZE: usize = 128 * 1024;
+
+/// A header list the guest builds or reads, held on its behalf against the
+/// Invocation's memory, as a request's body is, so no list grows the host
+/// past what the guest was allotted.
+pub struct Fields {
+    cred: Arc<Cred>,
+    held: Mutex<Held>,
+}
+
+/// A list's entries and the room they take.
+#[derive(Default)]
+struct Held {
+    entries: Vec<(String, Vec<u8>)>,
+    room: usize,
+}
+
+/// The room `name` and `value` take in a list.
+fn room_of(name: &str, value: &[u8]) -> usize {
+    name.len() + value.len() + std::mem::size_of::<(String, Vec<u8>)>()
+}
+
+impl Fields {
+    /// An empty list, charged to `cred` as it grows.
+    pub fn new(cred: Arc<Cred>) -> Arc<Self> {
+        Arc::new(Self {
+            cred,
+            held: Mutex::new(Held::default()),
+        })
+    }
+
+    /// A list holding `entries`, as a response's headers are handed out, its
+    /// room charged to `cred`; it may outgrow `MAX_FIELD_SIZE`, which only
+    /// bounds what the guest appends.
+    pub fn with_entries(
+        cred: Arc<Cred>,
+        entries: Vec<(String, Vec<u8>)>,
+    ) -> Result<Arc<Self>, FieldError> {
+        let room = entries
+            .iter()
+            .map(|(name, value)| room_of(name, value))
+            .sum();
+        cred.security_vm_enough_memory(room)
+            .map_err(|_| FieldError::OutOfMemory)?;
+        Ok(Arc::new(Self {
+            cred,
+            held: Mutex::new(Held { entries, room }),
+        }))
+    }
+
+    fn held(&self) -> MutexGuard<'_, Held> {
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Append the header `name` with `value`, once `to_field_name` and
+    /// `to_field_value` take them and the list keeps within `MAX_FIELD_SIZE`
+    /// and the Invocation's memory.
+    pub fn append(&self, name: &str, value: Vec<u8>) -> Result<(), FieldError> {
+        let name = to_field_name(name)?;
+        let value = to_field_value(value)?;
+        let room = room_of(&name, &value);
+        let mut held = self.held();
+        if held.room + room > MAX_FIELD_SIZE {
+            return Err(FieldError::TooLarge);
+        }
+        self.cred
+            .security_vm_enough_memory(room)
+            .map_err(|_| FieldError::OutOfMemory)?;
+        held.entries.push((name, value));
+        held.room += room;
+        Ok(())
+    }
+
+    /// Every entry, in the order appended.
+    pub fn entries(&self) -> Vec<(String, Vec<u8>)> {
+        self.held().entries.clone()
+    }
+}
+
+impl Drop for Fields {
+    fn drop(&mut self) {
+        let room = self
+            .held
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+            .room;
+        self.cred.vm_unacct_memory(room);
+    }
 }
 
 /// Whether `text` is an HTTP token, as a method or a header name must be.
