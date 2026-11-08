@@ -963,3 +963,16 @@ endpoint "api.example.com", port: 443
 | Given | a Ruby entry whose endpoints are objects answering `host` and `port`, and `addresses` for one of them |
 | When | the script sends a request to each |
 | Then | the one answering no `addresses` leads only to public addresses, as an endpoint written without them does. The one naming an `IPAddr` speaks `:http` and leads where the prefix covers |
+
+## `NW-079` A script's UDPSocket is an IO that IO.select waits on
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-056` |
+| relates | `NW-065` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP endpoint naming a loopback peer |
+| When | the script selects a new `UDPSocket` to write and writes to it. Then it connects the socket to the peer and writes two strings |
+| Then | `UDPSocket` descends from `IPSocket`, `BasicSocket`, and `IO`, and its `fileno` is an Integer. The select answers the socket writable. The first write raises `Errno::EDESTADDRREQ`, as CRuby's does. The peer reads the two strings as one datagram |
