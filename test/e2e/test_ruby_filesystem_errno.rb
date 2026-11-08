@@ -42,8 +42,8 @@ class TestE2ERubyFilesystemErrno < Minitest::Test
 
   # @behavior RF-016
   def test_an_errno_the_guest_has_no_class_for_reaches_the_script_as_eio
-    assert_equal "Errno::EIO", rescued_class(Errno::ETIMEDOUT),
-                 "an open whose Ruby Filesystem raises Errno::ETIMEDOUT through Sandbox#eval must raise Errno::EIO " \
+    assert_equal "Errno::EIO", rescued_class(Errno::EPROTO),
+                 "an open whose Ruby Filesystem raises Errno::EPROTO through Sandbox#eval must raise Errno::EIO " \
                  "in the script"
   end
 
