@@ -3907,3 +3907,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a connected socket whose peer is reading |
 | When | the last view of its socket file is dropped |
 | Then | the peer reads the end, as `sock_close` shuts the socket down |
+
+## `RT-347` A preview2 handle and a preview1 descriptor never share a number
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-189` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding its three standard streams |
+| When | it takes a preview2 handle, then frees it, then takes another |
+| Then | the first takes 3, the lowest number neither encoding holds. The next takes 3 again, as Linux's one fdtable numbers every file |
+
+## `RT-348` A preview2 drop of a handle as another kind traps
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-341` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a preview2 handle of one kind |
+| When | it drops the handle through another kind's drop, or hands it where another kind is taken |
+| Then | the call traps and the handle stays, as the Canonical ABI traps on a handle of the wrong type |

@@ -780,3 +780,15 @@ endpoint "api.example.com", port: 443
 | Given | a server answering a client or server error |
 | When | the script calls `value` on the response |
 | Then | it raises the `Net::HTTPExceptions` error CRuby raises for that family, carrying the response |
+
+## `NW-064` A wasi:http parent dropped while its child lives traps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `outgoing-body` whose `output-stream` the guest still holds |
+| When | it drops or finishes the body |
+| Then | the call traps, as the WIT traps a parent dropped before its child. Once the stream is dropped, the body finishes |
