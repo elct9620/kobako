@@ -5,9 +5,10 @@
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::task::{Context, Poll, Waker};
 use std::thread;
 
-use super::connections::{open, OpenConnections};
+use super::connections::{open, OpenConnections, Place};
 use super::ProtocolFamily;
 use crate::filesystem::anon_inode_getfile;
 use crate::vfs::{Cred, FMode, File, FileOperations, OpenHow, PollMask};
@@ -31,23 +32,37 @@ pub struct NameLookup {
     name: String,
     answer: Mutex<Option<Result<Vec<IpAddr>, LookupError>>>,
     wait: Arc<WaitQueueHead>,
+    /// The task awaiting the answer on the reactor, if one is.
+    task: Mutex<Option<Waker>>,
 }
 
 impl NameLookup {
     /// A lookup of `name` through `family` on a thread holding one of
     /// `open_connections`' places; a full count answers at once as a temporary
-    /// failure. The thread holds the place until the resolver returns, past the
-    /// lookup's drop, so the places bound the resolver threads too.
+    /// failure.
     pub(crate) fn start(
         family: Arc<dyn ProtocolFamily>,
         name: String,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<Arc<Self>, LookupError> {
         let place = open(open_connections).ok_or(LookupError::TemporaryFailure)?;
+        Self::start_holding(family, name, Arc::new(place))
+    }
+
+    /// A lookup of `name` through `family` on a thread holding `place`, which
+    /// its caller already counts. The thread holds the place until the
+    /// resolver returns, past the lookup's drop and its caller's, so the
+    /// places bound the resolver threads too.
+    pub(crate) fn start_holding(
+        family: Arc<dyn ProtocolFamily>,
+        name: String,
+        place: Arc<Place>,
+    ) -> Result<Arc<Self>, LookupError> {
         let lookup = Arc::new(Self {
             name,
             answer: Mutex::new(None),
             wait: Arc::default(),
+            task: Mutex::new(None),
         });
         let resolving = lookup.clone();
         // A thread the process cannot make answers as a resolver out of
@@ -69,6 +84,14 @@ impl NameLookup {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner) = Some(answer);
                 resolving.wait.wake_up();
+                if let Some(task) = resolving
+                    .task
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take()
+                {
+                    task.wake();
+                }
             });
         spawned.map_err(|_| LookupError::TemporaryFailure)?;
         Ok(lookup)
@@ -80,7 +103,24 @@ impl NameLookup {
             name,
             answer: Mutex::new(Some(answer)),
             wait: Arc::default(),
+            task: Mutex::new(None),
         })
+    }
+
+    /// The answer for a task on the reactor, which is woken once it arrives;
+    /// the answer is read while the waker is held, so none arrives unseen.
+    pub(crate) fn poll_answer(
+        &self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Vec<IpAddr>, LookupError>> {
+        let mut task = self.task.lock().unwrap_or_else(PoisonError::into_inner);
+        match self.answer() {
+            Some(answer) => Poll::Ready(answer),
+            None => {
+                *task = Some(cx.waker().clone());
+                Poll::Pending
+            }
+        }
     }
 
     /// The name looked up, normalized.

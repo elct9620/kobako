@@ -13,7 +13,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Waker};
-use std::thread;
 
 use bytes::Bytes;
 use http_body::Body;
@@ -22,6 +21,7 @@ use http_body_util::{BodyExt, Full};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::{open, OpenConnections, Place};
+use super::lookup::NameLookup;
 use super::reactor::{Reactor, Ready, Registration, Task};
 use super::socket::to_error;
 use super::{new_platform_tls, ProtocolFamily, MAX_SOCKET_BUFFER};
@@ -464,6 +464,8 @@ pub struct Connector {
     port: u16,
     ruleset: Arc<Ruleset>,
     family: Arc<dyn ProtocolFamily>,
+    /// The request's place, which a lookup of the authority holds too.
+    place: Option<Arc<Place>>,
 }
 
 impl Connector {
@@ -510,36 +512,16 @@ impl Connector {
         Err(last)
     }
 
-    /// The host's answer for the authority's name, asked on a thread of its
-    /// own, since a resolver blocks.
+    /// The host's answer for the authority's name, from a lookup holding the
+    /// request's own place, as a guest's lookup holds one, so its thread
+    /// counts against the caps until the resolver returns.
     async fn resolve(&self) -> Result<Vec<IpAddr>, HttpError> {
-        let answer = Arc::new(Mutex::new((None, None::<Waker>)));
-        let answering = answer.clone();
-        let family = self.family.clone();
-        let host = self.host.clone();
-        thread::spawn(move || {
-            let resolved = family.resolve(&host);
-            let mut answer = answering.lock().unwrap_or_else(PoisonError::into_inner);
-            answer.0 = Some(resolved);
-            if let Some(waker) = answer.1.take() {
-                waker.wake();
-            }
-        });
-        let resolved = poll_fn(|cx| {
-            let mut answer = answer.lock().unwrap_or_else(PoisonError::into_inner);
-            match answer.0.take() {
-                Some(resolved) => Poll::Ready(resolved),
-                None => {
-                    answer.1 = Some(cx.waker().clone());
-                    Poll::Pending
-                }
-            }
-        })
-        .await;
-        match resolved {
-            Ok(real) if !real.is_empty() => Ok(real),
-            _ => Err(HttpError::DestinationNotFound),
-        }
+        let place = self.place.clone().ok_or(HttpError::Internal)?;
+        let lookup = NameLookup::start_holding(self.family.clone(), self.host.clone(), place)
+            .map_err(|_| HttpError::ConnectionLimitReached)?;
+        poll_fn(|cx| lookup.poll_answer(cx))
+            .await
+            .map_err(|_| HttpError::DestinationNotFound)
     }
 }
 
@@ -701,6 +683,7 @@ impl Connector {
             port,
             ruleset,
             family,
+            place: None,
         }
     }
 }
@@ -728,7 +711,7 @@ pub struct Exchange {
     wait: Arc<WaitQueueHead>,
     task: Mutex<Option<Arc<Task>>>,
     /// The request's place against its Sandbox's cap and the process's.
-    place: Mutex<Option<Place>>,
+    place: Mutex<Option<Arc<Place>>>,
 }
 
 impl Exchange {
@@ -738,10 +721,12 @@ impl Exchange {
     pub(crate) fn start(
         seam: Arc<dyn Outbound>,
         request: OutgoingRequest,
-        connector: Connector,
+        mut connector: Connector,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<Arc<Self>, HttpError> {
-        let place = Some(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
+        let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
+        connector.place = Some(place.clone());
+        let place = Some(place);
         let reactor = Reactor::current().map_err(|_| HttpError::Internal)?;
         let exchange = Arc::new(Self {
             state: Mutex::new(State {
@@ -1175,6 +1160,7 @@ impl fmt::Debug for Connector {
 mod tests {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
+    use std::thread;
     use std::time::Duration;
 
     use super::*;
@@ -1248,6 +1234,73 @@ mod tests {
                 Err(_) => return Err(HttpError::ConnectionTerminated),
             }
         }
+    }
+
+    /// A host whose resolver says it started, then answers only once released.
+    struct Stalled {
+        started: Mutex<std::sync::mpsc::Sender<()>>,
+        released: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl ProtocolFamily for Stalled {
+        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
+            Err(io::ErrorKind::ConnectionRefused.into())
+        }
+
+        fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
+            let _ = self.started.lock().unwrap().send(());
+            let _ = self.released.lock().unwrap().recv();
+            Ok(Vec::new())
+        }
+    }
+
+    // @behavior NW-085
+    #[test]
+    fn a_requests_lookup_holds_its_place_until_the_resolver_returns() {
+        let (release, released) = std::sync::mpsc::channel();
+        let (started, resolving) = std::sync::mpsc::channel();
+        let mut entry = Builder::default();
+        entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let family = Stalled {
+            started: Mutex::new(started),
+            released: Mutex::new(released),
+        };
+        let namespace = Namespace::new(
+            [&network],
+            Arc::new(family),
+            Arc::new(HyperOutbound::new()),
+            OpenConnections::new(Some(1)),
+            None,
+        )
+        .expect("the endpoints compile");
+        let cred = prepare_creds_within(&[], None);
+        let first = namespace
+            .send(&cred, get("api.example.com"))
+            .expect("the first request has a place");
+        resolving
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the request's lookup starts");
+        first.release();
+        let while_resolving = namespace.send(&cred, get("api.example.com")).err();
+        release.send(()).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let once_returned = loop {
+            match namespace.send(&cred, get("api.example.com")) {
+                Ok(_) => break true,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(1))
+                }
+                Err(_) => break false,
+            }
+        };
+        assert_eq!(
+            (while_resolving, once_returned),
+            (Some(HttpError::ConnectionLimitReached), true),
+            "Namespace::send past an open_connection_limit of 1 must answer \
+             ConnectionLimitReached while a released request's lookup still resolves, and send \
+             once the resolver returned"
+        );
     }
 
     // @behavior NW-037
