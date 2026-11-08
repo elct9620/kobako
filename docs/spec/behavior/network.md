@@ -1357,3 +1357,15 @@ endpoint "api.example.com", port: 443
 | Given | a script holding a `TCPSocket`, an object whose `to_io` answers it, and an Integer |
 | When | it selects the object, then the Integer |
 | Then | the object is answered ready as it was given, and the Integer raises `TypeError`, as CRuby's `IO.select` does |
+
+## `NW-111` A Context replaces an entry with what a builder adds to it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-006` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a network entry named `api` |
+| When | an invocation's Context replaces it with another entry and a builder adding an endpoint |
+| Then | that invocation receives the other entry's endpoints, then the builder's |

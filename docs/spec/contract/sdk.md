@@ -322,6 +322,17 @@ impl Context<'_> {
 }
 ```
 
+## `Context::network_with`
+
+Replace a named network entry for this invocation alone with what a builder
+adds to it. The builder's endpoints and policies follow the entry's.
+
+```rust
+impl Context<'_> {
+    pub fn network_with(&mut self, name: &str, entry: Arc<dyn Entry>, build: impl FnOnce(&mut Builder)) -> Result<(), Error> {}
+}
+```
+
 ## `Context::mount`
 
 Replace a mounted Filesystem for this invocation alone.
