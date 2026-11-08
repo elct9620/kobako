@@ -37,6 +37,71 @@ pub enum Scheme {
     Https,
 }
 
+/// The headers no guest sets: wasmtime's `DEFAULT_FORBIDDEN_HEADERS`, and
+/// `content-length` and `te`, since the seam frames the body and its encoding
+/// itself.
+const FORBIDDEN: [&str; 11] = [
+    "connection",
+    "content-length",
+    "host",
+    "http2-settings",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "proxy-connection",
+    "te",
+    "transfer-encoding",
+    "upgrade",
+];
+
+/// Why a header the guest names is not one it may set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FieldError {
+    InvalidSyntax,
+    Forbidden,
+}
+
+/// Whether `text` is an HTTP token, as a method or a header name must be.
+pub fn is_token(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c))
+}
+
+/// The header name a guest may set, lowercase: a token, and none the seam
+/// writes itself.
+pub fn field_name(name: &str) -> Result<String, FieldError> {
+    if !is_token(name) {
+        return Err(FieldError::InvalidSyntax);
+    }
+    let name = name.to_ascii_lowercase();
+    match FORBIDDEN.contains(&name.as_str()) {
+        true => Err(FieldError::Forbidden),
+        false => Ok(name),
+    }
+}
+
+/// The header value a guest may set: one holding no CR, LF, or NUL.
+pub fn field_value(value: Vec<u8>) -> Result<Vec<u8>, FieldError> {
+    match value.iter().any(|b| matches!(b, b'\r' | b'\n' | 0)) {
+        true => Err(FieldError::InvalidSyntax),
+        false => Ok(value),
+    }
+}
+
+/// Whether `authority` names a host alone, with no path or user part.
+pub fn is_authority(authority: &str) -> bool {
+    !authority.is_empty() && !authority.contains(['/', '@', ' ', '\r', '\n'])
+}
+
+/// Whether `path` is in origin form, as a request target from the guest must
+/// be.
+pub fn is_origin_form(path: &str) -> bool {
+    path.starts_with('/') && !path.contains([' ', '\r', '\n'])
+}
+
 /// One request the guest sends: its method, scheme, authority, path with its
 /// query, headers, and body.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -679,20 +744,14 @@ impl Outbound for HyperOutbound {
     }
 }
 
-/// `request` as hyper sends it: the path with its query as the target, each
-/// header with its credentials swapped in, and a `host` header naming the
-/// authority unless the guest wrote one.
+/// `request` as hyper sends it: the path with its query as the target, a
+/// `host` header naming the authority, and each header with its credentials
+/// swapped in.
 fn to_hyper_request(request: &OutgoingRequest) -> Result<hyper::Request<Full<Bytes>>, HttpError> {
     let mut builder = hyper::Request::builder()
         .method(request.method.as_str())
-        .uri(request.path_with_query.as_str());
-    if !request
-        .headers
-        .iter()
-        .any(|(name, _)| name.eq_ignore_ascii_case("host"))
-    {
-        builder = builder.header("host", request.authority.as_str());
-    }
+        .uri(request.path_with_query.as_str())
+        .header("host", request.authority.as_str());
     for (name, value) in &request.headers {
         let value = request
             .swaps
@@ -1036,6 +1095,30 @@ mod tests {
                 && listener.accept().is_err(),
             "Namespace::send to an authority only a tcp endpoint names, one no endpoint names, \
              or a virtual address must answer Denied, sending nothing, got {answers:?}"
+        );
+    }
+
+    // @behavior NW-041
+    #[test]
+    fn a_request_carrying_a_header_the_seam_frames_is_refused_unsent() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
+        let cred = prepare_creds_within(&[], None);
+        let answers = ["Host", "content-length", "bad name"].map(|name| {
+            let mut request = get(&format!("127.0.0.1:{port}"));
+            request.headers.push((name.to_string(), b"x".to_vec()));
+            namespace.send(&cred, request).err()
+        });
+        thread::sleep(Duration::from_millis(20));
+        assert!(
+            answers
+                .iter()
+                .all(|answer| *answer == Some(HttpError::Denied))
+                && listener.accept().is_err(),
+            "Namespace::send of a request carrying host, content-length, or a name that is no \
+             token must answer Denied, sending nothing, got {answers:?}"
         );
     }
 

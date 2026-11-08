@@ -16,8 +16,9 @@ mod udp;
 pub use connections::{process_connections, OpenConnections};
 pub use family::{HostInet, ProtocolFamily};
 pub use http::{
-    Connector, Exchange, HttpError, HyperOutbound, Outbound, OutgoingRequest, RequestBody,
-    Response, ResponseBody, ResponseHead, Scheme, Sending, Transport,
+    field_name, field_value, is_authority, is_origin_form, is_token, Connector, Exchange,
+    FieldError, HttpError, HyperOutbound, Outbound, OutgoingRequest, RequestBody, Response,
+    ResponseBody, ResponseHead, Scheme, Sending, Transport,
 };
 pub use lookup::{LookupError, NameLookup};
 pub use namespace::Namespace;

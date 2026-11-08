@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use kobako_runtime::net::{self, Exchange, HttpError, RequestBody, ResponseHead};
+use kobako_runtime::net::{self, Exchange, FieldError, HttpError, RequestBody, ResponseHead};
 
 use super::bindings::wasi_http_types_0_2_12::{
     ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError, IncomingBody,
@@ -18,22 +18,6 @@ use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::table::{self, Resource, Stream};
 use crate::invocation::Invocation;
-
-/// The headers no guest sets, as wasmtime's `DEFAULT_FORBIDDEN_HEADERS` holds
-/// them, and `content-length`, since the seam frames the body itself.
-const FORBIDDEN: [&str; 11] = [
-    "connection",
-    "content-length",
-    "host",
-    "http2-settings",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "proxy-connection",
-    "te",
-    "transfer-encoding",
-    "upgrade",
-];
 
 /// One header list, shared between a request and the `fields` its `headers`
 /// hands out.
@@ -117,24 +101,11 @@ impl Held {
     }
 }
 
-/// A header name a guest may set: a token, lowercase, and not forbidden.
-fn to_name(name: &str) -> Result<String, HeaderError> {
-    let token = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c);
-    if name.is_empty() || !name.chars().all(token) {
-        return Err(HeaderError::InvalidSyntax);
-    }
-    let name = name.to_ascii_lowercase();
-    match FORBIDDEN.contains(&name.as_str()) {
-        true => Err(HeaderError::Forbidden),
-        false => Ok(name),
-    }
-}
-
-/// A header value a guest may set: no CR, LF, or NUL.
-fn to_value(value: Vec<u8>) -> Result<Vec<u8>, HeaderError> {
-    match value.iter().any(|b| matches!(b, b'\r' | b'\n' | 0)) {
-        true => Err(HeaderError::InvalidSyntax),
-        false => Ok(value),
+/// The `header-error` a refused header answers.
+fn to_header_error(err: FieldError) -> HeaderError {
+    match err {
+        FieldError::Forbidden => HeaderError::Forbidden,
+        _ => HeaderError::InvalidSyntax,
     }
 }
 
@@ -165,10 +136,7 @@ fn method_name(method: &Method) -> Option<String> {
         Method::Options => "OPTIONS",
         Method::Trace => "TRACE",
         Method::Patch => "PATCH",
-        Method::Other(other) => {
-            let token = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c);
-            return (!other.is_empty() && other.chars().all(token)).then(|| other.clone());
-        }
+        Method::Other(other) => return net::is_token(other).then(|| other.clone()),
     };
     Some(name.to_string())
 }
@@ -295,7 +263,10 @@ impl HttpHost for Invocation {
         if !mutable {
             return Ok(Err(HeaderError::Immutable));
         }
-        match (to_name(&name), to_value(value)) {
+        match (
+            net::field_name(&name).map_err(to_header_error),
+            net::field_value(value).map_err(to_header_error),
+        ) {
             (Ok(name), Ok(value)) => {
                 locked(&entries).push((name, value));
                 Ok(Ok(()))
@@ -371,7 +342,7 @@ impl HttpHost for Invocation {
     ) -> wasmtime::Result<Result<(), ()>> {
         if path_with_query
             .as_deref()
-            .is_some_and(|path| !path.starts_with('/') || path.contains([' ', '\r', '\n']))
+            .is_some_and(|path| !net::is_origin_form(path))
         {
             return Ok(Err(()));
         }
@@ -398,7 +369,7 @@ impl HttpHost for Invocation {
     ) -> wasmtime::Result<Result<(), ()>> {
         if authority
             .as_deref()
-            .is_some_and(|a| a.is_empty() || a.contains(['/', '@', ' ', '\r', '\n']))
+            .is_some_and(|authority| !net::is_authority(authority))
         {
             return Ok(Err(()));
         }

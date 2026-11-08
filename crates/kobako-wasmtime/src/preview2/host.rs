@@ -427,10 +427,17 @@ impl SocketsHost for Invocation {
         if !matches!(self.udp(this)?, table::UdpSocket::Unbound) {
             return Ok(Err(ErrorCode::InvalidState));
         }
-        match to_socket_addr(&local_address) {
-            None => return Ok(Err(ErrorCode::InvalidArgument)),
-            Some(addr) if addr.ip().is_unspecified() && addr.port() == 0 => {}
-            Some(_) => return Ok(Err(ErrorCode::AccessDenied)),
+        let Some(addr) = to_socket_addr(&local_address) else {
+            return Ok(Err(ErrorCode::InvalidArgument));
+        };
+        let bound = self
+            .wasi()
+            .table()
+            .network()
+            .expect("a socket is only made with a network")
+            .bind(addr);
+        if let Err(err) = bound {
+            return Ok(Err(to_error_code(&err)));
         }
         *self.udp(this)? = table::UdpSocket::Binding;
         Ok(Ok(()))
@@ -462,11 +469,9 @@ impl SocketsHost for Invocation {
         ) {
             return Ok(Err(ErrorCode::InvalidState));
         }
-        let Some(remote_address) = remote_address else {
-            return Ok(Err(ErrorCode::AccessDenied));
-        };
-        let Some(addr) = to_socket_addr(&remote_address) else {
-            return Ok(Err(ErrorCode::InvalidArgument));
+        let peer = match remote_address.as_ref().map(to_socket_addr) {
+            Some(None) => return Ok(Err(ErrorCode::InvalidArgument)),
+            peer => peer.flatten(),
         };
         let cred = self.wasi().descriptors().cred();
         let connected = self
@@ -474,10 +479,11 @@ impl SocketsHost for Invocation {
             .table()
             .network()
             .expect("a socket is only made with a network")
-            .connect_datagram(cred, addr);
-        let sock = match connected {
-            Ok(sock) => sock,
-            Err(err) => return Ok(Err(to_error_code(&err))),
+            .connect_datagram(cred, peer);
+        let (sock, addr) = match (connected, peer) {
+            (Ok(sock), Some(addr)) => (sock, addr),
+            (Err(err), _) => return Ok(Err(to_error_code(&err))),
+            (Ok(_), None) => unreachable!("connect_datagram refuses a stream naming no peer"),
         };
         let file = sock_alloc_file(sock.clone(), cred);
         let datagrams = SocketFile::new(sock, file, addr);

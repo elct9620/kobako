@@ -8,7 +8,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use super::http::{
-    split_authority, Connector, Exchange, HttpError, Outbound, OutgoingRequest, Scheme, Swap,
+    field_name, field_value, split_authority, Connector, Exchange, HttpError, Outbound,
+    OutgoingRequest, Scheme, Swap,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::{OpenConnections, ProtocolFamily, TcpSock, UdpSock};
@@ -89,8 +90,17 @@ impl Namespace {
     /// socket hooks judge the authority the guest named, a name passing the
     /// `resolve` policies too, and an `http` endpoint must name it at its port;
     /// a literal address passes the ruleset as itself, so a virtual one is
-    /// refused. Any refusal answers `Denied`, and nothing is sent.
+    /// refused. A header the guest may not set is refused too, so the seam
+    /// frames every request itself. Any refusal answers `Denied`, and nothing
+    /// is sent.
     pub fn send(&self, cred: &Cred, request: OutgoingRequest) -> Result<Arc<Exchange>, HttpError> {
+        if request
+            .headers
+            .iter()
+            .any(|(name, value)| field_name(name).is_err() || field_value(value.clone()).is_err())
+        {
+            return Err(HttpError::Denied);
+        }
         let (host, port) =
             split_authority(&request.authority, request.scheme).ok_or(HttpError::Denied)?;
         let literal = host.parse::<IpAddr>().ok();
@@ -259,14 +269,27 @@ impl Namespace {
         })
     }
 
+    /// Whether a socket may bind `addr`: only the unspecified address and port
+    /// 0, since the guest only reaches out, as Landlock's `BIND_*` rights
+    /// refuse every other bind.
+    pub fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
+        match addr.ip().is_unspecified() && addr.port() == 0 {
+            true => Ok(()),
+            false => Err(FilesystemError::PermissionDenied),
+        }
+    }
+
     /// A UDP socket streaming with `addr`, the one peer the guest named, as
     /// `cred`. It passes the same steps a TCP connect does, as `udp_pre_connect` runs `connect4`; UDP opens no handshake, so
     /// the first real address the ruleset admits is its peer.
+    /// A stream naming no peer would send each datagram anywhere, so it is
+    /// refused.
     pub fn connect_datagram(
         &self,
         cred: &Cred,
-        addr: SocketAddr,
+        addr: Option<SocketAddr>,
     ) -> Result<Arc<UdpSock>, FilesystemError> {
+        let addr = addr.ok_or(FilesystemError::PermissionDenied)?;
         let real = self.admit(cred, addr, Protocol::Udp)?;
         self.within_connection_limit(FilesystemError::WouldBlock, || {
             UdpSock::connect(self.family.clone(), real[0], &self.open_connections)
@@ -771,9 +794,9 @@ mod tests {
         )
         .unwrap();
         let cred = prepare_creds_within(&[], None);
-        let admitted = namespace.connect_datagram(&cred, peer.local_addr().unwrap());
+        let admitted = namespace.connect_datagram(&cred, Some(peer.local_addr().unwrap()));
         let refused =
-            namespace.connect_datagram(&cred, format!("127.0.0.2:{port}").parse().unwrap());
+            namespace.connect_datagram(&cred, Some(format!("127.0.0.2:{port}").parse().unwrap()));
         if let Ok(sock) = &admitted {
             crate::net::ProtoOps::release(&**sock);
         }
