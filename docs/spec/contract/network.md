@@ -16,7 +16,7 @@ is one Grant, and its endpoints are data the runtime judges on any thread.
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/socket.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
-- `crates/kobako-runtime/src/net/workers.rs`
+- `crates/kobako-runtime/src/net/connections.rs`
 
 ## `Network`
 
@@ -462,12 +462,13 @@ pub struct Namespace {}
 ## `Namespace::new`
 
 The namespace of every entry given, dialing through a Protocol Family and sending
-HTTP through an outbound seam. It is refused for an endpoint the ruleset cannot
-compile.
+HTTP through an outbound seam. Each connection counts against the Sandbox's
+open connections while open. The Invocation makes at most its connection limit
+in all. It is refused for an endpoint the ruleset cannot compile.
 
 ```rust
 impl Namespace {
-    pub fn new<'a>(networks: impl IntoIterator<Item = &'a Network>, family: Arc<dyn ProtocolFamily>, outbound: Arc<dyn Outbound>, workers: Arc<Workers>) -> Result<Self, EntryError> {}
+    pub fn new<'a>(networks: impl IntoIterator<Item = &'a Network>, family: Arc<dyn ProtocolFamily>, outbound: Arc<dyn Outbound>, open_connections: Arc<OpenConnections>, connection_limit: Option<usize>) -> Result<Self, EntryError> {}
 }
 ```
 
@@ -615,40 +616,44 @@ How much a socket holds each way, as `sk_rcvbuf` and `sk_sndbuf` bound one.
 pub const SOCKET_BUFFER: usize = 64 * 1024;
 ```
 
-## `Workers`
+## `OpenConnections`
 
-How many sockets, requests, and lookups one owner holds, and its most, as a
-cgroup's `pids.max` bounds its tasks. A forked child starts from none.
+How many connections one owner holds open, and its most, as a cgroup's
+`pids.max` bounds its tasks. A socket, a request, and a lookup in flight each
+hold one. A forked child starts from none.
 
 ```rust
-pub struct Workers {}
+pub struct OpenConnections {}
 ```
 
-## `Workers::new`
+## `OpenConnections::new`
 
-An owner holding at most this many.
+An owner holding at most this many at once; `None` lifts the limit.
 
 ```rust
-impl Workers {
-    pub fn new(limit: usize) -> Arc<Self> {}
+impl OpenConnections {
+    pub fn new(limit: Option<usize>) -> Arc<Self> {}
 }
 ```
 
-## `SANDBOX_WORKERS`
+## `OpenConnections::set_limit`
 
-The most sockets, requests, and lookups one Sandbox holds at once.
+Move the limit, as writing `pids.max` does. One held past a lowered limit stays
+open, and the next is refused.
 
 ```rust
-pub const SANDBOX_WORKERS: usize = 64;
+impl OpenConnections {
+    pub fn set_limit(&self, limit: Option<usize>) {}
+}
 ```
 
-## `PROCESS_WORKERS`
+## `process_connections`
 
-The most sockets, requests, and lookups the process holds at once, across
-every Sandbox.
+Every connection the process's Sandboxes hold open together, 512 at most until
+a Rust Host App moves it.
 
 ```rust
-pub const PROCESS_WORKERS: usize = 1024;
+pub fn process_connections() -> &'static Arc<OpenConnections> {}
 ```
 
 ## `TcpSock`
@@ -668,7 +673,7 @@ process's caps until released, and a full count answers `WouldBlock`.
 
 ```rust
 impl TcpSock {
-    pub fn connect(family: Arc<dyn ProtocolFamily>, addrs: Vec<SocketAddr>, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
+    pub fn connect(family: Arc<dyn ProtocolFamily>, addrs: Vec<SocketAddr>, open_connections: &Arc<OpenConnections>) -> Result<Arc<Self>, FilesystemError> {}
 }
 ```
 
@@ -1265,7 +1270,7 @@ against the Sandbox's and the process's caps until released.
 
 ```rust
 impl UdpSock {
-    pub fn connect(family: Arc<dyn ProtocolFamily>, addr: SocketAddr, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
+    pub fn connect(family: Arc<dyn ProtocolFamily>, addr: SocketAddr, open_connections: &Arc<OpenConnections>) -> Result<Arc<Self>, FilesystemError> {}
 }
 ```
 

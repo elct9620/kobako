@@ -35,7 +35,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/network/ruleset.rs`
 - `crates/kobako-runtime/src/net/http.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
-- `crates/kobako-runtime/src/net/workers.rs`
+- `crates/kobako-runtime/src/net/connections.rs`
 - `crates/kobako-runtime/src/net/udp.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako-wasmtime/src/preview2/http.rs`
@@ -276,7 +276,7 @@ endpoint "api.example.com", port: 443
 | When | the script opens a `TCPSocket` there |
 | Then | the policy is handed a `Kobako::Network::Connection`. A falsy answer raises `Errno::EACCES` in the script |
 
-## `NW-022` A full cap answers EAGAIN
+## `NW-022` A full open connection limit answers EAGAIN
 
 | Attribute | Value |
 | --- | --- |
@@ -284,7 +284,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose sockets, requests, and lookups fill its cap, or the process's |
+| Given | a Sandbox whose sockets, requests, and lookups fill its open connection limit, or the process's |
 | When | the guest connects once more |
 | Then | the connect answers `EAGAIN`, never a Trap, and dials nothing. A socket released gives its place back, and a forked child starts from none |
 
@@ -719,3 +719,27 @@ endpoint "api.example.com", port: 443
 | Given | a server answering with a body several times the socket buffer |
 | When | the guest reads the body as it arrives |
 | Then | it reads every byte in order, and the body waiting for the guest never passes one socket buffer |
+
+## `NW-059` A run past its connection limit answers EAGAIN
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose `connection_limit` an invocation's sockets and requests already spent |
+| When | the guest connects once more, though each earlier connection closed |
+| Then | the connect answers `EAGAIN`, never a Trap, and dials nothing |
+
+## `NW-060` A Rust Host App moves the process's open connection limit
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | the process's open connections, holding some open |
+| When | a Rust Host App lowers its limit below what is open, then lifts it |
+| Then | each open connection stays open and the next is refused, until the lifted limit admits it |
