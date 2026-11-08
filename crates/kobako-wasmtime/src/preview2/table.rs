@@ -144,6 +144,8 @@ pub(crate) struct OutputStream {
     /// Whether a flush is under way, as `io.wit` has `check-write` answer zero
     /// until it completes.
     pub(crate) flushing: bool,
+    /// What the last `check-write` permitted, which each write spends.
+    pub(crate) permit: usize,
 }
 
 impl OutputStream {
@@ -151,6 +153,7 @@ impl OutputStream {
         Self {
             stream,
             flushing: false,
+            permit: 0,
         }
     }
 }

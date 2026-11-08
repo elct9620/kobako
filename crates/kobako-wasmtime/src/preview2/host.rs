@@ -27,7 +27,10 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
     IncomingDatagram, IncomingDatagramStream, OutgoingDatagram, OutgoingDatagramStream, UdpSocket,
 };
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
-use super::sockets::{from_socket_addr, to_error_code, to_lookup_error_code, to_socket_addr};
+use super::sockets::{
+    from_socket_addr, is_valid_remote_address, is_valid_unicast_address, to_error_code,
+    to_lookup_error_code, to_socket_addr,
+};
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
@@ -275,11 +278,15 @@ impl SocketsHost for Invocation {
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         self.ensure_network(network)?;
         let socket = self.tcp(this)?;
-        if socket.state != TcpState::Unbound {
-            return Ok(Err(ErrorCode::InvalidState));
+        match socket.state {
+            TcpState::Unbound => {}
+            TcpState::Connecting => return Ok(Err(ErrorCode::ConcurrencyConflict)),
+            _ => return Ok(Err(ErrorCode::InvalidState)),
         }
         let sock = socket.socket.sock.clone();
-        let Some(addr) = to_socket_addr(&remote_address) else {
+        let Some(addr) =
+            to_socket_addr(&remote_address).filter(|addr| is_valid_remote_address(*addr))
+        else {
             return Ok(Err(ErrorCode::InvalidArgument));
         };
         let cred = self.wasi().descriptors().cred();
@@ -320,8 +327,14 @@ impl SocketsHost for Invocation {
 
     /// Ready once a connect settles, as the socket file polls writable; one
     /// connected to nothing polls hung up, so it is ready at once.
+    /// Waits on a connect under way, and is ready at once otherwise, as
+    /// wasmtime's socket pollable waits only on an operation in progress.
     fn tcp_tcp_socket_subscribe(&mut self, this: TcpSocket) -> wasmtime::Result<Pollable> {
-        let socket = self.tcp(this)?.socket.clone();
+        let socket = self.tcp(this)?;
+        if socket.state != TcpState::Connecting {
+            return self.table().push(table::Pollable::Ready);
+        }
+        let socket = socket.socket.clone();
         self.subscribe_stream(Stream::Socket(socket), PollMask::OUT)
     }
 
@@ -390,10 +403,14 @@ impl SocketsHost for Invocation {
         local_address: IpSocketAddress,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         self.ensure_network(network)?;
-        if self.udp(this)?.state != UdpState::Unbound {
-            return Ok(Err(ErrorCode::InvalidState));
+        match self.udp(this)?.state {
+            UdpState::Unbound => {}
+            UdpState::Binding => return Ok(Err(ErrorCode::ConcurrencyConflict)),
+            _ => return Ok(Err(ErrorCode::InvalidState)),
         }
-        let Some(addr) = to_socket_addr(&local_address) else {
+        let Some(addr) =
+            to_socket_addr(&local_address).filter(|addr| is_valid_unicast_address(*addr))
+        else {
             return Ok(Err(ErrorCode::InvalidArgument));
         };
         let cred = self.wasi().descriptors().cred().clone();
@@ -430,8 +447,9 @@ impl SocketsHost for Invocation {
         }
         let datagrams = socket.socket.clone();
         let peer = match remote_address.as_ref().map(to_socket_addr) {
-            Some(None) => return Ok(Err(ErrorCode::InvalidArgument)),
-            peer => peer.flatten(),
+            Some(Some(addr)) if is_valid_remote_address(addr) => Some(addr),
+            Some(_) => return Ok(Err(ErrorCode::InvalidArgument)),
+            None => None,
         };
         let cred = self.wasi().descriptors().cred();
         if let Err(err) = self.network().connect_datagram(cred, &datagrams.sock, peer) {
@@ -646,10 +664,12 @@ impl IoHost for Invocation {
         }
         let output = self.table().get_mut(this)?;
         if output.flushing && !stream.is_drained() {
+            output.permit = 0;
             return Ok(Ok(0));
         }
         output.flushing = false;
-        Ok(Ok(stream.room() as u64))
+        output.permit = stream.room();
+        Ok(Ok(output.permit as u64))
     }
 
     /// Write what `check-write` permitted; more than it permits traps, as
@@ -659,12 +679,14 @@ impl IoHost for Invocation {
         this: OutputStream,
         contents: Vec<u8>,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        let stream = self.table().get(this)?.stream.clone();
-        if contents.len() > stream.room() {
+        let output = self.table().get_mut(this)?;
+        if contents.len() > output.permit {
             return Err(wasmtime::Error::msg(
                 "the guest wrote past what check-write permitted",
             ));
         }
+        output.permit -= contents.len();
+        let stream = output.stream.clone();
         match stream.write(&contents) {
             Ok(_) => Ok(Ok(())),
             Err(err) => self.push_stream_error(err).map(Err),
@@ -1182,6 +1204,179 @@ mod tests {
              access-denied, and carry a datagram both ways with the peer a udp endpoint names; \
              got bind {fixed:?}, peerless {peerless:?}, received {} datagram(s)",
             answer.len()
+        );
+    }
+
+    fn ipv4(address: (u8, u8, u8, u8), port: u16) -> IpSocketAddress {
+        IpSocketAddress::Ipv4(Ipv4SocketAddress { port, address })
+    }
+
+    /// A guest whose network reaches a loopback listener over TCP and UDP,
+    /// and the listener's port.
+    fn reaching_loopback() -> (Invocation, std::net::TcpListener) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let endpoint = network::Endpoint::new("127.0.0.1", port)
+            .unwrap()
+            .with_protocol(network::Protocol::Tcp)
+            .with_addresses(vec![network::Addresses::Local]);
+        (within_network(endpoint), listener)
+    }
+
+    // @behavior NW-089
+    #[test]
+    fn an_address_wasi_calls_invalid_answers_invalid_argument() {
+        let (mut guest, _listener) = reaching_loopback();
+        let network = guest.instance_network_instance_network().unwrap();
+        let connect = |guest: &mut Invocation, to| {
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .unwrap()
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, to)
+                .unwrap()
+        };
+        let connects = [
+            connect(&mut guest, ipv4((0, 0, 0, 0), 80)),
+            connect(&mut guest, ipv4((127, 0, 0, 1), 0)),
+            connect(&mut guest, ipv4((255, 255, 255, 255), 80)),
+            connect(&mut guest, ipv4((224, 0, 0, 1), 80)),
+        ];
+        let udp = guest
+            .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+            .unwrap()
+            .expect("a network makes a socket");
+        let bind = guest
+            .udp_udp_socket_start_bind(udp, network, ipv4((224, 0, 0, 1), 0))
+            .unwrap();
+        assert_eq!(
+            (connects, bind),
+            (
+                [Err(ErrorCode::InvalidArgument); 4],
+                Err(ErrorCode::InvalidArgument)
+            ),
+            "start-connect to 0.0.0.0, port 0, a broadcast, or a multicast address, and \
+             start-bind to a multicast address, must answer invalid-argument, not \
+             access-denied"
+        );
+    }
+
+    // @behavior NW-090
+    #[test]
+    fn a_second_start_while_one_is_under_way_answers_concurrency_conflict() {
+        let (mut guest, listener) = reaching_loopback();
+        let port = listener.local_addr().unwrap().port();
+        let network = guest.instance_network_instance_network().unwrap();
+        let socket = guest
+            .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+            .unwrap()
+            .expect("a network makes a socket");
+        let to = ipv4((127, 0, 0, 1), port);
+        let first = guest.tcp_tcp_socket_start_connect(socket, network, to.clone());
+        let again = guest.tcp_tcp_socket_start_connect(socket, network, to);
+        let udp = guest
+            .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+            .unwrap()
+            .expect("a network makes a socket");
+        let bound = guest.udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0));
+        let rebound = guest.udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0));
+        assert_eq!(
+            (
+                first.unwrap(),
+                again.unwrap(),
+                bound.unwrap(),
+                rebound.unwrap()
+            ),
+            (
+                Ok(()),
+                Err(ErrorCode::ConcurrencyConflict),
+                Ok(()),
+                Err(ErrorCode::ConcurrencyConflict)
+            ),
+            "start-connect and start-bind again before their finish must answer \
+             concurrency-conflict"
+        );
+    }
+
+    // @behavior NW-091
+    #[test]
+    fn a_tcp_sockets_pollable_waits_only_on_its_connect() {
+        let (mut guest, listener) = reaching_loopback();
+        let port = listener.local_addr().unwrap().port();
+        let started = Instant::now();
+        let answered = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let fresh = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            let idle = guest.tcp_tcp_socket_subscribe(fresh)?;
+            guest.poll_pollable_block(idle)?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (_, output) = guest
+                .tcp_tcp_socket_finish_connect(socket)?
+                .expect("the listener accepts");
+            // The listener never reads, so the send buffer fills and a wait
+            // for room would hold; the pollable answers anyway once connected.
+            loop {
+                match guest.streams_output_stream_check_write(output)? {
+                    Ok(0) => break,
+                    Ok(n) => guest
+                        .streams_output_stream_write(output, vec![b'x'; n as usize])?
+                        .expect("the stream takes what it permitted"),
+                    Err(_) => return Err(wasmtime::Error::msg("the stream failed")),
+                }
+            }
+            let connected = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connected)?;
+            Ok::<_, wasmtime::Error>(())
+        });
+        assert!(
+            answered.is_ok() && started.elapsed() < Duration::from_secs(5),
+            "pollable.block on a fresh socket's subscribe, and on a connected socket's, must \
+             answer at once, not {answered:?} after {:?}",
+            started.elapsed()
+        );
+    }
+
+    // @behavior NW-092
+    #[test]
+    fn a_write_past_the_last_check_write_permit_traps() {
+        let (mut guest, listener) = reaching_loopback();
+        let port = listener.local_addr().unwrap().port();
+        let started = Instant::now();
+        let (permitted, within, past) = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (_, output) = guest
+                .tcp_tcp_socket_finish_connect(socket)?
+                .expect("the listener accepts");
+            let permitted = guest
+                .streams_output_stream_check_write(output)?
+                .expect("a connected stream permits");
+            let within = guest.streams_output_stream_write(output, vec![b'x'; permitted as usize]);
+            let past = guest.streams_output_stream_write(output, vec![b'x']);
+            Ok::<_, wasmtime::Error>((permitted, within.is_ok(), past.is_err()))
+        })
+        .expect("the connect answers");
+        assert!(
+            permitted > 0 && within && past,
+            "output-stream.write of what check-write permitted must succeed, and one more \
+             byte without another check-write must trap"
         );
     }
 
