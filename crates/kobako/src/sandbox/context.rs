@@ -3,7 +3,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::mount::{Access, Mount, MountRequest};
-use kobako_runtime::network::{Entry, Network};
+use kobako_runtime::network::{Builder, Entry, Network};
 
 use crate::catalog::Catalog;
 use crate::dispatch::Resolutions;
@@ -78,6 +78,19 @@ impl Context<'_> {
     pub fn network(&mut self, name: &str, entry: Arc<dyn Entry>) -> Result<(), Error> {
         let refusal = format!("cannot override undeclared network entry {name:?}");
         self.replace(Grant::Network(Network::new(name, entry)?), refusal)
+    }
+
+    /// `network`, with what `build` adds to `entry`, as
+    /// `Sandbox::network_with` gives an entry.
+    pub fn network_with(
+        &mut self,
+        name: &str,
+        entry: Arc<dyn Entry>,
+        build: impl FnOnce(&mut Builder),
+    ) -> Result<(), Error> {
+        let mut builder = Builder::on(entry);
+        build(&mut builder);
+        self.network(name, Arc::new(builder))
     }
 
     fn replace_mount(&mut self, mount: Mount) -> Result<(), Error> {

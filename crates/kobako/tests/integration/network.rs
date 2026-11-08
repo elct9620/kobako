@@ -202,6 +202,33 @@ fn a_context_replaces_an_entry_for_its_invocation_only() {
     );
 }
 
+// @behavior NW-111
+#[test]
+fn a_context_replaces_an_entry_with_what_a_builder_adds() {
+    let (mut sandbox, received) = sandbox();
+    sandbox
+        .network("api", Arc::new(Reaches("api.example.com")))
+        .unwrap();
+    sandbox
+        .run_with("App", RunPayload::bytes(Vec::new()), |ctx| {
+            ctx.network_with("api", Arc::new(Reaches("staging.example.com")), |net| {
+                net.endpoint(
+                    Endpoint::new("extra.example.com", 443).expect("a host and a port stand"),
+                );
+            })
+        })
+        .unwrap();
+    assert_eq!(
+        received.lock().unwrap()[0][0].1,
+        vec![
+            "staging.example.com".to_string(),
+            "extra.example.com".to_string()
+        ],
+        "Context::network_with must hand its invocation the other entry's endpoints, then the \
+         builder's"
+    );
+}
+
 // @behavior NW-008
 #[test]
 fn an_entry_with_an_empty_name_is_refused() {
