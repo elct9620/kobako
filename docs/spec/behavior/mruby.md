@@ -271,3 +271,16 @@ A host may keep the guest's compiled snippets and replay them in place of the so
 | Given | a Sandbox |
 | When | guest code writes an integer literal past the signed 64-bit range |
 | Then | it reads as that exact Integer |
+
+## `MR-027` The default Guest Binary waits on a timeout it cannot read
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MR-010` |
+| relates | `RT-073` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the default Guest Binary at each posture |
+| When | guest code calls `IO.select` with nothing to wait on and a timeout |
+| Then | it answers `nil`, at once at the strongest posture and once the timeout passes at the other. Guest code reads no time either way |

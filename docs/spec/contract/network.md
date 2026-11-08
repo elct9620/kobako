@@ -204,13 +204,13 @@ policies add to those of an entry given beside it.
 pub struct Builder {}
 ```
 
-## `Builder::on`
+## `Builder::new`
 
 A builder adding to an entry.
 
 ```rust
 impl Builder {
-    pub fn on(entry: Arc<dyn Entry>) -> Self {}
+    pub fn new(entry: Arc<dyn Entry>) -> Self {}
 }
 ```
 
@@ -486,10 +486,11 @@ impl Namespace {
 
 ## `Namespace::connect`
 
-Connect a socket to the address the Guest named, once the socket hooks and the
-ruleset pass it. A virtual address dials its name's real address. An
-unmapped one, and any refusal, answer `PermissionDenied`, and nothing is
-dialed.
+Start connecting a socket to the address the Guest named, once the socket
+hooks and the ruleset pass it. A virtual address dials its name's real
+addresses in turn. An unmapped one, and any refusal, answer `PermissionDenied`
+and dial nothing. Past a connection limit it answers `WouldBlock`, and a socket
+already connecting or connected `AlreadyInProgress` or `AlreadyConnected`.
 
 ```rust
 impl Namespace {

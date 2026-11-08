@@ -63,8 +63,8 @@ end
 
 ## `Kobako::Sandbox#network`
 
-Give the guest a named network entry, a given block adding endpoints and
-policies to it.
+Give the guest a named network entry, a given block adding endpoints, policies,
+and credentials to it.
 
 ```ruby
 module Kobako
@@ -220,7 +220,7 @@ end
 
 Judge each decision a hook names with the block. A falsy answer or a raised
 StandardError refuses. `:resolve` hands the block the name a lookup asks for,
-and `:connect` a Connection.
+`:connect` a Connection, and `:request` a Request.
 
 ```ruby
 module Kobako

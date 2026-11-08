@@ -95,3 +95,12 @@ Hand the host a buffer in the Guest Binary's memory to write a request or an ans
 ```rust
 pub fn alloc(size: u32) -> u32 {}
 ```
+
+## `realloc`
+
+Hand the host room for a WASI 0.2 answer's list, as the Canonical ABI's
+`cabi_realloc` asks. It answers 0 when the Guest Binary has no room left.
+
+```rust
+pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {}
+```

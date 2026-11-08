@@ -306,6 +306,7 @@ Each kind of Grant carries what it hands over and decides its own access. The ru
 
 ```
 Grant ─┬─ Mount   -> a Filesystem at a guest path
+       ├─ Network -> a named network entry, its endpoints and policies
        └─ ...     -> another kind, its own access
 ```
 
@@ -485,4 +486,52 @@ The replaceable sender of a guest's HTTP request, as wasmtime's `send_request`. 
 
 ```
 Namespace -> outbound seam -> the server
+```
+
+### Namespace
+
+One invocation's view of the network, as Linux's `struct net`. It holds the ruleset, the Protocol Family, and the connection limits, and every socket, lookup, and request passes through it.
+
+```
+guest call -> Namespace: socket hooks, ruleset, virtual addresses -> Protocol Family
+```
+
+### Socket Hooks
+
+The socket half of the security hooks, as Linux's `security_socket_*`. The modules a credential holds, then each entry's policy, judge what the guest named before the ruleset.
+
+```
+guest names an address -> socket hooks -> ruleset -> dial
+```
+
+### Virtual Address
+
+The address a lookup hands the guest in place of a real one. No second name reuses it. A connect to it dials its name's real addresses, so the guest never learns one.
+
+```
+lookup "api.example.com" -> virtual address -> connect -> the real addresses
+```
+
+### Connector
+
+The dialer the runtime hands the outbound seam, so an HTTP request opens its connection through the Namespace. The seam is supplied one and never implements its own.
+
+```
+outbound seam -> connector -> Namespace -> Protocol Family
+```
+
+### Host-side Producer
+
+A socket, a lookup, or an HTTP response the host runs for the guest. Each takes one descriptor, as `socket()` takes one fd, and its views take none.
+
+```
+producer: socket | lookup | response -> one descriptor -> its views share it
+```
+
+### Socket File
+
+The Open File a socket stands behind, as Linux's `sock_alloc_file` makes one. A preview1 call on a socket's number reaches it. So a socket is an IO the guest reads, writes, and waits on.
+
+```
+socket -> socket file -> preview1 read, write, poll
 ```

@@ -195,7 +195,7 @@ impl Sandbox {
 ## `Sandbox::network_with`
 
 Give the guest a named entry with what a builder adds to it. The builder's
-endpoints and policies follow the entry's.
+endpoints, policies, and credentials follow the entry's.
 
 ```rust
 impl Sandbox {
@@ -325,7 +325,8 @@ impl Context<'_> {
 ## `Context::network_with`
 
 Replace a named network entry for this invocation alone with what a builder
-adds to it. The builder's endpoints and policies follow the entry's.
+adds to it. The builder's endpoints, policies, and credentials follow the
+entry's.
 
 ```rust
 impl Context<'_> {
