@@ -388,13 +388,13 @@ Where an address falls, by IANA's special-purpose registries.
 pub enum AddressSet {}
 ```
 
-## `address_set`
+## `address_set_of`
 
 The set an address falls in. An IPv6 address carrying an IPv4 one is judged as
 the IPv4 inside.
 
 ```rust
-pub fn address_set(ip: IpAddr) -> AddressSet {}
+pub fn address_set_of(ip: IpAddr) -> AddressSet {}
 ```
 
 ## `Ruleset`
@@ -800,7 +800,7 @@ impl Ruleset {
 ## `Namespace::send`
 
 An HTTP request in flight, once the socket hooks and an `http` endpoint pass
-its authority. A header `field_name` or `field_value` refuses is refused too.
+its authority. A header `to_field_name` or `to_field_value` refuses is refused too.
 Any refusal answers `Denied`, and nothing is sent.
 
 ```rust
@@ -820,23 +820,23 @@ pub enum FieldError {
 }
 ```
 
-## `field_name`
+## `to_field_name`
 
 The header name the Guest may set, lowercase. A name that is no token is
 `InvalidSyntax`. One the outbound seam writes itself, as wasmtime's forbidden
 list and `content-length`, is `Forbidden`.
 
 ```rust
-pub fn field_name(name: &str) -> Result<String, FieldError> {}
+pub fn to_field_name(name: &str) -> Result<String, FieldError> {}
 ```
 
-## `field_value`
+## `to_field_value`
 
 The header value the Guest may set. One holding CR, LF, or NUL is
 `InvalidSyntax`.
 
 ```rust
-pub fn field_value(value: Vec<u8>) -> Result<Vec<u8>, FieldError> {}
+pub fn to_field_value(value: Vec<u8>) -> Result<Vec<u8>, FieldError> {}
 ```
 
 ## `is_token`
@@ -1112,14 +1112,14 @@ impl RequestBody {
 }
 ```
 
-## `platform_tls`
+## `new_platform_tls`
 
-A TLS client configuration trusting the OS's own store, with its own session
-store. It is `None` where the platform offers no store. Its verifier is built
-once per process.
+A new TLS client configuration trusting the OS's own store, with its own
+session store. It is `None` where the platform offers no store. Its verifier is
+built once per process.
 
 ```rust
-pub fn platform_tls() -> Option<Arc<ClientConfig>> {}
+pub fn new_platform_tls() -> Option<Arc<ClientConfig>> {}
 ```
 
 ## `Network::credentials`
@@ -1319,14 +1319,14 @@ impl Namespace {
 }
 ```
 
-## `Namespace::bind`
+## `Namespace::may_bind`
 
-Whether a socket may bind an address. Only the unspecified address at port 0
-passes, since the Guest only reaches out; any other answers
-`PermissionDenied`.
+Whether a socket may bind an address, as Linux's `may_*` checks answer. Only
+the unspecified address at port 0 passes, since the Guest only reaches out;
+any other answers `PermissionDenied`.
 
 ```rust
 impl Namespace {
-    pub fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {}
+    pub fn may_bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {}
 }
 ```
