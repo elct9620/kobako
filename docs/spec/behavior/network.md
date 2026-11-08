@@ -1025,3 +1025,15 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox whose network entry's `connect?` policy raises `Interrupt` |
 | When | the script opens a `TCPSocket` its endpoint names and rescues every failure |
 | Then | the run raises `Interrupt` in the Host App, as a Service's or a mount's `Interrupt` does |
+
+## `NW-084` A datagram past what UDP carries answers datagram-too-large
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-056` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket streaming to the peer its endpoint names |
+| When | the guest sends one datagram a byte past what IPv4 UDP carries |
+| Then | the send answers `datagram-too-large`, as Linux's `udp_sendmsg` answers `EMSGSIZE` |
