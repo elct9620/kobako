@@ -42,6 +42,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/net/udp.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako-wasmtime/src/preview2/http.rs`
+- `crates/kobako-wasmtime/src/preview2/sockets.rs`
 
 ## `NW-001` An entry after the first invocation is refused
 
@@ -866,3 +867,51 @@ endpoint "api.example.com", port: 443
 | Given | a UDP socket whose peer's port is closed |
 | When | it sends a datagram and then reads twice |
 | Then | the first read answers ECONNREFUSED and the second reads on, as Linux's `sock_error` clears the error it reports |
+
+## `NW-071` An outgoing body dropped unfinished fails its request
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a request whose `outgoing-body` the guest holds, handed to `handle` |
+| When | the guest drops the body without finishing it |
+| Then | the response's future answers `HTTP-protocol-error`, as wasmtime-wasi-http aborts the body, rather than wait on |
+
+## `NW-072` A datagram send past its permit traps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-053` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an outgoing datagram stream with its peer |
+| When | the guest sends before any `check-send`, then after one, then again |
+| Then | the first and the last trap, as `udp.wit` says a send past the permit must, and the middle one sends |
+
+## `NW-073` A blocking write past 4096 bytes traps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket's output stream |
+| When | the guest hands `blocking-write-and-flush` 4097 bytes, then 4096 |
+| Then | the first traps, as `io.wit` bounds the call, and the second writes |
+
+## `NW-074` A host failure answers the code wasmtime-wasi gives it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host socket failure with a POSIX name |
+| When | the Wasm Driver answers it as a `wasi:sockets` error code |
+| Then | EPIPE answers `unknown`, EADDRINUSE `address-in-use`, and ECONNRESET `connection-reset`, as wasmtime-wasi's preview2 maps them |
