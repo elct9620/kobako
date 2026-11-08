@@ -225,9 +225,10 @@ impl Namespace {
     /// named first, in Linux's order: the modules `cred` holds, then each
     /// entry's policy, any refusal winning. A literal address then passes the
     /// ruleset as itself. A virtual one is translated to its name's real
-    /// addresses, an unmapped one answering `ENETUNREACH`; each real address
-    /// the ruleset lets the name lead to is dialed exactly, in turn, until one
-    /// answers, so a name answering `::1` first still reaches `127.0.0.1`.
+    /// addresses, an unmapped one refused as any refused destination is; each
+    /// real address the ruleset lets the name lead to is dialed exactly, in
+    /// turn, until one answers, so a name answering `::1` first still reaches
+    /// `127.0.0.1`.
     pub fn connect(
         &self,
         cred: &Cred,
@@ -263,7 +264,7 @@ impl Namespace {
         let translated = match addr.ip() {
             IpAddr::V4(ip) if u32::from(ip) & !(VIRTUAL_SIZE - 1) == VIRTUAL_BASE => Some(
                 self.translate(ip)
-                    .ok_or(FilesystemError::NetworkUnreachable)?,
+                    .ok_or(FilesystemError::PermissionDenied)?,
             ),
             _ => None,
         };
@@ -601,15 +602,15 @@ mod tests {
 
     // @behavior NW-026
     #[test]
-    fn a_virtual_address_no_lookup_handed_out_answers_enetunreach() {
+    fn a_virtual_address_no_lookup_handed_out_is_refused() {
         let namespace = resolving(vec![tcp("cache.internal", 6379)], "", Arc::default());
         let cred = prepare_creds_within(&[], None);
         assert!(
             matches!(
                 namespace.connect(&cred, "198.18.0.9:6379".parse().unwrap(), None),
-                Err(FilesystemError::NetworkUnreachable)
+                Err(FilesystemError::PermissionDenied)
             ),
-            "a connect to a virtual address no lookup handed out must answer ENETUNREACH"
+            "a connect to a virtual address no lookup handed out must be refused as EACCES"
         );
     }
 
