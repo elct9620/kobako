@@ -3,6 +3,7 @@
 //! where Linux does and knows nothing of what they decide.
 
 use std::any::Any;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -134,6 +135,11 @@ pub trait SecurityOperations: Send + Sync {
     /// Whether a socket may connect where `connection` names, judged on what
     /// the guest named, as `security_socket_connect`.
     fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), FilesystemError> {
+        Ok(())
+    }
+
+    /// Whether a socket may bind `address`, as `security_socket_bind`.
+    fn socket_bind(&self, _address: SocketAddr) -> Result<(), FilesystemError> {
         Ok(())
     }
 }
@@ -320,6 +326,10 @@ impl Cred {
         connection: &Connection<'_>,
     ) -> Result<(), FilesystemError> {
         self.call_int_hook(|module| module.socket_connect(connection))
+    }
+
+    pub(crate) fn security_socket_bind(&self, address: SocketAddr) -> Result<(), FilesystemError> {
+        self.call_int_hook(|module| module.socket_bind(address))
     }
 
     /// Count `bytes` more held on this caller's behalf, refusing them past its

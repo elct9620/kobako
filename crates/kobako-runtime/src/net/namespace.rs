@@ -312,14 +312,12 @@ impl Namespace {
         UdpSock::new()
     }
 
-    /// Whether a socket may bind `addr`: only the unspecified address and port
-    /// 0, since the guest only reaches out, as Landlock's `BIND_*` rights
-    /// refuse every other bind, answered as Linux's `may_*` checks are.
-    pub fn may_bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
-        match addr.ip().is_unspecified() && addr.port() == 0 {
-            true => Ok(()),
-            false => Err(FilesystemError::PermissionDenied),
-        }
+    /// Bind a socket to `addr` as `cred`, once the socket hooks pass it, as
+    /// `__sys_bind` asks `security_socket_bind`; the host socket takes its
+    /// own address as it connects, so a bind the hooks pass leaves nothing
+    /// to do here.
+    pub fn bind(&self, cred: &Cred, addr: SocketAddr) -> Result<(), FilesystemError> {
+        cred.security_socket_bind(addr)
     }
 
     /// Connect a UDP socket to `addr`, the one peer the guest named, as

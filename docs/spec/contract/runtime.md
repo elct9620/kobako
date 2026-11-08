@@ -1123,6 +1123,16 @@ pub trait SecurityOperations {
 }
 ```
 
+## `SecurityOperations::socket_bind`
+
+Whether a socket may bind an address.
+
+```rust
+pub trait SecurityOperations {
+    fn socket_bind(&self, _address: SocketAddr) -> Result<(), FilesystemError>;
+}
+```
+
 ## `SecurityOperations::path_rename`
 
 Whether what one path names may move to another, the dentries of each given.

@@ -3,6 +3,7 @@
 //! answer through the hooks it leaves for such modules, and the VFS never
 //! learns what they decide.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::grant::Policy;
@@ -62,6 +63,16 @@ impl SecurityOperations for KobakoSecurity {
     /// A guest never reads where a link points.
     fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
         Err(FilesystemError::Unsupported)
+    }
+
+    /// A guest only reaches out, so it binds the unspecified address and port
+    /// 0 alone, as Landlock's `hook_socket_bind` refuses a bind no
+    /// `BIND_TCP` right allows.
+    fn socket_bind(&self, address: SocketAddr) -> Result<(), FilesystemError> {
+        match address.ip().is_unspecified() && address.port() == 0 {
+            true => Ok(()),
+            false => Err(FilesystemError::PermissionDenied),
+        }
     }
 }
 

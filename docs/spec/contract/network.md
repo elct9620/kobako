@@ -1397,14 +1397,15 @@ impl Namespace {
 }
 ```
 
-## `Namespace::may_bind`
+## `Namespace::bind`
 
-Whether a socket may bind an address, as Linux's `may_*` checks answer. Only
-the unspecified address at port 0 passes, since the Guest only reaches out;
-any other answers `PermissionDenied`.
+Bind a socket to an address as a Cred, once the socket hooks pass it, as
+Linux's `bind` asks `security_socket_bind`. The Guest only reaches out, so
+kobako's own module passes only the unspecified address at port 0. Any other
+answers `PermissionDenied`.
 
 ```rust
 impl Namespace {
-    pub fn may_bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {}
+    pub fn bind(&self, cred: &Cred, addr: SocketAddr) -> Result<(), FilesystemError> {}
 }
 ```

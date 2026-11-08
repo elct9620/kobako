@@ -396,7 +396,8 @@ impl SocketsHost for Invocation {
         let Some(addr) = to_socket_addr(&local_address) else {
             return Ok(Err(ErrorCode::InvalidArgument));
         };
-        if let Err(err) = self.network().may_bind(addr) {
+        let cred = self.wasi().descriptors().cred().clone();
+        if let Err(err) = self.network().bind(&cred, addr) {
             return Ok(Err(to_error_code(&err)));
         }
         self.udp(this)?.state = UdpState::Binding;

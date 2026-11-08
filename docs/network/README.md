@@ -50,7 +50,7 @@ The socket hooks run in Kernel Assembly's order, and any refusal wins.
 
 | Order | Judge | Sees |
 |---|---|---|
-| 1 | kobako's socket rules | what the guest named |
+| 1 | kobako's own security module, which binds the unspecified address at port 0 alone | what the guest named |
 | 2 | the Host App's security modules | what the guest named |
 | 3 | each entry's policies | what the guest named |
 | 4 | each endpoint's `addresses` | each real address |
