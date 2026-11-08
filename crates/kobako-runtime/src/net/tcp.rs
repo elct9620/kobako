@@ -242,6 +242,12 @@ impl TcpSock {
         MAX_SOCKET_BUFFER - self.state().sending.len()
     }
 
+    /// Whether everything sent has left for the host, as Linux's `SIOCOUTQ`
+    /// reads zero.
+    pub fn is_drained(&self) -> bool {
+        self.state().sending.is_empty()
+    }
+
     /// Shut the writing side down once what is queued is sent, or stop
     /// reading, as `shutdown` does.
     pub fn shutdown(&self, how: Shutdown) {

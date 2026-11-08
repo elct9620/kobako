@@ -698,6 +698,17 @@ impl TcpSock {
 ```
 
 ## `TcpSock::shutdown`
+## `TcpSock::is_drained`
+
+Whether everything sent has left for the host, as Linux's `SIOCOUTQ` reads
+zero.
+
+```rust
+impl TcpSock {
+    pub fn is_drained(&self) -> bool {}
+}
+```
+
 
 Shut the writing side down once what is queued is sent, or stop reading.
 

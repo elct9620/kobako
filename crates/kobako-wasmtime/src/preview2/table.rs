@@ -94,7 +94,7 @@ impl Stream {
     /// Whether what was written has left for the host, so a flush is done.
     pub(crate) fn is_drained(&self) -> bool {
         match self {
-            Stream::Socket(socket) => socket.sock.send_room() == MAX_SOCKET_BUFFER,
+            Stream::Socket(socket) => socket.sock.is_drained(),
             Stream::File(_) => true,
         }
     }
