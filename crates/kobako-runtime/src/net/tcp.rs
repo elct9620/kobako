@@ -15,7 +15,7 @@ use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{to_error, ProtoOps};
 use crate::vfs::{FilesystemError, PollMask};
-use crate::wait::WaitQueueHead;
+use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
 /// How much a socket holds each way before it stops reading and refuses
 /// more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket, so a full buffer
@@ -222,52 +222,6 @@ impl TcpSock {
         }
     }
 
-    /// What the receive buffer holds, up to `buf`'s length; a drained buffer
-    /// answers EAGAIN until the peer ends, and the end reads as zero.
-    pub fn recv(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        let mut state = self.state();
-        if !state.received.is_empty() {
-            let take = state.received.len().min(buf.len());
-            for (slot, byte) in buf.iter_mut().zip(state.received.drain(..take)) {
-                *slot = byte;
-            }
-            self.changed(state);
-            return Ok(take);
-        }
-        if let Some(err) = &state.received_error {
-            return Err(err.clone());
-        }
-        match (&state.phase, state.received_end) {
-            (_, true) => Ok(0),
-            (Phase::Failed(_), false) => Err(FilesystemError::NotConnected),
-            _ => Err(FilesystemError::WouldBlock),
-        }
-    }
-
-    /// Queue what fits of `buf`, sent as the host socket takes it; a full
-    /// buffer answers EAGAIN, and a shut-down writing side EPIPE.
-    pub fn send(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
-        let mut state = self.state();
-        if let Some(err) = &state.send_error {
-            return Err(err.clone());
-        }
-        if state.send_shut {
-            return Err(FilesystemError::BrokenPipe);
-        }
-        match &state.phase {
-            Phase::Connected => {}
-            Phase::Connecting => return Err(FilesystemError::WouldBlock),
-            Phase::Failed(_) => return Err(FilesystemError::NotConnected),
-        }
-        let take = buf.len().min(SOCKET_BUFFER - state.sending.len());
-        if take == 0 && !buf.is_empty() {
-            return Err(FilesystemError::WouldBlock);
-        }
-        state.sending.extend(&buf[..take]);
-        self.changed(state);
-        Ok(take)
-    }
-
     /// How many bytes a send would take now.
     pub fn send_room(&self) -> usize {
         SOCKET_BUFFER - self.state().sending.len()
@@ -285,32 +239,6 @@ impl TcpSock {
             state.received_end = true;
         }
         self.changed(state);
-    }
-
-    /// What a call would find ready, as `tcp_poll` answers.
-    pub fn poll_mask(&self) -> PollMask {
-        let state = self.state();
-        let mut mask = PollMask::default();
-        if !state.received.is_empty() || state.received_end || state.received_error.is_some() {
-            mask = mask | PollMask::IN;
-        }
-        if state.phase != Phase::Connecting
-            && (state.sending.len() < SOCKET_BUFFER || state.send_error.is_some())
-        {
-            mask = mask | PollMask::OUT;
-        }
-        if matches!(state.phase, Phase::Failed(_)) || state.send_error.is_some() {
-            mask = mask | PollMask::ERR;
-        }
-        if state.received_end && state.send_shut {
-            mask = mask | PollMask::HUP;
-        }
-        mask
-    }
-
-    /// What a guest's poll registers on.
-    pub fn wait_queue(&self) -> &Arc<WaitQueueHead> {
-        &self.wait
     }
 
     pub fn local_addr(&self) -> Option<SocketAddr> {
@@ -344,20 +272,72 @@ impl Ready for TcpSock {
 /// TCP's answers for its socket file, as `inet_stream_ops` hands each call to
 /// `tcp_prot`.
 impl ProtoOps for TcpSock {
+    /// What the receive buffer holds, up to `buf`'s length; a drained buffer
+    /// answers EAGAIN until the peer ends, and the end reads as zero.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        self.recv(buf)
+        let mut state = self.state();
+        if !state.received.is_empty() {
+            let take = state.received.len().min(buf.len());
+            for (slot, byte) in buf.iter_mut().zip(state.received.drain(..take)) {
+                *slot = byte;
+            }
+            self.changed(state);
+            return Ok(take);
+        }
+        if let Some(err) = &state.received_error {
+            return Err(err.clone());
+        }
+        match (&state.phase, state.received_end) {
+            (_, true) => Ok(0),
+            (Phase::Failed(_), false) => Err(FilesystemError::NotConnected),
+            _ => Err(FilesystemError::WouldBlock),
+        }
     }
 
+    /// Queue what fits of `buf`, sent as the host socket takes it; a full
+    /// buffer answers EAGAIN, and a shut-down writing side EPIPE.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
-        self.send(buf)
+        let mut state = self.state();
+        if let Some(err) = &state.send_error {
+            return Err(err.clone());
+        }
+        if state.send_shut {
+            return Err(FilesystemError::BrokenPipe);
+        }
+        match &state.phase {
+            Phase::Connected => {}
+            Phase::Connecting => return Err(FilesystemError::WouldBlock),
+            Phase::Failed(_) => return Err(FilesystemError::NotConnected),
+        }
+        let take = buf.len().min(SOCKET_BUFFER - state.sending.len());
+        if take == 0 && !buf.is_empty() {
+            return Err(FilesystemError::WouldBlock);
+        }
+        state.sending.extend(&buf[..take]);
+        self.changed(state);
+        Ok(take)
     }
 
-    fn poll_mask(&self) -> PollMask {
-        TcpSock::poll_mask(self)
-    }
-
-    fn wait_queue(&self) -> &Arc<WaitQueueHead> {
-        TcpSock::wait_queue(self)
+    /// As `tcp_poll` answers.
+    fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
+        poll_wait(&self.wait, table);
+        let state = self.state();
+        let mut mask = PollMask::default();
+        if !state.received.is_empty() || state.received_end || state.received_error.is_some() {
+            mask = mask | PollMask::IN;
+        }
+        if state.phase != Phase::Connecting
+            && (state.sending.len() < SOCKET_BUFFER || state.send_error.is_some())
+        {
+            mask = mask | PollMask::OUT;
+        }
+        if matches!(state.phase, Phase::Failed(_)) || state.send_error.is_some() {
+            mask = mask | PollMask::ERR;
+        }
+        if state.received_end && state.send_shut {
+            mask = mask | PollMask::HUP;
+        }
+        mask
     }
 
     fn release(&self) {

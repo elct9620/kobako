@@ -15,7 +15,7 @@ use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{to_error, ProtoOps};
 use super::SOCKET_BUFFER;
 use crate::vfs::{FilesystemError, PollMask};
-use crate::wait::WaitQueueHead;
+use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
 /// The most one IPv4 datagram carries.
 pub const MAX_DATAGRAM: usize = 65_507;
@@ -180,7 +180,9 @@ impl ProtoOps for UdpSock {
         Ok(buf.len())
     }
 
-    fn poll_mask(&self) -> PollMask {
+    /// As `udp_poll` answers.
+    fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
+        poll_wait(&self.wait, table);
         let state = self.state();
         let mut mask = PollMask::default();
         if !state.received.is_empty() || state.failed.is_some() {
@@ -193,10 +195,6 @@ impl ProtoOps for UdpSock {
             mask = mask | PollMask::ERR;
         }
         mask
-    }
-
-    fn wait_queue(&self) -> &Arc<WaitQueueHead> {
-        &self.wait
     }
 
     /// Let the host socket go, deregistered from the reactor.
@@ -224,7 +222,7 @@ mod tests {
     /// Wait until `sock`'s poll finds `mask`.
     fn until(sock: &UdpSock, mask: PollMask) {
         let started = Instant::now();
-        while !sock.poll_mask().contains(mask) {
+        while !sock.poll(None).contains(mask) {
             assert!(
                 started.elapsed() < Duration::from_secs(5),
                 "the socket never became ready"

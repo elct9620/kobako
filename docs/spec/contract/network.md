@@ -687,26 +687,6 @@ impl TcpSock {
 }
 ```
 
-## `TcpSock::recv`
-
-What the receive buffer holds. A drained one answers EAGAIN until the peer ends.
-
-```rust
-impl TcpSock {
-    pub fn recv(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {}
-}
-```
-
-## `TcpSock::send`
-
-Queue what fits for the writer. A full buffer answers EAGAIN.
-
-```rust
-impl TcpSock {
-    pub fn send(&self, buf: &[u8]) -> Result<usize, FilesystemError> {}
-}
-```
-
 ## `TcpSock::send_room`
 
 How many bytes a send would take now.
@@ -724,26 +704,6 @@ Shut the writing side down once what is queued is sent, or stop reading.
 ```rust
 impl TcpSock {
     pub fn shutdown(&self, how: Shutdown) {}
-}
-```
-
-## `TcpSock::poll_mask`
-
-What a call would find ready, as `tcp_poll` answers.
-
-```rust
-impl TcpSock {
-    pub fn poll_mask(&self) -> PollMask {}
-}
-```
-
-## `TcpSock::wait_queue`
-
-What a guest's poll registers on.
-
-```rust
-impl TcpSock {
-    pub fn wait_queue(&self) -> &Arc<WaitQueueHead> {}
 }
 ```
 
@@ -804,23 +764,14 @@ pub trait ProtoOps {
 }
 ```
 
-## `ProtoOps::poll_mask`
+## `ProtoOps::poll`
 
-What a poll of the socket finds.
-
-```rust
-pub trait ProtoOps {
-    fn poll_mask(&self) -> PollMask;
-}
-```
-
-## `ProtoOps::wait_queue`
-
-What a Guest's poll of the socket waits on.
+What a poll of the socket finds, its wait queue registered on the table, as
+a protocol's `->poll` calls `sock_poll_wait`.
 
 ```rust
 pub trait ProtoOps {
-    fn wait_queue(&self) -> &Arc<WaitQueueHead>;
+    fn poll(&self, table: Option<&mut PollTable>) -> PollMask;
 }
 ```
 

@@ -9,7 +9,7 @@ use crate::vfs::{
     alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
     FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
 };
-use crate::wait::{poll_wait, PollTable, WaitQueueHead};
+use crate::wait::PollTable;
 
 /// What one protocol answers for its socket, as Linux's `struct proto_ops`:
 /// the file's reads and writes, what a poll finds, and the release once every
@@ -19,9 +19,9 @@ pub trait ProtoOps: Send + Sync {
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError>;
     /// Write what the socket takes now; `WouldBlock` while it takes nothing.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError>;
-    fn poll_mask(&self) -> PollMask;
-    /// What a guest's poll waits on.
-    fn wait_queue(&self) -> &Arc<WaitQueueHead>;
+    /// What a call would find ready, the socket's wait queue registered on
+    /// `table`, as a protocol's `->poll` calls `sock_poll_wait`.
+    fn poll(&self, table: Option<&mut PollTable>) -> PollMask;
     /// Let go of the host socket, as `sock_close` runs on the last `fput`.
     fn release(&self);
 }
@@ -82,8 +82,7 @@ impl FileOperations for SocketOps {
     }
 
     fn poll(&self, _mode: FMode, table: Option<&mut PollTable>) -> PollMask {
-        poll_wait(self.0.wait_queue(), table);
-        self.0.poll_mask()
+        self.0.poll(table)
     }
 
     fn is_stream(&self) -> bool {
