@@ -212,7 +212,7 @@ impl Invocation {
 }
 
 impl HttpHost for Invocation {
-    fn types_fields_constructor_new(&mut self) -> wasmtime::Result<Fields> {
+    fn types_fields_new(&mut self) -> wasmtime::Result<Fields> {
         let entries = net::Fields::new(self.wasi().descriptors().cred().clone());
         self.table().push(resource::Fields {
             entries,
@@ -249,10 +249,7 @@ impl HttpHost for Invocation {
     }
 
     /// A GET with `headers`, which it takes, and a body the guest may ask for.
-    fn types_outgoing_request_constructor_new(
-        &mut self,
-        headers: Fields,
-    ) -> wasmtime::Result<OutgoingRequest> {
+    fn types_outgoing_request_new(&mut self, headers: Fields) -> wasmtime::Result<OutgoingRequest> {
         let entries = self.table().delete(headers)?.entries;
         let link = Arc::new(BodyLink {
             body: RequestBody::new(self.wasi().descriptors().cred().clone()),
@@ -612,8 +609,8 @@ mod tests {
 
     /// A GET for `/greeting` at `authority` over HTTP.
     fn get(guest: &mut Invocation, authority: &str) -> wasmtime::Result<OutgoingRequest> {
-        let headers = guest.types_fields_constructor_new()?;
-        let request = guest.types_outgoing_request_constructor_new(headers)?;
+        let headers = guest.types_fields_new()?;
+        let request = guest.types_outgoing_request_new(headers)?;
         guest
             .types_outgoing_request_set_scheme(request, Some(Scheme::HTTP))?
             .expect("http is a scheme");
@@ -777,7 +774,7 @@ mod tests {
     #[test]
     fn a_forbidden_header_or_a_response_header_cannot_be_set() {
         let mut guest = guest(None);
-        let fields = guest.types_fields_constructor_new().unwrap();
+        let fields = guest.types_fields_new().unwrap();
         let set = |guest: &mut Invocation, fields, name: &str| {
             guest
                 .types_fields_append(fields, name.to_string(), b"x".to_vec())
@@ -816,7 +813,7 @@ mod tests {
     fn a_header_list_past_its_room_or_the_guests_memory_traps() {
         // How many 1 KiB headers a new list takes before its trap, and the trap.
         let fill = |guest: &mut Invocation| {
-            let fields = guest.types_fields_constructor_new().unwrap();
+            let fields = guest.types_fields_new().unwrap();
             let mut taken = 0;
             for i in 0..200 {
                 if let Err(trap) =

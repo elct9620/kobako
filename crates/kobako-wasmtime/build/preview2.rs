@@ -8,7 +8,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use wit_bindgen_core::abi::{self, Bindgen, Bitcast, Instruction, LiftLower, WasmType};
+use wit_bindgen_core::abi::{self, Bindgen, Instruction, LiftLower, WasmType};
 use wit_bindgen_core::wit_parser::{
     Alignment, ArchitectureSize, Function, FunctionKind, Handle, InterfaceId, Resolve, SizeAlign,
     Type, TypeDefKind, TypeId, TypeOwner,
@@ -230,12 +230,14 @@ pub fn generate(wit: &Path) -> anyhow::Result<String> {
                 .find(|(id, _)| resolve.id_of(*id).as_deref() == Some(*name))
                 .map(|(id, _)| id)
                 .ok_or_else(|| anyhow::anyhow!("{name} is not in the vendored WIT"))?;
-            let found = imported(&resolve, id, functions).count()
-                + resources(&resolve, id, functions).count();
+            let found = functions_of(&resolve, id, functions).count()
+                + resources_of(&resolve, id, functions).count();
             if found != functions.len() {
                 return Err(anyhow::anyhow!("{name} lacks a function IMPORTS names"));
             }
-            match resources(&resolve, id, functions).find(|(r, _)| host(name, r).is_none()) {
+            match resources_of(&resolve, id, functions)
+                .find(|(r, _)| host_by_resource_of(name, r).is_none())
+            {
                 Some((r, _)) => Err(anyhow::anyhow!("WITH names no host type for {name} {r}")),
                 None => Ok((id, *functions)),
             }
@@ -253,18 +255,18 @@ pub fn generate(wit: &Path) -> anyhow::Result<String> {
 }
 
 /// The host type `WITH` names for `interface`'s `resource`.
-fn host(interface: &str, resource: &str) -> Option<&'static str> {
+fn host_by_resource_of(interface: &str, resource: &str) -> Option<&'static str> {
     WITH.iter()
         .find(|(i, r, _)| *i == interface && *r == resource)
         .map(|(_, _, host)| *host)
 }
 
 /// The module one interface's types live in.
-fn module(resolve: &Resolve, id: InterfaceId) -> String {
-    snake(&resolve.id_of(id).expect("a named interface"))
+fn module_of(resolve: &Resolve, id: InterfaceId) -> String {
+    to_snake(&resolve.id_of(id).expect("a named interface"))
 }
 
-fn snake(name: &str) -> String {
+fn to_snake(name: &str) -> String {
     let mut out = String::new();
     for c in name.chars() {
         match c {
@@ -283,7 +285,7 @@ fn snake(name: &str) -> String {
     }
 }
 
-fn camel(name: &str) -> String {
+fn to_camel(name: &str) -> String {
     name.split(['-', '_', '.'])
         .filter(|part| !part.is_empty())
         .map(|part| {
@@ -295,17 +297,17 @@ fn camel(name: &str) -> String {
 }
 
 /// The Rust path of a named WIT type.
-fn type_path(resolve: &Resolve, id: TypeId) -> String {
+fn type_path_of(resolve: &Resolve, id: TypeId) -> String {
     let def = &resolve.types[id];
-    let name = camel(def.name.as_deref().expect("only named types have a path"));
+    let name = to_camel(def.name.as_deref().expect("only named types have a path"));
     match def.owner {
-        TypeOwner::Interface(owner) => format!("{ROOT}::{}::{name}", module(resolve, owner)),
+        TypeOwner::Interface(owner) => format!("{ROOT}::{}::{name}", module_of(resolve, owner)),
         _ => unreachable!("every imported type belongs to an interface"),
     }
 }
 
 /// How a WIT type is spelled in Rust.
-fn rust_type(resolve: &Resolve, ty: &Type) -> String {
+fn to_rust_type(resolve: &Resolve, ty: &Type) -> String {
     match ty {
         Type::Bool => "bool".into(),
         Type::U8 => "u8".into(),
@@ -318,15 +320,15 @@ fn rust_type(resolve: &Resolve, ty: &Type) -> String {
         Type::S64 => "i64".into(),
         Type::String => "String".into(),
         Type::Id(id) => match resolve.types[*id].name {
-            Some(_) => type_path(resolve, *id),
-            None => structural(resolve, &resolve.types[*id].kind),
+            Some(_) => type_path_of(resolve, *id),
+            None => to_structural_type(resolve, &resolve.types[*id].kind),
         },
         other => unreachable!("no import kobako answers takes {other:?}"),
     }
 }
 
 /// The resource `id` names, through every `use` alias of it.
-fn resource(resolve: &Resolve, mut id: TypeId) -> TypeId {
+fn resource_of(resolve: &Resolve, mut id: TypeId) -> TypeId {
     while let TypeDefKind::Type(Type::Id(aliased)) = resolve.types[id].kind {
         id = aliased;
     }
@@ -334,28 +336,29 @@ fn resource(resolve: &Resolve, mut id: TypeId) -> TypeId {
 }
 
 /// How a type made of other types is spelled, named or not.
-fn structural(resolve: &Resolve, kind: &TypeDefKind) -> String {
+fn to_structural_type(resolve: &Resolve, kind: &TypeDefKind) -> String {
     match kind {
         TypeDefKind::Handle(Handle::Own(r) | Handle::Borrow(r)) => {
-            type_path(resolve, resource(resolve, *r))
+            type_path_of(resolve, resource_of(resolve, *r))
         }
-        TypeDefKind::List(t) => format!("Vec<{}>", rust_type(resolve, t)),
-        TypeDefKind::Option(t) => format!("Option<{}>", rust_type(resolve, t)),
+        TypeDefKind::List(t) => format!("Vec<{}>", to_rust_type(resolve, t)),
+        TypeDefKind::Option(t) => format!("Option<{}>", to_rust_type(resolve, t)),
         TypeDefKind::Result(r) => format!(
             "Result<{}, {}>",
-            r.ok.as_ref().map_or("()".into(), |t| rust_type(resolve, t)),
+            r.ok.as_ref()
+                .map_or("()".into(), |t| to_rust_type(resolve, t)),
             r.err
                 .as_ref()
-                .map_or("()".into(), |t| rust_type(resolve, t)),
+                .map_or("()".into(), |t| to_rust_type(resolve, t)),
         ),
         TypeDefKind::Tuple(t) => format!(
             "({})",
             t.types
                 .iter()
-                .map(|t| format!("{},", rust_type(resolve, t)))
+                .map(|t| format!("{},", to_rust_type(resolve, t)))
                 .collect::<String>()
         ),
-        TypeDefKind::Type(t) => rust_type(resolve, t),
+        TypeDefKind::Type(t) => to_rust_type(resolve, t),
         other => unreachable!("no 0.2 import takes {other:?}"),
     }
 }
@@ -366,11 +369,11 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
     let _ = writeln!(
         out,
         "#[allow(dead_code, clippy::all)]\npub mod {} {{",
-        module(resolve, id)
+        module_of(resolve, id)
     );
     let wit_name = resolve.id_of(id).expect("a named interface");
     for (wit, ty) in &interface.types {
-        let name = camel(wit);
+        let name = to_camel(wit);
         match &resolve.types[*ty].kind {
             TypeDefKind::Record(record) => {
                 let _ = writeln!(
@@ -381,8 +384,8 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
                     let _ = writeln!(
                         out,
                         "pub {}: {},",
-                        snake(&field.name),
-                        rust_type(resolve, &field.ty)
+                        to_snake(&field.name),
+                        to_rust_type(resolve, &field.ty)
                     );
                 }
                 out.push_str("}\n");
@@ -395,11 +398,15 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
                 for case in &variant.cases {
                     match &case.ty {
                         Some(ty) => {
-                            let _ =
-                                writeln!(out, "{}({}),", camel(&case.name), rust_type(resolve, ty));
+                            let _ = writeln!(
+                                out,
+                                "{}({}),",
+                                to_camel(&case.name),
+                                to_rust_type(resolve, ty)
+                            );
                         }
                         None => {
-                            let _ = writeln!(out, "{},", camel(&case.name));
+                            let _ = writeln!(out, "{},", to_camel(&case.name));
                         }
                     }
                 }
@@ -411,7 +418,7 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
                     "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum {name} {{"
                 );
                 for case in &enum_.cases {
-                    let _ = writeln!(out, "{},", camel(&case.name));
+                    let _ = writeln!(out, "{},", to_camel(&case.name));
                 }
                 out.push_str("}\n");
             }
@@ -421,7 +428,7 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
                     "/// A handle the guest holds, its index in the resource table.\n\
                      #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub struct {name}(pub u32);"
                 );
-                if let Some(host) = host(&wit_name, wit) {
+                if let Some(host) = host_by_resource_of(&wit_name, wit) {
                     let _ = writeln!(
                         out,
                         "impl {HOSTS}::table::Handle for {name} {{\n\
@@ -432,7 +439,11 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
                 }
             }
             other => {
-                let _ = writeln!(out, "pub type {name} = {};", structural(resolve, other));
+                let _ = writeln!(
+                    out,
+                    "pub type {name} = {};",
+                    to_structural_type(resolve, other)
+                );
             }
         }
     }
@@ -440,7 +451,7 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
 }
 
 /// The functions of `id` among `names`.
-fn imported<'a>(
+fn functions_of<'a>(
     resolve: &'a Resolve,
     id: InterfaceId,
     names: &'a [&str],
@@ -452,7 +463,7 @@ fn imported<'a>(
 }
 
 /// The resources of `id` whose drop is among `names`.
-fn resources<'a>(
+fn resources_of<'a>(
     resolve: &'a Resolve,
     id: InterfaceId,
     names: &'a [&str],
@@ -466,36 +477,36 @@ fn resources<'a>(
 }
 
 /// The `Host` method answering `func`.
-fn method_name(resolve: &Resolve, id: InterfaceId, func: &Function) -> String {
-    let interface = snake(
+fn to_method_name(resolve: &Resolve, id: InterfaceId, func: &Function) -> String {
+    let interface = to_snake(
         resolve.interfaces[id]
             .name
             .as_deref()
             .expect("a named interface"),
     );
     let item = match &func.kind {
-        FunctionKind::Constructor(_) => format!("{}-new", func.item_name()),
+        FunctionKind::Constructor(_) => "new".to_string(),
         _ => func.item_name().to_string(),
     };
     let owner = match &func.kind {
         FunctionKind::Method(r) | FunctionKind::Static(r) | FunctionKind::Constructor(r) => {
             format!(
                 "{}_",
-                snake(resolve.types[*r].name.as_deref().expect("a named resource"))
+                to_snake(resolve.types[*r].name.as_deref().expect("a named resource"))
             )
         }
         _ => String::new(),
     };
-    format!("{interface}_{owner}{}", snake(&item))
+    format!("{interface}_{owner}{}", to_snake(&item))
 }
 
 /// The trait one WIT package's imports are answered through, as `IoHost` for
 /// `wasi:io`.
-fn package_trait(resolve: &Resolve, id: InterfaceId) -> String {
+fn package_trait_of(resolve: &Resolve, id: InterfaceId) -> String {
     let package = resolve.interfaces[id]
         .package
         .expect("a vendored interface has a package");
-    format!("{}Host", camel(&resolve.packages[package].name.name))
+    format!("{}Host", to_camel(&resolve.packages[package].name.name))
 }
 
 /// The traits the Wasm Driver implements, one per WIT package and one method
@@ -504,7 +515,7 @@ fn package_trait(resolve: &Resolve, id: InterfaceId) -> String {
 fn write_host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: &mut String) {
     let mut traits = Vec::<String>::new();
     for (id, _) in imports {
-        let name = package_trait(resolve, *id);
+        let name = package_trait_of(resolve, *id);
         if !traits.contains(&name) {
             traits.push(name);
         }
@@ -512,7 +523,7 @@ fn write_host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: 
     for name in &traits {
         let package = imports
             .iter()
-            .filter(|(id, _)| package_trait(resolve, *id) == *name)
+            .filter(|(id, _)| package_trait_of(resolve, *id) == *name)
             .copied()
             .collect::<Vec<_>>();
         let _ = writeln!(
@@ -534,35 +545,35 @@ fn write_host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: 
 
 fn package_methods(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: &mut String) {
     for (id, names) in imports {
-        for func in imported(resolve, *id, names) {
+        for func in functions_of(resolve, *id, names) {
             let params = func
                 .params
                 .iter()
-                .map(|p| format!(", {}: {}", snake(&p.name), rust_type(resolve, &p.ty)))
+                .map(|p| format!(", {}: {}", to_snake(&p.name), to_rust_type(resolve, &p.ty)))
                 .collect::<String>();
             let result = func
                 .result
                 .as_ref()
-                .map_or("()".into(), |t| rust_type(resolve, t));
+                .map_or("()".into(), |t| to_rust_type(resolve, t));
             let _ = writeln!(
                 out,
                 "fn {}(&mut self{params}) -> wasmtime::Result<{result}>;",
-                method_name(resolve, *id, func),
+                to_method_name(resolve, *id, func),
             );
         }
-        for (name, ty) in resources(resolve, *id, names) {
-            let interface = snake(resolve.interfaces[*id].name.as_deref().expect("named"));
+        for (name, ty) in resources_of(resolve, *id, names) {
+            let interface = to_snake(resolve.interfaces[*id].name.as_deref().expect("named"));
             let _ = writeln!(
                 out,
                 "fn {interface}_{}_drop(&mut self, handle: {}) -> wasmtime::Result<()>;",
-                snake(name),
-                type_path(resolve, ty),
+                to_snake(name),
+                type_path_of(resolve, ty),
             );
         }
     }
 }
 
-fn core_type(ty: &WasmType) -> &'static str {
+fn to_core_type(ty: &WasmType) -> &'static str {
     match ty {
         WasmType::I32 | WasmType::Pointer | WasmType::Length => "i32",
         WasmType::I64 | WasmType::PointerOrI64 => "i64",
@@ -583,20 +594,20 @@ fn write_linker(
     );
     for (id, names) in imports {
         let module = resolve.id_of(*id).expect("a named interface");
-        for func in imported(resolve, *id, names) {
+        for func in functions_of(resolve, *id, names) {
             let sig = resolve.wasm_signature(abi::AbiVariant::GuestImport, func);
             let params = sig
                 .params
                 .iter()
                 .enumerate()
-                .map(|(i, ty)| format!(", arg{i}: {}", core_type(ty)))
+                .map(|(i, ty)| format!(", arg{i}: {}", to_core_type(ty)))
                 .collect::<String>();
             let result = match sig.results.as_slice() {
                 [] => "()".to_string(),
-                [one] => core_type(one).to_string(),
+                [one] => to_core_type(one).to_string(),
                 _ => unreachable!("a core import answers at most one value"),
             };
-            let mut body = FunctionBody::new(resolve, sizes, method_name(resolve, *id, func));
+            let mut body = FunctionBody::new(resolve, sizes, to_method_name(resolve, *id, func));
             abi::call(
                 resolve,
                 abi::AbiVariant::GuestImport,
@@ -612,16 +623,16 @@ fn write_linker(
                 func.name, body.src
             );
         }
-        for (name, ty) in resources(resolve, *id, names) {
-            let interface = snake(resolve.interfaces[*id].name.as_deref().expect("named"));
+        for (name, ty) in resources_of(resolve, *id, names) {
+            let interface = to_snake(resolve.interfaces[*id].name.as_deref().expect("named"));
             let _ = writeln!(
                 out,
                 "linker.func_wrap({module:?}, \"[resource-drop]{name}\", \
                  |mut caller: wasmtime::Caller<'_, T>, handle: i32| -> wasmtime::Result<()> {{ \
                  caller.data_mut().{interface}_{}_drop({}(handle as u32))?; \
                  caller.data().abandonment().map_or(Ok(()), Err) }})?;",
-                snake(name),
-                type_path(resolve, ty)
+                to_snake(name),
+                type_path_of(resolve, ty)
             );
         }
     }
@@ -669,38 +680,20 @@ impl<'a> FunctionBody<'a> {
     }
 
     fn rust_type_of(&self, id: TypeId) -> String {
-        rust_type(self.resolve, &Type::Id(id))
+        to_rust_type(self.resolve, &Type::Id(id))
     }
 
-    fn element_size(&self, element: &Type) -> usize {
+    fn size_of(&self, element: &Type) -> usize {
         self.sizes.size(element).size_wasm32()
     }
 
-    fn element_align(&self, element: &Type) -> usize {
+    fn align_of(&self, element: &Type) -> usize {
         self.sizes.align(element).align_wasm32()
     }
 }
 
-fn offset(offset: &ArchitectureSize) -> usize {
+fn to_offset(offset: &ArchitectureSize) -> usize {
     offset.size_wasm32()
-}
-
-fn cast(bitcast: &Bitcast, op: &str) -> String {
-    match bitcast {
-        Bitcast::None
-        | Bitcast::I32ToP
-        | Bitcast::PToI32
-        | Bitcast::PToL
-        | Bitcast::LToP
-        | Bitcast::I32ToL
-        | Bitcast::LToI32
-        | Bitcast::P64ToI64
-        | Bitcast::I64ToP64 => op.to_string(),
-        Bitcast::I32ToI64 | Bitcast::PToP64 | Bitcast::LToI64 => format!("({op} as i64)"),
-        Bitcast::I64ToI32 | Bitcast::P64ToP | Bitcast::I64ToL => format!("({op} as i32)"),
-        Bitcast::Sequence(both) => cast(&both[1], &cast(&both[0], op)),
-        other => unreachable!("no import kobako answers carries a float, so none casts {other:?}"),
-    }
 }
 
 impl Bindgen for FunctionBody<'_> {
@@ -717,23 +710,13 @@ impl Bindgen for FunctionBody<'_> {
         match inst {
             Instruction::GetArg { nth } => results.push(format!("arg{nth}")),
             Instruction::I32Const { val } => results.push(format!("{val}i32")),
-            Instruction::Bitcasts { casts } => {
-                for (c, op) in casts.iter().zip(operands.iter()) {
-                    results.push(cast(c, op));
-                }
-            }
-            Instruction::ConstZero { tys } => {
-                for ty in tys.iter() {
-                    results.push(format!("0{}", core_type(ty)));
-                }
-            }
             Instruction::I32Load { offset: o }
             | Instruction::PointerLoad { offset: o }
             | Instruction::LengthLoad { offset: o } => {
                 let e = format!(
                     "{abi}::load::<i32>(&mut caller, {}, {})?",
                     operands[0],
-                    offset(o)
+                    to_offset(o)
                 );
                 results.push(self.bind(e));
             }
@@ -741,15 +724,7 @@ impl Bindgen for FunctionBody<'_> {
                 let e = format!(
                     "({abi}::load::<u8>(&mut caller, {}, {})? as i32)",
                     operands[0],
-                    offset(o)
-                );
-                results.push(self.bind(e));
-            }
-            Instruction::I32Load8S { offset: o } => {
-                let e = format!(
-                    "({abi}::load::<i8>(&mut caller, {}, {})? as i32)",
-                    operands[0],
-                    offset(o)
+                    to_offset(o)
                 );
                 results.push(self.bind(e));
             }
@@ -757,23 +732,7 @@ impl Bindgen for FunctionBody<'_> {
                 let e = format!(
                     "({abi}::load::<u16>(&mut caller, {}, {})? as i32)",
                     operands[0],
-                    offset(o)
-                );
-                results.push(self.bind(e));
-            }
-            Instruction::I32Load16S { offset: o } => {
-                let e = format!(
-                    "({abi}::load::<i16>(&mut caller, {}, {})? as i32)",
-                    operands[0],
-                    offset(o)
-                );
-                results.push(self.bind(e));
-            }
-            Instruction::I64Load { offset: o } => {
-                let e = format!(
-                    "{abi}::load::<i64>(&mut caller, {}, {})?",
-                    operands[0],
-                    offset(o)
+                    to_offset(o)
                 );
                 results.push(self.bind(e));
             }
@@ -784,7 +743,7 @@ impl Bindgen for FunctionBody<'_> {
                     self.src,
                     "{abi}::store::<i32>(&mut caller, {}, {}, {})?;",
                     operands[1],
-                    offset(o),
+                    to_offset(o),
                     operands[0]
                 );
             }
@@ -793,7 +752,7 @@ impl Bindgen for FunctionBody<'_> {
                     self.src,
                     "{abi}::store::<u8>(&mut caller, {}, {}, {} as u8)?;",
                     operands[1],
-                    offset(o),
+                    to_offset(o),
                     operands[0]
                 );
             }
@@ -802,7 +761,7 @@ impl Bindgen for FunctionBody<'_> {
                     self.src,
                     "{abi}::store::<u16>(&mut caller, {}, {}, {} as u16)?;",
                     operands[1],
-                    offset(o),
+                    to_offset(o),
                     operands[0]
                 );
             }
@@ -811,7 +770,7 @@ impl Bindgen for FunctionBody<'_> {
                     self.src,
                     "{abi}::store::<i64>(&mut caller, {}, {}, {})?;",
                     operands[1],
-                    offset(o),
+                    to_offset(o),
                     operands[0]
                 );
             }
@@ -824,20 +783,14 @@ impl Bindgen for FunctionBody<'_> {
             | Instruction::I32FromS16
             | Instruction::I32FromU8
             | Instruction::I32FromS8 => results.push(format!("({} as i32)", operands[0])),
-            Instruction::S8FromI32 => results.push(format!("({} as i8)", operands[0])),
             Instruction::U8FromI32 => results.push(format!("({} as u8)", operands[0])),
-            Instruction::S16FromI32 => results.push(format!("({} as i16)", operands[0])),
             Instruction::U16FromI32 => results.push(format!("({} as u16)", operands[0])),
-            Instruction::S32FromI32 => results.push(format!("({} as i32)", operands[0])),
             Instruction::U32FromI32 => results.push(format!("({} as u32)", operands[0])),
-            Instruction::S64FromI64 => results.push(format!("({} as i64)", operands[0])),
             Instruction::U64FromI64 => results.push(format!("({} as u64)", operands[0])),
-            Instruction::BoolFromI32 => results.push(format!("({} != 0)", operands[0])),
-            Instruction::I32FromBool => results.push(format!("({} as i32)", operands[0])),
             Instruction::ListCanonLift { element, .. } => {
                 let e = format!(
                     "{abi}::load_list::<{}>(&mut caller, {}, {})?",
-                    rust_type(resolve, element),
+                    to_rust_type(resolve, element),
                     operands[0],
                     operands[1]
                 );
@@ -855,9 +808,9 @@ impl Bindgen for FunctionBody<'_> {
                 let _ = writeln!(
                     self.src,
                     "let ({ptr}, {len}) = {abi}::store_list::<{}>(&mut caller, &{}, {})?;",
-                    rust_type(resolve, element),
+                    to_rust_type(resolve, element),
                     operands[0],
-                    self.element_align(element)
+                    self.align_of(element)
                 );
                 results.push(ptr);
                 results.push(len);
@@ -874,7 +827,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::ListLift { element, .. } => {
                 let block = self.blocks(1).remove(0);
-                let (size, align) = (self.element_size(element), self.element_align(element));
+                let (size, align) = (self.size_of(element), self.align_of(element));
                 let (list, len) = (self.tmp(), self.tmp());
                 let _ = writeln!(
                     self.src,
@@ -888,7 +841,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::ListLower { element, .. } => {
                 let block = self.blocks(1).remove(0);
-                let (size, align) = (self.element_size(element), self.element_align(element));
+                let (size, align) = (self.size_of(element), self.align_of(element));
                 let (ptr, len) = (self.tmp(), self.tmp());
                 let _ = writeln!(
                     self.src,
@@ -907,7 +860,7 @@ impl Bindgen for FunctionBody<'_> {
                     .fields
                     .iter()
                     .zip(operands.iter())
-                    .map(|(f, op)| format!("{}: {op}", snake(&f.name)))
+                    .map(|(f, op)| format!("{}: {op}", to_snake(&f.name)))
                     .collect::<Vec<_>>()
                     .join(", ");
                 let e = format!("{} {{ {fields} }}", self.rust_type_of(*ty));
@@ -919,7 +872,7 @@ impl Bindgen for FunctionBody<'_> {
                     .fields
                     .iter()
                     .zip(&names)
-                    .map(|(f, n)| format!("{}: {n}", snake(&f.name)))
+                    .map(|(f, n)| format!("{}: {n}", to_snake(&f.name)))
                     .collect::<Vec<_>>()
                     .join(", ");
                 let _ = writeln!(
@@ -941,7 +894,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::HandleLift { handle, .. } => {
                 let (Handle::Own(r) | Handle::Borrow(r)) = handle;
-                let path = type_path(resolve, resource(resolve, *r));
+                let path = type_path_of(resolve, resource_of(resolve, *r));
                 results.push(format!("{path}({} as u32)", operands[0]))
             }
             Instruction::HandleLower { .. } => results.push(format!("({}.0 as i32)", operands[0])),
@@ -951,7 +904,7 @@ impl Bindgen for FunctionBody<'_> {
                     .cases
                     .iter()
                     .enumerate()
-                    .map(|(i, c)| format!("{i} => {name}::{},", camel(&c.name)))
+                    .map(|(i, c)| format!("{i} => {name}::{},", to_camel(&c.name)))
                     .collect::<String>();
                 let e = format!(
                     "match {} {{ {arms} _ => return Err({abi}::invalid(\"enum discriminant\")) }}",
@@ -965,7 +918,7 @@ impl Bindgen for FunctionBody<'_> {
                     .cases
                     .iter()
                     .enumerate()
-                    .map(|(i, c)| format!("{name}::{} => {i}i32,", camel(&c.name)))
+                    .map(|(i, c)| format!("{name}::{} => {i}i32,", to_camel(&c.name)))
                     .collect::<String>();
                 results.push(format!("(match {} {{ {arms} }})", operands[0]));
             }
@@ -979,8 +932,8 @@ impl Bindgen for FunctionBody<'_> {
                     .zip(blocks)
                     .enumerate()
                     .map(|(i, (c, b))| match c.ty {
-                        Some(_) => format!("{i} => {name}::{}({b}),", camel(&c.name)),
-                        None => format!("{i} => {{ {b}; {name}::{} }},", camel(&c.name)),
+                        Some(_) => format!("{i} => {name}::{}({b}),", to_camel(&c.name)),
+                        None => format!("{i} => {{ {b}; {name}::{} }},", to_camel(&c.name)),
                     })
                     .collect::<String>();
                 let e = format!(
@@ -1002,8 +955,8 @@ impl Bindgen for FunctionBody<'_> {
                     .iter()
                     .zip(blocks)
                     .map(|(c, b)| match c.ty {
-                        Some(_) => format!("{name}::{}(e) => {b},", camel(&c.name)),
-                        None => format!("{name}::{} => {b},", camel(&c.name)),
+                        Some(_) => format!("{name}::{}(e) => {b},", to_camel(&c.name)),
+                        None => format!("{name}::{} => {b},", to_camel(&c.name)),
                     })
                     .collect::<String>();
                 self.lower_match(&operands[0], &arms, types.len(), results);
@@ -1063,15 +1016,7 @@ impl Bindgen for FunctionBody<'_> {
                     let _ = writeln!(self.src, "Ok({})", operands[0]);
                 }
             },
-            Instruction::Malloc { size, align, .. } => {
-                let e = format!(
-                    "{abi}::realloc(&mut caller, {}, {})?",
-                    size.size_wasm32(),
-                    align.align_wasm32()
-                );
-                results.push(self.bind(e));
-            }
-            other => unreachable!("no 0.2 import lowers through {other:?}"),
+            other => unreachable!("no import kobako answers lowers through {other:?}"),
         }
     }
 
