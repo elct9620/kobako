@@ -7,7 +7,7 @@
 use std::net::{Ipv4Addr, Shutdown};
 use std::time::{Duration, Instant};
 
-use kobako_runtime::net::{sock_alloc_file, MAX_DATAGRAM, SOCKET_BUFFER};
+use kobako_runtime::net::{sock_alloc_file, UdpSock, MAX_DATAGRAM, SOCKET_BUFFER};
 use kobako_runtime::vfs::{FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
 
@@ -27,7 +27,7 @@ use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{
     from_socket_addr, hide_host_address, lookup_error_code, to_error_code, to_socket_addr,
 };
-use super::table::{self, Datagrams, Resource, SocketFile, Stream};
+use super::table::{self, Resource, SocketFile, Stream};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
@@ -117,7 +117,7 @@ impl Invocation {
         }
     }
 
-    fn datagrams(&self, handle: u32) -> wasmtime::Result<Datagrams> {
+    fn datagrams(&self, handle: u32) -> wasmtime::Result<SocketFile<UdpSock>> {
         match self.wasi().table().get(handle)? {
             Resource::Datagrams(datagrams) => Ok(datagrams.clone()),
             _ => Err(wasmtime::Error::msg(
@@ -520,7 +520,7 @@ impl SocketsHost for Invocation {
             Err(err) => return Ok(Err(to_error_code(&err))),
         };
         let file = sock_alloc_file(sock.clone(), cred);
-        let datagrams = Datagrams::new(sock, file, addr);
+        let datagrams = SocketFile::new(sock, file, addr);
         *self.udp(this)? = table::UdpSocket::Streaming(datagrams.clone());
         let incoming = IncomingDatagramStream(self.push(Resource::Datagrams(datagrams.clone()))?);
         let outgoing = OutgoingDatagramStream(self.push(Resource::Datagrams(datagrams))?);

@@ -13,20 +13,29 @@ use kobako_runtime::net::{
 use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
 
-/// One socket file the guest's `tcp-socket`, `input-stream`, and
-/// `output-stream` all view, as three handles on one `struct file`; the last
-/// view dropped releases the socket.
-#[derive(Clone)]
-pub(crate) struct SocketFile {
-    pub(crate) sock: Arc<TcpSock>,
+/// One socket file every view of a guest socket shares, as handles on one
+/// `struct file` share one `struct socket`: the protocol's half is `S`, and
+/// the last view dropped releases the socket.
+pub(crate) struct SocketFile<S> {
+    pub(crate) sock: Arc<S>,
     file: Arc<Mutex<File>>,
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
     pub(crate) peer: SocketAddr,
 }
 
-impl SocketFile {
-    pub(crate) fn new(sock: Arc<TcpSock>, file: File, peer: SocketAddr) -> Self {
+impl<S> Clone for SocketFile<S> {
+    fn clone(&self) -> Self {
+        Self {
+            sock: self.sock.clone(),
+            file: self.file.clone(),
+            peer: self.peer,
+        }
+    }
+}
+
+impl<S> SocketFile<S> {
+    pub(crate) fn new(sock: Arc<S>, file: File, peer: SocketAddr) -> Self {
         Self {
             sock,
             file: Arc::new(Mutex::new(file)),
@@ -45,7 +54,7 @@ impl SocketFile {
 /// a response's body, or a request's body.
 #[derive(Clone)]
 pub(crate) enum Stream {
-    Socket(SocketFile),
+    Socket(SocketFile<TcpSock>),
     Response(Arc<Exchange>),
     Request(Arc<RequestBody>),
 }
@@ -92,35 +101,12 @@ impl Stream {
     }
 }
 
-/// One UDP socket file the guest's incoming and outgoing datagram streams both
-/// view, and the peer as the guest named it.
-#[derive(Clone)]
-pub(crate) struct Datagrams {
-    pub(crate) sock: Arc<UdpSock>,
-    file: Arc<Mutex<File>>,
-    pub(crate) peer: SocketAddr,
-}
-
-impl Datagrams {
-    pub(crate) fn new(sock: Arc<UdpSock>, file: File, peer: SocketAddr) -> Self {
-        Self {
-            sock,
-            file: Arc::new(Mutex::new(file)),
-            peer,
-        }
-    }
-
-    pub(crate) fn file(&self) -> MutexGuard<'_, File> {
-        self.file.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
 /// Where a UDP socket stands, as WASI's state machine walks it.
 pub(crate) enum UdpSocket {
     Unbound,
     Binding,
     Bound,
-    Streaming(Datagrams),
+    Streaming(SocketFile<UdpSock>),
 }
 
 /// What one handle stands for.
@@ -132,7 +118,7 @@ pub(crate) enum Resource {
     TcpSocket(TcpSocket),
     UdpSocket(UdpSocket),
     /// An incoming or outgoing datagram stream.
-    Datagrams(Datagrams),
+    Datagrams(SocketFile<UdpSock>),
     InputStream(Stream),
     OutputStream(Stream),
     /// One of `wasi:http`'s resources.
@@ -146,8 +132,8 @@ pub(crate) enum Resource {
 /// Where a TCP socket stands, as WASI's state machine walks it.
 pub(crate) enum TcpSocket {
     Unbound,
-    Connecting(SocketFile),
-    Connected(SocketFile),
+    Connecting(SocketFile<TcpSock>),
+    Connected(SocketFile<TcpSock>),
     /// A connect that failed, after which the socket takes no other, as
     /// `tcp.wit` closes it.
     Closed,
@@ -168,7 +154,7 @@ pub(crate) enum Pollable {
     /// A request in flight, ready once its response's head arrives.
     Response(Arc<Exchange>),
     /// A datagram stream, ready once its poll finds `PollMask`, or an error.
-    Datagrams(Datagrams, PollMask),
+    Datagrams(SocketFile<UdpSock>, PollMask),
     /// Something that is always ready, as an unconnected socket is.
     Ready,
 }
