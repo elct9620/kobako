@@ -23,6 +23,6 @@ pub use http::{
 pub use lookup::{LookupError, NameLookup};
 pub use namespace::Namespace;
 pub use socket::{sock_alloc_file, ProtoOps};
-pub use tcp::{TcpSock, SOCKET_BUFFER};
+pub use tcp::{TcpSock, MAX_SOCKET_BUFFER};
 pub use tls::platform_tls;
 pub use udp::{UdpSock, MAX_DATAGRAM};

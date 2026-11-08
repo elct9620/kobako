@@ -32,8 +32,10 @@ pub struct NameLookup {
 }
 
 impl NameLookup {
-    /// A lookup of `name` through `family` on a thread counted against
-    /// `workers`; a full count answers at once as a temporary failure.
+    /// A lookup of `name` through `family` on a thread holding one of
+    /// `open_connections`' places; a full count answers at once as a temporary
+    /// failure. The thread holds the place until the resolver returns, past the
+    /// lookup's drop, so the places bound the resolver threads too.
     pub(crate) fn start(
         family: Arc<dyn ProtocolFamily>,
         name: String,

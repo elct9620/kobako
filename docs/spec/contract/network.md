@@ -608,12 +608,12 @@ The host's own TCP, as gVisor's `hostinet` hands a sandbox the host's sockets.
 pub struct HostInet {}
 ```
 
-## `SOCKET_BUFFER`
+## `MAX_SOCKET_BUFFER`
 
 How much a socket holds each way, as `sk_rcvbuf` and `sk_sndbuf` bound one.
 
 ```rust
-pub const SOCKET_BUFFER: usize = 64 * 1024;
+pub const MAX_SOCKET_BUFFER: usize = 64 * 1024;
 ```
 
 ## `OpenConnections`
@@ -785,14 +785,14 @@ pub trait ProtoOps {
 }
 ```
 
-## `Ruleset::admit_request`
+## `Ruleset::admits_request`
 
 Whether an `http` endpoint holding a host at a port allows a method on a path.
 With no rules it allows every request.
 
 ```rust
 impl Ruleset {
-    pub fn admit_request(&self, host: &str, port: u16, method: &str, path: &str) -> bool {}
+    pub fn admits_request(&self, host: &str, port: u16, method: &str, path: &str) -> bool {}
 }
 ```
 

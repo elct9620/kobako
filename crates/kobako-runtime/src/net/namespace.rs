@@ -93,13 +93,13 @@ impl Namespace {
         })
     }
 
-    /// An HTTP request in flight, as `cred`. The
-    /// socket hooks judge the authority the guest named, a name passing the
-    /// `resolve` policies too, and an `http` endpoint must name it at its port;
-    /// a literal address passes the ruleset as itself, so a virtual one is
-    /// refused. A header the guest may not set is refused too, so the seam
-    /// frames every request itself. Any refusal answers `Denied`, and nothing
-    /// is sent.
+    /// An HTTP request in flight, as `cred`. The socket hooks judge the
+    /// authority the guest named first, a name passing the `resolve` policies
+    /// too, and an `http` endpoint must name it at its port; a literal address
+    /// passes the ruleset as itself, so a virtual one is refused, and an IPv6
+    /// one reaches nothing. A header the guest may not set is refused too, so
+    /// the seam frames every request itself. Any refusal answers `Denied`, and
+    /// nothing is sent.
     pub fn send(&self, cred: &Cred, request: OutgoingRequest) -> Result<Arc<Exchange>, HttpError> {
         if request
             .headers
@@ -154,7 +154,7 @@ impl Namespace {
         };
         let sent = Request::new((&host, port), &method, scheme, path, &names);
         let admitted = reachable
-            && self.ruleset.admit_request(&host, port, &method, path)
+            && self.ruleset.admits_request(&host, port, &method, path)
             && self.request.iter().all(|policy| policy.allows(&sent));
         if !admitted {
             return Err(HttpError::Denied);
@@ -249,9 +249,9 @@ impl Namespace {
         Ok(made)
     }
 
-    /// The virtual address `lookup`'s answer is handed out at, allocated from
-    /// the bottom of the range and never reused for a second name; `None`
-    /// once the range is spent.
+    /// The virtual address handed out for `name`, whose `real` addresses a
+    /// lookup answered, allocated from the bottom of the range and never
+    /// reused for a second name; `None` once the range is spent.
     pub fn virtual_address(&self, name: &str, real: Vec<IpAddr>) -> Option<Ipv4Addr> {
         let mut virtuals = self.virtuals.lock().unwrap_or_else(PoisonError::into_inner);
         let offset = u32::try_from(virtuals.len())
@@ -272,8 +272,9 @@ impl Namespace {
     }
 
     /// A TCP socket connecting to `addr`, the address the guest named, as
-    /// `cred`. The socket hooks judge what the guest named first, in Linux's order: the modules `cred` holds, then each
-    /// entry's policy, any refusal winning. A literal address then passes the
+    /// `cred`. The socket hooks judge what the guest named first, in Linux's
+    /// order: the modules `cred` holds, then each entry's policy, any refusal
+    /// winning. A literal address then passes the
     /// ruleset as itself. A virtual one is translated to its name's real
     /// addresses, an unmapped one refused as any refused destination is; each
     /// real address the ruleset lets the name lead to is dialed exactly, in
@@ -297,10 +298,10 @@ impl Namespace {
     }
 
     /// A UDP socket streaming with `addr`, the one peer the guest named, as
-    /// `cred`. It passes the same steps a TCP connect does, as `udp_pre_connect` runs `connect4`; UDP opens no handshake, so
-    /// the first real address the ruleset admits is its peer.
-    /// A stream naming no peer would send each datagram anywhere, so it is
-    /// refused.
+    /// `cred`. It passes the same steps a TCP connect does, as
+    /// `udp_pre_connect` runs `connect4`; UDP opens no handshake, so the first
+    /// real address the ruleset admits is its peer. A stream naming no peer
+    /// would send each datagram anywhere, so it is refused.
     pub fn connect_datagram(
         &self,
         cred: &Cred,

@@ -24,7 +24,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::{open, OpenConnections, Place};
 use super::reactor::{Reactor, Ready, Registration, Task};
 use super::socket::to_error;
-use super::{platform_tls, ProtocolFamily, SOCKET_BUFFER};
+use super::{platform_tls, ProtocolFamily, MAX_SOCKET_BUFFER};
 use crate::network::{Protocol, Ruleset, Secret};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -747,7 +747,7 @@ async fn fill_body(exchange: &std::sync::Weak<Exchange>, mut body: ResponseBody)
                 return Poll::Ready(None);
             };
             let mut state = exchange.state();
-            let room = SOCKET_BUFFER - state.body.len();
+            let room = MAX_SOCKET_BUFFER - state.body.len();
             if room > 0 {
                 return Poll::Ready(Some(room));
             }
@@ -1100,7 +1100,7 @@ mod tests {
     fn a_body_past_the_buffer_streams_as_it_is_read() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        let size = SOCKET_BUFFER * 4;
+        let size = MAX_SOCKET_BUFFER * 4;
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut head = [0; 1024];
@@ -1130,7 +1130,7 @@ mod tests {
         server.join().unwrap();
         let expected = (0..size).map(|i| (i % 251) as u8).collect::<Vec<_>>();
         assert!(
-            body == expected && held <= SOCKET_BUFFER,
+            body == expected && held <= MAX_SOCKET_BUFFER,
             "a response body four buffers long must reach the guest whole and in order, the body \
              waiting for it never past one buffer, got {} bytes, holding up to {held}",
             body.len()

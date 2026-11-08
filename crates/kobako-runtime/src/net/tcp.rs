@@ -20,7 +20,7 @@ use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 /// How much a socket holds each way before it stops reading and refuses
 /// more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket, so a full buffer
 /// pushes back through the TCP window.
-pub const SOCKET_BUFFER: usize = 64 * 1024;
+pub const MAX_SOCKET_BUFFER: usize = 64 * 1024;
 
 /// How much one host read moves at once.
 const CHUNK: usize = 16 * 1024;
@@ -152,11 +152,11 @@ impl TcpSock {
             return;
         };
         let mut chunk = [0; CHUNK];
-        while state.received.len() < SOCKET_BUFFER
+        while state.received.len() < MAX_SOCKET_BUFFER
             && !state.received_end
             && state.received_error.is_none()
         {
-            let room = (SOCKET_BUFFER - state.received.len()).min(CHUNK);
+            let room = (MAX_SOCKET_BUFFER - state.received.len()).min(CHUNK);
             match stream.read(&mut chunk[..room]) {
                 Ok(0) => state.received_end = true,
                 Ok(n) => state.received.extend(&chunk[..n]),
@@ -224,7 +224,7 @@ impl TcpSock {
 
     /// How many bytes a send would take now.
     pub fn send_room(&self) -> usize {
-        SOCKET_BUFFER - self.state().sending.len()
+        MAX_SOCKET_BUFFER - self.state().sending.len()
     }
 
     /// Shut the writing side down once what is queued is sent, or stop
@@ -309,7 +309,7 @@ impl ProtoOps for TcpSock {
             Phase::Connecting => return Err(FilesystemError::WouldBlock),
             Phase::Failed(_) => return Err(FilesystemError::NotConnected),
         }
-        let take = buf.len().min(SOCKET_BUFFER - state.sending.len());
+        let take = buf.len().min(MAX_SOCKET_BUFFER - state.sending.len());
         if take == 0 && !buf.is_empty() {
             return Err(FilesystemError::WouldBlock);
         }
@@ -327,7 +327,7 @@ impl ProtoOps for TcpSock {
             mask = mask | PollMask::IN;
         }
         if state.phase != Phase::Connecting
-            && (state.sending.len() < SOCKET_BUFFER || state.send_error.is_some())
+            && (state.sending.len() < MAX_SOCKET_BUFFER || state.send_error.is_some())
         {
             mask = mask | PollMask::OUT;
         }

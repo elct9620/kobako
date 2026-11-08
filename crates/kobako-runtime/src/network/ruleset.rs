@@ -161,13 +161,13 @@ enum Host {
     /// Every name ending in this suffix on a label boundary, as `*.` gives it.
     Wildcard(String),
     /// An address or a prefix, reaching what it names.
-    Prefix(IpAddr, u8),
+    Cidr(IpAddr, u8),
 }
 
 fn parse_host(host: &str) -> Result<Host, EntryError> {
     if let Ok(ip) = host.parse::<IpAddr>() {
         let prefix = if ip.is_ipv4() { 32 } else { 128 };
-        return Ok(Host::Prefix(ip, prefix));
+        return Ok(Host::Cidr(ip, prefix));
     }
     if let Some((ip, prefix)) = host.split_once('/') {
         let ip = ip
@@ -179,7 +179,7 @@ fn parse_host(host: &str) -> Result<Host, EntryError> {
             .ok()
             .filter(|p| *p <= longest)
             .ok_or_else(|| EntryError(format!("an endpoint's prefix is out of range: {host}")))?;
-        return Ok(Host::Prefix(ip, prefix));
+        return Ok(Host::Cidr(ip, prefix));
     }
     // A name is judged as its A-label, the form the guest's lookup is judged
     // in, so an IDN an endpoint names matches the name the guest asks for.
@@ -209,13 +209,13 @@ struct Rule {
     port: u16,
     protocol: Protocol,
     addresses: Vec<Addresses>,
-    requests: Vec<HttpRule>,
+    rules: Vec<HttpRule>,
 }
 
 /// Whether `path` reads as one path to every server: a segment of `..`, an
 /// encoded dot or slash, a backslash, or a `;` lets servers split it
 /// differently, so a rule matching one spelling would pass another.
-fn unambiguous(path: &str) -> bool {
+fn is_unambiguous(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     !(path.split('/').any(|segment| segment == "..")
         || ["%2e", "%2f", "%5c", "\\", ";"]
@@ -227,7 +227,7 @@ impl Rule {
     /// Whether this rule's host holds `host`, a name or a literal address.
     fn holds(&self, host: &str) -> bool {
         match host.parse::<IpAddr>() {
-            Ok(ip) => matches!(self.host, Host::Prefix(net, prefix) if contains(net, prefix, ip)),
+            Ok(ip) => matches!(self.host, Host::Cidr(net, prefix) if contains(net, prefix, ip)),
             Err(_) => self.names(host),
         }
     }
@@ -235,14 +235,14 @@ impl Rule {
     /// Whether this endpoint's rules allow `method` on `path`: with none,
     /// every request; with some, one allowing it and none denying it.
     fn allows_request(&self, method: &str, path: &str) -> bool {
-        self.requests.is_empty()
-            || (unambiguous(path)
+        self.rules.is_empty()
+            || (is_unambiguous(path)
                 && self
-                    .requests
+                    .rules
                     .iter()
                     .any(|rule| rule.allow && rule.matches(method, path))
                 && !self
-                    .requests
+                    .rules
                     .iter()
                     .any(|rule| !rule.allow && rule.matches(method, path)))
     }
@@ -255,7 +255,7 @@ impl Rule {
             Host::Wildcard(suffix) => name
                 .strip_suffix(suffix.as_str())
                 .is_some_and(|head| head.len() > 1 && head.ends_with('.')),
-            Host::Prefix(..) => false,
+            Host::Cidr(..) => false,
         }
     }
 
@@ -312,7 +312,7 @@ impl Ruleset {
                     port: endpoint.port,
                     protocol: endpoint.protocol,
                     addresses: endpoint.addresses,
-                    requests: endpoint.rules,
+                    rules: endpoint.rules,
                 })
             })
             .collect::<Result<_, EntryError>>()?;
@@ -330,7 +330,7 @@ impl Ruleset {
     /// request, on a path every server reads alike. The scheme is the caller's
     /// to hold to `https`.
     pub fn binds(&self, host: &str, port: u16, method: &str, path: &str) -> bool {
-        unambiguous(path)
+        is_unambiguous(path)
             && self.rules.iter().any(|rule| {
                 rule.port == port
                     && rule.protocol == Protocol::Http
@@ -342,7 +342,7 @@ impl Ruleset {
     /// Whether an `http` endpoint holding `host` at `port` allows `method` on
     /// `path`, the path with no query: endpoints join, so any one allowing it
     /// admits the request.
-    pub fn admit_request(&self, host: &str, port: u16, method: &str, path: &str) -> bool {
+    pub fn admits_request(&self, host: &str, port: u16, method: &str, path: &str) -> bool {
         self.rules.iter().any(|rule| {
             rule.port == port
                 && rule.protocol == Protocol::Http
@@ -408,7 +408,7 @@ impl Ruleset {
         let matched = self.rules.iter().any(|rule| {
             rule.port == addr.port()
                 && rule.protocol == protocol
-                && matches!(rule.host, Host::Prefix(net, prefix) if contains(net, prefix, ip))
+                && matches!(rule.host, Host::Cidr(net, prefix) if contains(net, prefix, ip))
         });
         match matched {
             true => Ok(()),
@@ -615,7 +615,7 @@ mod tests {
             Endpoint::new("open.example.com", 443).unwrap(),
         ])
         .unwrap();
-        let admit = |host, method, path| rules.admit_request(host, 443, method, path);
+        let admit = |host, method, path| rules.admits_request(host, 443, method, path);
         assert_eq!(
             [
                 admit("api.example.com", "GET", "/repos/a/b"),
@@ -627,7 +627,7 @@ mod tests {
                 admit("open.example.com", "PUT", "/anything/at/all"),
             ],
             [true, false, true, false, false, false, true],
-            "Ruleset::admit_request must pass only what an http endpoint's rules allow and none \
+            "Ruleset::admits_request must pass only what an http endpoint's rules allow and none \
              denies, refuse a path servers may split differently, and pass any request to an \
              endpoint with no rules"
         );

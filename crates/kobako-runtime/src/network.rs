@@ -114,7 +114,7 @@ impl Drop for Secret {
 pub enum Placement {
     Bearer,
     Basic,
-    /// A header by its name, lowercase.
+    /// A header by its name, matched in any case.
     Header(String),
 }
 
@@ -241,7 +241,7 @@ impl Policies {
 }
 
 /// One name the guest asks to look up, as the `resolve?` hook judges it:
-/// lowercase, with no trailing dot.
+/// lowercase, with no trailing dot, and an IDN as its A-label.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Name<'a> {
@@ -325,12 +325,12 @@ impl HttpRule {
         self.method
             .as_deref()
             .is_none_or(|own| own.eq_ignore_ascii_case(method))
-            && glob(&self.path, path)
+            && glob_matches(&self.path, path)
     }
 }
 
 /// Whether `path` fits `pattern`, segment by segment, as a path glob does.
-fn glob(pattern: &str, path: &str) -> bool {
+fn glob_matches(pattern: &str, path: &str) -> bool {
     fn fits(pattern: &[&str], path: &[&str]) -> bool {
         match (pattern.first(), path.first()) {
             (None, None) => true,

@@ -7,7 +7,7 @@
 use std::net::Shutdown;
 use std::time::{Duration, Instant};
 
-use kobako_runtime::net::{sock_alloc_file, UdpSock, MAX_DATAGRAM, SOCKET_BUFFER};
+use kobako_runtime::net::{sock_alloc_file, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER};
 use kobako_runtime::vfs::{FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
 
@@ -78,7 +78,7 @@ impl Invocation {
 
     /// The handle is the capability to connect or look up, so it must name a
     /// network, as WASI's host checks it.
-    fn network_held(&self, network: Network) -> wasmtime::Result<()> {
+    fn ensure_network(&self, network: Network) -> wasmtime::Result<()> {
         match self.wasi().table().get(network.0)? {
             Resource::Network => Ok(()),
             _ => Err(wasmtime::Error::msg(
@@ -100,7 +100,7 @@ impl Invocation {
         self.wasi_mut().table_mut().delete(handle, kind).map(drop)
     }
 
-    pub(super) fn pollable_on(
+    pub(super) fn subscribe_stream(
         &mut self,
         stream: Stream,
         mask: PollMask,
@@ -150,7 +150,7 @@ impl Invocation {
         }
     }
 
-    fn pollable_on_datagrams(&mut self, handle: u32, mask: PollMask) -> wasmtime::Result<Pollable> {
+    fn subscribe_datagrams(&mut self, handle: u32, mask: PollMask) -> wasmtime::Result<Pollable> {
         let datagrams = self.datagrams(handle)?;
         Ok(Pollable(self.push(Resource::Pollable(
             table::Pollable::Datagrams(datagrams, mask),
@@ -168,7 +168,7 @@ impl Invocation {
 
     /// A stream's failure as WASI hands it out: the end as `closed`, anything
     /// else as an error the guest may read.
-    fn stream_error(&mut self, err: FilesystemError) -> wasmtime::Result<StreamError> {
+    fn push_stream_error(&mut self, err: FilesystemError) -> wasmtime::Result<StreamError> {
         match err {
             FilesystemError::BrokenPipe => Ok(StreamError::Closed),
             err => Ok(StreamError::LastOperationFailed(Error(
@@ -184,7 +184,7 @@ impl Invocation {
         stream: &Stream,
         len: u64,
     ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
-        let mut buf = vec![0; len.min(SOCKET_BUFFER as u64) as usize];
+        let mut buf = vec![0; len.min(MAX_SOCKET_BUFFER as u64) as usize];
         let read = stream.read(&mut buf);
         match read {
             Ok(0) if !buf.is_empty() => Ok(Err(StreamError::Closed)),
@@ -193,7 +193,7 @@ impl Invocation {
                 Ok(Ok(buf))
             }
             Err(FilesystemError::WouldBlock) => Ok(Ok(Vec::new())),
-            Err(err) => self.stream_error(err).map(Err),
+            Err(err) => self.push_stream_error(err).map(Err),
         }
     }
 
@@ -223,7 +223,7 @@ impl SocketsHost for Invocation {
         network: Network,
         name: String,
     ) -> wasmtime::Result<Result<ResolveAddressStream, ErrorCode>> {
-        self.network_held(network)?;
+        self.ensure_network(network)?;
         let Some(namespace) = self.wasi().table().network() else {
             return Ok(Err(ErrorCode::PermanentResolverFailure));
         };
@@ -323,7 +323,7 @@ impl SocketsHost for Invocation {
         network: Network,
         remote_address: IpSocketAddress,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        self.network_held(network)?;
+        self.ensure_network(network)?;
         if !matches!(self.tcp(this)?, table::TcpSocket::Unbound) {
             return Ok(Err(ErrorCode::InvalidState));
         }
@@ -383,7 +383,7 @@ impl SocketsHost for Invocation {
             _ => None,
         };
         match socket {
-            Some(socket) => self.pollable_on(Stream::Socket(socket), PollMask::OUT),
+            Some(socket) => self.subscribe_stream(Stream::Socket(socket), PollMask::OUT),
             None => Ok(Pollable(
                 self.push(Resource::Pollable(table::Pollable::Ready))?,
             )),
@@ -447,7 +447,7 @@ impl SocketsHost for Invocation {
         network: Network,
         local_address: IpSocketAddress,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        self.network_held(network)?;
+        self.ensure_network(network)?;
         if !matches!(self.udp(this)?, table::UdpSocket::Unbound) {
             return Ok(Err(ErrorCode::InvalidState));
         }
@@ -562,7 +562,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: IncomingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
-        self.pollable_on_datagrams(this.0, PollMask::IN)
+        self.subscribe_datagrams(this.0, PollMask::IN)
     }
 
     fn udp_incoming_datagram_stream_drop(
@@ -627,7 +627,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: OutgoingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
-        self.pollable_on_datagrams(this.0, PollMask::OUT)
+        self.subscribe_datagrams(this.0, PollMask::OUT)
     }
 
     fn udp_outgoing_datagram_stream_drop(
@@ -694,19 +694,19 @@ impl IoHost for Invocation {
             match written {
                 Ok(n) => rest = &rest[n..],
                 Err(FilesystemError::WouldBlock) => {}
-                Err(err) => return self.stream_error(err).map(Err),
+                Err(err) => return self.push_stream_error(err).map(Err),
             }
         }
         // Registering through the stream's poll puts the wait on its queue,
         // which a socket's writer wakes after each chunk it sends.
         self.wait_for(None, |table| {
             let failed = stream.poll(table).contains(PollMask::ERR);
-            (failed || stream.drained()).then_some(())
+            (failed || stream.is_drained()).then_some(())
         })?;
         let written = stream.write(&[]);
         match written {
             Ok(_) => Ok(Ok(())),
-            Err(err) => self.stream_error(err).map(Err),
+            Err(err) => self.push_stream_error(err).map(Err),
         }
     }
 
@@ -718,10 +718,10 @@ impl IoHost for Invocation {
     ) -> wasmtime::Result<Result<u64, StreamError>> {
         let stream = self.stream(this.0)?;
         if let Err(err) = stream.write(&[]) {
-            return self.stream_error(err).map(Err);
+            return self.push_stream_error(err).map(Err);
         }
         let flushing = self.wasi_mut().table_mut().flushing(this.0)?;
-        if *flushing && !stream.drained() {
+        if *flushing && !stream.is_drained() {
             return Ok(Ok(0));
         }
         *flushing = false;
@@ -743,7 +743,7 @@ impl IoHost for Invocation {
         }
         match stream.write(&contents) {
             Ok(_) => Ok(Ok(())),
-            Err(err) => self.stream_error(err).map(Err),
+            Err(err) => self.push_stream_error(err).map(Err),
         }
     }
 
@@ -755,7 +755,7 @@ impl IoHost for Invocation {
     ) -> wasmtime::Result<Result<(), StreamError>> {
         let stream = self.stream(this.0)?;
         if let Err(err) = stream.write(&[]) {
-            return self.stream_error(err).map(Err);
+            return self.push_stream_error(err).map(Err);
         }
         *self.wasi_mut().table_mut().flushing(this.0)? = true;
         Ok(Ok(()))
@@ -1474,7 +1474,7 @@ mod tests {
         let guest = store.data_mut();
         let network = guest.instance_network_instance_network().unwrap();
         let wrong = guest.tcp_tcp_socket_drop(TcpSocket(network.0)).is_err();
-        let kept = guest.network_held(network).is_ok();
+        let kept = guest.ensure_network(network).is_ok();
         assert!(
             wrong && kept,
             "tcp-socket's drop of a network handle must trap and leave the network held"

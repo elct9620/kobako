@@ -171,11 +171,11 @@ impl Invocation {
         }
     }
 
-    fn push_held(&mut self, held: Held) -> wasmtime::Result<u32> {
+    fn push_http(&mut self, held: Held) -> wasmtime::Result<u32> {
         self.wasi_mut().table_mut().push(Resource::Http(held))
     }
 
-    fn push_held_child(&mut self, held: Held, parent: u32) -> wasmtime::Result<u32> {
+    fn push_http_child(&mut self, held: Held, parent: u32) -> wasmtime::Result<u32> {
         self.wasi_mut()
             .table_mut()
             .push_child(Resource::Http(held), parent)
@@ -261,7 +261,7 @@ impl Invocation {
 
 impl HttpHost for Invocation {
     fn types_fields_constructor_new(&mut self) -> wasmtime::Result<Fields> {
-        Ok(Fields(self.push_held(Held::Fields {
+        Ok(Fields(self.push_http(Held::Fields {
             entries: Entries::default(),
             mutable: true,
         })?))
@@ -313,7 +313,7 @@ impl HttpHost for Invocation {
             finished: AtomicBool::new(false),
             aborted: AtomicBool::new(false),
         });
-        Ok(OutgoingRequest(self.push_held(Held::Request(Request {
+        Ok(OutgoingRequest(self.push_http(Held::Request(Request {
             method: Method::Get,
             scheme: None,
             authority: None,
@@ -332,7 +332,7 @@ impl HttpHost for Invocation {
         if link.handed.swap(true, Ordering::AcqRel) {
             return Ok(Err(()));
         }
-        Ok(Ok(OutgoingBody(self.push_held(Held::Body {
+        Ok(Ok(OutgoingBody(self.push_http(Held::Body {
             link,
             stream: false,
         })?)))
@@ -493,7 +493,7 @@ impl HttpHost for Invocation {
         };
         *state = Future::Taken;
         match answer {
-            Ok((head, exchange)) => Ok(Some(Ok(Ok(IncomingResponse(self.push_held(
+            Ok((head, exchange)) => Ok(Some(Ok(Ok(IncomingResponse(self.push_http(
                 Held::Response {
                     head,
                     exchange,
@@ -537,7 +537,7 @@ impl HttpHost for Invocation {
                 ))
             }
         };
-        Ok(Fields(self.push_held_child(
+        Ok(Fields(self.push_http_child(
             Held::Fields {
                 entries: Arc::new(Mutex::new(entries)),
                 mutable: false,
@@ -565,7 +565,7 @@ impl HttpHost for Invocation {
                 ))
             }
         };
-        Ok(Ok(IncomingBody(self.push_held(Held::IncomingBody {
+        Ok(Ok(IncomingBody(self.push_http(Held::IncomingBody {
             exchange,
             stream: false,
         })?)))
@@ -618,7 +618,7 @@ impl HttpHost for Invocation {
             unreachable!("take_held takes only an incoming-body here")
         };
         exchange.release();
-        Ok(FutureTrailers(self.push_held(Held::Trailers)?))
+        Ok(FutureTrailers(self.push_http(Held::Trailers)?))
     }
 
     fn types_incoming_body_drop(&mut self, handle: IncomingBody) -> wasmtime::Result<()> {
@@ -659,7 +659,7 @@ impl HttpHost for Invocation {
             return Ok(Err(code));
         }
         Ok(Ok(FutureIncomingResponse(
-            self.push_held(Held::Future(future))?,
+            self.push_http(Held::Future(future))?,
         )))
     }
 }
@@ -821,7 +821,7 @@ mod tests {
             set(&mut guest, fields, "bad name"),
             set(&mut guest, fields, "x-ok"),
         ];
-        let frozen = guest.push_held(Held::Fields {
+        let frozen = guest.push_http(Held::Fields {
             entries: Entries::default(),
             mutable: false,
         });

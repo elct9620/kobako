@@ -13,7 +13,7 @@ use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{to_error, ProtoOps};
-use super::SOCKET_BUFFER;
+use super::MAX_SOCKET_BUFFER;
 use crate::vfs::{FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -101,7 +101,7 @@ impl UdpSock {
         while state.failed.is_none() {
             match socket.recv(&mut datagram) {
                 Ok(n) => {
-                    if state.received_bytes + n <= SOCKET_BUFFER {
+                    if state.received_bytes + n <= MAX_SOCKET_BUFFER {
                         state.received.push_back(datagram[..n].to_vec());
                         state.received_bytes += n;
                     }
@@ -173,7 +173,7 @@ impl ProtoOps for UdpSock {
         if let Some(err) = state.failed.take() {
             return Err(err);
         }
-        if state.host.is_none() || state.sending_bytes + buf.len() > SOCKET_BUFFER {
+        if state.host.is_none() || state.sending_bytes + buf.len() > MAX_SOCKET_BUFFER {
             return Err(FilesystemError::WouldBlock);
         }
         state.sending.push_back(buf.to_vec());
@@ -190,7 +190,7 @@ impl ProtoOps for UdpSock {
         if !state.received.is_empty() || state.failed.is_some() {
             mask = mask | PollMask::IN;
         }
-        if state.host.is_some() && state.sending_bytes < SOCKET_BUFFER {
+        if state.host.is_some() && state.sending_bytes < MAX_SOCKET_BUFFER {
             mask = mask | PollMask::OUT;
         }
         if state.failed.is_some() {

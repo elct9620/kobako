@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use kobako_runtime::net::{
-    Exchange, NameLookup, Namespace, RequestBody, TcpSock, UdpSock, SOCKET_BUFFER,
+    Exchange, NameLookup, Namespace, RequestBody, TcpSock, UdpSock, MAX_SOCKET_BUFFER,
 };
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
@@ -84,13 +84,13 @@ impl Stream {
     pub(crate) fn room(&self) -> usize {
         match self {
             Stream::Socket(socket) => socket.sock.send_room(),
-            Stream::Request(_) | Stream::Response(_) => SOCKET_BUFFER,
+            Stream::Request(_) | Stream::Response(_) => MAX_SOCKET_BUFFER,
         }
     }
 
     /// Whether what was written has left for the host, so a flush is done.
-    pub(crate) fn drained(&self) -> bool {
-        self.room() == SOCKET_BUFFER
+    pub(crate) fn is_drained(&self) -> bool {
+        self.room() == MAX_SOCKET_BUFFER
     }
 
     /// What a poll finds, registering on `table` for a poll that will sleep.

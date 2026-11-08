@@ -1,7 +1,7 @@
 //! The backend that reaches the host network, as Linux's `net_proto_family`
-//! makes a socket of one family. A Sandbox holds one, since every entry
-//! dials into one namespace; a Rust Host App may hand its own, as gVisor's
-//! `hostinet` is one choice of backend. Each socket it hands out is
+//! makes a socket of one family. The Wasm Driver hands each Invocation one,
+//! since every entry dials into one namespace; a Wasm Driver of its own may
+//! hand another, as gVisor's `hostinet` is one choice of backend. Each socket it hands out is
 //! non-blocking, so the reactor waits on it and no call blocks a thread.
 
 use std::io;
@@ -33,8 +33,8 @@ pub trait ProtocolFamily: Send + Sync {
     }
 }
 
-/// The host's own TCP, as gVisor's `hostinet` hands a sandbox the host's
-/// sockets.
+/// The host's own network: its TCP and UDP sockets and its resolver, as
+/// gVisor's `hostinet` hands a sandbox the host's sockets.
 #[derive(Default)]
 pub struct HostInet;
 
