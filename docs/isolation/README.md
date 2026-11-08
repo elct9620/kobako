@@ -160,7 +160,7 @@ Each ABI version gets its own syscall table, and every table asks the same `koba
           +-----------------------+
 ```
 
-Each ABI's encoding keeps its own table: preview1's fd table and preview2's resource table. Both count against one `OpenFiles`, as `RLIMIT_NOFILE` counts every descriptor a process holds, and every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
+Each ABI's encoding keeps its own table: preview1's fd table and preview2's resource table. Both take numbers from one space, as Linux's one fdtable numbers a file and a socket alike. Both count against one `OpenFiles`, as `RLIMIT_NOFILE` counts every descriptor a process holds. Every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
 
 | Precedent | Shape |
 |---|---|
