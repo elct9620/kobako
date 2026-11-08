@@ -1037,3 +1037,15 @@ endpoint "api.example.com", port: 443
 | Given | a UDP socket streaming to the peer its endpoint names |
 | When | the guest sends one datagram a byte past what IPv4 UDP carries |
 | Then | the send answers `datagram-too-large`, as Linux's `udp_sendmsg` answers `EMSGSIZE` |
+
+## `NW-085` A request's name lookup holds its place until the resolver returns
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-059` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose `open_connection_limit` is 1, and a host resolver that has not answered |
+| When | the guest releases a request whose authority is still resolving, then sends another |
+| Then | the second answers `connection-limit-reached` until the resolver returns, since the lookup's thread holds the first request's place |
