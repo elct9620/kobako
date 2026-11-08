@@ -24,6 +24,7 @@ mod kernel_ext;
 mod socket;
 mod stream;
 mod udp;
+mod wasi;
 
 use beni::{Error, Gem, Mrb};
 

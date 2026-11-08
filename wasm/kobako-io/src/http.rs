@@ -18,29 +18,11 @@ use beni::{
 use crate::errno;
 use crate::io::argument_error;
 use crate::socket;
-
-mod wasi {
-    wit_bindgen_rust_macro::generate!({
-        path: [
-            "wit/deps/io.wit",
-            "wit/deps/clocks.wit",
-            "wit/deps/random.wit",
-            "wit/deps/filesystem.wit",
-            "wit/deps/sockets.wit",
-            "wit/deps/cli.wit",
-            "wit/deps/http.wit",
-        ],
-        world: "wasi:http/imports@0.2.12",
-        runtime_path: "crate::socket::rt",
-        generate_all,
-    });
-}
-
-use wasi::wasi::http::outgoing_handler::handle;
-use wasi::wasi::http::types::{
+use crate::wasi::wasi::http::outgoing_handler::handle;
+use crate::wasi::wasi::http::types::{
     ErrorCode, Fields, IncomingBody, Method, OutgoingBody, OutgoingRequest, Scheme,
 };
-use wasi::wasi::io::streams::{InputStream, StreamError};
+use crate::wasi::wasi::io::streams::{InputStream, StreamError};
 
 /// The most one `blocking-write-and-flush` takes, as WASI bounds it.
 const WRITE_CHUNK: usize = 4096;

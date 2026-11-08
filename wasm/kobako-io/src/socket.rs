@@ -16,63 +16,14 @@ use beni::{
 
 use crate::errno;
 use crate::io::argument_error;
-
-pub(crate) mod wasi {
-    wit_bindgen_rust_macro::generate!({
-        path: ["wit/deps/io.wit", "wit/deps/clocks.wit", "wit/deps/sockets.wit"],
-        world: "wasi:sockets/imports@0.2.12",
-        runtime_path: "crate::socket::rt",
-        generate_all,
-    });
-}
-
-use wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
-use wasi::wasi::sockets::instance_network::instance_network;
-use wasi::wasi::sockets::ip_name_lookup::resolve_addresses;
-use wasi::wasi::sockets::network::{
+use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
+use crate::wasi::wasi::sockets::instance_network::instance_network;
+use crate::wasi::wasi::sockets::ip_name_lookup::resolve_addresses;
+use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddress, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
 };
-use wasi::wasi::sockets::tcp::{ShutdownType, TcpSocket};
-use wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
-
-/// What the generated bindings call into, in place of the `wit-bindgen`
-/// crate's runtime, whose versioned `cabi_realloc` would join the Guest
-/// Binary's exports; the ABI exports `cabi_realloc` itself.
-pub(crate) mod rt {
-    use std::alloc::{self, Layout};
-    use std::ptr::NonNull;
-
-    pub fn maybe_link_cabi_realloc() {}
-
-    /// A buffer the guest lowers a list argument into, freed once the import
-    /// returns.
-    pub struct Cleanup {
-        ptr: NonNull<u8>,
-        layout: Layout,
-    }
-
-    impl Cleanup {
-        /// Room for `layout`, null and nothing to free for a size of zero.
-        pub fn new(layout: Layout) -> (*mut u8, Option<Cleanup>) {
-            if layout.size() == 0 {
-                return (std::ptr::null_mut(), None);
-            }
-            // SAFETY: `layout` has a non-zero size.
-            let ptr = unsafe { alloc::alloc(layout) };
-            let Some(ptr) = NonNull::new(ptr) else {
-                alloc::handle_alloc_error(layout)
-            };
-            (ptr.as_ptr(), Some(Cleanup { ptr, layout }))
-        }
-    }
-
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            // SAFETY: `ptr` was allocated with `layout` in `new`.
-            unsafe { alloc::dealloc(self.ptr.as_ptr(), self.layout) }
-        }
-    }
-}
+use crate::wasi::wasi::sockets::tcp::{ShutdownType, TcpSocket};
+use crate::wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
 
 /// The most `blocking-write-and-flush` takes in one call, as WASI bounds it.
 const WRITE_CHUNK: usize = 4096;

@@ -11,15 +11,15 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use crate::errno;
 use crate::io::argument_error;
-use crate::socket::wasi::wasi::sockets::instance_network::instance_network;
-use crate::socket::wasi::wasi::sockets::network::{
+use crate::socket::{addr_array, on_peer, peer_of, to_error, to_ip_socket_address};
+use crate::wasi::wasi::sockets::instance_network::instance_network;
+use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
 };
-use crate::socket::wasi::wasi::sockets::udp::{
+use crate::wasi::wasi::sockets::udp::{
     IncomingDatagramStream, OutgoingDatagram, OutgoingDatagramStream, UdpSocket,
 };
-use crate::socket::wasi::wasi::sockets::udp_create_socket::create_udp_socket;
-use crate::socket::{addr_array, on_peer, peer_of, to_error, to_ip_socket_address};
+use crate::wasi::wasi::sockets::udp_create_socket::create_udp_socket;
 
 const UDP: &str = "UDPSocket";
 
