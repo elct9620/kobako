@@ -853,8 +853,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a network entry, and a guest holding as many files as its open file limit allows |
-| When | it creates a TCP or a UDP socket |
-| Then | the call answers `new-socket-limit`, which the guest raises as `Errno::EMFILE`, as Linux's `socket()` answers. Nothing traps |
+| When | it creates a TCP or a UDP socket. With one file left, it creates a TCP socket and connects it |
+| Then | the full limit answers `new-socket-limit`, which the guest raises as `Errno::EMFILE`, as Linux's `socket()` answers. With one file left, the socket connects and hands out its streams, as Linux's `connect` takes no fd. Nothing traps |
 
 ## `NW-070` A UDP socket's failure is answered once
 

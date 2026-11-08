@@ -3849,7 +3849,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it polls an empty list |
 | Then | the call traps, as WASI says it does |
 
-## `RT-341` A preview2 resource counts against the open file limit
+## `RT-341` A preview2 view takes no file of the open file limit
 
 | Attribute | Value |
 | --- | --- |
@@ -3858,8 +3858,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a guest whose open file limit its standard streams already fill |
-| When | it subscribes to a clock through `wasi:clocks` |
-| Then | the call traps, since no handle is left to hand out |
+| When | it subscribes to a clock through `wasi:clocks`, and keeps subscribing past a million handles |
+| Then | each subscription hands out a pollable, since a view holds no file. Past a million handles the call traps, as wasmtime's resource table traps past its capacity |
 
 ## `RT-342` A socket connects without blocking and its poll wakes once connected
 
