@@ -20,7 +20,7 @@ module Kobako
     def test_a_name_given_twice_is_refused
       @grants.register(entry(:github))
 
-      assert_raises(ArgumentError, "Catalog::Grants#register of a network name already given must be refused") do
+      assert_raises(ArgumentError, "Sandbox#network of a name already given must be refused") do
         @grants.register(entry("github"))
       end
     end
@@ -31,7 +31,7 @@ module Kobako
       @grants.register(entry("/data"))
 
       assert_equal [1, 1], @grants.entries.map(&:size),
-                   "Catalog::Grants#register of a network entry named as a mounted path must stand beside the Mount"
+                   "Sandbox#network naming a path Sandbox#mount took must stand beside the Mount"
     end
 
     # @behavior NW-007
@@ -52,7 +52,7 @@ module Kobako
 
     # @behavior NW-008
     def test_an_empty_name_or_a_malformed_endpoint_is_refused
-      assert_raises(ArgumentError, "Catalog::Network.of with an empty name must be refused") { entry("") }
+      assert_raises(ArgumentError, "Sandbox#network with an empty name must be refused") { entry("") }
       MALFORMED_ENDPOINTS.each do |fields|
         assert_raises(ArgumentError, "Kobako::Network::Endpoint.new(#{fields}) must be refused") do
           Network::Endpoint.new(**fields)
@@ -128,7 +128,8 @@ module Kobako
     end
 
     def test_a_policy_for_an_unknown_hook_is_refused
-      assert_raises(ArgumentError, "Builder#policy for a hook other than :connect must be refused") do
+      assert_raises(ArgumentError,
+                    "Builder#policy for a hook other than :resolve, :connect, or :request must be refused") do
         Catalog::Network.of(:guard, nil) { |net| net.policy(:listen) { true } }
       end
     end

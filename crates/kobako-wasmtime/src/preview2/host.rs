@@ -1675,12 +1675,12 @@ mod tests {
         );
     }
 
-    /// The preview2 functions a scenario answers before a Guest Binary
-    /// imports them, each beside the scenario that holds the answer.
+    /// The preview2 functions a test answers before a Guest Binary imports
+    /// them, each beside the test that holds the answer.
     const ANSWERED_AHEAD: [(&str, &str, &str); 1] = [(
         "wasi:sockets/tcp@0.2.12",
         "[method]tcp-socket.remote-address",
-        "NW-031",
+        "a_looked_up_name_connects_and_reads_back_its_virtual_address",
     )];
 
     #[test]
@@ -1733,7 +1733,7 @@ mod tests {
 
     // @behavior RT-347
     #[test]
-    fn a_handle_and_a_descriptor_number_from_one_space() {
+    fn a_handle_and_a_descriptor_are_numbered_from_one_space() {
         let (mut store, _) = guest(Profile::Hermetic, None);
         let guest = store.data_mut();
         let first = guest.instance_network_instance_network().unwrap();

@@ -55,4 +55,24 @@ class TestE2ENetworkUdpCruby < Minitest::Test
                  "#send, and #recv with a wrong argument count must raise ArgumentError naming CRuby's range; " \
                  "and Socket.new must raise NoMethodError"
   end
+
+  PAST_THE_LIMIT = <<~RUBY
+    held = []
+    begin
+      20.times { held << UDPSocket.new }
+      :all_opened
+    rescue SystemCallError => e
+      [e.class.to_s, e.message]
+    end
+  RUBY
+
+  # @behavior NW-069
+  def test_a_socket_past_the_open_file_limit_raises_emfile
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, open_file_limit: 8).network(:local) do |net|
+      net.endpoint "127.0.0.1", port: 9, protocol: :udp, addresses: [:local]
+    end
+
+    assert_equal ["Errno::EMFILE", "Too many open files - socket(2) - udp"], sandbox.eval(PAST_THE_LIMIT).value,
+                 "UDPSocket.new past a Sandbox's open_file_limit must raise Errno::EMFILE, as CRuby's socket(2) does"
+  end
 end

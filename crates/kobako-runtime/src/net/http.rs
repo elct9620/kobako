@@ -1714,8 +1714,8 @@ mod tests {
                 b"kobako-token".to_vec(),
                 "Secret(**)".to_string()
             ),
-            "a swap must replace the placeholder in its named header only, and a secret must \
-             print as a mask"
+            "a credential must replace its placeholder in the header it names only, and its \
+             secret must print as a mask"
         );
     }
 
@@ -1733,8 +1733,8 @@ mod tests {
                 swap.apply("authorization", b"Basic YQ=="),
             ],
             [b"Basic dXNlcjpzM2NyZXQ=".to_vec(), b"Basic YQ==".to_vec()],
-            "a swap must replace the placeholder inside a Basic pair it decodes and encode the \
-             pair again, as OpenShell's does, and leave a pair without it as sent"
+            "a credential must replace its placeholder inside a Basic pair and encode the pair \
+             again, as OpenShell's does, and leave a pair without it as sent"
         );
     }
 }

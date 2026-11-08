@@ -53,6 +53,31 @@ class TestE2ECanonicalBoot < Minitest::Test
                  "the default Guest Binary through #eval must define no Time, Random, sleep, or rand"
   end
 
+  # @behavior MR-027
+  # The hermetic wait asks five seconds, so returning well before them shows
+  # it ended at once; the permissive one asks a fifth of a second and must
+  # take it.
+  def test_io_select_waits_on_a_timeout_the_guest_cannot_read
+    hermetic, hermetic_took = timed_select(:hermetic, 5)
+    permissive, permissive_took = timed_select(:permissive, 0.2)
+
+    assert_equal [[nil, false], [nil, false], true, true],
+                 [hermetic, permissive, hermetic_took < 2, permissive_took >= 0.2],
+                 "IO.select with a timeout must answer nil with no Time defined, at once on a hermetic Sandbox " \
+                 "and once the timeout passes on a permissive one"
+  end
+
+  TIMED_SELECT = "[IO.select(nil, nil, nil, %<timeout>s), Object.const_defined?(:Time)]"
+
+  # What the script above answers on a +profile+ Sandbox, and the seconds the
+  # host took to see it.
+  def timed_select(profile, timeout)
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, profile: profile)
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    answer = sandbox.eval(format(TIMED_SELECT, timeout: timeout)).value
+    [answer, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
+  end
+
   # @behavior S-154
   # The failed run raised after writing, so its write is the one a leak
   # would carry into the next entry.
