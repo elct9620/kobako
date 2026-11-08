@@ -16,7 +16,7 @@ mod udp;
 pub use connections::{process_connections, OpenConnections};
 pub use family::{HostInet, ProtocolFamily};
 pub use http::{
-    is_authority, is_origin_form, is_token, to_field_name, to_field_value, Connector, Exchange,
+    is_authority, is_token, to_field_name, to_field_value, to_origin_form, Connector, Exchange,
     FieldError, Fields, HttpError, HyperOutbound, Outbound, OutgoingRequest, RequestBody, Response,
     ResponseBody, ResponseFuture, ResponseHead, Scheme, Transport, MAX_FIELD_SIZE,
 };

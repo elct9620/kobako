@@ -910,8 +910,8 @@ pub fn to_field_name(name: &str) -> Result<String, FieldError> {}
 
 ## `to_field_value`
 
-The header value the Guest may set. One holding CR, LF, or NUL is
-`InvalidSyntax`.
+The header value the Guest may set. One holding a control byte other than a
+tab is `InvalidSyntax`, as an HTTP field value refuses it.
 
 ```rust
 pub fn to_field_value(value: Vec<u8>) -> Result<Vec<u8>, FieldError> {}
@@ -927,18 +927,21 @@ pub fn is_token(text: &str) -> bool {}
 
 ## `is_authority`
 
-Whether an authority names a host alone, with no path or user part.
+Whether an authority names a host alone, with no path or user part. A port it
+names is a number that fits, as wasmtime asks.
 
 ```rust
 pub fn is_authority(authority: &str) -> bool {}
 ```
 
-## `is_origin_form`
+## `to_origin_form`
 
-Whether a request target is in origin form, as one from the Guest must be.
+A request target in origin form, as one from the Guest is sent. An empty one is
+`/`, and a query alone sits on `/`. One that starts otherwise, or that no URI
+path holds, is none.
 
 ```rust
-pub fn is_origin_form(path: &str) -> bool {}
+pub fn to_origin_form(path: &str) -> Option<String> {}
 ```
 
 ## `Scheme`

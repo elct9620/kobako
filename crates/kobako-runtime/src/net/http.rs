@@ -181,23 +181,42 @@ pub fn to_field_name(name: &str) -> Result<String, FieldError> {
     }
 }
 
-/// The header value a guest may set: one holding no CR, LF, or NUL.
+/// The header value a guest may set: one an HTTP field value holds, with no
+/// control byte but a tab, as hyper's `HeaderValue` and wasmtime take one.
 pub fn to_field_value(value: Vec<u8>) -> Result<Vec<u8>, FieldError> {
-    match value.iter().any(|b| matches!(b, b'\r' | b'\n' | 0)) {
-        true => Err(FieldError::InvalidSyntax),
-        false => Ok(value),
+    match hyper::header::HeaderValue::from_bytes(&value) {
+        Ok(_) => Ok(value),
+        Err(_) => Err(FieldError::InvalidSyntax),
     }
 }
 
-/// Whether `authority` names a host alone, with no path or user part.
+/// Whether `authority` names a host alone, with no path or user part, and a
+/// port, when it names one, as a number that fits, as wasmtime's
+/// `parse_authority` asks.
 pub fn is_authority(authority: &str) -> bool {
-    !authority.is_empty() && !authority.contains(['/', '@', ' ', '\r', '\n'])
+    if authority.contains('@') {
+        return false;
+    }
+    let has_port = match authority.rfind(']') {
+        Some(at) => authority[at..].contains(':'),
+        None => authority.contains(':'),
+    };
+    hyper::http::uri::Authority::try_from(authority)
+        .is_ok_and(|parsed| !has_port || parsed.port_u16().is_some())
 }
 
-/// Whether `path` is in origin form, as a request target from the guest must
-/// be.
-pub fn is_origin_form(path: &str) -> bool {
-    path.starts_with('/') && !path.contains([' ', '\r', '\n'])
+/// `path` as the request target sent in origin form, as wasmtime takes one:
+/// `""` is `/` and a query alone sits on `/`; anything else not starting with
+/// `/`, or no URI path holds, is none.
+pub fn to_origin_form(path: &str) -> Option<String> {
+    let target = match path.chars().next() {
+        None => "/".to_string(),
+        Some('?') => format!("/{path}"),
+        Some('/') => path.to_string(),
+        Some(_) => return None,
+    };
+    hyper::http::uri::PathAndQuery::try_from(target.as_str()).ok()?;
+    Some(target)
 }
 
 /// One request the guest sends: its method, scheme, authority, path with its

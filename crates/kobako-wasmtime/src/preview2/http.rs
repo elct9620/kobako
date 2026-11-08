@@ -231,7 +231,12 @@ impl HttpHost for Invocation {
     ) -> wasmtime::Result<Result<(), HeaderError>> {
         let fields = self.table().get(this)?;
         if !fields.mutable {
-            return Ok(Err(HeaderError::Immutable));
+            // The header is read before the list is found immutable, as
+            // wasmtime parses one before it asks whether it may change.
+            let read = net::to_field_name(&name).and_then(|_| net::to_field_value(value));
+            return Ok(Err(
+                read.map_or_else(to_header_error, |_| HeaderError::Immutable)
+            ));
         }
         match fields.entries.append(&name, value) {
             Ok(()) => Ok(Ok(())),
@@ -301,13 +306,11 @@ impl HttpHost for Invocation {
         this: OutgoingRequest,
         path_with_query: Option<String>,
     ) -> wasmtime::Result<Result<(), ()>> {
-        if path_with_query
-            .as_deref()
-            .is_some_and(|path| !net::is_origin_form(path))
-        {
-            return Ok(Err(()));
-        }
-        self.request(this)?.path_with_query = path_with_query;
+        let target = match path_with_query.as_deref().map(net::to_origin_form) {
+            Some(None) => return Ok(Err(())),
+            target => target.flatten(),
+        };
+        self.request(this)?.path_with_query = target;
         Ok(Ok(()))
     }
 
@@ -357,8 +360,8 @@ impl HttpHost for Invocation {
             .map(Ok)
     }
 
-    /// End the body, so its request may leave; HTTP/1 carries no trailers, so
-    /// any given are dropped.
+    /// End the body, so its request may leave; the outbound seam sends one
+    /// framed body with no trailers, so any given are dropped.
     fn types_outgoing_body_finish(
         &mut self,
         this: OutgoingBody,
@@ -506,7 +509,7 @@ impl HttpHost for Invocation {
             .map(Ok)
     }
 
-    /// The trailers, which HTTP/1 never carries.
+    /// The trailers, which the outbound seam never reads, so none arrive.
     fn types_incoming_body_finish(
         &mut self,
         this: IncomingBody,
@@ -840,6 +843,73 @@ mod tests {
             "fields.append of 1 KiB values must trap once the list passes 128 KiB, and sooner \
              once it passes a 16 KiB memory_limit; a dropped list must give its room back, so \
              a new one takes as many"
+        );
+    }
+
+    // @behavior NW-093
+    #[test]
+    fn a_requests_parts_are_judged_as_they_are_set() {
+        let mut guest = guest(None);
+        let fields = guest.types_fields_new().unwrap();
+        let control = guest
+            .types_fields_append(fields, "x-ok".to_string(), b"a\x01b".to_vec())
+            .unwrap();
+        let request = guest.types_outgoing_request_new(fields).unwrap();
+        let mut authority = |value: &str| {
+            guest
+                .types_outgoing_request_set_authority(request, Some(value.to_string()))
+                .unwrap()
+                .is_ok()
+        };
+        let authorities = [
+            authority("example.com:"),
+            authority("example.com:abc"),
+            authority("example.com:80"),
+        ];
+        let mut path = |value: &str| {
+            guest
+                .types_outgoing_request_set_path_with_query(request, Some(value.to_string()))
+                .unwrap()
+                .ok()
+                .map(|()| guest.request(request).unwrap().path_with_query.clone())
+        };
+        let paths = [path(""), path("?q"), path("relative")];
+        assert_eq!(
+            (control, authorities, paths),
+            (
+                Err(HeaderError::InvalidSyntax),
+                [false, false, true],
+                [
+                    Some(Some("/".to_string())),
+                    Some(Some("/?q".to_string())),
+                    None
+                ]
+            ),
+            "fields.append of a value holding a control byte must answer invalid-syntax, \
+             set-authority must refuse an empty or non-numeric port, and set-path-with-query \
+             must take \"\" as / and \"?q\" as /?q, refusing a relative path"
+        );
+    }
+
+    // @behavior NW-094
+    #[test]
+    fn an_immutable_list_reads_a_header_before_refusing_the_change() {
+        let mut guest = guest(None);
+        let entries = net::Fields::new(guest.wasi().descriptors().cred().clone());
+        let frozen = guest
+            .table()
+            .push(resource::Fields {
+                entries,
+                mutable: false,
+            })
+            .unwrap();
+        assert_eq!(
+            guest
+                .types_fields_append(frozen, "bad name".to_string(), b"x".to_vec())
+                .unwrap(),
+            Err(HeaderError::InvalidSyntax),
+            "fields.append of a name that is no token to an immutable list must answer \
+             invalid-syntax, as wasmtime reads the header before it finds the list immutable"
         );
     }
 
