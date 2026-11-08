@@ -95,14 +95,9 @@ impl FileOperations for AnonPipe {
 
     /// A pipe has no offsets, so a write lands after the last. A write past
     /// the capacity keeps what fit and answers a failure, which is how a
-    /// capture one past its limit learns it was truncated. One asked not to
-    /// wait finding the pipe full answers EAGAIN, as `pipe_write` does under
-    /// `IOCB_NOWAIT`.
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    /// capture one past its limit learns it was truncated.
+    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
         let mut state = self.0.state();
-        if iocb.nowait && !buf.is_empty() && state.bytes.len() == self.0.capacity {
-            return Err(FilesystemError::WouldBlock);
-        }
         let take = buf.len().min(self.0.capacity - state.bytes.len());
         state.bytes.extend_from_slice(&buf[..take]);
         if take < buf.len() {
@@ -200,23 +195,6 @@ mod tests {
             (Some(2), true, b"abc".to_vec()),
             "File::write past a pipe's capacity must keep what fit and fail, and \
              PipeInodeInfo::contents must read what was written"
-        );
-    }
-
-    #[test]
-    fn a_write_asked_not_to_wait_on_a_full_pipe_answers_eagain() {
-        let pipe = PipeInodeInfo::new(1);
-        let mut end = AnonPipe(pipe.clone());
-        let mut nowait = Kiocb::at(0).with_nowait();
-        assert_eq!(
-            (
-                end.write_iter(&mut nowait, b"a"),
-                end.write_iter(&mut nowait, b"b"),
-                pipe.contents()
-            ),
-            (Ok(1), Err(FilesystemError::WouldBlock), b"a".to_vec()),
-            "write_iter under IOCB_NOWAIT on a pipe its first byte filled must answer EAGAIN and \
-             keep what it held, as pipe_write does"
         );
     }
 

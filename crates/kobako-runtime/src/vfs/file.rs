@@ -44,9 +44,6 @@ pub struct Kiocb {
     /// Whether everything a write changed is durable before it answers, as
     /// `IOCB_SYNC` asks along with `IOCB_DSYNC`.
     pub sync: bool,
-    /// Whether a call that would wait answers EAGAIN instead, as
-    /// `IOCB_NOWAIT` asks.
-    pub nowait: bool,
 }
 
 impl Kiocb {
@@ -57,15 +54,6 @@ impl Kiocb {
             append: false,
             dsync: false,
             sync: false,
-            nowait: false,
-        }
-    }
-
-    /// This call, answering EAGAIN where it would wait.
-    pub fn with_nowait(self) -> Self {
-        Self {
-            nowait: true,
-            ..self
         }
     }
 

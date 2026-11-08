@@ -2361,16 +2361,6 @@ impl Kiocb {
 }
 ```
 
-## `Kiocb::with_nowait`
-
-The same call, answering EAGAIN where it would wait, as `IOCB_NOWAIT` asks.
-
-```rust
-impl Kiocb {
-    pub fn with_nowait(self) -> Self {}
-}
-```
-
 ## `generic_write_sync`
 
 Make what a write changed durable through the file where the call asks. A
