@@ -5,10 +5,13 @@
 //! on the runtime's wait primitive.
 
 use std::net::Shutdown;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use kobako_runtime::net::{sock_alloc_file, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER};
-use kobako_runtime::vfs::{FilesystemError, PollMask};
+use kobako_runtime::net::{
+    sock_alloc_file, Namespace, ProtoOps, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
+};
+use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
 
 use super::bindings::wasi_clocks_monotonic_clock_0_2_12 as monotonic_clock;
@@ -25,7 +28,7 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
 };
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{from_socket_addr, lookup_error_code, to_error_code, to_socket_addr};
-use super::table::{self, Resource, SocketFile, Stream};
+use super::table::{self, Resource, SocketFile, Stream, TcpState, UdpState};
 use crate::descriptors::share;
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
@@ -85,6 +88,19 @@ impl Invocation {
                 "the guest named a handle that is not a network",
             )),
         }
+    }
+
+    /// The Invocation's network, which every socket is made in.
+    fn network(&self) -> &Namespace {
+        self.wasi()
+            .table()
+            .network()
+            .expect("a socket is only made with a network")
+    }
+
+    /// The socket file of `sock`, opened as the Invocation's credentials.
+    fn sock_alloc_file(&self, sock: Arc<dyn ProtoOps>) -> File {
+        sock_alloc_file(sock, self.wasi().descriptors().cred())
     }
 
     fn push(&mut self, resource: Resource) -> wasmtime::Result<u32> {
@@ -310,9 +326,17 @@ impl SocketsHost for Invocation {
         if self.wasi().table().is_full() {
             return Ok(Err(ErrorCode::NewSocketLimit));
         }
-        Ok(Ok(TcpSocket(
-            self.push(Resource::TcpSocket(table::TcpSocket::Unbound))?,
-        )))
+        let sock = match self.network().tcp_socket() {
+            Ok(sock) => sock,
+            Err(err) => return Ok(Err(to_error_code(&err))),
+        };
+        let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
+        let handle = self.push(Resource::TcpSocket(table::TcpSocket {
+            socket: socket.clone(),
+            state: TcpState::Unbound,
+        }))?;
+        self.wasi().table().install(handle, &socket);
+        Ok(Ok(TcpSocket(handle)))
     }
 
     /// A connect passes the Invocation's namespace on what the guest named,
@@ -325,25 +349,19 @@ impl SocketsHost for Invocation {
         remote_address: IpSocketAddress,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         self.ensure_network(network)?;
-        if !matches!(self.tcp(this)?, table::TcpSocket::Unbound) {
+        let socket = self.tcp(this)?;
+        if socket.state != TcpState::Unbound {
             return Ok(Err(ErrorCode::InvalidState));
         }
+        let sock = socket.socket.sock.clone();
         let Some(addr) = to_socket_addr(&remote_address) else {
             return Ok(Err(ErrorCode::InvalidArgument));
         };
         let cred = self.wasi().descriptors().cred();
-        let connected = self
-            .wasi()
-            .table()
-            .network()
-            .expect("a socket is only made with a network")
-            .connect(cred, addr);
-        let sock = match connected {
-            Ok(sock) => sock,
-            Err(err) => return Ok(Err(to_error_code(&err))),
-        };
-        let file = sock_alloc_file(sock.clone(), cred);
-        *self.tcp(this)? = table::TcpSocket::Connecting(SocketFile::new(sock, file, addr));
+        if let Err(err) = self.network().connect(cred, &sock, addr) {
+            return Ok(Err(to_error_code(&err)));
+        }
+        self.tcp(this)?.state = TcpState::Connecting;
         Ok(Ok(()))
     }
 
@@ -354,14 +372,14 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<(InputStream, OutputStream), ErrorCode>> {
-        let socket = match self.tcp(this)? {
-            table::TcpSocket::Connecting(socket) => socket.clone(),
-            _ => return Ok(Err(ErrorCode::NotInProgress)),
-        };
+        let socket = self.tcp(this)?;
+        if socket.state != TcpState::Connecting {
+            return Ok(Err(ErrorCode::NotInProgress));
+        }
+        let socket = socket.socket.clone();
         match socket.sock.finish_connect() {
             Ok(()) => {
-                *self.tcp(this)? = table::TcpSocket::Connected(socket.clone());
-                self.wasi().table().install(this.0, &socket);
+                self.tcp(this)?.state = TcpState::Connected;
                 let stream = Stream::Socket(socket);
                 let input = InputStream(self.push(Resource::InputStream(stream.clone()))?);
                 let output = OutputStream(self.push(Resource::OutputStream(stream))?);
@@ -369,26 +387,17 @@ impl SocketsHost for Invocation {
             }
             Err(FilesystemError::WouldBlock) => Ok(Err(ErrorCode::WouldBlock)),
             Err(err) => {
-                *self.tcp(this)? = table::TcpSocket::Closed;
+                self.tcp(this)?.state = TcpState::Closed;
                 Ok(Err(to_error_code(&err)))
             }
         }
     }
 
-    /// Ready once a connect settles; a socket not connecting is ready at once.
+    /// Ready once a connect settles, as the socket file polls writable; one
+    /// connected to nothing polls hung up, so it is ready at once.
     fn tcp_tcp_socket_subscribe(&mut self, this: TcpSocket) -> wasmtime::Result<Pollable> {
-        let socket = match self.tcp(this)? {
-            table::TcpSocket::Connecting(socket) | table::TcpSocket::Connected(socket) => {
-                Some(socket.clone())
-            }
-            _ => None,
-        };
-        match socket {
-            Some(socket) => self.subscribe_stream(Stream::Socket(socket), PollMask::OUT),
-            None => Ok(Pollable(
-                self.push(Resource::Pollable(table::Pollable::Ready))?,
-            )),
-        }
+        let socket = self.tcp(this)?.socket.clone();
+        self.subscribe_stream(Stream::Socket(socket), PollMask::OUT)
     }
 
     fn tcp_tcp_socket_shutdown(
@@ -396,10 +405,11 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
         shutdown_type: ShutdownType,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        let table::TcpSocket::Connected(socket) = self.tcp(this)? else {
+        let socket = self.tcp(this)?;
+        if socket.state != TcpState::Connected {
             return Ok(Err(ErrorCode::InvalidState));
-        };
-        socket.sock.shutdown(match shutdown_type {
+        }
+        socket.socket.sock.shutdown(match shutdown_type {
             ShutdownType::Receive => Shutdown::Read,
             ShutdownType::Send => Shutdown::Write,
             ShutdownType::Both => Shutdown::Both,
@@ -412,8 +422,9 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
-        match self.tcp(this)? {
-            table::TcpSocket::Connected(socket) => Ok(Ok(from_socket_addr(socket.peer))),
+        let socket = self.tcp(this)?;
+        match (socket.state, socket.socket.sock.peer_addr()) {
+            (TcpState::Connected, Some(peer)) => Ok(Ok(from_socket_addr(peer))),
             _ => Ok(Err(ErrorCode::InvalidState)),
         }
     }
@@ -434,9 +445,14 @@ impl SocketsHost for Invocation {
         if self.wasi().table().is_full() {
             return Ok(Err(ErrorCode::NewSocketLimit));
         }
-        Ok(Ok(UdpSocket(
-            self.push(Resource::UdpSocket(table::UdpSocket::Unbound))?,
-        )))
+        let sock = self.network().udp_socket();
+        let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
+        let handle = self.push(Resource::UdpSocket(table::UdpSocket {
+            socket: socket.clone(),
+            state: UdpState::Unbound,
+        }))?;
+        self.wasi().table().install(handle, &socket);
+        Ok(Ok(UdpSocket(handle)))
     }
 
     /// The guest only sends to a peer it names, so the one bind it makes is
@@ -449,22 +465,16 @@ impl SocketsHost for Invocation {
         local_address: IpSocketAddress,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         self.ensure_network(network)?;
-        if !matches!(self.udp(this)?, table::UdpSocket::Unbound) {
+        if self.udp(this)?.state != UdpState::Unbound {
             return Ok(Err(ErrorCode::InvalidState));
         }
         let Some(addr) = to_socket_addr(&local_address) else {
             return Ok(Err(ErrorCode::InvalidArgument));
         };
-        let bound = self
-            .wasi()
-            .table()
-            .network()
-            .expect("a socket is only made with a network")
-            .bind(addr);
-        if let Err(err) = bound {
+        if let Err(err) = self.network().bind(addr) {
             return Ok(Err(to_error_code(&err)));
         }
-        *self.udp(this)? = table::UdpSocket::Binding;
+        self.udp(this)?.state = UdpState::Binding;
         Ok(Ok(()))
     }
 
@@ -473,10 +483,10 @@ impl SocketsHost for Invocation {
         this: UdpSocket,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         let socket = self.udp(this)?;
-        if !matches!(socket, table::UdpSocket::Binding) {
+        if socket.state != UdpState::Binding {
             return Ok(Err(ErrorCode::NotInProgress));
         }
-        *socket = table::UdpSocket::Bound;
+        socket.state = UdpState::Bound;
         Ok(Ok(()))
     }
 
@@ -488,33 +498,20 @@ impl SocketsHost for Invocation {
         this: UdpSocket,
         remote_address: Option<IpSocketAddress>,
     ) -> wasmtime::Result<Result<(IncomingDatagramStream, OutgoingDatagramStream), ErrorCode>> {
-        if !matches!(
-            self.udp(this)?,
-            table::UdpSocket::Bound | table::UdpSocket::Streaming { .. }
-        ) {
+        let socket = self.udp(this)?;
+        if !matches!(socket.state, UdpState::Bound | UdpState::Streaming) {
             return Ok(Err(ErrorCode::InvalidState));
         }
+        let datagrams = socket.socket.clone();
         let peer = match remote_address.as_ref().map(to_socket_addr) {
             Some(None) => return Ok(Err(ErrorCode::InvalidArgument)),
             peer => peer.flatten(),
         };
         let cred = self.wasi().descriptors().cred();
-        let connected = self
-            .wasi()
-            .table()
-            .network()
-            .expect("a socket is only made with a network")
-            .connect_datagram(cred, peer);
-        let (sock, addr) = match (connected, peer) {
-            (Ok(sock), Some(addr)) => (sock, addr),
-            (Err(err), _) => return Ok(Err(to_error_code(&err))),
-            (Ok(_), None) => unreachable!("connect_datagram refuses a stream naming no peer"),
-        };
-        let file = sock_alloc_file(sock.clone(), cred);
-        let datagrams = SocketFile::new(sock, file, addr);
-        *self.udp(this)? = table::UdpSocket::Streaming {
-            _file: datagrams.clone(),
-        };
+        if let Err(err) = self.network().connect_datagram(cred, &datagrams.sock, peer) {
+            return Ok(Err(to_error_code(&err)));
+        }
+        self.udp(this)?.state = UdpState::Streaming;
         let incoming = IncomingDatagramStream(self.push(Resource::Datagrams(datagrams.clone()))?);
         let outgoing = OutgoingDatagramStream(self.push(Resource::OutgoingDatagrams {
             socket: datagrams,
@@ -543,13 +540,17 @@ impl SocketsHost for Invocation {
         max_results: u64,
     ) -> wasmtime::Result<Result<Vec<IncomingDatagram>, ErrorCode>> {
         let datagrams = self.datagrams(this.0)?;
+        let peer = datagrams
+            .sock
+            .peer_addr()
+            .expect("a datagram stream is only handed out once its socket connects");
         let mut received = Vec::new();
         let mut buf = vec![0; MAX_DATAGRAM];
         while (received.len() as u64) < max_results {
             match datagrams.file().read(&mut buf) {
                 Ok(n) => received.push(IncomingDatagram {
                     data: buf[..n].to_vec(),
-                    remote_address: from_socket_addr(datagrams.peer),
+                    remote_address: from_socket_addr(peer),
                 }),
                 Err(FilesystemError::WouldBlock) => break,
                 Err(err) if received.is_empty() => return Ok(Err(to_error_code(&err))),
@@ -604,7 +605,7 @@ impl SocketsHost for Invocation {
         let mut sent = 0;
         for datagram in datagrams {
             let addressed = datagram.remote_address.as_ref().map(to_socket_addr);
-            let refused = if addressed.is_some_and(|addr| addr != Some(stream.peer)) {
+            let refused = if addressed.is_some_and(|addr| addr != stream.sock.peer_addr()) {
                 Some(ErrorCode::InvalidArgument)
             } else if datagram.data.len() > MAX_DATAGRAM {
                 Some(ErrorCode::DatagramTooLarge)

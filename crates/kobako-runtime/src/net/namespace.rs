@@ -280,11 +280,27 @@ impl Namespace {
     /// real address the ruleset lets the name lead to is dialed exactly, in
     /// turn, until one answers, so a name answering `::1` first still reaches
     /// `127.0.0.1`.
-    pub fn connect(&self, cred: &Cred, addr: SocketAddr) -> Result<Arc<TcpSock>, FilesystemError> {
+    pub fn connect(
+        &self,
+        cred: &Cred,
+        sock: &TcpSock,
+        addr: SocketAddr,
+    ) -> Result<(), FilesystemError> {
         let real = self.admit(cred, addr, Protocol::Tcp)?;
         self.within_connection_limit(FilesystemError::WouldBlock, || {
-            TcpSock::connect(self.family.clone(), real, &self.open_connections)
+            sock.connect(real, addr, &self.open_connections)
         })
+    }
+
+    /// A TCP socket connected to nothing, which connects through this
+    /// namespace's Protocol Family, as `inet_create` makes one.
+    pub fn tcp_socket(&self) -> Result<Arc<TcpSock>, FilesystemError> {
+        TcpSock::new(self.family.clone())
+    }
+
+    /// A UDP socket connected to nothing, as `inet_create` makes one.
+    pub fn udp_socket(&self) -> Arc<UdpSock> {
+        UdpSock::new()
     }
 
     /// Whether a socket may bind `addr`: only the unspecified address and port
@@ -297,7 +313,7 @@ impl Namespace {
         }
     }
 
-    /// A UDP socket streaming with `addr`, the one peer the guest named, as
+    /// Connect a UDP socket to `addr`, the one peer the guest named, as
     /// `cred`. It passes the same steps a TCP connect does, as
     /// `udp_pre_connect` runs `connect4`; UDP opens no handshake, so the first
     /// real address the ruleset admits is its peer. A stream naming no peer
@@ -305,12 +321,13 @@ impl Namespace {
     pub fn connect_datagram(
         &self,
         cred: &Cred,
+        sock: &UdpSock,
         addr: Option<SocketAddr>,
-    ) -> Result<Arc<UdpSock>, FilesystemError> {
+    ) -> Result<(), FilesystemError> {
         let addr = addr.ok_or(FilesystemError::PermissionDenied)?;
         let real = self.admit(cred, addr, Protocol::Udp)?;
         self.within_connection_limit(FilesystemError::WouldBlock, || {
-            UdpSock::connect(self.family.clone(), real[0], &self.open_connections)
+            sock.connect(&self.family, real[0], addr, &self.open_connections)
         })
     }
 
@@ -528,7 +545,7 @@ mod tests {
     fn a_connect_past_the_sandboxs_cap_answers_eagain() {
         let (namespace, family, _) = within(&[true], Some(0), None);
         let cred = prepare_creds_within(&[], None);
-        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap());
+        let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::WouldBlock))
                 && family.0.load(Ordering::SeqCst) == 0,
@@ -557,17 +574,34 @@ mod tests {
         .unwrap();
         let cred = prepare_creds_within(&[], None);
         let addr = listener.local_addr().unwrap();
-        let made = [
-            namespace.connect(&cred, addr),
-            namespace.connect(&cred, addr),
-        ];
+        let made = [dial(&namespace, &cred, addr), dial(&namespace, &cred, addr)];
         drop(made);
-        let third = namespace.connect(&cred, addr);
+        let third = dial(&namespace, &cred, addr);
         assert!(
             matches!(third, Err(FilesystemError::WouldBlock)),
             "Namespace::connect past the Invocation's connection limit must answer EAGAIN even \
              once the earlier connections closed"
         );
+    }
+
+    /// A new TCP socket `namespace` connects to `addr` as `cred`.
+    fn dial(
+        namespace: &Namespace,
+        cred: &Cred,
+        addr: SocketAddr,
+    ) -> Result<Arc<TcpSock>, FilesystemError> {
+        let sock = namespace.tcp_socket()?;
+        namespace.connect(cred, &sock, addr).map(|()| sock)
+    }
+
+    /// A new UDP socket `namespace` connects to `addr` as `cred`.
+    fn dial_datagram(
+        namespace: &Namespace,
+        cred: &Cred,
+        addr: Option<SocketAddr>,
+    ) -> Result<Arc<UdpSock>, FilesystemError> {
+        let sock = namespace.udp_socket();
+        namespace.connect_datagram(cred, &sock, addr).map(|()| sock)
     }
 
     fn settle(sock: &TcpSock) {
@@ -581,7 +615,7 @@ mod tests {
     fn a_connect_policy_refuses_what_the_endpoints_allow() {
         let (namespace, family, seen) = namespace(&[true, false]);
         let cred = prepare_creds_within(&[], None);
-        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap());
+        let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::PermissionDenied))
                 && family.0.load(Ordering::SeqCst) == 0,
@@ -600,8 +634,7 @@ mod tests {
     fn a_connect_every_policy_allows_dials_the_address() {
         let (namespace, family, _) = namespace(&[true, true]);
         let cred = prepare_creds_within(&[], None);
-        let sock = namespace
-            .connect(&cred, "127.0.0.1:4567".parse().unwrap())
+        let sock = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap())
             .expect("every policy allows");
         settle(&sock);
         assert_eq!(
@@ -625,7 +658,7 @@ mod tests {
     fn a_security_module_refuses_before_any_entry_policy() {
         let (namespace, family, seen) = namespace(&[true]);
         let cred = prepare_creds_within(&[Arc::new(NoConnect)], None);
-        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap());
+        let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::PermissionDenied))
                 && seen.lock().unwrap().is_empty()
@@ -744,9 +777,7 @@ mod tests {
         let namespace = resolving(vec![local, tcp("api.internal", 6379)], "", family.clone());
         let cred = prepare_creds_within(&[], None);
         let at = looked_up(&namespace, "Cache.Internal.");
-        let sock = namespace
-            .connect(&cred, at)
-            .expect("the endpoint leads there");
+        let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
         while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -755,7 +786,7 @@ mod tests {
             at.ip().to_string() == "198.18.0.0"
                 && *family.dialed.lock().unwrap() == vec!["127.0.0.1:6379".parse().unwrap()]
                 && matches!(
-                    namespace.connect(&cred, public_only),
+                    dial(&namespace, &cred, public_only),
                     Err(FilesystemError::PermissionDenied)
                 ),
             "a connect to a name's virtual address must dial the real address its endpoint's \
@@ -771,7 +802,7 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         assert!(
             matches!(
-                namespace.connect(&cred, "198.18.0.9:6379".parse().unwrap()),
+                dial(&namespace, &cred, "198.18.0.9:6379".parse().unwrap()),
                 Err(FilesystemError::PermissionDenied)
             ),
             "a connect to a virtual address no lookup handed out must be refused as EACCES"
@@ -790,9 +821,7 @@ mod tests {
         let at = looked_up(&namespace, "cache.internal");
         *family.answers.lock().unwrap() = vec!["127.0.0.1".parse().unwrap()];
         let cred = prepare_creds_within(&[], None);
-        let sock = namespace
-            .connect(&cred, at)
-            .expect("the endpoint leads there");
+        let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
         while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -821,7 +850,7 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         assert!(
             matches!(
-                namespace.connect(&cred, at),
+                dial(&namespace, &cred, at),
                 Err(FilesystemError::PermissionDenied)
             ) && family.dialed.lock().unwrap().is_empty(),
             "a name resolving to the host's own public address must be refused by an endpoint \
@@ -840,9 +869,7 @@ mod tests {
         let namespace = resolving(vec![local], "", family.clone());
         let at = looked_up(&namespace, "localhost");
         let cred = prepare_creds_within(&[], None);
-        let sock = namespace
-            .connect(&cred, at)
-            .expect("the endpoint leads there");
+        let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
         while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -884,9 +911,12 @@ mod tests {
         )
         .unwrap();
         let cred = prepare_creds_within(&[], None);
-        let admitted = namespace.connect_datagram(&cred, Some(peer.local_addr().unwrap()));
-        let refused =
-            namespace.connect_datagram(&cred, Some(format!("127.0.0.2:{port}").parse().unwrap()));
+        let admitted = dial_datagram(&namespace, &cred, Some(peer.local_addr().unwrap()));
+        let refused = dial_datagram(
+            &namespace,
+            &cred,
+            Some(format!("127.0.0.2:{port}").parse().unwrap()),
+        );
         if let Ok(sock) = &admitted {
             crate::net::ProtoOps::release(&**sock);
         }

@@ -3,7 +3,6 @@
 //! space preview1's descriptors take theirs, since a socket is a file.
 
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
 use std::sync::{Arc, MutexGuard};
 use std::time::Instant;
 
@@ -20,9 +19,6 @@ use crate::descriptors::{lock, share, Numbers, SharedFile};
 pub(crate) struct SocketFile<S> {
     pub(crate) sock: Arc<S>,
     file: SharedFile,
-    /// The peer as the guest named it, a virtual address standing for its
-    /// name, as cgroup `getpeername4` maps a real peer back.
-    pub(crate) peer: SocketAddr,
 }
 
 impl<S> Clone for SocketFile<S> {
@@ -30,17 +26,15 @@ impl<S> Clone for SocketFile<S> {
         Self {
             sock: self.sock.clone(),
             file: self.file.clone(),
-            peer: self.peer,
         }
     }
 }
 
 impl<S> SocketFile<S> {
-    pub(crate) fn new(sock: Arc<S>, file: File, peer: SocketAddr) -> Self {
+    pub(crate) fn new(sock: Arc<S>, file: File) -> Self {
         Self {
             sock,
             file: share(file),
-            peer,
         }
     }
 
@@ -110,16 +104,21 @@ impl Stream {
     }
 }
 
-/// Where a UDP socket stands, as WASI's state machine walks it.
-pub(crate) enum UdpSocket {
+/// A UDP socket, its file made as the socket is, and where WASI's state
+/// machine has walked it.
+pub(crate) struct UdpSocket {
+    pub(crate) socket: SocketFile<UdpSock>,
+    pub(crate) state: UdpState,
+}
+
+/// The steps of a UDP socket only WASI has: its bind starts and finishes
+/// apart, and it streams once bound.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UdpState {
     Unbound,
     Binding,
     Bound,
-    /// One view of the socket file, so the host socket lives while the
-    /// udp-socket does, as each of a file's views holds it.
-    Streaming {
-        _file: SocketFile<UdpSock>,
-    },
+    Streaming,
 }
 
 /// What one handle stands for.
@@ -148,11 +147,20 @@ pub(crate) enum Resource {
     ResolveStream(Arc<NameLookup>, bool),
 }
 
-/// Where a TCP socket stands, as WASI's state machine walks it.
-pub(crate) enum TcpSocket {
+/// A TCP socket, its file made as the socket is, and where WASI's state
+/// machine has walked it.
+pub(crate) struct TcpSocket {
+    pub(crate) socket: SocketFile<TcpSock>,
+    pub(crate) state: TcpState,
+}
+
+/// The steps of a TCP socket only WASI has: its streams are handed out once
+/// `finish-connect` sees the connect land.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TcpState {
     Unbound,
-    Connecting(SocketFile<TcpSock>),
-    Connected(SocketFile<TcpSock>),
+    Connecting,
+    Connected,
     /// A connect that failed, after which the socket takes no other, as
     /// `tcp.wit` closes it.
     Closed,

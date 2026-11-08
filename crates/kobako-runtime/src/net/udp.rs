@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
@@ -29,6 +29,9 @@ struct State {
     sending: VecDeque<Vec<u8>>,
     sending_bytes: usize,
     local: Option<SocketAddr>,
+    /// The peer as the guest named it, a virtual address standing for its
+    /// name, as cgroup `getpeername4` maps a real peer back.
+    named: Option<SocketAddr>,
     /// The socket's place against its Sandbox's cap and the process's.
     place: Option<Place>,
 }
@@ -37,53 +40,60 @@ struct State {
 pub struct UdpSock {
     state: Mutex<State>,
     wait: Arc<WaitQueueHead>,
+    this: Weak<Self>,
 }
 
 impl UdpSock {
-    /// A socket connected to `addr` through `family`, its host socket watched
-    /// by the reactor; it counts against `open_connections` and the process until
-    /// released, and a full count answers `EAGAIN`.
-    pub fn connect(
-        family: Arc<dyn ProtocolFamily>,
+    /// A socket connected to nothing, as `inet_create` makes one.
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new_cyclic(|this| Self {
+            state: Mutex::new(State {
+                host: None,
+                failed: None,
+                received: VecDeque::new(),
+                received_bytes: 0,
+                sending: VecDeque::new(),
+                sending_bytes: 0,
+                local: None,
+                named: None,
+                place: None,
+            }),
+            wait: Arc::default(),
+            this: this.clone(),
+        })
+    }
+
+    /// Connect to `addr` through `family`, the guest having named `named`,
+    /// the host socket watched by the reactor; it counts against
+    /// `open_connections` and the process until released, and a full count
+    /// answers `EAGAIN`.
+    pub(crate) fn connect(
+        &self,
+        family: &Arc<dyn ProtocolFamily>,
         addr: SocketAddr,
+        named: SocketAddr,
         open_connections: &Arc<OpenConnections>,
-    ) -> Result<Arc<Self>, FilesystemError> {
-        let place = Some(open(open_connections).ok_or(FilesystemError::WouldBlock)?);
+    ) -> Result<(), FilesystemError> {
+        let place = open(open_connections).ok_or(FilesystemError::WouldBlock)?;
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         let mut socket = mio::net::UdpSocket::from_std(
             family
                 .connect_datagram(addr)
                 .map_err(|err| to_error(&err))?,
         );
-        let local = socket.local_addr().ok();
-        let mut failed = None;
-        let sock = Arc::new_cyclic(|this: &std::sync::Weak<Self>| {
-            let ready: std::sync::Weak<dyn Ready> = this.clone();
-            let host = match reactor.register(&mut socket, ready) {
-                Ok(registration) => Some((socket, registration)),
-                Err(err) => {
-                    failed = Some(to_error(&err));
-                    None
-                }
-            };
-            Self {
-                state: Mutex::new(State {
-                    host,
-                    failed: None,
-                    received: VecDeque::new(),
-                    received_bytes: 0,
-                    sending: VecDeque::new(),
-                    sending_bytes: 0,
-                    local,
-                    place,
-                }),
-                wait: Arc::default(),
-            }
-        });
-        match failed {
-            Some(err) => Err(err),
-            None => Ok(sock),
+        let ready: Weak<dyn Ready> = self.this.clone();
+        let registration = reactor
+            .register(&mut socket, ready)
+            .map_err(|err| to_error(&err))?;
+        let mut state = self.state();
+        if let Some((mut earlier, registration)) = state.host.take() {
+            registration.deregister(&mut earlier);
         }
+        state.local = socket.local_addr().ok();
+        state.host = Some((socket, registration));
+        state.named = Some(named);
+        state.place = Some(place);
+        Ok(())
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -137,6 +147,12 @@ impl UdpSock {
     pub fn local_addr(&self) -> Option<SocketAddr> {
         self.state().local
     }
+
+    /// The peer as the guest named it, once connected, as cgroup
+    /// `getpeername4` maps the real peer back.
+    pub fn peer_addr(&self) -> Option<SocketAddr> {
+        self.state().named
+    }
 }
 
 impl Ready for UdpSock {
@@ -164,7 +180,8 @@ impl ProtoOps for UdpSock {
     }
 
     /// One datagram, sent whole as the host socket takes it; one past what UDP
-    /// carries is refused, and a full queue answers `WouldBlock`.
+    /// carries is refused, one with no peer to go to answers EDESTADDRREQ, as
+    /// `udp_sendmsg` does, and a full queue answers `WouldBlock`.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
         if buf.len() > MAX_DATAGRAM {
             return Err(FilesystemError::InvalidInput);
@@ -172,6 +189,9 @@ impl ProtoOps for UdpSock {
         let mut state = self.state();
         if let Some(err) = state.failed.take() {
             return Err(err);
+        }
+        if state.named.is_none() {
+            return Err(FilesystemError::DestinationAddressRequired);
         }
         if state.host.is_none() || state.sending_bytes + buf.len() > MAX_SOCKET_BUFFER {
             return Err(FilesystemError::WouldBlock);
@@ -190,7 +210,9 @@ impl ProtoOps for UdpSock {
         if !state.received.is_empty() || state.failed.is_some() {
             mask = mask | PollMask::IN;
         }
-        if state.host.is_some() && state.sending_bytes < MAX_SOCKET_BUFFER {
+        if (state.host.is_some() || state.named.is_none())
+            && state.sending_bytes < MAX_SOCKET_BUFFER
+        {
             mask = mask | PollMask::OUT;
         }
         if state.failed.is_some() {
@@ -221,6 +243,15 @@ mod tests {
 
     use crate::net::HostInet;
 
+    /// A socket connected to `addr` through the host.
+    fn connected(addr: SocketAddr) -> Arc<UdpSock> {
+        let sock = UdpSock::new();
+        let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
+        sock.connect(&family, addr, addr, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
+        sock
+    }
+
     /// Wait until `sock`'s poll finds `mask`.
     fn until(sock: &UdpSock, mask: PollMask) {
         let started = Instant::now();
@@ -237,12 +268,7 @@ mod tests {
     #[test]
     fn a_datagram_round_trips_with_one_peer() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let sock = UdpSock::connect(
-            Arc::new(HostInet),
-            peer.local_addr().unwrap(),
-            &OpenConnections::new(None),
-        )
-        .expect("the reactor starts");
+        let sock = connected(peer.local_addr().unwrap());
         until(&sock, PollMask::OUT);
         sock.sendmsg(b"ping").unwrap();
         let mut heard = [0; 16];
@@ -267,7 +293,7 @@ mod tests {
         let closed = UdpSocket::bind("127.0.0.1:0").unwrap();
         let addr = closed.local_addr().unwrap();
         drop(closed);
-        let sock = UdpSock::connect(Arc::new(HostInet), addr, &OpenConnections::new(None)).unwrap();
+        let sock = connected(addr);
         until(&sock, PollMask::OUT);
         sock.sendmsg(b"ping").unwrap();
         until(&sock, PollMask::ERR);
@@ -288,12 +314,7 @@ mod tests {
     #[test]
     fn a_datagram_past_what_udp_carries_is_refused() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let sock = UdpSock::connect(
-            Arc::new(HostInet),
-            peer.local_addr().unwrap(),
-            &OpenConnections::new(None),
-        )
-        .unwrap();
+        let sock = connected(peer.local_addr().unwrap());
         until(&sock, PollMask::OUT);
         let answer = sock.sendmsg(&vec![0; MAX_DATAGRAM + 1]);
         sock.release();

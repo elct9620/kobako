@@ -27,6 +27,8 @@ const CHUNK: usize = 16 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Phase {
+    /// Connected to nothing yet, as a fresh socket stands in `TCP_CLOSE`.
+    Unconnected,
     Connecting,
     Connected,
     Failed(FilesystemError),
@@ -49,7 +51,9 @@ struct State {
     fin_sent: bool,
     send_error: Option<FilesystemError>,
     local: Option<SocketAddr>,
-    peer: Option<SocketAddr>,
+    /// The peer as the guest named it, a virtual address standing for its
+    /// name, as cgroup `getpeername4` maps a real peer back.
+    named: Option<SocketAddr>,
     /// Every view the guest held is gone.
     released: bool,
     /// The socket's place against its Sandbox's cap and the process's, given
@@ -68,24 +72,15 @@ pub struct TcpSock {
 }
 
 impl TcpSock {
-    /// A socket connecting to the first of `addrs` that answers, in turn,
-    /// through `family`; the connect goes on without blocking, so this returns
-    /// at once and a poll finds the socket writable once it settles. The
-    /// socket counts against `open_connections` and the process until released, and a
-    /// full count answers `EAGAIN`, never a Trap, so one Sandbox cannot end
-    /// another's run.
-    pub fn connect(
-        family: Arc<dyn ProtocolFamily>,
-        addrs: Vec<SocketAddr>,
-        open_connections: &Arc<OpenConnections>,
-    ) -> Result<Arc<Self>, FilesystemError> {
-        let place = Some(open(open_connections).ok_or(FilesystemError::WouldBlock)?);
+    /// A socket connected to nothing, which connects through `family`, as
+    /// `inet_create` makes one.
+    pub(crate) fn new(family: Arc<dyn ProtocolFamily>) -> Result<Arc<Self>, FilesystemError> {
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
-        let sock = Arc::new_cyclic(|this| Self {
+        Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
-                phase: Phase::Connecting,
+                phase: Phase::Unconnected,
                 host: None,
-                untried: addrs.into(),
+                untried: VecDeque::new(),
                 received: VecDeque::new(),
                 received_end: false,
                 received_error: None,
@@ -94,17 +89,37 @@ impl TcpSock {
                 fin_sent: false,
                 send_error: None,
                 local: None,
-                peer: None,
+                named: None,
                 released: false,
-                place,
+                place: None,
             }),
             wait: Arc::default(),
             family,
             reactor,
             this: this.clone(),
-        });
-        sock.dial_next(&mut sock.state(), FilesystemError::InvalidInput);
-        Ok(sock)
+        }))
+    }
+
+    /// Connect to the first of `addrs` that answers, in turn, the guest having
+    /// named `named`; the connect goes on without blocking, so this returns at
+    /// once and a poll finds the socket writable once it settles. The socket
+    /// counts against `open_connections` and the process until released, and a
+    /// full count answers `EAGAIN`, never a Trap, so one Sandbox cannot end
+    /// another's run.
+    pub(crate) fn connect(
+        &self,
+        addrs: Vec<SocketAddr>,
+        named: SocketAddr,
+        open_connections: &Arc<OpenConnections>,
+    ) -> Result<(), FilesystemError> {
+        let place = open(open_connections).ok_or(FilesystemError::WouldBlock)?;
+        let mut state = self.state();
+        state.place = Some(place);
+        state.untried = addrs.into();
+        state.named = Some(named);
+        state.phase = Phase::Connecting;
+        self.dial_next(&mut state, FilesystemError::InvalidInput);
+        Ok(())
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -189,9 +204,8 @@ impl TcpSock {
         };
         let failure = match (stream.take_error(), stream.peer_addr()) {
             (Ok(Some(err)), _) | (Err(err), _) => err,
-            (Ok(None), Ok(peer)) => {
+            (Ok(None), Ok(_)) => {
                 state.local = stream.local_addr().ok();
-                state.peer = Some(peer);
                 state.phase = Phase::Connected;
                 return;
             }
@@ -216,6 +230,7 @@ impl TcpSock {
     /// non-blocking `connect` answers `EINPROGRESS` until `SO_ERROR` settles.
     pub fn finish_connect(&self) -> Result<(), FilesystemError> {
         match &self.state().phase {
+            Phase::Unconnected => Err(FilesystemError::NotConnected),
             Phase::Connecting => Err(FilesystemError::WouldBlock),
             Phase::Connected => Ok(()),
             Phase::Failed(err) => Err(err.clone()),
@@ -245,8 +260,14 @@ impl TcpSock {
         self.state().local
     }
 
+    /// The peer as the guest named it, once connected, as cgroup
+    /// `getpeername4` maps the real peer back.
     pub fn peer_addr(&self) -> Option<SocketAddr> {
-        self.state().peer
+        let state = self.state();
+        match state.phase {
+            Phase::Connected => state.named,
+            _ => None,
+        }
     }
 
     /// Let go of the host socket once every view is gone, as `sock_close`
@@ -289,7 +310,7 @@ impl ProtoOps for TcpSock {
         }
         match (&state.phase, state.received_end) {
             (_, true) => Ok(0),
-            (Phase::Failed(_), false) => Err(FilesystemError::NotConnected),
+            (Phase::Unconnected | Phase::Failed(_), false) => Err(FilesystemError::NotConnected),
             _ => Err(FilesystemError::WouldBlock),
         }
     }
@@ -306,6 +327,7 @@ impl ProtoOps for TcpSock {
         }
         match &state.phase {
             Phase::Connected => {}
+            Phase::Unconnected => return Err(FilesystemError::BrokenPipe),
             Phase::Connecting => return Err(FilesystemError::WouldBlock),
             Phase::Failed(_) => return Err(FilesystemError::NotConnected),
         }
@@ -337,7 +359,7 @@ impl ProtoOps for TcpSock {
         {
             mask = mask | PollMask::ERR;
         }
-        if state.received_end && state.send_shut {
+        if (state.received_end && state.send_shut) || state.phase == Phase::Unconnected {
             mask = mask | PollMask::HUP;
         }
         mask
@@ -360,16 +382,19 @@ mod tests {
     use crate::vfs::File;
     use crate::wait::do_poll;
 
+    /// A socket connecting to `addr` through the host.
+    fn dialing(addr: SocketAddr) -> Arc<TcpSock> {
+        let sock = TcpSock::new(Arc::new(HostInet)).expect("the reactor starts");
+        sock.connect(vec![addr], addr, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
+        sock
+    }
+
     /// A socket file connecting to a loopback listener, and the peer the
     /// listener accepted.
     fn connected() -> (Arc<TcpSock>, File, std::net::TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
-        let sock = TcpSock::connect(
-            Arc::new(HostInet),
-            vec![listener.local_addr().unwrap()],
-            &OpenConnections::new(None),
-        )
-        .expect("the reactor starts");
+        let sock = dialing(listener.local_addr().unwrap());
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         let (peer, _) = listener.accept().expect("the listener accepts");
         wait_for(&file, PollMask::OUT);
@@ -470,8 +495,7 @@ mod tests {
         let addr = TcpListener::bind("127.0.0.1:0")
             .and_then(|listener| listener.local_addr())
             .unwrap();
-        let sock = TcpSock::connect(Arc::new(HostInet), vec![addr], &OpenConnections::new(None))
-            .expect("the reactor starts");
+        let sock = dialing(addr);
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(&file, PollMask::OUT);
         assert_eq!(

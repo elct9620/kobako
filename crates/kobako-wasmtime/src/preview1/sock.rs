@@ -42,10 +42,9 @@ mod tests {
     use crate::preview2::bindings::{IoHost, SocketsHost};
     use crate::wasi::{sandbox_connections, Wasi};
 
-    /// A hermetic guest whose socket connected to `listener`, the number its
-    /// preview2 handle took, and the peer's end.
-    fn connected(listener: &TcpListener) -> (Invocation, u32, TcpStream) {
-        let port = listener.local_addr().unwrap().port();
+    /// A hermetic guest whose one network entry reaches `127.0.0.1:port` over
+    /// TCP.
+    fn networked(port: u16) -> Invocation {
         let config = Config {
             timeout: None,
             setup_timeout: None,
@@ -68,6 +67,16 @@ mod tests {
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_connections())
             .expect("WASI context must build");
         let mut guest = Invocation::new(None, wasi);
+        // wiggle hands each call the guest's fuel; every call here gets plenty.
+        guest.set_hostcall_fuel(usize::MAX);
+        guest
+    }
+
+    /// A hermetic guest whose socket connected to `listener`, the number its
+    /// preview2 handle took, and the peer's end.
+    fn connected(listener: &TcpListener) -> (Invocation, u32, TcpStream) {
+        let port = listener.local_addr().unwrap().port();
+        let mut guest = networked(port);
         let socket = run_task(
             Some(Instant::now() + Duration::from_secs(10)),
             || -> wasmtime::Result<_> {
@@ -93,9 +102,70 @@ mod tests {
         .expect("the connect answers");
         let (peer, _) = listener.accept().unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        // wiggle hands each call the guest's fuel; every call here gets plenty.
-        guest.set_hostcall_fuel(usize::MAX);
         (guest, socket.0, peer)
+    }
+
+    /// What preview1 answers on `fd`: the flags of a write poll's event, then
+    /// the errors a one-byte read and a one-byte write answer.
+    fn answers_on(guest: &mut Invocation, fd: u32) -> (Option<u16>, Option<Errno>, Option<Errno>) {
+        // One fd_write subscription at 0, its event written at 64.
+        let mut memory = vec![0u8; 128];
+        memory[8] = 2;
+        memory[16..20].copy_from_slice(&fd.to_le_bytes());
+        let polled = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            guest
+                .poll_oneoff(
+                    &mut wiggle::GuestMemory::Unshared(&mut memory),
+                    GuestPtr::new(0),
+                    GuestPtr::new(64),
+                    1,
+                )
+                .ok()
+        });
+        let flags = (polled == Some(1)).then(|| u16::from_le_bytes([memory[88], memory[89]]));
+        let mut memory = vec![0u8; 64];
+        iovec(&mut memory, 1);
+        let read = guest
+            .fd_read(
+                &mut wiggle::GuestMemory::Unshared(&mut memory),
+                fd.into(),
+                GuestPtr::new((0, 1)),
+            )
+            .err()
+            .and_then(|err| err.downcast().ok());
+        let write = guest
+            .fd_write(
+                &mut wiggle::GuestMemory::Unshared(&mut memory),
+                fd.into(),
+                GuestPtr::new((0, 1)),
+            )
+            .err()
+            .and_then(|err| err.downcast().ok());
+        (flags, read, write)
+    }
+
+    // @behavior RT-352
+    #[test]
+    fn a_socket_number_answers_preview1_as_linux_before_it_connects() {
+        let mut guest = networked(9);
+        let tcp = guest
+            .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+            .unwrap()
+            .expect("a network makes a TCP socket");
+        let udp = guest
+            .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+            .unwrap()
+            .expect("a network makes a UDP socket");
+        assert_eq!(
+            [answers_on(&mut guest, tcp.0), answers_on(&mut guest, udp.0)],
+            [
+                (Some(1), Some(Errno::Notconn), Some(Errno::Pipe)),
+                (Some(0), Some(Errno::Again), Some(Errno::Destaddrreq)),
+            ],
+            "preview1 on a new TCP socket's number must poll writable and hung up, read ENOTCONN, \
+             and write EPIPE; on a new UDP socket's number it must poll writable, read EAGAIN, \
+             and write EDESTADDRREQ"
+        );
     }
 
     /// One iovec at 0 naming `len` bytes at 16.
