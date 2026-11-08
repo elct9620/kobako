@@ -42,6 +42,23 @@ module NetworkLoopback
     client.close
   end
 
+  # A loopback server answering one request with +response+, written whole.
+  def with_answering_server(response)
+    server = TCPServer.new("127.0.0.1", 0)
+    thread = Thread.new { answer_once(server, response) }
+    yield server.addr[1]
+  ensure
+    thread&.join(10)
+    server&.close
+  end
+
+  def answer_once(server, response)
+    client = server.accept
+    read_head(client)
+    client.write(response)
+    client.close
+  end
+
   # The request line and headers, up to the blank line.
   def read_head(client)
     head = []

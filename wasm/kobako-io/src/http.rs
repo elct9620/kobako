@@ -1,7 +1,11 @@
 //! A `Net::HTTP` subset over WASI 0.2's `wasi:http`, which the guest imports
-//! as a core module, as it imports `wasi:sockets` for `TCPSocket`. Each request
-//! is answered whole: its body is read to the end before the call returns. A
-//! refusal raises what CRuby's would, wrapped as CRuby wraps a failed open.
+//! as a core module, as it imports `wasi:sockets` for `TCPSocket`. A request
+//! with no block is answered whole, its body read to the end before the call
+//! returns; one with a block yields the response first, so `read_body` streams
+//! the body as CRuby's does. A refusal raises what CRuby's would, wrapped as
+//! CRuby wraps a failed open.
+
+use std::cell::RefCell;
 
 use beni::prelude::*;
 use beni::scan_args::scan_args;
@@ -36,16 +40,78 @@ use wasi::wasi::http::outgoing_handler::handle;
 use wasi::wasi::http::types::{
     ErrorCode, Fields, IncomingBody, Method, OutgoingBody, OutgoingRequest, Scheme,
 };
-use wasi::wasi::io::streams::StreamError;
+use wasi::wasi::io::streams::{InputStream, StreamError};
 
 /// The most one `blocking-write-and-flush` takes, as WASI bounds it.
 const WRITE_CHUNK: usize = 4096;
 
-/// A response as `wasi:http` answers it.
+/// The most one read of a response's body asks, the host's buffer.
+const READ_CHUNK: u64 = 64 * 1024;
+
+/// How much of a streamed body passes between collections.
+const COLLECT_EVERY: usize = 1 << 20;
+
+/// A response's head as `wasi:http` answers it, and its body still to read.
 struct Answer {
     status: u16,
     headers: Vec<(String, Vec<u8>)>,
-    body: Vec<u8>,
+    body: Unread,
+}
+
+/// A response's body the guest has not read yet, its stream dropped before
+/// the body it belongs to, as WASI asks of a child resource.
+struct Unread {
+    stream: Option<InputStream>,
+    body: Option<IncomingBody>,
+}
+
+impl Unread {
+    /// The next chunk the body holds, `None` at its end.
+    fn chunk(&mut self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
+        let Some(stream) = &self.stream else {
+            return Ok(None);
+        };
+        match stream.blocking_read(READ_CHUNK) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(StreamError::Closed) => {
+                self.finish();
+                Ok(None)
+            }
+            Err(StreamError::LastOperationFailed(_)) => Err(errno::error_with_message(
+                mrb,
+                c"ECONNRESET",
+                "Connection reset by peer",
+            )),
+        }
+    }
+
+    /// Every byte left, to the end.
+    fn rest(&mut self, mrb: &Mrb) -> Result<Vec<u8>, Error> {
+        let mut rest = Vec::new();
+        while let Some(chunk) = self.chunk(mrb)? {
+            rest.extend(chunk);
+        }
+        Ok(rest)
+    }
+
+    fn finish(&mut self) {
+        drop(self.stream.take());
+        if let Some(body) = self.body.take() {
+            drop(IncomingBody::finish(body));
+        }
+    }
+}
+
+impl Drop for Unread {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+thread_local! {
+    /// The bodies a request's block may still stream, each beside the object
+    /// id of the response it belongs to, innermost last.
+    static STREAMING: RefCell<Vec<(i64, Unread)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// One request the guest sends: where, how, and what.
@@ -66,6 +132,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     net.define_error(mrb, c"OpenTimeout", standard)?;
     net.define_error(mrb, c"ReadTimeout", standard)?;
     net.define_error(mrb, c"HTTPBadResponse", standard)?;
+    net.define_error(mrb, c"HTTPHeaderSyntaxError", standard)?;
+    define_http_exceptions(mrb, net, standard)?;
     let openssl = mrb.define_module(c"OpenSSL")?;
     let openssl_error = openssl.define_error(mrb, c"OpenSSLError", standard)?;
     openssl
@@ -106,6 +174,21 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     generic.define_method(mrb, c"[]", beni::method!(header_aref, 1))?;
     generic.define_method(mrb, c"[]=", beni::method!(request_aset, 2))?;
     generic.define_method(mrb, c"each_header", beni::method!(header_each, 0))?;
+    generic.define_method(mrb, c"key?", beni::method!(header_key_p, 1))?;
+    generic.define_method(mrb, c"delete", beni::method!(header_delete, 1))?;
+    generic.define_method(mrb, c"content_type", beni::method!(header_content_type, 0))?;
+    generic.define_method(
+        mrb,
+        c"content_type=",
+        beni::method!(request_set_content_type, 1),
+    )?;
+    generic.define_method(mrb, c"basic_auth", beni::method!(request_basic_auth, 2))?;
+    generic.define_method(
+        mrb,
+        c"set_form_data",
+        beni::method!(request_set_form_data, -1),
+    )?;
+    generic.define_method(mrb, c"form_data=", beni::method!(request_set_form_data, -1))?;
     let request = net.define_class(mrb, c"HTTPRequest", generic)?;
     for (name, verb, has_body) in [
         (c"Get", "GET", false),
@@ -124,11 +207,26 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     let response = net.define_class(mrb, c"HTTPResponse", object)?;
     response.define_method(mrb, c"code", beni::method!(response_code, 0))?;
     response.define_method(mrb, c"message", beni::method!(response_message, 0))?;
-    response.define_method(mrb, c"body", beni::method!(response_body, 0))?;
-    response.define_method(mrb, c"read_body", beni::method!(response_body, 0))?;
+    response.define_method(mrb, c"body", beni::method!(response_read_body, 0))?;
+    response.define_method(mrb, c"read_body", beni::method!(response_read_body, 0))?;
+    response.define_method(mrb, c"value", beni::method!(response_value, 0))?;
     response.define_method(mrb, c"[]", beni::method!(header_aref, 1))?;
     response.define_method(mrb, c"each_header", beni::method!(header_each, 0))?;
     response.define_method(mrb, c"to_hash", beni::method!(header_to_hash, 0))?;
+    response.define_method(mrb, c"key?", beni::method!(header_key_p, 1))?;
+    response.define_method(mrb, c"content_type", beni::method!(header_content_type, 0))?;
+    response.define_method(
+        mrb,
+        c"content_length",
+        beni::method!(response_content_length, 0),
+    )?;
+    response.define_method(mrb, c"header", beni::method!(response_header, 0))?;
+    response.define_method(
+        mrb,
+        c"http_version",
+        beni::method!(response_http_version, 0),
+    )?;
+    response.define_method(mrb, c"code_type", beni::method!(response_code_type, 0))?;
     for name in [
         c"HTTPInformation",
         c"HTTPSuccess",
@@ -142,6 +240,28 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     for (_, name, family) in STATUS_CLASSES {
         let family: RClass = net.const_get(mrb, *family)?;
         net.define_class(mrb, *name, family)?;
+    }
+    Ok(())
+}
+
+/// The errors `value` raises, each beneath its `Net::Proto*` family and
+/// carrying `response` through `Net::HTTPExceptions`, as CRuby's are.
+fn define_http_exceptions(mrb: &Mrb, net: RModule, standard: ExceptionClass) -> Result<(), Error> {
+    let protocol = net.define_error(mrb, c"ProtocolError", standard)?;
+    let exceptions = net.define_module(mrb, c"HTTPExceptions")?;
+    exceptions.define_method(mrb, c"response", beni::method!(exception_response, 0))?;
+    for (name, family) in [
+        (c"HTTPError", None),
+        (c"HTTPRetriableError", Some(c"ProtoRetriableError")),
+        (c"HTTPClientException", Some(c"ProtoServerError")),
+        (c"HTTPFatalError", Some(c"ProtoFatalError")),
+    ] {
+        let parent = match family {
+            Some(family) => net.define_error(mrb, family, protocol)?,
+            None => protocol,
+        };
+        net.define_error(mrb, name, parent)?
+            .include_module(mrb, exceptions)?;
     }
     Ok(())
 }
@@ -272,19 +392,31 @@ fn split_ssl(mrb: &Mrb, args: &[Value]) -> Result<(Vec<Value>, Option<Value>), E
 
 /// `Net::HTTP.get(host, path, port = nil)`: the body of a GET.
 fn http_s_get(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
-    let response = http_s_get_response(mrb, class, args)?;
-    response_body(mrb, response)
+    let response = get_response(mrb, class, args, None)?;
+    ivar(mrb, response, c"@body")
 }
 
-/// `Net::HTTP.get_response(host, path, port = nil)`: the response to a GET.
+/// `Net::HTTP.get_response(host, path, port = nil) { |response| }`: the
+/// response to a GET, handed to a block before its body is read.
 fn http_s_get_response(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
+    let given = Given::current(mrb, Given::Response)?;
+    get_response(mrb, class, args, given)
+}
+
+fn get_response(
+    mrb: &Mrb,
+    class: RClass,
+    args: &[Value],
+    given: Option<Given>,
+) -> Result<Value, Error> {
     let (host, path, port) = match args {
         [host, path] => (*host, *path, qnil().as_value()),
         [host, path, port] => (*host, *path, *port),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 3)),
     };
     let http: Value = class.funcall(mrb, c"new", [host, port])?;
-    http_get(mrb, http, &[path])
+    let path = to_text(mrb, path)?;
+    send_from(mrb, http, "GET", &path, Vec::new(), None, given)
 }
 
 fn http_get(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
@@ -315,7 +447,8 @@ fn http_patch(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     bodied(mrb, self_, "PATCH", args)
 }
 
-/// `get(path, initheader = nil)` and its kin with no body.
+/// `get(path, initheader = nil) { |chunk| }` and its kin with no body; a block
+/// is handed the body as it arrives.
 fn bodyless(mrb: &Mrb, self_: Value, method: &str, args: &[Value]) -> Result<Value, Error> {
     let (path, header) = match args {
         [path] => (*path, qnil().as_value()),
@@ -323,10 +456,13 @@ fn bodyless(mrb: &Mrb, self_: Value, method: &str, args: &[Value]) -> Result<Val
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
     let path = to_text(mrb, path)?;
-    send_from(mrb, self_, method, &path, headers_given(mrb, header)?, None)
+    let headers = headers_given(mrb, header)?;
+    let given = Given::current(mrb, Given::Chunks)?;
+    send_from(mrb, self_, method, &path, headers, None, given)
 }
 
-/// `post(path, data, initheader = nil)` and its kin with a body.
+/// `post(path, data, initheader = nil) { |chunk| }` and its kin with a body;
+/// a block is handed the response's body as it arrives.
 fn bodied(mrb: &Mrb, self_: Value, method: &str, args: &[Value]) -> Result<Value, Error> {
     let (path, data, header) = match args {
         [path, data] => (*path, *data, qnil().as_value()),
@@ -335,17 +471,13 @@ fn bodied(mrb: &Mrb, self_: Value, method: &str, args: &[Value]) -> Result<Value
     };
     let path = to_text(mrb, path)?;
     let body = to_bytes(mrb, data)?;
-    send_from(
-        mrb,
-        self_,
-        method,
-        &path,
-        headers_given(mrb, header)?,
-        Some(body),
-    )
+    let headers = headers_given(mrb, header)?;
+    let given = Given::current(mrb, Given::Chunks)?;
+    send_from(mrb, self_, method, &path, headers, Some(body), given)
 }
 
-/// `request(req, body = nil)`: send a `Net::HTTP::Get` or one of its kin.
+/// `request(req, body = nil) { |response| }`: send a `Net::HTTP::Get` or one
+/// of its kin; a block is handed the response before its body is read.
 fn http_request(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (request, body) = match args {
         [request] => (*request, qnil().as_value()),
@@ -360,7 +492,8 @@ fn http_request(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error>
         (true, held) if !held.is_nil() => Some(to_bytes(mrb, held)?),
         _ => None,
     };
-    send_from(mrb, self_, &method, &path, headers, body)
+    let given = Given::current(mrb, Given::Response)?;
+    send_from(mrb, self_, &method, &path, headers, body, given)
 }
 
 /// Headers handed as a Hash, or none.
@@ -400,6 +533,20 @@ fn headers_of(mrb: &Mrb, header: Value) -> Result<Vec<(String, Vec<u8>)>, Error>
     Ok(headers)
 }
 
+/// What a request's block is handed: the response, as `request` yields it, or
+/// each chunk of its body, as `get` and its kin yield them.
+enum Given {
+    Response(Proc),
+    Chunks(Proc),
+}
+
+impl Given {
+    /// The block the method running now was handed, as `kind` takes it.
+    fn current(mrb: &Mrb, kind: fn(Proc) -> Given) -> Result<Option<Given>, Error> {
+        Ok(current_block(mrb)?.map(kind))
+    }
+}
+
 fn send_from(
     mrb: &Mrb,
     self_: Value,
@@ -407,6 +554,7 @@ fn send_from(
     path: &str,
     headers: Vec<(String, Vec<u8>)>,
     body: Option<Vec<u8>>,
+    given: Option<Given>,
 ) -> Result<Value, Error> {
     let host = to_text(mrb, ivar(mrb, self_, c"@address")?)?;
     let outgoing = Outgoing {
@@ -418,8 +566,58 @@ fn send_from(
         headers,
         body,
     };
-    let answer = send(mrb, &outgoing)?;
-    to_response(mrb, answer)
+    let Answer {
+        status,
+        headers,
+        body: mut unread,
+    } = send(mrb, &outgoing)?;
+    let Some(given) = given else {
+        let body = unread.rest(mrb)?;
+        return to_response(mrb, status, headers, Some(&body));
+    };
+    let response = to_response(mrb, status, headers, None)?;
+    let streaming = Streaming::begin(response.object_id(), unread);
+    match given {
+        Given::Response(block) => block.call::<_, Value>(mrb, [response])?,
+        Given::Chunks(block) => read_body_into(mrb, response, Some(block))?,
+    };
+    // What the block left unread is read once it returns, so `body` answers
+    // after it, as CRuby reads the rest.
+    if let Some(mut unread) = streaming.end() {
+        let rest = unread.rest(mrb)?;
+        set_ivar(mrb, response, c"@body", mrb.str_new(&rest).as_value())?;
+    }
+    Ok(response)
+}
+
+/// A response's body open to its request's block, taken back as the block
+/// returns or fails.
+struct Streaming(i64);
+
+impl Streaming {
+    fn begin(id: i64, unread: Unread) -> Self {
+        STREAMING.with_borrow_mut(|open| open.push((id, unread)));
+        Self(id)
+    }
+
+    /// The body, unless `read_body` took it.
+    fn end(self) -> Option<Unread> {
+        take_streaming(self.0)
+    }
+}
+
+impl Drop for Streaming {
+    fn drop(&mut self) {
+        drop(take_streaming(self.0));
+    }
+}
+
+/// The unread body of the response `id` names, if a block still streams it.
+fn take_streaming(id: i64) -> Option<Unread> {
+    STREAMING.with_borrow_mut(|open| {
+        let at = open.iter().position(|(held, _)| *held == id)?;
+        Some(open.remove(at).1)
+    })
 }
 
 fn method_of(method: &str) -> Method {
@@ -437,8 +635,9 @@ fn method_of(method: &str) -> Method {
     }
 }
 
-/// Send `outgoing` and read its response whole. A header the seam frames
-/// itself, such as `content-length` or `host`, is left to it.
+/// Send `outgoing` and answer its response's head, its body left to read. A
+/// header the seam frames itself, such as `content-length` or `host`, is left
+/// to it.
 fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
     let fields = Fields::new();
     for (name, value) in &outgoing.headers {
@@ -488,30 +687,16 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
     let incoming = response
         .consume()
         .map_err(|()| failed("response body taken"))?;
-    let mut body = Vec::new();
-    {
-        let stream = incoming
-            .stream()
-            .map_err(|()| failed("response body taken"))?;
-        loop {
-            match stream.blocking_read(64 * 1024) {
-                Ok(bytes) => body.extend(bytes),
-                Err(StreamError::Closed) => break,
-                Err(StreamError::LastOperationFailed(_)) => {
-                    return Err(errno::error_with_message(
-                        mrb,
-                        c"ECONNRESET",
-                        "Connection reset by peer",
-                    ))
-                }
-            }
-        }
-    }
-    drop(IncomingBody::finish(incoming));
+    let stream = incoming
+        .stream()
+        .map_err(|()| failed("response body taken"))?;
     Ok(Answer {
         status,
         headers,
-        body,
+        body: Unread {
+            stream: Some(stream),
+            body: Some(incoming),
+        },
     })
 }
 
@@ -659,10 +844,17 @@ fn response_class(mrb: &Mrb, status: u16) -> Result<RClass, Error> {
     mrb.module_get(c"Net")?.const_get(mrb, name)
 }
 
-fn to_response(mrb: &Mrb, answer: Answer) -> Result<Value, Error> {
-    let response: Value = response_class(mrb, answer.status)?.funcall(mrb, c"new", ())?;
+/// The `Net::HTTPResponse` for `status` and `headers`, holding `body` once it
+/// was read; one a block still streams holds none yet.
+fn to_response(
+    mrb: &Mrb,
+    status: u16,
+    headers: Vec<(String, Vec<u8>)>,
+    body: Option<&[u8]>,
+) -> Result<Value, Error> {
+    let response: Value = response_class(mrb, status)?.funcall(mrb, c"new", ())?;
     let header = mrb.hash_new();
-    for (name, value) in answer.headers {
+    for (name, value) in headers {
         let key = mrb.str_new(name.to_ascii_lowercase().as_bytes());
         let values = match header.aref::<_, Value>(mrb, key)? {
             held if held.is_nil() => {
@@ -674,25 +866,11 @@ fn to_response(mrb: &Mrb, answer: Answer) -> Result<Value, Error> {
         };
         values.push(mrb, mrb.str_new(&value).as_value())?;
     }
-    set_ivar(
-        mrb,
-        response,
-        c"@code",
-        answer.status.to_string().into_value(mrb),
-    )?;
-    set_ivar(
-        mrb,
-        response,
-        c"@message",
-        reason(answer.status).into_value(mrb),
-    )?;
+    set_ivar(mrb, response, c"@code", status.to_string().into_value(mrb))?;
+    set_ivar(mrb, response, c"@message", reason(status).into_value(mrb))?;
     set_ivar(mrb, response, c"@header", header.as_value())?;
-    set_ivar(
-        mrb,
-        response,
-        c"@body",
-        mrb.str_new(&answer.body).as_value(),
-    )?;
+    let body = body.map_or_else(|| qnil().as_value(), |body| mrb.str_new(body).as_value());
+    set_ivar(mrb, response, c"@body", body)?;
     Ok(response)
 }
 
@@ -704,8 +882,102 @@ fn response_message(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     ivar(mrb, self_, c"@message")
 }
 
-fn response_body(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    ivar(mrb, self_, c"@body")
+/// `body` and `read_body { |chunk| }`: the body, read to the end, or each
+/// chunk of it handed to a block as it arrives, as CRuby streams it.
+fn response_read_body(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let block = current_block(mrb)?;
+    read_body_into(mrb, self_, block)
+}
+
+/// The body of `response`, or each chunk of it handed to `block`. Once the
+/// body is read, a block raises `IOError`, as CRuby's second `read_body` does.
+fn read_body_into(mrb: &Mrb, response: Value, block: Option<Proc>) -> Result<Value, Error> {
+    let Some(mut unread) = take_streaming(response.object_id()) else {
+        if block.is_some() {
+            let class: Value = response.funcall(mrb, c"class", ())?;
+            let message = format!("{}#read_body called twice", to_text(mrb, class)?);
+            return Err(errno::io_error(mrb, &message));
+        }
+        return ivar(mrb, response, c"@body");
+    };
+    let Some(block) = block else {
+        let body = mrb.str_new(&unread.rest(mrb)?).as_value();
+        set_ivar(mrb, response, c"@body", body)?;
+        return Ok(body);
+    };
+    let mut since_collected = 0;
+    while let Some(chunk) = unread.chunk(mrb)? {
+        // Each chunk is released once the block returns, and collected as the
+        // stream goes on, since mruby counts objects rather than bytes; a body
+        // larger than the guest's memory streams through the block.
+        let _scope = mrb.arena_scope();
+        since_collected += chunk.len();
+        block.call::<_, Value>(mrb, [mrb.str_new(&chunk).as_value()])?;
+        if since_collected >= COLLECT_EVERY {
+            mrb.gc_start();
+            since_collected = 0;
+        }
+    }
+    Ok(qnil().as_value())
+}
+
+/// `value`: `nil` for a success, else the error CRuby raises for the
+/// response's family, carrying it as `response`.
+fn response_value(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let code = to_text(mrb, ivar(mrb, self_, c"@code")?)?;
+    let name: &core::ffi::CStr = match code.as_bytes().first() {
+        Some(b'2') => return Ok(qnil().as_value()),
+        Some(b'3') => c"HTTPRetriableError",
+        Some(b'4') => c"HTTPClientException",
+        Some(b'5') => c"HTTPFatalError",
+        _ => c"HTTPError",
+    };
+    let message = to_text(mrb, ivar(mrb, self_, c"@message")?)?;
+    let class: ExceptionClass = mrb.module_get(c"Net")?.const_get(mrb, name)?;
+    let exception = class.new_str(mrb, mrb.str_new(format!("{code} {message:?}").as_bytes()));
+    exception.ivar_set(mrb, c"@response", self_)?;
+    Err(Error::Exception(exception.as_value()))
+}
+
+/// `response` on an error `value` raised: the response it was raised for.
+fn exception_response(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    self_.funcall(
+        mrb,
+        c"instance_variable_get",
+        [Symbol::new(mrb, "@response")?.as_value()],
+    )
+}
+
+/// `content_length`: the `content-length` header as an Integer, or `nil`.
+fn response_content_length(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let length = header_aref(mrb, self_, mrb.str_new(b"content-length").as_value())?;
+    if length.is_nil() {
+        return Ok(length);
+    }
+    let text = to_text(mrb, length)?;
+    match text.trim().parse::<i64>() {
+        Ok(length) => Ok(length.into_value(mrb)),
+        Err(_) => Err(net_error(
+            mrb,
+            c"HTTPHeaderSyntaxError",
+            "wrong Content-Length format",
+        )),
+    }
+}
+
+/// `header`: the response itself, as CRuby answers it.
+fn response_header(_mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Ok(self_)
+}
+
+/// `http_version`: the HTTP/1.1 the host speaks, as WASI carries none.
+fn response_http_version(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
+    Ok("1.1".into_value(mrb))
+}
+
+/// `code_type`: the response's own class, as CRuby's maps its code.
+fn response_code_type(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    self_.funcall(mrb, c"class", ())
 }
 
 /// `Net::HTTP::Get.new(path, initheader = nil)` and its kin.
@@ -795,4 +1067,124 @@ fn header_each(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn header_to_hash(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let header = RHash::try_convert(ivar(mrb, self_, c"@header")?, mrb)?;
     Ok(header.dup(mrb).as_value())
+}
+
+/// The header hash and the lowercase key `name` stands for in it.
+fn header_key(mrb: &Mrb, self_: Value, name: Value) -> Result<(RHash, Value), Error> {
+    let header = RHash::try_convert(ivar(mrb, self_, c"@header")?, mrb)?;
+    let key = mrb.str_new(to_text(mrb, name)?.to_ascii_lowercase().as_bytes());
+    Ok((header, key.as_value()))
+}
+
+/// `key?(name)`: whether the header is present, case-insensitively.
+fn header_key_p(mrb: &Mrb, self_: Value, name: Value) -> Result<bool, Error> {
+    let (header, key) = header_key(mrb, self_, name)?;
+    Ok(!header.aref::<_, Value>(mrb, key)?.is_nil())
+}
+
+/// `delete(name)`: remove the header, answering its values, or `nil`.
+fn header_delete(mrb: &Mrb, self_: Value, name: Value) -> Result<Value, Error> {
+    let (header, key) = header_key(mrb, self_, name)?;
+    header.delete(mrb, key)
+}
+
+/// `content_type`: the media type without its parameters, or `nil`.
+fn header_content_type(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let value = header_aref(mrb, self_, mrb.str_new(b"content-type").as_value())?;
+    if value.is_nil() {
+        return Ok(value);
+    }
+    let value = to_text(mrb, value)?;
+    let media = value.split(';').next().unwrap_or_default().trim();
+    Ok(media.into_value(mrb))
+}
+
+/// `content_type = type`: set the `content-type` header.
+fn request_set_content_type(mrb: &Mrb, self_: Value, media: Value) -> Result<Value, Error> {
+    request_aset(mrb, self_, mrb.str_new(b"content-type").as_value(), media)
+}
+
+/// `basic_auth(user, password)`: an `authorization` header of the Basic
+/// scheme, as CRuby writes it.
+fn request_basic_auth(
+    mrb: &Mrb,
+    self_: Value,
+    user: Value,
+    password: Value,
+) -> Result<Value, Error> {
+    let mut credentials = to_bytes(mrb, user)?;
+    credentials.push(b':');
+    credentials.extend(to_bytes(mrb, password)?);
+    let value = format!("Basic {}", base64(&credentials));
+    request_aset(
+        mrb,
+        self_,
+        mrb.str_new(b"authorization").as_value(),
+        value.into_value(mrb),
+    )
+}
+
+/// `set_form_data(params, sep = "&")` and `form_data = params`: the params as
+/// `application/x-www-form-urlencoded`, encoded as CRuby's
+/// `URI.encode_www_form` encodes them.
+fn request_set_form_data(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let (params, separator) = match args {
+        [params] => (*params, "&".to_string()),
+        [params, separator] => (*params, to_text(mrb, *separator)?),
+        _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
+    };
+    let params = RHash::try_convert(params, mrb)?;
+    let mut pairs = Vec::new();
+    params.foreach(mrb, |name: Value, value: Value| {
+        pairs.push(format!(
+            "{}={}",
+            www_form_escape(&to_bytes(mrb, name)?),
+            www_form_escape(&to_bytes(mrb, value)?)
+        ));
+        Ok(ForEach::Continue)
+    })?;
+    let body = pairs.join(&separator);
+    request_set_body(mrb, self_, body.into_value(mrb))?;
+    request_set_content_type(
+        mrb,
+        self_,
+        "application/x-www-form-urlencoded".into_value(mrb),
+    )?;
+    Ok(params.as_value())
+}
+
+/// One form component as `URI.encode_www_form_component` writes it: `*-._`
+/// and alphanumerics kept, a space as `+`, every other byte as `%XX`.
+fn www_form_escape(bytes: &[u8]) -> String {
+    let mut escaped = String::with_capacity(bytes.len());
+    for &byte in bytes {
+        match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'*' | b'-' | b'.' | b'_' => {
+                escaped.push(char::from(byte))
+            }
+            b' ' => escaped.push('+'),
+            _ => escaped.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    escaped
+}
+
+/// `bytes` in standard Base64 with padding, as `pack("m0")` writes it.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for group in bytes.chunks(3) {
+        let triple = group
+            .iter()
+            .enumerate()
+            .fold(0u32, |acc, (i, &b)| acc | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= group.len() {
+                encoded.push(char::from(ALPHABET[(triple >> (18 - 6 * i) & 63) as usize]));
+            } else {
+                encoded.push('=');
+            }
+        }
+    }
+    encoded
 }
