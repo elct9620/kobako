@@ -4016,3 +4016,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest whose preview2 socket's connect was refused |
 | When | it polls the socket's number to read |
 | Then | the poll answers the subscription at once, as Linux's `poll` reports an error whatever was asked |
+
+## `RT-356` A connected socket asked to connect again answers EISCONN
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-342` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a socket that connected |
+| When | a Wasm Driver asks it to connect again |
+| Then | it answers EISCONN and dials nothing, as Linux's `__inet_stream_connect` answers |
