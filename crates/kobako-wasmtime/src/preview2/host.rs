@@ -358,6 +358,20 @@ impl SocketsHost for Invocation {
         Ok(Ok(()))
     }
 
+    /// The guest's own end, once a connect bound it, as the namespace maps
+    /// the host's; an unbound socket answers `invalid-state`, as wasmtime's.
+    fn tcp_tcp_socket_local_address(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
+        let socket = self.tcp(this)?;
+        if !matches!(socket.state, TcpState::Connecting | TcpState::Connected) {
+            return Ok(Err(ErrorCode::InvalidState));
+        }
+        let real = socket.socket.sock.local_addr();
+        Ok(Ok(from_socket_addr(self.network().local_address(real))))
+    }
+
     /// The peer as the guest named it.
     fn tcp_tcp_socket_remote_address(
         &mut self,
@@ -436,6 +450,20 @@ impl SocketsHost for Invocation {
         }
         socket.state = UdpState::Bound;
         Ok(Ok(()))
+    }
+
+    /// The guest's own end, once bound, as the namespace maps the host's; an
+    /// unbound socket answers `invalid-state`, as wasmtime's.
+    fn udp_udp_socket_local_address(
+        &mut self,
+        this: UdpSocket,
+    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
+        let socket = self.udp(this)?;
+        if !matches!(socket.state, UdpState::Bound | UdpState::Streaming) {
+            return Ok(Err(ErrorCode::InvalidState));
+        }
+        let real = socket.socket.sock.local_addr();
+        Ok(Ok(from_socket_addr(self.network().local_address(real))))
     }
 
     /// The streams to the one peer the guest names, which passes the

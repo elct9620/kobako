@@ -12,11 +12,9 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 use crate::errno;
 use crate::io::argument_error;
 use crate::socket::{
-    for_peer, peer_of, to_addr_array, to_error, to_ip_socket_address, ByteSource, AF_INET,
+    ensure_reverse_lookup_flag, for_peer, local_addr_array, peer_of, to_addr_array, to_error,
+    to_ip_socket_address, ByteSource, AF_INET,
 };
-
-/// The most one IPv4 datagram carries, so a read of one takes it whole.
-const MAX_DATAGRAM: usize = 65_507;
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
@@ -27,6 +25,9 @@ use crate::wasi::wasi::sockets::udp::{
 use crate::wasi::wasi::sockets::udp_create_socket::create_udp_socket;
 
 const UDP: &str = "UDPSocket";
+
+/// The most one IPv4 datagram carries, so a read of one takes it whole.
+const MAX_DATAGRAM: usize = 65_507;
 
 /// The streams with one peer, dropped before their socket, as WASI asks of a
 /// child resource.
@@ -107,6 +108,7 @@ pub(crate) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
     socket.define_method(mrb, c"recvfrom", beni::method!(udp_socket_recvfrom, -1))?;
     socket.define_method(mrb, c"close", beni::method!(udp_socket_close, 0))?;
     socket.define_method(mrb, c"closed?", beni::method!(udp_socket_closed_p, 0))?;
+    socket.define_method(mrb, c"addr", beni::method!(udp_socket_addr, -1))?;
     Ok(())
 }
 
@@ -365,6 +367,16 @@ fn udp_socket_recvfrom(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value,
 fn udp_socket_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Datagrams::of(mrb, self_)?.open.borrow_mut().take();
     Ok(qnil().as_value())
+}
+
+/// `addr(reverse_lookup = nil)` answers the socket's own end as `TCPSocket`'s
+/// does; one not bound yet answers the unspecified address.
+fn udp_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    if let Some(flag) = args.first() {
+        ensure_reverse_lookup_flag(mrb, *flag)?;
+    }
+    let local = Datagrams::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.local_address()))?;
+    local_addr_array(mrb, local, UDP)
 }
 
 fn udp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {

@@ -24,6 +24,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_tcp.rb`
 - `test/e2e/test_network_tcp_cruby.rb`
 - `test/e2e/test_network_tcp_arguments.rb`
+- `test/e2e/test_network_own_end.rb`
 - `test/e2e/test_network_socket_io.rb`
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`

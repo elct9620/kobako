@@ -26,6 +26,16 @@ const VIRTUAL_BASE: u32 = u32::from_be_bytes([198, 18, 0, 0]);
 /// How many virtual addresses the range holds.
 const VIRTUAL_SIZE: u32 = 1 << 17;
 
+/// The guest's own end of every socket it connects, kept out of what a lookup
+/// hands out, as a container in its own network namespace reads its veth's
+/// address while the host translates. It sits below the range's last
+/// address, the one a broadcast would take.
+const LOCAL_ADDRESS: Ipv4Addr = Ipv4Addr::new(198, 19, 255, 254);
+
+/// How many virtual addresses a lookup may take: all but the guest's own and
+/// the broadcast one above it.
+const NAMED_SIZE: u32 = VIRTUAL_SIZE - 2;
+
 /// What the guest may reach, which policies judge each lookup and connect, the
 /// backend that dials it, the connections the Sandbox holds open and those
 /// left to this Invocation, and the virtual addresses handed out.
@@ -247,6 +257,17 @@ impl Namespace {
         Ok(made)
     }
 
+    /// The address the guest reads as its own end of a socket whose host end
+    /// is `real`, as cgroup `getsockname4` rewrites it: the guest's own
+    /// virtual address and the host's port, or the unspecified address before
+    /// the socket opened, as Linux answers an unbound one.
+    pub fn local_address(&self, real: Option<SocketAddr>) -> SocketAddr {
+        match real {
+            Some(real) => SocketAddr::from((LOCAL_ADDRESS, real.port())),
+            None => SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
+        }
+    }
+
     /// Allocate the virtual address `lookup`'s answer is handed out at, from
     /// the bottom of the range, never reused for a second name; `None` while
     /// the lookup is under way, its failure once it failed, and
@@ -262,7 +283,7 @@ impl Namespace {
         let mut virtuals = self.virtuals.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(offset) = u32::try_from(virtuals.len())
             .ok()
-            .filter(|o| *o < VIRTUAL_SIZE)
+            .filter(|o| *o < NAMED_SIZE)
         else {
             return Some(Err(LookupError::TemporaryFailure));
         };

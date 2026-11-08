@@ -142,6 +142,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<RClass, Error> {
     socket.define_method(mrb, c"close", beni::method!(tcp_socket_close, 0))?;
     socket.define_method(mrb, c"closed?", beni::method!(tcp_socket_closed_p, 0))?;
     socket.define_method(mrb, c"peeraddr", beni::method!(tcp_socket_peeraddr, -1))?;
+    socket.define_method(mrb, c"addr", beni::method!(tcp_socket_addr, -1))?;
     // `Socket` stands only for its constants and errors here; the guest makes
     // no raw socket, so it has no `new`.
     socket_class.singleton_class(mrb)?.funcall::<_, _, Value>(
@@ -820,9 +821,40 @@ fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value,
     to_addr_array(mrb, peer)
 }
 
+/// `addr(reverse_lookup = nil)` answers the guest's own end as CRuby's
+/// `["AF_INET", port, host, host]`: the address the host hands the guest for
+/// it and the real port.
+fn tcp_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    if let Some(flag) = args.first() {
+        ensure_reverse_lookup_flag(mrb, *flag)?;
+    }
+    let local = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.local_address()))?;
+    local_addr_array(mrb, local, "TCPSocket")
+}
+
+/// What `addr` answers for `local`, a socket's own end: an unbound socket's
+/// `invalid-state` stands for the unspecified address, as Linux's
+/// `getsockname` answers an unbound one.
+pub(crate) fn local_addr_array(
+    mrb: &Mrb,
+    local: Result<IpSocketAddress, ErrorCode>,
+    class: &str,
+) -> Result<Value, Error> {
+    match local {
+        Ok(IpSocketAddress::Ipv4(Ipv4SocketAddress {
+            port,
+            address: (a, b, c, d),
+        })) => to_addr_array(mrb, (Ipv4Addr::new(a, b, c, d), port)),
+        Ok(IpSocketAddress::Ipv6(_)) | Err(ErrorCode::InvalidState) => {
+            to_addr_array(mrb, (Ipv4Addr::UNSPECIFIED, 0))
+        }
+        Err(code) => Err(to_error(mrb, code, class, "getsockname(2)")),
+    }
+}
+
 /// Refuses a `reverse_lookup` flag CRuby's refuses: one of `nil`, `true`,
 /// `false`, `:hostname`, or `:numeric` passes.
-fn ensure_reverse_lookup_flag(mrb: &Mrb, flag: Value) -> Result<(), Error> {
+pub(crate) fn ensure_reverse_lookup_flag(mrb: &Mrb, flag: Value) -> Result<(), Error> {
     if !flag.to_bool() || Qtrue::from_value(flag).is_some() {
         return Ok(());
     }
