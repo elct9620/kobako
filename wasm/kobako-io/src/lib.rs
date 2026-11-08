@@ -21,6 +21,7 @@ mod file;
 mod http;
 mod io;
 mod kernel_ext;
+mod select;
 mod socket;
 mod stream;
 mod udp;
@@ -42,7 +43,8 @@ impl Gem for KobakoIo {
         stream::init(mrb, io)?;
         file::init(mrb, io)?;
         dir::init(mrb)?;
-        socket::init(mrb)?;
+        socket::init(mrb, io)?;
+        select::init(mrb, io)?;
         udp::init(mrb)?;
         http::init(mrb)?;
         kernel_ext::init(mrb)?;

@@ -52,6 +52,35 @@ class TestE2ENetworkTcp < Minitest::Test
     end
   end
 
+  SELECT = <<~RUBY
+    socket = TCPSocket.new("127.0.0.1", %<port>d)
+    socket.write("ping")
+    silent = IO.select([socket], nil, nil, 0.05)
+    socket.close_write
+    answered = IO.select([socket], nil, nil, 5)
+    writable = IO.select(nil, [$stdout, socket], nil, 5)
+    [
+      [IPSocket, BasicSocket, IO].all? { |ancestor| socket.is_a?(ancestor) },
+      socket.fileno.is_a?(Integer),
+      silent.nil?,
+      answered && answered[0] == [socket],
+      writable && writable[1] == [$stdout, socket],
+      socket.read
+    ]
+  RUBY
+
+  # @behavior NW-065
+  def test_a_tcp_socket_is_an_io_that_select_waits_on
+    with_upcase_server do |port|
+      value = sandbox_reaching(port).eval(format(SELECT, port: port)).value
+
+      assert_equal [true, true, true, true, true, "PING"], value,
+                   "TCPSocket must descend from IPSocket, BasicSocket, and IO with an Integer fileno, and IO.select " \
+                   "must time out with nil on a silent socket, answer it readable once the server writes, and " \
+                   "answer $stdout beside it writable"
+    end
+  end
+
   SECOND = <<~RUBY
     TCPSocket.new("127.0.0.1", %<port>d).close
     begin

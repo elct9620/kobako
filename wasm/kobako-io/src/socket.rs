@@ -63,7 +63,7 @@ impl Connection {
     }
 }
 
-pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
+pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     let socket_error =
         mrb.class_object()
             .define_error(mrb, c"SocketError", mrb.exception_standard_error())?;
@@ -71,8 +71,13 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
         .define_class(c"Socket", mrb.class_object())?
         .define_error(mrb, c"ResolutionError", socket_error)?;
     resolution.define_method(mrb, c"error_code", beni::method!(resolution_error_code, 0))?;
-    let socket = mrb.define_class(c"TCPSocket", mrb.class_object())?;
+    // A socket is an IO, as CRuby's `TCPSocket < IPSocket < BasicSocket < IO`.
+    let basic = mrb.define_class(c"BasicSocket", io)?;
+    let ip = mrb.define_class(c"IPSocket", basic)?;
+    let socket = mrb.define_class(c"TCPSocket", ip)?;
     Connection::mark_carriers(mrb)?;
+    socket.define_method(mrb, c"fileno", beni::method!(tcp_socket_fileno, 0))?;
+    socket.define_method(mrb, c"to_i", beni::method!(tcp_socket_fileno, 0))?;
     socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, 2))?;
     socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, 2))?;
     socket.define_method(mrb, c"write", beni::method!(tcp_socket_write, 1))?;
@@ -381,6 +386,19 @@ fn tcp_socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn tcp_socket_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Connection::of(mrb, self_)?.open.borrow_mut().take();
     Ok(qnil().as_value())
+}
+
+/// The socket's descriptor, its preview2 handle, which preview1's calls and
+/// `IO.select` reach as one fdtable holds a socket beside a file.
+fn tcp_socket_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let fd = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.handle()))?;
+    Ok((fd as i64).into_value(mrb))
+}
+
+/// Whether `value` is a `TCPSocket` holding bytes a `gets` read past, which
+/// a read answers before the socket is asked, as CRuby's read buffer is.
+pub(crate) fn holds_buffered(mrb: &Mrb, value: Value) -> bool {
+    Connection::of(mrb, value).is_ok_and(|connection| !connection.buffered.borrow().is_empty())
 }
 
 fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
