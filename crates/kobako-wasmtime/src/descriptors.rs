@@ -66,9 +66,16 @@ struct Space {
 
 /// What one taken number holds.
 struct Slot {
-    socket: Option<SharedFile>,
+    socket: Option<(SharedFile, SocketType)>,
     /// Whether it counts against the open files.
     is_file: bool,
+}
+
+/// Which kind of socket a number holds, as Linux's `sock->type` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SocketType {
+    Stream,
+    Datagram,
 }
 
 impl Numbers {
@@ -85,14 +92,19 @@ impl Numbers {
 
     /// Have `n`, a socket's number, stand for its `file`, as `fd_install`
     /// fills an fd with a `struct file`.
-    pub(crate) fn install(&self, n: u32, file: SharedFile) {
+    pub(crate) fn install(&self, n: u32, file: SharedFile, kind: SocketType) {
         if let Some(slot) = self.space().taken.get_mut(&n) {
-            slot.socket = Some(file);
+            slot.socket = Some((file, kind));
         }
     }
 
     /// The socket file `n` stands for, if a socket's number holds one.
     pub(crate) fn socket_file(&self, n: u32) -> Option<SharedFile> {
+        self.socket_of(n).map(|(file, _)| file)
+    }
+
+    /// The socket `n` holds and its kind, if a socket's number holds one.
+    pub(crate) fn socket_of(&self, n: u32) -> Option<(SharedFile, SocketType)> {
         self.space()
             .taken
             .get(&n)
@@ -249,6 +261,11 @@ impl Descriptors {
     /// The socket file a preview2 socket installed at `fd`.
     pub(crate) fn socket(&self, fd: u32) -> Option<SharedFile> {
         self.numbers.socket_file(fd)
+    }
+
+    /// The socket a preview2 socket installed at `fd`, and its kind.
+    pub(crate) fn socket_of(&self, fd: u32) -> Option<(SharedFile, SocketType)> {
+        self.numbers.socket_of(fd)
     }
 
     /// Take `fd` out of the table, freeing its number for reuse.

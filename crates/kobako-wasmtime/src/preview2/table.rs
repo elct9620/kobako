@@ -12,7 +12,7 @@ use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
 
-use crate::descriptors::{lock, Numbers, SharedFile};
+use crate::descriptors::{lock, Numbers, SharedFile, SocketType};
 
 /// One socket file every view of a guest socket shares, as handles on one
 /// `struct file` share one `struct socket`: the protocol's half is `S`, and
@@ -370,8 +370,9 @@ impl Table {
 
     /// Have the socket's `handle` stand for its file, so a preview1 call on
     /// the number reaches the socket, as one fdtable holds both.
-    pub(crate) fn install<S>(&self, handle: impl Handle, socket: &SocketFile<S>) {
-        self.numbers.install(handle.index(), socket.file.clone());
+    pub(crate) fn install<S>(&self, handle: impl Handle, socket: &SocketFile<S>, kind: SocketType) {
+        self.numbers
+            .install(handle.index(), socket.file.clone(), kind);
     }
 
     /// Take `handle` out of the table. A handle of another kind, or one whose

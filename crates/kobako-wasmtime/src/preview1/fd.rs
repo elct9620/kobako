@@ -17,7 +17,7 @@ use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::path::retry_eagain;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
-use crate::descriptors::{lock, Descriptor, Descriptors};
+use crate::descriptors::{lock, Descriptor, Descriptors, SocketType};
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
 /// most userlands.
@@ -188,11 +188,11 @@ fn to_iattr(
 }
 
 pub(crate) fn advise(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
-    Ok(file_mut(table, fd)?.fadvise(offset, len)?)
+    with_open_file(table, fd, |file| Ok(file.fadvise(offset, len)?))
 }
 
 pub(crate) fn allocate(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
-    Ok(file_mut(table, fd)?.fallocate(offset, len)?)
+    with_open_file(table, fd, |file| Ok(file.fallocate(offset, len)?))
 }
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
@@ -200,12 +200,19 @@ pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn sync(table: &mut Descriptors, fd: u32, datasync: bool) -> Answer {
-    Ok(file_mut(table, fd)?.fsync(datasync)?)
+    with_open_file(table, fd, |file| Ok(file.fsync(datasync)?))
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
-    if let Some(socket) = table.socket(fd) {
-        return Ok(to_fdstat(&lock(&socket), false));
+    if let Some((socket, kind)) = table.socket_of(fd) {
+        let fs_filetype = match kind {
+            SocketType::Stream => Filetype::SocketStream,
+            SocketType::Datagram => Filetype::SocketDgram,
+        };
+        return Ok(types::Fdstat {
+            fs_filetype,
+            ..to_fdstat(&lock(&socket), false)
+        });
     }
     let descriptor = descriptor(table, fd)?;
     Ok(to_fdstat(
@@ -257,11 +264,13 @@ fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
 }
 
 pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: Fdflags) -> Answer {
-    file_mut(table, fd)?.setfl(
-        flags.contains(Fdflags::APPEND),
-        flags.contains(Fdflags::NONBLOCK),
-    );
-    Ok(())
+    with_open_file(table, fd, |file| {
+        file.setfl(
+            flags.contains(Fdflags::APPEND),
+            flags.contains(Fdflags::NONBLOCK),
+        );
+        Ok(())
+    })
 }
 
 /// Rights only narrow at open, so a later change is unsupported.
@@ -284,7 +293,7 @@ pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> 
     if i64::try_from(size).is_err() {
         return Err(Errno::Inval.into());
     }
-    Ok(file_mut(table, fd)?.truncate(size)?)
+    with_open_file(table, fd, |file| Ok(file.truncate(size)?))
 }
 
 pub(crate) fn filestat_set_times(table: &Descriptors, fd: u32, times: &Iattr) -> Answer {
@@ -303,9 +312,10 @@ pub(crate) fn pread(
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
-    let file = file_mut(table, fd)?;
-    file.may_pread(offset)?;
-    Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
+    with_open_file(table, fd, |file| {
+        file.may_pread(offset)?;
+        Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
+    })
 }
 
 pub(crate) fn prestat_get(table: &Descriptors, fd: u32) -> Answer<types::Prestat> {
@@ -344,9 +354,10 @@ pub(crate) fn pwrite(
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
-    let file = file_mut(table, fd)?;
-    file.may_pwrite(offset)?;
-    Ok(file.pwrite(mem.bytes(buf)?, offset)? as u32)
+    with_open_file(table, fd, |file| {
+        file.may_pwrite(offset)?;
+        Ok(file.pwrite(mem.bytes(buf)?, offset)? as u32)
+    })
 }
 
 pub(crate) fn read(
@@ -427,6 +438,9 @@ pub(crate) fn readdir(
     capacity: u32,
     cookie: u64,
 ) -> Answer<types::Size> {
+    if table.socket(fd).is_some() {
+        return Err(Errno::Notdir.into());
+    }
     let profile = table.profile();
     let dir = file_mut(table, fd)?;
     // preview1 names where a listing goes on by its cookie, as wasi-libc's
@@ -501,11 +515,14 @@ pub(crate) fn seek(
         types::Whence::Cur => Whence::Cur,
         types::Whence::End => Whence::End,
     };
+    if let Some(socket) = table.socket(fd) {
+        return Ok(lock(&socket).llseek(offset, whence)?);
+    }
     Ok(seekable_file(table, fd)?.llseek(offset, whence)?)
 }
 
 pub(crate) fn tell(table: &mut Descriptors, fd: u32) -> Answer<u64> {
-    Ok(seekable_file(table, fd)?.llseek(0, Whence::Cur)?)
+    seek(table, fd, 0, types::Whence::Cur)
 }
 
 pub(crate) fn write(

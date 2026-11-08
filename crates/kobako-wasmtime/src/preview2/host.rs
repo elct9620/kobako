@@ -32,6 +32,7 @@ use super::sockets::{
     to_lookup_error_code, to_socket_addr,
 };
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
+use crate::descriptors::SocketType;
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
@@ -263,7 +264,9 @@ impl SocketsHost for Invocation {
             socket: socket.clone(),
             state: TcpState::Unbound,
         })?;
-        self.wasi().table().install(handle, &socket);
+        self.wasi()
+            .table()
+            .install(handle, &socket, SocketType::Stream);
         Ok(Ok(handle))
     }
 
@@ -389,7 +392,9 @@ impl SocketsHost for Invocation {
             socket: socket.clone(),
             state: UdpState::Unbound,
         })?;
-        self.wasi().table().install(handle, &socket);
+        self.wasi()
+            .table()
+            .install(handle, &socket, SocketType::Datagram);
         Ok(Ok(handle))
     }
 

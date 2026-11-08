@@ -32,7 +32,7 @@ mod tests {
     use kobako_runtime::sched::run_task;
     use wiggle::GuestPtr;
 
-    use super::super::types::{Errno, Fdflags, Filetype, Sdflags};
+    use super::super::types::{Advice, Errno, Fdflags, Filetype, Sdflags, Whence};
     use super::super::wasi_snapshot_preview1::WasiSnapshotPreview1;
     use crate::config::Config;
     use crate::invocation::Invocation;
@@ -142,6 +142,84 @@ mod tests {
             .err()
             .and_then(|err| err.downcast().ok());
         (flags, read, write)
+    }
+
+    /// What preview1 answers on `fd` for the calls a file's position, sync,
+    /// size, advice, and listing take, then the filetype it reports.
+    fn file_calls_on(guest: &mut Invocation, fd: u32) -> (Vec<Option<Errno>>, Option<Filetype>) {
+        let mut memory = vec![0u8; 64];
+        iovec(&mut memory, 4);
+        let errno = |answer: Result<_, super::super::types::Error>| {
+            answer.err().and_then(|err| err.downcast().ok())
+        };
+        let mut mem = wiggle::GuestMemory::Unshared(&mut memory);
+        let calls = vec![
+            errno(guest.fd_seek(&mut mem, fd.into(), 0, Whence::Set).map(drop)),
+            errno(guest.fd_tell(&mut mem, fd.into()).map(drop)),
+            errno(
+                guest
+                    .fd_pread(&mut mem, fd.into(), GuestPtr::new((0, 1)), 0)
+                    .map(drop),
+            ),
+            errno(
+                guest
+                    .fd_pwrite(&mut mem, fd.into(), GuestPtr::new((0, 1)), 0)
+                    .map(drop),
+            ),
+            errno(guest.fd_sync(&mut mem, fd.into())),
+            errno(guest.fd_datasync(&mut mem, fd.into())),
+            errno(guest.fd_filestat_set_size(&mut mem, fd.into(), 0)),
+            errno(guest.fd_advise(&mut mem, fd.into(), 0, 0, Advice::Normal)),
+            errno(
+                guest
+                    .fd_readdir(&mut mem, fd.into(), GuestPtr::new(16), 8, 0)
+                    .map(drop),
+            ),
+        ];
+        let filetype = guest
+            .fd_fdstat_get(&mut mem, fd.into())
+            .ok()
+            .map(|stat| stat.fs_filetype);
+        (calls, filetype)
+    }
+
+    // @behavior RT-363
+    #[test]
+    fn a_socket_number_answers_a_files_calls_as_linux_answers_a_socket() {
+        let mut guest = networked(9);
+        let tcp = guest
+            .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+            .unwrap()
+            .expect("a network makes a TCP socket");
+        let udp = guest
+            .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+            .unwrap()
+            .expect("a network makes a UDP socket");
+        let linux = vec![
+            Some(Errno::Spipe),
+            Some(Errno::Spipe),
+            Some(Errno::Spipe),
+            Some(Errno::Spipe),
+            Some(Errno::Inval),
+            Some(Errno::Inval),
+            Some(Errno::Inval),
+            None,
+            Some(Errno::Notdir),
+        ];
+        assert_eq!(
+            [
+                file_calls_on(&mut guest, tcp.0),
+                file_calls_on(&mut guest, udp.0)
+            ],
+            [
+                (linux.clone(), Some(Filetype::SocketStream)),
+                (linux, Some(Filetype::SocketDgram))
+            ],
+            "fd_seek, fd_tell, fd_pread, and fd_pwrite on a socket's number must answer ESPIPE, \
+             fd_sync, fd_datasync, and fd_filestat_set_size EINVAL, fd_advise succeed, and \
+             fd_readdir ENOTDIR, as Linux answers each on a socket; fd_fdstat_get must report a \
+             TCP socket as a stream and a UDP socket as datagrams"
+        );
     }
 
     // @behavior RT-352
