@@ -37,6 +37,7 @@ pub(crate) fn to_error(err: &io::Error) -> FilesystemError {
         io::ErrorKind::HostUnreachable => FilesystemError::HostUnreachable,
         io::ErrorKind::NetworkUnreachable => FilesystemError::NetworkUnreachable,
         io::ErrorKind::AddrNotAvailable => FilesystemError::AddressNotAvailable,
+        io::ErrorKind::AddrInUse => FilesystemError::AddressInUse,
         io::ErrorKind::BrokenPipe => FilesystemError::BrokenPipe,
         io::ErrorKind::NotConnected => FilesystemError::NotConnected,
         io::ErrorKind::PermissionDenied => FilesystemError::PermissionDenied,

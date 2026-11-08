@@ -67,6 +67,8 @@ pub enum FilesystemError {
     NetworkUnreachable,
     /// A local address the host cannot hand out.
     AddressNotAvailable,
+    /// A local address another socket holds.
+    AddressInUse,
     /// A write to a connection whose writing side is shut down.
     BrokenPipe,
     /// A call that needs a connection on a socket that has none.
@@ -83,7 +85,7 @@ pub enum FilesystemError {
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, FilesystemError); 41] = [
+const POSIX_NAMES: [(&str, FilesystemError); 42] = [
     ("EAGAIN", FilesystemError::WouldBlock),
     ("ENOENT", FilesystemError::NotFound),
     ("EEXIST", FilesystemError::AlreadyExists),
@@ -120,6 +122,7 @@ const POSIX_NAMES: [(&str, FilesystemError); 41] = [
     ("EHOSTUNREACH", FilesystemError::HostUnreachable),
     ("ENETUNREACH", FilesystemError::NetworkUnreachable),
     ("EADDRNOTAVAIL", FilesystemError::AddressNotAvailable),
+    ("EADDRINUSE", FilesystemError::AddressInUse),
     ("EPIPE", FilesystemError::BrokenPipe),
     ("ENOTCONN", FilesystemError::NotConnected),
     ("EISCONN", FilesystemError::AlreadyConnected),
