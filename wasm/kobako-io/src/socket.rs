@@ -13,8 +13,8 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, Exception, ExceptionClass, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash,
-    Symbol, TryConvert, TypedData, Value,
+    Error, Exception, ExceptionClass, Integer, IntoValue, Module, Mrb, Proc, Qtrue, RArray, RClass,
+    RHash, Symbol, TryConvert, TypedData, Value,
 };
 use std::time::Duration;
 
@@ -216,7 +216,7 @@ pub(crate) fn to_error(mrb: &Mrb, code: ErrorCode, class: &str, call: &str) -> E
 }
 
 /// The words CRuby's `Errno` carries for a call on `host` and `port`.
-pub(crate) fn for_peer(call: &str, host: &str, port: u16) -> String {
+pub(crate) fn for_peer(call: &str, host: &str, port: impl std::fmt::Display) -> String {
     format!("{call} for \"{host}\" port {port}")
 }
 
@@ -229,9 +229,11 @@ fn resolution_error_code(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     }
 }
 
-/// Linux's `EAI_NONAME` and `EAI_AGAIN`, with `gai_strerror`'s words for each.
+/// Linux's `EAI_NONAME`, `EAI_AGAIN`, and `EAI_SERVICE`, with `gai_strerror`'s
+/// words for each.
 pub(crate) const EAI_NONAME: (i32, &str) = (-2, "Name or service not known");
 pub(crate) const EAI_AGAIN: (i32, &str) = (-3, "Temporary failure in name resolution");
+const EAI_SERVICE: (i32, &str) = (-8, "Servname not supported for ai_socktype");
 
 /// Whether the Sandbox gives the guest the network: without it, no socket is
 /// made, which answers at once and does nothing first.
@@ -262,8 +264,15 @@ pub(crate) fn resolution_error_with(mrb: &Mrb, code: i32, message: &str) -> Erro
 
 /// The IPv4 address `name` leads to, as kobako's resolver hands out a virtual
 /// one; a name with no address raises `Socket::ResolutionError`, as an
-/// unallowed one does.
-fn resolve(mrb: &Mrb, name: &str, class: &str, call: &str) -> Result<Ipv4Addr, Error> {
+/// unallowed one does, and a lookup slower than `limit` raises
+/// `Errno::ETIMEDOUT`, as CRuby's `resolv_timeout` does.
+fn resolve(
+    mrb: &Mrb,
+    name: &str,
+    limit: Option<Duration>,
+    class: &str,
+    call: &str,
+) -> Result<Ipv4Addr, Error> {
     let to_error = |code| match code {
         ErrorCode::PermanentResolverFailure => no_network(mrb, class),
         ErrorCode::TemporaryResolverFailure => resolution_error(mrb, EAI_AGAIN),
@@ -279,33 +288,66 @@ fn resolve(mrb: &Mrb, name: &str, class: &str, call: &str) -> Result<Ipv4Addr, E
             Ok(Some(IpAddress::Ipv4((a, b, c, d)))) => return Ok(Ipv4Addr::new(a, b, c, d)),
             Ok(Some(IpAddress::Ipv6(_))) => {}
             Ok(None) => return Err(resolution_error(mrb, EAI_NONAME)),
-            Err(ErrorCode::WouldBlock) => pollable.block(),
+            Err(ErrorCode::WouldBlock) => {
+                if !wait_within(&pollable, limit) {
+                    return Err(errno::error_by_name(
+                        mrb,
+                        c"ETIMEDOUT",
+                        "user specified timeout",
+                    ));
+                }
+            }
             Err(code) => return Err(to_error(code)),
         }
     }
 }
 
 /// The peer `host` and `port` name for `call` on a `class`: the IPv4 address
-/// `host` spells, or the one its name leads to.
+/// `host` spells, or the one its name leads to within `resolv_limit`.
 pub(crate) fn peer_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
+    resolv_limit: Option<Duration>,
     class: &str,
     call: &str,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
     let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
-    let port = u16::try_from(i64::try_convert(port, mrb)?)
-        .map_err(|_| argument_error(mrb, "port out of range"))?;
-    let call = for_peer(call, &host_text, port);
+    let (port, port_text) = port_of(mrb, port)?;
+    let call = for_peer(call, &host_text, port_text);
     let ip = match host_text.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(ip)) => ip,
         Ok(std::net::IpAddr::V6(_)) => {
             return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call))
         }
-        Err(_) => resolve(mrb, &host_text, class, &call)?,
+        Err(_) => resolve(mrb, &host_text, resolv_limit, class, &call)?,
     };
     Ok((ip, port, call))
+}
+
+/// The port `port` names, and its text, as Linux's `getaddrinfo` reads what
+/// CRuby hands it: `nil` or `""` is port 0, and an Integer or a String of
+/// digits keeps its low 16 bits. The guest has no services database, so any
+/// other String raises `EAI_SERVICE`, as Linux without one does.
+fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
+    let text = if port.is_nil() {
+        String::new()
+    } else if Integer::from_value(port).is_some() {
+        i64::try_convert(port, mrb)?.to_string()
+    } else {
+        let bytes = Vec::<u8>::from_value(port).ok_or_else(|| errno::type_error(mrb, port))?;
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    if text.is_empty() {
+        return Ok((0, text));
+    }
+    let digits = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let digits = digits.strip_prefix('+').unwrap_or(digits);
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(resolution_error(mrb, EAI_SERVICE));
+    }
+    let number = digits.parse::<u64>().unwrap_or(u64::MAX);
+    Ok((number as u16, text))
 }
 
 /// `(ip, port)` as WASI names a socket address.
@@ -333,8 +375,8 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
         [host, port, local @ ..] if local.len() <= 2 => (*host, *port, local),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
-    let limit = connect_timeout_of(mrb, options)?;
-    let (ip, port, call) = peer_of(mrb, host, port, TCP, "connect(2)")?;
+    let Timeouts { resolv, connect } = timeouts_of(mrb, options)?;
+    let (ip, port, call) = peer_of(mrb, host, port, resolv, TCP, "connect(2)")?;
     if local.iter().any(|end| !end.is_nil()) {
         return Err(errno::error_by_name(
             mrb,
@@ -353,7 +395,7 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
         match socket.finish_connect() {
             Ok(streams) => break streams,
             Err(ErrorCode::WouldBlock) => {
-                if !wait_within(&pollable, limit) {
+                if !wait_within(&pollable, connect) {
                     return Err(Error::new(
                         mrb,
                         io_timeout_error(mrb)?,
@@ -377,22 +419,44 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
     Ok(mrb.wrap_as(connection, class).as_value())
 }
 
-/// The limit `connect_timeout:` sets, refusing any other keyword, as CRuby
-/// refuses an unknown one.
-fn connect_timeout_of(mrb: &Mrb, options: Option<RHash>) -> Result<Option<Duration>, Error> {
-    let Some(options) = options else {
-        return Ok(None);
+/// The limits `TCPSocket.new`'s keywords set on resolving a name and on
+/// connecting.
+struct Timeouts {
+    resolv: Option<Duration>,
+    connect: Option<Duration>,
+}
+
+/// The limits `resolv_timeout:` and `connect_timeout:` set, refusing any
+/// keyword CRuby's does not take. `fast_fallback:` chooses between IPv6 and
+/// IPv4 attempts, so on a guest that speaks only IPv4 it changes nothing.
+fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
+    let mut timeouts = Timeouts {
+        resolv: None,
+        connect: None,
     };
-    let key = Symbol::new(mrb, "connect_timeout")?.as_value();
+    let Some(options) = options else {
+        return Ok(timeouts);
+    };
     let keys: RArray = options.funcall(mrb, c"keys", ())?;
     for i in 0..keys.len() {
         let given: Value = keys.entry(mrb, i as isize)?;
-        if !given.funcall::<_, _, bool>(mrb, c"==", [key])? {
-            let name = given.inspect(mrb);
-            return Err(argument_error(mrb, &format!("unknown keyword: {name}")));
-        }
+        let name = Symbol::from_value(given).and_then(|name| name.name(mrb).ok());
+        let limit = match name.as_deref() {
+            Some("resolv_timeout") => &mut timeouts.resolv,
+            Some("connect_timeout") => &mut timeouts.connect,
+            Some("fast_fallback") => continue,
+            _ => {
+                let name = given.inspect(mrb);
+                return Err(argument_error(mrb, &format!("unknown keyword: {name}")));
+            }
+        };
+        *limit = seconds_of(mrb, options.aref(mrb, given)?)?;
     }
-    let sec: Value = options.aref(mrb, key)?;
+    Ok(timeouts)
+}
+
+/// The Duration `sec` names, or none for `nil`.
+fn seconds_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>, Error> {
     if sec.is_nil() {
         return Ok(None);
     }
@@ -745,11 +809,37 @@ fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         .into_value(mrb))
 }
 
-/// `peeraddr` answers the peer as CRuby's `["AF_INET", port, host, host]`.
-/// The guest names no host, so a reverse lookup asked for answers the address.
-fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, _reverse_lookup: &[Value]) -> Result<Value, Error> {
+/// `peeraddr(reverse_lookup = nil)` answers the peer as CRuby's
+/// `["AF_INET", port, host, host]`. The guest names no host, so a reverse
+/// lookup asked for answers the address.
+fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    if let Some(flag) = args.first() {
+        check_reverse_lookup(mrb, *flag)?;
+    }
     let peer = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.peer))?;
     to_addr_array(mrb, peer)
+}
+
+/// Refuses a `reverse_lookup` flag CRuby's refuses: one of `nil`, `true`,
+/// `false`, `:hostname`, or `:numeric` passes.
+fn check_reverse_lookup(mrb: &Mrb, flag: Value) -> Result<(), Error> {
+    if !flag.to_bool() || Qtrue::from_value(flag).is_some() {
+        return Ok(());
+    }
+    let Some(symbol) = Symbol::from_value(flag) else {
+        let message = format!(
+            "wrong argument type {} (expected Symbol)",
+            flag.classname(mrb)
+        );
+        return Err(Error::new(mrb, mrb.exception_type_error()?, &message));
+    };
+    match symbol.name(mrb)?.as_str() {
+        "hostname" | "numeric" => Ok(()),
+        _ => {
+            let message = format!("invalid reverse_lookup flag: {}", flag.inspect(mrb));
+            Err(argument_error(mrb, &message))
+        }
+    }
 }
 
 /// An address as CRuby's `["AF_INET", port, host, host]`.

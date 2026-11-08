@@ -191,7 +191,7 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
 /// `connect(host, port)` streams with the peer `host` and `port` name, binding
 /// first if no bind came before, as Linux's autobind does.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
-    let (ip, port, call) = peer_of(mrb, host, port, UDP, "connect(2)")?;
+    let (ip, port, call) = peer_of(mrb, host, port, None, UDP, "connect(2)")?;
     let failed = |code| to_error(mrb, code, UDP, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         if !open.bound {
@@ -231,7 +231,7 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     let data = bytes_of(mrb, mesg)?;
     let (remote_address, call) = match to {
         Some((host, port)) => {
-            let (ip, port, call) = peer_of(mrb, host, port, UDP, "sendto(2)")?;
+            let (ip, port, call) = peer_of(mrb, host, port, None, UDP, "sendto(2)")?;
             (Some(to_ip_socket_address((ip, port))), call)
         }
         None => (None, "send(2)".to_string()),

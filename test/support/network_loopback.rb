@@ -52,6 +52,14 @@ module NetworkLoopback
     server&.close
   end
 
+  # A loopback server that only listens: the backlog takes each connect.
+  def with_listening_server
+    server = TCPServer.new("127.0.0.1", 0)
+    yield server.addr[1]
+  ensure
+    server&.close
+  end
+
   # Yield the port of a loopback peer that answers a datagram upcased.
   def with_upcase_peer
     peer = UDPSocket.new
