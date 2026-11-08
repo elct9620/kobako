@@ -1157,3 +1157,52 @@ endpoint "api.example.com", port: 443
 | Given | a guest holding a response's headers, which it cannot change |
 | When | it appends a header whose name is no token |
 | Then | the append answers `invalid-syntax`, as wasmtime reads a header before it finds the list immutable |
+
+## `NW-095` A script's socket reads through what it holds, as CRuby's IO does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-065`, `NW-079` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers two lines, and a UDP peer that answers datagrams |
+| When | the script reads the TCP socket with `eof?`, `gets(chomp: true)`, `read(n, buf)`, `each_line`, and `readlines`. Then it reads the UDP socket with `read` |
+| Then | each answers as CRuby's does, and a call takes what an earlier call held back first. A UDP read takes one whole datagram |
+
+## `NW-096` A script's socket has no position, sync, or copy
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-065`, `NW-079` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a `TCPSocket` and a `UDPSocket` |
+| When | it calls `seek`, `pos`, `fsync`, `advise`, `sync=`, and `dup` on each |
+| Then | the position calls raise `Errno::ESPIPE`, the sync calls `Errno::EINVAL`, and `advise` answers `nil`, as Linux does. `sync` reads back what `sync=` set. `dup` and `clone` raise `NoMethodError`, where CRuby copies the socket, since WASI copies no descriptor |
+
+## `NW-097` A reset stream read raises Errno::ECONNRESET
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that resets the connection |
+| When | the script reads the socket |
+| Then | the read raises `Errno::ECONNRESET`, as CRuby's does |
+
+## `NW-098` A script's UDPSocket refuses what CRuby's refuses
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-079` |
+| relates | `NW-066` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a network entry, and a guest that speaks only IPv4 |
+| When | the script opens a `UDPSocket` of a family other than `Socket::AF_INET`. Then it calls `new`, `send`, and `recv` with a wrong argument count |
+| Then | the family raises `Errno::EAFNOSUPPORT`, and each count raises `ArgumentError` naming the range CRuby's takes. `Socket.new` raises `NoMethodError`, where CRuby opens a socket, since a script opens only a `TCPSocket` or a `UDPSocket` |
