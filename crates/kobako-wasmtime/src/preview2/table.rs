@@ -255,6 +255,16 @@ struct Entry {
     children: usize,
 }
 
+impl Entry {
+    fn new(resource: Box<dyn Any + Send>, parent: Option<u32>) -> Self {
+        Self {
+            resource,
+            parent,
+            children: 0,
+        }
+    }
+}
+
 pub(crate) struct Table {
     entries: BTreeMap<u32, Entry>,
     numbers: Numbers,
@@ -281,15 +291,27 @@ impl Table {
         self.network.as_ref()
     }
 
-    /// Whether the Invocation holds as many files and resources as it may, so
-    /// a new socket answers `new-socket-limit`, as Linux's `socket()` answers
-    /// EMFILE.
+    /// Whether the Invocation holds as many files as it may, so a new socket
+    /// answers `new-socket-limit`, as Linux's `socket()` answers EMFILE.
     pub(crate) fn is_full(&self) -> bool {
         self.numbers.lowest_unused().is_none()
     }
 
-    /// Hand out a handle for `resource`, refused past the Invocation's open
-    /// file limit.
+    /// Hand out a handle for `resource`, a host-side producer that holds a
+    /// file, as a socket, a lookup, or an exchange does; refused past the
+    /// Invocation's open file limit.
+    pub(crate) fn push_file<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
+        let handle = self.numbers.lowest_unused().ok_or_else(|| {
+            wasmtime::Error::msg("the guest holds as many files as its limit allows")
+        })?;
+        self.numbers.take(handle);
+        self.entries
+            .insert(handle, Entry::new(Box::new(resource), None));
+        Ok(H::new(handle))
+    }
+
+    /// Hand out a handle for `resource`, a view that holds no file of its
+    /// own; refused past `MAX_NUMBERS`.
     pub(crate) fn push<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
         self.insert(Box::new(resource), None).map(H::new)
     }
@@ -316,18 +338,11 @@ impl Table {
         resource: Box<dyn Any + Send>,
         parent: Option<u32>,
     ) -> wasmtime::Result<u32> {
-        let handle = self.numbers.lowest_unused().ok_or_else(|| {
-            wasmtime::Error::msg("the guest holds as many files and resources as its limit allows")
+        let handle = self.numbers.lowest_free().ok_or_else(|| {
+            wasmtime::Error::msg("the guest holds as many resources as a table may")
         })?;
-        self.numbers.take(handle);
-        self.entries.insert(
-            handle,
-            Entry {
-                resource,
-                parent,
-                children: 0,
-            },
-        );
+        self.numbers.take_view(handle);
+        self.entries.insert(handle, Entry::new(resource, parent));
         Ok(handle)
     }
 

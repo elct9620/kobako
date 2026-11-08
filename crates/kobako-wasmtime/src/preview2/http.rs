@@ -551,7 +551,7 @@ impl HttpHost for Invocation {
             return Ok(Err(code));
         }
         self.table()
-            .push(resource::FutureIncomingResponse(future))
+            .push_file(resource::FutureIncomingResponse(future))
             .map(Ok)
     }
 }

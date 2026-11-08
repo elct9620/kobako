@@ -40,64 +40,123 @@ pub(crate) fn lock(file: &SharedFile) -> MutexGuard<'_, File> {
     file.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The most numbers the space holds, files and views alike, as wasmtime's
+/// `ResourceTable::max_capacity` bounds a table.
+pub(crate) const MAX_NUMBERS: usize = 1_000_000;
+
 /// The numbers both encodings hand out, from one space, as Linux's one
 /// fdtable numbers a regular file and a socket alike: a preview1 descriptor
-/// and a preview2 handle never share a number, and each counts once against
-/// the Invocation's open files. A socket's number holds its file, so a
-/// preview1 call on it reaches the socket.
+/// and a preview2 handle never share a number. A file — a descriptor, or a
+/// preview2 resource with a host-side producer behind it — counts once
+/// against the Invocation's open files; a view of one counts only against
+/// `MAX_NUMBERS`. A socket's number holds its file, so a preview1 call on it
+/// reaches the socket.
 #[derive(Clone)]
 pub(crate) struct Numbers {
-    taken: Arc<Mutex<BTreeMap<u32, Option<SharedFile>>>>,
+    space: Arc<Mutex<Space>>,
     open_files: OpenFiles,
+}
+
+#[derive(Default)]
+struct Space {
+    taken: BTreeMap<u32, Slot>,
+    /// No number below this is free, as Linux's `next_fd` hints `alloc_fd`.
+    next: u32,
+}
+
+/// What one taken number holds.
+struct Slot {
+    socket: Option<SharedFile>,
+    /// Whether it counts against the open files.
+    is_file: bool,
 }
 
 impl Numbers {
     pub(crate) fn new(open_files: OpenFiles) -> Self {
         Self {
-            taken: Arc::default(),
+            space: Arc::default(),
             open_files,
         }
     }
 
-    fn taken(&self) -> MutexGuard<'_, BTreeMap<u32, Option<SharedFile>>> {
-        self.taken.lock().unwrap_or_else(PoisonError::into_inner)
+    fn space(&self) -> MutexGuard<'_, Space> {
+        self.space.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Have `n`, a socket's number, stand for its `file`, as `fd_install`
     /// fills an fd with a `struct file`.
     pub(crate) fn install(&self, n: u32, file: SharedFile) {
-        if let Some(slot) = self.taken().get_mut(&n) {
-            *slot = Some(file);
+        if let Some(slot) = self.space().taken.get_mut(&n) {
+            slot.socket = Some(file);
         }
     }
 
     /// The socket file `n` stands for, if a socket's number holds one.
     pub(crate) fn socket_file(&self, n: u32) -> Option<SharedFile> {
-        self.taken().get(&n).cloned().flatten()
+        self.space()
+            .taken
+            .get(&n)
+            .and_then(|slot| slot.socket.clone())
     }
 
-    /// The lowest number no table holds, as Linux's `alloc_fd` finds it;
-    /// `None` when the Invocation holds as many as it may. Nothing is taken
-    /// until `take`, as `fd_install` fills what was found.
+    /// The lowest number free for a file, as Linux's `alloc_fd` finds it;
+    /// `None` when the Invocation holds as many files as it may. Nothing is
+    /// taken until `take`, as `fd_install` fills what was found.
     pub(crate) fn lowest_unused(&self) -> Option<u32> {
-        if self.open_files.is_full() {
+        match self.open_files.is_full() {
+            true => None,
+            false => self.lowest_free(),
+        }
+    }
+
+    /// The lowest number free for a view; `None` past `MAX_NUMBERS`.
+    pub(crate) fn lowest_free(&self) -> Option<u32> {
+        let space = self.space();
+        if space.taken.len() >= MAX_NUMBERS {
             return None;
         }
-        let taken = self.taken();
-        (0..=u32::MAX).find(|n| !taken.contains_key(n))
+        (space.next..=u32::MAX).find(|n| !space.taken.contains_key(n))
     }
 
-    /// Take `n`, a number `lowest_unused` found or one just given back.
+    /// Take `n` for a file, a number `lowest_unused` found or one just given
+    /// back.
     pub(crate) fn take(&self, n: u32) {
         self.open_files
             .open()
             .expect("a number lowest_unused found, or one just given back, has room in the count");
-        self.taken().insert(n, None);
+        self.occupy(n, true);
+    }
+
+    /// Take `n` for a view, a number `lowest_free` found.
+    pub(crate) fn take_view(&self, n: u32) {
+        self.occupy(n, false);
+    }
+
+    fn occupy(&self, n: u32, is_file: bool) {
+        let mut space = self.space();
+        space.taken.insert(
+            n,
+            Slot {
+                socket: None,
+                is_file,
+            },
+        );
+        if n == space.next {
+            space.next = (n..=u32::MAX)
+                .find(|n| !space.taken.contains_key(n))
+                .unwrap_or(u32::MAX);
+        }
     }
 
     /// Give `n` back, so the next number found may be it.
     pub(crate) fn give_back(&self, n: u32) {
-        if self.taken().remove(&n).is_some() {
+        let mut space = self.space();
+        let Some(slot) = space.taken.remove(&n) else {
+            return;
+        };
+        space.next = space.next.min(n);
+        drop(space);
+        if slot.is_file {
             self.open_files.close();
         }
     }
@@ -150,7 +209,7 @@ impl Descriptors {
         }
         for fd in used.keys() {
             numbers.open_files.open()?;
-            numbers.taken().insert(*fd, None);
+            numbers.occupy(*fd, true);
         }
         let cred = restrict_self(&opener, &mounts);
         let walk_guard = WalkGuard::new(&mounts);

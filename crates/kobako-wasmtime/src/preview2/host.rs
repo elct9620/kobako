@@ -185,7 +185,7 @@ impl SocketsHost for Invocation {
         match namespace.resolve(&name) {
             Ok(lookup) => self
                 .table()
-                .push(table::ResolveAddressStream {
+                .push_file(table::ResolveAddressStream {
                     lookup,
                     handed: false,
                 })
@@ -259,7 +259,7 @@ impl SocketsHost for Invocation {
             Err(err) => return Ok(Err(to_error_code(&err))),
         };
         let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
-        let handle: TcpSocket = self.table().push(table::TcpSocket {
+        let handle: TcpSocket = self.table().push_file(table::TcpSocket {
             socket: socket.clone(),
             state: TcpState::Unbound,
         })?;
@@ -375,7 +375,7 @@ impl SocketsHost for Invocation {
         }
         let sock = self.network().create_udp_socket();
         let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
-        let handle: UdpSocket = self.table().push(table::UdpSocket {
+        let handle: UdpSocket = self.table().push_file(table::UdpSocket {
             socket: socket.clone(),
             state: UdpState::Unbound,
         })?;
@@ -1345,11 +1345,20 @@ mod tests {
 
     // @behavior RT-341
     #[test]
-    fn a_resource_counts_against_the_open_file_limit() {
+    fn a_view_takes_no_file_of_the_open_file_limit() {
         let (mut store, instance) = guest(Profile::Hermetic, Some(3));
-        assert!(
-            call::<i64, i32>(&mut store, &instance, "subscribe", 0).is_err(),
-            "subscribe-duration with the open file limit filled by the standard streams must trap"
+        let first = call::<i64, i32>(&mut store, &instance, "subscribe", 0);
+        let guest = store.data_mut();
+        let held = (1..crate::descriptors::MAX_NUMBERS - 3)
+            .map(|_| guest.monotonic_clock_subscribe_duration(0))
+            .take_while(Result::is_ok)
+            .count();
+        let past = guest.monotonic_clock_subscribe_duration(0);
+        assert_eq!(
+            (first.is_ok(), held, past.is_err()),
+            (true, crate::descriptors::MAX_NUMBERS - 4, true),
+            "subscribe-duration with the open file limit filled by the standard streams must \
+             hand out pollables up to a million handles, then trap"
         );
     }
 
@@ -1377,6 +1386,40 @@ mod tests {
             ),
             "create-tcp-socket and create-udp-socket with the open file limit filled by the \
              standard streams must answer new-socket-limit, not trap"
+        );
+    }
+
+    // @behavior NW-069
+    #[test]
+    fn a_socket_with_one_file_left_connects_and_hands_out_its_streams() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let endpoint = network::Endpoint::new("127.0.0.1", port)
+            .unwrap()
+            .with_protocol(network::Protocol::Tcp)
+            .with_addresses(vec![network::Addresses::Local]);
+        let mut guest = within_network_holding(endpoint, Some(4));
+        let started = Instant::now();
+        let connected = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .expect("one file is left for the socket");
+            let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port,
+                address: (127, 0, 0, 1),
+            });
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, remote)?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            Ok::<_, wasmtime::Error>(guest.tcp_tcp_socket_finish_connect(socket)?.is_ok())
+        });
+        assert!(
+            matches!(connected, Ok(true)),
+            "a TCP socket made with one file left under the open file limit must connect and \
+             hand out its streams, as Linux's connect takes no fd, not {connected:?}"
         );
     }
 
