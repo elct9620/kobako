@@ -123,7 +123,7 @@ module Kobako
 end
 ```
 
-## `Kobako::Network::Rule`
+## `Kobako::Network::HttpRule`
 
 One rule an HTTP endpoint judges a request by. It holds whether it allows, its
 method or `nil` for any, and its path pattern.
@@ -131,8 +131,24 @@ method or `nil` for any, and its path pattern.
 ```ruby
 module Kobako
   module Network
-    class Rule
+    class HttpRule
       attr_reader :allow, :method, :path
+    end
+  end
+end
+```
+
+## `Kobako::Network::HttpRule#initialize`
+
+A rule that allows or denies a method, or `:any`, on the paths a pattern
+matches, for an endpoint's `rules:`. The method is held uppercase.
+
+```ruby
+module Kobako
+  module Network
+    class HttpRule
+      def initialize(allow:, method:, path:)
+      end
     end
   end
 end
