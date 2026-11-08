@@ -1000,3 +1000,15 @@ endpoint "api.example.com", port: 443
 | Given | a guest building headers through `wasi:http` |
 | When | it appends past 128 KiB of names and values, or past its `memory_limit` |
 | Then | the call traps, as wasmtime's field limit traps, since `header-error` has no case for it. A list holds its room against the Invocation's memory until it drops |
+
+## `NW-082` An HTTP exchange the guest no longer holds closes its connection
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-040`, `NW-059` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a server that sends a response's head and holds its body open |
+| When | the guest drops the response's body without finishing it, or the Invocation ends while the guest holds it |
+| Then | the server reads the connection closed. Nothing of the exchange outlives what the guest holds of it |
