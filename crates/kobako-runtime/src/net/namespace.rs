@@ -247,16 +247,27 @@ impl Namespace {
         Ok(made)
     }
 
-    /// Allocate the virtual address handed out for `name`, whose `real`
-    /// addresses a lookup answered, from the bottom of the range, never reused
-    /// for a second name; `None` once the range is spent.
-    pub fn alloc_virtual_address(&self, name: &str, real: Vec<IpAddr>) -> Option<Ipv4Addr> {
+    /// Allocate the virtual address `lookup`'s answer is handed out at, from
+    /// the bottom of the range, never reused for a second name; `None` while
+    /// the lookup is under way, its failure once it failed, and
+    /// `TemporaryFailure` once the range is spent.
+    pub fn alloc_virtual_address(
+        &self,
+        lookup: &NameLookup,
+    ) -> Option<Result<Ipv4Addr, LookupError>> {
+        let real = match lookup.answer()? {
+            Ok(real) => real,
+            Err(err) => return Some(Err(err)),
+        };
         let mut virtuals = self.virtuals.lock().unwrap_or_else(PoisonError::into_inner);
-        let offset = u32::try_from(virtuals.len())
+        let Some(offset) = u32::try_from(virtuals.len())
             .ok()
-            .filter(|o| *o < VIRTUAL_SIZE)?;
-        virtuals.push((name.to_string(), real));
-        Some(Ipv4Addr::from(VIRTUAL_BASE + offset))
+            .filter(|o| *o < VIRTUAL_SIZE)
+        else {
+            return Some(Err(LookupError::TemporaryFailure));
+        };
+        virtuals.push((lookup.name().to_string(), real));
+        Some(Ok(Ipv4Addr::from(VIRTUAL_BASE + offset)))
     }
 
     /// The name a virtual address stands for and its real addresses.
@@ -735,9 +746,10 @@ mod tests {
     /// The virtual address a lookup of `name` hands out.
     fn looked_up(namespace: &Namespace, name: &str) -> SocketAddr {
         let lookup = namespace.resolve(name).expect("the lookup starts");
-        let real = settled(&lookup).expect("the name resolves");
+        settled(&lookup).expect("the name resolves");
         let ip = namespace
-            .alloc_virtual_address(lookup.name(), real)
+            .alloc_virtual_address(&lookup)
+            .expect("the lookup settled")
             .expect("the range has room");
         SocketAddr::new(IpAddr::V4(ip), 6379)
     }

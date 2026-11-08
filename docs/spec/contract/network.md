@@ -511,11 +511,12 @@ impl Namespace {
 ## `Namespace::alloc_virtual_address`
 
 Allocate the virtual address a lookup's answer is handed out at. It is never
-reused for a second name, and `None` answers once the range is spent.
+reused for a second name. `None` answers while the lookup is under way, its
+failure once it failed, and `TemporaryFailure` once the range is spent.
 
 ```rust
 impl Namespace {
-    pub fn alloc_virtual_address(&self, name: &str, real: Vec<IpAddr>) -> Option<Ipv4Addr> {}
+    pub fn alloc_virtual_address(&self, lookup: &NameLookup) -> Option<Result<Ipv4Addr, LookupError>> {}
 }
 ```
 
@@ -697,7 +698,6 @@ impl TcpSock {
 }
 ```
 
-## `TcpSock::shutdown`
 ## `TcpSock::is_drained`
 
 Whether everything sent has left for the host, as Linux's `SIOCOUTQ` reads
@@ -709,6 +709,7 @@ impl TcpSock {
 }
 ```
 
+## `TcpSock::shutdown`
 
 Shut the writing side down once what is queued is sent, or stop reading.
 

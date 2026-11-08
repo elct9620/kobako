@@ -205,18 +205,15 @@ impl SocketsHost for Invocation {
             return Ok(Ok(None));
         }
         let lookup = stream.lookup.clone();
-        let real = match lookup.answer() {
-            None => return Ok(Err(ErrorCode::WouldBlock)),
-            Some(Err(err)) => return Ok(Err(to_lookup_error_code(err, false))),
-            Some(Ok(real)) => real,
-        };
         let namespace = self
             .wasi()
             .table()
             .network()
             .expect("a lookup is only made with a network");
-        let Some(at) = namespace.alloc_virtual_address(lookup.name(), real) else {
-            return Ok(Err(ErrorCode::TemporaryResolverFailure));
+        let at = match namespace.alloc_virtual_address(&lookup) {
+            None => return Ok(Err(ErrorCode::WouldBlock)),
+            Some(Err(err)) => return Ok(Err(to_lookup_error_code(err, false))),
+            Some(Ok(at)) => at,
         };
         self.table().get_mut(this)?.handed = true;
         let [a, b, c, d] = at.octets();
@@ -1184,6 +1181,9 @@ mod tests {
              access-denied, and carry a datagram both ways with the peer a udp endpoint names; \
              got bind {fixed:?}, peerless {peerless:?}, received {} datagram(s)",
             answer.len()
+        );
+    }
+
     // @behavior NW-084
     #[test]
     fn a_datagram_past_what_udp_carries_answers_datagram_too_large() {
@@ -1235,9 +1235,6 @@ mod tests {
             matches!(sent, Err(ErrorCode::DatagramTooLarge)),
             "outgoing-datagram-stream.send of one byte past what IPv4 UDP carries must answer \
              datagram-too-large, as udp_sendmsg answers EMSGSIZE, not {sent:?}"
-        );
-    }
-
         );
     }
 
