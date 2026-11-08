@@ -848,12 +848,67 @@ impl Ruleset {
 ## `Namespace::send`
 
 An HTTP request in flight, once the socket hooks and an `http` endpoint pass
-its authority. Any refusal answers `Denied`, and nothing is sent.
+its authority. A header `field_name` or `field_value` refuses is refused too.
+Any refusal answers `Denied`, and nothing is sent.
 
 ```rust
 impl Namespace {
     pub fn send(&self, cred: &Cred, request: OutgoingRequest) -> Result<Arc<Exchange>, HttpError> {}
 }
+```
+
+## `FieldError`
+
+Why a header the Guest names is not one it may set.
+
+```rust
+pub enum FieldError {
+    InvalidSyntax,
+    Forbidden,
+}
+```
+
+## `field_name`
+
+The header name the Guest may set, lowercase. A name that is no token is
+`InvalidSyntax`. One the outbound seam writes itself, as wasmtime's forbidden
+list and `content-length`, is `Forbidden`.
+
+```rust
+pub fn field_name(name: &str) -> Result<String, FieldError> {}
+```
+
+## `field_value`
+
+The header value the Guest may set. One holding CR, LF, or NUL is
+`InvalidSyntax`.
+
+```rust
+pub fn field_value(value: Vec<u8>) -> Result<Vec<u8>, FieldError> {}
+```
+
+## `is_token`
+
+Whether a text is an HTTP token, as a method or a header name must be.
+
+```rust
+pub fn is_token(text: &str) -> bool {}
+```
+
+## `is_authority`
+
+Whether an authority names a host alone, with no path or user part.
+
+```rust
+pub fn is_authority(authority: &str) -> bool {}
+```
+
+## `is_origin_form`
+
+Whether a request target is in origin form, as one from the Guest must be.
+
+```rust
+pub fn is_origin_form(path: &str) -> bool {}
 ```
 
 ## `Scheme`
@@ -1287,10 +1342,23 @@ impl UdpSock {
 ## `Namespace::connect_datagram`
 
 A UDP socket streaming with the one peer the Guest named. The socket hooks and
-the ruleset pass it first, as they pass a TCP connect.
+the ruleset pass it first, as they pass a TCP connect. A stream naming no peer
+answers `PermissionDenied`.
 
 ```rust
 impl Namespace {
-    pub fn connect_datagram(&self, cred: &Cred, addr: SocketAddr) -> Result<Arc<UdpSock>, FilesystemError> {}
+    pub fn connect_datagram(&self, cred: &Cred, addr: Option<SocketAddr>) -> Result<Arc<UdpSock>, FilesystemError> {}
+}
+```
+
+## `Namespace::bind`
+
+Whether a socket may bind an address. Only the unspecified address at port 0
+passes, since the Guest only reaches out; any other answers
+`PermissionDenied`.
+
+```rust
+impl Namespace {
+    pub fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {}
 }
 ```
