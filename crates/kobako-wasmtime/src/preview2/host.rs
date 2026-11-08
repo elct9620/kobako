@@ -716,7 +716,7 @@ impl IoHost for Invocation {
     fn poll_pollable_block(&mut self, this: Pollable) -> wasmtime::Result<()> {
         let pollable = self.table().get(this)?.clone();
         let producer = pollable.is_producer();
-        let pollable = pollable.in_wait(self.profile(), producer);
+        let pollable = pollable.for_wait(self.profile(), producer);
         self.wait_for(pollable.due(), |table| pollable.ready(table).then_some(()))
     }
 
@@ -734,7 +734,7 @@ impl IoHost for Invocation {
         let profile = self.profile();
         let pollables = pollables
             .into_iter()
-            .map(|pollable| pollable.in_wait(profile, producer))
+            .map(|pollable| pollable.for_wait(profile, producer))
             .collect::<Vec<_>>();
         let due = pollables.iter().filter_map(table::Pollable::due).min();
         self.wait_for(due, |mut table| {
