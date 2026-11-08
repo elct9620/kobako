@@ -198,7 +198,13 @@ fn to_connection(ruby: &Ruby, request: &Connection<'_>) -> Result<Value, MagnusE
     let protocol = ruby.to_symbol(match request.protocol {
         Protocol::Http => "http",
         Protocol::Tcp => "tcp",
-        _ => "udp",
+        Protocol::Udp => "udp",
+        other => {
+            return Err(MagnusError::new(
+                ruby.exception_runtime_error(),
+                format!("{other:?} has no Ruby name"),
+            ))
+        }
     });
     class.funcall("new", (ruby.str_new(request.host), request.port, protocol))
 }
