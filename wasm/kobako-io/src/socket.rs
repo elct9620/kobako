@@ -814,7 +814,7 @@ fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// lookup asked for answers the address.
 fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if let Some(flag) = args.first() {
-        check_reverse_lookup(mrb, *flag)?;
+        ensure_reverse_lookup_flag(mrb, *flag)?;
     }
     let peer = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.peer))?;
     to_addr_array(mrb, peer)
@@ -822,7 +822,7 @@ fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value,
 
 /// Refuses a `reverse_lookup` flag CRuby's refuses: one of `nil`, `true`,
 /// `false`, `:hostname`, or `:numeric` passes.
-fn check_reverse_lookup(mrb: &Mrb, flag: Value) -> Result<(), Error> {
+fn ensure_reverse_lookup_flag(mrb: &Mrb, flag: Value) -> Result<(), Error> {
     if !flag.to_bool() || Qtrue::from_value(flag).is_some() {
         return Ok(());
     }

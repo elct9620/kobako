@@ -1270,11 +1270,11 @@ fn initialize_field(mrb: &Mrb, hash: RHash, name: Value, value: Value) -> Result
     }
     let values = mrb.ary_new();
     values.push(mrb, value)?;
-    hash.aset(mrb, field_key(mrb, name)?, values)
+    hash.aset(mrb, to_field_key(mrb, name)?, values)
 }
 
 /// The key a header `name` is held by, as CRuby's `key.downcase.to_s`.
-fn field_key(mrb: &Mrb, name: Value) -> Result<Value, Error> {
+fn to_field_key(mrb: &Mrb, name: Value) -> Result<Value, Error> {
     name.funcall::<_, _, Value>(mrb, c"downcase", ())?
         .funcall(mrb, c"to_s", ())
 }
@@ -1308,7 +1308,7 @@ fn request_set_body(mrb: &Mrb, self_: Value, body: Value) -> Result<Value, Error
 /// `nil` or `false` removes it.
 fn request_aset(mrb: &Mrb, self_: Value, name: Value, value: Value) -> Result<Value, Error> {
     let header = RHash::try_convert(ivar_get(mrb, self_, c"@header")?, mrb)?;
-    let key = field_key(mrb, name)?;
+    let key = to_field_key(mrb, name)?;
     if !value.to_bool() {
         header.delete::<_, Value>(mrb, key)?;
         return Ok(value);
@@ -1346,7 +1346,7 @@ fn append_field_value(mrb: &Mrb, values: RArray, value: Value) -> Result<(), Err
 /// `[name]`: the header's values joined, as CRuby joins them, or `nil`.
 fn header_aref(mrb: &Mrb, self_: Value, name: Value) -> Result<Value, Error> {
     let header = RHash::try_convert(ivar_get(mrb, self_, c"@header")?, mrb)?;
-    let key = field_key(mrb, name)?;
+    let key = to_field_key(mrb, name)?;
     let values = header.aref::<_, Value>(mrb, key)?;
     if values.is_nil() {
         return Ok(values);
@@ -1388,7 +1388,7 @@ fn header_to_hash(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// The header hash and the lowercase key `name` stands for in it.
 fn header_key(mrb: &Mrb, self_: Value, name: Value) -> Result<(RHash, Value), Error> {
     let header = RHash::try_convert(ivar_get(mrb, self_, c"@header")?, mrb)?;
-    Ok((header, field_key(mrb, name)?))
+    Ok((header, to_field_key(mrb, name)?))
 }
 
 /// `key?(name)`: whether the header is present, case-insensitively.
