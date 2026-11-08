@@ -521,6 +521,18 @@ impl Namespace {
 }
 ```
 
+## `Namespace::local_address`
+
+The address the Guest reads as its own end of a socket, given the host's end.
+It is the Guest's own virtual address and the host's port, or the unspecified
+address before the socket opened. No lookup hands that address out.
+
+```rust
+impl Namespace {
+    pub fn local_address(&self, real: Option<SocketAddr>) -> SocketAddr {}
+}
+```
+
 ## `NameLookup`
 
 One lookup in flight on a thread of its own, then its answer.

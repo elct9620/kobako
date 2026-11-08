@@ -1369,3 +1369,16 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox with a network entry named `api` |
 | When | an invocation's Context replaces it with another entry and a builder adding an endpoint |
 | Then | that invocation receives the other entry's endpoints, then the builder's |
+
+## `NW-112` A script's socket reads its own end at the guest's virtual address
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-067`, `NW-079` |
+| relates | `NW-031` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP and a UDP endpoint naming loopback peers |
+| When | the script reads `addr` on each socket, the UDP one before and after it connects. Then it connects to the address `addr` named |
+| Then | a connected socket answers `198.19.255.254` and the port its peer sees, and the unconnected one `0.0.0.0` port 0. The connect raises `Errno::EACCES`, as the address names no endpoint |
