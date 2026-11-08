@@ -68,6 +68,12 @@ module NetworkLoopback
     head
   end
 
+  # A port other than +port+, within the 16 bits a port holds whichever port
+  # the server was given.
+  def port_besides(port)
+    port ^ 1
+  end
+
   def sandbox_reaching(port, **options)
     Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM, **options).network(:local) do |net|
       net.endpoint "127.0.0.1", port: port, protocol: :tcp, addresses: [:local]

@@ -72,11 +72,12 @@ class TestE2ENetwork < Minitest::Test
   # @behavior NW-078
   def test_a_duck_typed_endpoint_takes_the_defaults_and_an_ipaddr
     with_http_server do |port, _seen|
-      entry = DuckEntry.new([HostAndPort.new("localhost", port + 1),
+      public_port = port_besides(port)
+      entry = DuckEntry.new([HostAndPort.new("localhost", public_port),
                              WithAddresses.new("localhost", port, [IPAddr.new("127.0.0.0/8")])])
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:duck, entry)
 
-      assert_equal [:refused, "201"], sandbox.eval(format(REACH, public: port + 1, port: port)).value,
+      assert_equal [:refused, "201"], sandbox.eval(format(REACH, public: public_port, port: port)).value,
                    "an endpoint object answering only host and port must lead only to public addresses, and one " \
                    "naming an IPAddr must speak :http and lead where the IPAddr's prefix covers"
     end

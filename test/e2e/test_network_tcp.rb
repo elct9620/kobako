@@ -47,7 +47,7 @@ class TestE2ENetworkTcp < Minitest::Test
   # @behavior NW-017
   def test_a_tcp_socket_to_an_address_no_endpoint_names_raises_eacces
     with_upcase_server do |port|
-      assert_equal :refused, connect_from(sandbox_reaching(port + 1), port),
+      assert_equal :refused, connect_from(sandbox_reaching(port_besides(port)), port),
                    "TCPSocket to a port no endpoint names must raise Errno::EACCES"
     end
   end
