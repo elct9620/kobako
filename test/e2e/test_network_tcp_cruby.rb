@@ -26,6 +26,24 @@ class TestE2ENetworkTcpCruby < Minitest::Test
     ]
   RUBY
 
+  WRAP_IN_TLS = <<~RUBY
+    begin
+      OpenSSL::SSL::SSLSocket
+      :wrapped
+    rescue NameError => e
+      e.message
+    end
+  RUBY
+
+  # @behavior NW-080
+  def test_a_tcp_socket_carries_no_tls_of_its_own
+    value = sandbox_reaching(9).eval(WRAP_IN_TLS).value
+
+    assert_equal "uninitialized constant OpenSSL::SSL::SSLSocket", value,
+                 "a script with a network naming OpenSSL::SSL::SSLSocket to wrap a TCPSocket must raise NameError, " \
+                 "since the guest has no TLS stack"
+  end
+
   # @behavior NW-065
   def test_a_tcp_socket_is_an_io_that_select_waits_on
     with_upcase_server do |port|
