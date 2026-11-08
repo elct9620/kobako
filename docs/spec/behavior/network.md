@@ -1049,3 +1049,39 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox whose `open_connection_limit` is 1, and a host resolver that has not answered |
 | When | the guest releases a request whose authority is still resolving, then sends another |
 | Then | the second answers `connection-limit-reached` until the resolver returns, since the lookup's thread holds the first request's place |
+
+## `NW-086` A zero-byte read keeps a UDP socket's datagram
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-053` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket holding a datagram from its peer |
+| When | the guest reads zero bytes from the socket's file, then reads again |
+| Then | the first read answers zero and takes nothing, as `sock_read_iter` does, and the second reads the datagram |
+
+## `NW-087` A UDP socket answers its failure before what it holds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-070` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket holding a datagram and a failure its host reported |
+| When | the guest polls the socket's file, then reads twice |
+| Then | the poll finds IN and ERR. The first read answers the failure, as `__skb_recv_udp` asks `sock_error` first, and the second the datagram |
+
+## `NW-088` A UDP socket connected again keeps its place
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket connected under a cap of one connection |
+| When | it connects to another peer |
+| Then | the connect succeeds, since the socket holds the place it took, as `__ip4_datagram_connect` repoints a socket |
