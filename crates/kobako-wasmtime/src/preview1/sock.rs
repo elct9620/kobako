@@ -237,6 +237,55 @@ mod tests {
         );
     }
 
+    // @behavior RT-355
+    #[test]
+    fn a_socket_whose_connect_failed_polls_ready_to_read() {
+        let closed = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = closed.local_addr().unwrap().port();
+        drop(closed);
+        let mut guest = networked(port);
+        let fd = run_task(
+            Some(Instant::now() + Duration::from_secs(10)),
+            || -> wasmtime::Result<_> {
+                let socket = guest
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                    .expect("a network makes a socket");
+                let network = guest.instance_network_instance_network()?;
+                let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                    port,
+                    address: (127, 0, 0, 1),
+                });
+                guest
+                    .tcp_tcp_socket_start_connect(socket, network, remote)?
+                    .expect("an endpoint names the address");
+                let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+                guest.poll_pollable_block(connecting)?;
+                Ok(socket.0)
+            },
+        )
+        .expect("the connect settles");
+        // One fd_read subscription at 0, its event written at 64.
+        let mut memory = vec![0u8; 128];
+        memory[8] = 1;
+        memory[16..20].copy_from_slice(&fd.to_le_bytes());
+        let answer = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            guest
+                .poll_oneoff(
+                    &mut wiggle::GuestMemory::Unshared(&mut memory),
+                    GuestPtr::new(0),
+                    GuestPtr::new(64),
+                    1,
+                )
+                .ok()
+        });
+        assert_eq!(
+            (answer, memory[74]),
+            (Some(1), 1),
+            "poll_oneoff through preview1 of fd_read on a socket whose connect was refused must \
+             answer its event, as poll reports an error whatever was asked"
+        );
+    }
+
     // @behavior RT-350
     #[test]
     fn a_preview1_poll_of_a_socket_number_waits_for_its_peer() {
