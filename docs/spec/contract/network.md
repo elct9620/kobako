@@ -508,14 +508,14 @@ impl Namespace {
 }
 ```
 
-## `Namespace::virtual_address`
+## `Namespace::alloc_virtual_address`
 
-The virtual address a lookup's answer is handed out at. It is never reused for
-a second name, and `None` answers once the range is spent.
+Allocate the virtual address a lookup's answer is handed out at. It is never
+reused for a second name, and `None` answers once the range is spent.
 
 ```rust
 impl Namespace {
-    pub fn virtual_address(&self, name: &str, real: Vec<IpAddr>) -> Option<Ipv4Addr> {}
+    pub fn alloc_virtual_address(&self, name: &str, real: Vec<IpAddr>) -> Option<Ipv4Addr> {}
 }
 ```
 
