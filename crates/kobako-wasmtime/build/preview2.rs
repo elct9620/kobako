@@ -728,7 +728,7 @@ impl Bindgen for FunctionBody<'_> {
             | Instruction::PointerLoad { offset: o }
             | Instruction::LengthLoad { offset: o } => {
                 let e = format!(
-                    "{abi}::load::<i32>(&mut caller, {} + {})?",
+                    "{abi}::load::<i32>(&mut caller, {}, {})?",
                     operands[0],
                     offset(o)
                 );
@@ -736,7 +736,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::I32Load8U { offset: o } => {
                 let e = format!(
-                    "({abi}::load::<u8>(&mut caller, {} + {})? as i32)",
+                    "({abi}::load::<u8>(&mut caller, {}, {})? as i32)",
                     operands[0],
                     offset(o)
                 );
@@ -744,7 +744,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::I32Load8S { offset: o } => {
                 let e = format!(
-                    "({abi}::load::<i8>(&mut caller, {} + {})? as i32)",
+                    "({abi}::load::<i8>(&mut caller, {}, {})? as i32)",
                     operands[0],
                     offset(o)
                 );
@@ -752,7 +752,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::I32Load16U { offset: o } => {
                 let e = format!(
-                    "({abi}::load::<u16>(&mut caller, {} + {})? as i32)",
+                    "({abi}::load::<u16>(&mut caller, {}, {})? as i32)",
                     operands[0],
                     offset(o)
                 );
@@ -760,7 +760,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::I32Load16S { offset: o } => {
                 let e = format!(
-                    "({abi}::load::<i16>(&mut caller, {} + {})? as i32)",
+                    "({abi}::load::<i16>(&mut caller, {}, {})? as i32)",
                     operands[0],
                     offset(o)
                 );
@@ -768,7 +768,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::I64Load { offset: o } => {
                 let e = format!(
-                    "{abi}::load::<i64>(&mut caller, {} + {})?",
+                    "{abi}::load::<i64>(&mut caller, {}, {})?",
                     operands[0],
                     offset(o)
                 );
@@ -779,7 +779,7 @@ impl Bindgen for FunctionBody<'_> {
             | Instruction::LengthStore { offset: o } => {
                 let _ = writeln!(
                     self.src,
-                    "{abi}::store::<i32>(&mut caller, {} + {}, {})?;",
+                    "{abi}::store::<i32>(&mut caller, {}, {}, {})?;",
                     operands[1],
                     offset(o),
                     operands[0]
@@ -788,7 +788,7 @@ impl Bindgen for FunctionBody<'_> {
             Instruction::I32Store8 { offset: o } => {
                 let _ = writeln!(
                     self.src,
-                    "{abi}::store::<u8>(&mut caller, {} + {}, {} as u8)?;",
+                    "{abi}::store::<u8>(&mut caller, {}, {}, {} as u8)?;",
                     operands[1],
                     offset(o),
                     operands[0]
@@ -797,7 +797,7 @@ impl Bindgen for FunctionBody<'_> {
             Instruction::I32Store16 { offset: o } => {
                 let _ = writeln!(
                     self.src,
-                    "{abi}::store::<u16>(&mut caller, {} + {}, {} as u16)?;",
+                    "{abi}::store::<u16>(&mut caller, {}, {}, {} as u16)?;",
                     operands[1],
                     offset(o),
                     operands[0]
@@ -806,7 +806,7 @@ impl Bindgen for FunctionBody<'_> {
             Instruction::I64Store { offset: o } => {
                 let _ = writeln!(
                     self.src,
-                    "{abi}::store::<i64>(&mut caller, {} + {}, {})?;",
+                    "{abi}::store::<i64>(&mut caller, {}, {}, {})?;",
                     operands[1],
                     offset(o),
                     operands[0]
@@ -871,14 +871,15 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::ListLift { element, .. } => {
                 let block = self.blocks(1).remove(0);
-                let size = self.element_size(element);
-                let list = self.tmp();
+                let (size, align) = (self.element_size(element), self.element_align(element));
+                let (list, len) = (self.tmp(), self.tmp());
                 let _ = writeln!(
                     self.src,
-                    "let mut {list} = Vec::with_capacity({len} as usize);\n\
-                     for i in 0..({len} as usize) {{ let base = {ptr} + (i * {size}) as i32; {list}.push({block}); }}",
+                    "let {len} = {abi}::list_len(&mut caller, {ptr}, {given}, {size}, {align})?;\n\
+                     let mut {list} = Vec::with_capacity({len});\n\
+                     for i in 0..{len} {{ let base = {ptr}.wrapping_add((i * {size}) as i32); {list}.push({block}); }}",
                     ptr = operands[0],
-                    len = operands[1],
+                    given = operands[1],
                 );
                 results.push(list);
             }
@@ -890,7 +891,7 @@ impl Bindgen for FunctionBody<'_> {
                     self.src,
                     "let {len} = {list}.len() as i32;\n\
                      let {ptr} = {abi}::realloc(&mut caller, ({len} as usize * {size}) as i32, {align})?;\n\
-                     for (i, e) in {list}.into_iter().enumerate() {{ let base = {ptr} + (i * {size}) as i32; {block}; }}",
+                     for (i, e) in {list}.into_iter().enumerate() {{ let base = {ptr}.wrapping_add((i * {size}) as i32); {block}; }}",
                     list = operands[0],
                 );
                 results.push(ptr);

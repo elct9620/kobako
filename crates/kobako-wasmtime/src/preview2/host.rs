@@ -797,6 +797,8 @@ mod tests {
             (func $subscribe (param i64) (result i32)))
           (import "wasi:io/poll@0.2.12" "[method]pollable.block" (func $block (param i32)))
           (import "wasi:io/poll@0.2.12" "poll" (func $poll (param i32 i32 i32)))
+          (import "wasi:sockets/ip-name-lookup@0.2.12" "resolve-addresses"
+            (func $resolve (param i32 i32 i32 i32)))
           (memory (export "memory") 1)
           (global $bump (mut i32) (i32.const 4096))
           (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
@@ -809,7 +811,9 @@ mod tests {
           (func (export "block") (param i32) (call $block (local.get 0)))
           (func (export "poll") (param i32 i32)
             (i32.store (i32.const 64) (local.get 0))
-            (call $poll (i32.const 64) (local.get 1) (i32.const 32))))
+            (call $poll (i32.const 64) (local.get 1) (i32.const 32)))
+          (func (export "resolve") (param i32 i32)
+            (call $resolve (local.get 0) (i32.const 128) (local.get 1) (i32.const 32))))
     "#;
 
     /// A guest at `profile`, holding at most `open_file_limit` files.
@@ -881,6 +885,26 @@ mod tests {
             "[resource-drop]network of the handle instance-network answered must succeed once and \
              then trap"
         );
+    }
+
+    // @behavior RT-353
+    #[test]
+    fn a_list_past_the_guests_memory_traps_before_the_host_reads_it() {
+        let (mut store, instance) = guest(Profile::Hermetic, None);
+        let network = call::<(), i32>(&mut store, &instance, "network", ()).expect("a handle");
+        for len in [-1, 1 << 20] {
+            let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                call::<(i32, i32), ()>(&mut store, &instance, "poll", (0, len))
+            }));
+            let resolved = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                call::<(i32, i32), ()>(&mut store, &instance, "resolve", (network, len))
+            }));
+            assert!(
+                matches!((polled, resolved), (Ok(Err(_)), Ok(Err(_)))),
+                "wasi:io/poll.poll naming {len} pollables, and resolve-addresses naming a {len}-byte \
+                 name, each past one page of memory, must trap rather than panic or answer"
+            );
+        }
     }
 
     // @behavior RT-338

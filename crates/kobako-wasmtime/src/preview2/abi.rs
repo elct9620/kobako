@@ -34,34 +34,78 @@ fn memory<T>(caller: &mut Caller<'_, T>) -> wasmtime::Result<Memory> {
     }
 }
 
-fn read<T>(caller: &mut Caller<'_, T>, at: i32, buf: &mut [u8]) -> wasmtime::Result<()> {
+/// The guest address `offset` bytes past `at`, a 32-bit pointer as the
+/// Canonical ABI reads one; widened so the sum never wraps into memory the
+/// guest did not name.
+fn address(at: i32, offset: usize) -> usize {
+    at as u32 as usize + offset
+}
+
+fn read<T>(caller: &mut Caller<'_, T>, at: usize, buf: &mut [u8]) -> wasmtime::Result<()> {
     let memory = memory(caller)?;
     memory
-        .read(caller.as_context_mut(), at as u32 as usize, buf)
+        .read(caller.as_context_mut(), at, buf)
         .map_err(|_| wasmtime::Error::msg("a value the guest named lies outside its memory"))
 }
 
-fn write<T>(caller: &mut Caller<'_, T>, at: i32, bytes: &[u8]) -> wasmtime::Result<()> {
+fn write<T>(caller: &mut Caller<'_, T>, at: usize, bytes: &[u8]) -> wasmtime::Result<()> {
     let memory = memory(caller)?;
     memory
-        .write(caller.as_context_mut(), at as u32 as usize, bytes)
+        .write(caller.as_context_mut(), at, bytes)
         .map_err(|_| wasmtime::Error::msg("an answer's place lies outside the guest's memory"))
 }
 
-pub(crate) fn load<S: Scalar>(caller: &mut Caller<'_, impl Sized>, at: i32) -> wasmtime::Result<S> {
+pub(crate) fn load<S: Scalar>(
+    caller: &mut Caller<'_, impl Sized>,
+    at: i32,
+    offset: usize,
+) -> wasmtime::Result<S> {
     let mut bytes = [0; 8];
-    read(caller, at, &mut bytes[..S::SIZE])?;
+    read(caller, address(at, offset), &mut bytes[..S::SIZE])?;
     Ok(S::from_le(&bytes[..S::SIZE]))
 }
 
 pub(crate) fn store<S: Scalar>(
     caller: &mut Caller<'_, impl Sized>,
     at: i32,
+    offset: usize,
     value: S,
 ) -> wasmtime::Result<()> {
     let mut bytes = [0; 8];
     value.to_le(&mut bytes[..S::SIZE]);
-    write(caller, at, &bytes[..S::SIZE])
+    write(caller, address(at, offset), &bytes[..S::SIZE])
+}
+
+/// The length of the list of `len` elements of `size` bytes the guest names
+/// at `at`, once it lies wholly inside the guest's memory and on its `align`,
+/// as wasmtime's `WasmList::new` checks before anything is read; a list
+/// outside traps, so no length the guest names sizes a host allocation first.
+pub(crate) fn list_len(
+    caller: &mut Caller<'_, impl Sized>,
+    at: i32,
+    len: i32,
+    size: usize,
+    align: usize,
+) -> wasmtime::Result<usize> {
+    let len = len as u32 as usize;
+    let end = len
+        .checked_mul(size)
+        .and_then(|bytes| address(at, 0).checked_add(bytes));
+    let memory = memory(caller)?;
+    match end {
+        Some(end) if end <= memory.data_size(caller.as_context_mut()) => {}
+        _ => {
+            return Err(wasmtime::Error::msg(
+                "a list the guest named lies outside its memory",
+            ))
+        }
+    }
+    if !address(at, 0).is_multiple_of(align) {
+        return Err(wasmtime::Error::msg(
+            "a list the guest named is not aligned",
+        ));
+    }
+    Ok(len)
 }
 
 pub(crate) fn load_list<S: Scalar>(
@@ -69,12 +113,10 @@ pub(crate) fn load_list<S: Scalar>(
     at: i32,
     len: i32,
 ) -> wasmtime::Result<Vec<S>> {
-    let size = (len as u32 as usize)
-        .checked_mul(S::SIZE)
-        .ok_or_else(|| wasmtime::Error::msg("a list the guest named outgrows its memory"))?;
-    let mut bytes = vec![0; size];
-    read(caller, at, &mut bytes)?;
-    Ok((0..size / S::SIZE)
+    let len = list_len(caller, at, len, S::SIZE, S::SIZE)?;
+    let mut bytes = vec![0; len * S::SIZE];
+    read(caller, address(at, 0), &mut bytes)?;
+    Ok((0..len)
         .map(|i| S::from_le(&bytes[i * S::SIZE..][..S::SIZE]))
         .collect())
 }
@@ -86,12 +128,14 @@ pub(crate) fn load_string(
     at: i32,
     len: i32,
 ) -> wasmtime::Result<String> {
-    let mut bytes = vec![0; len as u32 as usize];
-    read(caller, at, &mut bytes)?;
+    let mut bytes = vec![0; list_len(caller, at, len, 1, 1)?];
+    read(caller, address(at, 0), &mut bytes)?;
     String::from_utf8(bytes).map_err(|_| invalid("string"))
 }
 
-/// Room in the guest's memory, from its `cabi_realloc`.
+/// Room for `size` bytes on `align` in the guest's memory, from its
+/// `cabi_realloc`; room outside its memory or off its alignment traps, as
+/// wasmtime checks `realloc`'s return.
 pub(crate) fn realloc(
     caller: &mut Caller<'_, impl Sized>,
     size: i32,
@@ -102,7 +146,9 @@ pub(crate) fn realloc(
         .and_then(Extern::into_func)
         .ok_or_else(|| wasmtime::Error::msg("the guest exports no cabi_realloc"))?
         .typed::<(i32, i32, i32, i32), i32>(caller.as_context_mut())?;
-    realloc.call(caller.as_context_mut(), (0, 0, align as i32, size))
+    let at = realloc.call(caller.as_context_mut(), (0, 0, align as i32, size))?;
+    list_len(caller, at, size, 1, align)?;
+    Ok(at)
 }
 
 pub(crate) fn store_list<S: Scalar>(
@@ -117,7 +163,7 @@ pub(crate) fn store_list<S: Scalar>(
     let len = i32::try_from(list.len())
         .map_err(|_| wasmtime::Error::msg("a list too long for the guest"))?;
     let at = realloc(caller, bytes.len() as i32, align)?;
-    write(caller, at, &bytes)?;
+    write(caller, address(at, 0), &bytes)?;
     Ok((at, len))
 }
 
