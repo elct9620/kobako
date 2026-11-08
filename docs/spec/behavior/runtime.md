@@ -4004,3 +4004,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation whose host gave it up while a callback ran |
 | When | the guest makes any preview2 call |
 | Then | the call traps once it answered, as each preview1 call does, so the guest cannot go on as if answered |
+
+## `RT-355` A socket whose connect failed polls ready to read
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-350` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest whose preview2 socket's connect was refused |
+| When | it polls the socket's number to read |
+| Then | the poll answers the subscription at once, as Linux's `poll` reports an error whatever was asked |
