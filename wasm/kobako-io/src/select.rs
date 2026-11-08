@@ -6,7 +6,7 @@
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, Integer, Mrb, RArray, RClass, TryConvert, Value};
+use beni::{Error, Integer, Mrb, RArray, RClass, Symbol, TryConvert, Value};
 use core::ffi::{c_int, c_short};
 
 use crate::io::argument_error;
@@ -36,10 +36,41 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     Ok(())
 }
 
-/// One IO a select names, and which of its sets it stands in.
+/// One object a select names, the IO it stands for, and which of its sets it
+/// stands in.
 struct Watched {
+    given: Value,
     io: Value,
     events: c_short,
+}
+
+/// The IO `object` stands for, as CRuby's `rb_io_get_io` converts it: itself
+/// when an IO, else what its `to_io` answers; anything else raises
+/// `TypeError`.
+fn to_io(mrb: &Mrb, object: Value) -> Result<Value, Error> {
+    let io_class = mrb.class_get(c"IO")?.as_value();
+    let is_io = |value: Value| value.funcall::<_, _, bool>(mrb, c"is_a?", [io_class]);
+    if is_io(object)? {
+        return Ok(object);
+    }
+    let to_io = Symbol::new(mrb, "to_io")?.as_value();
+    if !object.funcall::<_, _, bool>(mrb, c"respond_to?", [to_io])? {
+        let message = format!(
+            "no implicit conversion of {} into IO",
+            object.classname(mrb)
+        );
+        return Err(Error::new(mrb, mrb.exception_type_error()?, &message));
+    }
+    let io = object.funcall::<_, _, Value>(mrb, c"to_io", ())?;
+    if !is_io(io)? {
+        let class = object.classname(mrb);
+        let message = format!(
+            "can't convert {class} to IO ({class}#to_io gives {})",
+            io.classname(mrb)
+        );
+        return Err(Error::new(mrb, mrb.exception_type_error()?, &message));
+    }
+    Ok(io)
 }
 
 /// `IO.select(read, write = nil, error = nil, timeout = nil)` answers
@@ -57,8 +88,10 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
         };
         let set = RArray::try_convert(set, mrb)?;
         for i in 0..set.len() {
+            let given = set.entry(mrb, i as isize)?;
             watched.push(Watched {
-                io: set.entry(mrb, i as isize)?,
+                given,
+                io: to_io(mrb, given)?,
                 events,
             });
         }
@@ -97,8 +130,8 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
         if pending || fd.revents & (w.events | POLLERR | POLLHUP) != 0 {
             any = true;
             match w.events {
-                POLLRDNORM => readable.push(mrb, w.io)?,
-                _ => writable.push(mrb, w.io)?,
+                POLLRDNORM => readable.push(mrb, w.given)?,
+                _ => writable.push(mrb, w.given)?,
             }
         }
     }

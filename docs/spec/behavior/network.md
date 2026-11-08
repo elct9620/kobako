@@ -28,6 +28,8 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_cruby.rb`
+- `test/e2e/test_network_http_headers.rb`
+- `test/e2e/test_network_http_session.rb`
 - `test/e2e/test_network_http_timeout.rb`
 - `test/e2e/test_network_http_policy.rb`
 - `test/e2e/test_network_https.rb`

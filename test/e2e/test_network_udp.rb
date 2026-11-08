@@ -7,7 +7,7 @@ require "socket"
 # peer: a datagram both ways, and what a socket with no named peer raises.
 class TestE2ENetworkUdp < Minitest::Test
   include E2eGuestHelper
-  include NetworkLoopback
+  include UdpLoopback
 
   PING = <<~RUBY
     socket = UDPSocket.new

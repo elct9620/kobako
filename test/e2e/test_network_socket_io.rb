@@ -80,4 +80,28 @@ class TestE2ENetworkSocketIo < Minitest::Test
                    "TCPSocket#read from a server that resets the connection must raise Errno::ECONNRESET"
     end
   end
+
+  CONVERTED = <<~RUBY
+    wrapper = Class.new do
+      def initialize(io) = @io = io
+      def to_io = @io
+    end.new(TCPSocket.new("127.0.0.1", %<port>d))
+    refused = begin
+      IO.select([1])
+    rescue TypeError => e
+      e.message
+    end
+    [IO.select(nil, [wrapper], nil, 5)[1] == [wrapper], refused]
+  RUBY
+
+  # @behavior NW-110
+  def test_io_select_takes_what_converts_to_an_io
+    with_listening_server do |port|
+      value = sandbox_reaching(port).eval(format(CONVERTED, port: port)).value
+
+      assert_equal [true, "no implicit conversion of Integer into IO"], value,
+                   "IO.select must answer an object whose to_io is a TCPSocket ready as it was given, and raise " \
+                   "TypeError for an Integer"
+    end
+  end
 end

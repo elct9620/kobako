@@ -7,7 +7,7 @@ require "test_helper"
 # holds, and the calls CRuby's refuses.
 class TestE2ENetworkUdpCruby < Minitest::Test
   include E2eGuestHelper
-  include NetworkLoopback
+  include UdpLoopback
 
   READ = <<~RUBY
     socket = UDPSocket.new

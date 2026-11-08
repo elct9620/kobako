@@ -471,7 +471,7 @@ fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
 
 /// The `Errno` a stream's failure raises, by the POSIX name the host gives
 /// it, as CRuby raises `Errno::ECONNRESET` from a reset socket's read.
-fn stream_error(mrb: &Mrb, err: StreamError) -> Error {
+pub(crate) fn stream_error(mrb: &Mrb, err: StreamError) -> Error {
     match err {
         StreamError::Closed => errno::error_by_name(mrb, c"EPIPE", "write(2)"),
         StreamError::LastOperationFailed(err) => {

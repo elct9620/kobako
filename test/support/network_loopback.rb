@@ -20,6 +20,29 @@ module NetworkLoopback
     server&.close
   end
 
+  # A loopback HTTP server answering every request with the status its path
+  # names, as `/204` names 204, else 200, each with the reason "OK", and a
+  # body of "ok" unless the request or the status carries none; it hands back
+  # each request line and headers it saw.
+  def with_serving_server
+    server = TCPServer.new("127.0.0.1", 0)
+    seen = Queue.new
+    thread = Thread.new { loop { serve_status(server.accept, seen) } }
+    yield server.addr[1], seen
+  ensure
+    thread&.kill
+    server&.close
+  end
+
+  def serve_status(client, seen)
+    head = read_head(client)
+    seen << head
+    status = head.first.to_s.split[1].to_s[%r{\A/(\d{3})\z}, 1] || "200"
+    body = head.first.to_s.start_with?("HEAD") || %w[204 304].include?(status) ? "" : "ok"
+    client.write("HTTP/1.1 #{status} OK\r\ncontent-length: #{body.bytesize}\r\n\r\n#{body}")
+    client.close
+  end
+
   # A loopback HTTP server answering one request with `created` and the body
   # it read, handing back the request line and headers it saw.
   def with_http_server
@@ -58,27 +81,6 @@ module NetworkLoopback
     yield server.addr[1]
   ensure
     server&.close
-  end
-
-  # Yield the port of a loopback peer that answers a datagram upcased.
-  def with_upcase_peer
-    peer = UDPSocket.new
-    peer.bind("127.0.0.1", 0)
-    thread = Thread.new do
-      mesg, from = peer.recvfrom(16)
-      peer.send(mesg.upcase, 0, from[3], from[1])
-    end
-    yield peer.addr[1]
-  ensure
-    thread&.kill
-    peer&.close
-  end
-
-  # A Sandbox whose one UDP endpoint reaches loopback +port+.
-  def sandbox_sending_to(port)
-    Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM).network(:local) do |net|
-      net.endpoint "127.0.0.1", port: port, protocol: :udp, addresses: [:local]
-    end
   end
 
   # A loopback server that resets its connection once it reads a line.

@@ -21,7 +21,7 @@ use crate::io::argument_error;
 use crate::socket;
 use crate::wasi::wasi::http::outgoing_handler::handle;
 use crate::wasi::wasi::http::types::{
-    ErrorCode, Fields, IncomingBody, Method, OutgoingBody, OutgoingRequest, Scheme,
+    ErrorCode, Fields, HeaderError, IncomingBody, Method, OutgoingBody, OutgoingRequest, Scheme,
 };
 use crate::wasi::wasi::io::streams::{InputStream, StreamError};
 use crate::wasi::{wait_within, write_within};
@@ -46,6 +46,9 @@ struct Unread {
     body: Option<IncomingBody>,
     /// How long one chunk may take, as `read_timeout` bounds each read.
     read: Option<Duration>,
+    /// Whether the response carries a body; one that carries none answers
+    /// `nil` for it, as CRuby's does.
+    carried: bool,
 }
 
 impl Unread {
@@ -79,13 +82,18 @@ impl Unread {
         }
     }
 
-    /// Every byte left, to the end.
-    fn read_rest(&mut self, mrb: &Mrb) -> Result<Vec<u8>, Error> {
+    /// Every byte left, to the end, or `None` for a response that carries no
+    /// body.
+    fn read_body(&mut self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
+        if !self.carried {
+            self.finish();
+            return Ok(None);
+        }
         let mut rest = Vec::new();
         while let Some(chunk) = self.read_chunk(mrb)? {
             rest.extend(chunk);
         }
-        Ok(rest)
+        Ok(Some(rest))
     }
 
     fn finish(&mut self) {
@@ -171,6 +179,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     http.define_method(mrb, c"start", beni::method!(http_start, 0))?;
     http.define_method(mrb, c"finish", beni::method!(http_finish, 0))?;
     http.define_method(mrb, c"started?", beni::method!(http_started_p, 0))?;
+    http.define_method(mrb, c"inspect", beni::method!(http_inspect, 0))?;
     http.define_method(mrb, c"request", beni::method!(http_request, -1))?;
     for (name, func) in [
         (c"get", beni::method!(http_get, -1)),
@@ -193,6 +202,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     generic.define_method(mrb, c"[]", beni::method!(header_aref, 1))?;
     generic.define_method(mrb, c"[]=", beni::method!(request_aset, 2))?;
     generic.define_method(mrb, c"each_header", beni::method!(header_each, 0))?;
+    generic.define_method(mrb, c"to_hash", beni::method!(header_to_hash, 0))?;
+    generic.define_method(mrb, c"inspect", beni::method!(request_inspect, 0))?;
     generic.define_method(mrb, c"key?", beni::method!(header_key_p, 1))?;
     generic.define_method(mrb, c"delete", beni::method!(header_delete, 1))?;
     generic.define_method(mrb, c"content_type", beni::method!(header_content_type, 0))?;
@@ -246,6 +257,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
         beni::method!(response_http_version, 0),
     )?;
     response.define_method(mrb, c"code_type", beni::method!(response_code_type, 0))?;
+    response.define_method(mrb, c"inspect", beni::method!(response_inspect, 0))?;
     for name in [
         c"HTTPInformation",
         c"HTTPSuccess",
@@ -307,12 +319,17 @@ fn to_bytes(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     Ok(unsafe { string.as_bytes(mrb) }.to_vec())
 }
 
-/// `Net::HTTP.new(address, port = nil)`: HTTP on port 80 unless written.
+/// `Net::HTTP.new(address, port = nil)`: port 80 unless written, decided
+/// here, as CRuby's `use_ssl=` leaves the port as it was.
 fn http_initialize(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (address, port) = match args {
         [address] => (*address, qnil().as_value()),
         [address, port, ..] => (*address, *port),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
+    };
+    let port = match port.is_nil() {
+        true => HTTP_PORT.into_value(mrb),
+        false => port,
     };
     ivar_set(
         mrb,
@@ -330,6 +347,10 @@ fn http_initialize(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
 
 /// The seconds each of `Net::HTTP`'s timeouts starts at, as CRuby's.
 const DEFAULT_TIMEOUT: i64 = 60;
+
+/// The ports `http_default_port` and `https_default_port` answer in CRuby.
+const HTTP_PORT: i64 = 80;
+const HTTPS_PORT: i64 = 443;
 
 fn http_open_timeout(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     ivar_get(mrb, self_, c"@open_timeout")
@@ -392,18 +413,23 @@ fn http_address(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     ivar_get(mrb, self_, c"@address")
 }
 
-/// The port given, or the scheme's own.
 fn http_port(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    Ok(i64::from(port_of(mrb, self_)?).into_value(mrb))
+    ivar_get(mrb, self_, c"@port")
 }
 
 fn port_of(mrb: &Mrb, self_: Value) -> Result<u16, Error> {
     let port = ivar_get(mrb, self_, c"@port")?;
-    if port.is_nil() {
-        return Ok(if uses_ssl(mrb, self_)? { 443 } else { 80 });
-    }
     u16::try_from(i64::try_convert(port, mrb)?)
         .map_err(|_| argument_error(mrb, "port out of range"))
+}
+
+/// `inspect`: the address, the port, and whether a session is open, as
+/// CRuby's `#<Net::HTTP example.com:80 open=false>`.
+fn http_inspect(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let address = to_text(mrb, ivar_get(mrb, self_, c"@address")?)?;
+    let port = ivar_get(mrb, self_, c"@port")?.inspect(mrb);
+    let open = http_started_p(mrb, self_)?;
+    Ok(format!("#<Net::HTTP {address}:{port} open={open}>").into_value(mrb))
 }
 
 fn uses_ssl(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
@@ -430,8 +456,12 @@ fn current_block(mrb: &Mrb) -> Result<Option<Proc>, Error> {
     Ok(scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?.block)
 }
 
-/// Start a session, yielding to `block` and finishing once it returns.
+/// Start a session, yielding to `block` and finishing once it returns; one
+/// already open raises `IOError`, as CRuby's does.
 fn run_session(mrb: &Mrb, self_: Value, block: Option<Proc>) -> Result<Value, Error> {
+    if http_started_p(mrb, self_)? {
+        return Err(errno::io_error(mrb, "HTTP session already opened"));
+    }
     ivar_set(mrb, self_, c"@started", true.into_value(mrb))?;
     let Some(block) = block else {
         return Ok(self_);
@@ -441,7 +471,12 @@ fn run_session(mrb: &Mrb, self_: Value, block: Option<Proc>) -> Result<Value, Er
     answer
 }
 
+/// `finish` closes the session; with none open it raises `IOError`, as
+/// CRuby's does.
 fn http_finish(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    if !http_started_p(mrb, self_)? {
+        return Err(errno::io_error(mrb, "HTTP session not yet started"));
+    }
     ivar_set(mrb, self_, c"@started", false.into_value(mrb))?;
     Ok(qnil().as_value())
 }
@@ -451,13 +486,22 @@ fn http_started_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 }
 
 /// `Net::HTTP.start(address, port = nil, use_ssl: false, open_timeout: 60,
-/// read_timeout: 60, write_timeout: 60) { |http| ... }`.
+/// read_timeout: 60, write_timeout: 60) { |http| ... }`; with no port,
+/// `use_ssl: true` takes 443, as CRuby's does.
 fn http_s_start(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
     let block = current_block(mrb)?;
     let mut positional = args.to_vec();
     let options = positional.last().copied().and_then(RHash::from_value);
     if options.is_some() {
         positional.pop();
+    }
+    if let Some(options) = options {
+        let use_ssl: Value = options.aref(mrb, Symbol::new(mrb, "use_ssl")?)?;
+        let port_given = positional.get(1).is_some_and(|port| !port.is_nil());
+        if use_ssl.to_bool() && !port_given {
+            positional.truncate(1);
+            positional.push(HTTPS_PORT.into_value(mrb));
+        }
     }
     let http: Value = class.funcall(mrb, c"new", positional.as_slice())?;
     if let Some(options) = options {
@@ -511,103 +555,135 @@ fn get_response(
         _ => return Err(Error::argnum(mrb, args.len(), 2, 3)),
     };
     let http: Value = class.funcall(mrb, c"new", [host, port])?;
-    let path = to_text(mrb, path)?;
-    send_from(mrb, http, "GET", &path, Vec::new(), None, given)
+    let request = new_request(mrb, c"Get", path, qnil().as_value())?;
+    send_request(mrb, http, request, None, given)
 }
 
 fn http_get(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_bodyless(mrb, self_, "GET", args)
+    send_bodyless(mrb, self_, c"Get", args)
 }
 
 fn http_head(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_bodyless(mrb, self_, "HEAD", args)
+    send_bodyless(mrb, self_, c"Head", args)
 }
 
 fn http_delete(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_bodyless(mrb, self_, "DELETE", args)
+    send_bodyless(mrb, self_, c"Delete", args)
 }
 
 fn http_options(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_bodyless(mrb, self_, "OPTIONS", args)
+    send_bodyless(mrb, self_, c"Options", args)
 }
 
 fn http_post(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_with_body(mrb, self_, "POST", args)
+    send_with_body(mrb, self_, c"Post", args)
 }
 
 fn http_put(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_with_body(mrb, self_, "PUT", args)
+    send_with_body(mrb, self_, c"Put", args)
 }
 
 fn http_patch(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_with_body(mrb, self_, "PATCH", args)
+    send_with_body(mrb, self_, c"Patch", args)
 }
 
-/// `get(path, initheader = nil) { |chunk| }` and its kin with no body; a block
-/// is handed the body as it arrives.
-fn send_bodyless(mrb: &Mrb, self_: Value, method: &str, args: &[Value]) -> Result<Value, Error> {
+/// `get(path, initheader = nil) { |chunk| }` and its kin with no body, sent
+/// as a `Net::HTTP::Get` of the same path and headers; a block is handed the
+/// body as it arrives.
+fn send_bodyless(
+    mrb: &Mrb,
+    self_: Value,
+    class: &core::ffi::CStr,
+    args: &[Value],
+) -> Result<Value, Error> {
     let (path, header) = match args {
         [path] => (*path, qnil().as_value()),
         [path, header] => (*path, *header),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
-    let path = to_text(mrb, path)?;
-    let headers = to_headers(mrb, header)?;
+    let request = new_request(mrb, class, path, header)?;
     let given = Given::current(mrb, Given::Chunks)?;
-    send_from(mrb, self_, method, &path, headers, None, given)
+    send_request(mrb, self_, request, None, given)
 }
 
-/// `post(path, data, initheader = nil) { |chunk| }` and its kin with a body;
-/// a block is handed the response's body as it arrives.
-fn send_with_body(mrb: &Mrb, self_: Value, method: &str, args: &[Value]) -> Result<Value, Error> {
+/// `post(path, data, initheader = nil) { |chunk| }` and its kin with a body,
+/// sent as a `Net::HTTP::Post` carrying `data`; a block is handed the
+/// response's body as it arrives.
+fn send_with_body(
+    mrb: &Mrb,
+    self_: Value,
+    class: &core::ffi::CStr,
+    args: &[Value],
+) -> Result<Value, Error> {
     let (path, data, header) = match args {
         [path, data] => (*path, *data, qnil().as_value()),
         [path, data, header] => (*path, *data, *header),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 3)),
     };
-    let path = to_text(mrb, path)?;
-    let body = to_bytes(mrb, data)?;
-    let headers = to_headers(mrb, header)?;
+    let request = new_request(mrb, class, path, header)?;
     let given = Given::current(mrb, Given::Chunks)?;
-    send_from(mrb, self_, method, &path, headers, Some(body), given)
+    send_request(mrb, self_, request, Some(data), given)
+}
+
+/// A `Net::HTTP::<class>` for `path` and `header`.
+fn new_request(
+    mrb: &Mrb,
+    class: &core::ffi::CStr,
+    path: Value,
+    header: Value,
+) -> Result<Value, Error> {
+    let http: RClass = mrb.module_get(c"Net")?.const_get(mrb, c"HTTP")?;
+    let class: RClass = http.const_get(mrb, class)?;
+    class.funcall(mrb, c"new", [path, header])
 }
 
 /// `request(req, body = nil) { |response| }`: send a `Net::HTTP::Get` or one
 /// of its kin; a block is handed the response before its body is read.
 fn http_request(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (request, body) = match args {
-        [request] => (*request, qnil().as_value()),
-        [request, body] => (*request, *body),
+        [request] => (*request, None),
+        [request, body] => (*request, Some(*body).filter(|body| !body.is_nil())),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
+    let given = Given::current(mrb, Given::Response)?;
+    send_request(mrb, self_, request, body, given)
+}
+
+/// Send `request`, with `body` in place of the one it holds, as CRuby's
+/// `set_body_internal` takes it: both raise `ArgumentError`, and a request
+/// that carries a body but holds none sends it empty. A body sent with no
+/// `content-type` sends `application/x-www-form-urlencoded`, as CRuby's
+/// `supply_default_content_type` sets it.
+fn send_request(
+    mrb: &Mrb,
+    http: Value,
+    request: Value,
+    body: Option<Value>,
+    given: Option<Given>,
+) -> Result<Value, Error> {
+    let held = Some(ivar_get(mrb, request, c"@body")?).filter(|held| !held.is_nil());
+    let body = match (body, held) {
+        (Some(_), Some(_)) => {
+            return Err(argument_error(
+                mrb,
+                "both of body argument and HTTPRequest#body set",
+            ))
+        }
+        (Some(body), None) | (None, Some(body)) => Some(to_bytes(mrb, body)?),
+        (None, None) => {
+            let class: RClass = request.funcall(mrb, c"class", ())?;
+            let carries: Value = class.const_get(mrb, c"REQUEST_HAS_BODY")?;
+            carries.to_bool().then(Vec::new)
+        }
+    };
+    if body.is_some() && header_content_type(mrb, request)?.is_nil() {
+        let media = "application/x-www-form-urlencoded".into_value(mrb);
+        request_set_content_type(mrb, request, media)?;
+    }
     let method = to_text(mrb, ivar_get(mrb, request, c"@method")?)?;
     let path = to_text(mrb, ivar_get(mrb, request, c"@path")?)?;
     let headers = headers_of(mrb, ivar_get(mrb, request, c"@header")?)?;
-    let body = match (body.is_nil(), ivar_get(mrb, request, c"@body")?) {
-        (false, _) => Some(to_bytes(mrb, body)?),
-        (true, held) if !held.is_nil() => Some(to_bytes(mrb, held)?),
-        _ => None,
-    };
-    let given = Given::current(mrb, Given::Response)?;
-    send_from(mrb, self_, &method, &path, headers, body, given)
-}
-
-/// Headers handed as a Hash, or none.
-fn to_headers(mrb: &Mrb, header: Value) -> Result<Vec<(String, Vec<u8>)>, Error> {
-    if header.is_nil() {
-        return Ok(Vec::new());
-    }
-    let hash = RHash::from_value(header)
-        .ok_or_else(|| argument_error(mrb, "initheader must be a Hash"))?;
-    let mut headers = Vec::new();
-    hash.foreach(mrb, |name: Value, value: Value| {
-        headers.push((
-            to_text(mrb, name)?.to_ascii_lowercase(),
-            to_bytes(mrb, value)?,
-        ));
-        Ok(ForEach::Continue)
-    })?;
-    Ok(headers)
+    send_from(mrb, http, &method, &path, headers, body, given)
 }
 
 /// A request's `@header`, each name to its list of values.
@@ -669,8 +745,8 @@ fn send_from(
         body: mut unread,
     } = send(mrb, &outgoing)?;
     let Some(given) = given else {
-        let body = unread.read_rest(mrb)?;
-        return to_response(mrb, status, headers, Some(&body));
+        let body = unread.read_body(mrb)?;
+        return to_response(mrb, status, headers, body.as_deref());
     };
     let response = to_response(mrb, status, headers, None)?;
     let streaming = Streaming::new(response.object_id(), unread);
@@ -681,8 +757,8 @@ fn send_from(
     // What the block left unread is read once it returns, so `body` answers
     // after it, as CRuby reads the rest.
     if let Some(mut unread) = streaming.end() {
-        let rest = unread.read_rest(mrb)?;
-        ivar_set(mrb, response, c"@body", mrb.str_new(&rest).as_value())?;
+        let body = unread.read_body(mrb)?;
+        ivar_set(mrb, response, c"@body", to_body(mrb, body.as_deref()))?;
     }
     Ok(response)
 }
@@ -733,12 +809,14 @@ fn method_of(method: &str) -> Method {
 }
 
 /// Send `outgoing` and answer its response's head, its body left to read. A
-/// header the seam frames itself, such as `content-length` or `host`, is left
-/// to it.
+/// header WASI refuses raises `ArgumentError`, among them one the host frames
+/// itself, such as `host` or `content-length`.
 fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
     let fields = Fields::new();
     for (name, value) in &outgoing.headers {
-        let _ = fields.append(name, value);
+        fields
+            .append(name, value)
+            .map_err(|refused| header_error(mrb, name, refused))?;
     }
     let request = OutgoingRequest::new(fields);
     let failed = |what: &str| errno::io_error(mrb, what);
@@ -763,7 +841,7 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
     if let Some(body) = &outgoing.body {
         let stream = out.write().map_err(|()| failed("request body taken"))?;
         let written = write_within(&stream, body, outgoing.limits.write)
-            .map_err(|_| errno::error_by_name(mrb, c"ENOMEM", "request body"))?;
+            .map_err(|err| socket::stream_error(mrb, err))?;
         if !written {
             return Err(net_error(mrb, c"WriteTimeout", "Net::WriteTimeout"));
         }
@@ -784,6 +862,7 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
         .map_err(|()| failed("response taken"))?
         .map_err(|code| to_error(mrb, outgoing, code))?;
     let status = response.status();
+    let carried = outgoing.method != "HEAD" && carries_body(status);
     let headers = response.headers().entries();
     let incoming = response
         .consume()
@@ -798,8 +877,26 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
             stream: Some(stream),
             body: Some(incoming),
             read: outgoing.limits.read,
+            carried,
         },
     })
+}
+
+/// Whether a response of `status` carries a body, as CRuby's `HAS_BODY`
+/// answers none for 1xx, 204, 205, 304, and 305.
+fn carries_body(status: u16) -> bool {
+    !matches!(status, 100..=199 | 204 | 205 | 304 | 305)
+}
+
+/// The `ArgumentError` for a header `name` WASI refuses as `refused` says.
+fn header_error(mrb: &Mrb, name: &str, refused: HeaderError) -> Error {
+    let message = match refused {
+        HeaderError::Forbidden => format!("header {name} cannot be set, as the host writes it"),
+        HeaderError::InvalidSyntax | HeaderError::Immutable => {
+            format!("header {name} is not a valid HTTP field")
+        }
+    };
+    argument_error(mrb, &message)
 }
 
 /// What CRuby raises for a request that found no response, wrapped as its
@@ -946,6 +1043,11 @@ fn response_class(mrb: &Mrb, status: u16) -> Result<RClass, Error> {
     mrb.module_get(c"Net")?.const_get(mrb, name)
 }
 
+/// A response's `@body`: the bytes read, or `nil` for none.
+fn to_body(mrb: &Mrb, body: Option<&[u8]>) -> Value {
+    body.map_or_else(|| qnil().as_value(), |body| mrb.str_new(body).as_value())
+}
+
 /// The `Net::HTTPResponse` for `status` and `headers`, holding `body` once it
 /// was read; one a block still streams holds none yet.
 fn to_response(
@@ -976,8 +1078,7 @@ fn to_response(
         reason_of(status).into_value(mrb),
     )?;
     ivar_set(mrb, response, c"@header", header.as_value())?;
-    let body = body.map_or_else(|| qnil().as_value(), |body| mrb.str_new(body).as_value());
-    ivar_set(mrb, response, c"@body", body)?;
+    ivar_set(mrb, response, c"@body", to_body(mrb, body))?;
     Ok(response)
 }
 
@@ -1007,8 +1108,8 @@ fn read_body_into(mrb: &Mrb, response: Value, block: Option<Proc>) -> Result<Val
         }
         return ivar_get(mrb, response, c"@body");
     };
-    let Some(block) = block else {
-        let body = mrb.str_new(&unread.read_rest(mrb)?).as_value();
+    let Some(block) = block.filter(|_| unread.carried) else {
+        let body = to_body(mrb, unread.read_body(mrb)?.as_deref());
         ivar_set(mrb, response, c"@body", body)?;
         return Ok(body);
     };
@@ -1072,6 +1173,18 @@ fn response_content_length(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     }
 }
 
+/// `inspect`: the class, the code, the message, and whether the body was
+/// read, as CRuby's `#<Net::HTTPOK 200 OK readbody=true>`; a body a block
+/// still streams is not read yet.
+fn response_inspect(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let class = to_text(mrb, self_.funcall(mrb, c"class", ())?)?;
+    let code = to_text(mrb, ivar_get(mrb, self_, c"@code")?)?;
+    let message = to_text(mrb, ivar_get(mrb, self_, c"@message")?)?;
+    let id = self_.object_id();
+    let read = !STREAMING.with_borrow(|open| open.iter().any(|(held, _)| *held == id));
+    Ok(format!("#<{class} {code} {message} readbody={read}>").into_value(mrb))
+}
+
 /// `header`: the response itself, as CRuby answers it.
 fn response_header(_mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(self_)
@@ -1087,26 +1200,90 @@ fn response_code_type(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     self_.funcall(mrb, c"class", ())
 }
 
-/// `Net::HTTP::Get.new(path, initheader = nil)` and its kin.
+/// The longest header name and value CRuby's `initialize_http_header` takes.
+const MAX_KEY_LENGTH: usize = 1024;
+const MAX_FIELD_LENGTH: usize = 65536;
+
+/// `Net::HTTP::Get.new(path, initheader = nil)` and its kin, as CRuby's
+/// `HTTPGenericRequest#initialize` takes them: a path is required, each
+/// header value is stripped and a `nil` one skipped, and `accept` and
+/// `user-agent` take CRuby's `*/*` and `Ruby` unless written. The guest
+/// decodes no content, so no `accept-encoding` is added.
 fn request_initialize(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (path, header) = match args {
         [path] => (*path, qnil().as_value()),
         [path, header] => (*path, *header),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
+    if path.is_nil() {
+        return Err(argument_error(mrb, "no HTTP request path given"));
+    }
+    let path = to_text(mrb, path)?;
+    if path.is_empty() {
+        return Err(argument_error(mrb, "HTTP request path is empty"));
+    }
     let class: Value = self_.funcall(mrb, c"class", ())?;
     let method: Value =
         class.funcall(mrb, c"const_get", [Symbol::new(mrb, "METHOD")?.as_value()])?;
     ivar_set(mrb, self_, c"@method", method)?;
-    ivar_set(mrb, self_, c"@path", to_text(mrb, path)?.into_value(mrb))?;
+    ivar_set(mrb, self_, c"@path", path.into_value(mrb))?;
     let hash = mrb.hash_new();
-    for (name, value) in to_headers(mrb, header)? {
-        let values = mrb.ary_new();
-        values.push(mrb, mrb.str_new(&value).as_value())?;
-        hash.aset(mrb, mrb.str_new(name.as_bytes()), values)?;
-    }
     ivar_set(mrb, self_, c"@header", hash.as_value())?;
+    if !header.is_nil() {
+        RHash::try_convert(header, mrb)?.foreach(mrb, |name: Value, value: Value| {
+            initialize_field(mrb, hash, name, value)?;
+            Ok(ForEach::Continue)
+        })?;
+    }
+    for (name, default) in [("accept", "*/*"), ("user-agent", "Ruby")] {
+        let key = mrb.str_new(name.as_bytes());
+        if hash.aref::<_, Value>(mrb, key)?.is_nil() {
+            let values = mrb.ary_new();
+            values.push(mrb, default.into_value(mrb))?;
+            hash.aset(mrb, key, values)?;
+        }
+    }
     Ok(qnil().as_value())
+}
+
+/// One `initheader` entry, as CRuby's `initialize_http_header` takes it.
+fn initialize_field(mrb: &Mrb, hash: RHash, name: Value, value: Value) -> Result<(), Error> {
+    if value.is_nil() {
+        return Ok(());
+    }
+    let value: Value = value.funcall(mrb, c"strip", ())?;
+    let label = to_text(mrb, name.funcall(mrb, c"to_s", ())?)?;
+    if label.len() > MAX_KEY_LENGTH {
+        let head: String = label.chars().take(30).collect();
+        let message = format!("too long ({} bytes) header: {head:?}...", label.len());
+        return Err(argument_error(mrb, &message));
+    }
+    let bytes = to_bytes(mrb, value)?;
+    if bytes.len() > MAX_FIELD_LENGTH {
+        let message = format!("header {label} has too long field value: {}", bytes.len());
+        return Err(argument_error(mrb, &message));
+    }
+    if bytes.iter().any(|b| matches!(b, b'\r' | b'\n')) {
+        let shown = value.inspect(mrb);
+        let message = format!("header {label} has field value {shown}, this cannot include CR/LF");
+        return Err(argument_error(mrb, &message));
+    }
+    let values = mrb.ary_new();
+    values.push(mrb, value)?;
+    hash.aset(mrb, field_key(mrb, name)?, values)
+}
+
+/// The key a header `name` is held by, as CRuby's `key.downcase.to_s`.
+fn field_key(mrb: &Mrb, name: Value) -> Result<Value, Error> {
+    name.funcall::<_, _, Value>(mrb, c"downcase", ())?
+        .funcall(mrb, c"to_s", ())
+}
+
+/// `inspect`: the class and method, as CRuby's `#<Net::HTTP::Get GET>`.
+fn request_inspect(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let class = to_text(mrb, self_.funcall(mrb, c"class", ())?)?;
+    let method = to_text(mrb, ivar_get(mrb, self_, c"@method")?)?;
+    Ok(format!("#<{class} {method}>").into_value(mrb))
 }
 
 fn request_method(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
@@ -1126,24 +1303,50 @@ fn request_set_body(mrb: &Mrb, self_: Value, body: Value) -> Result<Value, Error
     Ok(body)
 }
 
-/// `req[name] = value` sets the header, case-insensitively; `nil` removes it.
+/// `req[name] = value` sets the header, case-insensitively, as CRuby's
+/// `set_field` does: each of an Enumerable's values, or the value's `to_s`;
+/// `nil` or `false` removes it.
 fn request_aset(mrb: &Mrb, self_: Value, name: Value, value: Value) -> Result<Value, Error> {
     let header = RHash::try_convert(ivar_get(mrb, self_, c"@header")?, mrb)?;
-    let key = mrb.str_new(to_text(mrb, name)?.to_ascii_lowercase().as_bytes());
-    if value.is_nil() {
+    let key = field_key(mrb, name)?;
+    if !value.to_bool() {
         header.delete::<_, Value>(mrb, key)?;
         return Ok(value);
     }
     let values = mrb.ary_new();
-    values.push(mrb, value.to_r_string(mrb)?.as_value())?;
+    append_field_value(mrb, values, value)?;
     header.aset(mrb, key, values)?;
     Ok(value)
+}
+
+/// Push `value` onto `values`, each of an Enumerable's in turn, refusing
+/// CR or LF, as CRuby's `append_field_value` does.
+fn append_field_value(mrb: &Mrb, values: RArray, value: Value) -> Result<(), Error> {
+    let enumerable = mrb.module_get(c"Enumerable")?.as_value();
+    if value.funcall::<_, _, bool>(mrb, c"is_a?", [enumerable])? {
+        let each: RArray = value.funcall(mrb, c"to_a", ())?;
+        for i in 0..each.len() {
+            append_field_value(mrb, values, each.entry(mrb, i as isize)?)?;
+        }
+        return Ok(());
+    }
+    let text: Value = value.funcall(mrb, c"to_s", ())?;
+    if to_bytes(mrb, text)?
+        .iter()
+        .any(|b| matches!(b, b'\r' | b'\n'))
+    {
+        return Err(argument_error(
+            mrb,
+            "header field value cannot include CR/LF",
+        ));
+    }
+    values.push(mrb, text)
 }
 
 /// `[name]`: the header's values joined, as CRuby joins them, or `nil`.
 fn header_aref(mrb: &Mrb, self_: Value, name: Value) -> Result<Value, Error> {
     let header = RHash::try_convert(ivar_get(mrb, self_, c"@header")?, mrb)?;
-    let key = mrb.str_new(to_text(mrb, name)?.to_ascii_lowercase().as_bytes());
+    let key = field_key(mrb, name)?;
     let values = header.aref::<_, Value>(mrb, key)?;
     if values.is_nil() {
         return Ok(values);
@@ -1151,10 +1354,16 @@ fn header_aref(mrb: &Mrb, self_: Value, name: Value) -> Result<Value, Error> {
     RArray::try_convert(values, mrb)?.funcall(mrb, c"join", [mrb.str_new(b", ").as_value()])
 }
 
-/// `each_header { |name, value| }` over each header, its values joined.
+/// `each_header { |name, value| }` over each header, its values joined; with
+/// no block, what `to_enum` answers, as CRuby's does.
 fn header_each(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let block =
-        current_block(mrb)?.ok_or_else(|| argument_error(mrb, "each_header needs a block"))?;
+    let Some(block) = current_block(mrb)? else {
+        return self_.funcall(
+            mrb,
+            c"to_enum",
+            [Symbol::new(mrb, "each_header")?.as_value()],
+        );
+    };
     let header = RHash::try_convert(ivar_get(mrb, self_, c"@header")?, mrb)?;
     let mut pairs = Vec::new();
     header.foreach(mrb, |name: Value, values: RArray| {
@@ -1179,8 +1388,7 @@ fn header_to_hash(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// The header hash and the lowercase key `name` stands for in it.
 fn header_key(mrb: &Mrb, self_: Value, name: Value) -> Result<(RHash, Value), Error> {
     let header = RHash::try_convert(ivar_get(mrb, self_, c"@header")?, mrb)?;
-    let key = mrb.str_new(to_text(mrb, name)?.to_ascii_lowercase().as_bytes());
-    Ok((header, key.as_value()))
+    Ok((header, field_key(mrb, name)?))
 }
 
 /// `key?(name)`: whether the header is present, case-insensitively.
@@ -1233,31 +1441,69 @@ fn request_basic_auth(
 
 /// `set_form_data(params, sep = "&")` and `form_data = params`: the params as
 /// `application/x-www-form-urlencoded`, encoded as CRuby's
-/// `URI.encode_www_form` encodes them.
+/// `URI.encode_www_form` encodes them, answering the content type as CRuby's
+/// `set_form_data` does.
 fn request_set_form_data(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (params, separator) = match args {
         [params] => (*params, "&".to_string()),
         [params, separator] => (*params, to_text(mrb, *separator)?),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
-    let params = RHash::try_convert(params, mrb)?;
-    let mut pairs = Vec::new();
-    params.foreach(mrb, |name: Value, value: Value| {
-        pairs.push(format!(
-            "{}={}",
-            www_form_escape(&to_bytes(mrb, name)?),
-            www_form_escape(&to_bytes(mrb, value)?)
-        ));
-        Ok(ForEach::Continue)
-    })?;
-    let body = pairs.join(&separator);
+    let body = encode_www_form(mrb, params)?.replace('&', &separator);
     request_set_body(mrb, self_, body.into_value(mrb))?;
-    request_set_content_type(
+    let media = "application/x-www-form-urlencoded".into_value(mrb);
+    request_set_content_type(mrb, self_, media)?;
+    Ok(media)
+}
+
+/// `params` as `URI.encode_www_form` writes them: each pair as `name=value`,
+/// a `nil` value as the name alone, and each of an Array's values as a pair
+/// of its own.
+fn encode_www_form(mrb: &Mrb, params: Value) -> Result<String, Error> {
+    let pairs: RArray = params.funcall(mrb, c"to_a", ())?;
+    let mut encoded = Vec::new();
+    for i in 0..pairs.len() {
+        let pair = RArray::try_convert(pairs.entry(mrb, i as isize)?, mrb)?;
+        let name = www_form_component(mrb, pair.entry(mrb, 0)?)?;
+        let value: Value = pair.entry(mrb, 1)?;
+        if value.is_nil() {
+            encoded.push(name);
+        } else if let Some(values) = to_ary(mrb, value)? {
+            let mut each = Vec::new();
+            for j in 0..values.len() {
+                let value: Value = values.entry(mrb, j as isize)?;
+                each.push(match value.is_nil() {
+                    true => name.clone(),
+                    false => format!("{name}={}", www_form_component(mrb, value)?),
+                });
+            }
+            encoded.push(each.join("&"));
+        } else {
+            encoded.push(format!("{name}={}", www_form_component(mrb, value)?));
+        }
+    }
+    Ok(encoded.join("&"))
+}
+
+/// `value` as an Array when it is one or answers `to_ary`, as CRuby's
+/// `respond_to?(:to_ary)` finds an Array's own.
+fn to_ary(mrb: &Mrb, value: Value) -> Result<Option<RArray>, Error> {
+    if let Some(array) = RArray::from_value(value) {
+        return Ok(Some(array));
+    }
+    let to_ary = Symbol::new(mrb, "to_ary")?.as_value();
+    if !value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_ary])? {
+        return Ok(None);
+    }
+    value.funcall(mrb, c"to_ary", ()).map(Some)
+}
+
+/// `value.to_s` as `URI.encode_www_form_component` writes it.
+fn www_form_component(mrb: &Mrb, value: Value) -> Result<String, Error> {
+    Ok(www_form_escape(&to_bytes(
         mrb,
-        self_,
-        "application/x-www-form-urlencoded".into_value(mrb),
-    )?;
-    Ok(params.as_value())
+        value.funcall(mrb, c"to_s", ())?,
+    )?))
 }
 
 /// One form component as `URI.encode_www_form_component` writes it: `*-._`
