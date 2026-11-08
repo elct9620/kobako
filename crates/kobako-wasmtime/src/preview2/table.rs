@@ -10,6 +10,7 @@ use std::time::Instant;
 use kobako_runtime::net::{
     Exchange, NameLookup, Namespace, RequestBody, TcpSock, UdpSock, MAX_SOCKET_BUFFER,
 };
+use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
 
@@ -154,10 +155,8 @@ pub(crate) enum TcpSocket {
 /// What a pollable waits for.
 #[derive(Clone)]
 pub(crate) enum Pollable {
-    /// A clock, ready once `at` passes. One subscribed on frozen clocks is
-    /// ready at once in a wait with no host-side producer, which then ends at
-    /// once; beside a producer it elapses in host time from when it was made.
-    Clock { at: Instant, frozen: bool },
+    /// A clock, ready once `at` passes in host time.
+    Clock { at: Instant },
     /// A stream, ready once its poll finds `PollMask`, or an error or a
     /// hang-up.
     Stream(Stream, PollMask),
@@ -172,11 +171,21 @@ pub(crate) enum Pollable {
 }
 
 impl Pollable {
-    /// Whether it is ready, in a wait that holds a host-side producer when
-    /// `producer` says so, registering on `table` for a poll that will sleep.
-    pub(crate) fn ready(&self, table: Option<&mut PollTable>, producer: bool) -> bool {
+    /// This pollable as a wait on `profile` holds it, beside a host-side
+    /// producer when `producer` says so: a clock is due as the posture has it.
+    pub(crate) fn in_wait(self, profile: Profile, producer: bool) -> Self {
         match self {
-            Pollable::Clock { at, frozen } => (*frozen && !producer) || Instant::now() >= *at,
+            Pollable::Clock { at } => Pollable::Clock {
+                at: profile.clock_due(at, producer),
+            },
+            other => other,
+        }
+    }
+
+    /// Whether it is ready, registering on `table` for a poll that will sleep.
+    pub(crate) fn ready(&self, table: Option<&mut PollTable>) -> bool {
+        match self {
+            Pollable::Clock { at } => Instant::now() >= *at,
             Pollable::Stream(stream, mask) => {
                 let found = stream.poll(table);
                 found.contains(*mask)
@@ -196,7 +205,7 @@ impl Pollable {
     /// The soonest this could become ready by itself.
     pub(crate) fn due(&self) -> Option<Instant> {
         match self {
-            Pollable::Clock { at, .. } => Some(*at),
+            Pollable::Clock { at } => Some(*at),
             _ => None,
         }
     }

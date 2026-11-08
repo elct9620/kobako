@@ -91,9 +91,11 @@ pub(crate) fn poll_oneoff(
         soonest
     } else if !files {
         let started = Instant::now();
-        let due = clocks
-            .min()
-            .map(|left| started + Duration::from_nanos(left));
+        let due = clocks.min().map(|left| {
+            invocation
+                .profile()
+                .clock_due(started + Duration::from_nanos(left), true)
+        });
         wait_for_socket(invocation, &subscriptions, due)?;
         u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
     } else {
@@ -220,15 +222,19 @@ fn read_clock(invocation: &Invocation, clock: &types::SubscriptionClock) -> Answ
     Ok(Kind::Clock(clock.timeout.saturating_sub(now)))
 }
 
-/// Wait `nanos` of the guest's time: none on frozen clocks, and on live
-/// ones no further than the invocation's deadline, which ends it as a
+/// Wait on the guest's clocks alone until `nanos` are due as its posture has
+/// them, no further than the invocation's deadline, which ends it as a
 /// timeout. An interrupt of the thread ends it with EINTR, as a signal ends
 /// Linux's `poll`.
 fn wait(invocation: &Invocation, nanos: u64) -> Answer {
-    if nanos == 0 || !invocation.wasi().clocks().advances() {
+    let due = invocation
+        .profile()
+        .clock_due(Instant::now() + Duration::from_nanos(nanos), false);
+    let left = due.saturating_duration_since(Instant::now());
+    if left.is_zero() {
         return Ok(());
     }
-    match do_poll(Some(Duration::from_nanos(nanos)), |_| None::<()>) {
+    match do_poll(Some(left), |_| None::<()>) {
         Ok(_) => Ok(()),
         Err(_) if invocation.deadline().is_some_and(|at| Instant::now() >= at) => {
             Err(types::Error::trap(wasmtime::Error::new(TimeoutTrap)))

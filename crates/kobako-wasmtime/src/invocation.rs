@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::endpoint::{Calls, MemoryCap, ABANDONED};
+use kobako_runtime::profile::Profile;
 
 use crate::exports::Exports;
 use crate::limiter::MemoryLimiter;
@@ -105,6 +106,10 @@ impl Invocation {
 
     pub(crate) fn deadline(&self) -> Option<Instant> {
         self.deadline
+    }
+
+    pub(crate) fn profile(&self) -> Profile {
+        self.wasi.descriptors().profile()
     }
 
     pub(crate) fn limiter_mut(&mut self) -> &mut MemoryLimiter {

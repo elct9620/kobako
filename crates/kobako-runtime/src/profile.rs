@@ -8,7 +8,7 @@
 
 use std::hash::{BuildHasher, RandomState};
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::vfs::{FileType, Identity, Kstat};
 
@@ -73,6 +73,18 @@ impl Profile {
                 _ => masked.size,
             },
             ..masked.with_identity(0, ino)
+        }
+    }
+
+    /// When a guest's clock, due `at` in host time, is due in a wait on this
+    /// posture, whichever ABI a Wasm Driver encodes the wait into. A hermetic
+    /// guest's clocks never advance, so a wait on them alone is due at once;
+    /// beside a host-side `producer`, which only host time brings, it is due at
+    /// `at` as a live clock is.
+    pub fn clock_due(self, at: Instant, producer: bool) -> Instant {
+        match (self, producer) {
+            (Self::Hermetic, false) => Instant::now(),
+            _ => at,
         }
     }
 }

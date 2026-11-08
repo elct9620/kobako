@@ -34,12 +34,11 @@ use crate::trap::TimeoutTrap;
 const MAX_BLOCKING_WRITE: usize = 4096;
 
 impl Invocation {
-    /// A pollable on the guest's own clocks: ready at once on frozen ones,
-    /// and `nanos` of host time from now on live ones.
+    /// A pollable on the guest's own clocks, `nanos` of host time from now;
+    /// the wait holding it decides when it is due.
     fn subscribe_clock(&mut self, nanos: u64) -> wasmtime::Result<Pollable> {
         let pollable = table::Pollable::Clock {
             at: Instant::now() + Duration::from_nanos(nanos),
-            frozen: !self.wasi().clocks().advances(),
         };
         Ok(Pollable(
             self.wasi_mut()
@@ -200,7 +199,7 @@ impl Invocation {
     /// Wait until `stream`'s poll finds `mask`, or an error or a hang-up.
     fn wait_on(&self, stream: &Stream, mask: PollMask) -> wasmtime::Result<()> {
         let pollable = table::Pollable::Stream(stream.clone(), mask);
-        self.wait_for(None, |table| pollable.ready(table, true).then_some(()))
+        self.wait_for(None, |table| pollable.ready(table).then_some(()))
     }
 }
 
@@ -795,9 +794,8 @@ impl IoHost for Invocation {
     fn poll_pollable_block(&mut self, this: Pollable) -> wasmtime::Result<()> {
         let pollable = self.wasi().table().pollable(this.0)?;
         let producer = pollable.is_producer();
-        self.wait_for(pollable.due(), |table| {
-            pollable.ready(table, producer).then_some(())
-        })
+        let pollable = pollable.in_wait(self.profile(), producer);
+        self.wait_for(pollable.due(), |table| pollable.ready(table).then_some(()))
     }
 
     /// The indices of the pollables ready, once one is, as WASI's `poll`
@@ -810,13 +808,16 @@ impl IoHost for Invocation {
             .iter()
             .map(|handle| self.wasi().table().pollable(handle.0))
             .collect::<wasmtime::Result<Vec<_>>>()?;
-        // A wait beside a host-side producer takes host time, so a frozen clock
-        // in it elapses as a live one does.
         let producer = pollables.iter().any(table::Pollable::is_producer);
+        let profile = self.profile();
+        let pollables = pollables
+            .into_iter()
+            .map(|pollable| pollable.in_wait(profile, producer))
+            .collect::<Vec<_>>();
         let due = pollables.iter().filter_map(table::Pollable::due).min();
         self.wait_for(due, |mut table| {
             let ready = (0..pollables.len() as u32)
-                .filter(|i| pollables[*i as usize].ready(table.as_deref_mut(), producer))
+                .filter(|i| pollables[*i as usize].ready(table.as_deref_mut()))
                 .collect::<Vec<_>>();
             (!ready.is_empty()).then_some(ready)
         })

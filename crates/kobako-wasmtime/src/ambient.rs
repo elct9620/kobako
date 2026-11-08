@@ -1,7 +1,7 @@
 //! The guest's time and entropy at the WASI layer — the one ambient
 //! authority that separates the hermetic rung from permissive. `Wasi::new`
 //! wires the frozen sources on `Hermetic` and the live clock on
-//! `Permissive`; `Clocks` is what the guest's waits pass on under either.
+//! `Permissive`; `Clocks` is what the guest reads its time from under either.
 //!
 //! `wasmtime-wasi`'s `WasiCtxBuilder` defaults the guest's `wasi:clocks` to
 //! the host wall / monotonic clock and `wasi:random` to a fresh per-context
@@ -79,8 +79,8 @@ impl HostMonotonicClock for LiveMonotonicClock {
     }
 }
 
-/// The clocks the guest observes. A wait it subscribes to passes on the
-/// same clocks: frozen ones never advance, so the wait ends at once.
+/// The clocks the guest observes, which a clock subscription reads its
+/// absolute time against.
 #[derive(Clone, Copy)]
 pub(crate) enum Clocks {
     Frozen,
@@ -103,11 +103,6 @@ impl Clocks {
                 .unwrap_or(Duration::ZERO),
         };
         u64::try_from(since_epoch.as_nanos()).unwrap_or(u64::MAX)
-    }
-
-    /// Whether a wait on these clocks takes host time.
-    pub(crate) fn advances(&self) -> bool {
-        matches!(self, Self::Live(_))
     }
 }
 
