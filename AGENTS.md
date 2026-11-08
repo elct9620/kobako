@@ -58,7 +58,7 @@ Start here to grasp the whole before reading code.
 | `docs/intent.md` | Why kobako exists, and for whom |
 | `docs/architecture.md` | The global map: parts, seams, Contexts, invariants, baselines |
 | `docs/spec/` | Behavior, contracts, and the glossary; the source of truth |
-| `docs/wire/`, `docs/isolation/`, `docs/filesystem/` | One Context's design across crates |
+| `docs/wire/`, `docs/isolation/`, `docs/filesystem/`, `docs/network/` | One Context's design across crates |
 | `docs/process/convention.md` | The baseline a name or a comment's wording is judged against |
 | `docs/guides/` | What a Host App or an implementer relies on |
 | `lib/kobako/sandbox.rb` | Where a run starts and settles into an `Execution` |

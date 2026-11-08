@@ -107,7 +107,7 @@ Each part owns one concern. Its dependencies on other kobako parts may only poin
 | `kobako-transport` | the Envelope and the ABI's values | none, ever |
 | `kobako-codec` | the payload Codecs, one namespace and feature per Codec | none |
 | `kobako-runtime` | the contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Network` | transport |
-| `kobako-runtime` | what every Wasm Driver keeps: `endpoint`, `vfs`, `security`, `Mount`, `sched`, `wait`, the Filesystems | transport |
+| `kobako-runtime` | what every Wasm Driver keeps: `endpoint`, `vfs`, `security`, `Mount`, `sched`, `wait`, the Filesystems, `net` | transport |
 | `kobako-wasmtime` | one Wasm Driver, `kobako_wasmtime::Driver`, and its preview1 and preview2 encodings | runtime, transport |
 | `kobako` | the Rust SDK: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby gem and its own Codec | the native ext |
@@ -163,7 +163,7 @@ An assembly composes replaceable parts around the fixed pillar. Each line names 
 ```
 Sandbox        = host model . Wasm Driver . kobako-runtime . Guest Binary
 Wasm Driver    = Engine + preview1, preview2 encodings   (kobako-wasmtime)
-kobako-runtime = host ABI endpoint + VFS
+kobako-runtime = host ABI endpoint + VFS + socket layer
 Guest Binary   = guest ABI endpoint + guest model + gems (kobako-wasm)
 host model     = Frontend + Codec                        (ext/ + lib/ | kobako)
 guest model    = flows + Codec                           (kobako-mruby | own Guest)
@@ -215,7 +215,7 @@ A Context is an area with its own vocabulary and rules. A name is judged inside 
 | Wire | the Envelope, the tag registry, the Codecs | `kobako-transport`, `kobako-codec`, `kobako-core`, both `msgpack` overlays, `lib/kobako/{codec,payload}/` | [`wire/`](wire/README.md) |
 | Isolation | the Engine, the Wasm Driver, the Ambient authority a Posture grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` | [`isolation/`](isolation/README.md) |
 | Filesystem | Mounts, Policies, the VFS, the Filesystems | `kobako-runtime`'s `filesystem`, `vfs`, `security`, `mount`; the preview1 encoding; their bridges in `ext/`, `lib/` | [`filesystem/`](filesystem/README.md) |
-| Network | the named entries, their endpoints, the sockets | `kobako-runtime`'s `network`, `net`; the preview2 encoding; its bridges in `ext/`, `lib/` | the glossary's Network section |
+| Network | the named entries, their endpoints, the sockets | `kobako-runtime`'s `network`, `net`; the preview2 encoding; its bridges in `ext/`, `lib/` | [`network/`](network/README.md) |
 
 The guest has no Context of its own. Its words are either shared or the Wire's, and the capability gems speak CRuby's. The Ruby gem's tiers and placement rules are in the header comment of `lib/kobako.rb`.
 
