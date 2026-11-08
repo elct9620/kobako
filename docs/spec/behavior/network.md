@@ -915,3 +915,39 @@ endpoint "api.example.com", port: 443
 | Given | a host socket failure with a POSIX name |
 | When | the Wasm Driver answers it as a `wasi:sockets` error code |
 | Then | EPIPE answers `unknown`, EADDRINUSE `address-in-use`, and ECONNRESET `connection-reset`, as wasmtime-wasi's preview2 maps them |
+
+## `NW-075` An endpoint names an IDN by its A-label
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | endpoints written as an IDN, and as a wildcard over one |
+| When | the guest looks up the A-label of a name each covers |
+| Then | each endpoint names it, since an endpoint is judged in the form the guest's lookup is |
+
+## `NW-076` A credential's placeholder is swapped inside a Basic pair
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-051` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a credential bound to the `authorization` header |
+| When | a request carries `Basic` and a pair encoding the placeholder |
+| Then | the pair is decoded, the placeholder replaced, and the pair encoded again, as OpenShell's does. A pair without it goes as sent |
+
+## `NW-077` A request is judged once, in order, and never over IPv6
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-021` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry with endpoints, policies, and a credential |
+| When | the guest sends a request a connect hook refuses, and one to an IPv6 authority an endpoint names |
+| Then | the entry's endpoints were read once. No resolve policy is asked once a hook refused. The IPv6 one is refused, as the guest has no IPv6 |
