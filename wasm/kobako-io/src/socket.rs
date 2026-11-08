@@ -11,11 +11,14 @@ use std::net::Ipv4Addr;
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{
-    Error, Exception, ExceptionClass, IntoValue, Module, Mrb, RClass, TryConvert, TypedData, Value,
+    Error, Exception, ExceptionClass, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash,
+    Symbol, TryConvert, TypedData, Value,
 };
+use std::time::Duration;
 
 use crate::errno;
 use crate::io::argument_error;
+use crate::wasi::ready_within;
 use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::ip_name_lookup::resolve_addresses;
@@ -67,10 +70,12 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     let socket_error =
         mrb.class_object()
             .define_error(mrb, c"SocketError", mrb.exception_standard_error())?;
-    let resolution = mrb
-        .define_class(c"Socket", mrb.class_object())?
-        .define_error(mrb, c"ResolutionError", socket_error)?;
+    let socket_class = mrb.define_class(c"Socket", mrb.class_object())?;
+    socket_class.const_set(mrb, c"AF_INET", AF_INET)?;
+    socket_class.const_set(mrb, c"AF_INET6", AF_INET6)?;
+    let resolution = socket_class.define_error(mrb, c"ResolutionError", socket_error)?;
     resolution.define_method(mrb, c"error_code", beni::method!(resolution_error_code, 0))?;
+    io.define_error(mrb, c"TimeoutError", mrb.exc_get(c"IOError")?)?;
     // A socket is an IO, as CRuby's `TCPSocket < IPSocket < BasicSocket < IO`.
     let basic = mrb.define_class(c"BasicSocket", io)?;
     let ip = mrb.define_class(c"IPSocket", basic)?;
@@ -78,17 +83,16 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     Connection::mark_carriers(mrb)?;
     socket.define_method(mrb, c"fileno", beni::method!(tcp_socket_fileno, 0))?;
     socket.define_method(mrb, c"to_i", beni::method!(tcp_socket_fileno, 0))?;
-    socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, 2))?;
-    socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, 2))?;
-    socket.define_method(mrb, c"write", beni::method!(tcp_socket_write, 1))?;
-    socket.define_method(mrb, c"print", beni::method!(tcp_socket_write, 1))?;
+    socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, -1))?;
+    socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, -1))?;
+    socket.define_method(mrb, c"write", beni::method!(tcp_socket_write, -1))?;
     socket.define_method(mrb, c"read", beni::method!(tcp_socket_read, -1))?;
     socket.define_method(
         mrb,
         c"readpartial",
-        beni::method!(tcp_socket_readpartial, 1),
+        beni::method!(tcp_socket_readpartial, -1),
     )?;
-    socket.define_method(mrb, c"gets", beni::method!(tcp_socket_gets, 0))?;
+    socket.define_method(mrb, c"gets", beni::method!(tcp_socket_gets, -1))?;
     socket.define_method(
         mrb,
         c"close_write",
@@ -96,9 +100,13 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     )?;
     socket.define_method(mrb, c"close", beni::method!(tcp_socket_close, 0))?;
     socket.define_method(mrb, c"closed?", beni::method!(tcp_socket_closed_p, 0))?;
-    socket.define_method(mrb, c"peeraddr", beni::method!(tcp_socket_peeraddr, 0))?;
+    socket.define_method(mrb, c"peeraddr", beni::method!(tcp_socket_peeraddr, -1))?;
     Ok(())
 }
+
+/// Linux's address families, the numbers CRuby's `Socket` names them by.
+pub(crate) const AF_INET: i64 = 2;
+pub(crate) const AF_INET6: i64 = 10;
 
 /// The `NotImplementedError` a `class` raises when the Sandbox gives the guest
 /// no network.
@@ -233,11 +241,31 @@ pub(crate) fn to_ip_socket_address((ip, port): (Ipv4Addr, u16)) -> IpSocketAddre
     })
 }
 
-/// `TCPSocket.new(host, port)` connects to the IPv4 address `host` names, or
-/// the one its name leads to, as the network the Sandbox gives allows.
-fn tcp_socket_s_new(mrb: &Mrb, class: RClass, host: Value, port: Value) -> Result<Value, Error> {
+/// `TCPSocket.new(remote_host, remote_port, local_host = nil, local_port = nil,
+/// connect_timeout: nil)` connects to the IPv4 address `remote_host` names, or
+/// the one its name leads to, as the network the Sandbox gives allows. A local
+/// end the script chooses is refused, as a chosen bind is, and a connect
+/// slower than `connect_timeout` raises `IO::TimeoutError`, as CRuby's does.
+fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
     const TCP: &str = "TCPSocket";
+    let mut args = args.to_vec();
+    let options = args.last().copied().and_then(RHash::from_value);
+    if options.is_some() {
+        args.pop();
+    }
+    let (host, port, local) = match args.as_slice() {
+        [host, port, local @ ..] if local.len() <= 2 => (*host, *port, local),
+        _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
+    };
+    let limit = connect_timeout(mrb, options)?;
     let (ip, port, call) = peer_of(mrb, host, port, TCP, "connect(2)")?;
+    if local.iter().any(|end| !end.is_nil()) {
+        return Err(errno::error_by_name(
+            mrb,
+            c"EACCES",
+            &on_peer("bind(2)", &ip.to_string(), port),
+        ));
+    }
     let failed = |code| to_error(mrb, code, TCP, &call);
     let socket = create_tcp_socket(IpAddressFamily::Ipv4).map_err(failed)?;
     let network = instance_network();
@@ -248,7 +276,15 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, host: Value, port: Value) -> Resul
     let (input, output) = loop {
         match socket.finish_connect() {
             Ok(streams) => break streams,
-            Err(ErrorCode::WouldBlock) => pollable.block(),
+            Err(ErrorCode::WouldBlock) => {
+                if !ready_within(&pollable, limit) {
+                    return Err(Error::new(
+                        mrb,
+                        io_timeout_error(mrb)?,
+                        &format!("user specified timeout for {ip} port {port}"),
+                    ));
+                }
+            }
             Err(code) => return Err(failed(code)),
         }
     };
@@ -264,6 +300,34 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, host: Value, port: Value) -> Resul
     Ok(mrb.wrap_as(connection, class).as_value())
 }
 
+/// The limit `connect_timeout:` sets, refusing any other keyword, as CRuby
+/// refuses an unknown one.
+fn connect_timeout(mrb: &Mrb, options: Option<RHash>) -> Result<Option<Duration>, Error> {
+    let Some(options) = options else {
+        return Ok(None);
+    };
+    let key = Symbol::new(mrb, "connect_timeout")?.as_value();
+    let keys: RArray = options.funcall(mrb, c"keys", ())?;
+    for i in 0..keys.len() {
+        let given: Value = keys.entry(mrb, i as isize)?;
+        if !given.funcall::<_, _, bool>(mrb, c"==", [key])? {
+            let name = given.inspect(mrb);
+            return Err(argument_error(mrb, &format!("unknown keyword: {name}")));
+        }
+    }
+    let sec: Value = options.aref(mrb, key)?;
+    if sec.is_nil() {
+        return Ok(None);
+    }
+    Duration::try_from_secs_f64(f64::try_convert(sec, mrb)?)
+        .map(Some)
+        .map_err(|_| argument_error(mrb, "time interval must not be negative"))
+}
+
+fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
+    mrb.class_get(c"IO")?.const_get(mrb, c"TimeoutError")
+}
+
 fn stream_failed(mrb: &Mrb, err: StreamError) -> Error {
     match err {
         StreamError::Closed => errno::error_by_name(mrb, c"EPIPE", "write(2)"),
@@ -274,13 +338,16 @@ fn stream_failed(mrb: &Mrb, err: StreamError) -> Error {
     }
 }
 
-/// `write(string)` sends every byte, answering how many it sent.
-fn tcp_socket_write(mrb: &Mrb, self_: Value, data: Value) -> Result<Value, Error> {
-    let data = data
-        .funcall::<_, _, Value>(mrb, c"to_s", ())?
-        .to_r_string(mrb)?;
-    // SAFETY: the bytes are copied before the next mruby call.
-    let bytes = unsafe { data.as_bytes(mrb) }.to_vec();
+/// `write(*objects)` sends every byte of each, answering how many it sent.
+fn tcp_socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Error> {
+    let mut bytes = Vec::new();
+    for object in objects {
+        let data = object
+            .funcall::<_, _, Value>(mrb, c"to_s", ())?
+            .to_r_string(mrb)?;
+        // SAFETY: the bytes are copied before the next mruby call.
+        bytes.extend_from_slice(unsafe { data.as_bytes(mrb) });
+    }
     Connection::of(mrb, self_)?.with(mrb, |open| {
         for chunk in bytes.chunks(WRITE_CHUNK) {
             open.output
@@ -336,13 +403,24 @@ fn tcp_socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     Ok(mrb.str_new(&read).as_value())
 }
 
-/// `readpartial(maxlen)` answers what one read brings, raising `EOFError` at
-/// the end, as CRuby does.
-fn tcp_socket_readpartial(mrb: &Mrb, self_: Value, maxlen: Value) -> Result<Value, Error> {
+/// `readpartial(maxlen, outbuf = nil)` answers what one read brings, into
+/// `outbuf` when given, raising `EOFError` at the end, as CRuby does.
+fn tcp_socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let (maxlen, outbuf) = match args {
+        [maxlen] => (*maxlen, None),
+        [maxlen, outbuf] => (*maxlen, Some(*outbuf).filter(|buf| !buf.is_nil())),
+        _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
+    };
     let maxlen = usize::try_from(i64::try_convert(maxlen, mrb)?)
         .map_err(|_| argument_error(mrb, "negative length given"))?;
     match read_some(mrb, Connection::of(mrb, self_)?, maxlen)? {
-        Some(bytes) => Ok(mrb.str_new(&bytes).as_value()),
+        Some(bytes) => {
+            let read = mrb.str_new(&bytes).as_value();
+            match outbuf {
+                Some(outbuf) => outbuf.funcall(mrb, c"replace", [read]),
+                None => Ok(read),
+            }
+        }
         None => Err(Error::new(
             mrb,
             mrb.exc_get(c"EOFError")?,
@@ -352,26 +430,73 @@ fn tcp_socket_readpartial(mrb: &Mrb, self_: Value, maxlen: Value) -> Result<Valu
 }
 
 /// `gets` answers the next line, its newline kept, or `nil` at the end.
-fn tcp_socket_gets(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+fn tcp_socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let (separator, limit) = line_args(mrb, args)?;
     let connection = Connection::of(mrb, self_)?;
     let mut line = Vec::new();
-    while let Some(bytes) = read_some(mrb, connection, READ_CHUNK)? {
-        match bytes.iter().position(|b| *b == b'\n') {
-            Some(at) => {
-                line.extend_from_slice(&bytes[..=at]);
-                connection
-                    .buffered
-                    .borrow_mut()
-                    .splice(0..0, bytes[at + 1..].iter().copied());
-                return Ok(mrb.str_new(&line).as_value());
-            }
-            None => line.extend(bytes),
+    loop {
+        if let Some(end) = line_end(&line, separator.as_deref(), limit) {
+            let rest = line.split_off(end);
+            connection.buffered.borrow_mut().splice(0..0, rest);
+            return Ok(mrb.str_new(&line).as_value());
+        }
+        match read_some(mrb, connection, READ_CHUNK)? {
+            Some(bytes) => line.extend(bytes),
+            None => break,
         }
     }
     if line.is_empty() {
         return Ok(qnil().as_value());
     }
     Ok(mrb.str_new(&line).as_value())
+}
+
+/// `gets(sep = $/, limit = nil)`'s separator, `None` to read to the end, and
+/// its limit; an empty separator reads a paragraph, as CRuby's does.
+fn line_args(mrb: &Mrb, args: &[Value]) -> Result<(Option<Vec<u8>>, Option<usize>), Error> {
+    let limit_of = |value: Value| -> Result<Option<usize>, Error> {
+        if value.is_nil() {
+            return Ok(None);
+        }
+        Ok(usize::try_from(i64::try_convert(value, mrb)?).ok())
+    };
+    let separator_of = |value: Value| -> Result<Option<Vec<u8>>, Error> {
+        if value.is_nil() {
+            return Ok(None);
+        }
+        let text = value.to_r_string(mrb)?;
+        // SAFETY: the bytes are copied before the next mruby call.
+        let bytes = unsafe { text.as_bytes(mrb) }.to_vec();
+        Ok(Some(if bytes.is_empty() {
+            b"\n\n".to_vec()
+        } else {
+            bytes
+        }))
+    };
+    match args {
+        [] => Ok((Some(b"\n".to_vec()), None)),
+        [only] if Integer::from_value(*only).is_some() => {
+            Ok((Some(b"\n".to_vec()), limit_of(*only)?))
+        }
+        [separator] => Ok((separator_of(*separator)?, None)),
+        [separator, limit] => Ok((separator_of(*separator)?, limit_of(*limit)?)),
+        _ => Err(Error::argnum(mrb, args.len(), 0, 2)),
+    }
+}
+
+/// Where the line `line` starts ends: past its separator, or at its limit,
+/// whichever comes first; `None` while neither is in it.
+fn line_end(line: &[u8], separator: Option<&[u8]>, limit: Option<usize>) -> Option<usize> {
+    let by_separator = separator.and_then(|separator| {
+        line.windows(separator.len())
+            .position(|window| window == separator)
+            .map(|at| at + separator.len())
+    });
+    let by_limit = limit.filter(|limit| line.len() >= *limit);
+    match (by_separator, by_limit) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (end, None) | (None, end) => end,
+    }
 }
 
 /// `close_write` sends the FIN once what was written is sent.
@@ -410,7 +535,8 @@ fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 /// `peeraddr` answers the peer as CRuby's `["AF_INET", port, host, host]`.
-fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+/// The guest names no host, so a reverse lookup asked for answers the address.
+fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, _reverse_lookup: &[Value]) -> Result<Value, Error> {
     let peer = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.peer))?;
     addr_array(mrb, peer)
 }

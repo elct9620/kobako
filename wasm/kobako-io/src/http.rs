@@ -6,6 +6,7 @@
 //! CRuby wraps a failed open.
 
 use std::cell::RefCell;
+use std::time::Duration;
 
 use beni::prelude::*;
 use beni::scan_args::scan_args;
@@ -23,9 +24,7 @@ use crate::wasi::wasi::http::types::{
     ErrorCode, Fields, IncomingBody, Method, OutgoingBody, OutgoingRequest, Scheme,
 };
 use crate::wasi::wasi::io::streams::{InputStream, StreamError};
-
-/// The most one `blocking-write-and-flush` takes, as WASI bounds it.
-const WRITE_CHUNK: usize = 4096;
+use crate::wasi::{ready_within, write_within};
 
 /// The most one read of a response's body asks, the host's buffer.
 const READ_CHUNK: u64 = 64 * 1024;
@@ -45,15 +44,28 @@ struct Answer {
 struct Unread {
     stream: Option<InputStream>,
     body: Option<IncomingBody>,
+    /// How long one chunk may take, as `read_timeout` bounds each read.
+    read: Option<Duration>,
 }
 
 impl Unread {
-    /// The next chunk the body holds, `None` at its end.
+    /// The next chunk the body holds, `None` at its end; one slower than the
+    /// read limit raises `Net::ReadTimeout`.
     fn chunk(&mut self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
         let Some(stream) = &self.stream else {
             return Ok(None);
         };
-        match stream.blocking_read(READ_CHUNK) {
+        let read = loop {
+            match stream.read(READ_CHUNK) {
+                Ok(bytes) if bytes.is_empty() => {
+                    if !ready_within(&stream.subscribe(), self.read) {
+                        return Err(net_error(mrb, c"ReadTimeout", "Net::ReadTimeout"));
+                    }
+                }
+                read => break read,
+            }
+        };
+        match read {
             Ok(bytes) => Ok(Some(bytes)),
             Err(StreamError::Closed) => {
                 self.finish();
@@ -105,14 +117,21 @@ struct Outgoing<'a> {
     path: &'a str,
     headers: Vec<(String, Vec<u8>)>,
     body: Option<Vec<u8>>,
+    limits: Limits,
 }
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     let object = mrb.class_object();
     let net = mrb.define_module(c"Net")?;
     let standard = mrb.exception_standard_error();
-    net.define_error(mrb, c"OpenTimeout", standard)?;
-    net.define_error(mrb, c"ReadTimeout", standard)?;
+    // As CRuby's timeout library and net-protocol define them.
+    let runtime = mrb.exc_get(c"RuntimeError")?;
+    let timeout = mrb
+        .define_module(c"Timeout")?
+        .define_error(mrb, c"Error", runtime)?;
+    for name in [c"OpenTimeout", c"ReadTimeout", c"WriteTimeout"] {
+        net.define_error(mrb, name, timeout)?;
+    }
     net.define_error(mrb, c"HTTPBadResponse", standard)?;
     net.define_error(mrb, c"HTTPHeaderSyntaxError", standard)?;
     define_http_exceptions(mrb, net, standard)?;
@@ -131,6 +150,24 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     http.define_method(mrb, c"port", beni::method!(http_port, 0))?;
     http.define_method(mrb, c"use_ssl?", beni::method!(http_use_ssl_p, 0))?;
     http.define_method(mrb, c"use_ssl=", beni::method!(http_set_use_ssl, 1))?;
+    http.define_method(mrb, c"open_timeout", beni::method!(http_open_timeout, 0))?;
+    http.define_method(
+        mrb,
+        c"open_timeout=",
+        beni::method!(http_set_open_timeout, 1),
+    )?;
+    http.define_method(mrb, c"read_timeout", beni::method!(http_read_timeout, 0))?;
+    http.define_method(
+        mrb,
+        c"read_timeout=",
+        beni::method!(http_set_read_timeout, 1),
+    )?;
+    http.define_method(mrb, c"write_timeout", beni::method!(http_write_timeout, 0))?;
+    http.define_method(
+        mrb,
+        c"write_timeout=",
+        beni::method!(http_set_write_timeout, 1),
+    )?;
     http.define_method(mrb, c"start", beni::method!(http_start, 0))?;
     http.define_method(mrb, c"finish", beni::method!(http_finish, 0))?;
     http.define_method(mrb, c"started?", beni::method!(http_started_p, 0))?;
@@ -285,7 +322,70 @@ fn http_initialize(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     )?;
     set_ivar(mrb, self_, c"@port", port)?;
     set_ivar(mrb, self_, c"@use_ssl", false.into_value(mrb))?;
+    for name in [c"@open_timeout", c"@read_timeout", c"@write_timeout"] {
+        set_ivar(mrb, self_, name, DEFAULT_TIMEOUT.into_value(mrb))?;
+    }
     Ok(qnil().as_value())
+}
+
+/// The seconds each of `Net::HTTP`'s timeouts starts at, as CRuby's.
+const DEFAULT_TIMEOUT: i64 = 60;
+
+fn http_open_timeout(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    ivar(mrb, self_, c"@open_timeout")
+}
+
+fn http_set_open_timeout(mrb: &Mrb, self_: Value, sec: Value) -> Result<Value, Error> {
+    set_ivar(mrb, self_, c"@open_timeout", sec)?;
+    Ok(sec)
+}
+
+fn http_read_timeout(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    ivar(mrb, self_, c"@read_timeout")
+}
+
+fn http_set_read_timeout(mrb: &Mrb, self_: Value, sec: Value) -> Result<Value, Error> {
+    set_ivar(mrb, self_, c"@read_timeout", sec)?;
+    Ok(sec)
+}
+
+fn http_write_timeout(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    ivar(mrb, self_, c"@write_timeout")
+}
+
+fn http_set_write_timeout(mrb: &Mrb, self_: Value, sec: Value) -> Result<Value, Error> {
+    set_ivar(mrb, self_, c"@write_timeout", sec)?;
+    Ok(sec)
+}
+
+/// The limit a timeout `ivar` sets, `None` for `nil`, which waits on.
+fn limit_of(mrb: &Mrb, self_: Value, name: &core::ffi::CStr) -> Result<Option<Duration>, Error> {
+    let sec = ivar(mrb, self_, name)?;
+    if sec.is_nil() {
+        return Ok(None);
+    }
+    let sec = f64::try_convert(sec, mrb)?;
+    Duration::try_from_secs_f64(sec)
+        .map(Some)
+        .map_err(|_| argument_error(mrb, "time interval must not be negative"))
+}
+
+/// How long a request may wait to read and to write. The wait for a response's
+/// head takes the connect too, which `wasi:http` shows the guest no apart from
+/// it, so `read_timeout` bounds the whole wait and `open_timeout` none of it.
+#[derive(Clone, Copy)]
+struct Limits {
+    read: Option<Duration>,
+    write: Option<Duration>,
+}
+
+impl Limits {
+    fn of(mrb: &Mrb, self_: Value) -> Result<Self, Error> {
+        Ok(Self {
+            read: limit_of(mrb, self_, c"@read_timeout")?,
+            write: limit_of(mrb, self_, c"@write_timeout")?,
+        })
+    }
 }
 
 fn http_address(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
@@ -350,26 +450,40 @@ fn http_started_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
     Ok(ivar(mrb, self_, c"@started")?.to_bool())
 }
 
-/// `Net::HTTP.start(address, port = nil, use_ssl: false) { |http| ... }`.
+/// `Net::HTTP.start(address, port = nil, use_ssl: false, open_timeout: 60,
+/// read_timeout: 60, write_timeout: 60) { |http| ... }`.
 fn http_s_start(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
     let block = current_block(mrb)?;
-    let (positional, ssl) = split_ssl(mrb, args)?;
+    let mut positional = args.to_vec();
+    let options = positional.last().copied().and_then(RHash::from_value);
+    if options.is_some() {
+        positional.pop();
+    }
     let http: Value = class.funcall(mrb, c"new", positional.as_slice())?;
-    if let Some(ssl) = ssl {
-        http_set_use_ssl(mrb, http, ssl)?;
+    if let Some(options) = options {
+        set_options(mrb, http, options)?;
     }
     session(mrb, http, block)
 }
 
-/// The positional arguments, and `use_ssl:` from a trailing keyword hash.
-fn split_ssl(mrb: &Mrb, args: &[Value]) -> Result<(Vec<Value>, Option<Value>), Error> {
-    let mut positional = args.to_vec();
-    let Some(options) = positional.last().copied().and_then(RHash::from_value) else {
-        return Ok((positional, None));
-    };
-    positional.pop();
-    let ssl = options.aref::<_, Value>(mrb, Symbol::new(mrb, "use_ssl")?)?;
-    Ok((positional, (!ssl.is_nil()).then_some(ssl)))
+/// Set what each option `Net::HTTP.start` takes names, as its writer would.
+fn set_options(mrb: &Mrb, http: Value, options: RHash) -> Result<(), Error> {
+    for (key, name) in [
+        ("use_ssl", c"@use_ssl"),
+        ("open_timeout", c"@open_timeout"),
+        ("read_timeout", c"@read_timeout"),
+        ("write_timeout", c"@write_timeout"),
+    ] {
+        let key = Symbol::new(mrb, key)?;
+        if options.funcall::<_, _, bool>(mrb, c"key?", [key.as_value()])? {
+            let value = options.aref::<_, Value>(mrb, key)?;
+            match name == c"@use_ssl" {
+                true => set_ivar(mrb, http, name, value.to_bool().into_value(mrb))?,
+                false => set_ivar(mrb, http, name, value)?,
+            }
+        }
+    }
+    Ok(())
 }
 
 /// `Net::HTTP.get(host, path, port = nil)`: the body of a GET.
@@ -547,6 +661,7 @@ fn send_from(
         path,
         headers,
         body,
+        limits: Limits::of(mrb, self_)?,
     };
     let Answer {
         status,
@@ -647,10 +762,10 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
     let out = request.body().map_err(|()| failed("request body taken"))?;
     if let Some(body) = &outgoing.body {
         let stream = out.write().map_err(|()| failed("request body taken"))?;
-        for chunk in body.chunks(WRITE_CHUNK) {
-            stream
-                .blocking_write_and_flush(chunk)
-                .map_err(|_| errno::error_by_name(mrb, c"ENOMEM", "request body"))?;
+        let written = write_within(&stream, body, outgoing.limits.write)
+            .map_err(|_| errno::error_by_name(mrb, c"ENOMEM", "request body"))?;
+        if !written {
+            return Err(net_error(mrb, c"WriteTimeout", "Net::WriteTimeout"));
         }
     }
     OutgoingBody::finish(out, None).map_err(|code| to_error(mrb, outgoing, code))?;
@@ -658,7 +773,11 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
     let response = loop {
         match future.get() {
             Some(answer) => break answer,
-            None => future.subscribe().block(),
+            None => {
+                if !ready_within(&future.subscribe(), outgoing.limits.read) {
+                    return Err(net_error(mrb, c"ReadTimeout", "Net::ReadTimeout"));
+                }
+            }
         }
     };
     let response = response
@@ -678,6 +797,7 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
         body: Unread {
             stream: Some(stream),
             body: Some(incoming),
+            read: outgoing.limits.read,
         },
     })
 }

@@ -24,6 +24,46 @@ wit_bindgen_rust_macro::generate!({
     generate_all,
 });
 
+/// Wait for `pollable` at most `limit`, answering whether it became ready; no
+/// limit waits until it does. The host keeps no timer, so the guest bounds a
+/// wait by polling a clock beside it, as CRuby's timeouts wait with a limit.
+pub(crate) fn ready_within(
+    pollable: &wasi::io::poll::Pollable,
+    limit: Option<std::time::Duration>,
+) -> bool {
+    let Some(limit) = limit else {
+        pollable.block();
+        return true;
+    };
+    let nanos = u64::try_from(limit.as_nanos()).unwrap_or(u64::MAX);
+    let clock = wasi::clocks::monotonic_clock::subscribe_duration(nanos);
+    wasi::io::poll::poll(&[pollable, &clock]).contains(&0)
+}
+
+/// Write every byte of `bytes`, each write waiting at most `limit` for room;
+/// `Ok(false)` once a wait passes its limit.
+pub(crate) fn write_within(
+    stream: &wasi::io::streams::OutputStream,
+    bytes: &[u8],
+    limit: Option<std::time::Duration>,
+) -> Result<bool, wasi::io::streams::StreamError> {
+    let mut rest = bytes;
+    while !rest.is_empty() {
+        let room = stream.check_write()? as usize;
+        if room == 0 {
+            if !ready_within(&stream.subscribe(), limit) {
+                return Ok(false);
+            }
+            continue;
+        }
+        let (now, later) = rest.split_at(room.min(rest.len()));
+        stream.write(now)?;
+        rest = later;
+    }
+    stream.flush()?;
+    Ok(true)
+}
+
 /// What the generated bindings call into, in place of the `wit-bindgen`
 /// crate's runtime, whose versioned `cabi_realloc` would join the Guest
 /// Binary's exports; the ABI exports `cabi_realloc` itself.

@@ -11,7 +11,7 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use crate::errno;
 use crate::io::argument_error;
-use crate::socket::{addr_array, on_peer, peer_of, to_error, to_ip_socket_address};
+use crate::socket::{addr_array, on_peer, peer_of, to_error, to_ip_socket_address, AF_INET6};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
@@ -22,9 +22,6 @@ use crate::wasi::wasi::sockets::udp::{
 use crate::wasi::wasi::sockets::udp_create_socket::create_udp_socket;
 
 const UDP: &str = "UDPSocket";
-
-/// Linux's `AF_INET6`, the family the IPv4-only guest refuses.
-const AF_INET6: i64 = 10;
 
 /// The streams with one peer, dropped before their socket, as WASI asks of a
 /// child resource.
