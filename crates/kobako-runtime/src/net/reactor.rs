@@ -184,10 +184,10 @@ pub(crate) struct Registration {
 }
 
 impl Registration {
-    /// Stop watching `source`, which the socket closes next.
+    /// Stop watching `source`, which the socket closes next; the token goes
+    /// once the registration drops.
     pub(crate) fn deregister(&self, source: &mut impl Source) {
         let _ = self.reactor.registry.deregister(source);
-        self.reactor.forget(self.token);
     }
 }
 
