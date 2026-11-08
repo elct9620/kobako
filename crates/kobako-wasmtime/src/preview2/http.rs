@@ -82,7 +82,7 @@ pub(crate) mod resource {
     pub(crate) struct OutgoingBody {
         pub(crate) link: Arc<BodyLink>,
         /// Whether its stream was handed out.
-        pub(crate) stream: bool,
+        pub(crate) stream_handed: bool,
     }
 
     pub(crate) struct FutureIncomingResponse(pub(crate) Future);
@@ -97,7 +97,7 @@ pub(crate) mod resource {
     pub(crate) struct IncomingBody {
         pub(crate) exchange: Arc<Exchange>,
         /// Whether its stream was handed out.
-        pub(crate) stream: bool,
+        pub(crate) stream_handed: bool,
     }
 
     pub(crate) struct FutureTrailers;
@@ -279,7 +279,7 @@ impl HttpHost for Invocation {
         self.table()
             .push(resource::OutgoingBody {
                 link,
-                stream: false,
+                stream_handed: false,
             })
             .map(Ok)
     }
@@ -348,7 +348,7 @@ impl HttpHost for Invocation {
         this: OutgoingBody,
     ) -> wasmtime::Result<Result<OutputStream, ()>> {
         let body = self.table().get_mut(this)?;
-        if std::mem::replace(&mut body.stream, true) {
+        if std::mem::replace(&mut body.stream_handed, true) {
             return Ok(Err(()));
         }
         let stream = Stream::File(Arc::new(Mutex::new(body.link.body.alloc_file())));
@@ -474,7 +474,7 @@ impl HttpHost for Invocation {
         self.table()
             .push(resource::IncomingBody {
                 exchange,
-                stream: false,
+                stream_handed: false,
             })
             .map(Ok)
     }
@@ -494,7 +494,7 @@ impl HttpHost for Invocation {
         this: IncomingBody,
     ) -> wasmtime::Result<Result<InputStream, ()>> {
         let body = self.table().get_mut(this)?;
-        if std::mem::replace(&mut body.stream, true) {
+        if std::mem::replace(&mut body.stream_handed, true) {
             return Ok(Err(()));
         }
         let exchange = body.exchange.clone();

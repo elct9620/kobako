@@ -8,7 +8,7 @@ use super::errno::{Answer, Errno};
 use super::fd::file;
 use crate::descriptors::Descriptors;
 
-pub(crate) fn socket<T>(table: &Descriptors, fd: u32) -> Answer<T> {
+pub(crate) fn refuse<T>(table: &Descriptors, fd: u32) -> Answer<T> {
     if table.socket(fd).is_some() {
         return Err(Errno::Notsup.into());
     }

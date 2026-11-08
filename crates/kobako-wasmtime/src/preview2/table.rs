@@ -53,7 +53,7 @@ impl<S> SocketFile<S> {
 
 /// How many bytes `check-write` offers a stream onto a file that takes any
 /// write, as wasmtime-wasi offers a file's output stream.
-const FILE_WRITE_CAPACITY: usize = MAX_SOCKET_BUFFER;
+const MAX_FILE_WRITE: usize = MAX_SOCKET_BUFFER;
 
 /// What an `input-stream` or an `output-stream` reads or writes: a socket's
 /// file, whose socket holds what was written until the host takes it, or any
@@ -87,7 +87,7 @@ impl Stream {
     pub(crate) fn room(&self) -> usize {
         match self {
             Stream::Socket(socket) => socket.sock.send_room(),
-            Stream::File(_) => FILE_WRITE_CAPACITY,
+            Stream::File(_) => MAX_FILE_WRITE,
         }
     }
 
@@ -219,7 +219,7 @@ impl Pollable {
     }
 
     /// Whether it is ready, registering on `table` for a poll that will sleep.
-    pub(crate) fn ready(&self, table: Option<&mut PollTable>) -> bool {
+    pub(crate) fn is_ready(&self, table: Option<&mut PollTable>) -> bool {
         match self {
             Pollable::Clock { at } => Instant::now() >= *at,
             Pollable::File(file, mask) => {

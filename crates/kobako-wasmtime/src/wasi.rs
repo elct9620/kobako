@@ -1,7 +1,8 @@
 //! The guest's WASI context for one instance: the Preamble on stdin,
 //! a capture pipe for each of stdout and stderr, the ambient authority
-//! the instance's purpose grants, and a preopen for each Mount an
-//! invocation was handed.
+//! the instance's purpose grants, a preopen for each Mount an invocation
+//! was handed, and the preview2 resources it holds, with the network its
+//! network Grants open.
 
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::WasiCtxBuilder;

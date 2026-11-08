@@ -157,7 +157,7 @@ impl Invocation {
     /// Wait until `stream`'s poll finds `mask`, or an error or a hang-up.
     fn wait_on(&self, stream: &Stream, mask: PollMask) -> wasmtime::Result<()> {
         let pollable = table::Pollable::File(stream.file(), mask);
-        self.wait_for(None, |table| pollable.ready(table).then_some(()))
+        self.wait_for(None, |table| pollable.is_ready(table).then_some(()))
     }
 }
 
@@ -718,7 +718,9 @@ impl IoHost for Invocation {
         let pollable = self.table().get(this)?.clone();
         let producer = pollable.is_producer();
         let pollable = pollable.for_wait(self.profile(), producer);
-        self.wait_for(pollable.due(), |table| pollable.ready(table).then_some(()))
+        self.wait_for(pollable.due(), |table| {
+            pollable.is_ready(table).then_some(())
+        })
     }
 
     /// The indices of the pollables ready, once one is, as WASI's `poll`
@@ -740,7 +742,7 @@ impl IoHost for Invocation {
         let due = pollables.iter().filter_map(table::Pollable::due).min();
         self.wait_for(due, |mut table| {
             let ready = (0..pollables.len() as u32)
-                .filter(|i| pollables[*i as usize].ready(table.as_deref_mut()))
+                .filter(|i| pollables[*i as usize].is_ready(table.as_deref_mut()))
                 .collect::<Vec<_>>();
             (!ready.is_empty()).then_some(ready)
         })
