@@ -1,6 +1,6 @@
 //! The resource table preview2 hands the guest its handles from, as
-//! wasmtime-wasi's `ResourceTable` is. Each entry counts against the same
-//! `OpenFiles` as preview1's descriptors, since a socket is a file.
+//! wasmtime-wasi's `ResourceTable` is. Each handle takes a number from the
+//! space preview1's descriptors take theirs, since a socket is a file.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -10,8 +10,10 @@ use std::time::Instant;
 use kobako_runtime::net::{
     Exchange, NameLookup, Namespace, RequestBody, TcpSock, UdpSock, SOCKET_BUFFER,
 };
-use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
+use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
+
+use crate::descriptors::Numbers;
 
 /// One socket file every view of a guest socket shares, as handles on one
 /// `struct file` share one `struct socket`: the protocol's half is `S`, and
@@ -206,21 +208,27 @@ impl Pollable {
     }
 }
 
+/// One handle's resource, and the handle it is a child of, as wasmtime's
+/// `ResourceTable` keeps each entry's parent.
+struct Entry {
+    resource: Resource,
+    parent: Option<u32>,
+    children: usize,
+}
+
 pub(crate) struct Table {
-    entries: BTreeMap<u32, Resource>,
-    next: u32,
-    open_files: OpenFiles,
+    entries: BTreeMap<u32, Entry>,
+    numbers: Numbers,
     network: Option<Namespace>,
 }
 
 impl Table {
-    /// A table holding nothing, counting against `open_files`, with no
-    /// network until one is granted.
-    pub(crate) fn new(open_files: OpenFiles) -> Self {
+    /// A table holding nothing, numbering from the space preview1's
+    /// descriptors share, with no network until one is granted.
+    pub(crate) fn new(numbers: Numbers) -> Self {
         Self {
             entries: BTreeMap::new(),
-            next: 1,
-            open_files,
+            numbers,
             network: None,
         }
     }
@@ -237,25 +245,48 @@ impl Table {
     /// Hand out a handle for `resource`, refused past the Invocation's open
     /// file limit.
     pub(crate) fn push(&mut self, resource: Resource) -> wasmtime::Result<u32> {
-        self.open_files.open().map_err(|_| {
+        self.insert(resource, None)
+    }
+
+    /// Hand out a handle for `resource` as a child of `parent`, which cannot
+    /// be dropped while it lives, as the WIT has a parent's drop trap.
+    pub(crate) fn push_child(&mut self, resource: Resource, parent: u32) -> wasmtime::Result<u32> {
+        let handle = self.insert(resource, Some(parent))?;
+        self.entry_mut(parent)?.children += 1;
+        Ok(handle)
+    }
+
+    fn insert(&mut self, resource: Resource, parent: Option<u32>) -> wasmtime::Result<u32> {
+        let handle = self.numbers.lowest_unused().ok_or_else(|| {
             wasmtime::Error::msg("the guest holds as many files and resources as its limit allows")
         })?;
-        let handle = self.next;
-        self.next += 1;
-        self.entries.insert(handle, resource);
+        self.numbers.take(handle);
+        self.entries.insert(
+            handle,
+            Entry {
+                resource,
+                parent,
+                children: 0,
+            },
+        );
         Ok(handle)
+    }
+
+    fn entry_mut(&mut self, handle: u32) -> wasmtime::Result<&mut Entry> {
+        self.entries
+            .get_mut(&handle)
+            .ok_or_else(|| wasmtime::Error::msg("the guest named a handle it does not hold"))
     }
 
     pub(crate) fn get(&self, handle: u32) -> wasmtime::Result<&Resource> {
         self.entries
             .get(&handle)
+            .map(|entry| &entry.resource)
             .ok_or_else(|| wasmtime::Error::msg("the guest named a handle it does not hold"))
     }
 
     pub(crate) fn get_mut(&mut self, handle: u32) -> wasmtime::Result<&mut Resource> {
-        self.entries
-            .get_mut(&handle)
-            .ok_or_else(|| wasmtime::Error::msg("the guest named a handle it does not hold"))
+        self.entry_mut(handle).map(|entry| &mut entry.resource)
     }
 
     pub(crate) fn pollable(&self, handle: u32) -> wasmtime::Result<Pollable> {
@@ -267,12 +298,40 @@ impl Table {
         }
     }
 
-    pub(crate) fn delete(&mut self, handle: u32) -> wasmtime::Result<Resource> {
-        let resource = self
+    /// Take `handle` out of the table if `kind` holds for its resource. A
+    /// handle of another kind, or one whose children still live, traps, as
+    /// the Canonical ABI traps on a handle of the wrong type and the WIT on
+    /// a parent dropped first.
+    pub(crate) fn delete(
+        &mut self,
+        handle: u32,
+        kind: impl Fn(&Resource) -> bool,
+    ) -> wasmtime::Result<Resource> {
+        let entry = self
+            .entries
+            .get(&handle)
+            .ok_or_else(|| wasmtime::Error::msg("the guest dropped a handle it does not hold"))?;
+        if !kind(&entry.resource) {
+            return Err(wasmtime::Error::msg(
+                "the guest dropped a handle as a kind it is not",
+            ));
+        }
+        if entry.children > 0 {
+            return Err(wasmtime::Error::msg(
+                "the guest dropped a resource while a child of it lives",
+            ));
+        }
+        let entry = self
             .entries
             .remove(&handle)
-            .ok_or_else(|| wasmtime::Error::msg("the guest dropped a handle it does not hold"))?;
-        self.open_files.close();
-        Ok(resource)
+            .expect("the entry was just found");
+        self.numbers.give_back(handle);
+        if let Some(parent) = entry
+            .parent
+            .and_then(|parent| self.entries.get_mut(&parent))
+        {
+            parent.children -= 1;
+        }
+        Ok(entry.resource)
     }
 }

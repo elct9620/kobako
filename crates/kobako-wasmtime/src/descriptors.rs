@@ -3,11 +3,11 @@
 //!
 //! kobako answers every preview1 call that reads this table, so the guest
 //! sees one table and no call falls through to a second one that
-//! disagrees. Numbering follows Linux's `alloc_fd`: the lowest closed number
-//! is reused before a fresh one is taken.
+//! disagrees. Numbering follows Linux's `alloc_fd`: the lowest number no
+//! table holds is taken, a preview2 handle's included.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
@@ -32,11 +32,59 @@ impl Descriptor {
     }
 }
 
+/// The numbers both encodings hand out, from one space, as Linux's one
+/// fdtable numbers a regular file and a socket alike: a preview1 descriptor
+/// and a preview2 handle never share a number, and each counts once against
+/// the Invocation's open files.
+#[derive(Clone, Debug)]
+pub(crate) struct Numbers {
+    taken: Arc<Mutex<BTreeSet<u32>>>,
+    open_files: OpenFiles,
+}
+
+impl Numbers {
+    pub(crate) fn new(open_files: OpenFiles) -> Self {
+        Self {
+            taken: Arc::default(),
+            open_files,
+        }
+    }
+
+    fn taken(&self) -> MutexGuard<'_, BTreeSet<u32>> {
+        self.taken.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The lowest number no table holds, as Linux's `alloc_fd` finds it;
+    /// `None` when the Invocation holds as many as it may. Nothing is taken
+    /// until `take`, as `fd_install` fills what was found.
+    pub(crate) fn lowest_unused(&self) -> Option<u32> {
+        if self.open_files.is_full() {
+            return None;
+        }
+        let taken = self.taken();
+        (0..=u32::MAX).find(|n| !taken.contains(n))
+    }
+
+    /// Take `n`, a number `lowest_unused` found or one just given back.
+    pub(crate) fn take(&self, n: u32) {
+        self.open_files
+            .open()
+            .expect("a number lowest_unused found, or one just given back, has room in the count");
+        self.taken().insert(n);
+    }
+
+    /// Give `n` back, so the next number found may be it.
+    pub(crate) fn give_back(&self, n: u32) {
+        if self.taken().remove(&n) {
+            self.open_files.close();
+        }
+    }
+}
+
 pub(crate) struct Descriptors {
     used: BTreeMap<u32, Descriptor>,
-    free: BTreeSet<u32>,
-    /// The count this table shares with every other table of the Invocation.
-    open_files: OpenFiles,
+    /// The numbers this table shares with the preview2 resources.
+    numbers: Numbers,
     /// Who the guest's calls are made for, as a task holds its `cred`.
     cred: Arc<Cred>,
     /// What a descriptor's call asks before it starts.
@@ -57,7 +105,7 @@ impl Descriptors {
         stdout: File,
         stderr: File,
         mounts: Vec<Mount>,
-        open_files: OpenFiles,
+        numbers: Numbers,
         opener: Arc<Cred>,
         profile: Profile,
     ) -> Result<Self, FilesystemError> {
@@ -78,15 +126,15 @@ impl Descriptors {
                 },
             );
         }
-        for _ in &used {
-            open_files.open()?;
+        for fd in used.keys() {
+            numbers.open_files.open()?;
+            numbers.taken().insert(*fd);
         }
         let cred = restrict_self(&opener, &mounts);
         let walk_guard = WalkGuard::new(&mounts);
         Ok(Self {
             used,
-            free: BTreeSet::new(),
-            open_files,
+            numbers,
             cred,
             walk_guard,
             profile,
@@ -120,36 +168,22 @@ impl Descriptors {
     /// Take `fd` out of the table, freeing its number for reuse.
     pub(crate) fn remove(&mut self, fd: u32) -> Option<Descriptor> {
         let descriptor = self.used.remove(&fd)?;
-        self.free.insert(fd);
-        self.open_files.close();
+        self.numbers.give_back(fd);
         Some(descriptor)
     }
 
     /// Place `descriptor` at `fd`, a number the caller has just freed or
     /// `lowest_unused` found, as Linux's `fd_install` does.
     pub(crate) fn place(&mut self, fd: u32, descriptor: Descriptor) {
-        self.free.remove(&fd);
+        self.numbers.take(fd);
         self.used.insert(fd, descriptor);
-        self.open_files
-            .open()
-            .expect("a number just freed, or one lowest_unused found, has room in the count");
     }
 
-    /// The number the next descriptor takes, the lowest freed one or the one
-    /// past the highest in use, as Linux's `get_unused_fd_flags` finds it;
-    /// `None` when the table holds as many as it may. Nothing is placed
-    /// until `place`, as `fd_install` fills what was found.
+    /// The number the next descriptor takes, the lowest one no table holds,
+    /// as Linux's `get_unused_fd_flags` finds it; `None` when the Invocation
+    /// holds as many as it may.
     pub(crate) fn lowest_unused(&self) -> Option<u32> {
-        if self.open_files.is_full() {
-            return None;
-        }
-        match self.free.first() {
-            Some(fd) => Some(*fd),
-            None => match self.used.last_key_value() {
-                Some((last, _)) => last.checked_add(1),
-                None => Some(0),
-            },
-        }
+        self.numbers.lowest_unused()
     }
 
     /// Add `descriptor` under the number `lowest_unused` finds; `None` when
@@ -180,7 +214,7 @@ mod tests {
             pipe_end(),
             pipe_end(),
             Vec::new(),
-            OpenFiles::new(None),
+            Numbers::new(OpenFiles::new(None)),
             prepare_creds_within(&[], None),
             Profile::Hermetic,
         )

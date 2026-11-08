@@ -103,6 +103,20 @@ pub(crate) enum Held {
     Trailers,
 }
 
+impl Held {
+    fn is_fields(&self) -> bool {
+        matches!(self, Held::Fields { .. })
+    }
+
+    fn is_body(&self) -> bool {
+        matches!(self, Held::Body { .. })
+    }
+
+    fn is_incoming_body(&self) -> bool {
+        matches!(self, Held::IncomingBody { .. })
+    }
+}
+
 /// A header name a guest may set: a token, lowercase, and not forbidden.
 fn to_name(name: &str) -> Result<String, HeaderError> {
     let token = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c);
@@ -169,17 +183,27 @@ impl Invocation {
         }
     }
 
-    fn take_held(&mut self, handle: u32) -> wasmtime::Result<Held> {
-        match self.wasi_mut().table_mut().delete(handle)? {
+    /// Take `handle` out of the table as the `wasi:http` resource `kind`
+    /// names; any other traps.
+    fn take_held(&mut self, handle: u32, kind: fn(&Held) -> bool) -> wasmtime::Result<Held> {
+        let taken = self
+            .wasi_mut()
+            .table_mut()
+            .delete(handle, |r| matches!(r, Resource::Http(held) if kind(held)))?;
+        match taken {
             Resource::Http(held) => Ok(held),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a wasi:http resource",
-            )),
+            _ => unreachable!("delete takes only what kind holds for"),
         }
     }
 
     fn push_held(&mut self, held: Held) -> wasmtime::Result<u32> {
         self.wasi_mut().table_mut().push(Resource::Http(held))
+    }
+
+    fn push_held_child(&mut self, held: Held, parent: u32) -> wasmtime::Result<u32> {
+        self.wasi_mut()
+            .table_mut()
+            .push_child(Resource::Http(held), parent)
     }
 
     fn entries(&mut self, fields: Fields) -> wasmtime::Result<(Entries, bool)> {
@@ -287,7 +311,7 @@ impl HttpHost for Invocation {
     }
 
     fn types_fields_drop(&mut self, handle: Fields) -> wasmtime::Result<()> {
-        self.take_held(handle.0).map(drop)
+        self.take_held(handle.0, Held::is_fields).map(drop)
     }
 
     /// A GET with `headers`, which it takes, and a body the guest may ask for.
@@ -295,13 +319,8 @@ impl HttpHost for Invocation {
         &mut self,
         headers: Fields,
     ) -> wasmtime::Result<OutgoingRequest> {
-        let (entries, _) = match self.take_held(headers.0)? {
-            Held::Fields { entries, mutable } => (entries, mutable),
-            _ => {
-                return Err(wasmtime::Error::msg(
-                    "the guest named a handle that is not fields",
-                ))
-            }
+        let Held::Fields { entries, .. } = self.take_held(headers.0, Held::is_fields)? else {
+            unreachable!("take_held takes only fields here")
         };
         let link = Arc::new(BodyLink {
             body: RequestBody::new(self.wasi().descriptors().cred().clone()),
@@ -388,7 +407,8 @@ impl HttpHost for Invocation {
     }
 
     fn types_outgoing_request_drop(&mut self, handle: OutgoingRequest) -> wasmtime::Result<()> {
-        self.take_held(handle.0).map(drop)
+        self.take_held(handle.0, |held| matches!(held, Held::Request(_)))
+            .map(drop)
     }
 
     /// The stream writing the body, handed out once.
@@ -408,11 +428,10 @@ impl HttpHost for Invocation {
                 ))
             }
         };
-        Ok(Ok(OutputStream(
-            self.wasi_mut()
-                .table_mut()
-                .push(Resource::OutputStream(Stream::Request(body)))?,
-        )))
+        Ok(Ok(OutputStream(self.wasi_mut().table_mut().push_child(
+            Resource::OutputStream(Stream::Request(body)),
+            this.0,
+        )?)))
     }
 
     /// End the body, so its request may leave; HTTP/1 carries no trailers, so
@@ -422,20 +441,18 @@ impl HttpHost for Invocation {
         this: OutgoingBody,
         trailers: Option<Fields>,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        let Held::Body { link, .. } = self.take_held(this.0)? else {
-            return Err(wasmtime::Error::msg(
-                "the guest named a handle that is not an outgoing-body",
-            ));
+        let Held::Body { link, .. } = self.take_held(this.0, Held::is_body)? else {
+            unreachable!("take_held takes only an outgoing-body here")
         };
         if let Some(trailers) = trailers {
-            self.take_held(trailers.0)?;
+            self.take_held(trailers.0, Held::is_fields)?;
         }
         link.finished.store(true, Ordering::Release);
         Ok(Ok(()))
     }
 
     fn types_outgoing_body_drop(&mut self, handle: OutgoingBody) -> wasmtime::Result<()> {
-        self.take_held(handle.0).map(drop)
+        self.take_held(handle.0, Held::is_body).map(drop)
     }
 
     /// Ready once the response's head arrives; one whose request has not left
@@ -500,7 +517,8 @@ impl HttpHost for Invocation {
         &mut self,
         handle: FutureIncomingResponse,
     ) -> wasmtime::Result<()> {
-        if let Held::Future(Future::Sent(exchange)) = self.take_held(handle.0)? {
+        let future = self.take_held(handle.0, |held| matches!(held, Held::Future(_)))?;
+        if let Held::Future(Future::Sent(exchange)) = future {
             exchange.release();
         }
         Ok(())
@@ -528,10 +546,13 @@ impl HttpHost for Invocation {
                 ))
             }
         };
-        Ok(Fields(self.push_held(Held::Fields {
-            entries: Arc::new(Mutex::new(entries)),
-            mutable: false,
-        })?))
+        Ok(Fields(self.push_held_child(
+            Held::Fields {
+                entries: Arc::new(Mutex::new(entries)),
+                mutable: false,
+            },
+            this.0,
+        )?))
     }
 
     /// The body, handed out once.
@@ -561,11 +582,12 @@ impl HttpHost for Invocation {
 
     /// A response dropped with its body never asked for lets the exchange go.
     fn types_incoming_response_drop(&mut self, handle: IncomingResponse) -> wasmtime::Result<()> {
+        let response = self.take_held(handle.0, |held| matches!(held, Held::Response { .. }))?;
         if let Held::Response {
             exchange,
             consumed: false,
             ..
-        } = self.take_held(handle.0)?
+        } = response
         {
             exchange.release();
         }
@@ -589,8 +611,9 @@ impl HttpHost for Invocation {
                 ))
             }
         };
-        Ok(Ok(InputStream(self.wasi_mut().table_mut().push(
+        Ok(Ok(InputStream(self.wasi_mut().table_mut().push_child(
             Resource::InputStream(Stream::Response(exchange)),
+            this.0,
         )?)))
     }
 
@@ -599,18 +622,21 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingBody,
     ) -> wasmtime::Result<FutureTrailers> {
-        if let Held::IncomingBody { exchange, .. } = self.take_held(this.0)? {
-            exchange.release();
-        }
+        let Held::IncomingBody { exchange, .. } = self.take_held(this.0, Held::is_incoming_body)?
+        else {
+            unreachable!("take_held takes only an incoming-body here")
+        };
+        exchange.release();
         Ok(FutureTrailers(self.push_held(Held::Trailers)?))
     }
 
     fn types_incoming_body_drop(&mut self, handle: IncomingBody) -> wasmtime::Result<()> {
-        self.take_held(handle.0).map(drop)
+        self.take_held(handle.0, Held::is_incoming_body).map(drop)
     }
 
     fn types_future_trailers_drop(&mut self, handle: FutureTrailers) -> wasmtime::Result<()> {
-        self.take_held(handle.0).map(drop)
+        self.take_held(handle.0, |held| matches!(held, Held::Trailers))
+            .map(drop)
     }
 
     /// Send `request`, which it takes. Without a network Grant it answers
@@ -621,10 +647,10 @@ impl HttpHost for Invocation {
         request: OutgoingRequest,
         options: Option<RequestOptions>,
     ) -> wasmtime::Result<Result<FutureIncomingResponse, ErrorCode>> {
-        let Held::Request(request) = self.take_held(request.0)? else {
-            return Err(wasmtime::Error::msg(
-                "the guest named a handle that is not an outgoing-request",
-            ));
+        let Held::Request(request) =
+            self.take_held(request.0, |held| matches!(held, Held::Request(_)))?
+        else {
+            unreachable!("take_held takes only an outgoing-request here")
         };
         if options.is_some() {
             return Err(wasmtime::Error::msg(
@@ -822,6 +848,31 @@ mod tests {
             ),
             "fields.append must refuse a forbidden name, content-length, a name that is no \
              token, and any change to an immutable list"
+        );
+    }
+
+    // @behavior NW-064
+    #[test]
+    fn a_body_dropped_or_finished_while_its_stream_lives_traps() {
+        let mut guest = guest(None);
+        let request = get(&mut guest, "example.com").unwrap();
+        let body = guest
+            .types_outgoing_request_body(request)
+            .unwrap()
+            .expect("the body is handed out once");
+        let stream = guest
+            .types_outgoing_body_write(body)
+            .unwrap()
+            .expect("the stream is handed out once");
+        let dropped = guest.types_outgoing_body_drop(body).is_err();
+        let finished = guest.types_outgoing_body_finish(body, None).is_err();
+        guest.streams_output_stream_drop(stream).unwrap();
+        let after = guest.types_outgoing_body_finish(body, None).unwrap();
+        assert_eq!(
+            (dropped, finished, after),
+            (true, true, Ok(())),
+            "outgoing-body.drop and finish must trap while the body's output-stream lives, \
+             and finish once the stream is dropped"
         );
     }
 }

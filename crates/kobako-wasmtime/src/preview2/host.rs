@@ -87,6 +87,15 @@ impl Invocation {
         self.wasi_mut().table_mut().push(resource)
     }
 
+    /// Drop `handle` as the kind its drop import names.
+    pub(super) fn drop_as(
+        &mut self,
+        handle: u32,
+        kind: impl Fn(&Resource) -> bool,
+    ) -> wasmtime::Result<()> {
+        self.wasi_mut().table_mut().delete(handle, kind).map(drop)
+    }
+
     pub(super) fn pollable_on(
         &mut self,
         stream: Stream,
@@ -186,7 +195,7 @@ impl SocketsHost for Invocation {
     }
 
     fn network_network_drop(&mut self, handle: Network) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::Network))
     }
 
     /// A lookup of `name`, answered through the stream it hands out. Without a
@@ -267,7 +276,7 @@ impl SocketsHost for Invocation {
         &mut self,
         handle: ResolveAddressStream,
     ) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::ResolveStream(..)))
     }
 
     /// Without a network Grant no socket is made, as WASI's `not-supported`
@@ -388,7 +397,7 @@ impl SocketsHost for Invocation {
     }
 
     fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::TcpSocket(_)))
     }
 
     /// Without a network Grant no socket is made, and the guest is IPv4-only,
@@ -489,7 +498,7 @@ impl SocketsHost for Invocation {
     }
 
     fn udp_udp_socket_drop(&mut self, handle: UdpSocket) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::UdpSocket(_)))
     }
 
     /// Up to `max_results` datagrams the peer sent, without waiting; none yet
@@ -527,7 +536,7 @@ impl SocketsHost for Invocation {
         &mut self,
         handle: IncomingDatagramStream,
     ) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::Datagrams(_)))
     }
 
     /// One datagram while the send queue has room, none while it is full.
@@ -582,7 +591,7 @@ impl SocketsHost for Invocation {
         &mut self,
         handle: OutgoingDatagramStream,
     ) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::Datagrams(_)))
     }
 }
 
@@ -597,13 +606,17 @@ impl IoHost for Invocation {
         self.read_now(&stream, len)
     }
 
+    /// A pollable the stream must outlive, as `io.wit` makes it a child.
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
         let stream = self.stream(this.0)?;
-        self.pollable_on(stream, PollMask::IN)
+        Ok(Pollable(self.wasi_mut().table_mut().push_child(
+            Resource::Pollable(table::Pollable::Stream(stream, PollMask::IN)),
+            this.0,
+        )?))
     }
 
     fn streams_input_stream_drop(&mut self, handle: InputStream) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::InputStream(_)))
     }
 
     /// Write every byte, waiting for room as it goes, then until what was
@@ -638,7 +651,7 @@ impl IoHost for Invocation {
     }
 
     fn streams_output_stream_drop(&mut self, handle: OutputStream) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::OutputStream(_)))
     }
 
     /// The failure's POSIX name, so no host text reaches the guest.
@@ -652,7 +665,7 @@ impl IoHost for Invocation {
     }
 
     fn error_error_drop(&mut self, handle: Error) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::Error(_)))
     }
 
     fn poll_pollable_block(&mut self, this: Pollable) -> wasmtime::Result<()> {
@@ -686,7 +699,7 @@ impl IoHost for Invocation {
     }
 
     fn poll_pollable_drop(&mut self, handle: Pollable) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle.0).map(drop)
+        self.drop_as(handle.0, |r| matches!(r, Resource::Pollable(_)))
     }
 }
 
@@ -1175,6 +1188,37 @@ mod tests {
             linked, expected,
             "the Wasm Driver must link exactly the preview2 functions some data/*.wasm imports \
              and those a scenario answers ahead of the guest"
+        );
+    }
+
+    // @behavior RT-347
+    #[test]
+    fn a_handle_and_a_descriptor_number_from_one_space() {
+        let (mut store, _) = guest(Profile::Hermetic, None);
+        let guest = store.data_mut();
+        let first = guest.instance_network_instance_network().unwrap();
+        let next_descriptor = guest.wasi().descriptors().lowest_unused();
+        guest.network_network_drop(first).unwrap();
+        let again = guest.instance_network_instance_network().unwrap();
+        assert_eq!(
+            (first.0, next_descriptor, again.0),
+            (3, Some(4), 3),
+            "a guest holding only stdin, stdout, and stderr must take 3 for its first preview2 \
+             handle, find 4 as preview1's next descriptor, and take 3 again once it is freed"
+        );
+    }
+
+    // @behavior RT-348
+    #[test]
+    fn a_drop_of_a_handle_as_another_kind_traps() {
+        let (mut store, _) = guest(Profile::Hermetic, None);
+        let guest = store.data_mut();
+        let network = guest.instance_network_instance_network().unwrap();
+        let wrong = guest.tcp_tcp_socket_drop(TcpSocket(network.0)).is_err();
+        let kept = guest.network_held(network).is_ok();
+        assert!(
+            wrong && kept,
+            "tcp-socket's drop of a network handle must trap and leave the network held"
         );
     }
 }
