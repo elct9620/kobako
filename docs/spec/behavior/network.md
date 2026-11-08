@@ -324,7 +324,7 @@ endpoint "api.example.com", port: 443
 | When | the guest connects to that virtual address |
 | Then | the real address the endpoint's `addresses` lead to is dialed. An endpoint leading only to public addresses refuses a local one |
 
-## `NW-026` A virtual address no lookup handed out answers ENETUNREACH
+## `NW-026` A virtual address no lookup handed out is refused
 
 | Attribute | Value |
 | --- | --- |
@@ -334,7 +334,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a guest that looked up no name |
 | When | it connects to an address in the virtual range |
-| Then | the connect answers `ENETUNREACH`, and nothing is dialed |
+| Then | the connect answers `EACCES`, as any refused destination does, and nothing is dialed |
 
 ## `NW-027` A connect dials what the lookup answered
 

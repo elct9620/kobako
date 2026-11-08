@@ -474,9 +474,9 @@ impl Namespace {
 ## `Namespace::connect`
 
 A TCP socket to the address the Guest named, once the socket hooks and the
-ruleset pass it. A virtual address dials its name's real address, and an
-unmapped one answers `NetworkUnreachable`. Any refusal answers
-`PermissionDenied`, and nothing is dialed.
+ruleset pass it. A virtual address dials its name's real address. An
+unmapped one, and any refusal, answer `PermissionDenied`, and nothing is
+dialed.
 
 ```rust
 impl Namespace {
