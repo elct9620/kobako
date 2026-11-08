@@ -1208,3 +1208,40 @@ endpoint "api.example.com", port: 443
 | Given | a network entry, and a guest that speaks only IPv4 |
 | When | the script opens a `UDPSocket` of a family other than `Socket::AF_INET`. Then it calls `new`, `send`, and `recv` with a wrong argument count |
 | Then | the family raises `Errno::EAFNOSUPPORT`, and each count raises `ArgumentError` naming the range CRuby's takes. `Socket.new` raises `NoMethodError`, where CRuby opens a socket, since a script opens only a `TCPSocket` or a `UDPSocket` |
+
+## `NW-099` A script's port is read as Linux reads a service
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-067` |
+| relates | `NW-056` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script opens a `TCPSocket` to the server's port as a String, and as an Integer past 16 bits. Then it names a service |
+| Then | the String and the Integer reach the port Linux's `getaddrinfo` reads from them. The service name raises `Socket::ResolutionError` with `EAI_SERVICE`, where CRuby looks it up, since the guest has no services database |
+
+## `NW-100` A script's TCPSocket bounds its name lookup by resolv_timeout
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming `localhost` |
+| When | the script opens a `TCPSocket` to it with `resolv_timeout:` shorter than the lookup, and again with `fast_fallback: false` |
+| Then | the first raises `Errno::ETIMEDOUT`, as CRuby's does. The second connects, since a guest that speaks only IPv4 has no fallback to choose |
+
+## `NW-101` A script's peeraddr takes CRuby's reverse lookup flags
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a connected `TCPSocket` |
+| When | it calls `peeraddr` with `true`, `:hostname`, `:numeric`, an unknown Symbol, and an Integer |
+| Then | the unknown Symbol raises `ArgumentError` and the Integer `TypeError`, as CRuby's do. A lookup asked for answers the address, where CRuby answers the host name, since the guest has no reverse lookup |
