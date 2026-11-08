@@ -222,12 +222,7 @@ impl Pollable {
     pub(crate) fn is_ready(&self, table: Option<&mut PollTable>) -> bool {
         match self {
             Pollable::Clock { at } => Instant::now() >= *at,
-            Pollable::File(file, mask) => {
-                let found = lock(file).poll(table);
-                found.contains(*mask)
-                    || found.contains(PollMask::ERR)
-                    || found.contains(PollMask::HUP)
-            }
+            Pollable::File(file, mask) => lock(file).poll(table).is_ready_for(*mask),
             Pollable::Ready => true,
         }
     }

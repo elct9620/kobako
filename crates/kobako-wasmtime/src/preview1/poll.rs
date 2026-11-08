@@ -41,15 +41,13 @@ impl Subscription {
         Some(lock(socket).poll(table))
     }
 
-    /// Whether the socket is ready for what the subscription asks, or has
-    /// failed or hung up, as Linux's `poll` reports `POLLERR` and `POLLHUP`
-    /// whatever was asked.
+    /// Whether the socket is ready for what the subscription asks.
     fn is_socket_ready(found: PollMask, kind: &Kind) -> bool {
         let asked = match kind {
             Kind::FdRead => PollMask::IN,
             _ => PollMask::OUT,
         };
-        found.contains(asked) || found.contains(PollMask::ERR) || found.contains(PollMask::HUP)
+        found.is_ready_for(asked)
     }
 }
 

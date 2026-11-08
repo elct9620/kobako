@@ -272,6 +272,13 @@ impl PollMask {
     pub fn contains(self, mask: Self) -> bool {
         self.0 & mask.0 == mask.0
     }
+
+    /// Whether a poll asking `asked` finds this ready: it holds what was
+    /// asked, or an error or a hang-up whatever was asked, as `do_pollfd`
+    /// adds `EPOLLERR` and `EPOLLHUP` to every poll's events.
+    pub fn is_ready_for(self, asked: Self) -> bool {
+        self.contains(asked) || self.contains(Self::ERR) || self.contains(Self::HUP)
+    }
 }
 
 impl BitOr for PollMask {

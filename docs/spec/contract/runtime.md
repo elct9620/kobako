@@ -1384,6 +1384,17 @@ impl PollMask {
 }
 ```
 
+## `PollMask::is_ready_for`
+
+Whether a poll asking for some readiness finds it. An error or a hang-up is
+ready whatever was asked, as Linux's `poll` reports both always.
+
+```rust
+impl PollMask {
+    pub fn is_ready_for(self, asked: Self) -> bool {}
+}
+```
+
 ## `PollMask::IN`
 
 A read does not wait.
