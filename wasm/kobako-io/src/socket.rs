@@ -66,7 +66,9 @@ impl Connection {
     }
 }
 
-pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
+/// Define `Socket`, `BasicSocket`, `IPSocket`, and `TCPSocket`, handing back
+/// `IPSocket` for `UDPSocket` to descend from.
+pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<RClass, Error> {
     let socket_error =
         mrb.class_object()
             .define_error(mrb, c"SocketError", mrb.exception_standard_error())?;
@@ -101,7 +103,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     socket.define_method(mrb, c"close", beni::method!(tcp_socket_close, 0))?;
     socket.define_method(mrb, c"closed?", beni::method!(tcp_socket_closed_p, 0))?;
     socket.define_method(mrb, c"peeraddr", beni::method!(tcp_socket_peeraddr, -1))?;
-    Ok(())
+    Ok(ip)
 }
 
 /// Linux's address families, the numbers CRuby's `Socket` names them by.

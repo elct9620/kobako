@@ -43,9 +43,9 @@ impl Gem for KobakoIo {
         stream::init(mrb, io)?;
         file::init(mrb, io)?;
         dir::init(mrb)?;
-        socket::init(mrb, io)?;
+        let ip_socket = socket::init(mrb, io)?;
         select::init(mrb, io)?;
-        udp::init(mrb)?;
+        udp::init(mrb, ip_socket)?;
         http::init(mrb)?;
         kernel_ext::init(mrb)?;
         Ok(())

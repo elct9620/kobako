@@ -33,6 +33,44 @@ class TestE2ENetworkUdp < Minitest::Test
     ]
   RUBY
 
+  AS_IO = <<~RUBY
+    socket = UDPSocket.new
+    shape = [IPSocket, BasicSocket, IO].map { |ancestor| socket.is_a?(ancestor) } << socket.fileno.is_a?(Integer)
+    selected = IO.select(nil, [socket], nil, 0)&.dig(1) == [socket]
+    refused = begin
+      socket.write("x")
+      :written
+    rescue Errno::EDESTADDRREQ => e
+      e.message
+    end
+    socket.connect("127.0.0.1", %<port>d)
+    written = socket.write("ab", "cd")
+    socket.close
+    [shape, selected, refused, written]
+  RUBY
+
+  # @behavior NW-079
+  def test_a_udp_socket_is_an_io_that_io_select_waits_on
+    with_quiet_peer do |peer, port|
+      value = sandbox_reaching(port).eval(format(AS_IO, port: port)).value
+
+      assert_equal [[[true, true, true, true], true, "Destination address required", 4], "abcd"],
+                   [value, peer.recv_nonblock(16, exception: false)],
+                   "UDPSocket must be an IPSocket, a BasicSocket, and an IO with an Integer fileno; IO.select must " \
+                   "answer a new one writable; #write before #connect must raise Errno::EDESTADDRREQ as CRuby's " \
+                   "IO#write does; and #write of two strings after #connect must reach the peer as one datagram"
+    end
+  end
+
+  # Yield a loopback peer that answers nothing, and its port.
+  def with_quiet_peer
+    peer = UDPSocket.new
+    peer.bind("127.0.0.1", 0)
+    yield peer, peer.addr[1]
+  ensure
+    peer&.close
+  end
+
   # Yield the port of a loopback peer that answers each datagram upcased.
   def with_upcase_peer
     peer = UDPSocket.new

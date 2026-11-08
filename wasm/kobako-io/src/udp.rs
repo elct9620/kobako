@@ -61,9 +61,13 @@ impl Datagrams {
     }
 }
 
-pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
-    let socket = mrb.define_class(c"UDPSocket", mrb.class_object())?;
+pub(crate) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
+    // A socket is an IO, as CRuby's `UDPSocket < IPSocket < BasicSocket < IO`.
+    let socket = mrb.define_class(c"UDPSocket", ip_socket)?;
     Datagrams::mark_carriers(mrb)?;
+    socket.define_method(mrb, c"fileno", beni::method!(udp_socket_fileno, 0))?;
+    socket.define_method(mrb, c"to_i", beni::method!(udp_socket_fileno, 0))?;
+    socket.define_method(mrb, c"write", beni::method!(udp_socket_write, -1))?;
     socket.define_singleton_method(mrb, c"new", beni::method!(udp_socket_s_new, -1))?;
     socket.define_singleton_method(mrb, c"open", beni::method!(udp_socket_s_new, -1))?;
     socket.define_method(mrb, c"bind", beni::method!(udp_socket_bind, 2))?;
@@ -208,24 +212,60 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
             };
             return Err(errno::error_by_name(mrb, name, &call));
         };
-        let datagram = [OutgoingDatagram {
-            data,
-            remote_address,
-        }];
-        let pollable = streams.outgoing.subscribe();
-        loop {
-            match streams.outgoing.check_send() {
-                Ok(0) => pollable.block(),
-                Ok(_) => match streams.outgoing.send(&datagram) {
-                    Ok(0) => pollable.block(),
-                    Ok(_) => return Ok(()),
-                    Err(code) => return Err(to_error(mrb, code, UDP, &call)),
-                },
-                Err(code) => return Err(to_error(mrb, code, UDP, &call)),
-            }
-        }
+        send_datagram(mrb, streams, data, remote_address, &call)
     })?;
     Ok((len as i64).into_value(mrb))
+}
+
+/// `write(*objects)` sends what the objects spell as one datagram to the peer,
+/// as `write(2)` on a connected datagram socket does; with no peer it raises
+/// `Errno::EDESTADDRREQ`, carrying no call, as CRuby's `IO#write` does.
+fn udp_socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Error> {
+    let mut data = Vec::new();
+    for object in objects {
+        data.extend(bytes_of(
+            mrb,
+            object.funcall::<_, _, Value>(mrb, c"to_s", ())?,
+        )?);
+    }
+    let len = data.len();
+    Datagrams::of(mrb, self_)?.with(mrb, |open| match &open.streams {
+        Some(streams) => send_datagram(mrb, streams, data, None, "write(2)"),
+        None => Err(errno::error_alone(mrb, c"EDESTADDRREQ")),
+    })?;
+    Ok((len as i64).into_value(mrb))
+}
+
+/// Send `data` to the peer `streams` reach, waiting for room.
+fn send_datagram(
+    mrb: &Mrb,
+    streams: &Streams,
+    data: Vec<u8>,
+    remote_address: Option<IpSocketAddress>,
+    call: &str,
+) -> Result<(), Error> {
+    let datagram = [OutgoingDatagram {
+        data,
+        remote_address,
+    }];
+    let pollable = streams.outgoing.subscribe();
+    loop {
+        match streams.outgoing.check_send() {
+            Ok(0) => pollable.block(),
+            Ok(_) => match streams.outgoing.send(&datagram) {
+                Ok(0) => pollable.block(),
+                Ok(_) => return Ok(()),
+                Err(code) => return Err(to_error(mrb, code, UDP, call)),
+            },
+            Err(code) => return Err(to_error(mrb, code, UDP, call)),
+        }
+    }
+}
+
+/// The number the socket's preview2 handle took, which `IO.select` waits on.
+fn udp_socket_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let fd = Datagrams::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.handle()))?;
+    Ok((fd as i64).into_value(mrb))
 }
 
 /// The next datagram from the peer, cut to `maxlen`, and who sent it, waiting

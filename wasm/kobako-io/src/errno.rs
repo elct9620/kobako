@@ -255,6 +255,16 @@ pub(crate) fn error_with_message(mrb: &Mrb, name: &core::ffi::CStr, message: &st
     to_error(mrb, errno_class(mrb, name), message)
 }
 
+/// The `Errno` class `name` names, carrying its message alone, as CRuby
+/// raises one for an IO that names no path.
+pub(crate) fn error_alone(mrb: &Mrb, name: &core::ffi::CStr) -> Error {
+    let message = CODES
+        .iter()
+        .find(|code| code.name == name)
+        .map_or("unknown error", |code| code.message);
+    to_error(mrb, errno_class(mrb, name), message)
+}
+
 /// The message the `Errno` class `name` carries for an operation on `path`.
 pub(crate) fn message_of(name: &core::ffi::CStr, path: &str) -> String {
     let message = CODES
