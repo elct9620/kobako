@@ -3980,3 +3980,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a new preview2 TCP socket and a new UDP socket |
 | When | it polls, reads, and writes each socket's number through preview1 before any connect |
 | Then | the TCP socket polls writable and hung up. Its read answers ENOTCONN and its write EPIPE, as a fresh `tcp_sock` does. The UDP socket polls writable. Its read answers EAGAIN and its write EDESTADDRREQ, as `udp_sendmsg` answers with no peer |
+
+## `RT-353` A preview2 list or string past the guest's memory traps
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-348` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest calling a preview2 import that takes a list or a string |
+| When | it names one whose length runs past its memory, or whose length is negative as a signed number |
+| Then | the call traps before the host reads or keeps anything. The Canonical ABI traps on such a list too |
