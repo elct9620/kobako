@@ -1246,3 +1246,112 @@ endpoint "api.example.com", port: 443
 | Given | a script holding a connected `TCPSocket` |
 | When | it calls `peeraddr` with `true`, `:hostname`, `:numeric`, an unknown Symbol, and an Integer |
 | Then | the unknown Symbol raises `ArgumentError` and the Integer `TypeError`, as CRuby's do. A lookup asked for answers the address, where CRuby answers the host name, since the guest has no reverse lookup |
+
+## `NW-102` A script's request carries CRuby's default headers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-062` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an HTTP endpoint naming a loopback server |
+| When | the script sends a GET, and a POST whose body names no content type |
+| Then | each carries `accept: */*` and `user-agent: Ruby`, and the POST carries `application/x-www-form-urlencoded`, as CRuby's do. No `accept-encoding` is sent, where CRuby asks for gzip, since the guest decodes no content |
+
+## `NW-103` A response that carries no body answers nil
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-062` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an HTTP endpoint naming a loopback server |
+| When | the script sends a HEAD, and a GET the server answers with 204 or 304 |
+| Then | each response's `body` answers `nil`, as CRuby's does |
+
+## `NW-104` A request's headers are taken as CRuby takes them
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-062` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script building a `Net::HTTP::Get` |
+| When | it passes headers padded, `nil`, repeated in another case, and holding CR or LF. Then it sets an Array |
+| Then | each answers as CRuby's does. The value is stripped, `nil` is skipped, and the last of a name wins. CR or LF raises `ArgumentError`, and an Array joins with `, ` |
+
+## `NW-105` A header the host writes or WASI refuses raises ArgumentError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-041` |
+| relates | `NW-102` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an HTTP endpoint naming a loopback server |
+| When | the script sends a request naming `host`, `connection`, or a name that is no token |
+| Then | each raises `ArgumentError` before anything is sent, where CRuby sends it. The host writes the authority, so a script names no other host |
+
+## `NW-106` A request's form data is encoded as CRuby encodes it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-062` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a `Net::HTTP::Post` |
+| When | it calls `set_form_data` with an Array value, a `nil` value, a Symbol, and a separator |
+| Then | the body is what `URI.encode_www_form` writes, joined by the separator. The call answers the content type, as CRuby's does |
+
+## `NW-107` A session and a request refuse what CRuby's refuse
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-062` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an HTTP endpoint naming a loopback server |
+| When | the script starts a session twice, finishes one never started, and sends a request holding a body with another |
+| Then | the session calls raise `IOError` and the two bodies `ArgumentError`, as CRuby's do. A path that is `nil` or empty raises `ArgumentError` |
+
+## `NW-108` A script's Net::HTTP objects read as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-062` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an HTTP endpoint naming a loopback server |
+| When | the script sets `use_ssl` after `new`, and calls `Net::HTTP.start` with `use_ssl: true`. Then it inspects each object |
+| Then | the first keeps port 80 and the second takes 443, as CRuby's do. Each `inspect` answers CRuby's form, a response unread within its block as `readbody=false` |
+
+## `NW-109` A script's Net::HTTP is a subset without URI or Enumerator
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-062` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an HTTP endpoint naming a loopback server |
+| When | the script calls `URI`, `each_header` with no block, and a request with a relative path. Then it reads a response's `message` |
+| Then | `URI` raises `NoMethodError` and `each_header` raises `NotImplementedError`, as the guest has no URI or Fiber. The relative path raises `ArgumentError`, where CRuby sends it. `message` answers HTTP/1.1's reason phrase, as WASI carries only the code |
+
+## `NW-110` IO.select takes what converts to an IO
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-065` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a `TCPSocket`, an object whose `to_io` answers it, and an Integer |
+| When | it selects the object, then the Integer |
+| Then | the object is answered ready as it was given, and the Integer raises `TypeError`, as CRuby's `IO.select` does |
