@@ -106,7 +106,11 @@ pub(crate) enum UdpSocket {
     Unbound,
     Binding,
     Bound,
-    Streaming(SocketFile<UdpSock>),
+    /// One view of the socket file, so the host socket lives while the
+    /// udp-socket does, as each of a file's views holds it.
+    Streaming {
+        _file: SocketFile<UdpSock>,
+    },
 }
 
 /// What one handle stands for.

@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use kobako_runtime::net::{self, Exchange, HttpError, RequestBody, ResponseHead};
 
 use super::bindings::wasi_http_types_0_2_12::{
-    Duration, ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError, IncomingBody,
-    IncomingResponse, IoError, Method, OutgoingBody, OutgoingRequest, RequestOptions, Scheme,
+    ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError, IncomingBody,
+    IncomingResponse, Method, OutgoingBody, OutgoingRequest, RequestOptions, Scheme,
 };
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
@@ -86,7 +86,6 @@ pub(crate) enum Held {
         mutable: bool,
     },
     Request(Request),
-    Options,
     Body {
         link: Arc<BodyLink>,
         stream: bool,
@@ -101,9 +100,7 @@ pub(crate) enum Held {
         exchange: Arc<Exchange>,
         stream: bool,
     },
-    Trailers {
-        taken: bool,
-    },
+    Trailers,
 }
 
 /// A header name a guest may set: a token, lowercase, and not forbidden.
@@ -257,96 +254,11 @@ impl Invocation {
 }
 
 impl HttpHost for Invocation {
-    /// kobako's stream failures carry no HTTP error.
-    fn types_http_error_code(&mut self, _err: IoError) -> wasmtime::Result<Option<ErrorCode>> {
-        Ok(None)
-    }
-
     fn types_fields_constructor_new(&mut self) -> wasmtime::Result<Fields> {
         Ok(Fields(self.push_held(Held::Fields {
             entries: Entries::default(),
             mutable: true,
         })?))
-    }
-
-    fn types_fields_from_list(
-        &mut self,
-        entries: Vec<(String, Vec<u8>)>,
-    ) -> wasmtime::Result<Result<Fields, HeaderError>> {
-        let entries = entries
-            .into_iter()
-            .map(|(name, value)| Ok((to_name(&name)?, to_value(value)?)))
-            .collect::<Result<Vec<_>, HeaderError>>();
-        match entries {
-            Ok(entries) => Ok(Ok(Fields(self.push_held(Held::Fields {
-                entries: Arc::new(Mutex::new(entries)),
-                mutable: true,
-            })?))),
-            Err(err) => Ok(Err(err)),
-        }
-    }
-
-    fn types_fields_get(&mut self, this: Fields, name: String) -> wasmtime::Result<Vec<Vec<u8>>> {
-        let name = name.to_ascii_lowercase();
-        let (entries, _) = self.entries(this)?;
-        let values = locked(&entries)
-            .iter()
-            .filter(|(key, _)| *key == name)
-            .map(|(_, value)| value.clone())
-            .collect();
-        Ok(values)
-    }
-
-    fn types_fields_has(&mut self, this: Fields, name: String) -> wasmtime::Result<bool> {
-        let name = name.to_ascii_lowercase();
-        let (entries, _) = self.entries(this)?;
-        let has = locked(&entries).iter().any(|(key, _)| *key == name);
-        Ok(has)
-    }
-
-    fn types_fields_set(
-        &mut self,
-        this: Fields,
-        name: String,
-        value: Vec<Vec<u8>>,
-    ) -> wasmtime::Result<Result<(), HeaderError>> {
-        let (entries, mutable) = self.entries(this)?;
-        if !mutable {
-            return Ok(Err(HeaderError::Immutable));
-        }
-        let name = match to_name(&name) {
-            Ok(name) => name,
-            Err(err) => return Ok(Err(err)),
-        };
-        let values = match value
-            .into_iter()
-            .map(to_value)
-            .collect::<Result<Vec<_>, _>>()
-        {
-            Ok(values) => values,
-            Err(err) => return Ok(Err(err)),
-        };
-        let mut entries = locked(&entries);
-        entries.retain(|(key, _)| *key != name);
-        entries.extend(values.into_iter().map(|value| (name.clone(), value)));
-        Ok(Ok(()))
-    }
-
-    fn types_fields_delete(
-        &mut self,
-        this: Fields,
-        name: String,
-    ) -> wasmtime::Result<Result<(), HeaderError>> {
-        let (entries, mutable) = self.entries(this)?;
-        if !mutable {
-            return Ok(Err(HeaderError::Immutable));
-        }
-        let name = match to_name(&name) {
-            Ok(name) => name,
-            Err(err) => return Ok(Err(err)),
-        };
-        locked(&entries).retain(|(key, _)| *key != name);
-        Ok(Ok(()))
     }
 
     fn types_fields_append(
@@ -372,16 +284,6 @@ impl HttpHost for Invocation {
         let (entries, _) = self.entries(this)?;
         let entries = locked(&entries).clone();
         Ok(entries)
-    }
-
-    /// A mutable copy, whatever this one is.
-    fn types_fields_clone(&mut self, this: Fields) -> wasmtime::Result<Fields> {
-        let (entries, _) = self.entries(this)?;
-        let copy = locked(&entries).clone();
-        Ok(Fields(self.push_held(Held::Fields {
-            entries: Arc::new(Mutex::new(copy)),
-            mutable: true,
-        })?))
     }
 
     fn types_fields_drop(&mut self, handle: Fields) -> wasmtime::Result<()> {
@@ -431,10 +333,6 @@ impl HttpHost for Invocation {
         })?)))
     }
 
-    fn types_outgoing_request_method(&mut self, this: OutgoingRequest) -> wasmtime::Result<Method> {
-        Ok(self.request(this)?.method.clone())
-    }
-
     fn types_outgoing_request_set_method(
         &mut self,
         this: OutgoingRequest,
@@ -445,13 +343,6 @@ impl HttpHost for Invocation {
         }
         self.request(this)?.method = method;
         Ok(Ok(()))
-    }
-
-    fn types_outgoing_request_path_with_query(
-        &mut self,
-        this: OutgoingRequest,
-    ) -> wasmtime::Result<Option<String>> {
-        Ok(self.request(this)?.path_with_query.clone())
     }
 
     fn types_outgoing_request_set_path_with_query(
@@ -469,13 +360,6 @@ impl HttpHost for Invocation {
         Ok(Ok(()))
     }
 
-    fn types_outgoing_request_scheme(
-        &mut self,
-        this: OutgoingRequest,
-    ) -> wasmtime::Result<Option<Scheme>> {
-        Ok(self.request(this)?.scheme.clone())
-    }
-
     fn types_outgoing_request_set_scheme(
         &mut self,
         this: OutgoingRequest,
@@ -486,13 +370,6 @@ impl HttpHost for Invocation {
         }
         self.request(this)?.scheme = scheme;
         Ok(Ok(()))
-    }
-
-    fn types_outgoing_request_authority(
-        &mut self,
-        this: OutgoingRequest,
-    ) -> wasmtime::Result<Option<String>> {
-        Ok(self.request(this)?.authority.clone())
     }
 
     fn types_outgoing_request_set_authority(
@@ -510,79 +387,7 @@ impl HttpHost for Invocation {
         Ok(Ok(()))
     }
 
-    /// The request's own headers, which the guest may change until it is sent.
-    fn types_outgoing_request_headers(
-        &mut self,
-        this: OutgoingRequest,
-    ) -> wasmtime::Result<Fields> {
-        let entries = self.request(this)?.headers.clone();
-        Ok(Fields(self.push_held(Held::Fields {
-            entries,
-            mutable: true,
-        })?))
-    }
-
     fn types_outgoing_request_drop(&mut self, handle: OutgoingRequest) -> wasmtime::Result<()> {
-        self.take_held(handle.0).map(drop)
-    }
-
-    fn types_request_options_constructor_new(&mut self) -> wasmtime::Result<RequestOptions> {
-        Ok(RequestOptions(self.push_held(Held::Options)?))
-    }
-
-    /// The deadline bounds every request, so no option sets a timeout.
-    fn types_request_options_connect_timeout(
-        &mut self,
-        this: RequestOptions,
-    ) -> wasmtime::Result<Option<Duration>> {
-        self.held(this.0)?;
-        Ok(None)
-    }
-
-    fn types_request_options_set_connect_timeout(
-        &mut self,
-        this: RequestOptions,
-        _duration: Option<Duration>,
-    ) -> wasmtime::Result<Result<(), ()>> {
-        self.held(this.0)?;
-        Ok(Err(()))
-    }
-
-    fn types_request_options_first_byte_timeout(
-        &mut self,
-        this: RequestOptions,
-    ) -> wasmtime::Result<Option<Duration>> {
-        self.held(this.0)?;
-        Ok(None)
-    }
-
-    fn types_request_options_set_first_byte_timeout(
-        &mut self,
-        this: RequestOptions,
-        _duration: Option<Duration>,
-    ) -> wasmtime::Result<Result<(), ()>> {
-        self.held(this.0)?;
-        Ok(Err(()))
-    }
-
-    fn types_request_options_between_bytes_timeout(
-        &mut self,
-        this: RequestOptions,
-    ) -> wasmtime::Result<Option<Duration>> {
-        self.held(this.0)?;
-        Ok(None)
-    }
-
-    fn types_request_options_set_between_bytes_timeout(
-        &mut self,
-        this: RequestOptions,
-        _duration: Option<Duration>,
-    ) -> wasmtime::Result<Result<(), ()>> {
-        self.held(this.0)?;
-        Ok(Err(()))
-    }
-
-    fn types_request_options_drop(&mut self, handle: RequestOptions) -> wasmtime::Result<()> {
         self.take_held(handle.0).map(drop)
     }
 
@@ -797,42 +602,11 @@ impl HttpHost for Invocation {
         if let Held::IncomingBody { exchange, .. } = self.take_held(this.0)? {
             exchange.release();
         }
-        Ok(FutureTrailers(
-            self.push_held(Held::Trailers { taken: false })?,
-        ))
+        Ok(FutureTrailers(self.push_held(Held::Trailers)?))
     }
 
     fn types_incoming_body_drop(&mut self, handle: IncomingBody) -> wasmtime::Result<()> {
         self.take_held(handle.0).map(drop)
-    }
-
-    fn types_future_trailers_subscribe(
-        &mut self,
-        this: FutureTrailers,
-    ) -> wasmtime::Result<Pollable> {
-        self.held(this.0)?;
-        Ok(Pollable(
-            self.wasi_mut()
-                .table_mut()
-                .push(Resource::Pollable(table::Pollable::Ready))?,
-        ))
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn types_future_trailers_get(
-        &mut self,
-        this: FutureTrailers,
-    ) -> wasmtime::Result<Option<Result<Result<Option<Fields>, ErrorCode>, ()>>> {
-        match self.held(this.0)? {
-            Held::Trailers { taken } if !*taken => {
-                *taken = true;
-                Ok(Some(Ok(Ok(None))))
-            }
-            Held::Trailers { .. } => Ok(Some(Err(()))),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a future-trailers",
-            )),
-        }
     }
 
     fn types_future_trailers_drop(&mut self, handle: FutureTrailers) -> wasmtime::Result<()> {
@@ -852,8 +626,10 @@ impl HttpHost for Invocation {
                 "the guest named a handle that is not an outgoing-request",
             ));
         };
-        if let Some(options) = options {
-            self.take_held(options.0)?;
+        if options.is_some() {
+            return Err(wasmtime::Error::msg(
+                "the guest named request-options, which kobako never hands out",
+            ));
         }
         if self.wasi().table().network().is_none() {
             return Ok(Err(ErrorCode::HTTPRequestDenied));
@@ -982,7 +758,12 @@ mod tests {
                 .expect("the server answered");
             let status = guest.types_incoming_response_status(response)?;
             let headers = guest.types_incoming_response_headers(response)?;
-            let kind = guest.types_fields_get(headers, "X-Kind".to_string())?;
+            let kind = guest
+                .types_fields_entries(headers)?
+                .into_iter()
+                .filter(|(name, _)| name == "x-kind")
+                .map(|(_, value)| value)
+                .collect::<Vec<_>>();
             let body = guest
                 .types_incoming_response_consume(response)?
                 .expect("consumed once");
@@ -1003,7 +784,7 @@ mod tests {
                 "GET /greeting HTTP/1.1\r\n".to_string()
             ),
             "a GET built through wasi:http to an http endpoint must reach the server and read \
-             back the status, a header by any case, and the body to its end"
+             back the status, a header under its lowercase name, and the body to its end"
         );
     }
 
@@ -1014,7 +795,7 @@ mod tests {
         let fields = guest.types_fields_constructor_new().unwrap();
         let set = |guest: &mut Invocation, fields, name: &str| {
             guest
-                .types_fields_set(fields, name.to_string(), vec![b"x".to_vec()])
+                .types_fields_append(fields, name.to_string(), b"x".to_vec())
                 .unwrap()
         };
         let answers = [
@@ -1039,8 +820,8 @@ mod tests {
                 ],
                 Err(HeaderError::Immutable)
             ),
-            "fields.set must refuse a forbidden name, content-length, a name that is no token, \
-             and any change to an immutable list"
+            "fields.append must refuse a forbidden name, content-length, a name that is no \
+             token, and any change to an immutable list"
         );
     }
 }

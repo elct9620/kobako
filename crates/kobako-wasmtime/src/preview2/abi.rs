@@ -25,7 +25,7 @@ macro_rules! scalar {
     )*};
 }
 
-scalar!(u8, i8, u16, i16, u32, i32, u64, i64, f32, f64);
+scalar!(u8, i8, u16, i16, u32, i32, u64, i64);
 
 fn memory<T>(caller: &mut Caller<'_, T>) -> wasmtime::Result<Memory> {
     match caller.get_export("memory") {
@@ -124,10 +124,4 @@ pub(crate) fn store_list<S: Scalar>(
 /// The trap a value the guest encoded wrongly ends the run with.
 pub(crate) fn invalid(what: &str) -> wasmtime::Error {
     wasmtime::Error::msg(format!("the guest passed an invalid {what}"))
-}
-
-/// The trap a call on a resource the guest never held ends the run with, as
-/// the Canonical ABI traps on a handle not in the table.
-pub(crate) fn unheld(import: &str) -> wasmtime::Error {
-    wasmtime::Error::msg(format!("{import} names a resource the guest does not hold"))
 }

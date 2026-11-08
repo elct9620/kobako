@@ -38,12 +38,6 @@ pub(crate) fn from_socket_addr(addr: SocketAddr) -> IpSocketAddress {
     })
 }
 
-/// The guest's own end of a connection: its port, at the unspecified address,
-/// so no host address reaches the guest.
-pub(crate) fn hide_host_address(addr: SocketAddr) -> IpSocketAddress {
-    from_socket_addr((Ipv4Addr::UNSPECIFIED, addr.port()).into())
-}
-
 /// The error code a lookup's failure answers. A name no A-label spells is
 /// refused as it is handed over, as an invalid argument; the same failure from
 /// a lookup's answer is a name that resolves to nothing.

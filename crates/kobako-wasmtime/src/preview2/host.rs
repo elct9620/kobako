@@ -4,7 +4,7 @@
 //! its Protocol Family. The clock subscriptions, the streams, and `poll` wait
 //! on the runtime's wait primitive.
 
-use std::net::{Ipv4Addr, Shutdown};
+use std::net::Shutdown;
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{sock_alloc_file, UdpSock, MAX_DATAGRAM, SOCKET_BUFFER};
@@ -24,9 +24,7 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
     IncomingDatagram, IncomingDatagramStream, OutgoingDatagram, OutgoingDatagramStream, UdpSocket,
 };
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
-use super::sockets::{
-    from_socket_addr, hide_host_address, lookup_error_code, to_error_code, to_socket_addr,
-};
+use super::sockets::{from_socket_addr, lookup_error_code, to_error_code, to_socket_addr};
 use super::table::{self, Resource, SocketFile, Stream};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
@@ -389,54 +387,6 @@ impl SocketsHost for Invocation {
         }
     }
 
-    /// The guest's own end, which shows no host address.
-    fn tcp_tcp_socket_local_address(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
-        match self.tcp(this)? {
-            table::TcpSocket::Connected(socket) => Ok(socket
-                .sock
-                .local_addr()
-                .map(hide_host_address)
-                .ok_or(ErrorCode::InvalidState)),
-            _ => Ok(Err(ErrorCode::InvalidState)),
-        }
-    }
-
-    fn tcp_tcp_socket_address_family(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<IpAddressFamily> {
-        self.tcp(this)?;
-        Ok(IpAddressFamily::Ipv4)
-    }
-
-    fn tcp_tcp_socket_is_listening(&mut self, this: TcpSocket) -> wasmtime::Result<bool> {
-        self.tcp(this)?;
-        Ok(false)
-    }
-
-    /// The guest only connects out, so a bind or a listen is refused, as
-    /// Landlock's `BIND_*` rights refuse one.
-    fn tcp_tcp_socket_start_bind(
-        &mut self,
-        this: TcpSocket,
-        _network: Network,
-        _local_address: IpSocketAddress,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        self.tcp(this)?;
-        Ok(Err(ErrorCode::AccessDenied))
-    }
-
-    fn tcp_tcp_socket_start_listen(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        self.tcp(this)?;
-        Ok(Err(ErrorCode::AccessDenied))
-    }
-
     fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {
         self.wasi_mut().table_mut().delete(handle.0).map(drop)
     }
@@ -499,7 +449,7 @@ impl SocketsHost for Invocation {
     ) -> wasmtime::Result<Result<(IncomingDatagramStream, OutgoingDatagramStream), ErrorCode>> {
         if !matches!(
             self.udp(this)?,
-            table::UdpSocket::Bound | table::UdpSocket::Streaming(_)
+            table::UdpSocket::Bound | table::UdpSocket::Streaming { .. }
         ) {
             return Ok(Err(ErrorCode::InvalidState));
         }
@@ -522,46 +472,12 @@ impl SocketsHost for Invocation {
         };
         let file = sock_alloc_file(sock.clone(), cred);
         let datagrams = SocketFile::new(sock, file, addr);
-        *self.udp(this)? = table::UdpSocket::Streaming(datagrams.clone());
+        *self.udp(this)? = table::UdpSocket::Streaming {
+            _file: datagrams.clone(),
+        };
         let incoming = IncomingDatagramStream(self.push(Resource::Datagrams(datagrams.clone()))?);
         let outgoing = OutgoingDatagramStream(self.push(Resource::Datagrams(datagrams))?);
         Ok(Ok((incoming, outgoing)))
-    }
-
-    /// The guest's own end, which shows no host address; one bound but not
-    /// yet streaming has no port yet, as Linux's autobind waits for a send.
-    fn udp_udp_socket_local_address(
-        &mut self,
-        this: UdpSocket,
-    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
-        match self.udp(this)? {
-            table::UdpSocket::Streaming(datagrams) => Ok(datagrams
-                .sock
-                .local_addr()
-                .map(hide_host_address)
-                .ok_or(ErrorCode::InvalidState)),
-            table::UdpSocket::Bound => Ok(Ok(from_socket_addr((Ipv4Addr::UNSPECIFIED, 0).into()))),
-            _ => Ok(Err(ErrorCode::InvalidState)),
-        }
-    }
-
-    /// The peer as the guest named it.
-    fn udp_udp_socket_remote_address(
-        &mut self,
-        this: UdpSocket,
-    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
-        match self.udp(this)? {
-            table::UdpSocket::Streaming(datagrams) => Ok(Ok(from_socket_addr(datagrams.peer))),
-            _ => Ok(Err(ErrorCode::InvalidState)),
-        }
-    }
-
-    fn udp_udp_socket_address_family(
-        &mut self,
-        this: UdpSocket,
-    ) -> wasmtime::Result<IpAddressFamily> {
-        self.udp(this)?;
-        Ok(IpAddressFamily::Ipv4)
     }
 
     /// Ready at once, since a bind settles as it starts.
@@ -671,15 +587,6 @@ impl SocketsHost for Invocation {
 }
 
 impl IoHost for Invocation {
-    fn streams_input_stream_read(
-        &mut self,
-        this: InputStream,
-        len: u64,
-    ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
-        let stream = self.stream(this.0)?;
-        self.read_now(&stream, len)
-    }
-
     fn streams_input_stream_blocking_read(
         &mut self,
         this: InputStream,
@@ -699,37 +606,8 @@ impl IoHost for Invocation {
         self.wasi_mut().table_mut().delete(handle.0).map(drop)
     }
 
-    /// How many bytes a write takes now; a failed or shut-down stream answers
-    /// its failure.
-    fn streams_output_stream_check_write(
-        &mut self,
-        this: OutputStream,
-    ) -> wasmtime::Result<Result<u64, StreamError>> {
-        let stream = self.stream(this.0)?;
-        let written = stream.write(&[]);
-        match written {
-            Ok(_) => Ok(Ok(stream.room() as u64)),
-            Err(err) => self.stream_error(err).map(Err),
-        }
-    }
-
-    fn streams_output_stream_write(
-        &mut self,
-        this: OutputStream,
-        contents: Vec<u8>,
-    ) -> wasmtime::Result<Result<(), StreamError>> {
-        let written = self.stream(this.0)?.write(&contents);
-        match written {
-            Ok(n) if n == contents.len() => Ok(Ok(())),
-            Ok(_) | Err(FilesystemError::WouldBlock) => Err(wasmtime::Error::msg(
-                "output-stream.write was handed more than check-write allowed",
-            )),
-            Err(err) => self.stream_error(err).map(Err),
-        }
-    }
-
-    /// Write every byte, waiting for room as it goes, then for the send
-    /// buffer to drain.
+    /// Write every byte, waiting for room as it goes, then until what was
+    /// written has left for the host.
     fn streams_output_stream_blocking_write_and_flush(
         &mut self,
         this: OutputStream,
@@ -746,24 +624,6 @@ impl IoHost for Invocation {
                 Err(err) => return self.stream_error(err).map(Err),
             }
         }
-        self.streams_output_stream_blocking_flush(this)
-    }
-
-    /// The writer sends as the buffer fills, so a flush starts nothing.
-    fn streams_output_stream_flush(
-        &mut self,
-        this: OutputStream,
-    ) -> wasmtime::Result<Result<(), StreamError>> {
-        self.stream(this.0)?;
-        Ok(Ok(()))
-    }
-
-    /// Wait until what was written has left for the host.
-    fn streams_output_stream_blocking_flush(
-        &mut self,
-        this: OutputStream,
-    ) -> wasmtime::Result<Result<(), StreamError>> {
-        let stream = self.stream(this.0)?;
         // Registering through the stream's poll puts the wait on its queue,
         // which a socket's writer wakes after each chunk it sends.
         self.wait_for(None, |table| {
@@ -775,14 +635,6 @@ impl IoHost for Invocation {
             Ok(_) => Ok(Ok(())),
             Err(err) => self.stream_error(err).map(Err),
         }
-    }
-
-    fn streams_output_stream_subscribe(
-        &mut self,
-        this: OutputStream,
-    ) -> wasmtime::Result<Pollable> {
-        let stream = self.stream(this.0)?;
-        self.pollable_on(stream, PollMask::OUT)
     }
 
     fn streams_output_stream_drop(&mut self, handle: OutputStream) -> wasmtime::Result<()> {
@@ -801,11 +653,6 @@ impl IoHost for Invocation {
 
     fn error_error_drop(&mut self, handle: Error) -> wasmtime::Result<()> {
         self.wasi_mut().table_mut().delete(handle.0).map(drop)
-    }
-
-    fn poll_pollable_ready(&mut self, this: Pollable) -> wasmtime::Result<bool> {
-        let pollable = self.wasi().table().pollable(this.0)?;
-        Ok(pollable.ready(None, pollable.is_producer()))
     }
 
     fn poll_pollable_block(&mut self, this: Pollable) -> wasmtime::Result<()> {
@@ -849,16 +696,6 @@ impl ClocksHost for Invocation {
         when: monotonic_clock::Duration,
     ) -> wasmtime::Result<Pollable> {
         self.subscribe_clock(when)
-    }
-
-    /// An instant counts from preview1's `clock_time_get` origin, so both
-    /// encodings name one clock.
-    fn monotonic_clock_subscribe_instant(
-        &mut self,
-        when: monotonic_clock::Instant,
-    ) -> wasmtime::Result<Pollable> {
-        let now = self.wasi().clocks().monotonic_now();
-        self.subscribe_clock(when.saturating_sub(now))
     }
 }
 
@@ -1269,6 +1106,75 @@ mod tests {
         assert!(
             call::<i64, i32>(&mut store, &instance, "subscribe", 0).is_err(),
             "subscribe-duration with the open file limit filled by the standard streams must trap"
+        );
+    }
+
+    /// The preview2 functions a scenario answers before a Guest Binary
+    /// imports them, each beside the scenario that holds the answer.
+    const ANSWERED_AHEAD: [(&str, &str, &str); 4] = [
+        (
+            "wasi:clocks/monotonic-clock@0.2.12",
+            "subscribe-duration",
+            "RT-338",
+        ),
+        ("wasi:io/poll@0.2.12", "poll", "RT-339"),
+        (
+            "wasi:io/streams@0.2.12",
+            "[method]input-stream.subscribe",
+            "NW-023",
+        ),
+        (
+            "wasi:sockets/tcp@0.2.12",
+            "[method]tcp-socket.remote-address",
+            "NW-031",
+        ),
+    ];
+
+    #[test]
+    fn the_driver_links_only_the_preview2_functions_a_guest_or_a_scenario_calls() {
+        let data = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data"));
+        let binaries = std::fs::read_dir(data)
+            .map(|dir| {
+                dir.filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .filter(|path| path.extension().is_some_and(|ext| ext == "wasm"))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if binaries.is_empty() {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "data/*.wasm missing under CI — run `bundle exec rake wasm:build`"
+            );
+            return;
+        }
+        let preview2 = |module: &str| module.starts_with("wasi:") && module.contains("@0.2");
+        let mut imported = std::collections::BTreeSet::new();
+        for binary in &binaries {
+            let module = crate::cache::load_module(binary).expect("a Guest Binary must load");
+            for import in module.imports().filter(|import| preview2(import.module())) {
+                imported.insert((import.module().to_string(), import.name().to_string()));
+            }
+        }
+        let (mut store, _) = guest(Profile::Hermetic, None);
+        let linker = imports::linker().expect("host imports must link");
+        let linked = linker
+            .iter(&mut store)
+            .filter(|(module, _, _)| preview2(module))
+            .map(|(module, name, _)| (module.to_string(), name.to_string()))
+            .collect::<std::collections::BTreeSet<_>>();
+        let ahead = ANSWERED_AHEAD
+            .iter()
+            .map(|(module, name, _)| (module.to_string(), name.to_string()))
+            .collect::<std::collections::BTreeSet<_>>();
+        let expected = imported
+            .union(&ahead)
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            linked, expected,
+            "the Wasm Driver must link exactly the preview2 functions some data/*.wasm imports \
+             and those a scenario answers ahead of the guest"
         );
     }
 }

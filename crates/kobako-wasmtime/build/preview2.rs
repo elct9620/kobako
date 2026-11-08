@@ -26,72 +26,95 @@ const PACKAGES: [&str; 7] = [
     "http.wit",
 ];
 
-/// The interfaces a Guest Binary imports, and the functions of each it may
-/// call; `None` takes every one.
-const IMPORTS: &[(&str, Option<&[&str]>)] = &[
-    ("wasi:io/error@0.2.12", None),
-    ("wasi:io/poll@0.2.12", None),
-    ("wasi:io/streams@0.2.12", None),
+/// The functions kobako answers, each interface's by its WIT name, resource
+/// drops included: those a Guest Binary imports, and those a scenario holds
+/// an answer to. No other links, so a call no answer was written for fails to
+/// link rather than to run.
+const IMPORTS: &[(&str, &[&str])] = &[
+    (
+        "wasi:io/error@0.2.12",
+        &["[method]error.to-debug-string", "[resource-drop]error"],
+    ),
+    (
+        "wasi:io/poll@0.2.12",
+        &["[method]pollable.block", "[resource-drop]pollable", "poll"],
+    ),
+    (
+        "wasi:io/streams@0.2.12",
+        &[
+            "[method]input-stream.blocking-read",
+            "[method]input-stream.subscribe",
+            "[method]output-stream.blocking-write-and-flush",
+            "[resource-drop]input-stream",
+            "[resource-drop]output-stream",
+        ],
+    ),
     (
         "wasi:clocks/monotonic-clock@0.2.12",
-        Some(&["subscribe-instant", "subscribe-duration"]),
+        &["subscribe-duration"],
     ),
-    ("wasi:sockets/network@0.2.12", None),
-    ("wasi:sockets/instance-network@0.2.12", None),
-    ("wasi:sockets/tcp-create-socket@0.2.12", None),
-    ("wasi:sockets/tcp@0.2.12", None),
-    ("wasi:sockets/ip-name-lookup@0.2.12", None),
-    ("wasi:sockets/udp-create-socket@0.2.12", None),
+    ("wasi:sockets/network@0.2.12", &["[resource-drop]network"]),
+    (
+        "wasi:sockets/instance-network@0.2.12",
+        &["instance-network"],
+    ),
+    (
+        "wasi:sockets/tcp-create-socket@0.2.12",
+        &["create-tcp-socket"],
+    ),
+    (
+        "wasi:sockets/tcp@0.2.12",
+        &[
+            "[method]tcp-socket.start-connect",
+            "[method]tcp-socket.finish-connect",
+            "[method]tcp-socket.shutdown",
+            "[method]tcp-socket.subscribe",
+            "[method]tcp-socket.remote-address",
+            "[resource-drop]tcp-socket",
+        ],
+    ),
+    (
+        "wasi:sockets/ip-name-lookup@0.2.12",
+        &[
+            "resolve-addresses",
+            "[method]resolve-address-stream.resolve-next-address",
+            "[method]resolve-address-stream.subscribe",
+            "[resource-drop]resolve-address-stream",
+        ],
+    ),
+    (
+        "wasi:sockets/udp-create-socket@0.2.12",
+        &["create-udp-socket"],
+    ),
     (
         "wasi:sockets/udp@0.2.12",
-        Some(&[
+        &[
             "[method]udp-socket.start-bind",
             "[method]udp-socket.finish-bind",
             "[method]udp-socket.stream",
-            "[method]udp-socket.local-address",
-            "[method]udp-socket.remote-address",
-            "[method]udp-socket.address-family",
             "[method]udp-socket.subscribe",
             "[method]incoming-datagram-stream.receive",
             "[method]incoming-datagram-stream.subscribe",
             "[method]outgoing-datagram-stream.check-send",
             "[method]outgoing-datagram-stream.send",
             "[method]outgoing-datagram-stream.subscribe",
-        ]),
+            "[resource-drop]udp-socket",
+            "[resource-drop]incoming-datagram-stream",
+            "[resource-drop]outgoing-datagram-stream",
+        ],
     ),
-    // A client's half: no incoming request, outgoing response, or outparam,
-    // which only a server handed a request holds.
     (
         "wasi:http/types@0.2.12",
-        Some(&[
-            "http-error-code",
+        &[
             "[constructor]fields",
-            "[static]fields.from-list",
-            "[method]fields.get",
-            "[method]fields.has",
-            "[method]fields.set",
-            "[method]fields.delete",
             "[method]fields.append",
             "[method]fields.entries",
-            "[method]fields.clone",
             "[constructor]outgoing-request",
             "[method]outgoing-request.body",
-            "[method]outgoing-request.method",
             "[method]outgoing-request.set-method",
-            "[method]outgoing-request.path-with-query",
             "[method]outgoing-request.set-path-with-query",
-            "[method]outgoing-request.scheme",
             "[method]outgoing-request.set-scheme",
-            "[method]outgoing-request.authority",
             "[method]outgoing-request.set-authority",
-            "[method]outgoing-request.headers",
-            "[constructor]request-options",
-            "[method]request-options.connect-timeout",
-            "[method]request-options.set-connect-timeout",
-            "[method]request-options.first-byte-timeout",
-            "[method]request-options.set-first-byte-timeout",
-            "[method]request-options.between-bytes-timeout",
-            "[method]request-options.set-between-bytes-timeout",
             "[method]outgoing-body.write",
             "[static]outgoing-body.finish",
             "[method]future-incoming-response.subscribe",
@@ -101,11 +124,16 @@ const IMPORTS: &[(&str, Option<&[&str]>)] = &[
             "[method]incoming-response.consume",
             "[method]incoming-body.stream",
             "[static]incoming-body.finish",
-            "[method]future-trailers.subscribe",
-            "[method]future-trailers.get",
-        ]),
+            "[resource-drop]fields",
+            "[resource-drop]outgoing-request",
+            "[resource-drop]outgoing-body",
+            "[resource-drop]future-incoming-response",
+            "[resource-drop]incoming-response",
+            "[resource-drop]incoming-body",
+            "[resource-drop]future-trailers",
+        ],
     ),
-    ("wasi:http/outgoing-handler@0.2.12", None),
+    ("wasi:http/outgoing-handler@0.2.12", &["handle"]),
 ];
 
 /// Where the generated file is included, so every type has one path.
@@ -128,7 +156,12 @@ pub fn generate(wit: &Path) -> anyhow::Result<String> {
                 .find(|(id, _)| resolve.id_of(*id).as_deref() == Some(*name))
                 .map(|(id, _)| id)
                 .ok_or_else(|| anyhow::anyhow!("{name} is not in the vendored WIT"))?;
-            Ok((id, *functions))
+            let found = imported(&resolve, id, functions).count()
+                + resources(&resolve, id, functions).count();
+            match found == functions.len() {
+                true => Ok((id, *functions)),
+                false => Err(anyhow::anyhow!("{name} lacks a function IMPORTS names")),
+            }
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -199,15 +232,12 @@ fn rust_type(resolve: &Resolve, ty: &Type) -> String {
         Type::S16 => "i16".into(),
         Type::S32 => "i32".into(),
         Type::S64 => "i64".into(),
-        Type::F32 => "f32".into(),
-        Type::F64 => "f64".into(),
-        Type::Char => "char".into(),
         Type::String => "String".into(),
         Type::Id(id) => match resolve.types[*id].name {
             Some(_) => type_path(resolve, *id),
             None => structural(resolve, &resolve.types[*id].kind),
         },
-        Type::ErrorContext => unreachable!("no 0.2 import takes an error-context"),
+        other => unreachable!("no import kobako answers takes {other:?}"),
     }
 }
 
@@ -300,20 +330,6 @@ fn types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
                 }
                 out.push_str("}\n");
             }
-            TypeDefKind::Flags(flags) => {
-                let _ = writeln!(
-                    out,
-                    "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub struct {name}(pub u32);\nimpl {name} {{"
-                );
-                for (bit, flag) in flags.flags.iter().enumerate() {
-                    let _ = writeln!(
-                        out,
-                        "pub const {}: Self = Self(1 << {bit});",
-                        snake(&flag.name).to_ascii_uppercase()
-                    );
-                }
-                out.push_str("}\n");
-            }
             TypeDefKind::Resource => {
                 let _ = writeln!(
                     out,
@@ -329,48 +345,29 @@ fn types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
     out.push_str("}\n\n");
 }
 
-/// Every function an interface lets the guest import.
+/// The functions of `id` among `names`.
 fn imported<'a>(
     resolve: &'a Resolve,
     id: InterfaceId,
-    only: Option<&[&str]>,
+    names: &'a [&str],
 ) -> impl Iterator<Item = &'a Function> {
-    let names: Option<Vec<String>> =
-        only.map(|names| names.iter().map(|n| n.to_string()).collect());
     resolve.interfaces[id]
         .functions
         .values()
-        .filter(move |func| {
-            names
-                .as_ref()
-                .is_none_or(|names| names.contains(&func.name))
-        })
+        .filter(move |func| names.contains(&func.name.as_str()))
 }
 
-/// The resources an interface declares, each with its drop import.
-/// The resources of `id` a guest may drop: with `only`, those one of its named
-/// functions constructs or is a method of, so a resource no import hands out
-/// gets no drop either.
+/// The resources of `id` whose drop is among `names`.
 fn resources<'a>(
     resolve: &'a Resolve,
     id: InterfaceId,
-    only: Option<&[&str]>,
+    names: &'a [&str],
 ) -> impl Iterator<Item = (&'a str, TypeId)> {
-    let held = only.map(|_| {
-        imported(resolve, id, only)
-            .filter_map(|func| match func.kind {
-                FunctionKind::Method(ty)
-                | FunctionKind::Static(ty)
-                | FunctionKind::Constructor(ty) => Some(ty),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    });
     resolve.interfaces[id]
         .types
         .iter()
         .filter(|(_, ty)| matches!(resolve.types[**ty].kind, TypeDefKind::Resource))
-        .filter(move |(_, ty)| held.as_ref().is_none_or(|held| held.contains(ty)))
+        .filter(move |(name, _)| names.contains(&format!("[resource-drop]{name}").as_str()))
         .map(|(name, ty)| (name.as_str(), *ty))
 }
 
@@ -408,10 +405,9 @@ fn package_trait(resolve: &Resolve, id: InterfaceId) -> String {
 }
 
 /// The traits the Wasm Driver implements, one per WIT package and one method
-/// per import, and `Host`, which every one of them makes. Each answers, by
-/// default, as for a handle the guest cannot hold, since no such resource was
-/// ever handed out.
-fn host_trait(resolve: &Resolve, imports: &[(InterfaceId, Option<&[&str]>)], out: &mut String) {
+/// per import, and `Host`, which every one of them makes. No method has a
+/// default, so an import without an answer does not compile.
+fn host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: &mut String) {
     let mut traits = Vec::<String>::new();
     for (id, _) in imports {
         let name = package_trait(resolve, *id);
@@ -440,13 +436,9 @@ fn host_trait(resolve: &Resolve, imports: &[(InterfaceId, Option<&[&str]>)], out
     );
 }
 
-fn package_methods(
-    resolve: &Resolve,
-    imports: &[(InterfaceId, Option<&[&str]>)],
-    out: &mut String,
-) {
-    for (id, only) in imports {
-        for func in imported(resolve, *id, *only) {
+fn package_methods(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: &mut String) {
+    for (id, names) in imports {
+        for func in imported(resolve, *id, names) {
             let params = func
                 .params
                 .iter()
@@ -458,21 +450,17 @@ fn package_methods(
                 .map_or("()".into(), |t| rust_type(resolve, t));
             let _ = writeln!(
                 out,
-                "fn {}(&mut self{params}) -> wasmtime::Result<{result}> {{ \
-                 Err(crate::preview2::abi::unheld({:?})) }}",
+                "fn {}(&mut self{params}) -> wasmtime::Result<{result}>;",
                 method_name(resolve, *id, func),
-                func.name
             );
         }
-        for (name, ty) in resources(resolve, *id, *only) {
+        for (name, ty) in resources(resolve, *id, names) {
             let interface = snake(resolve.interfaces[*id].name.as_deref().expect("named"));
             let _ = writeln!(
                 out,
-                "fn {interface}_{}_drop(&mut self, handle: {}) -> wasmtime::Result<()> {{ \
-                 Err(crate::preview2::abi::unheld({:?})) }}",
+                "fn {interface}_{}_drop(&mut self, handle: {}) -> wasmtime::Result<()>;",
                 snake(name),
                 type_path(resolve, ty),
-                format!("[resource-drop]{name}")
             );
         }
     }
@@ -482,8 +470,7 @@ fn core_type(ty: &WasmType) -> &'static str {
     match ty {
         WasmType::I32 | WasmType::Pointer | WasmType::Length => "i32",
         WasmType::I64 | WasmType::PointerOrI64 => "i64",
-        WasmType::F32 => "f32",
-        WasmType::F64 => "f64",
+        other => unreachable!("no import kobako answers carries {other:?}"),
     }
 }
 
@@ -491,16 +478,16 @@ fn core_type(ty: &WasmType) -> &'static str {
 fn linker(
     resolve: &Resolve,
     sizes: &SizeAlign,
-    imports: &[(InterfaceId, Option<&[&str]>)],
+    imports: &[(InterfaceId, &[&str])],
     out: &mut String,
 ) {
     out.push_str(
         "#[allow(unused_mut, unused_variables, clippy::all)]\n\
          pub fn add_to_linker<T: Host + 'static>(linker: &mut wasmtime::Linker<T>) -> wasmtime::Result<()> {\n",
     );
-    for (id, only) in imports {
+    for (id, names) in imports {
         let module = resolve.id_of(*id).expect("a named interface");
-        for func in imported(resolve, *id, *only) {
+        for func in imported(resolve, *id, names) {
             let sig = resolve.wasm_signature(abi::AbiVariant::GuestImport, func);
             let params = sig
                 .params
@@ -529,7 +516,7 @@ fn linker(
                 func.name, body.src
             );
         }
-        for (name, ty) in resources(resolve, *id, *only) {
+        for (name, ty) in resources(resolve, *id, names) {
             let interface = snake(resolve.interfaces[*id].name.as_deref().expect("named"));
             let _ = writeln!(
                 out,
@@ -614,13 +601,8 @@ fn cast(bitcast: &Bitcast, op: &str) -> String {
         | Bitcast::I64ToP64 => op.to_string(),
         Bitcast::I32ToI64 | Bitcast::PToP64 | Bitcast::LToI64 => format!("({op} as i64)"),
         Bitcast::I64ToI32 | Bitcast::P64ToP | Bitcast::I64ToL => format!("({op} as i32)"),
-        Bitcast::F32ToI32 => format!("({op}.to_bits() as i32)"),
-        Bitcast::F64ToI64 => format!("({op}.to_bits() as i64)"),
-        Bitcast::F32ToI64 => format!("({op}.to_bits() as i64)"),
-        Bitcast::I32ToF32 => format!("f32::from_bits({op} as u32)"),
-        Bitcast::I64ToF64 => format!("f64::from_bits({op} as u64)"),
-        Bitcast::I64ToF32 => format!("f32::from_bits({op} as u32)"),
         Bitcast::Sequence(both) => cast(&both[1], &cast(&both[0], op)),
+        other => unreachable!("no import kobako answers carries a float, so none casts {other:?}"),
     }
 }
 
@@ -645,11 +627,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::ConstZero { tys } => {
                 for ty in tys.iter() {
-                    results.push(match core_type(ty) {
-                        "f32" => "0f32".into(),
-                        "f64" => "0f64".into(),
-                        other => format!("0{other}"),
-                    });
+                    results.push(format!("0{}", core_type(ty)));
                 }
             }
             Instruction::I32Load { offset: o }
@@ -702,22 +680,6 @@ impl Bindgen for FunctionBody<'_> {
                 );
                 results.push(self.bind(e));
             }
-            Instruction::F32Load { offset: o } => {
-                let e = format!(
-                    "{abi}::load::<f32>(&mut caller, {} + {})?",
-                    operands[0],
-                    offset(o)
-                );
-                results.push(self.bind(e));
-            }
-            Instruction::F64Load { offset: o } => {
-                let e = format!(
-                    "{abi}::load::<f64>(&mut caller, {} + {})?",
-                    operands[0],
-                    offset(o)
-                );
-                results.push(self.bind(e));
-            }
             Instruction::I32Store { offset: o }
             | Instruction::PointerStore { offset: o }
             | Instruction::LengthStore { offset: o } => {
@@ -756,25 +718,6 @@ impl Bindgen for FunctionBody<'_> {
                     operands[0]
                 );
             }
-            Instruction::F32Store { offset: o } => {
-                let _ = writeln!(
-                    self.src,
-                    "{abi}::store::<f32>(&mut caller, {} + {}, {})?;",
-                    operands[1],
-                    offset(o),
-                    operands[0]
-                );
-            }
-            Instruction::F64Store { offset: o } => {
-                let _ = writeln!(
-                    self.src,
-                    "{abi}::store::<f64>(&mut caller, {} + {}, {})?;",
-                    operands[1],
-                    offset(o),
-                    operands[0]
-                );
-            }
-            Instruction::I32FromChar => results.push(format!("({} as i32)", operands[0])),
             Instruction::I64FromU64 | Instruction::I64FromS64 => {
                 results.push(format!("({} as i64)", operands[0]))
             }
@@ -784,10 +727,6 @@ impl Bindgen for FunctionBody<'_> {
             | Instruction::I32FromS16
             | Instruction::I32FromU8
             | Instruction::I32FromS8 => results.push(format!("({} as i32)", operands[0])),
-            Instruction::CoreF32FromF32
-            | Instruction::CoreF64FromF64
-            | Instruction::F32FromCoreF32
-            | Instruction::F64FromCoreF64 => results.push(operands[0].clone()),
             Instruction::S8FromI32 => results.push(format!("({} as i8)", operands[0])),
             Instruction::U8FromI32 => results.push(format!("({} as u8)", operands[0])),
             Instruction::S16FromI32 => results.push(format!("({} as i16)", operands[0])),
@@ -796,10 +735,6 @@ impl Bindgen for FunctionBody<'_> {
             Instruction::U32FromI32 => results.push(format!("({} as u32)", operands[0])),
             Instruction::S64FromI64 => results.push(format!("({} as i64)", operands[0])),
             Instruction::U64FromI64 => results.push(format!("({} as u64)", operands[0])),
-            Instruction::CharFromI32 => {
-                let e = format!("{abi}::to_char({})?", operands[0]);
-                results.push(self.bind(e));
-            }
             Instruction::BoolFromI32 => results.push(format!("({} != 0)", operands[0])),
             Instruction::I32FromBool => results.push(format!("({} as i32)", operands[0])),
             Instruction::ListCanonLift { element, .. } => {
@@ -906,12 +841,6 @@ impl Bindgen for FunctionBody<'_> {
                 let _ = writeln!(self.src, "let ({},) = {};", names.join(", "), operands[0]);
                 results.extend(names);
             }
-            Instruction::FlagsLift { ty, .. } => results.push(format!(
-                "{}({} as u32)",
-                self.rust_type_of(*ty),
-                operands[0]
-            )),
-            Instruction::FlagsLower { .. } => results.push(format!("({}.0 as i32)", operands[0])),
             Instruction::HandleLift { handle, .. } => {
                 let (Handle::Own(r) | Handle::Borrow(r)) = handle;
                 let path = type_path(resolve, resource(resolve, *r));
@@ -1081,8 +1010,6 @@ impl Bindgen for FunctionBody<'_> {
                 | Type::S32
                 | Type::U64
                 | Type::S64
-                | Type::F32
-                | Type::F64
         )
     }
 }
