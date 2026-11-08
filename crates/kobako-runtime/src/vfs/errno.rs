@@ -75,6 +75,8 @@ pub enum FilesystemError {
     NotConnected,
     /// A send on a datagram socket naming no peer.
     DestinationAddressRequired,
+    /// A datagram past what one can carry.
+    MessageTooLong,
     /// A connect on a socket already connected.
     AlreadyConnected,
     /// A connect still under way.
@@ -87,7 +89,7 @@ pub enum FilesystemError {
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, FilesystemError); 43] = [
+const POSIX_NAMES: [(&str, FilesystemError); 44] = [
     ("EAGAIN", FilesystemError::WouldBlock),
     ("ENOENT", FilesystemError::NotFound),
     ("EEXIST", FilesystemError::AlreadyExists),
@@ -128,6 +130,7 @@ const POSIX_NAMES: [(&str, FilesystemError); 43] = [
     ("EPIPE", FilesystemError::BrokenPipe),
     ("ENOTCONN", FilesystemError::NotConnected),
     ("EDESTADDRREQ", FilesystemError::DestinationAddressRequired),
+    ("EMSGSIZE", FilesystemError::MessageTooLong),
     ("EISCONN", FilesystemError::AlreadyConnected),
     ("EINPROGRESS", FilesystemError::InProgress),
     ("EAFNOSUPPORT", FilesystemError::AddressFamilyNotSupported),

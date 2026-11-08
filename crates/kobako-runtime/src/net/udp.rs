@@ -184,7 +184,7 @@ impl ProtoOps for UdpSock {
     /// `udp_sendmsg` does, and a full queue answers `WouldBlock`.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
         if buf.len() > MAX_DATAGRAM {
-            return Err(FilesystemError::InvalidInput);
+            return Err(FilesystemError::MessageTooLong);
         }
         let mut state = self.state();
         if let Some(err) = state.failed.take() {
@@ -320,8 +320,9 @@ mod tests {
         sock.release();
         assert_eq!(
             answer,
-            Err(FilesystemError::InvalidInput),
-            "UdpSock::sendmsg of a datagram past what IPv4 UDP carries must be refused"
+            Err(FilesystemError::MessageTooLong),
+            "UdpSock::sendmsg of a datagram past what IPv4 UDP carries must answer EMSGSIZE, as \
+             udp_sendmsg does"
         );
     }
 }

@@ -77,6 +77,7 @@ pub(crate) fn to_error_code(err: &FilesystemError) -> ErrorCode {
         FilesystemError::NotConnected | FilesystemError::AlreadyConnected => {
             ErrorCode::InvalidState
         }
+        FilesystemError::MessageTooLong => ErrorCode::DatagramTooLarge,
         _ => ErrorCode::Unknown,
     }
 }

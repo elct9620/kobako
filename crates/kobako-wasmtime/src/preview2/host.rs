@@ -536,8 +536,6 @@ impl SocketsHost for Invocation {
             let addressed = datagram.remote_address.as_ref().map(to_socket_addr);
             let refused = if addressed.is_some_and(|addr| addr != stream.sock.peer_addr()) {
                 Some(ErrorCode::InvalidArgument)
-            } else if datagram.data.len() > MAX_DATAGRAM {
-                Some(ErrorCode::DatagramTooLarge)
             } else {
                 match stream.file().write(&datagram.data) {
                     Ok(_) => None,
@@ -1186,6 +1184,60 @@ mod tests {
              access-denied, and carry a datagram both ways with the peer a udp endpoint names; \
              got bind {fixed:?}, peerless {peerless:?}, received {} datagram(s)",
             answer.len()
+    // @behavior NW-084
+    #[test]
+    fn a_datagram_past_what_udp_carries_answers_datagram_too_large() {
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = peer.local_addr().unwrap().port();
+        let mut guest = within_network(
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Udp),
+        );
+        let started = Instant::now();
+        let sent = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            let any = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port: 0,
+                address: (0, 0, 0, 0),
+            });
+            guest
+                .udp_udp_socket_start_bind(socket, network, any)?
+                .expect("an ephemeral bind is the implicit one");
+            guest
+                .udp_udp_socket_finish_bind(socket)?
+                .expect("the bind settles");
+            let peer_address = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port,
+                address: (127, 0, 0, 1),
+            });
+            let (_, outgoing) = guest
+                .udp_udp_socket_stream(socket, Some(peer_address))?
+                .expect("the udp endpoint names the peer");
+            let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
+            guest.poll_pollable_block(room)?;
+            guest
+                .udp_outgoing_datagram_stream_check_send(outgoing)?
+                .expect("the stream with room permits a datagram");
+            guest.udp_outgoing_datagram_stream_send(
+                outgoing,
+                vec![OutgoingDatagram {
+                    data: vec![0; MAX_DATAGRAM + 1],
+                    remote_address: None,
+                }],
+            )
+        })
+        .expect("the send answers");
+        assert!(
+            matches!(sent, Err(ErrorCode::DatagramTooLarge)),
+            "outgoing-datagram-stream.send of one byte past what IPv4 UDP carries must answer \
+             datagram-too-large, as udp_sendmsg answers EMSGSIZE, not {sent:?}"
+        );
+    }
+
         );
     }
 

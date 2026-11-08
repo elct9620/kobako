@@ -52,6 +52,7 @@ fn from_posix_name(name: &str) -> Option<Errno> {
         "EPIPE" => Errno::Pipe,
         "ENOTCONN" => Errno::Notconn,
         "EDESTADDRREQ" => Errno::Destaddrreq,
+        "EMSGSIZE" => Errno::Msgsize,
         "EISCONN" => Errno::Isconn,
         "EINPROGRESS" => Errno::Inprogress,
         "EAFNOSUPPORT" => Errno::Afnosupport,
