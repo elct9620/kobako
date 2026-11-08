@@ -472,15 +472,15 @@ impl Namespace {
 }
 ```
 
-## `Namespace::tcp_socket`
+## `Namespace::create_tcp_socket`
 
-A TCP socket connected to nothing, as Linux's `inet_create` makes one. Its file
-polls writable and hung up, a read answers `NotConnected`, and a write
+Create a TCP socket connected to nothing, as Linux's `sock_create` does. Its
+file polls writable and hung up, a read answers `NotConnected`, and a write
 `BrokenPipe`.
 
 ```rust
 impl Namespace {
-    pub fn tcp_socket(&self) -> Result<Arc<TcpSock>, FilesystemError> {}
+    pub fn create_tcp_socket(&self) -> Result<Arc<TcpSock>, FilesystemError> {}
 }
 ```
 
@@ -548,14 +548,14 @@ impl NameLookup {
 }
 ```
 
-## `NameLookup::file`
+## `NameLookup::alloc_file`
 
-The lookup's file, as Linux's `anon_inode_getfile` makes one. A poll finds it
-readable once the lookup answers.
+Allocate the lookup's file, as Linux's `anon_inode_getfile` does. A poll finds
+it readable once the lookup answers.
 
 ```rust
 impl NameLookup {
-    pub fn file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {}
+    pub fn alloc_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {}
 }
 ```
 
@@ -1037,26 +1037,26 @@ impl Exchange {
 }
 ```
 
-## `Exchange::response_file`
+## `Exchange::alloc_response_file`
 
-The file a poll finds readable once the response's head arrives or the
-request fails, as Linux's `anon_inode_getfile` makes one.
+Allocate the file a poll finds readable once the response's head arrives or
+the request fails, as Linux's `anon_inode_getfile` does.
 
 ```rust
 impl Exchange {
-    pub fn response_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {}
+    pub fn alloc_response_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {}
 }
 ```
 
-## `Exchange::body_file`
+## `Exchange::alloc_body_file`
 
-The file the response's body reads from: zero at its end and `WouldBlock` while
-it holds nothing yet. A poll finds it readable once it holds bytes, ends, or
-fails.
+Allocate the file the response's body reads from: zero at its end and
+`WouldBlock` while it holds nothing yet. A poll finds it readable once it holds
+bytes, ends, or fails.
 
 ```rust
 impl Exchange {
-    pub fn body_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {}
+    pub fn alloc_body_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {}
 }
 ```
 
@@ -1089,14 +1089,15 @@ impl RequestBody {
 }
 ```
 
-## `RequestBody::file`
+## `RequestBody::alloc_file`
 
-The file a Guest writes the body through, as Linux's `anon_inode_getfile` makes
-one. A write appends, refused past the Invocation's memory as `OutOfMemory`.
+Allocate the file a Guest writes the body through, as Linux's
+`anon_inode_getfile` does. A write appends, refused past the Invocation's
+memory as `OutOfMemory`.
 
 ```rust
 impl RequestBody {
-    pub fn file(self: &Arc<Self>) -> File {}
+    pub fn alloc_file(self: &Arc<Self>) -> File {}
 }
 ```
 
@@ -1294,15 +1295,15 @@ impl UdpSock {
 }
 ```
 
-## `Namespace::udp_socket`
+## `Namespace::create_udp_socket`
 
-A UDP socket connected to nothing, as Linux's `inet_create` makes one. Its file
-polls writable, a read answers `WouldBlock`, and a write
+Create a UDP socket connected to nothing, as Linux's `sock_create` does. Its
+file polls writable, a read answers `WouldBlock`, and a write
 `DestinationAddressRequired`.
 
 ```rust
 impl Namespace {
-    pub fn udp_socket(&self) -> Arc<UdpSock> {}
+    pub fn create_udp_socket(&self) -> Arc<UdpSock> {}
 }
 ```
 
