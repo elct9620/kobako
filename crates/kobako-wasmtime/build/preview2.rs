@@ -141,8 +141,77 @@ const IMPORTS: &[(&str, &[&str])] = &[
     ("wasi:http/outgoing-handler@0.2.12", &["handle"]),
 ];
 
+/// The host type each linked WIT resource's handle stands for, as `bindgen!`
+/// takes `with:`, keyed by interface and resource name.
+const WITH: &[(&str, &str, &str)] = &[
+    ("wasi:io/error@0.2.12", "error", "table::Error"),
+    ("wasi:io/poll@0.2.12", "pollable", "table::Pollable"),
+    (
+        "wasi:io/streams@0.2.12",
+        "input-stream",
+        "table::InputStream",
+    ),
+    (
+        "wasi:io/streams@0.2.12",
+        "output-stream",
+        "table::OutputStream",
+    ),
+    ("wasi:sockets/network@0.2.12", "network", "table::Network"),
+    ("wasi:sockets/tcp@0.2.12", "tcp-socket", "table::TcpSocket"),
+    (
+        "wasi:sockets/ip-name-lookup@0.2.12",
+        "resolve-address-stream",
+        "table::ResolveAddressStream",
+    ),
+    ("wasi:sockets/udp@0.2.12", "udp-socket", "table::UdpSocket"),
+    (
+        "wasi:sockets/udp@0.2.12",
+        "incoming-datagram-stream",
+        "table::IncomingDatagramStream",
+    ),
+    (
+        "wasi:sockets/udp@0.2.12",
+        "outgoing-datagram-stream",
+        "table::OutgoingDatagramStream",
+    ),
+    ("wasi:http/types@0.2.12", "fields", "http::resource::Fields"),
+    (
+        "wasi:http/types@0.2.12",
+        "outgoing-request",
+        "http::resource::OutgoingRequest",
+    ),
+    (
+        "wasi:http/types@0.2.12",
+        "outgoing-body",
+        "http::resource::OutgoingBody",
+    ),
+    (
+        "wasi:http/types@0.2.12",
+        "future-incoming-response",
+        "http::resource::FutureIncomingResponse",
+    ),
+    (
+        "wasi:http/types@0.2.12",
+        "incoming-response",
+        "http::resource::IncomingResponse",
+    ),
+    (
+        "wasi:http/types@0.2.12",
+        "incoming-body",
+        "http::resource::IncomingBody",
+    ),
+    (
+        "wasi:http/types@0.2.12",
+        "future-trailers",
+        "http::resource::FutureTrailers",
+    ),
+];
+
 /// Where the generated file is included, so every type has one path.
 const ROOT: &str = "crate::preview2::bindings";
+
+/// Where `WITH`'s host types and the `Handle` trait live.
+const HOSTS: &str = "crate::preview2";
 
 pub fn generate(wit: &Path) -> anyhow::Result<String> {
     let mut resolve = Resolve::default();
@@ -163,9 +232,12 @@ pub fn generate(wit: &Path) -> anyhow::Result<String> {
                 .ok_or_else(|| anyhow::anyhow!("{name} is not in the vendored WIT"))?;
             let found = imported(&resolve, id, functions).count()
                 + resources(&resolve, id, functions).count();
-            match found == functions.len() {
-                true => Ok((id, *functions)),
-                false => Err(anyhow::anyhow!("{name} lacks a function IMPORTS names")),
+            if found != functions.len() {
+                return Err(anyhow::anyhow!("{name} lacks a function IMPORTS names"));
+            }
+            match resources(&resolve, id, functions).find(|(r, _)| host(name, r).is_none()) {
+                Some((r, _)) => Err(anyhow::anyhow!("WITH names no host type for {name} {r}")),
+                None => Ok((id, *functions)),
             }
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -178,6 +250,13 @@ pub fn generate(wit: &Path) -> anyhow::Result<String> {
     write_host_trait(&resolve, &imports, &mut out);
     write_linker(&resolve, &sizes, &imports, &mut out);
     Ok(out)
+}
+
+/// The host type `WITH` names for `interface`'s `resource`.
+fn host(interface: &str, resource: &str) -> Option<&'static str> {
+    WITH.iter()
+        .find(|(i, r, _)| *i == interface && *r == resource)
+        .map(|(_, _, host)| *host)
 }
 
 /// The module one interface's types live in.
@@ -289,8 +368,9 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
         "#[allow(dead_code, clippy::all)]\npub mod {} {{",
         module(resolve, id)
     );
-    for (name, ty) in &interface.types {
-        let name = camel(name);
+    let wit_name = resolve.id_of(id).expect("a named interface");
+    for (wit, ty) in &interface.types {
+        let name = camel(wit);
         match &resolve.types[*ty].kind {
             TypeDefKind::Record(record) => {
                 let _ = writeln!(
@@ -341,6 +421,15 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
                     "/// A handle the guest holds, its index in the resource table.\n\
                      #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub struct {name}(pub u32);"
                 );
+                if let Some(host) = host(&wit_name, wit) {
+                    let _ = writeln!(
+                        out,
+                        "impl {HOSTS}::table::Handle for {name} {{\n\
+                         type Host = {HOSTS}::{host};\n\
+                         fn new(index: u32) -> Self {{ Self(index) }}\n\
+                         fn index(self) -> u32 {{ self.0 }}\n}}"
+                    );
+                }
             }
             other => {
                 let _ = writeln!(out, "pub type {name} = {};", structural(resolve, other));

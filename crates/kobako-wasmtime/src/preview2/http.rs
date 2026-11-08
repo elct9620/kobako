@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use kobako_runtime::net::{self, Exchange, FieldError, HttpError, RequestBody, ResponseHead};
+use kobako_runtime::net::{self, Exchange, FieldError, HttpError, RequestBody};
 use kobako_runtime::vfs::PollMask;
 
 use super::bindings::wasi_http_types_0_2_12::{
@@ -17,7 +17,7 @@ use super::bindings::wasi_http_types_0_2_12::{
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
-use super::table::{self, Resource, Stream};
+use super::table::{self, Stream};
 use crate::descriptors::share;
 use crate::invocation::Invocation;
 
@@ -72,42 +72,44 @@ pub(crate) enum Future {
     Taken,
 }
 
-/// One `wasi:http` resource the guest holds.
-pub(crate) enum Held {
-    Fields {
-        entries: Entries,
-        mutable: bool,
-    },
-    Request(Request),
-    Body {
-        link: Arc<BodyLink>,
-        stream: bool,
-    },
-    Future(Future),
-    Response {
-        head: ResponseHead,
-        exchange: Arc<Exchange>,
-        consumed: bool,
-    },
-    IncomingBody {
-        exchange: Arc<Exchange>,
-        stream: bool,
-    },
-    Trailers,
-}
+/// The host type each `wasi:http` resource the guest holds stands for, named
+/// as its WIT resource is, apart from the bindings' handles of those names.
+pub(crate) mod resource {
+    use std::sync::Arc;
 
-impl Held {
-    fn is_fields(&self) -> bool {
-        matches!(self, Held::Fields { .. })
+    use kobako_runtime::net::{Exchange, ResponseHead};
+
+    use super::{BodyLink, Entries, Future, Request};
+
+    pub(crate) struct Fields {
+        pub(crate) entries: Entries,
+        pub(crate) mutable: bool,
     }
 
-    fn is_body(&self) -> bool {
-        matches!(self, Held::Body { .. })
+    pub(crate) struct OutgoingRequest(pub(crate) Request);
+
+    pub(crate) struct OutgoingBody {
+        pub(crate) link: Arc<BodyLink>,
+        /// Whether its stream was handed out.
+        pub(crate) stream: bool,
     }
 
-    fn is_incoming_body(&self) -> bool {
-        matches!(self, Held::IncomingBody { .. })
+    pub(crate) struct FutureIncomingResponse(pub(crate) Future);
+
+    pub(crate) struct IncomingResponse {
+        pub(crate) head: ResponseHead,
+        pub(crate) exchange: Arc<Exchange>,
+        /// Whether its body was handed out.
+        pub(crate) consumed: bool,
     }
+
+    pub(crate) struct IncomingBody {
+        pub(crate) exchange: Arc<Exchange>,
+        /// Whether its stream was handed out.
+        pub(crate) stream: bool,
+    }
+
+    pub(crate) struct FutureTrailers;
 }
 
 /// The `header-error` a refused header answers.
@@ -151,54 +153,12 @@ fn method_name(method: &Method) -> Option<String> {
 }
 
 impl Invocation {
-    fn held(&mut self, handle: u32) -> wasmtime::Result<&mut Held> {
-        match self.wasi_mut().table_mut().get_mut(handle)? {
-            Resource::Http(held) => Ok(held),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a wasi:http resource",
-            )),
-        }
-    }
-
-    /// Take `handle` out of the table as the `wasi:http` resource `kind`
-    /// names; any other traps.
-    fn take_held(&mut self, handle: u32, kind: fn(&Held) -> bool) -> wasmtime::Result<Held> {
-        let taken = self
-            .wasi_mut()
-            .table_mut()
-            .delete(handle, |r| matches!(r, Resource::Http(held) if kind(held)))?;
-        match taken {
-            Resource::Http(held) => Ok(held),
-            _ => unreachable!("delete takes only what kind holds for"),
-        }
-    }
-
-    fn push_http(&mut self, held: Held) -> wasmtime::Result<u32> {
-        self.wasi_mut().table_mut().push(Resource::Http(held))
-    }
-
-    fn push_http_child(&mut self, held: Held, parent: u32) -> wasmtime::Result<u32> {
-        self.wasi_mut()
-            .table_mut()
-            .push_child(Resource::Http(held), parent)
-    }
-
-    fn entries(&mut self, fields: Fields) -> wasmtime::Result<(Entries, bool)> {
-        match self.held(fields.0)? {
-            Held::Fields { entries, mutable } => Ok((entries.clone(), *mutable)),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not fields",
-            )),
-        }
-    }
-
     fn request(&mut self, request: OutgoingRequest) -> wasmtime::Result<&mut Request> {
-        match self.held(request.0)? {
-            Held::Request(request) => Ok(request),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not an outgoing-request",
-            )),
-        }
+        self.table().get_mut(request).map(|request| &mut request.0)
+    }
+
+    fn future(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<&mut Future> {
+        self.table().get_mut(future).map(|future| &mut future.0)
     }
 
     /// Hand `request` to the namespace, which judges it here on the guest
@@ -234,39 +194,29 @@ impl Invocation {
     /// The future's request leaves once its body ended, and fails once its body
     /// was dropped unfinished.
     fn advance(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<()> {
-        if let Held::Future(state) = self.held(future.0)? {
-            if matches!(state, Future::Waiting(request) if request.link.is_aborted()) {
-                *state = Future::Refused(ErrorCode::HTTPProtocolError);
-                return Ok(());
-            }
-        }
-        let ready = matches!(
-            self.held(future.0)?,
-            Held::Future(Future::Waiting(request)) if request.link.complete()
-        );
-        if !ready {
+        let state = self.future(future)?;
+        if matches!(state, Future::Waiting(request) if request.link.is_aborted()) {
+            *state = Future::Refused(ErrorCode::HTTPProtocolError);
             return Ok(());
         }
-        let Held::Future(state) = self.held(future.0)? else {
-            unreachable!("matched as a future above");
-        };
+        if !matches!(state, Future::Waiting(request) if request.link.complete()) {
+            return Ok(());
+        }
         let Future::Waiting(request) = std::mem::replace(state, Future::Taken) else {
             unreachable!("matched as waiting above");
         };
         let sent = self.send(request);
-        if let Held::Future(state) = self.held(future.0)? {
-            *state = sent;
-        }
+        *self.future(future)? = sent;
         Ok(())
     }
 }
 
 impl HttpHost for Invocation {
     fn types_fields_constructor_new(&mut self) -> wasmtime::Result<Fields> {
-        Ok(Fields(self.push_http(Held::Fields {
+        self.table().push(resource::Fields {
             entries: Entries::default(),
             mutable: true,
-        })?))
+        })
     }
 
     fn types_fields_append(
@@ -275,10 +225,11 @@ impl HttpHost for Invocation {
         name: String,
         value: Vec<u8>,
     ) -> wasmtime::Result<Result<(), HeaderError>> {
-        let (entries, mutable) = self.entries(this)?;
-        if !mutable {
+        let fields = self.table().get(this)?;
+        if !fields.mutable {
             return Ok(Err(HeaderError::Immutable));
         }
+        let entries = fields.entries.clone();
         match (
             net::field_name(&name).map_err(to_header_error),
             net::field_value(value).map_err(to_header_error),
@@ -292,13 +243,12 @@ impl HttpHost for Invocation {
     }
 
     fn types_fields_entries(&mut self, this: Fields) -> wasmtime::Result<Vec<(String, Vec<u8>)>> {
-        let (entries, _) = self.entries(this)?;
-        let entries = locked(&entries).clone();
+        let entries = locked(&self.table().get(this)?.entries).clone();
         Ok(entries)
     }
 
     fn types_fields_drop(&mut self, handle: Fields) -> wasmtime::Result<()> {
-        self.take_held(handle.0, Held::is_fields).map(drop)
+        self.table().delete(handle).map(drop)
     }
 
     /// A GET with `headers`, which it takes, and a body the guest may ask for.
@@ -306,23 +256,21 @@ impl HttpHost for Invocation {
         &mut self,
         headers: Fields,
     ) -> wasmtime::Result<OutgoingRequest> {
-        let Held::Fields { entries, .. } = self.take_held(headers.0, Held::is_fields)? else {
-            unreachable!("take_held takes only fields here")
-        };
+        let entries = self.table().delete(headers)?.entries;
         let link = Arc::new(BodyLink {
             body: RequestBody::new(self.wasi().descriptors().cred().clone()),
             handed: AtomicBool::new(false),
             finished: AtomicBool::new(false),
             aborted: AtomicBool::new(false),
         });
-        Ok(OutgoingRequest(self.push_http(Held::Request(Request {
+        self.table().push(resource::OutgoingRequest(Request {
             method: Method::Get,
             scheme: None,
             authority: None,
             path_with_query: None,
             headers: entries,
             link,
-        }))?))
+        }))
     }
 
     /// The body, handed out once.
@@ -334,10 +282,12 @@ impl HttpHost for Invocation {
         if link.handed.swap(true, Ordering::AcqRel) {
             return Ok(Err(()));
         }
-        Ok(Ok(OutgoingBody(self.push_http(Held::Body {
-            link,
-            stream: false,
-        })?)))
+        self.table()
+            .push(resource::OutgoingBody {
+                link,
+                stream: false,
+            })
+            .map(Ok)
     }
 
     fn types_outgoing_request_set_method(
@@ -395,8 +345,7 @@ impl HttpHost for Invocation {
     }
 
     fn types_outgoing_request_drop(&mut self, handle: OutgoingRequest) -> wasmtime::Result<()> {
-        self.take_held(handle.0, |held| matches!(held, Held::Request(_)))
-            .map(drop)
+        self.table().delete(handle).map(drop)
     }
 
     /// The stream writing the body, handed out once.
@@ -404,22 +353,14 @@ impl HttpHost for Invocation {
         &mut self,
         this: OutgoingBody,
     ) -> wasmtime::Result<Result<OutputStream, ()>> {
-        let body = match self.held(this.0)? {
-            Held::Body { link, stream } if !*stream => {
-                *stream = true;
-                link.body.clone()
-            }
-            Held::Body { .. } => return Ok(Err(())),
-            _ => {
-                return Err(wasmtime::Error::msg(
-                    "the guest named a handle that is not an outgoing-body",
-                ))
-            }
-        };
-        Ok(Ok(OutputStream(self.wasi_mut().table_mut().push_child(
-            Resource::OutputStream(Stream::File(share(body.file()))),
-            this.0,
-        )?)))
+        let body = self.table().get_mut(this)?;
+        if std::mem::replace(&mut body.stream, true) {
+            return Ok(Err(()));
+        }
+        let stream = Stream::File(share(body.link.body.file()));
+        self.table()
+            .push_child(table::OutputStream::new(stream), this)
+            .map(Ok)
     }
 
     /// End the body, so its request may leave; HTTP/1 carries no trailers, so
@@ -429,11 +370,9 @@ impl HttpHost for Invocation {
         this: OutgoingBody,
         trailers: Option<Fields>,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        let Held::Body { link, .. } = self.take_held(this.0, Held::is_body)? else {
-            unreachable!("take_held takes only an outgoing-body here")
-        };
+        let link = self.table().delete(this)?.link;
         if let Some(trailers) = trailers {
-            self.take_held(trailers.0, Held::is_fields)?;
+            self.table().delete(trailers)?;
         }
         link.finished.store(true, Ordering::Release);
         Ok(Ok(()))
@@ -442,9 +381,8 @@ impl HttpHost for Invocation {
     /// A body dropped unfinished fails its request, as wasmtime-wasi-http aborts
     /// it with an HTTP protocol error.
     fn types_outgoing_body_drop(&mut self, handle: OutgoingBody) -> wasmtime::Result<()> {
-        if let Held::Body { link, .. } = self.take_held(handle.0, Held::is_body)? {
-            link.aborted.store(true, Ordering::Release);
-        }
+        let link = self.table().delete(handle)?.link;
+        link.aborted.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -456,22 +394,13 @@ impl HttpHost for Invocation {
     ) -> wasmtime::Result<Pollable> {
         self.advance(this)?;
         let cred = self.wasi().descriptors().cred().clone();
-        let pollable = match self.held(this.0)? {
-            Held::Future(Future::Sent(exchange)) => {
+        let pollable = match self.future(this)? {
+            Future::Sent(exchange) => {
                 table::Pollable::File(share(exchange.response_file(&cred)), PollMask::IN)
             }
-            Held::Future(_) => table::Pollable::Ready,
-            _ => {
-                return Err(wasmtime::Error::msg(
-                    "the guest named a handle that is not a future-incoming-response",
-                ))
-            }
+            _ => table::Pollable::Ready,
         };
-        Ok(Pollable(
-            self.wasi_mut()
-                .table_mut()
-                .push(Resource::Pollable(pollable))?,
-        ))
+        self.table().push(pollable)
     }
 
     /// The response once its head arrives, handed out once.
@@ -481,11 +410,7 @@ impl HttpHost for Invocation {
         this: FutureIncomingResponse,
     ) -> wasmtime::Result<Option<Result<Result<IncomingResponse, ErrorCode>, ()>>> {
         self.advance(this)?;
-        let Held::Future(state) = self.held(this.0)? else {
-            return Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a future-incoming-response",
-            ));
-        };
+        let state = self.future(this)?;
         let answer = match state {
             Future::Waiting(_) => return Ok(None),
             Future::Taken => return Ok(Some(Err(()))),
@@ -498,13 +423,14 @@ impl HttpHost for Invocation {
         };
         *state = Future::Taken;
         match answer {
-            Ok((head, exchange)) => Ok(Some(Ok(Ok(IncomingResponse(self.push_http(
-                Held::Response {
+            Ok((head, exchange)) => self
+                .table()
+                .push(resource::IncomingResponse {
                     head,
                     exchange,
                     consumed: false,
-                },
-            )?))))),
+                })
+                .map(|response| Some(Ok(Ok(response)))),
             Err(code) => Ok(Some(Ok(Err(code)))),
         }
     }
@@ -513,20 +439,14 @@ impl HttpHost for Invocation {
         &mut self,
         handle: FutureIncomingResponse,
     ) -> wasmtime::Result<()> {
-        let future = self.take_held(handle.0, |held| matches!(held, Held::Future(_)))?;
-        if let Held::Future(Future::Sent(exchange)) = future {
+        if let Future::Sent(exchange) = self.table().delete(handle)?.0 {
             exchange.release();
         }
         Ok(())
     }
 
     fn types_incoming_response_status(&mut self, this: IncomingResponse) -> wasmtime::Result<u16> {
-        match self.held(this.0)? {
-            Held::Response { head, .. } => Ok(head.status),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not an incoming-response",
-            )),
-        }
+        Ok(self.table().get(this)?.head.status)
     }
 
     /// The response's headers, which the guest cannot change.
@@ -534,21 +454,14 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingResponse,
     ) -> wasmtime::Result<Fields> {
-        let entries = match self.held(this.0)? {
-            Held::Response { head, .. } => head.headers.clone(),
-            _ => {
-                return Err(wasmtime::Error::msg(
-                    "the guest named a handle that is not an incoming-response",
-                ))
-            }
-        };
-        Ok(Fields(self.push_http_child(
-            Held::Fields {
+        let entries = self.table().get(this)?.head.headers.clone();
+        self.table().push_child(
+            resource::Fields {
                 entries: Arc::new(Mutex::new(entries)),
                 mutable: false,
             },
-            this.0,
-        )?))
+            this,
+        )
     }
 
     /// The body, handed out once.
@@ -556,36 +469,24 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingResponse,
     ) -> wasmtime::Result<Result<IncomingBody, ()>> {
-        let exchange = match self.held(this.0)? {
-            Held::Response {
-                exchange, consumed, ..
-            } if !*consumed => {
-                *consumed = true;
-                exchange.clone()
-            }
-            Held::Response { .. } => return Ok(Err(())),
-            _ => {
-                return Err(wasmtime::Error::msg(
-                    "the guest named a handle that is not an incoming-response",
-                ))
-            }
-        };
-        Ok(Ok(IncomingBody(self.push_http(Held::IncomingBody {
-            exchange,
-            stream: false,
-        })?)))
+        let response = self.table().get_mut(this)?;
+        if std::mem::replace(&mut response.consumed, true) {
+            return Ok(Err(()));
+        }
+        let exchange = response.exchange.clone();
+        self.table()
+            .push(resource::IncomingBody {
+                exchange,
+                stream: false,
+            })
+            .map(Ok)
     }
 
     /// A response dropped with its body never asked for lets the exchange go.
     fn types_incoming_response_drop(&mut self, handle: IncomingResponse) -> wasmtime::Result<()> {
-        let response = self.take_held(handle.0, |held| matches!(held, Held::Response { .. }))?;
-        if let Held::Response {
-            exchange,
-            consumed: false,
-            ..
-        } = response
-        {
-            exchange.release();
+        let response = self.table().delete(handle)?;
+        if !response.consumed {
+            response.exchange.release();
         }
         Ok(())
     }
@@ -595,23 +496,15 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingBody,
     ) -> wasmtime::Result<Result<InputStream, ()>> {
-        let exchange = match self.held(this.0)? {
-            Held::IncomingBody { exchange, stream } if !*stream => {
-                *stream = true;
-                exchange.clone()
-            }
-            Held::IncomingBody { .. } => return Ok(Err(())),
-            _ => {
-                return Err(wasmtime::Error::msg(
-                    "the guest named a handle that is not an incoming-body",
-                ))
-            }
-        };
-        let body = share(exchange.body_file(self.wasi().descriptors().cred()));
-        Ok(Ok(InputStream(self.wasi_mut().table_mut().push_child(
-            Resource::InputStream(Stream::File(body)),
-            this.0,
-        )?)))
+        let body = self.table().get_mut(this)?;
+        if std::mem::replace(&mut body.stream, true) {
+            return Ok(Err(()));
+        }
+        let exchange = body.exchange.clone();
+        let file = share(exchange.body_file(self.wasi().descriptors().cred()));
+        self.table()
+            .push_child(table::InputStream(Stream::File(file)), this)
+            .map(Ok)
     }
 
     /// The trailers, which HTTP/1 never carries.
@@ -619,21 +512,16 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingBody,
     ) -> wasmtime::Result<FutureTrailers> {
-        let Held::IncomingBody { exchange, .. } = self.take_held(this.0, Held::is_incoming_body)?
-        else {
-            unreachable!("take_held takes only an incoming-body here")
-        };
-        exchange.release();
-        Ok(FutureTrailers(self.push_http(Held::Trailers)?))
+        self.table().delete(this)?.exchange.release();
+        self.table().push(resource::FutureTrailers)
     }
 
     fn types_incoming_body_drop(&mut self, handle: IncomingBody) -> wasmtime::Result<()> {
-        self.take_held(handle.0, Held::is_incoming_body).map(drop)
+        self.table().delete(handle).map(drop)
     }
 
     fn types_future_trailers_drop(&mut self, handle: FutureTrailers) -> wasmtime::Result<()> {
-        self.take_held(handle.0, |held| matches!(held, Held::Trailers))
-            .map(drop)
+        self.table().delete(handle).map(drop)
     }
 
     /// Send `request`, which it takes. Without a network Grant it answers
@@ -644,11 +532,7 @@ impl HttpHost for Invocation {
         request: OutgoingRequest,
         options: Option<RequestOptions>,
     ) -> wasmtime::Result<Result<FutureIncomingResponse, ErrorCode>> {
-        let Held::Request(request) =
-            self.take_held(request.0, |held| matches!(held, Held::Request(_)))?
-        else {
-            unreachable!("take_held takes only an outgoing-request here")
-        };
+        let request = self.table().delete(request)?.0;
         if options.is_some() {
             return Err(wasmtime::Error::msg(
                 "the guest named request-options, which kobako never hands out",
@@ -664,9 +548,9 @@ impl HttpHost for Invocation {
         if let Future::Refused(code) = future {
             return Ok(Err(code));
         }
-        Ok(Ok(FutureIncomingResponse(
-            self.push_http(Held::Future(future))?,
-        )))
+        self.table()
+            .push(resource::FutureIncomingResponse(future))
+            .map(Ok)
     }
 }
 
@@ -827,11 +711,11 @@ mod tests {
             set(&mut guest, fields, "bad name"),
             set(&mut guest, fields, "x-ok"),
         ];
-        let frozen = guest.push_http(Held::Fields {
+        let frozen = guest.table().push(resource::Fields {
             entries: Entries::default(),
             mutable: false,
         });
-        let immutable = set(&mut guest, Fields(frozen.unwrap()), "x-ok");
+        let immutable = set(&mut guest, frozen.unwrap(), "x-ok");
         assert_eq!(
             (answers, immutable),
             (

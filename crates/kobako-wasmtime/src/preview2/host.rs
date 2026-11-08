@@ -28,7 +28,7 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
 };
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{from_socket_addr, lookup_error_code, to_error_code, to_socket_addr};
-use super::table::{self, Resource, SocketFile, Stream, TcpState, UdpState};
+use super::table::{self, SocketFile, Stream, TcpState, UdpState};
 use crate::descriptors::share;
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
@@ -41,14 +41,13 @@ impl Invocation {
     /// A pollable on the guest's own clocks, `nanos` of host time from now;
     /// the wait holding it decides when it is due.
     fn subscribe_clock(&mut self, nanos: u64) -> wasmtime::Result<Pollable> {
-        let pollable = table::Pollable::Clock {
+        self.table().push(table::Pollable::Clock {
             at: Instant::now() + Duration::from_nanos(nanos),
-        };
-        Ok(Pollable(
-            self.wasi_mut()
-                .table_mut()
-                .push(Resource::Pollable(pollable))?,
-        ))
+        })
+    }
+
+    pub(super) fn table(&mut self) -> &mut table::Table {
+        self.wasi_mut().table_mut()
     }
 
     /// Wait until `ready` answers, or trap as the deadline or an interrupt
@@ -82,12 +81,7 @@ impl Invocation {
     /// The handle is the capability to connect or look up, so it must name a
     /// network, as WASI's host checks it.
     fn ensure_network(&self, network: Network) -> wasmtime::Result<()> {
-        match self.wasi().table().get(network.0)? {
-            Resource::Network => Ok(()),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a network",
-            )),
-        }
+        self.wasi().table().get(network).map(drop)
     }
 
     /// The Invocation's network, which every socket is made in.
@@ -103,83 +97,53 @@ impl Invocation {
         sock_alloc_file(sock, self.wasi().descriptors().cred())
     }
 
-    fn push(&mut self, resource: Resource) -> wasmtime::Result<u32> {
-        self.wasi_mut().table_mut().push(resource)
-    }
-
-    /// Drop `handle` as the kind its drop import names.
-    pub(super) fn drop_as(
-        &mut self,
-        handle: u32,
-        kind: impl Fn(&Resource) -> bool,
-    ) -> wasmtime::Result<()> {
-        self.wasi_mut().table_mut().delete(handle, kind).map(drop)
-    }
-
-    pub(super) fn subscribe_stream(
-        &mut self,
-        stream: Stream,
-        mask: PollMask,
-    ) -> wasmtime::Result<Pollable> {
-        Ok(Pollable(self.push(Resource::Pollable(
-            table::Pollable::File(stream.file(), mask),
-        ))?))
+    fn subscribe_stream(&mut self, stream: Stream, mask: PollMask) -> wasmtime::Result<Pollable> {
+        self.table()
+            .push(table::Pollable::File(stream.file(), mask))
     }
 
     fn tcp(&mut self, handle: TcpSocket) -> wasmtime::Result<&mut table::TcpSocket> {
-        match self.wasi_mut().table_mut().get_mut(handle.0)? {
-            Resource::TcpSocket(socket) => Ok(socket),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a tcp-socket",
-            )),
-        }
+        self.table().get_mut(handle)
     }
 
     fn udp(&mut self, handle: UdpSocket) -> wasmtime::Result<&mut table::UdpSocket> {
-        match self.wasi_mut().table_mut().get_mut(handle.0)? {
-            Resource::UdpSocket(socket) => Ok(socket),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a udp-socket",
-            )),
-        }
+        self.table().get_mut(handle)
     }
 
-    fn datagrams(&self, handle: u32) -> wasmtime::Result<SocketFile<UdpSock>> {
-        match self.wasi().table().get(handle)? {
-            Resource::Datagrams(datagrams)
-            | Resource::OutgoingDatagrams {
-                socket: datagrams, ..
-            } => Ok(datagrams.clone()),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a datagram stream",
-            )),
-        }
+    fn incoming(
+        &mut self,
+        handle: IncomingDatagramStream,
+    ) -> wasmtime::Result<SocketFile<UdpSock>> {
+        Ok(self.table().get(handle)?.0.clone())
+    }
+
+    fn outgoing(
+        &mut self,
+        handle: OutgoingDatagramStream,
+    ) -> wasmtime::Result<SocketFile<UdpSock>> {
+        Ok(self.table().get(handle)?.socket.clone())
     }
 
     /// The permit an outgoing datagram stream's last `check-send` gave.
     fn permit(&mut self, stream: OutgoingDatagramStream) -> wasmtime::Result<&mut u64> {
-        match self.wasi_mut().table_mut().get_mut(stream.0)? {
-            Resource::OutgoingDatagrams { permit, .. } => Ok(permit),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not an outgoing-datagram-stream",
-            )),
-        }
+        Ok(&mut self.table().get_mut(stream)?.permit)
     }
 
-    fn subscribe_datagrams(&mut self, handle: u32, mask: PollMask) -> wasmtime::Result<Pollable> {
-        let datagrams = self.datagrams(handle)?;
-        Ok(Pollable(self.push(Resource::Pollable(
-            table::Pollable::File(datagrams.get_file(), mask),
-        ))?))
+    fn subscribe_datagrams(
+        &mut self,
+        datagrams: SocketFile<UdpSock>,
+        mask: PollMask,
+    ) -> wasmtime::Result<Pollable> {
+        self.table()
+            .push(table::Pollable::File(datagrams.get_file(), mask))
     }
 
-    fn stream(&self, handle: u32) -> wasmtime::Result<Stream> {
-        match self.wasi().table().get(handle)? {
-            Resource::InputStream(stream) | Resource::OutputStream(stream) => Ok(stream.clone()),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a stream",
-            )),
-        }
+    fn input(&mut self, handle: InputStream) -> wasmtime::Result<Stream> {
+        Ok(self.table().get(handle)?.0.clone())
+    }
+
+    fn output(&mut self, handle: OutputStream) -> wasmtime::Result<Stream> {
+        Ok(self.table().get(handle)?.stream.clone())
     }
 
     /// A stream's failure as WASI hands it out: the end as `closed`, anything
@@ -187,9 +151,9 @@ impl Invocation {
     fn push_stream_error(&mut self, err: FilesystemError) -> wasmtime::Result<StreamError> {
         match err {
             FilesystemError::BrokenPipe => Ok(StreamError::Closed),
-            err => Ok(StreamError::LastOperationFailed(Error(
-                self.push(Resource::Error(err))?,
-            ))),
+            err => Ok(StreamError::LastOperationFailed(
+                self.table().push(table::Error(err))?,
+            )),
         }
     }
 
@@ -222,13 +186,11 @@ impl Invocation {
 
 impl SocketsHost for Invocation {
     fn instance_network_instance_network(&mut self) -> wasmtime::Result<Network> {
-        Ok(Network(
-            self.wasi_mut().table_mut().push(Resource::Network)?,
-        ))
+        self.table().push(table::Network)
     }
 
     fn network_network_drop(&mut self, handle: Network) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::Network))
+        self.table().delete(handle).map(drop)
     }
 
     /// A lookup of `name`, answered through the stream it hands out. Without a
@@ -244,9 +206,13 @@ impl SocketsHost for Invocation {
             return Ok(Err(ErrorCode::PermanentResolverFailure));
         };
         match namespace.resolve(&name) {
-            Ok(lookup) => Ok(Ok(ResolveAddressStream(
-                self.push(Resource::ResolveStream(lookup, false))?,
-            ))),
+            Ok(lookup) => self
+                .table()
+                .push(table::ResolveAddressStream {
+                    lookup,
+                    handed: false,
+                })
+                .map(Ok),
             Err(err) => Ok(Err(lookup_error_code(err, true))),
         }
     }
@@ -257,17 +223,11 @@ impl SocketsHost for Invocation {
         &mut self,
         this: ResolveAddressStream,
     ) -> wasmtime::Result<Result<Option<IpAddress>, ErrorCode>> {
-        let Resource::ResolveStream(lookup, handed) =
-            self.wasi_mut().table_mut().get_mut(this.0)?
-        else {
-            return Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a resolve-address-stream",
-            ));
-        };
-        if *handed {
+        let stream = self.table().get(this)?;
+        if stream.handed {
             return Ok(Ok(None));
         }
-        let lookup = lookup.clone();
+        let lookup = stream.lookup.clone();
         let real = match lookup.answer() {
             None => return Ok(Err(ErrorCode::WouldBlock)),
             Some(Err(err)) => return Ok(Err(lookup_error_code(err, false))),
@@ -281,9 +241,7 @@ impl SocketsHost for Invocation {
         let Some(at) = namespace.virtual_address(lookup.name(), real) else {
             return Ok(Err(ErrorCode::TemporaryResolverFailure));
         };
-        if let Resource::ResolveStream(_, handed) = self.wasi_mut().table_mut().get_mut(this.0)? {
-            *handed = true;
-        }
+        self.table().get_mut(this)?.handed = true;
         let [a, b, c, d] = at.octets();
         Ok(Ok(Some(IpAddress::Ipv4((a, b, c, d)))))
     }
@@ -292,25 +250,16 @@ impl SocketsHost for Invocation {
         &mut self,
         this: ResolveAddressStream,
     ) -> wasmtime::Result<Pollable> {
-        let lookup = match self.wasi().table().get(this.0)? {
-            Resource::ResolveStream(lookup, _) => lookup.clone(),
-            _ => {
-                return Err(wasmtime::Error::msg(
-                    "the guest named a handle that is not a resolve-address-stream",
-                ))
-            }
-        };
+        let lookup = self.table().get(this)?.lookup.clone();
         let file = share(lookup.file(self.wasi().descriptors().cred()));
-        Ok(Pollable(self.push(Resource::Pollable(
-            table::Pollable::File(file, PollMask::IN),
-        ))?))
+        self.table().push(table::Pollable::File(file, PollMask::IN))
     }
 
     fn ip_name_lookup_resolve_address_stream_drop(
         &mut self,
         handle: ResolveAddressStream,
     ) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::ResolveStream(..)))
+        self.table().delete(handle).map(drop)
     }
 
     /// Without a network Grant no socket is made, as WASI's `not-supported`
@@ -331,12 +280,12 @@ impl SocketsHost for Invocation {
             Err(err) => return Ok(Err(to_error_code(&err))),
         };
         let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
-        let handle = self.push(Resource::TcpSocket(table::TcpSocket {
+        let handle: TcpSocket = self.table().push(table::TcpSocket {
             socket: socket.clone(),
             state: TcpState::Unbound,
-        }))?;
+        })?;
         self.wasi().table().install(handle, &socket);
-        Ok(Ok(TcpSocket(handle)))
+        Ok(Ok(handle))
     }
 
     /// A connect passes the Invocation's namespace on what the guest named,
@@ -381,8 +330,8 @@ impl SocketsHost for Invocation {
             Ok(()) => {
                 self.tcp(this)?.state = TcpState::Connected;
                 let stream = Stream::Socket(socket);
-                let input = InputStream(self.push(Resource::InputStream(stream.clone()))?);
-                let output = OutputStream(self.push(Resource::OutputStream(stream))?);
+                let input = self.table().push(table::InputStream(stream.clone()))?;
+                let output = self.table().push(table::OutputStream::new(stream))?;
                 Ok(Ok((input, output)))
             }
             Err(FilesystemError::WouldBlock) => Ok(Err(ErrorCode::WouldBlock)),
@@ -430,7 +379,7 @@ impl SocketsHost for Invocation {
     }
 
     fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::TcpSocket(_)))
+        self.table().delete(handle).map(drop)
     }
 
     /// Without a network Grant no socket is made, and the guest is IPv4-only,
@@ -447,12 +396,12 @@ impl SocketsHost for Invocation {
         }
         let sock = self.network().udp_socket();
         let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
-        let handle = self.push(Resource::UdpSocket(table::UdpSocket {
+        let handle: UdpSocket = self.table().push(table::UdpSocket {
             socket: socket.clone(),
             state: UdpState::Unbound,
-        }))?;
+        })?;
         self.wasi().table().install(handle, &socket);
-        Ok(Ok(UdpSocket(handle)))
+        Ok(Ok(handle))
     }
 
     /// The guest only sends to a peer it names, so the one bind it makes is
@@ -512,24 +461,24 @@ impl SocketsHost for Invocation {
             return Ok(Err(to_error_code(&err)));
         }
         self.udp(this)?.state = UdpState::Streaming;
-        let incoming = IncomingDatagramStream(self.push(Resource::Datagrams(datagrams.clone()))?);
-        let outgoing = OutgoingDatagramStream(self.push(Resource::OutgoingDatagrams {
+        let incoming = self
+            .table()
+            .push(table::IncomingDatagramStream(datagrams.clone()))?;
+        let outgoing = self.table().push(table::OutgoingDatagramStream {
             socket: datagrams,
             permit: 0,
-        })?);
+        })?;
         Ok(Ok((incoming, outgoing)))
     }
 
     /// Ready at once, since a bind settles as it starts.
     fn udp_udp_socket_subscribe(&mut self, this: UdpSocket) -> wasmtime::Result<Pollable> {
         self.udp(this)?;
-        Ok(Pollable(
-            self.push(Resource::Pollable(table::Pollable::Ready))?,
-        ))
+        self.table().push(table::Pollable::Ready)
     }
 
     fn udp_udp_socket_drop(&mut self, handle: UdpSocket) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::UdpSocket(_)))
+        self.table().delete(handle).map(drop)
     }
 
     /// Up to `max_results` datagrams the peer sent, without waiting; none yet
@@ -539,7 +488,7 @@ impl SocketsHost for Invocation {
         this: IncomingDatagramStream,
         max_results: u64,
     ) -> wasmtime::Result<Result<Vec<IncomingDatagram>, ErrorCode>> {
-        let datagrams = self.datagrams(this.0)?;
+        let datagrams = self.incoming(this)?;
         let peer = datagrams
             .sock
             .peer_addr()
@@ -564,14 +513,15 @@ impl SocketsHost for Invocation {
         &mut self,
         this: IncomingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
-        self.subscribe_datagrams(this.0, PollMask::IN)
+        let datagrams = self.incoming(this)?;
+        self.subscribe_datagrams(datagrams, PollMask::IN)
     }
 
     fn udp_incoming_datagram_stream_drop(
         &mut self,
         handle: IncomingDatagramStream,
     ) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::Datagrams(_)))
+        self.table().delete(handle).map(drop)
     }
 
     /// One datagram while the send queue has room, none while it is full.
@@ -579,7 +529,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: OutgoingDatagramStream,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        let datagrams = self.datagrams(this.0)?;
+        let datagrams = self.outgoing(this)?;
         let found = datagrams.file().poll(None);
         let permitted = u64::from(found.contains(PollMask::OUT));
         *self.permit(this)? = permitted;
@@ -601,7 +551,7 @@ impl SocketsHost for Invocation {
                 "the guest sent more datagrams than check-send permitted",
             ));
         }
-        let stream = self.datagrams(this.0)?;
+        let stream = self.outgoing(this)?;
         let mut sent = 0;
         for datagram in datagrams {
             let addressed = datagram.remote_address.as_ref().map(to_socket_addr);
@@ -629,16 +579,15 @@ impl SocketsHost for Invocation {
         &mut self,
         this: OutgoingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
-        self.subscribe_datagrams(this.0, PollMask::OUT)
+        let datagrams = self.outgoing(this)?;
+        self.subscribe_datagrams(datagrams, PollMask::OUT)
     }
 
     fn udp_outgoing_datagram_stream_drop(
         &mut self,
         handle: OutgoingDatagramStream,
     ) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| {
-            matches!(r, Resource::OutgoingDatagrams { .. })
-        })
+        self.table().delete(handle).map(drop)
     }
 }
 
@@ -648,7 +597,7 @@ impl IoHost for Invocation {
         this: InputStream,
         len: u64,
     ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
-        let stream = self.stream(this.0)?;
+        let stream = self.input(this)?;
         self.wait_on(&stream, PollMask::IN)?;
         self.read_now(&stream, len)
     }
@@ -659,21 +608,19 @@ impl IoHost for Invocation {
         this: InputStream,
         len: u64,
     ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
-        let stream = self.stream(this.0)?;
+        let stream = self.input(this)?;
         self.read_now(&stream, len)
     }
 
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
-        let stream = self.stream(this.0)?;
-        Ok(Pollable(self.wasi_mut().table_mut().push_child(
-            Resource::Pollable(table::Pollable::File(stream.file(), PollMask::IN)),
-            this.0,
-        )?))
+        let stream = self.input(this)?;
+        self.table()
+            .push_child(table::Pollable::File(stream.file(), PollMask::IN), this)
     }
 
     fn streams_input_stream_drop(&mut self, handle: InputStream) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::InputStream(_)))
+        self.table().delete(handle).map(drop)
     }
 
     /// Write every byte, at most 4096, waiting for room as it goes, then until
@@ -688,7 +635,7 @@ impl IoHost for Invocation {
                 "the guest handed blocking-write-and-flush more than 4096 bytes",
             ));
         }
-        let stream = self.stream(this.0)?;
+        let stream = self.output(this)?;
         let mut rest = &contents[..];
         while !rest.is_empty() {
             self.wait_on(&stream, PollMask::OUT)?;
@@ -718,15 +665,15 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Result<u64, StreamError>> {
-        let stream = self.stream(this.0)?;
+        let stream = self.output(this)?;
         if let Err(err) = stream.write(&[]) {
             return self.push_stream_error(err).map(Err);
         }
-        let flushing = self.wasi_mut().table_mut().flushing(this.0)?;
-        if *flushing && !stream.is_drained() {
+        let output = self.table().get_mut(this)?;
+        if output.flushing && !stream.is_drained() {
             return Ok(Ok(0));
         }
-        *flushing = false;
+        output.flushing = false;
         Ok(Ok(stream.room() as u64))
     }
 
@@ -737,7 +684,7 @@ impl IoHost for Invocation {
         this: OutputStream,
         contents: Vec<u8>,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        let stream = self.stream(this.0)?;
+        let stream = self.output(this)?;
         if contents.len() > stream.room() {
             return Err(wasmtime::Error::msg(
                 "the guest wrote past what check-write permitted",
@@ -755,11 +702,11 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        let stream = self.stream(this.0)?;
+        let stream = self.output(this)?;
         if let Err(err) = stream.write(&[]) {
             return self.push_stream_error(err).map(Err);
         }
-        *self.wasi_mut().table_mut().flushing(this.0)? = true;
+        self.table().get_mut(this)?.flushing = true;
         Ok(Ok(()))
     }
 
@@ -769,33 +716,27 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Pollable> {
-        let stream = self.stream(this.0)?;
-        Ok(Pollable(self.wasi_mut().table_mut().push_child(
-            Resource::Pollable(table::Pollable::File(stream.file(), PollMask::OUT)),
-            this.0,
-        )?))
+        let stream = self.output(this)?;
+        self.table()
+            .push_child(table::Pollable::File(stream.file(), PollMask::OUT), this)
     }
 
     fn streams_output_stream_drop(&mut self, handle: OutputStream) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::OutputStream(_)))
+        self.table().delete(handle).map(drop)
     }
 
     /// The failure's POSIX name, so no host text reaches the guest.
     fn error_error_to_debug_string(&mut self, this: Error) -> wasmtime::Result<String> {
-        match self.wasi().table().get(this.0)? {
-            Resource::Error(err) => Ok(err.posix_name().unwrap_or("EIO").to_string()),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not an error",
-            )),
-        }
+        let err = &self.table().get(this)?.0;
+        Ok(err.posix_name().unwrap_or("EIO").to_string())
     }
 
     fn error_error_drop(&mut self, handle: Error) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::Error(_)))
+        self.table().delete(handle).map(drop)
     }
 
     fn poll_pollable_block(&mut self, this: Pollable) -> wasmtime::Result<()> {
-        let pollable = self.wasi().table().pollable(this.0)?;
+        let pollable = self.table().get(this)?.clone();
         let producer = pollable.is_producer();
         let pollable = pollable.in_wait(self.profile(), producer);
         self.wait_for(pollable.due(), |table| pollable.ready(table).then_some(()))
@@ -808,8 +749,8 @@ impl IoHost for Invocation {
             return Err(wasmtime::Error::msg("poll was handed no pollable"));
         }
         let pollables = r#in
-            .iter()
-            .map(|handle| self.wasi().table().pollable(handle.0))
+            .into_iter()
+            .map(|handle| self.table().get(handle).cloned())
             .collect::<wasmtime::Result<Vec<_>>>()?;
         let producer = pollables.iter().any(table::Pollable::is_producer);
         let profile = self.profile();
@@ -827,7 +768,7 @@ impl IoHost for Invocation {
     }
 
     fn poll_pollable_drop(&mut self, handle: Pollable) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::Pollable(_)))
+        self.table().delete(handle).map(drop)
     }
 }
 

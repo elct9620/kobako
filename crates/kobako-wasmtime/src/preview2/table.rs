@@ -2,6 +2,7 @@
 //! wasmtime-wasi's `ResourceTable` is. Each handle takes a number from the
 //! space preview1's descriptors take theirs, since a socket is a file.
 
+use std::any::Any;
 use std::collections::BTreeMap;
 use std::sync::{Arc, MutexGuard};
 use std::time::Instant;
@@ -121,30 +122,55 @@ pub(crate) enum UdpState {
     Streaming,
 }
 
-/// What one handle stands for.
-pub(crate) enum Resource {
-    /// The one network a Sandbox's Grants make, as `instance-network` hands it
-    /// out.
-    Network,
-    Pollable(Pollable),
-    TcpSocket(TcpSocket),
-    UdpSocket(UdpSocket),
-    /// An incoming datagram stream.
-    Datagrams(SocketFile<UdpSock>),
-    /// An outgoing datagram stream, and how many datagrams its last
-    /// `check-send` permitted, as wasmtime keeps the permit a send spends.
-    OutgoingDatagrams {
-        socket: SocketFile<UdpSock>,
-        permit: u64,
-    },
-    InputStream(Stream),
-    OutputStream(Stream),
-    /// One of `wasi:http`'s resources.
-    Http(super::http::Held),
-    /// A stream's failure, as `wasi:io/error` hands one out.
-    Error(FilesystemError),
-    /// A lookup, and whether its one address was handed out.
-    ResolveStream(Arc<NameLookup>, bool),
+/// A guest's handle to one kind of resource, as wasmtime's `Resource<T>`
+/// names the host type `T` its index stands for. The bindings implement it
+/// for each WIT resource, as `bindgen!` takes `with:`.
+pub(crate) trait Handle: Copy {
+    type Host: Any + Send;
+
+    fn new(index: u32) -> Self;
+
+    fn index(self) -> u32;
+}
+
+/// The one network a Sandbox's Grants make, as `instance-network` hands it
+/// out.
+pub(crate) struct Network;
+
+pub(crate) struct InputStream(pub(crate) Stream);
+
+pub(crate) struct OutputStream {
+    pub(crate) stream: Stream,
+    /// Whether a flush is under way, as `io.wit` has `check-write` answer zero
+    /// until it completes.
+    pub(crate) flushing: bool,
+}
+
+impl OutputStream {
+    pub(crate) fn new(stream: Stream) -> Self {
+        Self {
+            stream,
+            flushing: false,
+        }
+    }
+}
+
+/// A stream's failure, as `wasi:io/error` hands one out.
+pub(crate) struct Error(pub(crate) FilesystemError);
+
+/// A lookup, and whether its one address was handed out.
+pub(crate) struct ResolveAddressStream {
+    pub(crate) lookup: Arc<NameLookup>,
+    pub(crate) handed: bool,
+}
+
+pub(crate) struct IncomingDatagramStream(pub(crate) SocketFile<UdpSock>);
+
+/// An outgoing datagram stream, and how many datagrams its last `check-send`
+/// permitted, as wasmtime keeps the permit a send spends.
+pub(crate) struct OutgoingDatagramStream {
+    pub(crate) socket: SocketFile<UdpSock>,
+    pub(crate) permit: u64,
 }
 
 /// A TCP socket, its file made as the socket is, and where WASI's state
@@ -223,12 +249,9 @@ impl Pollable {
 /// One handle's resource, and the handle it is a child of, as wasmtime's
 /// `ResourceTable` keeps each entry's parent.
 struct Entry {
-    resource: Resource,
+    resource: Box<dyn Any + Send>,
     parent: Option<u32>,
     children: usize,
-    /// Whether an output stream's flush is under way, as `io.wit` has
-    /// `check-write` answer zero until it completes.
-    flushing: bool,
 }
 
 pub(crate) struct Table {
@@ -266,19 +289,32 @@ impl Table {
 
     /// Hand out a handle for `resource`, refused past the Invocation's open
     /// file limit.
-    pub(crate) fn push(&mut self, resource: Resource) -> wasmtime::Result<u32> {
-        self.insert(resource, None)
+    pub(crate) fn push<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
+        self.insert(Box::new(resource), None).map(H::new)
     }
 
     /// Hand out a handle for `resource` as a child of `parent`, which cannot
     /// be dropped while it lives, as the WIT has a parent's drop trap.
-    pub(crate) fn push_child(&mut self, resource: Resource, parent: u32) -> wasmtime::Result<u32> {
-        let handle = self.insert(resource, Some(parent))?;
-        self.entry_mut(parent)?.children += 1;
-        Ok(handle)
+    pub(crate) fn push_child<H: Handle>(
+        &mut self,
+        resource: H::Host,
+        parent: impl Handle,
+    ) -> wasmtime::Result<H> {
+        let parent = parent.index();
+        self.entry(parent)?;
+        let handle = self.insert(Box::new(resource), Some(parent))?;
+        self.entries
+            .get_mut(&parent)
+            .expect("the parent was just found")
+            .children += 1;
+        Ok(H::new(handle))
     }
 
-    fn insert(&mut self, resource: Resource, parent: Option<u32>) -> wasmtime::Result<u32> {
+    fn insert(
+        &mut self,
+        resource: Box<dyn Any + Send>,
+        parent: Option<u32>,
+    ) -> wasmtime::Result<u32> {
         let handle = self.numbers.lowest_unused().ok_or_else(|| {
             wasmtime::Error::msg("the guest holds as many files and resources as its limit allows")
         })?;
@@ -289,66 +325,50 @@ impl Table {
                 resource,
                 parent,
                 children: 0,
-                flushing: false,
             },
         );
         Ok(handle)
     }
 
-    fn entry_mut(&mut self, handle: u32) -> wasmtime::Result<&mut Entry> {
-        self.entries
-            .get_mut(&handle)
-            .ok_or_else(|| wasmtime::Error::msg("the guest named a handle it does not hold"))
-    }
-
-    pub(crate) fn get(&self, handle: u32) -> wasmtime::Result<&Resource> {
+    fn entry(&self, handle: u32) -> wasmtime::Result<&Entry> {
         self.entries
             .get(&handle)
-            .map(|entry| &entry.resource)
             .ok_or_else(|| wasmtime::Error::msg("the guest named a handle it does not hold"))
     }
 
-    pub(crate) fn get_mut(&mut self, handle: u32) -> wasmtime::Result<&mut Resource> {
-        self.entry_mut(handle).map(|entry| &mut entry.resource)
+    /// The resource `handle` stands for. A handle of another kind traps, as
+    /// the Canonical ABI traps on a handle of the wrong type.
+    pub(crate) fn get<H: Handle>(&self, handle: H) -> wasmtime::Result<&H::Host> {
+        self.entry(handle.index())?
+            .resource
+            .downcast_ref()
+            .ok_or_else(|| wasmtime::Error::msg("the guest named a handle of another kind"))
     }
 
-    /// Whether `handle`'s flush is under way, which a later `check-write`
-    /// reads and a completed flush clears.
-    pub(crate) fn flushing(&mut self, handle: u32) -> wasmtime::Result<&mut bool> {
-        self.entry_mut(handle).map(|entry| &mut entry.flushing)
+    pub(crate) fn get_mut<H: Handle>(&mut self, handle: H) -> wasmtime::Result<&mut H::Host> {
+        self.entries
+            .get_mut(&handle.index())
+            .ok_or_else(|| wasmtime::Error::msg("the guest named a handle it does not hold"))?
+            .resource
+            .downcast_mut()
+            .ok_or_else(|| wasmtime::Error::msg("the guest named a handle of another kind"))
     }
 
     /// Have the socket's `handle` stand for its file, so a preview1 call on
     /// the number reaches the socket, as one fdtable holds both.
-    pub(crate) fn install<S>(&self, handle: u32, socket: &SocketFile<S>) {
-        self.numbers.install(handle, socket.file.clone());
+    pub(crate) fn install<S>(&self, handle: impl Handle, socket: &SocketFile<S>) {
+        self.numbers.install(handle.index(), socket.file.clone());
     }
 
-    pub(crate) fn pollable(&self, handle: u32) -> wasmtime::Result<Pollable> {
-        match self.get(handle)? {
-            Resource::Pollable(pollable) => Ok(pollable.clone()),
-            _ => Err(wasmtime::Error::msg(
-                "the guest named a handle that is not a pollable",
-            )),
-        }
-    }
-
-    /// Take `handle` out of the table if `kind` holds for its resource. A
-    /// handle of another kind, or one whose children still live, traps, as
-    /// the Canonical ABI traps on a handle of the wrong type and the WIT on
-    /// a parent dropped first.
-    pub(crate) fn delete(
-        &mut self,
-        handle: u32,
-        kind: impl Fn(&Resource) -> bool,
-    ) -> wasmtime::Result<Resource> {
-        let entry = self
-            .entries
-            .get(&handle)
-            .ok_or_else(|| wasmtime::Error::msg("the guest dropped a handle it does not hold"))?;
-        if !kind(&entry.resource) {
+    /// Take `handle` out of the table. A handle of another kind, or one whose
+    /// children still live, traps, as the Canonical ABI traps on a handle of
+    /// the wrong type and the WIT on a parent dropped first.
+    pub(crate) fn delete<H: Handle>(&mut self, handle: H) -> wasmtime::Result<H::Host> {
+        let index = handle.index();
+        let entry = self.entry(index)?;
+        if !entry.resource.is::<H::Host>() {
             return Err(wasmtime::Error::msg(
-                "the guest dropped a handle as a kind it is not",
+                "the guest named a handle of another kind",
             ));
         }
         if entry.children > 0 {
@@ -358,15 +378,18 @@ impl Table {
         }
         let entry = self
             .entries
-            .remove(&handle)
+            .remove(&index)
             .expect("the entry was just found");
-        self.numbers.give_back(handle);
+        self.numbers.give_back(index);
         if let Some(parent) = entry
             .parent
             .and_then(|parent| self.entries.get_mut(&parent))
         {
             parent.children -= 1;
         }
-        Ok(entry.resource)
+        Ok(*entry
+            .resource
+            .downcast()
+            .expect("the entry was just found to be of this kind"))
     }
 }
