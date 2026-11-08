@@ -842,3 +842,27 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a loopback server that accepts and never answers |
 | When | the script sends a GET with `read_timeout` set to a tenth of a second |
 | Then | it raises `Net::ReadTimeout`, a `Timeout::Error`, once the limit passes. Each timeout starts at 60 seconds, as CRuby's does. The connect counts against `read_timeout`, since `wasi:http` shows the guest no connect apart |
+
+## `NW-069` A socket past the open file limit answers new-socket-limit
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-341` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a network entry, and a guest holding as many files as its open file limit allows |
+| When | it creates a TCP or a UDP socket |
+| Then | the call answers `new-socket-limit`, which the guest raises as `Errno::EMFILE`, as Linux's `socket()` answers. Nothing traps |
+
+## `NW-070` A UDP socket's failure is answered once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-053` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket whose peer's port is closed |
+| When | it sends a datagram and then reads twice |
+| Then | the first read answers ECONNREFUSED and the second reads on, as Linux's `sock_error` clears the error it reports |

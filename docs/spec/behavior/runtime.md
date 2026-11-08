@@ -3956,3 +3956,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest whose preview2 socket connected to a peer that has sent nothing |
 | When | it polls the socket's number to read, and the peer then writes |
 | Then | the poll answers the subscription once the bytes arrive, not before |
+
+## `RT-351` A reset reads as an error the socket's poll reports
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-343` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket whose peer closes with bytes it never read |
+| When | the peer's reset arrives |
+| Then | the socket file's poll finds ERR, as `tcp_poll` reads `sk_err`, and its read answers ECONNRESET |
