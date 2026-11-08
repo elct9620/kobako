@@ -3968,3 +3968,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a connected socket whose peer closes with bytes it never read |
 | When | the peer's reset arrives |
 | Then | the socket file's poll finds ERR, as `tcp_poll` reads `sk_err`, and its read answers ECONNRESET |
+
+## `RT-352` A socket's number answers preview1 before it connects
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-349` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a new preview2 TCP socket and a new UDP socket |
+| When | it polls, reads, and writes each socket's number through preview1 before any connect |
+| Then | the TCP socket polls writable and hung up. Its read answers ENOTCONN and its write EPIPE, as a fresh `tcp_sock` does. The UDP socket polls writable. Its read answers EAGAIN and its write EDESTADDRREQ, as `udp_sendmsg` answers with no peer |

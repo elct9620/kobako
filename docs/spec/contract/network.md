@@ -472,16 +472,28 @@ impl Namespace {
 }
 ```
 
+## `Namespace::tcp_socket`
+
+A TCP socket connected to nothing, as Linux's `inet_create` makes one. Its file
+polls writable and hung up, a read answers `NotConnected`, and a write
+`BrokenPipe`.
+
+```rust
+impl Namespace {
+    pub fn tcp_socket(&self) -> Result<Arc<TcpSock>, FilesystemError> {}
+}
+```
+
 ## `Namespace::connect`
 
-A TCP socket to the address the Guest named, once the socket hooks and the
+Connect a socket to the address the Guest named, once the socket hooks and the
 ruleset pass it. A virtual address dials its name's real address. An
 unmapped one, and any refusal, answer `PermissionDenied`, and nothing is
 dialed.
 
 ```rust
 impl Namespace {
-    pub fn connect(&self, cred: &Cred, addr: SocketAddr) -> Result<Arc<TcpSock>, FilesystemError> {}
+    pub fn connect(&self, cred: &Cred, sock: &TcpSock, addr: SocketAddr) -> Result<(), FilesystemError> {}
 }
 ```
 
@@ -665,18 +677,6 @@ socket.
 pub struct TcpSock {}
 ```
 
-## `TcpSock::connect`
-
-A socket connecting to the first address that answers, in turn, without
-blocking. It answers at once. The socket counts against the Sandbox's and the
-process's caps until released, and a full count answers `WouldBlock`.
-
-```rust
-impl TcpSock {
-    pub fn connect(family: Arc<dyn ProtocolFamily>, addrs: Vec<SocketAddr>, open_connections: &Arc<OpenConnections>) -> Result<Arc<Self>, FilesystemError> {}
-}
-```
-
 ## `TcpSock::finish_connect`
 
 How the connect ended. One still under way answers EAGAIN.
@@ -719,7 +719,8 @@ impl TcpSock {
 
 ## `TcpSock::peer_addr`
 
-The address the socket's peer stands at, once connected.
+The peer as the Guest named it, once connected, as cgroup `getpeername4` maps
+the real peer back.
 
 ```rust
 impl TcpSock {
@@ -1265,21 +1266,21 @@ pub const MAX_DATAGRAM: usize = 65_507;
 
 ## `UdpSock`
 
-One UDP socket connected to one peer, shared by the socket file and the
-reactor watching its host socket. A read takes one datagram.
+One UDP socket, shared by the socket file and the reactor. The reactor watches
+its host socket once it connects to one peer. A read takes one datagram.
 
 ```rust
 pub struct UdpSock {}
 ```
 
-## `UdpSock::connect`
+## `UdpSock::peer_addr`
 
-A socket connected to a peer, its host socket watched by the reactor. It counts
-against the Sandbox's and the process's caps until released.
+The peer as the Guest named it, once connected, as cgroup `getpeername4` maps
+the real peer back.
 
 ```rust
 impl UdpSock {
-    pub fn connect(family: Arc<dyn ProtocolFamily>, addr: SocketAddr, open_connections: &Arc<OpenConnections>) -> Result<Arc<Self>, FilesystemError> {}
+    pub fn peer_addr(&self) -> Option<SocketAddr> {}
 }
 ```
 
@@ -1293,15 +1294,27 @@ impl UdpSock {
 }
 ```
 
+## `Namespace::udp_socket`
+
+A UDP socket connected to nothing, as Linux's `inet_create` makes one. Its file
+polls writable, a read answers `WouldBlock`, and a write
+`DestinationAddressRequired`.
+
+```rust
+impl Namespace {
+    pub fn udp_socket(&self) -> Arc<UdpSock> {}
+}
+```
+
 ## `Namespace::connect_datagram`
 
-A UDP socket streaming with the one peer the Guest named. The socket hooks and
-the ruleset pass it first, as they pass a TCP connect. A stream naming no peer
+Connect a UDP socket to the one peer the Guest named. The socket hooks and the
+ruleset pass it first, as they pass a TCP connect. A stream naming no peer
 answers `PermissionDenied`.
 
 ```rust
 impl Namespace {
-    pub fn connect_datagram(&self, cred: &Cred, addr: Option<SocketAddr>) -> Result<Arc<UdpSock>, FilesystemError> {}
+    pub fn connect_datagram(&self, cred: &Cred, sock: &UdpSock, addr: Option<SocketAddr>) -> Result<(), FilesystemError> {}
 }
 ```
 
