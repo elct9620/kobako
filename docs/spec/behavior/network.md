@@ -24,6 +24,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_tcp.rb`
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
+- `test/e2e/test_network_http_cruby.rb`
 - `test/e2e/test_network_http_policy.rb`
 - `test/e2e/test_network_https.rb`
 - `test/e2e/test_network_udp.rb`
@@ -743,3 +744,39 @@ endpoint "api.example.com", port: 443
 | Given | the process's open connections, holding some open |
 | When | a Rust Host App lowers its limit below what is open, then lifts it |
 | Then | each open connection stays open and the next is refused, until the lifted limit admits it |
+
+## `NW-061` A script's Net::HTTP streams a body through a block
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-042` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a server whose body is larger than the guest's `memory_limit` |
+| When | the script reads it through `read_body` in `request`'s block, or through `get`'s block |
+| Then | each chunk reaches the block in order and the run stays within its memory. A second `read_body` raises `IOError` as CRuby's does. `body` after a streamed read answers `nil`, where CRuby answers a `Net::ReadAdapter` |
+
+## `NW-062` A script's Net::HTTP helpers answer as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-042` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a loopback server |
+| When | the script builds a request with `basic_auth` and `set_form_data`, sends it, and reads the response's helpers |
+| Then | the server reads the form and the Basic credentials. `content_type`, `key?`, `delete`, `content_length`, `header`, and `code_type` answer as CRuby's, and `http_version` answers `"1.1"` |
+
+## `NW-063` A failed response's value raises what CRuby raises
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-042` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a server answering a client or server error |
+| When | the script calls `value` on the response |
+| Then | it raises the `Net::HTTPExceptions` error CRuby raises for that family, carrying the response |
