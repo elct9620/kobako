@@ -215,7 +215,7 @@ impl SocketsHost for Invocation {
             .table()
             .network()
             .expect("a lookup is only made with a network");
-        let Some(at) = namespace.virtual_address(lookup.name(), real) else {
+        let Some(at) = namespace.alloc_virtual_address(lookup.name(), real) else {
             return Ok(Err(ErrorCode::TemporaryResolverFailure));
         };
         self.table().get_mut(this)?.handed = true;

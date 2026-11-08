@@ -249,10 +249,10 @@ impl Namespace {
         Ok(made)
     }
 
-    /// The virtual address handed out for `name`, whose `real` addresses a
-    /// lookup answered, allocated from the bottom of the range and never
-    /// reused for a second name; `None` once the range is spent.
-    pub fn virtual_address(&self, name: &str, real: Vec<IpAddr>) -> Option<Ipv4Addr> {
+    /// Allocate the virtual address handed out for `name`, whose `real`
+    /// addresses a lookup answered, from the bottom of the range, never reused
+    /// for a second name; `None` once the range is spent.
+    pub fn alloc_virtual_address(&self, name: &str, real: Vec<IpAddr>) -> Option<Ipv4Addr> {
         let mut virtuals = self.virtuals.lock().unwrap_or_else(PoisonError::into_inner);
         let offset = u32::try_from(virtuals.len())
             .ok()
@@ -739,7 +739,7 @@ mod tests {
         let lookup = namespace.resolve(name).expect("the lookup starts");
         let real = settled(&lookup).expect("the name resolves");
         let ip = namespace
-            .virtual_address(lookup.name(), real)
+            .alloc_virtual_address(lookup.name(), real)
             .expect("the range has room");
         SocketAddr::new(IpAddr::V4(ip), 6379)
     }
