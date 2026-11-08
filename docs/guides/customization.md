@@ -326,7 +326,7 @@ unchanged.
 | Engine seams | `Runtime`, `DispatchHandler`, `Yielder` |
 | host ABI endpoint | `endpoint`, over a `GuestInstance` the Wasm Driver implements |
 | files | `vfs`, with `File` answering what a guest may do with an open file |
-| declared Posture | `Profile`, and `guest_kstat` for what a guest sees of an entry |
+| declared Posture | `Profile`, with `guest_kstat` for an entry and `clock_due` for a wait |
 | per-invocation types | `Snapshot`, `Completion`, `Capture`, `Usage`, `Trap` |
 
 The Rust SDK takes a Wasm Driver at `Sandbox::with_runtime` and keeps the whole tier
