@@ -953,14 +953,19 @@ impl Default for HyperOutbound {
 
 impl Outbound for HyperOutbound {
     fn send_request(&self, request: OutgoingRequest, connector: Connector) -> ResponseFuture {
-        let tls = self.tls.clone();
+        let tls = match request.scheme {
+            Scheme::Http => None,
+            Scheme::Https => match self.tls.clone() {
+                Some(config) => Some(config),
+                None => return Box::pin(async { Err(HttpError::TlsProtocol) }),
+            },
+        };
         Box::pin(async move {
             let http = to_hyper_request(&request)?;
             let connection = connector.dial().await?;
-            match request.scheme {
-                Scheme::Http => exchange(Wire(connection), http).await,
-                Scheme::Https => {
-                    let config = tls.ok_or(HttpError::TlsProtocol)?;
+            match tls {
+                None => exchange(Wire(connection), http).await,
+                Some(config) => {
                     let name = rustls::pki_types::ServerName::try_from(
                         connector.authority().0.to_string(),
                     )
@@ -1252,6 +1257,54 @@ mod tests {
             let _ = self.released.lock().unwrap().recv();
             Ok(Vec::new())
         }
+    }
+
+    /// A host counting each dial it refuses.
+    #[derive(Default)]
+    struct Counting(std::sync::atomic::AtomicUsize);
+
+    impl ProtocolFamily for Counting {
+        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(io::ErrorKind::ConnectionRefused.into())
+        }
+    }
+
+    #[test]
+    fn an_https_request_without_trust_roots_dials_nothing() {
+        let mut entry = Builder::default();
+        entry.endpoint(Endpoint::new("127.0.0.1", 443).unwrap());
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let family = Arc::new(Counting::default());
+        let namespace = Namespace::new(
+            [&network],
+            family.clone(),
+            Arc::new(HyperOutbound { tls: None }),
+            OpenConnections::new(None),
+            None,
+        )
+        .expect("the endpoints compile");
+        let cred = prepare_creds_within(&[], None);
+        let mut request = OutgoingRequest::new("GET", Scheme::Https, "127.0.0.1:443");
+        request.path_with_query = "/".to_string();
+        let exchange = namespace
+            .send(&cred, request)
+            .expect("the endpoint admits it");
+        let answer = loop {
+            match exchange.response() {
+                Some(answer) => break answer,
+                None => thread::sleep(Duration::from_millis(1)),
+            }
+        };
+        assert_eq!(
+            (
+                answer.err(),
+                family.0.load(std::sync::atomic::Ordering::SeqCst)
+            ),
+            (Some(HttpError::TlsProtocol), 0),
+            "an https request through a seam with no trust roots must answer TlsProtocol before \
+             dialing the host"
+        );
     }
 
     // @behavior NW-085
