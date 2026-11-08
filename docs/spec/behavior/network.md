@@ -1085,3 +1085,51 @@ endpoint "api.example.com", port: 443
 | Given | a UDP socket connected under a cap of one connection |
 | When | it connects to another peer |
 | Then | the connect succeeds, since the socket holds the place it took, as `__ip4_datagram_connect` repoints a socket |
+
+## `NW-089` An address WASI calls invalid answers invalid-argument before any hook
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a network Grant |
+| When | it connects a TCP socket, or streams a UDP socket, to the unspecified address, port 0, a broadcast, or a multicast address, or binds a UDP socket to a multicast address |
+| Then | each answers `invalid-argument` before the socket hooks are asked, as wasmtime's checks answer them |
+
+## `NW-090` A second start while one is under way answers concurrency-conflict
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP socket whose connect started, and a UDP socket whose bind started, neither finished |
+| When | the guest starts the same again on each |
+| Then | each answers `concurrency-conflict`, as `sockets.wit` names a call made while another is in progress |
+
+## `NW-091` A TCP socket's pollable waits only on its connect
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP socket that never connected, and one whose connect finished |
+| When | the guest blocks on a pollable each `subscribe` hands out |
+| Then | each answers at once, since only a connect under way makes the pollable wait, as wasmtime's socket pollable does |
+
+## `NW-092` A write past the permit check-write gave traps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-073` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket's output stream, whose `check-write` permitted some bytes |
+| When | the guest writes those bytes, then one more without asking `check-write` again |
+| Then | the first write succeeds and the second traps, as `io.wit` says a write past the last permit must |
