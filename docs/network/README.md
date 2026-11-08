@@ -68,7 +68,7 @@ output-stream ---+         |
 socket's number -+         +--> wait queue <-- reactor
 ```
 
-Both encodings number into one space, as Linux's one fdtable holds a file and a socket alike. A preview1 read, write, or poll on a socket's number reaches the same file. The guest's `TCPSocket` is therefore an `IO` that `IO.select` waits on. The last view dropped releases the host socket.
+The file is made with the socket, as Linux's `socket()` installs one before any connect. Both encodings number into one space, as Linux's one fdtable holds a file and a socket alike. A preview1 read, write, or poll on a socket's number reaches the same file. The guest's `TCPSocket` and `UDPSocket` are therefore each an `IO` that `IO.select` waits on. The last view dropped releases the host socket.
 
 ## Virtual Addresses
 
@@ -94,7 +94,7 @@ One reactor thread per process waits on every host socket, as a softirq fills a 
 | a name lookup | a thread of its own, as a resolver blocks |
 | a guest's timeout | a clock the guest polls beside the socket |
 
-The host keeps no timer. A wait the deadline ends traps the run, and the run's end releases every socket it held.
+A lookup, a response, and a request body are each a file on one anonymous inode, as an eventfd is. A Wasm Driver therefore waits on files alone, and the posture decides when a clock beside them is due. The host keeps no timer. A wait the deadline ends traps the run, and the run's end releases every socket it held.
 
 ## Without a Grant
 
