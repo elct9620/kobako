@@ -67,7 +67,7 @@ module Kobako
     # One rule an +:http+ endpoint judges a request by: whether it +allow+s or
     # denies, its +method+ uppercase or +nil+ for any, and a +path+ pattern,
     # where <tt>*</tt> stands for one segment and <tt>**</tt> for any number.
-    class Rule
+    class HttpRule
       attr_reader :allow, :method, :path
 
       def initialize(allow:, method:, path:)
@@ -81,19 +81,19 @@ module Kobako
     # The rules a block given to Builder#endpoint adds to its endpoint.
     class Rules
       def initialize # :nodoc:
-        @rules = [] # : Array[Rule]
+        @rules = [] # : Array[HttpRule]
       end
 
       # Allow +method+, or +:any+, on paths +path+ matches. Returns +self+.
       def allow(method, path)
-        @rules << Rule.new(allow: true, method: method, path: path)
+        @rules << HttpRule.new(allow: true, method: method, path: path)
         self
       end
 
       # Deny +method+, or +:any+, on paths +path+ matches; a denial wins over
       # any allowance. Returns +self+.
       def deny(method, path)
-        @rules << Rule.new(allow: false, method: method, path: path)
+        @rules << HttpRule.new(allow: false, method: method, path: path)
         self
       end
 

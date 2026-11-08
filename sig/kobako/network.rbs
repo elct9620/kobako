@@ -11,7 +11,7 @@ module Kobako
       attr_reader port: Integer
       attr_reader protocol: protocol
       attr_reader addresses: Array[Symbol | String]
-      attr_reader rules: Array[Rule]
+      attr_reader rules: Array[HttpRule]
 
       def self.new: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped, ?rules: untyped) -> Endpoint
 
@@ -32,7 +32,7 @@ module Kobako
       def self.new: (host: String, port: Integer, protocol: protocol) -> Connection
     end
 
-    class Rule
+    class HttpRule
       attr_reader allow: bool
       attr_reader method: String?
       attr_reader path: String
@@ -41,7 +41,7 @@ module Kobako
     end
 
     class Rules
-      @rules: Array[Rule]
+      @rules: Array[HttpRule]
 
       def initialize: () -> void
 
@@ -49,7 +49,7 @@ module Kobako
 
       def deny: (untyped method, untyped path) -> self
 
-      def to_a: () -> Array[Rule]
+      def to_a: () -> Array[HttpRule]
     end
 
     class Credential
