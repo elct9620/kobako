@@ -1095,7 +1095,7 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a guest holding a network Grant |
-| When | it connects a TCP socket, or streams a UDP socket, to the unspecified address, port 0, a broadcast, or a multicast address, or binds a UDP socket to a multicast address |
+| When | it connects or streams to the unspecified address, port 0, a broadcast, or a multicast address. It binds a UDP socket to a multicast address |
 | Then | each answers `invalid-argument` before the socket hooks are asked, as wasmtime's checks answer them |
 
 ## `NW-090` A second start while one is under way answers concurrency-conflict
@@ -1133,3 +1133,27 @@ endpoint "api.example.com", port: 443
 | Given | a connected socket's output stream, whose `check-write` permitted some bytes |
 | When | the guest writes those bytes, then one more without asking `check-write` again |
 | Then | the first write succeeds and the second traps, as `io.wit` says a write past the last permit must |
+
+## `NW-093` A request's parts are judged as they are set
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-040` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest building a request through `wasi:http` |
+| When | it sets an authority with a bad port, the paths `""` and `"?q"`, and a header with a control byte |
+| Then | the authority and the header answer an error as they are set, as wasmtime's do. The paths are taken as `/` and `/?q` |
+
+## `NW-094` A response's header list refuses a change before it reads the change
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-041` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a response's headers, which it cannot change |
+| When | it appends a header whose name is no token |
+| Then | the append answers `invalid-syntax`, as wasmtime reads a header before it finds the list immutable |
