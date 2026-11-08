@@ -22,9 +22,11 @@ endpoint "api.example.com", port: 443
 
 - `test/e2e/test_network.rb`
 - `test/e2e/test_network_tcp.rb`
+- `test/e2e/test_network_tcp_cruby.rb`
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_cruby.rb`
+- `test/e2e/test_network_http_timeout.rb`
 - `test/e2e/test_network_http_policy.rb`
 - `test/e2e/test_network_https.rb`
 - `test/e2e/test_network_udp.rb`
@@ -804,3 +806,39 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server that answers once the script closes its write side |
 | When | the script selects the socket to read, closes its write side, and selects again. Then it selects `$stdout` and the socket to write |
 | Then | `TCPSocket` descends from `IPSocket`, `BasicSocket`, and `IO`, and its `fileno` is an Integer. The first select times out with `nil`. The second answers the socket readable, and the third answers both writable |
+
+## `NW-066` An IPv6 family or literal raises Errno::EAFNOSUPPORT
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a network entry, and a guest that speaks only IPv4 |
+| When | the script opens a `TCPSocket` to `::1`, or a `UDPSocket` of `Socket::AF_INET6` |
+| Then | each raises `Errno::EAFNOSUPPORT`, as Linux refuses a family it does not carry |
+
+## `NW-067` A script's TCPSocket takes CRuby's call shapes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers once the script closes its write side |
+| When | the script connects with `connect_timeout:`, writes several strings in one call, and reads with `gets(sep)` and `readpartial(n, buf)` |
+| Then | each answers as CRuby's does. A local port the script chooses raises `Errno::EACCES`, and an unknown keyword raises `ArgumentError` |
+
+## `NW-068` A script's Net::HTTP raises Net::ReadTimeout past its read timeout
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a loopback server that accepts and never answers |
+| When | the script sends a GET with `read_timeout` set to a tenth of a second |
+| Then | it raises `Net::ReadTimeout`, a `Timeout::Error`, once the limit passes. Each timeout starts at 60 seconds, as CRuby's does. The connect counts against `read_timeout`, since `wasi:http` shows the guest no connect apart |
