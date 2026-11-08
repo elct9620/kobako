@@ -976,3 +976,15 @@ endpoint "api.example.com", port: 443
 | Given | a UDP endpoint naming a loopback peer |
 | When | the script selects a new `UDPSocket` to write and writes to it. Then it connects the socket to the peer and writes two strings |
 | Then | `UDPSocket` descends from `IPSocket`, `BasicSocket`, and `IO`, and its `fileno` is an Integer. The select answers the socket writable. The first write raises `Errno::EDESTADDRREQ`, as CRuby's does. The peer reads the two strings as one datagram |
+
+## `NW-080` A script's TCPSocket carries no TLS of its own
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-048`, `NW-065` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a network Grant |
+| When | the script names `OpenSSL::SSL::SSLSocket` to wrap a `TCPSocket` |
+| Then | it raises `NameError`, where CRuby wraps the socket, since the guest has no TLS stack. TLS reaches the script only through an `https` request, which the host ends |
