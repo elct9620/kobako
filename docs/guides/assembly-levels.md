@@ -66,7 +66,7 @@ The Posture is yours to lower, and it defaults to hermetic.
 |---|---|
 | Codec | MessagePack |
 | capability | `kobako-io` only |
-| Posture | hermetic by default; `profile: :permissive` brings no live clock, since the bundled Guest Binary imports none |
+| Posture | hermetic by default; `profile: :permissive` lets a wait take host time |
 | Engine | wasmtime |
 | invocation flows | the provided `MrbGuest` flows |
 

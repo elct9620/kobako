@@ -65,8 +65,8 @@ A permissive guest's inode number tells entries apart, and nothing outside the p
 network entry brings.
 Requesting `:permissive` trades that reproducibility for real time and entropy;
 every other guarantee holds on both rungs. Live time and entropy reach only a
-third-party guest: the bundled Guest Binaries import no clock and give scripts
-no randomness.
+third-party guest. The bundled Guest Binaries read no clock, using one only to
+bound a wait, and give scripts no randomness.
 
 The request is also a floor. Keep the default when the engine is swappable. An
 engine that cannot deny ambient authority is then refused at construction, not

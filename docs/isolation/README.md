@@ -41,7 +41,7 @@ The rows run in the order one system call passes through them. The boundary row 
 
 ## Driver Role
 
-`kobako-runtime` decides the answers, and the Wasm Driver only encodes. A judgment belongs to the Wasm Driver in two cases. Either it would vanish under preview2, or it is a check a syscall entry makes itself, such as which descriptor a call takes. Every other judgment belongs to `kobako-runtime`. Clocks, the environment, and random bytes are answered by native WASI instead, with the frozen sources wired in by the Wasm Driver.
+`kobako-runtime` decides the answers, and the Wasm Driver only encodes. A judgment belongs to the Wasm Driver in two cases. Either it would vanish under preview2, or it is a check a syscall entry makes itself, such as which descriptor a call takes. Every other judgment belongs to `kobako-runtime`. Reading a clock, the environment, and random bytes are answered by native WASI instead, with the frozen sources wired in by the Wasm Driver. A clock's `subscribe-duration` is kobako's, since its pollable waits beside a socket's.
 
 ```
 +- Wasm Driver: encode ----------------+
@@ -130,7 +130,8 @@ The same test applies beyond the filesystem. kobako answers only what native WAS
 
 | Concern | Answered by | Reason |
 |---|---|---|
-| clocks, environment, random | native WASI | the Wasm Driver wires in the frozen sources |
+| reading a clock, environment, random | native WASI | the Wasm Driver wires in the frozen sources |
+| a clock's `subscribe-duration` | `kobako-runtime` | its pollable waits beside a socket's |
 | Preamble, Channel | `kobako-runtime` | kobako's own concepts |
 | kobako ABI host side | `kobako-runtime` | no Engine supports it |
 | memory cap accounting | `kobako-runtime` | the growth hook stays in the Wasm Driver |

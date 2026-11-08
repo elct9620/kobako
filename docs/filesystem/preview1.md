@@ -11,19 +11,20 @@ The Wasm Driver encodes each WASI preview1 file call onto the VFS in `kobako-run
 
 A judgment belongs to the Wasm Driver when it would vanish with preview2, or when it is a check a syscall entry makes itself. Every other judgment belongs to `kobako-runtime`.
 
-## Two ABIs
+## Three ABIs
 
-The Guest Binary crosses only two ABIs. `wasm-tools print` shows the same 26 imports in all five variants.
+The Guest Binary crosses three ABIs. `wasm-tools print` shows the same 94 imports in all five variants.
 
 | ABI | Imports | Answered by |
 |---|---|---|
 | kobako ABI | `env.__kobako_upcall` | `kobako-runtime`'s `endpoint` |
-| WASI file calls | 21 `fd_*` and `path_*` | kobako |
+| WASI file calls | 21 `fd_*` and `path_*`, and `poll_oneoff` | kobako |
 | WASI rest | `environ_*`, `random_get`, `proc_exit` | wasmtime-wasi |
+| WASI 0.2 | 67 `wasi:*`, for sockets, HTTP, and their waits | kobako |
 
 The Wasm Driver only wires the kobako ABI's import to `endpoint`.
 
-kobako answers 36 of the 46 preview1 imports: every `fd_*`, `path_*`, and `sock_*` call, and `poll_oneoff`. Those are the calls that read the descriptor table, so the guest stays on one table where each Mount is a preopen. The 15 the Guest Binary never imports serve a third-party guest. The other ten read no descriptor and stay wasmtime-wasi's.
+kobako answers 36 of the 46 preview1 imports: every `fd_*`, `path_*`, and `sock_*` call, and `poll_oneoff`. Those are the calls that read the descriptor table, so the guest stays on one table where each Mount is a preopen. The 14 the Guest Binary never imports serve a third-party guest. The other ten read no descriptor and stay wasmtime-wasi's.
 
 ## Syscall Table
 

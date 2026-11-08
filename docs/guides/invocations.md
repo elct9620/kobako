@@ -9,19 +9,20 @@ setup (a) --> seal --> invocation 1 --> Execution
                    +-> ...
 ```
 
-- (a) `bind`, `mount`, `preload`, `install`, and `flag`.
+- (a) `bind`, `mount`, `network`, `preload`, `install`, and `flag`.
 
 A Sandbox keeps nothing from one Invocation to the next, so the same Sandbox
 serves many of them.
 
 ## Invocation Lifecycle
 
-The first `#eval` or `#run` seals the Sandbox. Services, mounts, snippets, and
-flags then stay fixed, and a later registration raises `ArgumentError`.
+The first `#eval` or `#run` seals the Sandbox. Services, mounts, network
+entries, snippets, and flags then stay fixed, and a later registration raises
+`ArgumentError`.
 
 Each Invocation then takes these steps:
 
-1. Resolve this run's bindings: `ctx.bind`, `ctx.mount`, and Extension providers.
+1. Resolve this run's bindings: `ctx.bind`, `ctx.mount`, `ctx.network`, and Extension providers.
 2. Start from the canonical boot state, baked into the Guest Binary at build time.
 3. Replay the preloaded snippets in insertion order.
 4. Run `eval(source)` or `run(:Target, *args, **kwargs)`.
@@ -111,8 +112,8 @@ A `SandboxError` or `ServiceError` from the guest carries where it happened.
 
 ### Host Exceptions
 
-A Service, a mount's block, or a Ruby Filesystem is your code running inside
-the run. What it raises splits by class.
+A Service, a mount's block, a Ruby Filesystem, or a network entry's policy or
+credential is your code running inside the run. What it raises splits by class.
 
 | Raised by your code | Result |
 |---|---|

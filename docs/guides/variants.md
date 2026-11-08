@@ -25,6 +25,7 @@ the JSON capability ([json](../spec/behavior/json.md)).
 | curated mrbgem allowlist | the standard-library subset |
 | IO / Kernel write ([io](../spec/behavior/io.md)) | the base capability, never an opt-in axis |
 | File and Dir ([file](../spec/behavior/file.md), [dir](../spec/behavior/dir.md)) | the guest's half of a Mount, reaching nothing until one is mounted |
+| `TCPSocket`, `UDPSocket`, and `Net::HTTP` ([network](../spec/behavior/network.md)) | the guest's half of a network entry, reaching nothing until one is given |
 
 ## Variant Matrix
 
@@ -68,8 +69,8 @@ sleep, or random-seed gem enters it.
 | collections | `mruby-array-ext`, `mruby-hash-ext`, `mruby-enum-ext`, `mruby-range-ext` |
 | objects and text | `mruby-object-ext`, `mruby-proc-ext`, `mruby-string-ext`, `mruby-symbol-ext` |
 
-Guest IO writes to stdout, stderr, and the files it opened, and to no other
-descriptor.
+Guest IO writes to stdout, stderr, and the files and sockets it opened, and to
+no other descriptor.
 
 ### Regexp Surface
 

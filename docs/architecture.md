@@ -24,9 +24,10 @@ An Engine is the WebAssembly runtime that executes a Guest Binary, such as wasmt
 |---|---|
 | every preview1 call that reads the descriptor table: `fd_*`, `path_*`, `sock_*`, `poll_oneoff` | each Mount is a descriptor, and one table must answer every call that reads one |
 | every `wasi:sockets` and `wasi:http` import, and the `wasi:io` they stand on | a socket must pass the endpoints a Grant names, which no Engine knows |
+| the monotonic clock's `subscribe-duration` | its pollable waits in kobako's `wasi:io`, beside a socket's |
 | the host side of the kobako ABI | no Engine knows that ABI |
 
-Arguments, environment, clocks, process, scheduling, and randomness stay with the Engine's native WASI.
+Arguments, environment, reading a clock, process, scheduling, and randomness stay with the Engine's native WASI.
 
 ```
 +-------------+
@@ -58,7 +59,8 @@ kobako meets WASI at one layer and follows its versions by adding encodings. Why
 | Question | Answer |
 |---|---|
 | where kobako replaces WASI | the core-module imports, for the calls that read the descriptor table |
-| how a new WASI version joins | as its own encoding and descriptor table, beside preview1 |
+| where kobako takes WASI 0.2 | `wasi:sockets` and `wasi:http`, imported by a core module, since preview1 has no connect |
+| how a new WASI version joins | as its own encoding and table beside preview1's, both drawing numbers from one space |
 | what every version shares | the one `kobako-runtime`, which holds the Open File |
 
 ## Code Map

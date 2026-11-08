@@ -207,8 +207,8 @@ writing to the same Filesystem. A change from anywhere else is the host's.
 | the host, or a change to a Layer outside its Overlay | no crash or deadlock; the rest is the host's |
 
 A Filesystem keeps names a walk found, so one guest's walks can speed up
-another's. The bundled Guest Binaries import no clock, so no script can time
-that. A third-party guest on `permissive`, or a script a Service hands a clock,
+another's. The bundled Guest Binaries read no clock, using one only to bound a
+wait, so no script can time that. A third-party guest on `permissive`, or a script a Service hands a clock,
 may tell which names were reached lately.
 
 ## Opened Directories
