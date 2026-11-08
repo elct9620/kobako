@@ -47,14 +47,14 @@ its `SetupError` raises from `with`.
 
 ## Network Caps
 
-Each open socket runs two host worker threads, and each HTTP request one. Two
-fixed caps bound them. A socket past either cap raises `Errno::EAGAIN` in the
+Each open socket, HTTP request, and name lookup takes one place. Two fixed
+caps bound the places. A socket past either cap raises `Errno::EAGAIN` in the
 guest, and the script goes on.
 
 | Cap | Value | Measures |
 |---|---|---|
-| per Sandbox | 64 workers | every socket and request its runs hold at once |
-| per process | 1024 workers | every Sandbox's together |
+| per Sandbox | 64 places | every socket, request, and lookup its runs hold |
+| per process | 1024 places | every Sandbox's together |
 
 ## Usage Report
 
