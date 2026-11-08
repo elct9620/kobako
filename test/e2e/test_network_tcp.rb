@@ -97,6 +97,37 @@ class TestE2ENetworkTcp < Minitest::Test
     end
   end
 
+  # Connects once more after rescuing every failure, so a run that went on
+  # reaches the listener with no Service call that would itself end the run.
+  RESCUING_CONNECT = <<~RUBY
+    begin; TCPSocket.new("127.0.0.1", 9); rescue Exception; end
+    TCPSocket.new("127.0.0.1", %<port>d)
+  RUBY
+
+  # @behavior NW-083
+  def test_an_interrupt_a_connect_policy_raises_ends_the_run
+    listener = TCPServer.new("127.0.0.1", 0)
+    port = listener.addr[1]
+
+    assert_raises(Interrupt,
+                  "an Interrupt from a connect? policy through Sandbox#eval must raise in the Host App") do
+      interrupting_sandbox(port).eval(format(RESCUING_CONNECT, port: port))
+    end
+    assert_nil listener.wait_readable(0.5),
+               "an Interrupt from a connect? policy through Sandbox#eval must end the run before its next connect"
+  ensure
+    listener&.close
+  end
+
+  # A Sandbox reaching port 9 and +port+ on loopback, whose connect? policy
+  # raises Interrupt for port 9 alone.
+  def interrupting_sandbox(port)
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:local) do |net|
+      [9, port].each { |each| net.endpoint "127.0.0.1", port: each, protocol: :tcp, addresses: [:local] }
+      net.policy(:connect) { |connection| connection.port == 9 ? raise(Interrupt) : true }
+    end
+  end
+
   # @behavior NW-021
   def test_an_entry_connect_policy_is_handed_the_connection_the_guest_named
     recorder = Recorder.new
