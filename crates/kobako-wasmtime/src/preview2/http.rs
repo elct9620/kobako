@@ -705,6 +705,74 @@ mod tests {
         );
     }
 
+    // @behavior NW-082
+    #[test]
+    fn an_exchange_the_guest_no_longer_holds_closes_its_connection() {
+        // Whether the server reads the connection closed within a few
+        // seconds once `leave` lets go of a response whose body stays open.
+        let closes = |leave: fn(&mut Option<Invocation>, IncomingBody)| {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = std::thread::spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap() > 2 {
+                    line.clear();
+                }
+                (&stream)
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\npart")
+                    .unwrap();
+                stream.set_read_timeout(Some(Wait::from_secs(5))).unwrap();
+                let mut rest = [0; 1];
+                matches!(std::io::Read::read(&mut reader, &mut rest), Ok(0))
+            });
+            let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
+            let mut guest = Some(guest(Some(vec![endpoint])));
+            let started = Instant::now();
+            let body = run_task(Some(started + Wait::from_secs(10)), || {
+                let guest = guest.as_mut().unwrap();
+                let request = get(guest, &format!("127.0.0.1:{port}"))?;
+                let future = guest
+                    .outgoing_handler_handle(request, None)?
+                    .expect("an endpoint names the authority");
+                let ready = guest.types_future_incoming_response_subscribe(future)?;
+                guest.poll_pollable_block(ready)?;
+                guest.poll_pollable_drop(ready)?;
+                let response = guest
+                    .types_future_incoming_response_get(future)?
+                    .expect("the head arrived")
+                    .expect("handed out once")
+                    .expect("the server answered");
+                guest.types_future_incoming_response_drop(future)?;
+                let body = guest
+                    .types_incoming_response_consume(response)?
+                    .expect("consumed once");
+                guest.types_incoming_response_drop(response)?;
+                Ok::<_, wasmtime::Error>(body)
+            })
+            .expect("the head answers");
+            leave(&mut guest, body);
+            server.join().unwrap()
+        };
+        let dropped = closes(|guest, body| {
+            guest
+                .as_mut()
+                .unwrap()
+                .types_incoming_body_drop(body)
+                .unwrap();
+        });
+        let ended = closes(|guest, _| {
+            guest.take();
+        });
+        assert_eq!(
+            (dropped, ended),
+            (true, true),
+            "a server holding a response body open must read the connection closed once the \
+             guest drops the body unfinished, and once the Invocation ends holding it"
+        );
+    }
+
     // @behavior NW-041
     #[test]
     fn a_forbidden_header_or_a_response_header_cannot_be_set() {

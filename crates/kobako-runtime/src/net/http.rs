@@ -852,6 +852,14 @@ impl Exchange {
     }
 }
 
+/// The last hold on an exchange lets it go, as the last `fput` of a socket's
+/// file releases it, so no exchange outlives what the guest holds of it.
+impl Drop for Exchange {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 /// What answers for the file an exchange's response is awaited on.
 struct ResponseFile(Arc<Exchange>);
 
