@@ -66,6 +66,37 @@ impl Network {
 }
 ```
 
+## `Entry::endpoints`
+
+What the Guest may reach through the entry; one playing no such role reaches
+nothing.
+
+```rust
+pub trait Entry {
+    fn endpoints(&self) -> Vec<Endpoint>;
+}
+```
+
+## `Entry::policies`
+
+The hooks the entry's policies answer; one it leaves out has no opinion.
+
+```rust
+pub trait Entry {
+    fn policies(&self) -> Policies;
+}
+```
+
+## `Entry::credentials`
+
+The credentials swapped into a request bound to the entry's own endpoints.
+
+```rust
+pub trait Entry {
+    fn credentials(&self) -> Vec<Credential>;
+}
+```
+
 ## `Policies`
 
 An entry's policies, one optional hook per decision point. A missing hook has
