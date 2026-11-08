@@ -74,7 +74,12 @@ impl InodeOperations for SockFs {
 struct SocketOps(Arc<dyn ProtoOps>);
 
 impl FileOperations for SocketOps {
+    /// A read of nothing answers zero before the socket is asked, as
+    /// `sock_read_iter` does, so it takes no datagram.
     fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
         self.0.recvmsg(buf)
     }
 

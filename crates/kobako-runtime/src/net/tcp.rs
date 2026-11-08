@@ -31,7 +31,9 @@ enum Phase {
     Unconnected,
     Connecting,
     Connected,
-    Failed(FilesystemError),
+    /// Closed by a failed connect or a reset, as `tcp_done` leaves a socket
+    /// in `TCP_CLOSE` with both sides shut down.
+    Closed,
 }
 
 struct State {
@@ -43,13 +45,17 @@ struct State {
     received: VecDeque<u8>,
     /// The peer ended its side, as a read of zero answers.
     received_end: bool,
-    received_error: Option<FilesystemError>,
+    /// The guest shut its reading side down, as `RCV_SHUTDOWN`; what arrived
+    /// still reads.
+    rcv_shut: bool,
     sending: VecDeque<u8>,
     /// The guest shut its writing side down; the FIN leaves once the buffer
     /// drains.
     send_shut: bool,
     fin_sent: bool,
-    send_error: Option<FilesystemError>,
+    /// The socket's pending failure, as `sk_err`: answered once, then
+    /// cleared, as `sock_error` swaps it with zero.
+    error: Option<FilesystemError>,
     local: Option<SocketAddr>,
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
@@ -83,11 +89,11 @@ impl TcpSock {
                 untried: VecDeque::new(),
                 received: VecDeque::new(),
                 received_end: false,
-                received_error: None,
+                rcv_shut: false,
                 sending: VecDeque::new(),
                 send_shut: false,
                 fin_sent: false,
-                send_error: None,
+                error: None,
                 local: None,
                 named: None,
                 released: false,
@@ -116,7 +122,7 @@ impl TcpSock {
         match self.state().phase {
             Phase::Connecting => return Err(FilesystemError::AlreadyInProgress),
             Phase::Connected => return Err(FilesystemError::AlreadyConnected),
-            Phase::Unconnected | Phase::Failed(_) => {}
+            Phase::Unconnected | Phase::Closed => {}
         }
         let place = open(open_connections).ok_or(FilesystemError::WouldBlock)?;
         let mut state = self.state();
@@ -150,7 +156,15 @@ impl TcpSock {
                 Err(err) => last = to_error(&err),
             }
         }
-        state.phase = Phase::Failed(last);
+        Self::close(state, last);
+    }
+
+    /// Close the socket on `err`, as `tcp_done` does after a failed connect
+    /// or a reset: `TCP_CLOSE`, both sides shut down, the failure pending.
+    fn close(state: &mut State, err: FilesystemError) {
+        Self::close_host(state);
+        state.phase = Phase::Closed;
+        state.error = Some(err);
     }
 
     /// Let the host socket go, deregistered from the reactor.
@@ -169,37 +183,43 @@ impl TcpSock {
         if state.phase != Phase::Connected {
             return;
         }
+        if let Err(err) = Self::move_bytes(state) {
+            Self::close(state, err);
+        }
+    }
+
+    /// Read what arrived and write what is queued, until the host socket
+    /// would block; a failure either way is the connection's end.
+    fn move_bytes(state: &mut State) -> Result<(), FilesystemError> {
         let Some((stream, _)) = state.host.as_mut() else {
-            return;
+            return Ok(());
         };
         let mut chunk = [0; CHUNK];
-        while state.received.len() < MAX_SOCKET_BUFFER
-            && !state.received_end
-            && state.received_error.is_none()
-        {
+        while state.received.len() < MAX_SOCKET_BUFFER && !state.received_end {
             let room = (MAX_SOCKET_BUFFER - state.received.len()).min(CHUNK);
             match stream.read(&mut chunk[..room]) {
                 Ok(0) => state.received_end = true,
                 Ok(n) => state.received.extend(&chunk[..n]),
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => state.received_error = Some(to_error(&err)),
+                Err(err) => return Err(to_error(&err)),
             }
         }
-        while !state.sending.is_empty() && state.send_error.is_none() {
+        while !state.sending.is_empty() {
             match stream.write(state.sending.as_slices().0) {
                 Ok(n) => {
                     state.sending.drain(..n);
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => state.send_error = Some(to_error(&err)),
+                Err(err) => return Err(to_error(&err)),
             }
         }
         if state.send_shut && state.sending.is_empty() && !state.fin_sent {
             let _ = stream.shutdown(Shutdown::Write);
             state.fin_sent = true;
         }
+        Ok(())
     }
 
     /// Whether the connect under way finished, as `SO_ERROR` settles a
@@ -233,13 +253,15 @@ impl TcpSock {
     }
 
     /// How the connect ended: still under way answers EAGAIN, as a
-    /// non-blocking `connect` answers `EINPROGRESS` until `SO_ERROR` settles.
+    /// non-blocking `connect` answers `EINPROGRESS` until `SO_ERROR` settles;
+    /// a failed one answers its failure, which reading `SO_ERROR` clears.
     pub fn finish_connect(&self) -> Result<(), FilesystemError> {
-        match &self.state().phase {
+        let mut state = self.state();
+        match &state.phase {
             Phase::Unconnected => Err(FilesystemError::NotConnected),
             Phase::Connecting => Err(FilesystemError::WouldBlock),
             Phase::Connected => Ok(()),
-            Phase::Failed(err) => Err(err.clone()),
+            Phase::Closed => Err(state.error.take().unwrap_or(FilesystemError::NotConnected)),
         }
     }
 
@@ -254,16 +276,16 @@ impl TcpSock {
         self.state().sending.is_empty()
     }
 
-    /// Shut the writing side down once what is queued is sent, or stop
-    /// reading, as `shutdown` does.
+    /// Shut the writing side down once what is queued is sent, or the reading
+    /// side, which still reads what arrived, as `shutdown` sets
+    /// `SEND_SHUTDOWN` and `RCV_SHUTDOWN`.
     pub fn shutdown(&self, how: Shutdown) {
         let mut state = self.state();
         if matches!(how, Shutdown::Write | Shutdown::Both) {
             state.send_shut = true;
         }
         if matches!(how, Shutdown::Read | Shutdown::Both) {
-            state.received.clear();
-            state.received_end = true;
+            state.rcv_shut = true;
         }
         self.pump_and_wake(state);
     }
@@ -305,8 +327,10 @@ impl Ready for TcpSock {
 /// TCP's answers for its socket file, as `inet_stream_ops` hands each call to
 /// `tcp_prot`.
 impl ProtoOps for TcpSock {
-    /// What the receive buffer holds, up to `buf`'s length; a drained buffer
-    /// answers EAGAIN until the peer ends, and the end reads as zero.
+    /// What the receive buffer holds, up to `buf`'s length, as
+    /// `tcp_recvmsg_locked` copies what is queued first. A drained buffer then
+    /// answers a pending failure once, and the end as zero; it answers EAGAIN
+    /// until either comes, and ENOTCONN on a socket that never connected.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
         if !state.received.is_empty() {
@@ -317,31 +341,29 @@ impl ProtoOps for TcpSock {
             self.pump_and_wake(state);
             return Ok(take);
         }
-        if let Some(err) = &state.received_error {
-            return Err(err.clone());
+        if let Some(err) = state.error.take() {
+            return Err(err);
         }
-        match (&state.phase, state.received_end) {
-            (_, true) => Ok(0),
-            (Phase::Unconnected | Phase::Failed(_), false) => Err(FilesystemError::NotConnected),
-            _ => Err(FilesystemError::WouldBlock),
+        match state.phase {
+            _ if state.received_end || state.rcv_shut => Ok(0),
+            Phase::Closed => Ok(0),
+            Phase::Unconnected => Err(FilesystemError::NotConnected),
+            Phase::Connecting | Phase::Connected => Err(FilesystemError::WouldBlock),
         }
     }
 
     /// Queue what fits of `buf`, sent as the host socket takes it; a full
-    /// buffer answers EAGAIN, and a shut-down writing side EPIPE.
+    /// buffer answers EAGAIN. A socket not connected answers as
+    /// `sk_stream_wait_connect` does: EAGAIN while it connects, a pending
+    /// failure once, then EPIPE. A connected one past its failure or its
+    /// writing side's shutdown answers as `sk_stream_error`: the failure
+    /// once, then EPIPE.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
-        if let Some(err) = &state.send_error {
-            return Err(err.clone());
-        }
-        if state.send_shut {
-            return Err(FilesystemError::BrokenPipe);
-        }
-        match &state.phase {
-            Phase::Connected => {}
-            Phase::Unconnected => return Err(FilesystemError::BrokenPipe),
+        match state.phase {
             Phase::Connecting => return Err(FilesystemError::WouldBlock),
-            Phase::Failed(_) => return Err(FilesystemError::NotConnected),
+            Phase::Connected if !state.send_shut && state.error.is_none() => {}
+            _ => return Err(state.error.take().unwrap_or(FilesystemError::BrokenPipe)),
         }
         let take = buf.len().min(MAX_SOCKET_BUFFER - state.sending.len());
         if take == 0 && !buf.is_empty() {
@@ -352,27 +374,29 @@ impl ProtoOps for TcpSock {
         Ok(take)
     }
 
-    /// As `tcp_poll` answers.
+    /// As `tcp_poll` answers: hung up in `TCP_CLOSE` or with both sides shut
+    /// down, readable once the reading side is, and writable unless it
+    /// connects, always so once its writing side is shut down.
     fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
         poll_wait(&self.wait, table);
         let state = self.state();
+        let closed = matches!(state.phase, Phase::Unconnected | Phase::Closed);
+        let rcv_shutdown = state.received_end || state.rcv_shut || state.phase == Phase::Closed;
+        let send_shutdown = state.send_shut || state.phase == Phase::Closed;
         let mut mask = PollMask::default();
-        if !state.received.is_empty() || state.received_end || state.received_error.is_some() {
+        if closed || (rcv_shutdown && send_shutdown) {
+            mask = mask | PollMask::HUP;
+        }
+        if !state.received.is_empty() || rcv_shutdown {
             mask = mask | PollMask::IN;
         }
         if state.phase != Phase::Connecting
-            && (state.sending.len() < MAX_SOCKET_BUFFER || state.send_error.is_some())
+            && (send_shutdown || state.sending.len() < MAX_SOCKET_BUFFER)
         {
             mask = mask | PollMask::OUT;
         }
-        if matches!(state.phase, Phase::Failed(_))
-            || state.send_error.is_some()
-            || state.received_error.is_some()
-        {
+        if state.error.is_some() {
             mask = mask | PollMask::ERR;
-        }
-        if (state.received_end && state.send_shut) || state.phase == Phase::Unconnected {
-            mask = mask | PollMask::HUP;
         }
         mask
     }
@@ -490,6 +514,79 @@ mod tests {
             Err(FilesystemError::ConnectionReset),
             "a socket file's poll after the peer reset must find ERR, as tcp_poll reads sk_err, \
              and its read must answer ECONNRESET"
+        );
+    }
+
+    /// A socket file whose peer reset it, as a close with bytes unread does.
+    fn reset() -> File {
+        let (_sock, mut file, peer) = connected();
+        file.write(b"unread").unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        drop(peer);
+        wait_for(&file, PollMask::ERR);
+        file
+    }
+
+    // @behavior RT-357
+    #[test]
+    fn a_reset_socket_answers_its_error_once_then_as_closed() {
+        let mut file = reset();
+        let mut buf = [0; 8];
+        assert_eq!(
+            (file.read(&mut buf), file.read(&mut buf), file.write(b"x")),
+            (
+                Err(FilesystemError::ConnectionReset),
+                Ok(0),
+                Err(FilesystemError::BrokenPipe)
+            ),
+            "File::read of a reset socket must answer ECONNRESET once and then zero, and \
+             File::write then EPIPE, as sock_error clears sk_err"
+        );
+    }
+
+    // @behavior RT-358
+    #[test]
+    fn a_reset_or_refused_socket_polls_hung_up() {
+        let closed = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let addr = closed.local_addr().unwrap();
+        drop(closed);
+        let refused = sock_alloc_file(dialing(addr), &Arc::default());
+        wait_for(&refused, PollMask::ERR);
+        let every = PollMask::IN | PollMask::OUT | PollMask::ERR | PollMask::HUP;
+        assert_eq!(
+            (reset().poll(None), refused.poll(None)),
+            (every, every),
+            "a socket file whose peer reset it, and one whose connect was refused, must each \
+             poll IN, OUT, ERR, and HUP, as tcp_poll answers TCP_CLOSE"
+        );
+    }
+
+    // @behavior RT-359
+    #[test]
+    fn a_shut_down_reading_side_reads_what_arrived() {
+        let (sock, mut file, mut peer) = connected();
+        peer.write_all(b"queued").unwrap();
+        wait_for(&file, PollMask::IN);
+        sock.shutdown(Shutdown::Read);
+        let mut buf = [0; 16];
+        let first = file.read(&mut buf).map(|n| buf[..n].to_vec());
+        assert_eq!(
+            (first, file.read(&mut buf)),
+            (Ok(b"queued".to_vec()), Ok(0)),
+            "File::read after TcpSock::shutdown(Read) must still read the bytes that arrived, \
+             then zero"
+        );
+    }
+
+    // @behavior RT-360
+    #[test]
+    fn a_zero_byte_read_of_a_tcp_socket_answers_zero() {
+        let (_sock, mut file, _peer) = connected();
+        assert_eq!(
+            file.read(&mut []),
+            Ok(0),
+            "File::read of zero bytes from a connected socket with nothing queued must answer \
+             zero, as sock_read_iter does, not EAGAIN"
         );
     }
 
