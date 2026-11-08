@@ -65,6 +65,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/abi.rs`
 - `crates/kobako-wasmtime/src/wasi.rs`
 - `crates/kobako-wasmtime/src/preview1/poll.rs`
+- `crates/kobako-wasmtime/src/preview1/sock.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako-wasmtime/src/preview1/fd.rs`
 - `crates/kobako-wasmtime/src/preview1/path.rs`
@@ -3931,3 +3932,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a preview2 handle of one kind |
 | When | it drops the handle through another kind's drop, or hands it where another kind is taken |
 | Then | the call traps and the handle stays, as the Canonical ABI traps on a handle of the wrong type |
+
+## `RT-349` A preview1 read or write of a socket's number reaches its socket file
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-347` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest whose preview2 socket connected to a peer |
+| When | it writes and then reads through preview1 on the socket's number, and asks its `fdstat` |
+| Then | the peer reads what was written and the guest reads the peer's reply. The `fdstat` reports a non-blocking socket stream, as one fdtable holds a socket's file. A `sock_*` call on the number answers ENOTSUP, since the rest of a socket's calls go through preview2 |
+
+## `RT-350` A preview1 poll of a socket's number waits for its peer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-349` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest whose preview2 socket connected to a peer that has sent nothing |
+| When | it polls the socket's number to read, and the peer then writes |
+| Then | the poll answers the subscription once the bytes arrive, not before |
