@@ -4076,3 +4076,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a connected TCP socket with nothing to read |
 | When | the guest reads zero bytes from the socket's file |
 | Then | the read answers zero, as `sock_read_iter` does, not EAGAIN |
+
+## `RT-363` A socket's number answers a file's calls as Linux answers them on a socket
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-349` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a new preview2 TCP socket and a new UDP socket |
+| When | it seeks, tells, reads or writes at an offset, syncs, sizes, advises, and lists each number through preview1. It then asks each fdstat |
+| Then | a position or an offset answers ESPIPE, a sync or a size EINVAL, and a listing ENOTDIR. Advice succeeds, as Linux answers each on a socket. The fdstat reports a TCP socket as a stream and a UDP socket as datagrams |
