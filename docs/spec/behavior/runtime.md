@@ -4028,3 +4028,51 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a socket that connected |
 | When | a Wasm Driver asks it to connect again |
 | Then | it answers EISCONN and dials nothing, as Linux's `__inet_stream_connect` answers |
+
+## `RT-357` A reset socket answers its error once, then as closed
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-351` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket whose peer reset it |
+| When | the guest reads twice, then writes |
+| Then | the first read answers ECONNRESET and the second zero, as `sock_error` clears `sk_err`. The write answers EPIPE, as `sk_stream_error` does |
+
+## `RT-358` A socket a reset or a refused connect closed polls hung up
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-351` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a socket its peer reset, and a socket whose connect was refused |
+| When | each socket's file is polled |
+| Then | each finds IN, OUT, ERR, and HUP, as `tcp_poll` answers a socket `tcp_done` left in `TCP_CLOSE` |
+
+## `RT-359` A socket's shut-down reading side reads what arrived
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-343` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket whose peer sent bytes the guest has not read |
+| When | the guest shuts the socket's reading side down, then reads |
+| Then | it reads the bytes, then zero, as `RCV_SHUTDOWN` stops nothing queued |
+
+## `RT-360` A read of no bytes from a socket answers zero
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-349` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket with nothing to read |
+| When | the guest reads zero bytes from the socket's file |
+| Then | the read answers zero, as `sock_read_iter` does, not EAGAIN |
