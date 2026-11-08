@@ -6,16 +6,17 @@ mod family;
 mod http;
 mod lookup;
 mod namespace;
+mod reactor;
 mod socket;
 mod tcp;
 mod tls;
 mod udp;
 mod workers;
 
-pub use family::{Datagram, HostInet, ProtocolFamily, Stream};
+pub use family::{HostInet, ProtocolFamily};
 pub use http::{
-    Connector, Exchange, HttpError, Outbound, OutgoingRequest, RequestBody, Response, ResponseHead,
-    Scheme, UreqOutbound,
+    Connector, Exchange, HttpError, HyperOutbound, Outbound, OutgoingRequest, RequestBody,
+    Response, ResponseBody, ResponseHead, Scheme, Sending, Transport,
 };
 pub use lookup::{LookupError, NameLookup};
 pub use namespace::Namespace;

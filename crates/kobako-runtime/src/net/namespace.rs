@@ -6,7 +6,6 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Instant;
 
 use super::http::{
     split_authority, Connector, Exchange, HttpError, Outbound, OutgoingRequest, Scheme, Swap,
@@ -27,8 +26,8 @@ const VIRTUAL_BASE: u32 = u32::from_be_bytes([198, 18, 0, 0]);
 const VIRTUAL_SIZE: u32 = 1 << 17;
 
 /// What the guest may reach, which policies judge each lookup and connect, the
-/// backend that dials it, the Sandbox's workers each socket counts against, and
-/// the virtual addresses handed out.
+/// backend that dials it, the Sandbox's cap each socket counts against, and the
+/// virtual addresses handed out.
 pub struct Namespace {
     ruleset: Arc<Ruleset>,
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
@@ -46,8 +45,8 @@ pub struct Namespace {
 
 impl Namespace {
     /// The namespace every entry of `networks` makes together, dialing through
-    /// `family` and sending HTTP through `outbound` on workers counted against
-    /// `workers`, refused for an endpoint the ruleset cannot compile.
+    /// `family`, sending HTTP through `outbound`, and resolving names on
+    /// threads counted against `workers`, refused for an endpoint the ruleset cannot compile.
     pub fn new<'a>(
         networks: impl IntoIterator<Item = &'a Network>,
         family: Arc<dyn ProtocolFamily>,
@@ -79,17 +78,12 @@ impl Namespace {
         })
     }
 
-    /// An HTTP request in flight, as `cred`, giving up at `deadline`. The
+    /// An HTTP request in flight, as `cred`. The
     /// socket hooks judge the authority the guest named, a name passing the
     /// `resolve` policies too, and an `http` endpoint must name it at its port;
     /// a literal address passes the ruleset as itself, so a virtual one is
     /// refused. Any refusal answers `Denied`, and nothing is sent.
-    pub fn send(
-        &self,
-        cred: &Cred,
-        request: OutgoingRequest,
-        deadline: Option<Instant>,
-    ) -> Result<Arc<Exchange>, HttpError> {
+    pub fn send(&self, cred: &Cred, request: OutgoingRequest) -> Result<Arc<Exchange>, HttpError> {
         let (host, port) =
             split_authority(&request.authority, request.scheme).ok_or(HttpError::Denied)?;
         let literal = host.parse::<IpAddr>().ok();
@@ -137,14 +131,14 @@ impl Namespace {
         };
         let mut request = request;
         request.swaps = swaps;
-        let connector = Connector::new(host, port, self.ruleset.clone(), self.family.clone());
-        Exchange::start(
-            self.outbound.clone(),
-            request,
-            connector,
-            deadline,
-            &self.workers,
-        )
+        let connector = Connector::new(
+            host,
+            port,
+            self.ruleset.clone(),
+            self.family.clone(),
+            self.workers.clone(),
+        );
+        Exchange::start(self.outbound.clone(), request, connector, &self.workers)
     }
 
     /// The credentials bound to `sent`, a request over `https`: an entry's own
@@ -221,36 +215,28 @@ impl Namespace {
     }
 
     /// A TCP socket connecting to `addr`, the address the guest named, as
-    /// `cred`, giving up at `deadline`. The socket hooks judge what the guest
-    /// named first, in Linux's order: the modules `cred` holds, then each
+    /// `cred`. The socket hooks judge what the guest named first, in Linux's order: the modules `cred` holds, then each
     /// entry's policy, any refusal winning. A literal address then passes the
     /// ruleset as itself. A virtual one is translated to its name's real
     /// addresses, an unmapped one refused as any refused destination is; each
     /// real address the ruleset lets the name lead to is dialed exactly, in
     /// turn, until one answers, so a name answering `::1` first still reaches
     /// `127.0.0.1`.
-    pub fn connect(
-        &self,
-        cred: &Cred,
-        addr: SocketAddr,
-        deadline: Option<Instant>,
-    ) -> Result<Arc<TcpSock>, FilesystemError> {
+    pub fn connect(&self, cred: &Cred, addr: SocketAddr) -> Result<Arc<TcpSock>, FilesystemError> {
         let real = self.admit(cred, addr, Protocol::Tcp)?;
-        TcpSock::connect(self.family.clone(), real, deadline, &self.workers)
+        TcpSock::connect(self.family.clone(), real, &self.workers)
     }
 
     /// A UDP socket streaming with `addr`, the one peer the guest named, as
-    /// `cred`, giving up at `deadline`. It passes the same steps a TCP connect
-    /// does, as `udp_pre_connect` runs `connect4`; UDP opens no handshake, so
+    /// `cred`. It passes the same steps a TCP connect does, as `udp_pre_connect` runs `connect4`; UDP opens no handshake, so
     /// the first real address the ruleset admits is its peer.
     pub fn connect_datagram(
         &self,
         cred: &Cred,
         addr: SocketAddr,
-        deadline: Option<Instant>,
     ) -> Result<Arc<UdpSock>, FilesystemError> {
         let real = self.admit(cred, addr, Protocol::Udp)?;
-        UdpSock::connect(self.family.clone(), real[0], deadline, &self.workers)
+        UdpSock::connect(self.family.clone(), real[0], &self.workers)
     }
 
     /// The real addresses a `protocol` connection to `addr` may dial, once the
@@ -310,7 +296,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::net::{Stream, SANDBOX_WORKERS};
+    use crate::net::SANDBOX_WORKERS;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
     use crate::security::prepare_creds_within;
     use crate::vfs::SecurityOperations;
@@ -320,11 +306,7 @@ mod tests {
     struct Counted(AtomicUsize);
 
     impl ProtocolFamily for Counted {
-        fn connect(
-            &self,
-            _addr: SocketAddr,
-            _timeout: Option<Duration>,
-        ) -> io::Result<Box<dyn Stream>> {
+        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(io::ErrorKind::ConnectionRefused.into())
         }
@@ -364,7 +346,7 @@ mod tests {
         within_workers(allows, SANDBOX_WORKERS)
     }
 
-    /// A namespace whose Sandbox runs at most `workers` workers.
+    /// A namespace whose Sandbox holds at most `workers` sockets.
     fn within_workers(allows: &[bool], workers: usize) -> (Namespace, Arc<Counted>, Seen) {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let networks = allows
@@ -382,7 +364,7 @@ mod tests {
         let namespace = Namespace::new(
             &networks,
             family.clone(),
-            Arc::new(crate::net::UreqOutbound::new()),
+            Arc::new(crate::net::HyperOutbound::new()),
             Workers::new(workers),
         )
         .expect("the endpoints compile");
@@ -391,15 +373,14 @@ mod tests {
 
     // @behavior NW-022
     #[test]
-    fn a_connect_past_the_sandboxs_workers_answers_eagain() {
-        let (namespace, family, _) = within_workers(&[true], 1);
+    fn a_connect_past_the_sandboxs_cap_answers_eagain() {
+        let (namespace, family, _) = within_workers(&[true], 0);
         let cred = prepare_creds_within(&[], None);
-        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap(), None);
+        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::WouldBlock))
                 && family.0.load(Ordering::SeqCst) == 0,
-            "Namespace::connect whose socket's workers exceed the Sandbox's cap must answer \
-             EAGAIN, dialing nothing"
+            "Namespace::connect past the Sandbox's cap must answer EAGAIN, dialing nothing"
         );
     }
 
@@ -414,7 +395,7 @@ mod tests {
     fn a_connect_policy_refuses_what_the_endpoints_allow() {
         let (namespace, family, seen) = namespace(&[true, false]);
         let cred = prepare_creds_within(&[], None);
-        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap(), None);
+        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::PermissionDenied))
                 && family.0.load(Ordering::SeqCst) == 0,
@@ -434,7 +415,7 @@ mod tests {
         let (namespace, family, _) = namespace(&[true, true]);
         let cred = prepare_creds_within(&[], None);
         let sock = namespace
-            .connect(&cred, "127.0.0.1:4567".parse().unwrap(), None)
+            .connect(&cred, "127.0.0.1:4567".parse().unwrap())
             .expect("every policy allows");
         settle(&sock);
         assert_eq!(
@@ -458,7 +439,7 @@ mod tests {
     fn a_security_module_refuses_before_any_entry_policy() {
         let (namespace, family, seen) = namespace(&[true]);
         let cred = prepare_creds_within(&[Arc::new(NoConnect)], None);
-        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap(), None);
+        let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::PermissionDenied))
                 && seen.lock().unwrap().is_empty()
@@ -480,11 +461,7 @@ mod tests {
     }
 
     impl ProtocolFamily for Resolving {
-        fn connect(
-            &self,
-            addr: SocketAddr,
-            _timeout: Option<Duration>,
-        ) -> io::Result<Box<dyn Stream>> {
+        fn connect(&self, addr: SocketAddr) -> io::Result<std::net::TcpStream> {
             self.dialed.lock().unwrap().push(addr);
             Err(io::ErrorKind::ConnectionRefused.into())
         }
@@ -515,7 +492,7 @@ mod tests {
         Namespace::new(
             [&network],
             family,
-            Arc::new(crate::net::UreqOutbound::new()),
+            Arc::new(crate::net::HyperOutbound::new()),
             Workers::new(SANDBOX_WORKERS),
         )
         .expect("the endpoints compile")
@@ -581,7 +558,7 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         let at = looked_up(&namespace, "Cache.Internal.");
         let sock = namespace
-            .connect(&cred, at, None)
+            .connect(&cred, at)
             .expect("the endpoint leads there");
         while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
@@ -591,7 +568,7 @@ mod tests {
             at.ip().to_string() == "198.18.0.0"
                 && *family.dialed.lock().unwrap() == vec!["127.0.0.1:6379".parse().unwrap()]
                 && matches!(
-                    namespace.connect(&cred, public_only, None),
+                    namespace.connect(&cred, public_only),
                     Err(FilesystemError::PermissionDenied)
                 ),
             "a connect to a name's virtual address must dial the real address its endpoint's \
@@ -607,7 +584,7 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         assert!(
             matches!(
-                namespace.connect(&cred, "198.18.0.9:6379".parse().unwrap(), None),
+                namespace.connect(&cred, "198.18.0.9:6379".parse().unwrap()),
                 Err(FilesystemError::PermissionDenied)
             ),
             "a connect to a virtual address no lookup handed out must be refused as EACCES"
@@ -627,7 +604,7 @@ mod tests {
         *family.answers.lock().unwrap() = vec!["127.0.0.1".parse().unwrap()];
         let cred = prepare_creds_within(&[], None);
         let sock = namespace
-            .connect(&cred, at, None)
+            .connect(&cred, at)
             .expect("the endpoint leads there");
         while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
@@ -657,7 +634,7 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         assert!(
             matches!(
-                namespace.connect(&cred, at, None),
+                namespace.connect(&cred, at),
                 Err(FilesystemError::PermissionDenied)
             ) && family.dialed.lock().unwrap().is_empty(),
             "a name resolving to the host's own public address must be refused by an endpoint \
@@ -677,7 +654,7 @@ mod tests {
         let at = looked_up(&namespace, "localhost");
         let cred = prepare_creds_within(&[], None);
         let sock = namespace
-            .connect(&cred, at, None)
+            .connect(&cred, at)
             .expect("the endpoint leads there");
         while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
@@ -714,14 +691,14 @@ mod tests {
         let namespace = Namespace::new(
             [&network],
             Arc::new(crate::net::HostInet),
-            Arc::new(crate::net::UreqOutbound::new()),
+            Arc::new(crate::net::HyperOutbound::new()),
             Workers::new(SANDBOX_WORKERS),
         )
         .unwrap();
         let cred = prepare_creds_within(&[], None);
-        let admitted = namespace.connect_datagram(&cred, peer.local_addr().unwrap(), None);
+        let admitted = namespace.connect_datagram(&cred, peer.local_addr().unwrap());
         let refused =
-            namespace.connect_datagram(&cred, format!("127.0.0.2:{port}").parse().unwrap(), None);
+            namespace.connect_datagram(&cred, format!("127.0.0.2:{port}").parse().unwrap());
         if let Ok(sock) = &admitted {
             crate::net::ProtoOps::release(&**sock);
         }

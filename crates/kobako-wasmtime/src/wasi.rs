@@ -17,7 +17,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
-use kobako_runtime::net::{HostInet, Namespace, UreqOutbound, Workers};
+use kobako_runtime::net::{HostInet, HyperOutbound, Namespace, Workers};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{Cred, OpenFiles};
@@ -194,7 +194,7 @@ impl Wasi {
     }
 }
 
-/// The workers a fresh Sandbox's sockets count against, for a test building
+/// The cap a fresh Sandbox's sockets count against, for a test building
 /// an invocation's context as a Driver does.
 #[cfg(test)]
 pub(crate) fn sandbox_workers() -> Arc<Workers> {
@@ -202,7 +202,7 @@ pub(crate) fn sandbox_workers() -> Arc<Workers> {
 }
 
 /// The network an invocation's Grants make, one namespace for every entry,
-/// dialed through the host's own TCP on workers counted against the
+/// dialed through the host's own TCP, each socket counted against the
 /// Sandbox's `workers`. No network Grant makes none.
 fn to_network(grants: &[Grant], workers: &Arc<Workers>) -> Result<Option<Namespace>, Trap> {
     let entries = grants
@@ -218,7 +218,7 @@ fn to_network(grants: &[Grant], workers: &Arc<Workers>) -> Result<Option<Namespa
     Namespace::new(
         entries,
         Arc::new(HostInet),
-        Arc::new(UreqOutbound::new()),
+        Arc::new(HyperOutbound::new()),
         workers.clone(),
     )
     .map(Some)

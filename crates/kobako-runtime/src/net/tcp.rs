@@ -1,28 +1,28 @@
 //! A TCP socket the guest holds, as Linux's `tcp_sock` behind a socket file.
-//! Worker threads do the blocking host I/O, as a reactor would: one connects,
-//! one reads into the receive buffer, one writes the send buffer out, and each
-//! wakes the socket's wait queue when what a poll finds changes. The guest's
-//! side never blocks on the host, so every wait passes the wait primitive.
+//! The host socket is non-blocking and the reactor watches it: each change
+//! moves what fits between the host socket and the socket's buffers, as a
+//! softirq fills `sk_receive_queue`, then wakes the socket's wait queue. A
+//! guest call moves what it can at once, so a buffer the guest drained reads
+//! on without waiting for another event.
 
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::thread;
-use std::time::Instant;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use super::family::{ProtocolFamily, Stream};
+use super::family::ProtocolFamily;
+use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{to_error, ProtoOps};
 use super::workers::{charge, Charge, Workers};
 use crate::vfs::{FilesystemError, PollMask};
 use crate::wait::WaitQueueHead;
 
-/// How much a socket holds each way before its reader stops reading and its
-/// writer refuses more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket,
-/// so a full buffer pushes back through the TCP window.
+/// How much a socket holds each way before it stops reading and refuses
+/// more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket, so a full buffer
+/// pushes back through the TCP window.
 pub const SOCKET_BUFFER: usize = 64 * 1024;
 
-/// How much one host read or write moves at once.
+/// How much one host read moves at once.
 const CHUNK: usize = 16 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,70 +34,76 @@ enum Phase {
 
 struct State {
     phase: Phase,
+    /// The host socket, and its place in the reactor.
+    host: Option<(mio::net::TcpStream, Registration)>,
+    /// The addresses still to try, should the one connecting fail.
+    untried: VecDeque<SocketAddr>,
     received: VecDeque<u8>,
     /// The peer ended its side, as a read of zero answers.
     received_end: bool,
     received_error: Option<FilesystemError>,
     sending: VecDeque<u8>,
-    /// The guest shut its writing side down; the writer sends its FIN once
-    /// the buffer drains.
+    /// The guest shut its writing side down; the FIN leaves once the buffer
+    /// drains.
     send_shut: bool,
+    fin_sent: bool,
     send_error: Option<FilesystemError>,
     local: Option<SocketAddr>,
     peer: Option<SocketAddr>,
     /// Every view the guest held is gone.
     released: bool,
+    /// The socket's place against its Sandbox's cap and the process's, given
+    /// back as it is released.
+    place: Vec<Charge>,
 }
 
-/// One TCP socket, shared by the socket file and its workers.
+/// One TCP socket, shared by the socket file and the reactor.
 pub struct TcpSock {
     state: Mutex<State>,
-    /// What the workers wait on for room or for bytes to send.
-    workers: Condvar,
     /// What a guest's poll waits on.
     wait: Arc<WaitQueueHead>,
-    /// A handle on the host stream, to shut down once released.
-    stream: Mutex<Option<Box<dyn Stream>>>,
-    deadline: Option<Instant>,
+    family: Arc<dyn ProtocolFamily>,
+    reactor: Arc<Reactor>,
+    this: Weak<Self>,
 }
 
 impl TcpSock {
     /// A socket connecting to the first of `addrs` that answers, in turn,
-    /// through `family`, giving up at `deadline`; the connect runs on a worker,
-    /// so this returns at once. Its two workers count against `workers` and the
-    /// process, and a full count answers `EAGAIN`, never a Trap, so one Sandbox
-    /// cannot end another's run.
+    /// through `family`; the connect goes on without blocking, so this returns
+    /// at once and a poll finds the socket writable once it settles. The
+    /// socket counts against `workers` and the process until released, and a
+    /// full count answers `EAGAIN`, never a Trap, so one Sandbox cannot end
+    /// another's run.
     pub fn connect(
         family: Arc<dyn ProtocolFamily>,
         addrs: Vec<SocketAddr>,
-        deadline: Option<Instant>,
         workers: &Arc<Workers>,
     ) -> Result<Arc<Self>, FilesystemError> {
-        let mut charges = charge(workers, 2).ok_or(FilesystemError::WouldBlock)?;
-        let (writer, reader) = (charges.pop(), charges.pop());
-        let sock = Arc::new(Self {
+        let place = charge(workers, 1).ok_or(FilesystemError::WouldBlock)?;
+        let reactor = Reactor::current().map_err(|err| to_error(&err))?;
+        let sock = Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 phase: Phase::Connecting,
+                host: None,
+                untried: addrs.into(),
                 received: VecDeque::new(),
                 received_end: false,
                 received_error: None,
                 sending: VecDeque::new(),
                 send_shut: false,
+                fin_sent: false,
                 send_error: None,
                 local: None,
                 peer: None,
                 released: false,
+                place,
             }),
-            workers: Condvar::new(),
             wait: Arc::default(),
-            stream: Mutex::new(None),
-            deadline,
+            family,
+            reactor,
+            this: this.clone(),
         });
-        let worker = sock.clone();
-        thread::spawn(move || {
-            let _writer = writer;
-            worker.connect_worker(family, addrs, reader);
-        });
+        sock.dial_next(&mut sock.state(), FilesystemError::InvalidInput);
         Ok(sock)
     }
 
@@ -105,157 +111,105 @@ impl TcpSock {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Wake the workers and every poller, since what they wait on changed.
-    fn changed(&self) {
-        self.workers.notify_all();
-        self.wait.wake_up();
-    }
-
-    fn time_left(&self) -> Option<std::time::Duration> {
-        self.deadline
-            .map(|at| at.saturating_duration_since(Instant::now()))
-    }
-
-    /// Connect, then write as the connect's worker while `reader`'s place
-    /// goes to a second worker reading.
-    fn connect_worker(
-        self: Arc<Self>,
-        family: Arc<dyn ProtocolFamily>,
-        addrs: Vec<SocketAddr>,
-        reader_charge: Option<Charge>,
-    ) {
-        let mut connected = Err(io::ErrorKind::InvalidInput.into());
-        for addr in addrs {
-            connected = family.connect(addr, self.time_left());
-            if connected.is_ok() {
-                break;
+    /// Start connecting to the next address left, or fail with `last` once
+    /// none is.
+    fn dial_next(&self, state: &mut State, mut last: FilesystemError) {
+        while let Some(addr) = state.untried.pop_front() {
+            let dialed = self.family.connect(addr).and_then(|stream| {
+                let mut stream = mio::net::TcpStream::from_std(stream);
+                let ready: Weak<dyn Ready> = self.this.clone();
+                let registration = self.reactor.register(&mut stream, ready)?;
+                Ok((stream, registration))
+            });
+            match dialed {
+                Ok(host) => {
+                    state.host = Some(host);
+                    return;
+                }
+                Err(err) => last = to_error(&err),
             }
         }
-        let connected = connected.and_then(|stream| {
-            let reader = stream.try_clone()?;
-            let handle = stream.try_clone()?;
-            Ok((stream, reader, handle))
-        });
-        let (writer, reader) = match connected {
-            Ok((writer, reader, handle)) => {
-                let (local, peer) = (handle.local_addr().ok(), handle.peer_addr().ok());
-                // The handle is stored before the socket reads as connected, so
-                // a release either finds it or is seen here: one of the two
-                // shuts the host socket down.
-                *self.stream.lock().unwrap_or_else(PoisonError::into_inner) = Some(handle);
-                let mut state = self.state();
-                state.local = local;
-                state.peer = peer;
-                state.phase = Phase::Connected;
-                let released = state.released;
-                drop(state);
-                if released {
-                    self.shutdown_host();
-                }
-                (writer, reader)
-            }
-            Err(err) => {
-                self.state().phase = Phase::Failed(to_error(&err));
-                self.changed();
-                return;
-            }
+        state.phase = Phase::Failed(last);
+    }
+
+    /// Let the host socket go, deregistered from the reactor.
+    fn close_host(state: &mut State) {
+        if let Some((mut stream, registration)) = state.host.take() {
+            registration.deregister(&mut stream);
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+    }
+
+    /// Move what the host socket takes and holds now, without blocking.
+    fn pump(&self, state: &mut State) {
+        if state.phase == Phase::Connecting {
+            self.settle_connect(state);
+        }
+        if state.phase != Phase::Connected {
+            return;
+        }
+        let Some((stream, _)) = state.host.as_mut() else {
+            return;
         };
-        self.changed();
-        let worker = self.clone();
-        thread::spawn(move || {
-            let _reader = reader_charge;
-            worker.read_worker(reader);
-        });
-        self.write_worker(writer);
-    }
-
-    /// Read into the receive buffer while it has room, until the peer ends,
-    /// the read fails, or the socket is released.
-    fn read_worker(self: Arc<Self>, mut stream: Box<dyn Stream>) {
-        let _ = stream.set_read_timeout(self.time_left());
-        let mut chunk = vec![0; CHUNK];
-        loop {
-            let room = {
-                let mut state = self.state();
-                while state.received.len() >= SOCKET_BUFFER && !state.released {
-                    state = self
-                        .workers
-                        .wait(state)
-                        .unwrap_or_else(PoisonError::into_inner);
-                }
-                if state.released {
-                    return;
-                }
-                SOCKET_BUFFER - state.received.len()
-            };
-            let read = stream.read(&mut chunk[..room.min(CHUNK)]);
-            let mut state = self.state();
-            let ended = match read {
-                Ok(0) => {
-                    state.received_end = true;
-                    true
-                }
+        let mut chunk = [0; CHUNK];
+        while state.received.len() < SOCKET_BUFFER
+            && !state.received_end
+            && state.received_error.is_none()
+        {
+            let room = (SOCKET_BUFFER - state.received.len()).min(CHUNK);
+            match stream.read(&mut chunk[..room]) {
+                Ok(0) => state.received_end = true,
+                Ok(n) => state.received.extend(&chunk[..n]),
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                Err(err) => state.received_error = Some(to_error(&err)),
+            }
+        }
+        while !state.sending.is_empty() && state.send_error.is_none() {
+            match stream.write(state.sending.as_slices().0) {
                 Ok(n) => {
-                    state.received.extend(&chunk[..n]);
-                    false
+                    state.sending.drain(..n);
                 }
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => false,
-                Err(err) => {
-                    state.received_error = Some(match err.kind() {
-                        io::ErrorKind::WouldBlock => FilesystemError::TimedOut,
-                        _ => to_error(&err),
-                    });
-                    true
-                }
-            };
-            drop(state);
-            self.changed();
-            if ended {
-                return;
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                Err(err) => state.send_error = Some(to_error(&err)),
             }
+        }
+        if state.send_shut && state.sending.is_empty() && !state.fin_sent {
+            let _ = stream.shutdown(Shutdown::Write);
+            state.fin_sent = true;
         }
     }
 
-    /// Write the send buffer out as it fills, sending the FIN once a shut-down
-    /// writing side drains, until the write fails or the socket is released.
-    fn write_worker(self: Arc<Self>, mut stream: Box<dyn Stream>) {
-        loop {
-            let chunk = {
-                let mut state = self.state();
-                while state.sending.is_empty() && !state.send_shut && !state.released {
-                    state = self
-                        .workers
-                        .wait(state)
-                        .unwrap_or_else(PoisonError::into_inner);
-                }
-                if state.released {
-                    return;
-                }
-                if state.sending.is_empty() {
-                    let _ = stream.shutdown(Shutdown::Write);
-                    return;
-                }
-                let take = state.sending.len().min(CHUNK);
-                state.sending.iter().take(take).copied().collect::<Vec<_>>()
-            };
-            let written = stream.write_all(&chunk).and_then(|()| stream.flush());
-            let mut state = self.state();
-            let failed = match written {
-                Ok(()) => {
-                    state.sending.drain(..chunk.len());
-                    false
-                }
-                Err(err) => {
-                    state.send_error = Some(to_error(&err));
-                    true
-                }
-            };
-            drop(state);
-            self.changed();
-            if failed {
+    /// Whether the connect under way finished, as `SO_ERROR` settles a
+    /// non-blocking `connect`; a failed one moves on to the next address.
+    fn settle_connect(&self, state: &mut State) {
+        let Some((stream, _)) = state.host.as_ref() else {
+            return;
+        };
+        let failure = match (stream.take_error(), stream.peer_addr()) {
+            (Ok(Some(err)), _) | (Err(err), _) => err,
+            (Ok(None), Ok(peer)) => {
+                state.local = stream.local_addr().ok();
+                state.peer = Some(peer);
+                state.phase = Phase::Connected;
                 return;
             }
+            (Ok(None), Err(err)) if err.kind() == io::ErrorKind::NotConnected => return,
+            (Ok(None), Err(err)) => err,
+        };
+        Self::close_host(state);
+        self.dial_next(state, to_error(&failure));
+    }
+
+    /// Move what can move, then wake every poller, since what a poll finds
+    /// may have changed.
+    fn changed(&self, mut state: MutexGuard<'_, State>) {
+        if !state.released {
+            self.pump(&mut state);
         }
+        drop(state);
+        self.wait.wake_up();
     }
 
     /// How the connect ended: still under way answers EAGAIN, as a
@@ -277,8 +231,7 @@ impl TcpSock {
             for (slot, byte) in buf.iter_mut().zip(state.received.drain(..take)) {
                 *slot = byte;
             }
-            drop(state);
-            self.changed();
+            self.changed(state);
             return Ok(take);
         }
         if let Some(err) = &state.received_error {
@@ -291,8 +244,8 @@ impl TcpSock {
         }
     }
 
-    /// Queue what fits of `buf` for the writer; a full buffer answers EAGAIN,
-    /// and a shut-down writing side EPIPE.
+    /// Queue what fits of `buf`, sent as the host socket takes it; a full
+    /// buffer answers EAGAIN, and a shut-down writing side EPIPE.
     pub fn send(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
         if let Some(err) = &state.send_error {
@@ -311,8 +264,7 @@ impl TcpSock {
             return Err(FilesystemError::WouldBlock);
         }
         state.sending.extend(&buf[..take]);
-        drop(state);
-        self.changed();
+        self.changed(state);
         Ok(take)
     }
 
@@ -332,8 +284,7 @@ impl TcpSock {
             state.received.clear();
             state.received_end = true;
         }
-        drop(state);
-        self.changed();
+        self.changed(state);
     }
 
     /// What a call would find ready, as `tcp_poll` answers.
@@ -371,23 +322,22 @@ impl TcpSock {
     }
 
     /// Let go of the host socket once every view is gone, as `sock_close`
-    /// runs on the last `fput`: a blocked read wakes, and the workers end.
+    /// runs on the last `fput`.
     fn release(&self) {
-        self.state().released = true;
-        self.shutdown_host();
-        self.changed();
+        let mut state = self.state();
+        state.released = true;
+        state.untried.clear();
+        state.place.clear();
+        Self::close_host(&mut state);
+        drop(state);
+        self.wait.wake_up();
     }
+}
 
-    /// Shut the host socket down both ways, waking a read blocked on it.
-    fn shutdown_host(&self) {
-        if let Some(stream) = self
-            .stream
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-        {
-            let _ = stream.shutdown(Shutdown::Both);
-        }
+impl Ready for TcpSock {
+    fn ready(&self) {
+        let state = self.state();
+        self.changed(state);
     }
 }
 
@@ -434,10 +384,9 @@ mod tests {
         let sock = TcpSock::connect(
             Arc::new(HostInet),
             vec![listener.local_addr().unwrap()],
-            Some(Instant::now() + Duration::from_secs(10)),
             &Workers::new(SANDBOX_WORKERS),
         )
-        .expect("a fresh Sandbox has room for a socket's workers");
+        .expect("the reactor starts");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         let (peer, _) = listener.accept().expect("the listener accepts");
         wait_for(&file, PollMask::OUT);
@@ -458,7 +407,7 @@ mod tests {
 
     // @behavior RT-342
     #[test]
-    fn a_socket_connects_on_a_worker_and_its_poll_wakes() {
+    fn a_socket_connects_without_blocking_and_its_poll_wakes() {
         let (sock, _file, _peer) = connected();
         assert_eq!(
             sock.finish_connect(),
@@ -524,10 +473,9 @@ mod tests {
         let sock = TcpSock::connect(
             Arc::new(HostInet),
             vec![addr],
-            Some(Instant::now() + Duration::from_secs(10)),
             &Workers::new(SANDBOX_WORKERS),
         )
-        .expect("a fresh Sandbox has room for a socket's workers");
+        .expect("the reactor starts");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(&file, PollMask::OUT);
         assert_eq!(

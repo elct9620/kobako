@@ -1,20 +1,18 @@
 //! A UDP socket the guest holds, connected to one peer, as Linux's `udp_sock`
-//! behind a socket file. Worker threads do the host I/O, as a reactor would:
-//! one opens the host socket and reads datagrams into the receive queue, one
-//! writes the send queue out, and each wakes the socket's wait queue when what
-//! a poll finds changes. A read takes one datagram, as `recv` on a datagram
-//! socket does.
+//! behind a socket file. The host socket is non-blocking and the reactor
+//! watches it: each change reads what arrived into the receive queue and sends
+//! what the send queue holds, then wakes the socket's wait queue. A read takes
+//! one datagram, as `recv` on a datagram socket does.
 
 use std::collections::VecDeque;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use super::family::{Datagram, ProtocolFamily};
+use super::family::ProtocolFamily;
+use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{to_error, ProtoOps};
-use super::workers::{charge, Workers};
+use super::workers::{charge, Charge, Workers};
 use super::SOCKET_BUFFER;
 use crate::vfs::{FilesystemError, PollMask};
 use crate::wait::WaitQueueHead;
@@ -22,161 +20,129 @@ use crate::wait::WaitQueueHead;
 /// The most one IPv4 datagram carries.
 pub const MAX_DATAGRAM: usize = 65_507;
 
-/// How long a receive waits before the reader looks again whether the socket
-/// was let go, since a datagram socket has no shutdown that wakes it.
-const RECEIVE_SLICE: Duration = Duration::from_millis(50);
-
 struct State {
-    open: bool,
+    /// The host socket, and its place in the reactor, until released.
+    host: Option<(mio::net::UdpSocket, Registration)>,
     failed: Option<FilesystemError>,
     received: VecDeque<Vec<u8>>,
     received_bytes: usize,
     sending: VecDeque<Vec<u8>>,
     sending_bytes: usize,
     local: Option<SocketAddr>,
-    released: bool,
+    /// The socket's place against its Sandbox's cap and the process's.
+    place: Vec<Charge>,
 }
 
-/// One UDP socket, shared by the socket file and its workers.
+/// One UDP socket, shared by the socket file and the reactor.
 pub struct UdpSock {
     state: Mutex<State>,
-    writer: Condvar,
     wait: Arc<WaitQueueHead>,
-    deadline: Option<Instant>,
 }
 
 impl UdpSock {
-    /// A socket connected to `addr` through `family`, its host socket opened on
-    /// a worker so this returns at once. Its two workers count against
-    /// `workers` and the process, and a full count answers `EAGAIN`.
+    /// A socket connected to `addr` through `family`, its host socket watched
+    /// by the reactor; it counts against `workers` and the process until
+    /// released, and a full count answers `EAGAIN`.
     pub fn connect(
         family: Arc<dyn ProtocolFamily>,
         addr: SocketAddr,
-        deadline: Option<Instant>,
         workers: &Arc<Workers>,
     ) -> Result<Arc<Self>, FilesystemError> {
-        let mut charges = charge(workers, 2).ok_or(FilesystemError::WouldBlock)?;
-        let (writer, reader) = (charges.pop(), charges.pop());
-        let sock = Arc::new(Self {
-            state: Mutex::new(State {
-                open: false,
-                failed: None,
-                received: VecDeque::new(),
-                received_bytes: 0,
-                sending: VecDeque::new(),
-                sending_bytes: 0,
-                local: None,
-                released: false,
-            }),
-            writer: Condvar::new(),
-            wait: Arc::default(),
-            deadline,
-        });
-        let worker = sock.clone();
-        thread::spawn(move || {
-            let _reader = reader;
-            let socket = match family.connect_datagram(addr) {
-                Ok(socket) => Arc::<dyn Datagram>::from(socket),
+        let place = charge(workers, 1).ok_or(FilesystemError::WouldBlock)?;
+        let reactor = Reactor::current().map_err(|err| to_error(&err))?;
+        let mut socket = mio::net::UdpSocket::from_std(
+            family
+                .connect_datagram(addr)
+                .map_err(|err| to_error(&err))?,
+        );
+        let local = socket.local_addr().ok();
+        let mut failed = None;
+        let sock = Arc::new_cyclic(|this: &std::sync::Weak<Self>| {
+            let ready: std::sync::Weak<dyn Ready> = this.clone();
+            let host = match reactor.register(&mut socket, ready) {
+                Ok(registration) => Some((socket, registration)),
                 Err(err) => {
-                    worker.state().failed = Some(to_error(&err));
-                    worker.changed();
-                    return;
+                    failed = Some(to_error(&err));
+                    None
                 }
             };
-            {
-                let mut state = worker.state();
-                state.local = socket.local_addr().ok();
-                state.open = true;
+            Self {
+                state: Mutex::new(State {
+                    host,
+                    failed: None,
+                    received: VecDeque::new(),
+                    received_bytes: 0,
+                    sending: VecDeque::new(),
+                    sending_bytes: 0,
+                    local,
+                    place,
+                }),
+                wait: Arc::default(),
             }
-            worker.changed();
-            let sender = worker.clone();
-            let outgoing = socket.clone();
-            thread::spawn(move || {
-                let _writer = writer;
-                sender.write_worker(&*outgoing);
-            });
-            worker.read_worker(&*socket);
         });
-        Ok(sock)
+        match failed {
+            Some(err) => Err(err),
+            None => Ok(sock),
+        }
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn changed(&self) {
-        self.writer.notify_all();
-        self.wait.wake_up();
-    }
-
-    fn expired(&self) -> bool {
-        self.deadline.is_some_and(|at| Instant::now() >= at)
-    }
-
-    /// Read datagrams into the receive queue while it has room, until the
-    /// socket is let go or the deadline passes; a full queue drops what comes,
-    /// as a full `sk_rcvbuf` does.
-    fn read_worker(&self, socket: &dyn Datagram) {
-        let _ = socket.set_read_timeout(Some(RECEIVE_SLICE));
+    /// Read every datagram that arrived and send what is queued, without
+    /// blocking; a full receive queue drops what comes, as a full `sk_rcvbuf`
+    /// does.
+    fn pump(state: &mut State) {
+        let Some((socket, _)) = state.host.as_ref() else {
+            return;
+        };
         let mut datagram = vec![0; MAX_DATAGRAM];
-        loop {
-            if self.state().released || self.expired() {
-                return;
-            }
+        while state.failed.is_none() {
             match socket.recv(&mut datagram) {
                 Ok(n) => {
-                    let mut state = self.state();
                     if state.received_bytes + n <= SOCKET_BUFFER {
                         state.received.push_back(datagram[..n].to_vec());
                         state.received_bytes += n;
                     }
-                    drop(state);
-                    self.changed();
                 }
-                Err(err)
-                    if matches!(
-                        err.kind(),
-                        io::ErrorKind::WouldBlock
-                            | io::ErrorKind::TimedOut
-                            | io::ErrorKind::Interrupted
-                    ) => {}
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                Err(err) => state.failed = Some(to_error(&err)),
+            }
+        }
+        while let Some(datagram) = state.sending.front() {
+            match socket.send(datagram) {
+                Ok(_) => {
+                    state.sending_bytes -= datagram.len();
+                    state.sending.pop_front();
+                }
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
                 Err(err) => {
-                    self.state().failed = Some(to_error(&err));
-                    self.changed();
-                    return;
+                    state.failed = Some(to_error(&err));
+                    break;
                 }
             }
         }
     }
 
-    /// Write the send queue out as it fills, until the socket is let go.
-    fn write_worker(&self, socket: &dyn Datagram) {
-        loop {
-            let datagram = {
-                let mut state = self.state();
-                while state.sending.is_empty() && !state.released {
-                    state = self
-                        .writer
-                        .wait(state)
-                        .unwrap_or_else(PoisonError::into_inner);
-                }
-                if state.released {
-                    return;
-                }
-                let datagram = state.sending.pop_front().expect("the queue holds one");
-                state.sending_bytes -= datagram.len();
-                datagram
-            };
-            if let Err(err) = socket.send(&datagram) {
-                self.state().failed = Some(to_error(&err));
-            }
-            self.changed();
-        }
+    fn changed(&self, mut state: MutexGuard<'_, State>) {
+        Self::pump(&mut state);
+        drop(state);
+        self.wait.wake_up();
     }
 
     /// The host's own end, once the socket opened.
     pub fn local_addr(&self) -> Option<SocketAddr> {
         self.state().local
+    }
+}
+
+impl Ready for UdpSock {
+    fn ready(&self) {
+        let state = self.state();
+        self.changed(state);
     }
 }
 
@@ -195,8 +161,8 @@ impl ProtoOps for UdpSock {
         Ok(n)
     }
 
-    /// One datagram, queued whole for the writer; one past what UDP carries is
-    /// refused, and a full queue answers `WouldBlock`.
+    /// One datagram, sent whole as the host socket takes it; one past what UDP
+    /// carries is refused, and a full queue answers `WouldBlock`.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
         if buf.len() > MAX_DATAGRAM {
             return Err(FilesystemError::InvalidInput);
@@ -205,13 +171,12 @@ impl ProtoOps for UdpSock {
         if let Some(err) = state.failed.clone() {
             return Err(err);
         }
-        if !state.open || state.sending_bytes + buf.len() > SOCKET_BUFFER {
+        if state.host.is_none() || state.sending_bytes + buf.len() > SOCKET_BUFFER {
             return Err(FilesystemError::WouldBlock);
         }
         state.sending.push_back(buf.to_vec());
         state.sending_bytes += buf.len();
-        drop(state);
-        self.changed();
+        self.changed(state);
         Ok(buf.len())
     }
 
@@ -221,7 +186,7 @@ impl ProtoOps for UdpSock {
         if !state.received.is_empty() || state.failed.is_some() {
             mask = mask | PollMask::IN;
         }
-        if state.open && state.sending_bytes < SOCKET_BUFFER {
+        if state.host.is_some() && state.sending_bytes < SOCKET_BUFFER {
             mask = mask | PollMask::OUT;
         }
         if state.failed.is_some() {
@@ -234,10 +199,15 @@ impl ProtoOps for UdpSock {
         &self.wait
     }
 
-    /// The workers end: the writer at once, the reader within a slice.
+    /// Let the host socket go, deregistered from the reactor.
     fn release(&self) {
-        self.state().released = true;
-        self.changed();
+        let mut state = self.state();
+        state.place.clear();
+        if let Some((mut socket, registration)) = state.host.take() {
+            registration.deregister(&mut socket);
+        }
+        drop(state);
+        self.wait.wake_up();
     }
 }
 
@@ -246,6 +216,9 @@ mod tests {
     use std::net::UdpSocket;
 
     use super::*;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
     use crate::net::{HostInet, SANDBOX_WORKERS};
 
     /// Wait until `sock`'s poll finds `mask`.
@@ -267,10 +240,9 @@ mod tests {
         let sock = UdpSock::connect(
             Arc::new(HostInet),
             peer.local_addr().unwrap(),
-            Some(Instant::now() + Duration::from_secs(10)),
             &Workers::new(SANDBOX_WORKERS),
         )
-        .expect("a fresh Sandbox has room");
+        .expect("the reactor starts");
         until(&sock, PollMask::OUT);
         sock.sendmsg(b"ping").unwrap();
         let mut heard = [0; 16];
@@ -295,7 +267,6 @@ mod tests {
         let sock = UdpSock::connect(
             Arc::new(HostInet),
             peer.local_addr().unwrap(),
-            None,
             &Workers::new(SANDBOX_WORKERS),
         )
         .unwrap();

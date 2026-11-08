@@ -1,18 +1,19 @@
-//! The worker threads doing a socket's host I/O, counted against their
+//! The sockets, requests, and lookups a guest holds, counted against their
 //! Sandbox and the process, as a cgroup's `pids.max` bounds the tasks beneath
-//! it, so one tenant cannot starve another of threads.
+//! it, so one tenant cannot starve another of host sockets.
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-/// The most worker threads one Sandbox runs at once: two per open socket.
+/// The most sockets, requests, and lookups one Sandbox holds at once.
 pub const SANDBOX_WORKERS: usize = 64;
 
-/// The most worker threads the process runs at once, across every Sandbox.
+/// The most sockets, requests, and lookups the process holds at once, across
+/// every Sandbox.
 pub const PROCESS_WORKERS: usize = 1024;
 
 static PROCESS: LazyLock<Arc<Workers>> = LazyLock::new(|| Workers::new(PROCESS_WORKERS));
 
-/// How many workers one owner runs, and the most it may. A count is the
+/// How many places one owner holds, and the most it may. A count is the
 /// process's own: a forked child, which inherits no thread, starts from none.
 pub struct Workers {
     limit: usize,
@@ -21,7 +22,7 @@ pub struct Workers {
 }
 
 impl Workers {
-    /// An owner running at most `limit` workers.
+    /// An owner holding at most `limit` places.
     pub fn new(limit: usize) -> Arc<Self> {
         Arc::new(Self {
             limit,
@@ -29,7 +30,7 @@ impl Workers {
         })
     }
 
-    /// Whether `n` more workers fit, counting them if so.
+    /// Whether `n` more places fit, counting them if so.
     fn try_charge(&self, n: usize) -> bool {
         let mut count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
         let pid = std::process::id();
@@ -43,7 +44,7 @@ impl Workers {
         true
     }
 
-    /// One worker ended, counted in `pid`.
+    /// One place given back, counted in `pid`.
     fn uncharge(&self, pid: u32) {
         let mut count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
         if count.0 == pid {
@@ -52,7 +53,7 @@ impl Workers {
     }
 }
 
-/// One worker's place against its Sandbox and the process, given back as it
+/// One place against its Sandbox and the process, given back as it
 /// drops, as a task's exit uncharges its cgroup.
 pub(crate) struct Charge {
     owners: [Arc<Workers>; 2],
@@ -67,13 +68,13 @@ impl Drop for Charge {
     }
 }
 
-/// Places for `n` workers of `sandbox`, or `None` when it or the process is
+/// `n` places of `sandbox`, or `None` when it or the process is
 /// full.
 pub(crate) fn charge(sandbox: &Arc<Workers>, n: usize) -> Option<Vec<Charge>> {
     charge_within(sandbox, &PROCESS, n)
 }
 
-/// Places for `n` workers counted against `sandbox` and then `process`, or
+/// `n` places counted against `sandbox` and then `process`, or
 /// `None`, counting nothing, when either is full.
 fn charge_within(sandbox: &Arc<Workers>, process: &Arc<Workers>, n: usize) -> Option<Vec<Charge>> {
     let pid = std::process::id();
@@ -100,28 +101,28 @@ mod tests {
 
     // @behavior NW-022
     #[test]
-    fn a_full_sandbox_takes_no_more_workers_until_one_ends() {
+    fn a_full_sandbox_takes_no_more_until_one_is_given_back() {
         let sandbox = Workers::new(2);
-        let held = charge(&sandbox, 2).expect("two workers fit");
+        let held = charge(&sandbox, 2).expect("two places fit");
         let full = charge(&sandbox, 1).is_none();
         drop(held);
         assert!(
             full && charge(&sandbox, 2).is_some(),
-            "a Sandbox at its worker cap must take no more until one ends, then take them again"
+            "a Sandbox at its cap must take no more until one is given back, then take them again"
         );
     }
 
     // @behavior NW-022
     #[test]
-    fn a_full_process_takes_no_more_workers_for_any_sandbox() {
+    fn a_full_process_takes_no_more_for_any_sandbox() {
         let process = Workers::new(2);
         let (first, second) = (Workers::new(2), Workers::new(2));
-        let held = charge_within(&first, &process, 2).expect("two workers fit");
+        let held = charge_within(&first, &process, 2).expect("two places fit");
         let refused = charge_within(&second, &process, 1).is_none();
         drop(held);
         assert!(
             refused && charge_within(&second, &process, 2).is_some(),
-            "a process at its worker cap must take no more for another Sandbox until one ends, \
+            "a process at its cap must take no more for another Sandbox until one is given back, \
              counting nothing against the Sandbox it refused"
         );
     }
@@ -133,7 +134,7 @@ mod tests {
         *sandbox.count.lock().unwrap() = (std::process::id().wrapping_add(1), 2);
         assert!(
             charge(&sandbox, 2).is_some(),
-            "a worker count inherited across a fork must start from none in the child"
+            "a count inherited across a fork must start from none in the child"
         );
     }
 }

@@ -41,8 +41,8 @@ pub struct Driver {
     instance_pre: WtInstancePre<Invocation>,
     // Every cap forwarded from the Sandbox; see `Config`.
     config: Config,
-    // The worker threads this Sandbox's sockets run, across its invocations,
-    // as one cgroup counts its tasks.
+    // The sockets, requests, and lookups this Sandbox holds, across its
+    // invocations, as one cgroup counts its tasks.
     workers: Arc<Workers>,
 }
 
@@ -52,8 +52,8 @@ impl Driver {
     /// neither leaves the driver.
     pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
         // The host's trust store is read once, here, on the thread building the
-        // Driver, which holds its frontend's lock, rather than on a worker that
-        // would read the environment beside it.
+        // Driver, which holds its frontend's lock, rather than on the reactor,
+        // which would read the environment beside it.
         let _ = kobako_runtime::net::platform_tls();
         Ok(Self {
             instance_pre: instance_pre::load_instance_pre(path, config.setup_timeout)?,

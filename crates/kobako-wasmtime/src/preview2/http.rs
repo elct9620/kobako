@@ -204,7 +204,7 @@ impl Invocation {
     }
 
     /// Hand `request` to the namespace, which judges it here on the guest
-    /// thread before a worker sends it.
+    /// thread before the reactor sends it.
     fn send(&mut self, request: Request) -> Future {
         let Some(method) = method_name(&request.method) else {
             return Future::Refused(ErrorCode::HTTPRequestMethodInvalid);
@@ -227,7 +227,7 @@ impl Invocation {
             return Future::Refused(ErrorCode::HTTPRequestDenied);
         };
         let cred = self.wasi().descriptors().cred();
-        match namespace.send(cred, outgoing, self.deadline()) {
+        match namespace.send(cred, outgoing) {
             Ok(exchange) => Future::Sent(exchange),
             Err(err) => Future::Refused(to_error_code(err)),
         }

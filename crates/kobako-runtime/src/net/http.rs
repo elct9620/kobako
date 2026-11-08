@@ -1,20 +1,30 @@
 //! An HTTP request the guest sends, as a userspace proxy forwards one: the
-//! namespace judges what the guest named on the guest thread, then a worker
-//! hands the request to the outbound seam, whose only dialer is kobako's
-//! connector. The response's body fills a buffer the guest reads through the
-//! wait queue, so a full buffer stops the reader and the TCP window pushes
-//! back.
+//! namespace judges what the guest named on the guest thread, then a task on
+//! the reactor hands the request to the outbound seam, whose only dialer is
+//! kobako's connector. The response's body fills a buffer the guest reads
+//! through the wait queue, so a full buffer stops the task and the TCP window
+//! pushes back.
 
 use std::collections::VecDeque;
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::future::{poll_fn, Future};
+use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::task::{Context, Poll, Waker};
 use std::thread;
-use std::time::{Duration, Instant};
 
+use bytes::Bytes;
+use http_body::Body;
+use http_body_util::combinators::UnsyncBoxBody;
+use http_body_util::{BodyExt, Full};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+use super::reactor::{Reactor, Ready, Registration, Task};
+use super::socket::to_error;
 use super::workers::{charge, Workers};
-use super::{platform_tls, ProtocolFamily, Stream, SOCKET_BUFFER};
+use super::{platform_tls, ProtocolFamily, SOCKET_BUFFER};
 use crate::network::{Protocol, Ruleset, Secret};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -148,9 +158,9 @@ pub enum HttpError {
     ConnectionTimeout,
     /// The connection ended before the response did.
     ConnectionTerminated,
-    /// The response was not one HTTP/1 can read.
+    /// The response was not one HTTP can read.
     ProtocolError,
-    /// The request cannot start now, as a full worker cap leaves it.
+    /// The request cannot start now, as a full cap leaves it.
     ConnectionLimitReached,
     /// The server's certificate is not one the host's store trusts.
     TlsCertificate,
@@ -167,23 +177,25 @@ pub struct ResponseHead {
     pub headers: Vec<(String, Vec<u8>)>,
 }
 
+/// A response's body as the seam streams it.
+pub type ResponseBody = UnsyncBoxBody<Bytes, HttpError>;
+
 /// What the outbound seam answers: the head, and the body to read.
 pub struct Response {
     pub head: ResponseHead,
-    pub body: Box<dyn Read + Send>,
+    pub body: ResponseBody,
 }
+
+/// What the outbound seam's send runs as on the reactor.
+pub type Sending = Pin<Box<dyn Future<Output = Result<Response, HttpError>> + Send>>;
 
 /// The replaceable HTTP sender, as wasmtime's `send_request`. It dials only
 /// through the connector it is handed; one dialing any other way skips every
-/// rule, which is its builder's own choice.
+/// rule, which is its builder's own choice. The future runs on kobako's
+/// reactor, so it must never block.
 pub trait Outbound: Send + Sync {
-    /// Send `request` through `connector`, giving up once `timeout` passes.
-    fn send_request(
-        &self,
-        request: &OutgoingRequest,
-        connector: &Connector,
-        timeout: Option<Duration>,
-    ) -> Result<Response, HttpError>;
+    /// Send `request` through `connector`.
+    fn send_request(&self, request: OutgoingRequest, connector: Connector) -> Sending;
 }
 
 /// The only dialer the outbound seam has: it reaches the one authority the
@@ -194,6 +206,7 @@ pub struct Connector {
     port: u16,
     ruleset: Arc<Ruleset>,
     family: Arc<dyn ProtocolFamily>,
+    workers: Arc<Workers>,
 }
 
 impl Connector {
@@ -202,19 +215,13 @@ impl Connector {
         (&self.host, self.port)
     }
 
-    /// A stream to the authority, given up once `timeout` passes.
-    pub fn dial(&self, timeout: Option<Duration>) -> Result<Box<dyn Stream>, HttpError> {
+    /// A connection to the authority, once one of its addresses answers.
+    pub async fn dial(&self) -> Result<Transport, HttpError> {
         let addrs = match self.host.parse::<IpAddr>() {
             Ok(ip) => vec![SocketAddr::new(ip, self.port)],
             Err(_) => {
+                let real = self.resolve().await?;
                 let local = self.family.local_addresses();
-                let real = self
-                    .family
-                    .resolve(&self.host)
-                    .map_err(|_| HttpError::DestinationNotFound)?;
-                if real.is_empty() {
-                    return Err(HttpError::DestinationNotFound);
-                }
                 real.into_iter()
                     .map(|ip| SocketAddr::new(ip, self.port))
                     .filter(|addr| {
@@ -230,15 +237,180 @@ impl Connector {
         }
         let mut last = HttpError::ConnectionRefused;
         for addr in addrs {
-            match self.family.connect(addr, timeout) {
-                Ok(stream) => return Ok(stream),
-                Err(err) if err.kind() == io::ErrorKind::TimedOut => {
-                    last = HttpError::ConnectionTimeout
-                }
-                Err(_) => last = HttpError::ConnectionRefused,
+            let opened = self
+                .family
+                .connect(addr)
+                .and_then(Transport::new)
+                .map_err(|err| to_http_error(&err));
+            match opened {
+                Ok(connection) => match connection.connected().await {
+                    Ok(()) => return Ok(connection),
+                    Err(err) => last = to_http_error(&err),
+                },
+                Err(err) => last = err,
             }
         }
         Err(last)
+    }
+
+    /// The host's answer for the authority's name, asked on a thread of its
+    /// own, since a resolver blocks.
+    async fn resolve(&self) -> Result<Vec<IpAddr>, HttpError> {
+        let mut charges = charge(&self.workers, 1).ok_or(HttpError::ConnectionLimitReached)?;
+        let answer = Arc::new(Mutex::new((None, None::<Waker>)));
+        let answering = answer.clone();
+        let family = self.family.clone();
+        let host = self.host.clone();
+        let place = charges.pop();
+        thread::spawn(move || {
+            let _place = place;
+            let resolved = family.resolve(&host);
+            let mut answer = answering.lock().unwrap_or_else(PoisonError::into_inner);
+            answer.0 = Some(resolved);
+            if let Some(waker) = answer.1.take() {
+                waker.wake();
+            }
+        });
+        let resolved = poll_fn(|cx| {
+            let mut answer = answer.lock().unwrap_or_else(PoisonError::into_inner);
+            match answer.0.take() {
+                Some(resolved) => Poll::Ready(resolved),
+                None => {
+                    answer.1 = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+            }
+        })
+        .await;
+        match resolved {
+            Ok(real) if !real.is_empty() => Ok(real),
+            _ => Err(HttpError::DestinationNotFound),
+        }
+    }
+}
+
+/// The TCP connection the connector opened, non-blocking, its readiness
+/// watched by the reactor, read and written through tokio's I/O traits.
+pub struct Transport {
+    stream: mio::net::TcpStream,
+    registration: Registration,
+    waiters: Arc<Waiters>,
+}
+
+/// The task waiting to read and the one waiting to write, woken as the
+/// reactor sees the connection change.
+#[derive(Default)]
+struct Waiters {
+    read: Mutex<Option<Waker>>,
+    write: Mutex<Option<Waker>>,
+}
+
+impl Ready for Waiters {
+    fn ready(&self) {
+        for waiter in [&self.read, &self.write] {
+            if let Some(waker) = waiter.lock().unwrap_or_else(PoisonError::into_inner).take() {
+                waker.wake();
+            }
+        }
+    }
+}
+
+impl Transport {
+    fn new(stream: std::net::TcpStream) -> io::Result<Self> {
+        let mut stream = mio::net::TcpStream::from_std(stream);
+        let waiters = Arc::new(Waiters::default());
+        let ready: Arc<dyn Ready> = waiters.clone();
+        let registration = Reactor::current()?.register(&mut stream, Arc::downgrade(&ready))?;
+        Ok(Self {
+            stream,
+            registration,
+            waiters,
+        })
+    }
+
+    /// Once the connect under way settles, as `SO_ERROR` does.
+    async fn connected(&self) -> io::Result<()> {
+        poll_fn(|cx| {
+            self.attempt(cx, false, || {
+                if let Some(err) = self.stream.take_error()? {
+                    return Err(err);
+                }
+                match self.stream.peer_addr() {
+                    Err(err) if err.kind() == io::ErrorKind::NotConnected => {
+                        Err(io::ErrorKind::WouldBlock.into())
+                    }
+                    other => other.map(drop),
+                }
+            })
+        })
+        .await
+    }
+
+    /// `op` once it stops answering `WouldBlock`, the waker registered first,
+    /// so an event between the two is not lost.
+    fn attempt<T>(
+        &self,
+        cx: &mut Context<'_>,
+        read: bool,
+        mut op: impl FnMut() -> io::Result<T>,
+    ) -> Poll<io::Result<T>> {
+        loop {
+            match op() {
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+                done => return Poll::Ready(done),
+            }
+            let waiter = if read {
+                &self.waiters.read
+            } else {
+                &self.waiters.write
+            };
+            *waiter.lock().unwrap_or_else(PoisonError::into_inner) = Some(cx.waker().clone());
+            match op() {
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => return Poll::Pending,
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                done => return Poll::Ready(done),
+            }
+        }
+    }
+}
+
+impl AsyncRead for Transport {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let read = this.attempt(cx, true, || {
+            io::Read::read(&mut &this.stream, buf.initialize_unfilled())
+        });
+        read.map(|read| read.map(|n| buf.advance(n)))
+    }
+}
+
+impl AsyncWrite for Transport {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        this.attempt(cx, false, || io::Write::write(&mut &this.stream, buf))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(self.stream.shutdown(std::net::Shutdown::Write))
+    }
+}
+
+impl Drop for Transport {
+    fn drop(&mut self) {
+        self.registration.deregister(&mut self.stream);
     }
 }
 
@@ -268,12 +440,14 @@ impl Connector {
         port: u16,
         ruleset: Arc<Ruleset>,
         family: Arc<dyn ProtocolFamily>,
+        workers: Arc<Workers>,
     ) -> Self {
         Self {
             host,
             port,
             ruleset,
             family,
+            workers,
         }
     }
 }
@@ -290,110 +464,70 @@ struct State {
     body: VecDeque<u8>,
     body_end: bool,
     body_error: bool,
-    released: bool,
+    /// The task waiting for room in the body's buffer.
+    filler: Option<Waker>,
 }
 
 /// One request in flight, then its response: the head once it arrives, and
-/// the body as a worker reads it.
+/// the body as the task reads it.
 pub struct Exchange {
     state: Mutex<State>,
-    reader: Condvar,
     wait: Arc<WaitQueueHead>,
+    task: Mutex<Option<Arc<Task>>>,
+    /// The request's place against its Sandbox's cap and the process's.
+    place: Mutex<Vec<super::workers::Charge>>,
 }
 
 impl Exchange {
-    /// Send `request` through `seam` on a worker counted against `workers`,
-    /// dialing through `connector`, giving up at `deadline`.
+    /// Send `request` through `seam` on the reactor, dialing through
+    /// `connector`; it counts against `workers` and the process until
+    /// released, and a full count answers `ConnectionLimitReached`.
     pub(crate) fn start(
         seam: Arc<dyn Outbound>,
         request: OutgoingRequest,
         connector: Connector,
-        deadline: Option<Instant>,
         workers: &Arc<Workers>,
     ) -> Result<Arc<Self>, HttpError> {
-        let mut charges = charge(workers, 1).ok_or(HttpError::ConnectionLimitReached)?;
+        let place = charge(workers, 1).ok_or(HttpError::ConnectionLimitReached)?;
+        let reactor = Reactor::current().map_err(|_| HttpError::Internal)?;
         let exchange = Arc::new(Self {
             state: Mutex::new(State {
                 phase: Phase::Sending,
                 body: VecDeque::new(),
                 body_end: false,
                 body_error: false,
-                released: false,
+                filler: None,
             }),
-            reader: Condvar::new(),
             wait: Arc::default(),
+            task: Mutex::new(None),
+            place: Mutex::new(place),
         });
-        let worker = exchange.clone();
-        let place = charges.pop();
-        thread::spawn(move || {
-            let _place = place;
-            let timeout = deadline.map(|at| at.saturating_duration_since(Instant::now()));
-            match seam.send_request(&request, &connector, timeout) {
+        let filling = Arc::downgrade(&exchange);
+        let sending = seam.send_request(request, connector);
+        let task = reactor.spawn(async move {
+            let answer = sending.await;
+            let Some(exchange) = filling.upgrade() else {
+                return;
+            };
+            match answer {
                 Ok(response) => {
-                    worker.state().phase = Phase::Answered(response.head);
-                    worker.changed();
-                    worker.read_body(response.body);
+                    exchange.state().phase = Phase::Answered(response.head);
+                    exchange.wait.wake_up();
+                    drop(exchange);
+                    fill_body(&filling, response.body).await;
                 }
                 Err(err) => {
-                    worker.state().phase = Phase::Failed(err);
-                    worker.changed();
+                    exchange.state().phase = Phase::Failed(err);
+                    exchange.wait.wake_up();
                 }
             }
         });
+        *exchange.task.lock().unwrap_or_else(PoisonError::into_inner) = Some(task);
         Ok(exchange)
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn changed(&self) {
-        self.reader.notify_all();
-        self.wait.wake_up();
-    }
-
-    /// Read the body into the buffer while it has room, until it ends, fails,
-    /// or the guest lets the exchange go.
-    fn read_body(&self, mut body: Box<dyn Read + Send>) {
-        let mut chunk = vec![0; 16 * 1024];
-        loop {
-            let room = {
-                let mut state = self.state();
-                while state.body.len() >= SOCKET_BUFFER && !state.released {
-                    state = self
-                        .reader
-                        .wait(state)
-                        .unwrap_or_else(PoisonError::into_inner);
-                }
-                if state.released {
-                    return;
-                }
-                SOCKET_BUFFER - state.body.len()
-            };
-            let want = room.min(chunk.len());
-            let read = body.read(&mut chunk[..want]);
-            let mut state = self.state();
-            let ended = match read {
-                Ok(0) => {
-                    state.body_end = true;
-                    true
-                }
-                Ok(n) => {
-                    state.body.extend(&chunk[..n]);
-                    false
-                }
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => false,
-                Err(_) => {
-                    state.body_error = true;
-                    true
-                }
-            };
-            drop(state);
-            self.changed();
-            if ended {
-                return;
-            }
-        }
     }
 
     /// The response's head, or why it has none; `None` while the request is
@@ -421,8 +555,11 @@ impl Exchange {
         for (slot, byte) in buf.iter_mut().zip(state.body.drain(..n)) {
             *slot = byte;
         }
+        let filler = state.filler.take();
         drop(state);
-        self.changed();
+        if let Some(filler) = filler {
+            filler.wake();
+        }
         Ok(n)
     }
 
@@ -443,22 +580,76 @@ impl Exchange {
         mask
     }
 
-    /// Let the exchange go, so a worker blocked on a full buffer ends.
+    /// Let the exchange go, dropping its task with the connection it holds.
     pub fn release(&self) {
-        self.state().released = true;
-        self.changed();
+        let task = self
+            .task
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(task) = task {
+            task.cancel();
+        }
+        self.place
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 }
 
-/// The default outbound seam: ureq, with no redirect, proxy, or decompression,
-/// no status read as an error, and every connection opened by kobako's
-/// connector. Each seam holds its own TLS configuration, so its sessions end
-/// with the Invocation that holds it.
-pub struct UreqOutbound {
+/// Move `body` into the exchange's buffer as room frees, never past the
+/// buffer, until the body ends or fails, or the exchange is gone; what a frame
+/// holds past the room waits here.
+async fn fill_body(exchange: &std::sync::Weak<Exchange>, mut body: ResponseBody) {
+    let mut pending = Bytes::new();
+    loop {
+        if pending.is_empty() {
+            let frame = poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await;
+            let Some(exchange) = exchange.upgrade() else {
+                return;
+            };
+            match frame {
+                Some(Ok(frame)) => {
+                    pending = frame.into_data().unwrap_or_default();
+                    continue;
+                }
+                Some(Err(_)) => exchange.state().body_error = true,
+                None => exchange.state().body_end = true,
+            }
+            exchange.wait.wake_up();
+            return;
+        }
+        let room = poll_fn(|cx| {
+            let Some(exchange) = exchange.upgrade() else {
+                return Poll::Ready(None);
+            };
+            let mut state = exchange.state();
+            let room = SOCKET_BUFFER - state.body.len();
+            if room > 0 {
+                return Poll::Ready(Some(room));
+            }
+            state.filler = Some(cx.waker().clone());
+            Poll::Pending
+        })
+        .await;
+        let (Some(room), Some(exchange)) = (room, exchange.upgrade()) else {
+            return;
+        };
+        let moved = pending.split_to(room.min(pending.len()));
+        exchange.state().body.extend(&moved[..]);
+        exchange.wait.wake_up();
+    }
+}
+
+/// The default outbound seam: hyper's HTTP/1 client, with no redirect, proxy,
+/// or decompression, every connection opened by kobako's connector and TLS
+/// ended on the host. Each seam holds its own TLS configuration, so its
+/// sessions end with the Invocation that holds it.
+pub struct HyperOutbound {
     tls: Option<Arc<rustls::ClientConfig>>,
 }
 
-impl UreqOutbound {
+impl HyperOutbound {
     pub fn new() -> Self {
         Self {
             tls: platform_tls(),
@@ -466,273 +657,211 @@ impl UreqOutbound {
     }
 }
 
-impl Default for UreqOutbound {
+impl Default for HyperOutbound {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Outbound for UreqOutbound {
-    fn send_request(
-        &self,
-        request: &OutgoingRequest,
-        connector: &Connector,
-        timeout: Option<Duration>,
-    ) -> Result<Response, HttpError> {
-        let scheme = match request.scheme {
-            Scheme::Http => "http",
-            Scheme::Https => "https",
-        };
-        let uri = format!(
-            "{scheme}://{}{}",
-            request.authority, request.path_with_query
-        );
-        let mut builder = ureq::http::Request::builder()
-            .method(request.method.as_str())
-            .uri(uri);
-        for (name, value) in &request.headers {
-            let value = request
-                .swaps
-                .iter()
-                .fold(value.clone(), |value, swap| swap.apply(name, &value));
-            builder = builder.header(name.as_str(), value);
-        }
-        let http = builder
-            .body(request.body.clone())
-            .map_err(|_| HttpError::ProtocolError)?;
-        let config = ureq::Agent::config_builder()
-            .max_redirects(0)
-            .http_status_as_error(false)
-            .proxy(None)
-            .timeout_global(timeout)
-            .build();
-        let dial = connector.dial(timeout)?;
-        let wire: Box<dyn transport::Wire> = match request.scheme {
-            Scheme::Http => Box::new(dial),
-            Scheme::Https => {
-                let config = self.tls.clone().ok_or(HttpError::TlsProtocol)?;
-                let name =
-                    rustls::pki_types::ServerName::try_from(connector.authority().0.to_string())
-                        .map_err(|_| HttpError::ProtocolError)?;
-                let session = rustls::ClientConnection::new(config, name)
-                    .map_err(|_| HttpError::TlsProtocol)?;
-                Box::new(transport::TlsWire(rustls::StreamOwned::new(session, dial)))
+impl Outbound for HyperOutbound {
+    fn send_request(&self, request: OutgoingRequest, connector: Connector) -> Sending {
+        let tls = self.tls.clone();
+        Box::pin(async move {
+            let http = to_hyper_request(&request)?;
+            let connection = connector.dial().await?;
+            match request.scheme {
+                Scheme::Http => exchange(Wire(connection), http).await,
+                Scheme::Https => {
+                    let config = tls.ok_or(HttpError::TlsProtocol)?;
+                    let name = rustls::pki_types::ServerName::try_from(
+                        connector.authority().0.to_string(),
+                    )
+                    .map_err(|_| HttpError::ProtocolError)?;
+                    let session = tokio_rustls::TlsConnector::from(config)
+                        .connect(name, connection)
+                        .await
+                        .map_err(|err| to_http_error(&err))?;
+                    exchange(Wire(session), http).await
+                }
             }
-        };
-        let agent =
-            ureq::Agent::with_parts(config, transport::OneShot::new(wire), transport::Unresolved);
-        let response = agent.run(http).map_err(to_http_error)?;
-        let head = ResponseHead {
-            status: response.status().as_u16(),
-            headers: response
-                .headers()
-                .iter()
-                .map(|(name, value)| (name.as_str().to_string(), value.as_bytes().to_vec()))
-                .collect(),
-        };
-        let body = response.into_body().into_reader();
-        Ok(Response {
-            head,
-            body: Box::new(body),
         })
     }
 }
 
-fn to_http_error(err: ureq::Error) -> HttpError {
-    let tls = match &err {
-        ureq::Error::Io(err) => err
-            .get_ref()
-            .and_then(|inner| inner.downcast_ref::<rustls::Error>()),
-        _ => None,
+/// `request` as hyper sends it: the path with its query as the target, each
+/// header with its credentials swapped in, and a `host` header naming the
+/// authority unless the guest wrote one.
+fn to_hyper_request(request: &OutgoingRequest) -> Result<hyper::Request<Full<Bytes>>, HttpError> {
+    let mut builder = hyper::Request::builder()
+        .method(request.method.as_str())
+        .uri(request.path_with_query.as_str());
+    if !request
+        .headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("host"))
+    {
+        builder = builder.header("host", request.authority.as_str());
+    }
+    for (name, value) in &request.headers {
+        let value = request
+            .swaps
+            .iter()
+            .fold(value.clone(), |value, swap| swap.apply(name, &value));
+        builder = builder.header(name.as_str(), value);
+    }
+    builder
+        .body(Full::new(Bytes::from(request.body.clone())))
+        .map_err(|_| HttpError::ProtocolError)
+}
+
+/// Send `request` over `wire` as HTTP/1, driving the connection beside it, and
+/// answer its response, whose body drives the connection on until it ends.
+async fn exchange<T>(
+    wire: Wire<T>,
+    request: hyper::Request<Full<Bytes>>,
+) -> Result<Response, HttpError>
+where
+    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut sender, connection) = hyper::client::conn::http1::handshake(wire)
+        .await
+        .map_err(|err| to_hyper_error(&err))?;
+    let mut connection: Driving = Some(Box::pin(async move {
+        let _ = connection.await;
+    }));
+    let mut sending = Box::pin(sender.send_request(request));
+    let response = poll_fn(|cx| {
+        drive(&mut connection, cx);
+        sending.as_mut().poll(cx)
+    })
+    .await
+    .map_err(|err| to_hyper_error(&err))?;
+    let head = ResponseHead {
+        status: response.status().as_u16(),
+        headers: response
+            .headers()
+            .iter()
+            .map(|(name, value)| (name.as_str().to_string(), value.as_bytes().to_vec()))
+            .collect(),
     };
-    match tls {
+    let body = Driven {
+        body: response.into_body(),
+        connection,
+    };
+    Ok(Response {
+        head,
+        body: body.boxed_unsync(),
+    })
+}
+
+/// The connection's own future, until it ends.
+type Driving = Option<Pin<Box<dyn Future<Output = ()> + Send>>>;
+
+fn drive(connection: &mut Driving, cx: &mut Context<'_>) {
+    if let Some(running) = connection.as_mut() {
+        if running.as_mut().poll(cx).is_ready() {
+            *connection = None;
+        }
+    }
+}
+
+/// A response's body, driving its connection as it is read.
+struct Driven {
+    body: hyper::body::Incoming,
+    connection: Driving,
+}
+
+impl Body for Driven {
+    type Data = Bytes;
+    type Error = HttpError;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Bytes>, HttpError>>> {
+        let this = self.get_mut();
+        drive(&mut this.connection, cx);
+        Pin::new(&mut this.body)
+            .poll_frame(cx)
+            .map_err(|_| HttpError::ConnectionTerminated)
+    }
+}
+
+/// A connection, plain or under TLS, as hyper reads and writes it.
+struct Wire<T>(T);
+
+impl<T: AsyncRead + Unpin> hyper::rt::Read for Wire<T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        mut buf: hyper::rt::ReadBufCursor<'_>,
+    ) -> Poll<io::Result<()>> {
+        // SAFETY: `ReadBuf` only writes initialized bytes into the cursor's
+        // spare capacity, and `advance` counts no more than it wrote.
+        let filled = unsafe {
+            let mut read = ReadBuf::uninit(buf.as_mut());
+            match Pin::new(&mut self.get_mut().0).poll_read(cx, &mut read) {
+                Poll::Ready(Ok(())) => read.filled().len(),
+                other => return other,
+            }
+        };
+        unsafe { buf.advance(filled) };
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<T: AsyncWrite + Unpin> hyper::rt::Write for Wire<T> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.get_mut().0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().0).poll_shutdown(cx)
+    }
+}
+
+/// The code a failed dial or TLS handshake answers, from the rustls error it
+/// carries, if any.
+fn to_http_error(err: &io::Error) -> HttpError {
+    match err
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
+    {
         Some(rustls::Error::InvalidCertificate(_)) => return HttpError::TlsCertificate,
         Some(_) => return HttpError::TlsProtocol,
         None => {}
     }
-    match err {
-        ureq::Error::Timeout(_) => HttpError::ConnectionTimeout,
-        ureq::Error::Io(err) if err.kind() == io::ErrorKind::ConnectionRefused => {
-            HttpError::ConnectionRefused
-        }
-        ureq::Error::Io(_) => HttpError::ConnectionTerminated,
-        ureq::Error::Protocol(_) | ureq::Error::BadUri(_) => HttpError::ProtocolError,
-        _ => HttpError::Internal,
+    match err.kind() {
+        io::ErrorKind::TimedOut => HttpError::ConnectionTimeout,
+        io::ErrorKind::ConnectionRefused => HttpError::ConnectionRefused,
+        io::ErrorKind::InvalidData => HttpError::TlsProtocol,
+        _ => match to_error(err) {
+            FilesystemError::ConnectionReset | FilesystemError::ConnectionAborted => {
+                HttpError::ConnectionTerminated
+            }
+            _ => HttpError::ConnectionRefused,
+        },
     }
 }
 
-/// The pieces ureq dials through: a connector handing over the one stream
-/// kobako's connector opened, and a resolver resolving nothing, so ureq never
-/// reaches the network itself.
-mod transport {
-    use std::fmt;
-    use std::sync::Mutex;
-
-    use ureq::unversioned::resolver::{ResolvedSocketAddrs, Resolver};
-    use ureq::unversioned::transport::{
-        Buffers, ConnectionDetails, Connector, LazyBuffers, NextTimeout, Transport,
-    };
-
-    use super::{PoisonError, Read, Stream, Write};
-
-    /// What ureq reads and writes: a stream in clear, or one TLS wraps.
-    pub(super) trait Wire: Read + Write + Send {
-        fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()>;
-
-        fn is_tls(&self) -> bool {
-            false
-        }
-    }
-
-    impl Wire for Box<dyn Stream> {
-        fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
-            Stream::set_read_timeout(&**self, timeout)
-        }
-    }
-
-    /// A stream TLS wraps, ended on the host.
-    pub(super) struct TlsWire(
-        pub(super) rustls::StreamOwned<rustls::ClientConnection, Box<dyn Stream>>,
-    );
-
-    impl Read for TlsWire {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            self.0.read(buf)
-        }
-    }
-
-    impl Write for TlsWire {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.write(buf)
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            self.0.flush()
-        }
-    }
-
-    impl Wire for TlsWire {
-        fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
-            self.0.sock.set_read_timeout(timeout)
-        }
-
-        fn is_tls(&self) -> bool {
-            true
-        }
-    }
-
-    /// A connector handing ureq the wire already opened, once.
-    pub(super) struct OneShot(Mutex<Option<Box<dyn Wire>>>);
-
-    impl OneShot {
-        pub(super) fn new(wire: Box<dyn Wire>) -> Self {
-            Self(Mutex::new(Some(wire)))
-        }
-    }
-
-    impl fmt::Debug for OneShot {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("OneShot")
-        }
-    }
-
-    impl Connector for OneShot {
-        type Out = StreamTransport;
-
-        fn connect(
-            &self,
-            details: &ConnectionDetails,
-            _chained: Option<()>,
-        ) -> Result<Option<Self::Out>, ureq::Error> {
-            let stream = self
-                .0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take()
-                .ok_or(ureq::Error::ConnectionFailed)?;
-            let buffers = LazyBuffers::new(
-                details.config.input_buffer_size(),
-                details.config.output_buffer_size(),
-            );
-            Ok(Some(StreamTransport {
-                tls: stream.is_tls(),
-                stream: Mutex::new(stream),
-                buffers,
-            }))
-        }
-    }
-
-    /// One wire as ureq's transport, behind a lock since a transport must be
-    /// shareable and a wire need not be.
-    pub(super) struct StreamTransport {
-        stream: Mutex<Box<dyn Wire>>,
-        tls: bool,
-        buffers: LazyBuffers,
-    }
-
-    impl fmt::Debug for StreamTransport {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("StreamTransport")
-        }
-    }
-
-    impl Transport for StreamTransport {
-        fn buffers(&mut self) -> &mut dyn Buffers {
-            &mut self.buffers
-        }
-
-        fn transmit_output(
-            &mut self,
-            amount: usize,
-            _timeout: NextTimeout,
-        ) -> Result<(), ureq::Error> {
-            let output = &self.buffers.output()[..amount];
-            let stream = self
-                .stream
-                .get_mut()
-                .unwrap_or_else(PoisonError::into_inner);
-            stream.write_all(output)?;
-            Ok(())
-        }
-
-        fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, ureq::Error> {
-            let stream = self
-                .stream
-                .get_mut()
-                .unwrap_or_else(PoisonError::into_inner);
-            stream.set_read_timeout(timeout.not_zero().map(|t| *t))?;
-            let input = self.buffers.input_append_buf();
-            let n = stream.read(input)?;
-            self.buffers.input_appended(n);
-            Ok(n > 0)
-        }
-
-        fn is_open(&mut self) -> bool {
-            true
-        }
-
-        /// A wire TLS already wraps needs no TLS of ureq's own.
-        fn is_tls(&self) -> bool {
-            self.tls
-        }
-    }
-
-    /// A resolver resolving nothing: the connector dials the authority itself.
-    #[derive(Debug)]
-    pub(super) struct Unresolved;
-
-    impl Resolver for Unresolved {
-        fn resolve(
-            &self,
-            _uri: &ureq::http::Uri,
-            _config: &ureq::config::Config,
-            _timeout: NextTimeout,
-        ) -> Result<ResolvedSocketAddrs, ureq::Error> {
-            let unspecified: std::net::SocketAddr = ([0, 0, 0, 0], 0).into();
-            let mut addrs = ResolvedSocketAddrs::from_fn(|_| unspecified);
-            addrs.push(unspecified);
-            Ok(addrs)
-        }
+/// The code a failed exchange answers.
+fn to_hyper_error(err: &hyper::Error) -> HttpError {
+    if err.is_parse() || err.is_parse_status() {
+        HttpError::ProtocolError
+    } else if err.is_timeout() {
+        HttpError::ConnectionTimeout
+    } else if err.is_incomplete_message() || err.is_closed() || err.is_canceled() {
+        HttpError::ConnectionTerminated
+    } else {
+        HttpError::Internal
     }
 }
 
@@ -747,8 +876,9 @@ impl fmt::Debug for Connector {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
+    use std::time::Duration;
 
     use super::*;
     use crate::net::{HostInet, Namespace, SANDBOX_WORKERS};
@@ -790,7 +920,7 @@ mod tests {
         Namespace::new(
             [&network],
             Arc::new(HostInet),
-            Arc::new(UreqOutbound::new()),
+            Arc::new(HyperOutbound::new()),
             Workers::new(SANDBOX_WORKERS),
         )
         .expect("the endpoints compile")
@@ -831,7 +961,7 @@ mod tests {
             .with_addresses(vec![crate::network::Addresses::Local])]);
         let cred = prepare_creds_within(&[], None);
         let exchange = namespace
-            .send(&cred, get(&format!("LocalHost:{port}")), None)
+            .send(&cred, get(&format!("LocalHost:{port}")))
             .expect("the endpoint names the authority");
         let (head, body) = settled(&exchange).expect("the server answers");
         let seen = server.join().unwrap();
@@ -844,6 +974,48 @@ mod tests {
                 && seen[0] == "GET /greeting?lang=en HTTP/1.1",
             "Namespace::send to an http endpoint must send the request line and read back the \
              status, headers, and body, got {head:?} {body:?} after {seen:?}"
+        );
+    }
+
+    // @behavior NW-058
+    #[test]
+    fn a_body_past_the_buffer_streams_as_it_is_read() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let size = SOCKET_BUFFER * 4;
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut head = [0; 1024];
+            let _ = stream.read(&mut head);
+            let header = format!("HTTP/1.1 200 OK\r\ncontent-length: {size}\r\n\r\n");
+            stream.write_all(header.as_bytes()).unwrap();
+            let body = (0..size).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+            stream.write_all(&body).unwrap();
+        });
+        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
+        let cred = prepare_creds_within(&[], None);
+        let exchange = namespace
+            .send(&cred, get(&format!("127.0.0.1:{port}")))
+            .expect("an endpoint names the authority");
+        let mut held = 0;
+        let mut body = Vec::new();
+        let mut buf = [0; 4096];
+        let started = std::time::Instant::now();
+        while body.len() < size && started.elapsed() < Duration::from_secs(10) {
+            held = held.max(exchange.state().body.len());
+            match exchange.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => body.extend_from_slice(&buf[..n]),
+                Err(_) => thread::sleep(Duration::from_millis(1)),
+            }
+        }
+        server.join().unwrap();
+        let expected = (0..size).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+        assert!(
+            body == expected && held <= SOCKET_BUFFER,
+            "a response body four buffers long must reach the guest whole and in order, the body \
+             waiting for it never past one buffer, got {} bytes, holding up to {held}",
+            body.len()
         );
     }
 
@@ -863,7 +1035,7 @@ mod tests {
             format!("elsewhere.example:{port}"),
             format!("198.18.0.0:{port}"),
         ]
-        .map(|authority| namespace.send(&cred, get(&authority), None).err());
+        .map(|authority| namespace.send(&cred, get(&authority)).err());
         thread::sleep(Duration::from_millis(20));
         assert!(
             answers
@@ -892,7 +1064,7 @@ mod tests {
         let mut request = get(&format!("127.0.0.1:{port}"));
         request.scheme = Scheme::Https;
         let exchange = namespace
-            .send(&cred, request, None)
+            .send(&cred, request)
             .expect("an endpoint names the authority");
         let answer = settled(&exchange).map(|(head, _)| head.status);
         assert_eq!(
@@ -931,7 +1103,7 @@ mod tests {
         let namespace = Namespace::new(
             [&network],
             Arc::new(HostInet),
-            Arc::new(UreqOutbound::new()),
+            Arc::new(HyperOutbound::new()),
             Workers::new(SANDBOX_WORKERS),
         )
         .unwrap();
@@ -940,7 +1112,7 @@ mod tests {
             .headers
             .push(("x-probe".to_string(), b"secret".to_vec()));
         let cred = prepare_creds_within(&[], None);
-        let answer = namespace.send(&cred, request, None).err();
+        let answer = namespace.send(&cred, request).err();
         thread::sleep(Duration::from_millis(20));
         assert_eq!(
             (
@@ -970,14 +1142,9 @@ mod tests {
     struct Recording(Mutex<Vec<Vec<Swap>>>);
 
     impl Outbound for Recording {
-        fn send_request(
-            &self,
-            request: &OutgoingRequest,
-            _connector: &Connector,
-            _timeout: Option<Duration>,
-        ) -> Result<Response, HttpError> {
-            self.0.lock().unwrap().push(request.swaps.clone());
-            Err(HttpError::Internal)
+        fn send_request(&self, request: OutgoingRequest, _connector: Connector) -> Sending {
+            self.0.lock().unwrap().push(request.swaps);
+            Box::pin(async { Err(HttpError::Internal) })
         }
     }
 
@@ -1018,7 +1185,7 @@ mod tests {
             .headers
             .push((header.to_string(), b"Bearer kobako-token".to_vec()));
         let exchange = namespace
-            .send(&prepare_creds_within(&[], None), request, None)
+            .send(&prepare_creds_within(&[], None), request)
             .expect("an endpoint names the authority");
         let _ = settled(&exchange);
         let recorded = seam.0.lock().unwrap().pop().unwrap_or_default();
@@ -1029,11 +1196,7 @@ mod tests {
     struct Resolving;
 
     impl ProtocolFamily for Resolving {
-        fn connect(
-            &self,
-            _addr: SocketAddr,
-            _timeout: Option<Duration>,
-        ) -> io::Result<Box<dyn Stream>> {
+        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
             Err(io::ErrorKind::ConnectionRefused.into())
         }
     }

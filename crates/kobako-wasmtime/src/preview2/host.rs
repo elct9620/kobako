@@ -288,7 +288,8 @@ impl SocketsHost for Invocation {
     }
 
     /// A connect passes the Invocation's namespace on what the guest named,
-    /// which dials that exact address on a worker, so this answers at once.
+    /// which dials that exact address without blocking, so this answers at
+    /// once.
     fn tcp_tcp_socket_start_connect(
         &mut self,
         this: TcpSocket,
@@ -308,7 +309,7 @@ impl SocketsHost for Invocation {
             .table()
             .network()
             .expect("a socket is only made with a network")
-            .connect(cred, addr, self.deadline());
+            .connect(cred, addr);
         let sock = match connected {
             Ok(sock) => sock,
             Err(err) => return Ok(Err(to_error_code(&err))),
@@ -514,7 +515,7 @@ impl SocketsHost for Invocation {
             .table()
             .network()
             .expect("a socket is only made with a network")
-            .connect_datagram(cred, addr, self.deadline());
+            .connect_datagram(cred, addr);
         let sock = match connected {
             Ok(sock) => sock,
             Err(err) => return Ok(Err(to_error_code(&err))),

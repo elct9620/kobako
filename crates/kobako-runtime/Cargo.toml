@@ -48,15 +48,24 @@ if-addrs = "0.15.0"
 # Turns a name the guest looks up into its A-label, so the hooks and the
 # endpoints judge one spelling of it.
 idna = "1.1.0"
-# The default outbound seam: a synchronous HTTP/1 client dialing only through
-# kobako's connector. Pinned, since its Connector sits under `unversioned`,
-# which may break in a minor release; no default feature, so it decompresses
-# nothing and bundles no roots.
-ureq = { version = "=3.5.1", default-features = false }
+# The default outbound seam: hyper's HTTP/1 client, which binds to no async
+# runtime, driven on kobako's reactor and dialing only through kobako's
+# connector; no default feature, so it decompresses and redirects nothing.
+hyper = { version = "1.12.0", features = ["client", "http1"] }
+http-body = "1.0.1"
+http-body-util = "0.1.3"
+bytes = "1.11.1"
+# The I/O traits tokio-rustls reads and writes through; no feature, so no
+# runtime comes with them.
+tokio = { version = "1.54.1", default-features = false }
+tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring", "tls12"] }
 # TLS ends on the host, over ring, trusting the OS's own store, so a revoked or
 # added root follows the host's patches rather than a kobako release.
 rustls = { version = "0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
 rustls-platform-verifier = "0.7.1"
+# The reactor: one thread waits on every host socket without blocking on
+# any, on epoll, kqueue, or IOCP alike.
+mio = { version = "1.2.0", features = ["os-poll", "net"] }
 # Zeroes a credential's value as it drops, so a freed page holds no secret.
 zeroize = "1.9.1"
 

@@ -1,5 +1,5 @@
-//! A name lookup the guest asked for, resolved on a worker as a reactor
-//! would, its waiter woken through the lookup's wait queue so the deadline
+//! A name lookup the guest asked for, resolved on a thread of its own since a
+//! resolver blocks, its waiter woken through the lookup's wait queue so the deadline
 //! ends the wait. Linux leaves resolution to userspace; this resolver is the
 //! only one the guest has.
 
@@ -20,7 +20,7 @@ pub enum LookupError {
     NameUnresolvable,
     /// The resolver cannot answer this name at all.
     PermanentFailure,
-    /// The lookup cannot start now, as a full worker cap leaves it.
+    /// The lookup cannot start now, as a full cap leaves it.
     TemporaryFailure,
 }
 
@@ -32,7 +32,7 @@ pub struct NameLookup {
 }
 
 impl NameLookup {
-    /// A lookup of `name` through `family` on a worker counted against
+    /// A lookup of `name` through `family` on a thread counted against
     /// `workers`; a full count answers at once as a temporary failure.
     pub(crate) fn start(
         family: Arc<dyn ProtocolFamily>,
@@ -45,11 +45,11 @@ impl NameLookup {
             answer: Mutex::new(None),
             wait: Arc::default(),
         });
-        let worker = lookup.clone();
+        let resolving = lookup.clone();
         let place = charges.pop();
         thread::spawn(move || {
             let _place = place;
-            let answer = match family.resolve(&worker.name) {
+            let answer = match family.resolve(&resolving.name) {
                 Ok(addresses) if addresses.is_empty() => Err(LookupError::NameUnresolvable),
                 Ok(addresses) => Ok(addresses),
                 Err(err) if err.kind() == std::io::ErrorKind::Unsupported => {
@@ -57,13 +57,16 @@ impl NameLookup {
                 }
                 Err(_) => Err(LookupError::NameUnresolvable),
             };
-            *worker.answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(answer);
-            worker.wait.wake_up();
+            *resolving
+                .answer
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(answer);
+            resolving.wait.wake_up();
         });
         Ok(lookup)
     }
 
-    /// A lookup answered at once, with no worker, as a refused name is.
+    /// A lookup answered at once, with no thread, as a refused name is.
     pub(crate) fn answered(name: String, answer: Result<Vec<IpAddr>, LookupError>) -> Arc<Self> {
         Arc::new(Self {
             name,
