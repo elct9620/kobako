@@ -32,6 +32,9 @@ struct State {
     /// sees it change, as `sock_writeable` reads its room.
     writable: bool,
     local: Option<SocketAddr>,
+    /// The port the guest reads for its own end, which its namespace gave as
+    /// it first connected, as a NAT's tuple pairs it with the host's.
+    virtual_port: Option<u16>,
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
     named: Option<SocketAddr>,
@@ -57,6 +60,7 @@ impl UdpSock {
                 received_bytes: 0,
                 writable: true,
                 local: None,
+                virtual_port: None,
                 named: None,
                 place: None,
             }),
@@ -142,6 +146,17 @@ impl UdpSock {
     /// The host's own end, once the socket opened.
     pub fn local_addr(&self) -> Option<SocketAddr> {
         self.state().local
+    }
+
+    /// The port the guest reads for its own end, once it connected.
+    pub fn virtual_port(&self) -> Option<u16> {
+        self.state().virtual_port
+    }
+
+    /// Hold the port `alloc` gives as the guest's own, unless one is held, so
+    /// a socket connected again keeps its port.
+    pub(crate) fn hold_virtual_port(&self, alloc: impl FnOnce() -> u16) {
+        self.state().virtual_port.get_or_insert_with(alloc);
     }
 
     /// The peer as the guest named it, once connected, as cgroup

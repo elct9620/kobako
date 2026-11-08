@@ -358,8 +358,9 @@ impl SocketsHost for Invocation {
         Ok(Ok(()))
     }
 
-    /// The guest's own end, once a connect bound it, as the namespace maps
-    /// the host's; an unbound socket answers `invalid-state`, as wasmtime's.
+    /// The guest's own end, once a connect bound it, at the virtual port the
+    /// namespace gave it; an unbound socket answers `invalid-state`, as
+    /// wasmtime's.
     fn tcp_tcp_socket_local_address(
         &mut self,
         this: TcpSocket,
@@ -368,8 +369,8 @@ impl SocketsHost for Invocation {
         if !matches!(socket.state, TcpState::Connecting | TcpState::Connected) {
             return Ok(Err(ErrorCode::InvalidState));
         }
-        let real = socket.socket.sock.local_addr();
-        Ok(Ok(from_socket_addr(self.network().local_address(real))))
+        let port = socket.socket.sock.virtual_port();
+        Ok(Ok(from_socket_addr(self.network().local_address(port))))
     }
 
     /// The peer as the guest named it.
@@ -452,8 +453,9 @@ impl SocketsHost for Invocation {
         Ok(Ok(()))
     }
 
-    /// The guest's own end, once bound, as the namespace maps the host's; an
-    /// unbound socket answers `invalid-state`, as wasmtime's.
+    /// The guest's own end, once bound, at the virtual port the namespace gave
+    /// it as it connected; an unbound socket answers `invalid-state`, as
+    /// wasmtime's.
     fn udp_udp_socket_local_address(
         &mut self,
         this: UdpSocket,
@@ -462,8 +464,8 @@ impl SocketsHost for Invocation {
         if !matches!(socket.state, UdpState::Bound | UdpState::Streaming) {
             return Ok(Err(ErrorCode::InvalidState));
         }
-        let real = socket.socket.sock.local_addr();
-        Ok(Ok(from_socket_addr(self.network().local_address(real))))
+        let port = socket.socket.sock.virtual_port();
+        Ok(Ok(from_socket_addr(self.network().local_address(port))))
     }
 
     /// The streams to the one peer the guest names, which passes the

@@ -36,6 +36,11 @@ const LOCAL_ADDRESS: Ipv4Addr = Ipv4Addr::new(198, 19, 255, 254);
 /// the broadcast one above it.
 const NAMED_SIZE: u32 = VIRTUAL_SIZE - 2;
 
+/// The ports a connect gives the guest for its own end, Linux's default
+/// `ip_local_port_range`, taken in turn from the bottom and around again, so
+/// no host port reaches the guest and a script reads the same ports each run.
+const VIRTUAL_PORTS: std::ops::RangeInclusive<u16> = 32768..=60999;
+
 /// What the guest may reach, which policies judge each lookup and connect, the
 /// backend that dials it, the connections the Sandbox holds open and those
 /// left to this Invocation, and the virtual addresses handed out.
@@ -55,6 +60,8 @@ pub struct Namespace {
     /// Each name looked up and its real addresses, at its virtual address's
     /// offset from the bottom of the range.
     virtuals: Mutex<Vec<(String, Vec<IpAddr>)>>,
+    /// The virtual port this Invocation's next connect takes.
+    next_port: Mutex<u16>,
 }
 
 impl Namespace {
@@ -100,6 +107,7 @@ impl Namespace {
             open_connections,
             connections_left: Mutex::new(connection_limit),
             virtuals: Mutex::new(Vec::new()),
+            next_port: Mutex::new(*VIRTUAL_PORTS.start()),
         })
     }
 
@@ -257,15 +265,30 @@ impl Namespace {
         Ok(made)
     }
 
-    /// The address the guest reads as its own end of a socket whose host end
-    /// is `real`, as cgroup `getsockname4` rewrites it: the guest's own
-    /// virtual address and the host's port, or the unspecified address before
-    /// the socket opened, as Linux answers an unbound one.
-    pub fn local_address(&self, real: Option<SocketAddr>) -> SocketAddr {
-        match real {
-            Some(real) => SocketAddr::from((LOCAL_ADDRESS, real.port())),
+    /// The address the guest reads as its own end of a socket holding
+    /// `virtual_port`, as cgroup `getsockname4` rewrites it: the guest's own
+    /// virtual address and that port, or the unspecified address before a
+    /// connect, as Linux answers an unbound socket.
+    pub fn local_address(&self, virtual_port: Option<u16>) -> SocketAddr {
+        match virtual_port {
+            Some(port) => SocketAddr::from((LOCAL_ADDRESS, port)),
             None => SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
         }
+    }
+
+    /// The next virtual port, as Linux's `inet_hash_connect` picks a source
+    /// port as a connect begins.
+    fn alloc_virtual_port(&self) -> u16 {
+        let mut next = self
+            .next_port
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let port = *next;
+        *next = match port == *VIRTUAL_PORTS.end() {
+            true => *VIRTUAL_PORTS.start(),
+            false => port + 1,
+        };
+        port
     }
 
     /// Allocate the virtual address `lookup`'s answer is handed out at, from
@@ -319,7 +342,9 @@ impl Namespace {
         let real = self.admit(cred, addr, Protocol::Tcp)?;
         self.within_connection_limit(FilesystemError::WouldBlock, || {
             sock.connect(real, addr, &self.open_connections)
-        })
+        })?;
+        sock.hold_virtual_port(|| self.alloc_virtual_port());
+        Ok(())
     }
 
     /// Create a TCP socket connected to nothing, which connects through this
@@ -356,7 +381,9 @@ impl Namespace {
         let real = self.admit(cred, addr, Protocol::Udp)?;
         self.within_connection_limit(FilesystemError::WouldBlock, || {
             sock.connect(&self.family, real[0], addr, &self.open_connections)
-        })
+        })?;
+        sock.hold_virtual_port(|| self.alloc_virtual_port());
+        Ok(())
     }
 
     /// The real addresses a `protocol` connection to `addr` may dial, once the

@@ -57,6 +57,9 @@ struct State {
     /// cleared, as `sock_error` swaps it with zero.
     error: Option<FilesystemError>,
     local: Option<SocketAddr>,
+    /// The port the guest reads for its own end, which its namespace gave as
+    /// the connect began, as a NAT's tuple pairs it with the host's.
+    virtual_port: Option<u16>,
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
     named: Option<SocketAddr>,
@@ -95,6 +98,7 @@ impl TcpSock {
                 fin_sent: false,
                 error: None,
                 local: None,
+                virtual_port: None,
                 named: None,
                 released: false,
                 place: None,
@@ -292,6 +296,16 @@ impl TcpSock {
 
     pub fn local_addr(&self) -> Option<SocketAddr> {
         self.state().local
+    }
+
+    /// The port the guest reads for its own end, once a connect began.
+    pub fn virtual_port(&self) -> Option<u16> {
+        self.state().virtual_port
+    }
+
+    /// Hold the port `alloc` gives as the guest's own, unless one is held.
+    pub(crate) fn hold_virtual_port(&self, alloc: impl FnOnce() -> u16) {
+        self.state().virtual_port.get_or_insert_with(alloc);
     }
 
     /// The peer as the guest named it, once connected, as cgroup

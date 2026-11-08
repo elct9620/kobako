@@ -4,7 +4,7 @@ require "test_helper"
 
 # E2E — the address a script reads for its own end of a socket, through the
 # real Guest Binary against loopback peers: the guest's own virtual address
-# beside the port its peer sees.
+# and a virtual port, never the host's.
 class TestE2ENetworkOwnEnd < Minitest::Test
   include E2eGuestHelper
 
@@ -13,13 +13,14 @@ class TestE2ENetworkOwnEnd < Minitest::Test
     datagrams = UDPSocket.new
     unconnected = datagrams.addr
     datagrams.connect("127.0.0.1", %<udp>d)
-    datagrams.send("x", 0)
+    connected = datagrams.addr
+    datagrams.connect("127.0.0.1", %<udp>d)
     itself = begin
       TCPSocket.new(stream.addr[3], %<tcp>d)
     rescue Errno::EACCES
       :refused
     end
-    [stream.addr, unconnected, datagrams.addr, itself]
+    [stream.addr, unconnected, connected, datagrams.addr == connected, itself]
   RUBY
 
   # @behavior NW-112
@@ -27,24 +28,13 @@ class TestE2ENetworkOwnEnd < Minitest::Test
     with_peers do |server, peer|
       tcp, udp = [server, peer].map { |socket| socket.addr[1] }
       value = sandbox_reaching(tcp, udp).eval(format(OWN_END, tcp: tcp, udp: udp)).value
-      stream_port, datagram_port = ports_seen_by(server, peer)
 
-      assert_equal [own_end(stream_port), ["AF_INET", 0, "0.0.0.0", "0.0.0.0"], own_end(datagram_port), :refused],
-                   value,
-                   "TCPSocket#addr and a connected UDPSocket#addr must answer 198.19.255.254 and the port the " \
-                   "peer sees, an unconnected UDPSocket#addr 0.0.0.0 port 0, and a connect to that address " \
-                   "Errno::EACCES"
+      assert_equal [["AF_INET", 32_768, "198.19.255.254", "198.19.255.254"], ["AF_INET", 0, "0.0.0.0", "0.0.0.0"],
+                    ["AF_INET", 32_769, "198.19.255.254", "198.19.255.254"], true, :refused], value,
+                   "TCPSocket#addr and a connected UDPSocket#addr must answer 198.19.255.254 and a port from " \
+                   "32768 up in connect order, kept as the UDPSocket connects again, an unconnected " \
+                   "UDPSocket#addr 0.0.0.0 port 0, and a connect to that address Errno::EACCES"
     end
-  end
-
-  # The +addr+ a socket reads for its own end at +port+.
-  def own_end(port)
-    ["AF_INET", port, "198.19.255.254", "198.19.255.254"]
-  end
-
-  # The ports the script came from, as +server+ and +peer+ saw them.
-  def ports_seen_by(server, peer)
-    [server.accept.peeraddr[1], peer.recvfrom(1)[1][1]]
   end
 
   # Yield a loopback TCP server that only listens and a bound UDP peer.
