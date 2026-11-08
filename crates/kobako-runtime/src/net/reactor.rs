@@ -35,6 +35,9 @@ pub(crate) struct Reactor {
     /// socket alive past its release.
     sockets: Mutex<HashMap<Token, Weak<dyn Ready>>>,
     queued: Mutex<VecDeque<Arc<Task>>>,
+    /// Whether the thread stopped, its poll having failed, so the next socket
+    /// starts another reactor rather than register on one nobody waits on.
+    stopped: AtomicBool,
 }
 
 /// A reactor, and the process it was started in.
@@ -45,12 +48,13 @@ static CURRENT: LazyLock<Mutex<Option<Started>>> = LazyLock::new(Mutex::default)
 
 impl Reactor {
     /// The process's reactor, started at the first socket; a forked child
-    /// starts its own, since its parent's thread never came along.
+    /// starts its own, since its parent's thread never came along, and so does
+    /// the socket after a reactor whose poll failed.
     pub(crate) fn current() -> io::Result<Arc<Self>> {
         let mut current = CURRENT.lock().unwrap_or_else(PoisonError::into_inner);
         let pid = std::process::id();
         if let Some((started_in, reactor)) = current.as_ref() {
-            if *started_in == pid {
+            if *started_in == pid && !reactor.stopped.load(Ordering::Acquire) {
                 return Ok(reactor.clone());
             }
         }
@@ -67,6 +71,7 @@ impl Reactor {
             next: AtomicUsize::new(1),
             sockets: Mutex::default(),
             queued: Mutex::default(),
+            stopped: AtomicBool::new(false),
         });
         let running = reactor.clone();
         thread::Builder::new()
@@ -82,6 +87,7 @@ impl Reactor {
                 if err.kind() == io::ErrorKind::Interrupted {
                     continue;
                 }
+                self.stopped.store(true, Ordering::Release);
                 return;
             }
             let mut run_tasks = false;

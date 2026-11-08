@@ -149,11 +149,13 @@ impl Ready for UdpSock {
 /// UDP's answers for its socket file, as `inet_dgram_ops` hands each call to
 /// `udp_prot`.
 impl ProtoOps for UdpSock {
-    /// One datagram, cut to `buf`, as a datagram socket's read takes one.
+    /// One datagram, cut to `buf`, as a datagram socket's read takes one. A
+    /// failure is answered once and then cleared, as `sock_error` swaps
+    /// `sk_err` with zero, so the socket reads on.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
         let Some(datagram) = state.received.pop_front() else {
-            return Err(state.failed.clone().unwrap_or(FilesystemError::WouldBlock));
+            return Err(state.failed.take().unwrap_or(FilesystemError::WouldBlock));
         };
         state.received_bytes -= datagram.len();
         let n = buf.len().min(datagram.len());
@@ -168,7 +170,7 @@ impl ProtoOps for UdpSock {
             return Err(FilesystemError::InvalidInput);
         }
         let mut state = self.state();
-        if let Some(err) = state.failed.clone() {
+        if let Some(err) = state.failed.take() {
             return Err(err);
         }
         if state.host.is_none() || state.sending_bytes + buf.len() > SOCKET_BUFFER {
@@ -256,6 +258,30 @@ mod tests {
             (&b"ping"[..], &b"PO"[..], Err(FilesystemError::WouldBlock)),
             "a UDP socket must send a datagram to its peer and read one back per read, cut to the \
              buffer, with the rest of it gone"
+        );
+    }
+
+    // @behavior NW-070
+    #[test]
+    fn a_udp_failure_is_answered_once() {
+        let closed = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = closed.local_addr().unwrap();
+        drop(closed);
+        let sock = UdpSock::connect(Arc::new(HostInet), addr, &OpenConnections::new(None)).unwrap();
+        until(&sock, PollMask::OUT);
+        sock.sendmsg(b"ping").unwrap();
+        until(&sock, PollMask::ERR);
+        let first = sock.recvmsg(&mut [0; 4]);
+        let again = sock.recvmsg(&mut [0; 4]);
+        sock.release();
+        assert_eq!(
+            (first, again),
+            (
+                Err(FilesystemError::ConnectionRefused),
+                Err(FilesystemError::WouldBlock)
+            ),
+            "UdpSock::recvmsg after a datagram to a closed port must answer ECONNREFUSED once \
+             and then read on, as sock_error clears sk_err"
         );
     }
 

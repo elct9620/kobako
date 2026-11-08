@@ -331,7 +331,10 @@ impl ProtoOps for TcpSock {
         {
             mask = mask | PollMask::OUT;
         }
-        if matches!(state.phase, Phase::Failed(_)) || state.send_error.is_some() {
+        if matches!(state.phase, Phase::Failed(_))
+            || state.send_error.is_some()
+            || state.received_error.is_some()
+        {
             mask = mask | PollMask::ERR;
         }
         if state.received_end && state.send_shut {
@@ -418,6 +421,23 @@ mod tests {
             (Err(FilesystemError::WouldBlock), b"hello".to_vec()),
             "File::read of a socket file must answer EAGAIN before anything arrived, then the \
              peer's bytes, then zero once it closed"
+        );
+    }
+
+    // @behavior RT-351
+    #[test]
+    fn a_reset_reads_as_an_error_its_poll_reports() {
+        let (_sock, mut file, peer) = connected();
+        file.write(b"unread").unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        // A close with bytes unread sends a reset, as Linux's `tcp_close` does.
+        drop(peer);
+        wait_for(&file, PollMask::ERR);
+        assert_eq!(
+            file.read(&mut [0; 8]),
+            Err(FilesystemError::ConnectionReset),
+            "a socket file's poll after the peer reset must find ERR, as tcp_poll reads sk_err, \
+             and its read must answer ECONNRESET"
         );
     }
 

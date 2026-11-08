@@ -46,22 +46,27 @@ impl NameLookup {
             wait: Arc::default(),
         });
         let resolving = lookup.clone();
-        thread::spawn(move || {
-            let _place = place;
-            let answer = match family.resolve(&resolving.name) {
-                Ok(addresses) if addresses.is_empty() => Err(LookupError::NameUnresolvable),
-                Ok(addresses) => Ok(addresses),
-                Err(err) if err.kind() == std::io::ErrorKind::Unsupported => {
-                    Err(LookupError::PermanentFailure)
-                }
-                Err(_) => Err(LookupError::NameUnresolvable),
-            };
-            *resolving
-                .answer
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = Some(answer);
-            resolving.wait.wake_up();
-        });
+        // A thread the process cannot make answers as a resolver out of
+        // resources does, and gives its place back as the closure drops.
+        let spawned = thread::Builder::new()
+            .name("kobako-resolver".into())
+            .spawn(move || {
+                let _place = place;
+                let answer = match family.resolve(&resolving.name) {
+                    Ok(addresses) if addresses.is_empty() => Err(LookupError::NameUnresolvable),
+                    Ok(addresses) => Ok(addresses),
+                    Err(err) if err.kind() == std::io::ErrorKind::Unsupported => {
+                        Err(LookupError::PermanentFailure)
+                    }
+                    Err(_) => Err(LookupError::NameUnresolvable),
+                };
+                *resolving
+                    .answer
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = Some(answer);
+                resolving.wait.wake_up();
+            });
+        spawned.map_err(|_| LookupError::TemporaryFailure)?;
         Ok(lookup)
     }
 
