@@ -28,6 +28,8 @@ Each cap has a default and its own way to end a run.
 | `memory_limit` | 4 MiB | `Kobako::MemoryLimitError` |
 | `stdout_limit`, `stderr_limit` | 1 MiB each | output clipped, no raise |
 | `open_file_limit` | 1024 | `Errno::EMFILE` in the guest |
+| `open_connection_limit` | 6 | `Errno::EAGAIN` in the guest |
+| `connection_limit` | 50 | `Errno::EAGAIN` in the guest |
 
 ## Cap Scope
 
@@ -47,14 +49,21 @@ its `SetupError` raises from `with`.
 
 ## Network Caps
 
-Each open socket, HTTP request, and name lookup takes one place. Two fixed
-caps bound the places. A socket past either cap raises `Errno::EAGAIN` in the
-guest, and the script goes on.
+Three limits bound the guest's connections. A connection past any of them
+raises `Errno::EAGAIN` in the guest, and the script goes on.
 
-| Cap | Value | Measures |
-|---|---|---|
-| per Sandbox | 64 places | every socket, request, and lookup its runs hold |
-| per process | 1024 places | every Sandbox's together |
+| Limit | Measures |
+|---|---|
+| `open_connection_limit` | each socket, request, and lookup a Sandbox holds open at once |
+| `connection_limit` | each socket and request one run makes, closed ones included |
+| the process's | every Sandbox's open connections together, 512 by default |
+
+Only a Rust Host App moves the process's limit. Lowering it closes nothing
+already open, and the next connection is refused.
+
+```rust
+kobako::network::process_connections().set_limit(Some(2048));
+```
 
 ## Usage Report
 

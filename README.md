@@ -151,6 +151,8 @@ Kobako::Sandbox.new(timeout: 5.0, memory_limit: 10 * 1024 * 1024)
 | `memory_limit` | 4 MiB |
 | `stdout_limit`, `stderr_limit` | 1 MiB |
 | `open_file_limit` | 1024 |
+| `open_connection_limit` | 6 |
+| `connection_limit` | 50 |
 
 ### Concurrency
 
