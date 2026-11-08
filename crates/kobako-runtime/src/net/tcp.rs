@@ -102,16 +102,22 @@ impl TcpSock {
 
     /// Connect to the first of `addrs` that answers, in turn, the guest having
     /// named `named`; the connect goes on without blocking, so this returns at
-    /// once and a poll finds the socket writable once it settles. The socket
-    /// counts against `open_connections` and the process until released, and a
-    /// full count answers `EAGAIN`, never a Trap, so one Sandbox cannot end
-    /// another's run.
+    /// once and a poll finds the socket writable once it settles. A socket
+    /// connecting answers `EALREADY` and one connected `EISCONN`, as
+    /// `__inet_stream_connect` does. The socket counts against
+    /// `open_connections` and the process until released, and a full count
+    /// answers `EAGAIN`, never a Trap, so one Sandbox cannot end another's run.
     pub(crate) fn connect(
         &self,
         addrs: Vec<SocketAddr>,
         named: SocketAddr,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<(), FilesystemError> {
+        match self.state().phase {
+            Phase::Connecting => return Err(FilesystemError::AlreadyInProgress),
+            Phase::Connected => return Err(FilesystemError::AlreadyConnected),
+            Phase::Unconnected | Phase::Failed(_) => {}
+        }
         let place = open(open_connections).ok_or(FilesystemError::WouldBlock)?;
         let mut state = self.state();
         state.place = Some(place);
@@ -427,6 +433,21 @@ mod tests {
             sock.finish_connect(),
             Ok(()),
             "TcpSock::finish_connect once the socket file's poll found it writable must succeed"
+        );
+    }
+
+    // @behavior RT-356
+    #[test]
+    fn a_connected_socket_asked_to_connect_again_answers_eisconn() {
+        let (sock, _file, _peer) = connected();
+        sock.finish_connect().expect("the socket connected");
+        let addr = sock.peer_addr().expect("a connected socket has a peer");
+        let again = sock.connect(vec![addr], addr, &OpenConnections::new(Some(1)));
+        assert_eq!(
+            again,
+            Err(FilesystemError::AlreadyConnected),
+            "TcpSock::connect on a connected socket must answer EISCONN, as \
+             __inet_stream_connect does, before taking another place"
         );
     }
 

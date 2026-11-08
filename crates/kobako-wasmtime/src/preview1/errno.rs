@@ -55,6 +55,7 @@ fn from_posix_name(name: &str) -> Option<Errno> {
         "EMSGSIZE" => Errno::Msgsize,
         "EISCONN" => Errno::Isconn,
         "EINPROGRESS" => Errno::Inprogress,
+        "EALREADY" => Errno::Already,
         "EAFNOSUPPORT" => Errno::Afnosupport,
         _ => return None,
     })
@@ -133,6 +134,8 @@ mod tests {
             (FilesystemError::NotSeekable, 70),
             (FilesystemError::NoSuchDevice, 43),
             (FilesystemError::StaleNetworkFileHandle, 72),
+            (FilesystemError::MessageTooLong, 35),
+            (FilesystemError::AlreadyInProgress, 7),
             (FilesystemError::Other("x".into()), 29),
         ];
         for (error, code) in cases {
