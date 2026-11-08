@@ -1012,3 +1012,16 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a server that sends a response's head and holds its body open |
 | When | the guest drops the response's body without finishing it, or the Invocation ends while the guest holds it |
 | Then | the server reads the connection closed. Nothing of the exchange outlives what the guest holds of it |
+
+## `NW-083` What a network policy raises beyond StandardError ends the run
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-021` |
+| relates | `T-282`, `MT-023` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose network entry's `connect?` policy raises `Interrupt` |
+| When | the script opens a `TCPSocket` its endpoint names and rescues every failure |
+| Then | the run raises `Interrupt` in the Host App, as a Service's or a mount's `Interrupt` does |
