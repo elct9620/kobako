@@ -445,7 +445,7 @@ pub struct Response {
 }
 
 /// What the outbound seam's send runs as on the reactor.
-pub type Sending = Pin<Box<dyn Future<Output = Result<Response, HttpError>> + Send>>;
+pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, HttpError>> + Send>>;
 
 /// The replaceable HTTP sender, as wasmtime's `send_request`. It dials only
 /// through the connector it is handed; one dialing any other way skips every
@@ -453,7 +453,7 @@ pub type Sending = Pin<Box<dyn Future<Output = Result<Response, HttpError>> + Se
 /// reactor, so it must never block.
 pub trait Outbound: Send + Sync {
     /// Send `request` through `connector`.
-    fn send_request(&self, request: OutgoingRequest, connector: Connector) -> Sending;
+    fn send_request(&self, request: OutgoingRequest, connector: Connector) -> ResponseFuture;
 }
 
 /// The only dialer the outbound seam has: it reaches the one authority the
@@ -560,7 +560,7 @@ struct Waiters {
 }
 
 impl Ready for Waiters {
-    fn ready(&self) {
+    fn on_event(&self) {
         for waiter in [&self.read, &self.write] {
             if let Some(waker) = waiter.lock().unwrap_or_else(PoisonError::into_inner).take() {
                 waker.wake();
@@ -967,7 +967,7 @@ impl Default for HyperOutbound {
 }
 
 impl Outbound for HyperOutbound {
-    fn send_request(&self, request: OutgoingRequest, connector: Connector) -> Sending {
+    fn send_request(&self, request: OutgoingRequest, connector: Connector) -> ResponseFuture {
         let tls = self.tls.clone();
         Box::pin(async move {
             let http = to_hyper_request(&request)?;
@@ -1023,7 +1023,7 @@ where
     let (mut sender, connection) = hyper::client::conn::http1::handshake(wire)
         .await
         .map_err(|err| to_hyper_error(&err))?;
-    let mut connection: Driving = Some(Box::pin(async move {
+    let mut connection: ConnectionTask = Some(Box::pin(async move {
         let _ = connection.await;
     }));
     let mut sending = Box::pin(sender.send_request(request));
@@ -1041,7 +1041,7 @@ where
             .map(|(name, value)| (name.as_str().to_string(), value.as_bytes().to_vec()))
             .collect(),
     };
-    let body = Driven {
+    let body = DrivenBody {
         body: response.into_body(),
         connection,
     };
@@ -1052,9 +1052,9 @@ where
 }
 
 /// The connection's own future, until it ends.
-type Driving = Option<Pin<Box<dyn Future<Output = ()> + Send>>>;
+type ConnectionTask = Option<Pin<Box<dyn Future<Output = ()> + Send>>>;
 
-fn drive(connection: &mut Driving, cx: &mut Context<'_>) {
+fn drive(connection: &mut ConnectionTask, cx: &mut Context<'_>) {
     if let Some(running) = connection.as_mut() {
         if running.as_mut().poll(cx).is_ready() {
             *connection = None;
@@ -1063,12 +1063,12 @@ fn drive(connection: &mut Driving, cx: &mut Context<'_>) {
 }
 
 /// A response's body, driving its connection as it is read.
-struct Driven {
+struct DrivenBody {
     body: hyper::body::Incoming,
-    connection: Driving,
+    connection: ConnectionTask,
 }
 
-impl Body for Driven {
+impl Body for DrivenBody {
     type Data = Bytes;
     type Error = HttpError;
 
@@ -1465,7 +1465,7 @@ mod tests {
     struct Recording(Mutex<Vec<Vec<Swap>>>);
 
     impl Outbound for Recording {
-        fn send_request(&self, request: OutgoingRequest, _connector: Connector) -> Sending {
+        fn send_request(&self, request: OutgoingRequest, _connector: Connector) -> ResponseFuture {
             self.0.lock().unwrap().push(request.swaps);
             Box::pin(async { Err(HttpError::Internal) })
         }

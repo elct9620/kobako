@@ -1064,7 +1064,7 @@ Send a request through the connector.
 
 ```rust
 pub trait Outbound {
-    fn send_request(&self, request: OutgoingRequest, connector: Connector) -> Sending;
+    fn send_request(&self, request: OutgoingRequest, connector: Connector) -> ResponseFuture;
 }
 ```
 

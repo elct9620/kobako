@@ -18,7 +18,7 @@ pub use family::{HostInet, ProtocolFamily};
 pub use http::{
     is_authority, is_origin_form, is_token, to_field_name, to_field_value, Connector, Exchange,
     FieldError, Fields, HttpError, HyperOutbound, Outbound, OutgoingRequest, RequestBody, Response,
-    ResponseBody, ResponseHead, Scheme, Sending, Transport, MAX_FIELD_SIZE,
+    ResponseBody, ResponseFuture, ResponseHead, Scheme, Transport, MAX_FIELD_SIZE,
 };
 pub use lookup::{LookupError, NameLookup};
 pub use namespace::Namespace;

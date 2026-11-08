@@ -296,7 +296,7 @@ impl TcpSock {
 }
 
 impl Ready for TcpSock {
-    fn ready(&self) {
+    fn on_event(&self) {
         let state = self.state();
         self.pump_and_wake(state);
     }

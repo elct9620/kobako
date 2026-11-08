@@ -1,6 +1,6 @@
 //! The one thread that waits on every host socket of the process, as Linux's
 //! softirq hands each arriving segment to the socket it belongs to: an event
-//! calls its socket's `ready`, which moves what it can without blocking and
+//! calls its socket's `on_event`, which moves what it can without blocking and
 //! wakes the socket's wait queue. The same thread runs the tasks an HTTP
 //! exchange needs, so no socket holds a thread of its own. A forked child,
 //! which inherits no thread, starts a reactor of its own.
@@ -21,7 +21,7 @@ use mio::{Events, Interest, Registry, Token};
 /// `sk_data_ready` and `sk_write_space` do: move what it can without blocking,
 /// then wake whoever waits on it.
 pub(crate) trait Ready: Send + Sync {
-    fn ready(&self);
+    fn on_event(&self);
 }
 
 /// The token that wakes the reactor to run the tasks queued for it.
@@ -104,14 +104,15 @@ impl Reactor {
                     })
                     .collect()
             };
-            ready.iter().for_each(|socket| socket.ready());
+            ready.iter().for_each(|socket| socket.on_event());
             if run_tasks {
                 self.run_tasks();
             }
         }
     }
 
-    /// Watch `source` for reading and writing, handing each change to `ready`.
+    /// Watch `source` for reading and writing, handing each change to `ready`'s
+    /// `on_event`.
     pub(crate) fn register(
         self: &Arc<Self>,
         source: &mut impl Source,

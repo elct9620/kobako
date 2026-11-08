@@ -156,7 +156,7 @@ impl UdpSock {
 }
 
 impl Ready for UdpSock {
-    fn ready(&self) {
+    fn on_event(&self) {
         let state = self.state();
         self.pump_and_wake(state);
     }
