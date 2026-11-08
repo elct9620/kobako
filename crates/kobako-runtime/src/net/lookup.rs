@@ -7,7 +7,7 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
-use super::workers::{charge, Workers};
+use super::connections::{open, OpenConnections};
 use super::ProtocolFamily;
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -37,16 +37,15 @@ impl NameLookup {
     pub(crate) fn start(
         family: Arc<dyn ProtocolFamily>,
         name: String,
-        workers: &Arc<Workers>,
+        open_connections: &Arc<OpenConnections>,
     ) -> Result<Arc<Self>, LookupError> {
-        let mut charges = charge(workers, 1).ok_or(LookupError::TemporaryFailure)?;
+        let place = open(open_connections).ok_or(LookupError::TemporaryFailure)?;
         let lookup = Arc::new(Self {
             name,
             answer: Mutex::new(None),
             wait: Arc::default(),
         });
         let resolving = lookup.clone();
-        let place = charges.pop();
         thread::spawn(move || {
             let _place = place;
             let answer = match family.resolve(&resolving.name) {

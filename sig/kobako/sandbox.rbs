@@ -12,6 +12,8 @@ module Kobako
     def stdout_limit: () -> Integer?
     def stderr_limit: () -> Integer?
     def open_file_limit: () -> Integer?
+    def open_connection_limit: () -> Integer?
+    def connection_limit: () -> Integer?
     def profile: () -> Symbol
     def gvl: () -> Symbol
 

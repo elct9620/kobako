@@ -26,7 +26,7 @@ use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
 use crate::trap::arm_deadline;
-use crate::wasi::{sandbox_workers, Wasi};
+use crate::wasi::{sandbox_connections, Wasi};
 
 const SUITE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -64,6 +64,8 @@ fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
         stdout_limit: None,
         stderr_limit: None,
         open_file_limit: None,
+        open_connection_limit: None,
+        connection_limit: None,
         profile: Profile::Permissive,
         security: Vec::new(),
     };
@@ -71,7 +73,7 @@ fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
         &config,
         Vec::new(),
         &[Grant::Mount(mount)],
-        &sandbox_workers(),
+        &sandbox_connections(),
     )
     .map_err(|err| err.to_string())?;
     let mut store = Store::new(engine, Invocation::new(None, wasi));

@@ -9,13 +9,13 @@ require "test_helper"
 # The profile option is the one non-cap: nil is NOT a disable switch there
 # — the no-floor request is an explicit :permissive.
 class TestSandboxOptions < Minitest::Test
-  # Pins the literal default values (60 s / 10 s / 4 MiB / 1 MiB / 1024),
-  # not just the DEFAULT_* constants, so a drift in either direction is
-  # caught here.
+  # Pins the literal default values (60 s / 10 s / 4 MiB / 1 MiB / 1024 /
+  # 6 / 50), not just the DEFAULT_* constants, so a drift in either
+  # direction is caught here.
   # @behavior S-004 S-203 S-205
   def test_absent_caps_take_their_spec_defaults
     defaults = { timeout: 60.0, setup_timeout: 10.0, memory_limit: 4_194_304, stdout_limit: 1 << 20,
-                 stderr_limit: 1 << 20, open_file_limit: 1024 }
+                 stderr_limit: 1 << 20, open_file_limit: 1024, open_connection_limit: 6, connection_limit: 50 }
 
     assert_equal defaults, Kobako::SandboxOptions.new.to_h.slice(*defaults.keys),
                  "each cap left out of SandboxOptions.new must take its default"
@@ -23,27 +23,20 @@ class TestSandboxOptions < Minitest::Test
 
   # @behavior S-005
   def test_explicit_nil_disables_each_cap
-    options = Kobako::SandboxOptions.new(timeout: nil, setup_timeout: nil, memory_limit: nil, stdout_limit: nil,
-                                         stderr_limit: nil, open_file_limit: nil)
+    caps = %i[timeout setup_timeout memory_limit stdout_limit stderr_limit open_file_limit open_connection_limit
+              connection_limit].to_h { |cap| [cap, nil] }
 
-    assert_nil options.timeout, "an explicit nil timeout must disable the wall-clock bound"
-    assert_nil options.setup_timeout, "an explicit nil setup_timeout must leave setting the Guest Binary up unbounded"
-    assert_nil options.memory_limit, "an explicit nil memory_limit must disable the memory bound"
-    assert_nil options.stdout_limit, "an explicit nil stdout_limit must leave stdout uncapped"
-    assert_nil options.stderr_limit, "an explicit nil stderr_limit must leave stderr uncapped"
-    assert_nil options.open_file_limit, "an explicit nil open_file_limit must leave open files unbounded"
+    assert_equal caps, Kobako::SandboxOptions.new(**caps).to_h.slice(*caps.keys),
+                 "an explicit nil must switch each cap off, leaving its bound unenforced"
   end
 
   # @behavior S-006
   def test_set_caps_pass_through_normalized
-    options = Kobako::SandboxOptions.new(timeout: 1.5, memory_limit: 2 << 20, stdout_limit: 100,
-                                         stderr_limit: 200, open_file_limit: 8)
+    caps = { timeout: 1.5, memory_limit: 2 << 20, stdout_limit: 100, stderr_limit: 200, open_file_limit: 8,
+             open_connection_limit: 3, connection_limit: 9 }
 
-    assert_in_delta 1.5, options.timeout, 1e-9
-    assert_equal 2 << 20, options.memory_limit
-    assert_equal 100, options.stdout_limit
-    assert_equal 200, options.stderr_limit
-    assert_equal 8, options.open_file_limit
+    assert_equal caps, Kobako::SandboxOptions.new(**caps).to_h.slice(*caps.keys),
+                 "each cap set on SandboxOptions.new must read back as it was given"
   end
 
   # @behavior S-007
@@ -63,7 +56,9 @@ class TestSandboxOptions < Minitest::Test
     memory_limit: [0, -1, 1.5, "100"],
     stdout_limit: [0, -1, 1.5, "100"],
     stderr_limit: [0, -1, 1.5, "100"],
-    open_file_limit: [0, -1, 1.5, "100"]
+    open_file_limit: [0, -1, 1.5, "100"],
+    open_connection_limit: [0, -1, 1.5, "100"],
+    connection_limit: [0, -1, 1.5, "100"]
   }.freeze
 
   # @behavior RT-058 RT-061

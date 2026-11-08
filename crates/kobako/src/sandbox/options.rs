@@ -26,6 +26,12 @@ pub struct Options {
     /// Descriptors one invocation may hold open, the standard ones and
     /// each Mount's included.
     pub open_file_limit: Option<usize>,
+    /// Connections one Sandbox holds open at once, each socket, HTTP request,
+    /// and name lookup in flight one.
+    pub open_connection_limit: Option<usize>,
+    /// Connections one invocation makes in all, each socket and HTTP request
+    /// one.
+    pub connection_limit: Option<usize>,
     /// Requested isolation floor; the driver declares its posture and
     /// construction fails below the floor.
     pub profile: Profile,
@@ -34,8 +40,8 @@ pub struct Options {
 impl Default for Options {
     /// Secure by default: a 60-second deadline, 10 seconds to set the
     /// Guest Binary up, 4 MiB for memory, 1 MiB for each output channel,
-    /// 1024 open files, and the hermetic floor — the same defaults the
-    /// Ruby frontend applies.
+    /// 1024 open files, 6 open connections and 50 in all, and the hermetic
+    /// floor — the same defaults the Ruby frontend applies.
     fn default() -> Self {
         Options {
             timeout: Some(Duration::from_secs(60)),
@@ -44,6 +50,8 @@ impl Default for Options {
             stdout_limit: Some(1 << 20),
             stderr_limit: Some(1 << 20),
             open_file_limit: Some(1024),
+            open_connection_limit: Some(6),
+            connection_limit: Some(50),
             profile: Profile::Hermetic,
         }
     }

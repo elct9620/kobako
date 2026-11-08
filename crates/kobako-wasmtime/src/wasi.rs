@@ -17,7 +17,7 @@ use std::sync::Arc;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
-use kobako_runtime::net::{HostInet, HyperOutbound, Namespace, Workers};
+use kobako_runtime::net::{HostInet, HyperOutbound, Namespace, OpenConnections};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{Cred, OpenFiles};
@@ -50,7 +50,7 @@ impl Wasi {
         config: &Config,
         stdin: Vec<u8>,
         grants: &[Grant],
-        workers: &Arc<Workers>,
+        open_connections: &Arc<OpenConnections>,
     ) -> Result<Self, Trap> {
         let mut wasi = Self::new(
             stdin,
@@ -61,7 +61,7 @@ impl Wasi {
             config.profile,
             grants.iter().filter_map(to_mount).collect(),
         )?;
-        if let Some(network) = to_network(grants, workers)? {
+        if let Some(network) = to_network(grants, open_connections, config.connection_limit)? {
             wasi.table.grant(network);
         }
         Ok(wasi)
@@ -194,17 +194,22 @@ impl Wasi {
     }
 }
 
-/// The cap a fresh Sandbox's sockets count against, for a test building
-/// an invocation's context as a Driver does.
+/// The open connections a fresh Sandbox counts, for a test building an
+/// invocation's context as a Driver does.
 #[cfg(test)]
-pub(crate) fn sandbox_workers() -> Arc<Workers> {
-    Workers::new(kobako_runtime::net::SANDBOX_WORKERS)
+pub(crate) fn sandbox_connections() -> Arc<OpenConnections> {
+    OpenConnections::new(Config::default().open_connection_limit)
 }
 
 /// The network an invocation's Grants make, one namespace for every entry,
-/// dialed through the host's own TCP, each socket counted against the
-/// Sandbox's `workers`. No network Grant makes none.
-fn to_network(grants: &[Grant], workers: &Arc<Workers>) -> Result<Option<Namespace>, Trap> {
+/// dialed through the host's own TCP, each connection counted against the
+/// Sandbox's `open_connections` while open and the run's `connection_limit`
+/// in all. No network Grant makes none.
+fn to_network(
+    grants: &[Grant],
+    open_connections: &Arc<OpenConnections>,
+    connection_limit: Option<usize>,
+) -> Result<Option<Namespace>, Trap> {
     let entries = grants
         .iter()
         .filter_map(|grant| match grant {
@@ -219,7 +224,8 @@ fn to_network(grants: &[Grant], workers: &Arc<Workers>) -> Result<Option<Namespa
         entries,
         Arc::new(HostInet),
         Arc::new(HyperOutbound::new()),
-        workers.clone(),
+        open_connections.clone(),
+        connection_limit,
     )
     .map(Some)
     .map_err(|err| Trap::Other(format!("a network entry did not compile: {err}")))
@@ -296,10 +302,12 @@ mod tests {
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit: None,
+            open_connection_limit: None,
+            connection_limit: None,
             profile,
             security: Vec::new(),
         };
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_workers())
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);

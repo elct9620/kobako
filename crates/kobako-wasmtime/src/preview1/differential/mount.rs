@@ -37,7 +37,7 @@ use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
 use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
-use crate::wasi::{sandbox_workers, Wasi};
+use crate::wasi::{sandbox_connections, Wasi};
 
 /// The guest path both sides preopen the host directory at.
 const AT: &str = "/data";
@@ -382,6 +382,8 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
         stdout_limit: None,
         stderr_limit: None,
         open_file_limit: None,
+        open_connection_limit: None,
+        connection_limit: None,
         profile: Profile::Hermetic,
         security: Vec::new(),
     };
@@ -394,7 +396,7 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
         )
         .expect("AT is a guest path"),
     );
-    let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_workers())
+    let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_connections())
         .expect("WASI context must build");
     let mut store = Store::new(engine, Invocation::new(None, wasi));
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);

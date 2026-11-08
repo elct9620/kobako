@@ -9,10 +9,10 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{to_error, ProtoOps};
-use super::workers::{charge, Charge, Workers};
 use super::SOCKET_BUFFER;
 use crate::vfs::{FilesystemError, PollMask};
 use crate::wait::WaitQueueHead;
@@ -30,7 +30,7 @@ struct State {
     sending_bytes: usize,
     local: Option<SocketAddr>,
     /// The socket's place against its Sandbox's cap and the process's.
-    place: Vec<Charge>,
+    place: Option<Place>,
 }
 
 /// One UDP socket, shared by the socket file and the reactor.
@@ -41,14 +41,14 @@ pub struct UdpSock {
 
 impl UdpSock {
     /// A socket connected to `addr` through `family`, its host socket watched
-    /// by the reactor; it counts against `workers` and the process until
+    /// by the reactor; it counts against `open_connections` and the process until
     /// released, and a full count answers `EAGAIN`.
     pub fn connect(
         family: Arc<dyn ProtocolFamily>,
         addr: SocketAddr,
-        workers: &Arc<Workers>,
+        open_connections: &Arc<OpenConnections>,
     ) -> Result<Arc<Self>, FilesystemError> {
-        let place = charge(workers, 1).ok_or(FilesystemError::WouldBlock)?;
+        let place = Some(open(open_connections).ok_or(FilesystemError::WouldBlock)?);
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         let mut socket = mio::net::UdpSocket::from_std(
             family
@@ -202,7 +202,7 @@ impl ProtoOps for UdpSock {
     /// Let the host socket go, deregistered from the reactor.
     fn release(&self) {
         let mut state = self.state();
-        state.place.clear();
+        state.place = None;
         if let Some((mut socket, registration)) = state.host.take() {
             registration.deregister(&mut socket);
         }
@@ -219,7 +219,7 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use crate::net::{HostInet, SANDBOX_WORKERS};
+    use crate::net::HostInet;
 
     /// Wait until `sock`'s poll finds `mask`.
     fn until(sock: &UdpSock, mask: PollMask) {
@@ -240,7 +240,7 @@ mod tests {
         let sock = UdpSock::connect(
             Arc::new(HostInet),
             peer.local_addr().unwrap(),
-            &Workers::new(SANDBOX_WORKERS),
+            &OpenConnections::new(None),
         )
         .expect("the reactor starts");
         until(&sock, PollMask::OUT);
@@ -267,7 +267,7 @@ mod tests {
         let sock = UdpSock::connect(
             Arc::new(HostInet),
             peer.local_addr().unwrap(),
-            &Workers::new(SANDBOX_WORKERS),
+            &OpenConnections::new(None),
         )
         .unwrap();
         until(&sock, PollMask::OUT);

@@ -12,6 +12,8 @@ module Kobako
       stdout_limit: Integer?,
       stderr_limit: Integer?,
       open_file_limit: Integer?,
+      open_connection_limit: Integer?,
+      connection_limit: Integer?,
       profile: Symbol,
       gvl: Symbol
     ) -> Runtime

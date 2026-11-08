@@ -885,7 +885,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::preview2::bindings::IoHost;
-    use crate::wasi::{sandbox_workers, Wasi};
+    use crate::wasi::{sandbox_connections, Wasi};
 
     /// A hermetic invocation whose network holds `endpoints`, or none at all.
     fn guest(endpoints: Option<Vec<network::Endpoint>>) -> Invocation {
@@ -896,6 +896,8 @@ mod tests {
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit: None,
+            open_connection_limit: None,
+            connection_limit: None,
             profile: Profile::Hermetic,
             security: Vec::new(),
         };
@@ -910,7 +912,7 @@ mod tests {
                 )]
             })
             .unwrap_or_default();
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &grants, &sandbox_workers())
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &grants, &sandbox_connections())
             .expect("WASI context must build");
         Invocation::new(None, wasi)
     }

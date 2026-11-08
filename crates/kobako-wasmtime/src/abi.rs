@@ -80,6 +80,8 @@ mod tests {
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit: None,
+            open_connection_limit: None,
+            connection_limit: None,
             profile: Profile::Hermetic,
             security: Vec::new(),
         };

@@ -16,13 +16,19 @@ module Kobako
   # [+open_file_limit+]
   #                   Integer descriptors one invocation may hold open, the
   #                   standard ones and each Mount's included.
+  # [+open_connection_limit+]
+  #                   Integer connections the Sandbox holds open at once, each
+  #                   socket, HTTP request, and name lookup in flight one.
+  # [+connection_limit+]
+  #                   Integer connections one invocation makes in all, each
+  #                   socket and HTTP request one.
   # [+profile+]       The isolation the runtime must provide, one of PROFILES.
   # [+gvl+]           How an invocation holds Ruby's GVL, one of GVL_MODES.
   #
   # Raises ArgumentError for a value outside these shapes, and SetupError
   # when the runtime provides less isolation than +profile+ asks for.
   class SandboxOptions < Data.define(:timeout, :setup_timeout, :memory_limit, :stdout_limit, :stderr_limit,
-                                     :open_file_limit, :profile, :gvl)
+                                     :open_file_limit, :open_connection_limit, :connection_limit, :profile, :gvl)
     # The default +timeout+: 60 seconds.
     DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -39,6 +45,14 @@ module Kobako
     # The default +open_file_limit+: 1024, the soft limit Linux gives a
     # process.
     DEFAULT_OPEN_FILE_LIMIT = 1024
+
+    # The default +open_connection_limit+: 6, as a Cloudflare Worker holds six
+    # connections open at once.
+    DEFAULT_OPEN_CONNECTION_LIMIT = 6
+
+    # The default +connection_limit+: 50, a Cloudflare Worker's subrequests
+    # on its free plan.
+    DEFAULT_CONNECTION_LIMIT = 50
 
     # The isolation profiles, weakest first. +:hermetic+ denies the guest the
     # clock and entropy; +:permissive+ leaves them live.
@@ -60,14 +74,15 @@ module Kobako
                    stdout_limit: DEFAULT_OUTPUT_LIMIT,
                    stderr_limit: DEFAULT_OUTPUT_LIMIT,
                    open_file_limit: DEFAULT_OPEN_FILE_LIMIT,
+                   open_connection_limit: DEFAULT_OPEN_CONNECTION_LIMIT,
+                   connection_limit: DEFAULT_CONNECTION_LIMIT,
                    profile: DEFAULT_PROFILE,
                    gvl: DEFAULT_GVL)
       timeout = normalize_timeout(timeout, "timeout")
       setup_timeout = normalize_timeout(setup_timeout, "setup_timeout")
-      memory_limit = normalize_limit(memory_limit, "memory_limit")
-      stdout_limit = normalize_limit(stdout_limit, "stdout_limit")
-      stderr_limit = normalize_limit(stderr_limit, "stderr_limit")
-      open_file_limit = normalize_limit(open_file_limit, "open_file_limit")
+      memory_limit, stdout_limit, stderr_limit, open_file_limit, open_connection_limit, connection_limit =
+        { memory_limit:, stdout_limit:, stderr_limit:, open_file_limit:, open_connection_limit:, connection_limit: }
+        .map { |name, limit| normalize_limit(limit, name.to_s) }
       profile = normalize_choice(profile, PROFILES, "profile")
       gvl = normalize_choice(gvl, GVL_MODES, "gvl")
       super

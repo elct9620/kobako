@@ -879,7 +879,7 @@ mod tests {
 
     use super::super::bindings::wasi_sockets_network_0_2_12::Ipv4SocketAddress;
     use super::*;
-    use crate::wasi::{sandbox_workers, Wasi};
+    use crate::wasi::{sandbox_connections, Wasi};
     use kobako_runtime::grant::Grant;
     use kobako_runtime::network;
     use kobako_runtime::profile::Profile;
@@ -924,10 +924,12 @@ mod tests {
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit,
+            open_connection_limit: None,
+            connection_limit: None,
             profile,
             security: Vec::new(),
         };
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_workers())
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
@@ -1044,13 +1046,15 @@ mod tests {
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit: None,
+            open_connection_limit: None,
+            connection_limit: None,
             profile: Profile::Hermetic,
             security: Vec::new(),
         };
         let mut entry = network::Builder::default();
         entry.endpoint(endpoint);
         let grant = Grant::Network(network::Network::new("local", Arc::new(entry)).unwrap());
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_workers())
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_connections())
             .expect("WASI context must build");
         Invocation::new(None, wasi)
     }

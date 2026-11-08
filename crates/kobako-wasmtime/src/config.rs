@@ -43,6 +43,13 @@ pub struct Config {
     /// its own, up to two for a file and one for each Layer holding a
     /// directory, Directory Layers alone holding any.
     pub open_file_limit: Option<usize>,
+    /// Connections one Sandbox holds open at once, each socket, HTTP request,
+    /// and name lookup in flight one; one past it answers `EAGAIN`.
+    pub open_connection_limit: Option<usize>,
+    /// Connections one invocation makes in all, each socket and HTTP request
+    /// one, as a budget of subrequests is counted; one past it answers
+    /// `EAGAIN`.
+    pub connection_limit: Option<usize>,
     /// Isolation posture the frontend requested. `Hermetic` freezes
     /// ambient time and entropy, `Permissive` leaves the live WASI
     /// sources, and `Driver::profile` declares it back as the built
@@ -57,7 +64,8 @@ pub struct Config {
 impl Default for Config {
     /// The caps every frontend defaults to: a 60-second deadline, 10
     /// seconds to set the Guest Binary up, 4 MiB for memory, 1 MiB for
-    /// each output channel, 1024 open files, and the hermetic floor.
+    /// each output channel, 1024 open files, 6 open connections and 50 in
+    /// all, and the hermetic floor.
     fn default() -> Self {
         Config {
             timeout: Some(Duration::from_secs(60)),
@@ -66,6 +74,8 @@ impl Default for Config {
             stdout_limit: Some(1 << 20),
             stderr_limit: Some(1 << 20),
             open_file_limit: Some(1024),
+            open_connection_limit: Some(6),
+            connection_limit: Some(50),
             profile: Profile::Hermetic,
             security: Vec::new(),
         }
@@ -89,6 +99,8 @@ mod tests {
                 config.stdout_limit,
                 config.stderr_limit,
                 config.open_file_limit,
+                config.open_connection_limit,
+                config.connection_limit,
                 config.profile,
                 config.security.len()
             ),
@@ -99,6 +111,8 @@ mod tests {
                 Some(1024 * 1024),
                 Some(1024 * 1024),
                 Some(1024),
+                Some(6),
+                Some(50),
                 Profile::Hermetic,
                 0
             ),

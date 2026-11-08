@@ -167,6 +167,16 @@ impl Runtime {
     /// belong to `Kobako::SandboxOptions`, which names the keys.
     fn from_path(path: String, options: RHash) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
+        // `get_kwargs` scans at most eight required keywords, so the two
+        // connection caps are taken out first, each still required.
+        let take_cap = |name: &str| -> Result<Option<usize>, MagnusError> {
+            let key = ruby.to_symbol(name);
+            let cap = options.fetch(key)?;
+            options.delete::<_, Value>(key)?;
+            Ok(cap)
+        };
+        let open_connection_limit = take_cap("open_connection_limit")?;
+        let connection_limit = take_cap("connection_limit")?;
         type Options = (
             Option<f64>,
             Option<f64>,
@@ -250,6 +260,8 @@ impl Runtime {
         config.stdout_limit = stdout_limit;
         config.stderr_limit = stderr_limit;
         config.open_file_limit = open_file_limit;
+        config.open_connection_limit = open_connection_limit;
+        config.connection_limit = connection_limit;
         config.profile = profile;
         let driver =
             Driver::new(Path::new(&path), config).map_err(|e| errors::setup_to_magnus(&ruby, e))?;

@@ -21,9 +21,9 @@ use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Full};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use super::connections::{open, OpenConnections, Place};
 use super::reactor::{Reactor, Ready, Registration, Task};
 use super::socket::to_error;
-use super::workers::{charge, Workers};
 use super::{platform_tls, ProtocolFamily, SOCKET_BUFFER};
 use crate::network::{Protocol, Ruleset, Secret};
 use crate::vfs::{Cred, FilesystemError, PollMask};
@@ -206,7 +206,6 @@ pub struct Connector {
     port: u16,
     ruleset: Arc<Ruleset>,
     family: Arc<dyn ProtocolFamily>,
-    workers: Arc<Workers>,
 }
 
 impl Connector {
@@ -256,14 +255,11 @@ impl Connector {
     /// The host's answer for the authority's name, asked on a thread of its
     /// own, since a resolver blocks.
     async fn resolve(&self) -> Result<Vec<IpAddr>, HttpError> {
-        let mut charges = charge(&self.workers, 1).ok_or(HttpError::ConnectionLimitReached)?;
         let answer = Arc::new(Mutex::new((None, None::<Waker>)));
         let answering = answer.clone();
         let family = self.family.clone();
         let host = self.host.clone();
-        let place = charges.pop();
         thread::spawn(move || {
-            let _place = place;
             let resolved = family.resolve(&host);
             let mut answer = answering.lock().unwrap_or_else(PoisonError::into_inner);
             answer.0 = Some(resolved);
@@ -440,14 +436,12 @@ impl Connector {
         port: u16,
         ruleset: Arc<Ruleset>,
         family: Arc<dyn ProtocolFamily>,
-        workers: Arc<Workers>,
     ) -> Self {
         Self {
             host,
             port,
             ruleset,
             family,
-            workers,
         }
     }
 }
@@ -475,20 +469,20 @@ pub struct Exchange {
     wait: Arc<WaitQueueHead>,
     task: Mutex<Option<Arc<Task>>>,
     /// The request's place against its Sandbox's cap and the process's.
-    place: Mutex<Vec<super::workers::Charge>>,
+    place: Mutex<Option<Place>>,
 }
 
 impl Exchange {
     /// Send `request` through `seam` on the reactor, dialing through
-    /// `connector`; it counts against `workers` and the process until
+    /// `connector`; it counts against `open_connections` and the process until
     /// released, and a full count answers `ConnectionLimitReached`.
     pub(crate) fn start(
         seam: Arc<dyn Outbound>,
         request: OutgoingRequest,
         connector: Connector,
-        workers: &Arc<Workers>,
+        open_connections: &Arc<OpenConnections>,
     ) -> Result<Arc<Self>, HttpError> {
-        let place = charge(workers, 1).ok_or(HttpError::ConnectionLimitReached)?;
+        let place = Some(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
         let reactor = Reactor::current().map_err(|_| HttpError::Internal)?;
         let exchange = Arc::new(Self {
             state: Mutex::new(State {
@@ -590,10 +584,7 @@ impl Exchange {
         if let Some(task) = task {
             task.cancel();
         }
-        self.place
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
+        *self.place.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 }
 
@@ -881,7 +872,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::net::{HostInet, Namespace, SANDBOX_WORKERS};
+    use crate::net::{HostInet, Namespace, OpenConnections};
     use crate::network::{Builder, Endpoint, Network};
     use crate::security::prepare_creds_within;
 
@@ -921,7 +912,8 @@ mod tests {
             [&network],
             Arc::new(HostInet),
             Arc::new(HyperOutbound::new()),
-            Workers::new(SANDBOX_WORKERS),
+            OpenConnections::new(None),
+            None,
         )
         .expect("the endpoints compile")
     }
@@ -1104,7 +1096,8 @@ mod tests {
             [&network],
             Arc::new(HostInet),
             Arc::new(HyperOutbound::new()),
-            Workers::new(SANDBOX_WORKERS),
+            OpenConnections::new(None),
+            None,
         )
         .unwrap();
         let mut request = get(&format!("127.0.0.1:{port}"));
@@ -1176,7 +1169,8 @@ mod tests {
             [&network],
             family,
             seam.clone(),
-            Workers::new(SANDBOX_WORKERS),
+            OpenConnections::new(None),
+            None,
         )
         .unwrap();
         let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));

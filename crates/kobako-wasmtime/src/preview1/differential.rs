@@ -20,7 +20,7 @@ use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
 use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
-use crate::wasi::{sandbox_workers, Wasi};
+use crate::wasi::{sandbox_connections, Wasi};
 use kobako_runtime::profile::Profile;
 
 /// The Preamble bytes stdin carries after its length prefix.
@@ -291,10 +291,12 @@ fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
         stdout_limit: limit,
         stderr_limit: limit,
         open_file_limit: None,
+        open_connection_limit: None,
+        connection_limit: None,
         profile: Profile::Hermetic,
         security: Vec::new(),
     };
-    let wasi = Wasi::for_invocation(&config, stdin_bytes(), &[], &sandbox_workers())
+    let wasi = Wasi::for_invocation(&config, stdin_bytes(), &[], &sandbox_connections())
         .expect("WASI context must build");
     let mut store = Store::new(engine, Invocation::new(None, wasi));
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);

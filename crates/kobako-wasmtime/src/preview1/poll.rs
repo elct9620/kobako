@@ -189,7 +189,7 @@ mod tests {
     use crate::imports;
     use crate::invocation::Invocation;
     use crate::trap::{to_trap, NO_TIMEOUT_EPOCH_DELTA};
-    use crate::wasi::{sandbox_workers, Wasi};
+    use crate::wasi::{sandbox_connections, Wasi};
     use kobako_runtime::error::Trap;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::{run_task, Task};
@@ -224,10 +224,12 @@ mod tests {
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit: None,
+            open_connection_limit: None,
+            connection_limit: None,
             profile,
             security: Vec::new(),
         };
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_workers())
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
@@ -309,10 +311,12 @@ mod tests {
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit: None,
+            open_connection_limit: None,
+            connection_limit: None,
             profile: Profile::Hermetic,
             security: Vec::new(),
         };
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_workers())
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
@@ -361,10 +365,12 @@ mod tests {
             stdout_limit: None,
             stderr_limit: None,
             open_file_limit: None,
+            open_connection_limit: None,
+            connection_limit: None,
             profile: Profile::Hermetic,
             security: Vec::new(),
         };
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_workers())
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);

@@ -52,6 +52,27 @@ class TestE2ENetworkTcp < Minitest::Test
     end
   end
 
+  SECOND = <<~RUBY
+    TCPSocket.new("127.0.0.1", %<port>d).close
+    begin
+      TCPSocket.new("127.0.0.1", %<port>d)
+      :connected
+    rescue Errno::EAGAIN
+      :refused
+    end
+  RUBY
+
+  # @behavior NW-059
+  def test_a_connection_past_the_runs_connection_limit_raises_eagain
+    with_upcase_server do |port|
+      value = sandbox_reaching(port, connection_limit: 1).eval(format(SECOND, port: port)).value
+
+      assert_equal :refused, value,
+                   "a second TCPSocket in a run under connection_limit: 1 must raise Errno::EAGAIN, even once the " \
+                   "first closed"
+    end
+  end
+
   # An entry playing only a policy, recording each Connection it is handed.
   class Recorder
     attr_reader :seen

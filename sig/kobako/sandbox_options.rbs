@@ -5,6 +5,8 @@ module Kobako
     DEFAULT_MEMORY_LIMIT: Integer
     DEFAULT_OUTPUT_LIMIT: Integer
     DEFAULT_OPEN_FILE_LIMIT: Integer
+    DEFAULT_OPEN_CONNECTION_LIMIT: Integer
+    DEFAULT_CONNECTION_LIMIT: Integer
     DEFAULT_PROFILE: Symbol
     PROFILES: Array[Symbol]
     GVL_MODES: Array[Symbol]
@@ -17,6 +19,8 @@ module Kobako
     attr_reader stdout_limit: Integer?
     attr_reader stderr_limit: Integer?
     attr_reader open_file_limit: Integer?
+    attr_reader open_connection_limit: Integer?
+    attr_reader connection_limit: Integer?
     attr_reader profile: Symbol
     attr_reader gvl: Symbol
 
@@ -27,6 +31,8 @@ module Kobako
       ?stdout_limit: Integer?,
       ?stderr_limit: Integer?,
       ?open_file_limit: Integer?,
+      ?open_connection_limit: Integer?,
+      ?connection_limit: Integer?,
       ?profile: Symbol,
       ?gvl: Symbol
     ) -> SandboxOptions
@@ -38,6 +44,8 @@ module Kobako
       ?stdout_limit: Integer?,
       ?stderr_limit: Integer?,
       ?open_file_limit: Integer?,
+      ?open_connection_limit: Integer?,
+      ?connection_limit: Integer?,
       ?profile: Symbol,
       ?gvl: Symbol
     ) -> void
@@ -49,6 +57,8 @@ module Kobako
       stdout_limit: Integer?,
       stderr_limit: Integer?,
       open_file_limit: Integer?,
+      open_connection_limit: Integer?,
+      connection_limit: Integer?,
       profile: Symbol,
       gvl: Symbol
     }

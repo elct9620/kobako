@@ -2,6 +2,7 @@
 //! Protocol Family backend dials the host, and the guest waits on the
 //! socket's wait queue. What may be reached is the Network Grant's to say.
 
+mod connections;
 mod family;
 mod http;
 mod lookup;
@@ -11,8 +12,8 @@ mod socket;
 mod tcp;
 mod tls;
 mod udp;
-mod workers;
 
+pub use connections::{process_connections, OpenConnections};
 pub use family::{HostInet, ProtocolFamily};
 pub use http::{
     Connector, Exchange, HttpError, HyperOutbound, Outbound, OutgoingRequest, RequestBody,
@@ -24,4 +25,3 @@ pub use socket::{sock_alloc_file, ProtoOps};
 pub use tcp::{TcpSock, SOCKET_BUFFER};
 pub use tls::platform_tls;
 pub use udp::{UdpSock, MAX_DATAGRAM};
-pub use workers::{Workers, PROCESS_WORKERS, SANDBOX_WORKERS};

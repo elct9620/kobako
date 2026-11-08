@@ -10,10 +10,10 @@ use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
+use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{to_error, ProtoOps};
-use super::workers::{charge, Charge, Workers};
 use crate::vfs::{FilesystemError, PollMask};
 use crate::wait::WaitQueueHead;
 
@@ -54,7 +54,7 @@ struct State {
     released: bool,
     /// The socket's place against its Sandbox's cap and the process's, given
     /// back as it is released.
-    place: Vec<Charge>,
+    place: Option<Place>,
 }
 
 /// One TCP socket, shared by the socket file and the reactor.
@@ -71,15 +71,15 @@ impl TcpSock {
     /// A socket connecting to the first of `addrs` that answers, in turn,
     /// through `family`; the connect goes on without blocking, so this returns
     /// at once and a poll finds the socket writable once it settles. The
-    /// socket counts against `workers` and the process until released, and a
+    /// socket counts against `open_connections` and the process until released, and a
     /// full count answers `EAGAIN`, never a Trap, so one Sandbox cannot end
     /// another's run.
     pub fn connect(
         family: Arc<dyn ProtocolFamily>,
         addrs: Vec<SocketAddr>,
-        workers: &Arc<Workers>,
+        open_connections: &Arc<OpenConnections>,
     ) -> Result<Arc<Self>, FilesystemError> {
-        let place = charge(workers, 1).ok_or(FilesystemError::WouldBlock)?;
+        let place = Some(open(open_connections).ok_or(FilesystemError::WouldBlock)?);
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         let sock = Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
@@ -327,7 +327,7 @@ impl TcpSock {
         let mut state = self.state();
         state.released = true;
         state.untried.clear();
-        state.place.clear();
+        state.place = None;
         Self::close_host(&mut state);
         drop(state);
         self.wait.wake_up();
@@ -372,7 +372,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::net::{sock_alloc_file, HostInet, SANDBOX_WORKERS};
+    use crate::net::{sock_alloc_file, HostInet};
     use crate::sched::testing::within_max_wait;
     use crate::vfs::File;
     use crate::wait::do_poll;
@@ -384,7 +384,7 @@ mod tests {
         let sock = TcpSock::connect(
             Arc::new(HostInet),
             vec![listener.local_addr().unwrap()],
-            &Workers::new(SANDBOX_WORKERS),
+            &OpenConnections::new(None),
         )
         .expect("the reactor starts");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
@@ -470,12 +470,8 @@ mod tests {
         let addr = TcpListener::bind("127.0.0.1:0")
             .and_then(|listener| listener.local_addr())
             .unwrap();
-        let sock = TcpSock::connect(
-            Arc::new(HostInet),
-            vec![addr],
-            &Workers::new(SANDBOX_WORKERS),
-        )
-        .expect("the reactor starts");
+        let sock = TcpSock::connect(Arc::new(HostInet), vec![addr], &OpenConnections::new(None))
+            .expect("the reactor starts");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(&file, PollMask::OUT);
         assert_eq!(

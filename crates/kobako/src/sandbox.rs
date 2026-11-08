@@ -128,6 +128,8 @@ impl Sandbox {
             stdout_limit,
             stderr_limit,
             open_file_limit,
+            open_connection_limit,
+            connection_limit,
             profile,
         } = options;
         let mut config = Config::default();
@@ -137,6 +139,8 @@ impl Sandbox {
         config.stdout_limit = stdout_limit;
         config.stderr_limit = stderr_limit;
         config.open_file_limit = open_file_limit;
+        config.open_connection_limit = open_connection_limit;
+        config.connection_limit = connection_limit;
         config.profile = profile;
         let driver = Driver::new(wasm_path.as_ref(), config).map_err(Error::Setup)?;
         // The least guest memory one value occupies, so a guest payload may
@@ -521,5 +525,7 @@ mod tests {
         assert_eq!(options.stdout_limit, Some(1 << 20));
         assert_eq!(options.stderr_limit, Some(1 << 20));
         assert_eq!(options.open_file_limit, Some(1024));
+        assert_eq!(options.open_connection_limit, Some(6));
+        assert_eq!(options.connection_limit, Some(50));
     }
 }

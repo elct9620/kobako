@@ -25,7 +25,7 @@ module Kobako
     attr_reader :options
 
     def_delegators :@options, :timeout, :setup_timeout, :memory_limit, :stdout_limit, :stderr_limit,
-                   :open_file_limit, :profile, :gvl
+                   :open_file_limit, :open_connection_limit, :connection_limit, :profile, :gvl
 
     # Build a Sandbox on the Guest Binary at +wasm_path+, the one bundled
     # with the gem by default. The other keywords are the options

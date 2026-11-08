@@ -11,7 +11,7 @@ use super::http::{
     split_authority, Connector, Exchange, HttpError, Outbound, OutgoingRequest, Scheme, Swap,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
-use super::{ProtocolFamily, TcpSock, UdpSock, Workers};
+use super::{OpenConnections, ProtocolFamily, TcpSock, UdpSock};
 use crate::grant::Policy;
 use crate::network::{
     Connection, Credential, EntryError, Name, Network, Protocol, Request, Ruleset,
@@ -26,8 +26,8 @@ const VIRTUAL_BASE: u32 = u32::from_be_bytes([198, 18, 0, 0]);
 const VIRTUAL_SIZE: u32 = 1 << 17;
 
 /// What the guest may reach, which policies judge each lookup and connect, the
-/// backend that dials it, the Sandbox's cap each socket counts against, and the
-/// virtual addresses handed out.
+/// backend that dials it, the connections the Sandbox holds open and those
+/// left to this Invocation, and the virtual addresses handed out.
 pub struct Namespace {
     ruleset: Arc<Ruleset>,
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
@@ -37,7 +37,10 @@ pub struct Namespace {
     bound: Vec<(Ruleset, Vec<Credential>)>,
     family: Arc<dyn ProtocolFamily>,
     outbound: Arc<dyn Outbound>,
-    workers: Arc<Workers>,
+    open_connections: Arc<OpenConnections>,
+    /// How many more connections this Invocation may make; `None` makes no
+    /// count.
+    connections_left: Mutex<Option<usize>>,
     /// Each name looked up and its real addresses, at its virtual address's
     /// offset from the bottom of the range.
     virtuals: Mutex<Vec<(String, Vec<IpAddr>)>>,
@@ -45,13 +48,16 @@ pub struct Namespace {
 
 impl Namespace {
     /// The namespace every entry of `networks` makes together, dialing through
-    /// `family`, sending HTTP through `outbound`, and resolving names on
-    /// threads counted against `workers`, refused for an endpoint the ruleset cannot compile.
+    /// `family` and sending HTTP through `outbound`, refused for an endpoint
+    /// the ruleset cannot compile. Each socket, request, and lookup counts
+    /// against `open_connections` while open, and the Invocation makes at
+    /// most `connection_limit` connections in all.
     pub fn new<'a>(
         networks: impl IntoIterator<Item = &'a Network>,
         family: Arc<dyn ProtocolFamily>,
         outbound: Arc<dyn Outbound>,
-        workers: Arc<Workers>,
+        open_connections: Arc<OpenConnections>,
+        connection_limit: Option<usize>,
     ) -> Result<Self, EntryError> {
         let networks = networks.into_iter().collect::<Vec<_>>();
         let ruleset = Ruleset::new(networks.iter().flat_map(|network| network.endpoints()))?;
@@ -73,7 +79,8 @@ impl Namespace {
             bound,
             family,
             outbound,
-            workers,
+            open_connections,
+            connections_left: Mutex::new(connection_limit),
             virtuals: Mutex::new(Vec::new()),
         })
     }
@@ -131,14 +138,15 @@ impl Namespace {
         };
         let mut request = request;
         request.swaps = swaps;
-        let connector = Connector::new(
-            host,
-            port,
-            self.ruleset.clone(),
-            self.family.clone(),
-            self.workers.clone(),
-        );
-        Exchange::start(self.outbound.clone(), request, connector, &self.workers)
+        let connector = Connector::new(host, port, self.ruleset.clone(), self.family.clone());
+        self.within_connection_limit(HttpError::ConnectionLimitReached, || {
+            Exchange::start(
+                self.outbound.clone(),
+                request,
+                connector,
+                &self.open_connections,
+            )
+        })
     }
 
     /// The credentials bound to `sent`, a request over `https`: an entry's own
@@ -189,7 +197,29 @@ impl Namespace {
                 Err(LookupError::NameUnresolvable),
             ));
         }
-        NameLookup::start(self.family.clone(), name, &self.workers)
+        NameLookup::start(self.family.clone(), name, &self.open_connections)
+    }
+
+    /// `connect`, made only while the Invocation has a connection left and
+    /// counted once it is, as a budget of subrequests is spent;
+    /// `refused`, dialing nothing, once none is left.
+    fn within_connection_limit<T, E>(
+        &self,
+        refused: E,
+        connect: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        let mut left = self
+            .connections_left
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if *left == Some(0) {
+            return Err(refused);
+        }
+        let made = connect()?;
+        if let Some(n) = left.as_mut() {
+            *n -= 1;
+        }
+        Ok(made)
     }
 
     /// The virtual address `lookup`'s answer is handed out at, allocated from
@@ -224,7 +254,9 @@ impl Namespace {
     /// `127.0.0.1`.
     pub fn connect(&self, cred: &Cred, addr: SocketAddr) -> Result<Arc<TcpSock>, FilesystemError> {
         let real = self.admit(cred, addr, Protocol::Tcp)?;
-        TcpSock::connect(self.family.clone(), real, &self.workers)
+        self.within_connection_limit(FilesystemError::WouldBlock, || {
+            TcpSock::connect(self.family.clone(), real, &self.open_connections)
+        })
     }
 
     /// A UDP socket streaming with `addr`, the one peer the guest named, as
@@ -236,7 +268,9 @@ impl Namespace {
         addr: SocketAddr,
     ) -> Result<Arc<UdpSock>, FilesystemError> {
         let real = self.admit(cred, addr, Protocol::Udp)?;
-        UdpSock::connect(self.family.clone(), real[0], &self.workers)
+        self.within_connection_limit(FilesystemError::WouldBlock, || {
+            UdpSock::connect(self.family.clone(), real[0], &self.open_connections)
+        })
     }
 
     /// The real addresses a `protocol` connection to `addr` may dial, once the
@@ -296,7 +330,6 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::net::SANDBOX_WORKERS;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
     use crate::security::prepare_creds_within;
     use crate::vfs::SecurityOperations;
@@ -343,11 +376,16 @@ mod tests {
     }
 
     fn namespace(allows: &[bool]) -> (Namespace, Arc<Counted>, Seen) {
-        within_workers(allows, SANDBOX_WORKERS)
+        within(allows, None, None)
     }
 
-    /// A namespace whose Sandbox holds at most `workers` sockets.
-    fn within_workers(allows: &[bool], workers: usize) -> (Namespace, Arc<Counted>, Seen) {
+    /// A namespace whose Sandbox holds at most `open` connections at once,
+    /// and whose Invocation makes at most `total`.
+    fn within(
+        allows: &[bool],
+        open: Option<usize>,
+        total: Option<usize>,
+    ) -> (Namespace, Arc<Counted>, Seen) {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let networks = allows
             .iter()
@@ -365,7 +403,8 @@ mod tests {
             &networks,
             family.clone(),
             Arc::new(crate::net::HyperOutbound::new()),
-            Workers::new(workers),
+            OpenConnections::new(open),
+            total,
         )
         .expect("the endpoints compile");
         (namespace, family, seen)
@@ -374,13 +413,47 @@ mod tests {
     // @behavior NW-022
     #[test]
     fn a_connect_past_the_sandboxs_cap_answers_eagain() {
-        let (namespace, family, _) = within_workers(&[true], 0);
+        let (namespace, family, _) = within(&[true], Some(0), None);
         let cred = prepare_creds_within(&[], None);
         let answer = namespace.connect(&cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::WouldBlock))
                 && family.0.load(Ordering::SeqCst) == 0,
             "Namespace::connect past the Sandbox's cap must answer EAGAIN, dialing nothing"
+        );
+    }
+
+    // @behavior NW-059
+    #[test]
+    fn an_invocation_past_its_connection_limit_answers_eagain() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut entry = crate::network::Builder::default();
+        entry.endpoint(
+            Endpoint::new("127.0.0.1", listener.local_addr().unwrap().port())
+                .unwrap()
+                .with_protocol(Protocol::Tcp),
+        );
+        let network = Network::new("db", Arc::new(entry)).unwrap();
+        let namespace = Namespace::new(
+            [&network],
+            Arc::new(crate::net::HostInet),
+            Arc::new(crate::net::HyperOutbound::new()),
+            OpenConnections::new(None),
+            Some(2),
+        )
+        .unwrap();
+        let cred = prepare_creds_within(&[], None);
+        let addr = listener.local_addr().unwrap();
+        let made = [
+            namespace.connect(&cred, addr),
+            namespace.connect(&cred, addr),
+        ];
+        drop(made);
+        let third = namespace.connect(&cred, addr);
+        assert!(
+            matches!(third, Err(FilesystemError::WouldBlock)),
+            "Namespace::connect past the Invocation's connection limit must answer EAGAIN even \
+             once the earlier connections closed"
         );
     }
 
@@ -493,7 +566,8 @@ mod tests {
             [&network],
             family,
             Arc::new(crate::net::HyperOutbound::new()),
-            Workers::new(SANDBOX_WORKERS),
+            OpenConnections::new(None),
+            None,
         )
         .expect("the endpoints compile")
     }
@@ -692,7 +766,8 @@ mod tests {
             [&network],
             Arc::new(crate::net::HostInet),
             Arc::new(crate::net::HyperOutbound::new()),
-            Workers::new(SANDBOX_WORKERS),
+            OpenConnections::new(None),
+            None,
         )
         .unwrap();
         let cred = prepare_creds_within(&[], None);

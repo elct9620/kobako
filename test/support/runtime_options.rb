@@ -6,7 +6,8 @@
 # which is how the ext's own fail-closed guards are reached.
 module RuntimeOptions
   UNCAPPED = Kobako::SandboxOptions.new(timeout: nil, memory_limit: nil, stdout_limit: nil,
-                                        stderr_limit: nil, open_file_limit: nil).to_h.freeze
+                                        stderr_limit: nil, open_file_limit: nil, open_connection_limit: nil,
+                                        connection_limit: nil).to_h.freeze
 
   def runtime_options(**overrides)
     UNCAPPED.merge(overrides)

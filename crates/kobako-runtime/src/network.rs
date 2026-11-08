@@ -12,6 +12,9 @@ use std::sync::Arc;
 pub use builder::Builder;
 pub use ruleset::{address_set, AddressSet, Ruleset};
 
+/// The process's open connection limit, which only a Rust Host App moves.
+pub use crate::net::{process_connections, OpenConnections};
+
 use crate::grant::Policy;
 
 /// One named entry of the network, handed over for an Invocation.
