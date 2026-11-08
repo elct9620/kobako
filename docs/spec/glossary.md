@@ -445,3 +445,44 @@ What one entry lets the guest reach: a host, a port, a protocol, and where its n
 ```
 host:port, protocol (HTTP | TCP | UDP), addresses ([:public] unless written)
 ```
+
+### Address Set
+
+A named class of real addresses an endpoint may lead to. Three are an endpoint's to name, and two are fixed sets kobako refuses whatever an entry says.
+
+```
+public, local, private   - an endpoint names these
+metadata, reserved       - fixed sets, always refused
+```
+
+### Ruleset
+
+The rule data compiled each invocation from every entry's endpoints and the address sets. It judges what a name or an address the guest reaches may be.
+
+```
+endpoints of every entry + address sets -> Ruleset
+```
+
+### Credential
+
+A secret an entry binds to its own endpoints. The guest holds only a placeholder, and the secret is swapped in as a request leaves over HTTPS.
+
+```
+guest: Authorization: Bearer <placeholder> -> wire: Bearer <secret>
+```
+
+### Protocol Family
+
+The backend that reaches the host network, as Linux's `net_proto_family`. It dials the exact address the ruleset passed, and resolves the names a lookup asks.
+
+```
+Namespace -> Protocol Family -> host sockets, host resolver
+```
+
+### Outbound Seam
+
+The replaceable sender of a guest's HTTP request, as wasmtime's `send_request`. It frames and sends what the ruleset already admitted.
+
+```
+Namespace -> outbound seam -> the server
+```
