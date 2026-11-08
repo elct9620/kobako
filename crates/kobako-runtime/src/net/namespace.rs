@@ -61,12 +61,19 @@ impl Namespace {
         connection_limit: Option<usize>,
     ) -> Result<Self, EntryError> {
         let networks = networks.into_iter().collect::<Vec<_>>();
-        let ruleset = Ruleset::new(networks.iter().flat_map(|network| network.endpoints()))?;
+        // Each entry's endpoints are read once, so its credentials bind to the
+        // very endpoints that judge reach.
+        let endpoints = networks
+            .iter()
+            .map(|network| network.endpoints())
+            .collect::<Vec<_>>();
+        let ruleset = Ruleset::new(endpoints.iter().flatten().cloned())?;
         let bound = networks
             .iter()
-            .map(|network| (network, network.credentials()))
+            .zip(&endpoints)
+            .map(|(network, endpoints)| (endpoints, network.credentials()))
             .filter(|(_, credentials)| !credentials.is_empty())
-            .map(|(network, credentials)| Ok((Ruleset::new(network.endpoints())?, credentials)))
+            .map(|(endpoints, credentials)| Ok((Ruleset::new(endpoints.clone())?, credentials)))
             .collect::<Result<Vec<_>, EntryError>>()?;
         let policies = networks
             .iter()
@@ -104,6 +111,11 @@ impl Namespace {
         let (host, port) =
             split_authority(&request.authority, request.scheme).ok_or(HttpError::Denied)?;
         let literal = host.parse::<IpAddr>().ok();
+        // The guest has no IPv6, so an IPv6 literal reaches nothing, as its
+        // sockets answer EAFNOSUPPORT.
+        if literal.is_some_and(|ip| ip.is_ipv6()) {
+            return Err(HttpError::Denied);
+        }
         let host = match literal {
             Some(_) => host,
             None => normalize(&host).map_err(|_| HttpError::Denied)?,
@@ -111,6 +123,11 @@ impl Namespace {
         let connection = Connection::new(&host, port, Protocol::Http);
         let hooked = cred.security_socket_connect(&connection).is_ok()
             && self.connect.iter().all(|policy| policy.allows(&connection));
+        // A socket hook's refusal ends the judging, so no later policy sees an
+        // attempt already denied.
+        if !hooked {
+            return Err(HttpError::Denied);
+        }
         let reachable = match literal {
             Some(ip) => self
                 .ruleset
@@ -139,7 +156,7 @@ impl Namespace {
         let admitted = reachable
             && self.ruleset.admit_request(&host, port, &method, path)
             && self.request.iter().all(|policy| policy.allows(&sent));
-        if !hooked || !admitted {
+        if !admitted {
             return Err(HttpError::Denied);
         }
         let swaps = match request.scheme {
@@ -431,6 +448,78 @@ mod tests {
         )
         .expect("the endpoints compile");
         (namespace, family, seen)
+    }
+
+    /// An http entry for `::1` and `127.0.0.1` with a credential, counting how
+    /// often its endpoints are read and its resolve policy is asked; its
+    /// connect policy refuses `refused.example`.
+    struct Watched {
+        reads: AtomicUsize,
+        resolved: Arc<AtomicUsize>,
+    }
+
+    impl Entry for Watched {
+        fn endpoints(&self) -> Vec<Endpoint> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            vec![
+                Endpoint::new("::1", 4567).unwrap(),
+                Endpoint::new("127.0.0.1", 4567).unwrap(),
+            ]
+        }
+
+        fn policies(&self) -> Policies {
+            let resolved = self.resolved.clone();
+            Policies::default()
+                .with_connect(Arc::new(|connection: &Connection<'_>| {
+                    connection.host != "refused.example"
+                }))
+                .with_resolve(Arc::new(move |_: &Name<'_>| {
+                    resolved.fetch_add(1, Ordering::SeqCst);
+                    true
+                }))
+        }
+
+        fn credentials(&self) -> Vec<crate::network::Credential> {
+            vec![crate::network::Credential::new(
+                crate::network::Placement::Bearer,
+                "kobako-token",
+                Arc::new(|_: &crate::network::Request<'_>| None),
+            )]
+        }
+    }
+
+    // @behavior NW-077
+    #[test]
+    fn a_request_is_judged_once_in_order_and_never_over_ipv6() {
+        let entry = Arc::new(Watched {
+            reads: AtomicUsize::new(0),
+            resolved: Arc::default(),
+        });
+        let network = Network::new("watched", entry.clone()).unwrap();
+        let namespace = Namespace::new(
+            [&network],
+            Arc::new(Counted::default()),
+            Arc::new(crate::net::HyperOutbound::new()),
+            OpenConnections::new(None),
+            None,
+        )
+        .expect("the endpoints compile");
+        let cred = prepare_creds_within(&[], None);
+        let get = |authority: &str| OutgoingRequest::new("GET", Scheme::Http, authority);
+        let hooked = namespace.send(&cred, get("refused.example:4567")).err();
+        let ipv6 = namespace.send(&cred, get("[::1]:4567")).err();
+        assert_eq!(
+            (
+                entry.reads.load(Ordering::SeqCst),
+                hooked,
+                entry.resolved.load(Ordering::SeqCst),
+                ipv6
+            ),
+            (1, Some(HttpError::Denied), 0, Some(HttpError::Denied)),
+            "Namespace::new must read an entry's endpoints once, Namespace::send must ask no \
+             resolve policy once a connect hook refused, and must refuse an IPv6 authority an \
+             endpoint names"
+        );
     }
 
     // @behavior NW-022

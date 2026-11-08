@@ -181,10 +181,18 @@ fn parse_host(host: &str) -> Result<Host, EntryError> {
             .ok_or_else(|| EntryError(format!("an endpoint's prefix is out of range: {host}")))?;
         return Ok(Host::Prefix(ip, prefix));
     }
-    let name = host.trim_end_matches('.').to_ascii_lowercase();
+    // A name is judged as its A-label, the form the guest's lookup is judged
+    // in, so an IDN an endpoint names matches the name the guest asks for.
+    let name = host.trim_end_matches('.');
+    let a_label = |name: &str| {
+        idna::domain_to_ascii(name)
+            .ok()
+            .filter(|ascii| !ascii.is_empty())
+            .ok_or_else(|| EntryError(format!("an endpoint's name has no A-label: {host}")))
+    };
     match name.strip_prefix("*.") {
-        Some(suffix) if !suffix.is_empty() => Ok(Host::Wildcard(suffix.to_string())),
-        _ => Ok(Host::Name(name)),
+        Some(suffix) if !suffix.is_empty() => Ok(Host::Wildcard(a_label(suffix)?)),
+        _ => Ok(Host::Name(a_label(name)?)),
     }
 }
 
@@ -529,6 +537,25 @@ mod tests {
                 .admit_literal("127.0.0.1:8080".parse().unwrap(), Protocol::Tcp)
                 .is_err(),
             "Ruleset::admit_literal of raw TCP to an http endpoint's address must be refused"
+        );
+    }
+
+    // @behavior NW-075
+    #[test]
+    fn an_endpoint_names_an_idn_by_its_a_label() {
+        let rules = Ruleset::new([
+            Endpoint::new("bücher.example", 443).unwrap(),
+            Endpoint::new("*.例え.jp", 443).unwrap(),
+        ])
+        .unwrap();
+        assert_eq!(
+            [
+                rules.admits_name("xn--bcher-kva.example"),
+                rules.admits_name("www.xn--r8jz45g.jp"),
+            ],
+            [true, true],
+            "Ruleset::admits_name must match an endpoint written as an IDN, and a wildcard over \
+             one, against the A-label the guest's lookup asks for"
         );
     }
 
