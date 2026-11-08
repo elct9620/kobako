@@ -36,7 +36,7 @@ struct Subscription {
 impl Subscription {
     /// What the socket's poll finds, registering on `table` for a wait that
     /// will sleep.
-    fn socket_poll(&self, table: Option<&mut PollTable>) -> Option<PollMask> {
+    fn poll_socket(&self, table: Option<&mut PollTable>) -> Option<PollMask> {
         let socket = self.socket.as_ref()?;
         Some(lock(socket).poll(table))
     }
@@ -44,7 +44,7 @@ impl Subscription {
     /// Whether the socket is ready for what the subscription asks, or has
     /// failed or hung up, as Linux's `poll` reports `POLLERR` and `POLLHUP`
     /// whatever was asked.
-    fn socket_ready(found: PollMask, kind: &Kind) -> bool {
+    fn is_socket_ready(found: PollMask, kind: &Kind) -> bool {
         let asked = match kind {
             Kind::FdRead => PollMask::IN,
             _ => PollMask::OUT,
@@ -102,10 +102,10 @@ pub(crate) fn poll_oneoff(
 
     let mut written = 0;
     for sub in &subscriptions {
-        let (ready, flags) = match (&sub.kind, sub.socket_poll(None)) {
+        let (ready, flags) = match (&sub.kind, sub.poll_socket(None)) {
             (Kind::Clock(left), _) => (*left <= waited, Eventrwflags::empty()),
             (kind, Some(found)) => (
-                Subscription::socket_ready(found, kind),
+                Subscription::is_socket_ready(found, kind),
                 match found.contains(PollMask::HUP) {
                     true => Eventrwflags::FD_READWRITE_HANGUP,
                     false => Eventrwflags::empty(),
@@ -135,8 +135,8 @@ fn wait_for_socket(
     let waited = invocation.wait_for(due, |mut table| {
         let mut ready = due.is_some_and(|at| Instant::now() >= at);
         for sub in subscriptions {
-            if let Some(found) = sub.socket_poll(table.as_deref_mut()) {
-                ready |= Subscription::socket_ready(found, &sub.kind);
+            if let Some(found) = sub.poll_socket(table.as_deref_mut()) {
+                ready |= Subscription::is_socket_ready(found, &sub.kind);
             }
         }
         ready.then_some(())

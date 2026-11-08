@@ -27,7 +27,7 @@ wit_bindgen_rust_macro::generate!({
 /// Wait for `pollable` at most `limit`, answering whether it became ready; no
 /// limit waits until it does. The host keeps no timer, so the guest bounds a
 /// wait by polling a clock beside it, as CRuby's timeouts wait with a limit.
-pub(crate) fn ready_within(
+pub(crate) fn wait_within(
     pollable: &wasi::io::poll::Pollable,
     limit: Option<std::time::Duration>,
 ) -> bool {
@@ -51,7 +51,7 @@ pub(crate) fn write_within(
     while !rest.is_empty() {
         let room = stream.check_write()? as usize;
         if room == 0 {
-            if !ready_within(&stream.subscribe(), limit) {
+            if !wait_within(&stream.subscribe(), limit) {
                 return Ok(false);
             }
             continue;

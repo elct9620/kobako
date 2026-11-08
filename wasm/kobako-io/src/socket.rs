@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use crate::errno;
 use crate::io::argument_error;
-use crate::wasi::ready_within;
+use crate::wasi::wait_within;
 use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::ip_name_lookup::resolve_addresses;
@@ -257,7 +257,7 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
         [host, port, local @ ..] if local.len() <= 2 => (*host, *port, local),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
-    let limit = connect_timeout(mrb, options)?;
+    let limit = connect_timeout_of(mrb, options)?;
     let (ip, port, call) = peer_of(mrb, host, port, TCP, "connect(2)")?;
     if local.iter().any(|end| !end.is_nil()) {
         return Err(errno::error_by_name(
@@ -277,7 +277,7 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
         match socket.finish_connect() {
             Ok(streams) => break streams,
             Err(ErrorCode::WouldBlock) => {
-                if !ready_within(&pollable, limit) {
+                if !wait_within(&pollable, limit) {
                     return Err(Error::new(
                         mrb,
                         io_timeout_error(mrb)?,
@@ -302,7 +302,7 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
 
 /// The limit `connect_timeout:` sets, refusing any other keyword, as CRuby
 /// refuses an unknown one.
-fn connect_timeout(mrb: &Mrb, options: Option<RHash>) -> Result<Option<Duration>, Error> {
+fn connect_timeout_of(mrb: &Mrb, options: Option<RHash>) -> Result<Option<Duration>, Error> {
     let Some(options) = options else {
         return Ok(None);
     };
@@ -431,11 +431,11 @@ fn tcp_socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Val
 
 /// `gets` answers the next line, its newline kept, or `nil` at the end.
 fn tcp_socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (separator, limit) = line_args(mrb, args)?;
+    let (separator, limit) = line_args_of(mrb, args)?;
     let connection = Connection::of(mrb, self_)?;
     let mut line = Vec::new();
     loop {
-        if let Some(end) = line_end(&line, separator.as_deref(), limit) {
+        if let Some(end) = line_end_of(&line, separator.as_deref(), limit) {
             let rest = line.split_off(end);
             connection.buffered.borrow_mut().splice(0..0, rest);
             return Ok(mrb.str_new(&line).as_value());
@@ -453,7 +453,7 @@ fn tcp_socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
 
 /// `gets(sep = $/, limit = nil)`'s separator, `None` to read to the end, and
 /// its limit; an empty separator reads a paragraph, as CRuby's does.
-fn line_args(mrb: &Mrb, args: &[Value]) -> Result<(Option<Vec<u8>>, Option<usize>), Error> {
+fn line_args_of(mrb: &Mrb, args: &[Value]) -> Result<(Option<Vec<u8>>, Option<usize>), Error> {
     let limit_of = |value: Value| -> Result<Option<usize>, Error> {
         if value.is_nil() {
             return Ok(None);
@@ -486,7 +486,7 @@ fn line_args(mrb: &Mrb, args: &[Value]) -> Result<(Option<Vec<u8>>, Option<usize
 
 /// Where the line `line` starts ends: past its separator, or at its limit,
 /// whichever comes first; `None` while neither is in it.
-fn line_end(line: &[u8], separator: Option<&[u8]>, limit: Option<usize>) -> Option<usize> {
+fn line_end_of(line: &[u8], separator: Option<&[u8]>, limit: Option<usize>) -> Option<usize> {
     let by_separator = separator.and_then(|separator| {
         line.windows(separator.len())
             .position(|window| window == separator)
