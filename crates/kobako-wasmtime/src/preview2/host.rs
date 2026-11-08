@@ -289,6 +289,9 @@ impl SocketsHost for Invocation {
         if self.wasi().table().network().is_none() || address_family == IpAddressFamily::Ipv6 {
             return Ok(Err(ErrorCode::NotSupported));
         }
+        if self.wasi().table().is_full() {
+            return Ok(Err(ErrorCode::NewSocketLimit));
+        }
         Ok(Ok(TcpSocket(
             self.push(Resource::TcpSocket(table::TcpSocket::Unbound))?,
         )))
@@ -409,6 +412,9 @@ impl SocketsHost for Invocation {
     ) -> wasmtime::Result<Result<UdpSocket, ErrorCode>> {
         if self.wasi().table().network().is_none() || address_family == IpAddressFamily::Ipv6 {
             return Ok(Err(ErrorCode::NotSupported));
+        }
+        if self.wasi().table().is_full() {
+            return Ok(Err(ErrorCode::NewSocketLimit));
         }
         Ok(Ok(UdpSocket(
             self.push(Resource::UdpSocket(table::UdpSocket::Unbound))?,
@@ -961,13 +967,22 @@ mod tests {
 
     /// A hermetic invocation whose network holds `endpoint`, or none.
     fn within_network(endpoint: network::Endpoint) -> Invocation {
+        within_network_holding(endpoint, None)
+    }
+
+    /// A hermetic invocation whose network holds `endpoint`, holding at most
+    /// `open_file_limit` files.
+    fn within_network_holding(
+        endpoint: network::Endpoint,
+        open_file_limit: Option<usize>,
+    ) -> Invocation {
         let config = Config {
             timeout: None,
             setup_timeout: None,
             memory_limit: None,
             stdout_limit: None,
             stderr_limit: None,
-            open_file_limit: None,
+            open_file_limit,
             open_connection_limit: None,
             connection_limit: None,
             profile: Profile::Hermetic,
@@ -1191,6 +1206,33 @@ mod tests {
         assert!(
             call::<i64, i32>(&mut store, &instance, "subscribe", 0).is_err(),
             "subscribe-duration with the open file limit filled by the standard streams must trap"
+        );
+    }
+
+    // @behavior NW-069
+    #[test]
+    fn a_socket_past_the_open_file_limit_answers_new_socket_limit() {
+        let endpoint = network::Endpoint::new("127.0.0.1", 9)
+            .unwrap()
+            .with_protocol(network::Protocol::Tcp);
+        let mut guest = within_network_holding(endpoint, Some(3));
+        assert_eq!(
+            (
+                guest
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .ok()
+                    .and_then(|answer| answer.err()),
+                guest
+                    .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                    .ok()
+                    .and_then(|answer| answer.err()),
+            ),
+            (
+                Some(ErrorCode::NewSocketLimit),
+                Some(ErrorCode::NewSocketLimit)
+            ),
+            "create-tcp-socket and create-udp-socket with the open file limit filled by the \
+             standard streams must answer new-socket-limit, not trap"
         );
     }
 

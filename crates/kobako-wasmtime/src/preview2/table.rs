@@ -242,6 +242,13 @@ impl Table {
         self.network.as_ref()
     }
 
+    /// Whether the Invocation holds as many files and resources as it may, so
+    /// a new socket answers `new-socket-limit`, as Linux's `socket()` answers
+    /// EMFILE.
+    pub(crate) fn is_full(&self) -> bool {
+        self.numbers.lowest_unused().is_none()
+    }
+
     /// Hand out a handle for `resource`, refused past the Invocation's open
     /// file limit.
     pub(crate) fn push(&mut self, resource: Resource) -> wasmtime::Result<u32> {
