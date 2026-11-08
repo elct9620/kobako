@@ -523,13 +523,13 @@ impl Namespace {
 
 ## `Namespace::local_address`
 
-The address the Guest reads as its own end of a socket, given the host's end.
-It is the Guest's own virtual address and the host's port, or the unspecified
-address before the socket opened. No lookup hands that address out.
+The address the Guest reads as its own end of a socket, given its virtual port.
+It is the Guest's own virtual address and that port, or the unspecified
+address before a connect. No lookup hands that address out.
 
 ```rust
 impl Namespace {
-    pub fn local_address(&self, real: Option<SocketAddr>) -> SocketAddr {}
+    pub fn local_address(&self, virtual_port: Option<u16>) -> SocketAddr {}
 }
 ```
 
@@ -739,6 +739,17 @@ The address the socket's own end stands at, once connected.
 ```rust
 impl TcpSock {
     pub fn local_addr(&self) -> Option<SocketAddr> {}
+}
+```
+
+## `TcpSock::virtual_port`
+
+The port the Guest reads for the socket's own end, once a connect began. With
+`local_addr` it pairs what the Guest reads with the host's own end.
+
+```rust
+impl TcpSock {
+    pub fn virtual_port(&self) -> Option<u16> {}
 }
 ```
 
@@ -1386,6 +1397,17 @@ The host's own end, once the socket opened.
 ```rust
 impl UdpSock {
     pub fn local_addr(&self) -> Option<SocketAddr> {}
+}
+```
+
+## `UdpSock::virtual_port`
+
+The port the Guest reads for the socket's own end, once it connected. With
+`local_addr` it pairs what the Guest reads with the host's own end.
+
+```rust
+impl UdpSock {
+    pub fn virtual_port(&self) -> Option<u16> {}
 }
 ```
 

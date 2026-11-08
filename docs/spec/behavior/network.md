@@ -1381,5 +1381,5 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a TCP and a UDP endpoint naming loopback peers |
-| When | the script reads `addr` on each socket, the UDP one before and after it connects. Then it connects to the address `addr` named |
-| Then | a connected socket answers `198.19.255.254` and the port its peer sees, and the unconnected one `0.0.0.0` port 0. The connect raises `Errno::EACCES`, as the address names no endpoint |
+| When | the script reads `addr` on each socket, the UDP one before it connects, after, and after it connects again. Then it connects to that address |
+| Then | each connected socket answers `198.19.255.254` and a port from 32768 up in connect order, never the host's. A second connect keeps the port. The unconnected one answers `0.0.0.0` port 0, and the connect raises `Errno::EACCES` |
