@@ -887,6 +887,44 @@ mod tests {
         );
     }
 
+    /// A host that has given every invocation up.
+    struct GivenUp;
+
+    impl kobako_runtime::DispatchHandler for GivenUp {
+        fn dispatch(
+            &self,
+            _call: kobako_transport::envelope::Call<'_>,
+            _yielder: &mut dyn kobako_runtime::yielder::Yielder,
+        ) -> Option<kobako_transport::envelope::Reply> {
+            None
+        }
+
+        fn abandoned(&self) -> bool {
+            true
+        }
+    }
+
+    // @behavior RT-354
+    #[test]
+    fn a_preview2_call_answered_after_the_host_gave_up_traps() {
+        let (mut store, instance) = guest(Profile::Hermetic, None);
+        store.data_mut().bind_on_dispatch(Arc::new(GivenUp));
+        let network = call::<(), i32>(&mut store, &instance, "network", ());
+        let created = call::<(), ()>(&mut store, &instance, "create_ipv4", ());
+        assert_eq!(
+            (
+                network.map_err(|trap| trap.root_cause().to_string()),
+                created.map_err(|trap| trap.root_cause().to_string())
+            ),
+            (
+                Err(kobako_runtime::endpoint::ABANDONED.to_string()),
+                Err(kobako_runtime::endpoint::ABANDONED.to_string())
+            ),
+            "instance-network and create-tcp-socket answered after the host abandoned the \
+             invocation must each trap as abandoned"
+        );
+    }
+
     // @behavior RT-353
     #[test]
     fn a_list_past_the_guests_memory_traps_before_the_host_reads_it() {

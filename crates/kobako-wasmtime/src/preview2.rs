@@ -16,3 +16,9 @@ pub(crate) use table::Table;
 pub(crate) mod bindings {
     include!(concat!(env!("OUT_DIR"), "/preview2_bindings.rs"));
 }
+
+impl bindings::Host for crate::invocation::Invocation {
+    fn abandonment(&self) -> Option<wasmtime::Error> {
+        crate::invocation::Invocation::abandonment(self)
+    }
+}

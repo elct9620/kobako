@@ -524,8 +524,10 @@ fn write_host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: 
     }
     let _ = writeln!(
         out,
-        "pub trait Host: {} {{}}\nimpl<T: {}> Host for T {{}}\n",
-        traits.join(" + "),
+        "pub trait Host: {} {{\n\
+         /// The trap a call ends the run with once it answered, if its host gave the\n\
+         /// invocation up meanwhile, as each preview1 call does.\n\
+         fn abandonment(&self) -> Option<wasmtime::Error>;\n}}\n",
         traits.join(" + ")
     );
 }
@@ -616,7 +618,8 @@ fn write_linker(
                 out,
                 "linker.func_wrap({module:?}, \"[resource-drop]{name}\", \
                  |mut caller: wasmtime::Caller<'_, T>, handle: i32| -> wasmtime::Result<()> {{ \
-                 caller.data_mut().{interface}_{}_drop({}(handle as u32)) }})?;",
+                 caller.data_mut().{interface}_{}_drop({}(handle as u32))?; \
+                 caller.data().abandonment().map_or(Ok(()), Err) }})?;",
                 snake(name),
                 type_path(resolve, ty)
             );
@@ -1042,15 +1045,17 @@ impl Bindgen for FunctionBody<'_> {
             Instruction::CallInterface { func, .. } => {
                 let args = operands.join(", ");
                 let call = format!("caller.data_mut().{}({args})?", self.method);
-                match func.result {
-                    Some(_) => {
-                        let bound = self.bind(call);
-                        results.push(bound);
-                    }
+                let answered = match func.result {
+                    Some(_) => Some(self.bind(call)),
                     None => {
                         let _ = writeln!(self.src, "{call};");
+                        None
                     }
-                }
+                };
+                self.src.push_str(
+                    "if let Some(trap) = caller.data().abandonment() { return Err(trap); }\n",
+                );
+                results.extend(answered);
             }
             Instruction::Return { amt, .. } => match amt {
                 0 => self.src.push_str("Ok(())\n"),
