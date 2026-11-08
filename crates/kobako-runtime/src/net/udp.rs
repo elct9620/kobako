@@ -1,8 +1,9 @@
 //! A UDP socket the guest holds, connected to one peer, as Linux's `udp_sock`
 //! behind a socket file. The host socket is non-blocking and the reactor
-//! watches it: each change reads what arrived into the receive queue and sends
-//! what the send queue holds, then wakes the socket's wait queue. A read takes
-//! one datagram, as `recv` on a datagram socket does.
+//! watches it: each change reads what arrived into the receive queue, then
+//! wakes the socket's wait queue. A send goes to the host socket at once, as
+//! `udp_sendmsg` sends, and a read takes one datagram, as `recv` on a
+//! datagram socket does.
 
 use std::collections::VecDeque;
 use std::io;
@@ -23,11 +24,13 @@ pub const MAX_DATAGRAM: usize = 65_507;
 struct State {
     /// The host socket, and its place in the reactor, until released.
     host: Option<(mio::net::UdpSocket, Registration)>,
-    failed: Option<FilesystemError>,
+    /// The socket's pending failure, as `sk_err`: answered once, then cleared.
+    error: Option<FilesystemError>,
     received: VecDeque<Vec<u8>>,
     received_bytes: usize,
-    sending: VecDeque<Vec<u8>>,
-    sending_bytes: usize,
+    /// Whether the host socket took the last send, until the reactor next
+    /// sees it change, as `sock_writeable` reads its room.
+    writable: bool,
     local: Option<SocketAddr>,
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
@@ -49,11 +52,10 @@ impl UdpSock {
         Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 host: None,
-                failed: None,
+                error: None,
                 received: VecDeque::new(),
                 received_bytes: 0,
-                sending: VecDeque::new(),
-                sending_bytes: 0,
+                writable: true,
                 local: None,
                 named: None,
                 place: None,
@@ -66,7 +68,8 @@ impl UdpSock {
     /// Connect to `addr` through `family`, the guest having named `named`,
     /// the host socket watched by the reactor; it counts against
     /// `open_connections` and the process until released, and a full count
-    /// answers `EAGAIN`.
+    /// answers `EAGAIN`. Connecting again moves the peer and keeps the place,
+    /// as `__ip4_datagram_connect` repoints a socket.
     pub(crate) fn connect(
         &self,
         family: &Arc<dyn ProtocolFamily>,
@@ -74,7 +77,10 @@ impl UdpSock {
         named: SocketAddr,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<(), FilesystemError> {
-        let place = open(open_connections).ok_or(FilesystemError::WouldBlock)?;
+        let place = match self.state().place.is_some() {
+            true => None,
+            false => Some(open(open_connections).ok_or(FilesystemError::WouldBlock)?),
+        };
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         let mut socket = mio::net::UdpSocket::from_std(
             family
@@ -92,7 +98,10 @@ impl UdpSock {
         state.local = socket.local_addr().ok();
         state.host = Some((socket, registration));
         state.named = Some(named);
-        state.place = Some(place);
+        state.writable = true;
+        if let Some(place) = place {
+            state.place = Some(place);
+        }
         Ok(())
     }
 
@@ -100,15 +109,16 @@ impl UdpSock {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Read every datagram that arrived and send what is queued, without
-    /// blocking; a full receive queue drops what comes, as a full `sk_rcvbuf`
-    /// does.
+    /// Read every datagram that arrived, without blocking; a full receive
+    /// queue drops what comes, as a full `sk_rcvbuf` does. A failure the host
+    /// reports is kept pending and the queue reads on behind it, as datagrams
+    /// queue behind `sk_err`.
     fn pump(state: &mut State) {
         let Some((socket, _)) = state.host.as_ref() else {
             return;
         };
         let mut datagram = vec![0; MAX_DATAGRAM];
-        while state.failed.is_none() {
+        loop {
             match socket.recv(&mut datagram) {
                 Ok(n) => {
                     if state.received_bytes + n <= MAX_SOCKET_BUFFER {
@@ -118,21 +128,7 @@ impl UdpSock {
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => state.failed = Some(to_error(&err)),
-            }
-        }
-        while let Some(datagram) = state.sending.front() {
-            match socket.send(datagram) {
-                Ok(_) => {
-                    state.sending_bytes -= datagram.len();
-                    state.sending.pop_front();
-                }
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => {
-                    state.failed = Some(to_error(&err));
-                    break;
-                }
+                Err(err) => state.error = Some(to_error(&err)),
             }
         }
     }
@@ -156,8 +152,11 @@ impl UdpSock {
 }
 
 impl Ready for UdpSock {
+    /// What arrived reads into the queue, and the host socket may take a send
+    /// again.
     fn on_event(&self) {
-        let state = self.state();
+        let mut state = self.state();
+        state.writable = true;
         self.pump_and_wake(state);
     }
 }
@@ -166,12 +165,16 @@ impl Ready for UdpSock {
 /// `udp_prot`.
 impl ProtoOps for UdpSock {
     /// One datagram, cut to `buf`, as a datagram socket's read takes one. A
-    /// failure is answered once and then cleared, as `sock_error` swaps
-    /// `sk_err` with zero, so the socket reads on.
+    /// pending failure is answered first, once, and then cleared, as
+    /// `__skb_recv_udp` asks `sock_error` before it dequeues, so the socket
+    /// reads on.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
+        if let Some(err) = state.error.take() {
+            return Err(err);
+        }
         let Some(datagram) = state.received.pop_front() else {
-            return Err(state.failed.take().unwrap_or(FilesystemError::WouldBlock));
+            return Err(FilesystemError::WouldBlock);
         };
         state.received_bytes -= datagram.len();
         let n = buf.len().min(datagram.len());
@@ -179,43 +182,55 @@ impl ProtoOps for UdpSock {
         Ok(n)
     }
 
-    /// One datagram, sent whole as the host socket takes it; one past what UDP
-    /// carries is refused, one with no peer to go to answers EDESTADDRREQ, as
-    /// `udp_sendmsg` does, and a full queue answers `WouldBlock`.
+    /// One datagram, sent whole and at once, as `udp_sendmsg` sends: one past
+    /// what UDP carries answers EMSGSIZE, one with no peer to go to
+    /// EDESTADDRREQ, and a pending failure is answered once first. A host
+    /// socket with no room answers `WouldBlock` and sends nothing, so no
+    /// datagram is taken that a release could lose.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
         if buf.len() > MAX_DATAGRAM {
             return Err(FilesystemError::MessageTooLong);
         }
         let mut state = self.state();
-        if let Some(err) = state.failed.take() {
+        if let Some(err) = state.error.take() {
             return Err(err);
         }
         if state.named.is_none() {
             return Err(FilesystemError::DestinationAddressRequired);
         }
-        if state.host.is_none() || state.sending_bytes + buf.len() > MAX_SOCKET_BUFFER {
+        let Some((socket, _)) = state.host.as_ref() else {
             return Err(FilesystemError::WouldBlock);
+        };
+        let sent = loop {
+            match socket.send(buf) {
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                sent => break sent,
+            }
+        };
+        match sent {
+            Ok(_) => Ok(buf.len()),
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                state.writable = false;
+                Err(FilesystemError::WouldBlock)
+            }
+            Err(err) => Err(to_error(&err)),
         }
-        state.sending.push_back(buf.to_vec());
-        state.sending_bytes += buf.len();
-        self.pump_and_wake(state);
-        Ok(buf.len())
     }
 
-    /// As `udp_poll` answers.
+    /// As `datagram_poll` answers: readable once a datagram waits, writable
+    /// while the host socket takes a send, and failed while a failure is
+    /// pending.
     fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
         poll_wait(&self.wait, table);
         let state = self.state();
         let mut mask = PollMask::default();
-        if !state.received.is_empty() || state.failed.is_some() {
+        if !state.received.is_empty() {
             mask = mask | PollMask::IN;
         }
-        if (state.host.is_some() || state.named.is_none())
-            && state.sending_bytes < MAX_SOCKET_BUFFER
-        {
+        if (state.host.is_some() && state.writable) || state.named.is_none() {
             mask = mask | PollMask::OUT;
         }
-        if state.failed.is_some() {
+        if state.error.is_some() {
             mask = mask | PollMask::ERR;
         }
         mask
@@ -262,6 +277,72 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(1));
         }
+    }
+
+    /// A socket connected to a peer that has sent it one datagram.
+    fn holding_a_datagram() -> (Arc<UdpSock>, UdpSocket) {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let sock = connected(peer.local_addr().unwrap());
+        peer.send_to(b"hello", sock.local_addr().unwrap()).unwrap();
+        until(&sock, PollMask::IN);
+        (sock, peer)
+    }
+
+    // @behavior NW-086
+    #[test]
+    fn a_zero_byte_read_keeps_the_datagram() {
+        let (sock, _peer) = holding_a_datagram();
+        let mut file = crate::net::sock_alloc_file(sock.clone(), &Arc::default());
+        let mut buf = [0; 8];
+        let zero = file.read(&mut []);
+        let next = file.read(&mut buf).map(|n| buf[..n].to_vec());
+        assert_eq!(
+            (zero, next),
+            (Ok(0), Ok(b"hello".to_vec())),
+            "File::read of zero bytes from a UDP socket holding a datagram must answer zero and \
+             leave the datagram for the next read"
+        );
+    }
+
+    // @behavior NW-087
+    #[test]
+    fn a_failure_answers_before_the_datagram_it_holds() {
+        let (sock, _peer) = holding_a_datagram();
+        sock.state().error = Some(FilesystemError::ConnectionRefused);
+        let polled = sock.poll(None);
+        let mut buf = [0; 8];
+        let first = sock.recvmsg(&mut buf);
+        let second = sock.recvmsg(&mut buf).map(|n| buf[..n].to_vec());
+        assert_eq!(
+            (polled, first, second),
+            (
+                PollMask::IN | PollMask::OUT | PollMask::ERR,
+                Err(FilesystemError::ConnectionRefused),
+                Ok(b"hello".to_vec())
+            ),
+            "a UDP socket holding a datagram and a failure must poll IN and ERR, then answer the \
+             failure before the datagram, as __skb_recv_udp asks sock_error first"
+        );
+    }
+
+    // @behavior NW-088
+    #[test]
+    fn a_socket_connected_again_keeps_its_place() {
+        let first = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let second = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
+        let cap = OpenConnections::new(Some(1));
+        let sock = UdpSock::new();
+        let at = |peer: &UdpSocket| peer.local_addr().unwrap();
+        let once = sock.connect(&family, at(&first), at(&first), &cap);
+        let again = sock.connect(&family, at(&second), at(&second), &cap);
+        sock.release();
+        assert_eq!(
+            (once, again),
+            (Ok(()), Ok(())),
+            "UdpSock::connect to a second peer under a cap of one must keep the place the \
+             socket holds, not answer EAGAIN"
+        );
     }
 
     // @behavior NW-053
