@@ -4,8 +4,9 @@ require "ipaddr"
 
 module Kobako
   # The network a Sandbox gives the guest, one named entry at a time. An entry
-  # is any object answering +endpoints+, or one Sandbox#network builds from its
-  # block:
+  # is any object answering one or more of +endpoints+, +resolve?+,
+  # +connect?+, +request?+, and +credentials+, or one Sandbox#network builds
+  # from its block:
   #
   #   sandbox.network(:github) do |net|
   #     net.endpoint "api.github.com", port: 443
@@ -167,8 +168,9 @@ module Kobako
 
       # Judge each decision +hook+ names with the block; a falsy answer or a
       # raised StandardError refuses. +:resolve+ hands the block the name a
-      # lookup asks for, lowercase with no trailing dot, and +:connect+ a
-      # Connection. Raises ArgumentError for another hook. Returns +self+.
+      # lookup asks for, lowercase with no trailing dot, +:connect+ a
+      # Connection, and +:request+ a Request. Raises ArgumentError for another
+      # hook. Returns +self+.
       def policy(hook, &block)
         unless HOOKS.include?(hook)
           raise ArgumentError,

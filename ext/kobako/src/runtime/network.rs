@@ -20,8 +20,9 @@ use kobako_runtime::network::{
 use super::pinned_value::PinnedValue;
 use super::{escape, gvl};
 
-/// What one entry answered for this invocation: its endpoints, and its own
-/// `resolve?` and `connect?` for each it plays.
+/// What one entry answered for this invocation: its endpoints, its own
+/// `resolve?`, `connect?`, and `request?` for each it plays, and its
+/// credentials.
 struct Answered {
     endpoints: Vec<Endpoint>,
     resolve: Option<Arc<RubyPolicy>>,
@@ -54,8 +55,9 @@ impl Entry for Answered {
     }
 }
 
-/// An entry asked one of its policy hooks: `resolve?` handed the name, and
-/// `connect?` a `Kobako::Network::Connection`. A falsy answer or a raised
+/// An entry asked one of its policy hooks: `resolve?` handed the name,
+/// `connect?` a `Kobako::Network::Connection`, and `request?` a
+/// `Kobako::Network::Request`. A falsy answer or a raised
 /// StandardError refuses, so the guest's call fails and its script goes on;
 /// anything else it raises is held for the host.
 struct RubyPolicy {
