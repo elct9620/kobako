@@ -52,6 +52,44 @@ module NetworkLoopback
     server&.close
   end
 
+  # Yield the port of a loopback peer that answers a datagram upcased.
+  def with_upcase_peer
+    peer = UDPSocket.new
+    peer.bind("127.0.0.1", 0)
+    thread = Thread.new do
+      mesg, from = peer.recvfrom(16)
+      peer.send(mesg.upcase, 0, from[3], from[1])
+    end
+    yield peer.addr[1]
+  ensure
+    thread&.kill
+    peer&.close
+  end
+
+  # A Sandbox whose one UDP endpoint reaches loopback +port+.
+  def sandbox_sending_to(port)
+    Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM).network(:local) do |net|
+      net.endpoint "127.0.0.1", port: port, protocol: :udp, addresses: [:local]
+    end
+  end
+
+  # A loopback server that resets its connection once it reads a line.
+  def with_resetting_server
+    server = TCPServer.new("127.0.0.1", 0)
+    thread = Thread.new { reset_once(server) }
+    yield server.addr[1]
+  ensure
+    thread&.join(10)
+    server&.close
+  end
+
+  def reset_once(server)
+    client = server.accept
+    client.gets
+    client.setsockopt(Socket::SOL_SOCKET, Socket::SO_LINGER, [1, 0].pack("ii"))
+    client.close
+  end
+
   def answer_once(server, response)
     client = server.accept
     read_head(client)

@@ -7,6 +7,7 @@ require "socket"
 # peer: a datagram both ways, and what a socket with no named peer raises.
 class TestE2ENetworkUdp < Minitest::Test
   include E2eGuestHelper
+  include NetworkLoopback
 
   PING = <<~RUBY
     socket = UDPSocket.new
@@ -52,7 +53,7 @@ class TestE2ENetworkUdp < Minitest::Test
   # @behavior NW-079
   def test_a_udp_socket_is_an_io_that_io_select_waits_on
     with_quiet_peer do |peer, port|
-      value = sandbox_reaching(port).eval(format(AS_IO, port: port)).value
+      value = sandbox_sending_to(port).eval(format(AS_IO, port: port)).value
 
       assert_equal [[[true, true, true, true], true, "Destination address required", 4], "abcd"],
                    [value, first_datagram(peer)],
@@ -78,30 +79,10 @@ class TestE2ENetworkUdp < Minitest::Test
     peer.recv(16) if peer.wait_readable(5)
   end
 
-  # Yield the port of a loopback peer that answers each datagram upcased.
-  def with_upcase_peer
-    peer = UDPSocket.new
-    peer.bind("127.0.0.1", 0)
-    thread = Thread.new do
-      mesg, from = peer.recvfrom(16)
-      peer.send(mesg.upcase, 0, from[3], from[1])
-    end
-    yield peer.addr[1]
-  ensure
-    thread&.kill
-    peer&.close
-  end
-
-  def sandbox_reaching(port)
-    Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM).network(:local) do |net|
-      net.endpoint "127.0.0.1", port: port, protocol: :udp, addresses: [:local]
-    end
-  end
-
   # @behavior NW-056
   def test_a_udp_socket_carries_a_datagram_both_ways_with_the_peer_it_connects_to
     with_upcase_peer do |port|
-      value = sandbox_reaching(port).eval(format(PING, port: port)).value
+      value = sandbox_sending_to(port).eval(format(PING, port: port)).value
 
       assert_equal ["PING", ["AF_INET", port, "127.0.0.1", "127.0.0.1"]], value,
                    "UDPSocket#recvfrom after a send to the peer #connect names must answer the " \
@@ -111,7 +92,7 @@ class TestE2ENetworkUdp < Minitest::Test
 
   # @behavior NW-057
   def test_a_udp_socket_with_no_named_peer_raises_what_linux_would
-    value = sandbox_reaching(9).eval(format(REFUSALS, port: 9)).value
+    value = sandbox_sending_to(9).eval(format(REFUSALS, port: 9)).value
 
     assert_equal ["Errno::EACCES", "Errno::EDESTADDRREQ", "Errno::EACCES", :passed], value,
                  "UDPSocket#bind to a chosen port must raise Errno::EACCES, #send with no peer " \

@@ -2,7 +2,7 @@
 //! names: a socket binds to any address on an ephemeral port, then streams
 //! with the one peer a `connect` names, as Linux's connected UDP socket does.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::net::Ipv4Addr;
 
 use beni::prelude::*;
@@ -11,7 +11,12 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use crate::errno;
 use crate::io::argument_error;
-use crate::socket::{for_peer, peer_of, to_addr_array, to_error, to_ip_socket_address, AF_INET6};
+use crate::socket::{
+    for_peer, peer_of, to_addr_array, to_error, to_ip_socket_address, ByteSource, AF_INET,
+};
+
+/// The most one IPv4 datagram carries, so a read of one takes it whole.
+const MAX_DATAGRAM: usize = 65_507;
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
@@ -42,6 +47,31 @@ struct Open {
 #[beni::wrap(class = "UDPSocket", name = "Kobako::UDPSocket")]
 struct Datagrams {
     open: RefCell<Option<Open>>,
+    /// What a read took of a datagram past what it answered.
+    held: RefCell<Vec<u8>>,
+    sync: Cell<bool>,
+}
+
+impl ByteSource for Datagrams {
+    fn held(&self) -> &RefCell<Vec<u8>> {
+        &self.held
+    }
+
+    /// The next datagram whole, as a datagram socket's read fills CRuby's
+    /// buffer with one.
+    fn receive(&self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
+        self.with(mrb, |open| receive_from(mrb, open, MAX_DATAGRAM, "read(2)"))
+            .map(|(data, _)| Some(data))
+    }
+
+    fn sync(&self) -> &Cell<bool> {
+        &self.sync
+    }
+}
+
+/// The `UDPSocket` `value` stands for, as a socket a read takes bytes from.
+pub(crate) fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn ByteSource, Error> {
+    Ok(Datagrams::of(mrb, value)?)
 }
 
 impl Datagrams {
@@ -80,22 +110,24 @@ pub(crate) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
     Ok(())
 }
 
-/// Whether `family` names IPv6, as CRuby spells it by number or by name.
-fn is_inet6(mrb: &Mrb, family: Value) -> Result<bool, Error> {
+/// Whether `family` names IPv4, as CRuby spells it by number or by name.
+fn is_inet(mrb: &Mrb, family: Value) -> Result<bool, Error> {
     if let Ok(number) = i64::try_convert(family, mrb) {
-        return Ok(number == AF_INET6);
+        return Ok(number == AF_INET);
     }
     let name = family.to_r_string(mrb)?.to_string(mrb)?;
-    Ok(matches!(name.as_str(), "INET6" | "AF_INET6"))
+    Ok(matches!(name.as_str(), "INET" | "AF_INET"))
 }
 
-/// `UDPSocket.new(family = AF_INET)` makes an unbound IPv4 socket.
+/// `UDPSocket.new(family = AF_INET)` makes an unbound IPv4 socket; any other
+/// family raises `Errno::EAFNOSUPPORT`, as `socket(2)` answers IPv6 here and
+/// an unknown family everywhere.
 fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
     if args.len() > 1 {
-        return Err(argument_error(mrb, "wrong number of arguments"));
+        return Err(Error::argnum(mrb, args.len(), 0, 1));
     }
     if let Some(family) = args.first() {
-        if is_inet6(mrb, *family)? {
+        if !is_inet(mrb, *family)? {
             return Err(errno::error_by_name(
                 mrb,
                 c"EAFNOSUPPORT",
@@ -111,6 +143,8 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             socket,
             bound: false,
         })),
+        held: RefCell::new(Vec::new()),
+        sync: Cell::new(true),
     };
     Ok(mrb.wrap_as(datagrams, class).as_value())
 }
@@ -192,7 +226,7 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     let (mesg, to) = match args {
         [mesg, _flags] => (*mesg, None),
         [mesg, _flags, host, port] => (*mesg, Some((*host, *port))),
-        _ => return Err(argument_error(mrb, "wrong number of arguments")),
+        _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let data = bytes_of(mrb, mesg)?;
     let (remote_address, call) = match to {
@@ -274,33 +308,43 @@ fn receive(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(Vec<u8>, (Ipv4Add
     let maxlen = match args {
         [maxlen] | [maxlen, _] => usize::try_from(i64::try_convert(*maxlen, mrb)?)
             .map_err(|_| argument_error(mrb, "negative length given"))?,
-        _ => return Err(argument_error(mrb, "wrong number of arguments")),
+        _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
-    Datagrams::of(mrb, self_)?.with(mrb, |open| {
-        let Some(streams) = &open.streams else {
-            return Err(errno::error_by_name(mrb, c"EACCES", "recvfrom(2)"));
-        };
-        let pollable = streams.incoming.subscribe();
-        loop {
-            match streams.incoming.receive(1) {
-                Ok(mut received) if !received.is_empty() => {
-                    let datagram = received.swap_remove(0);
-                    let mut data = datagram.data;
-                    data.truncate(maxlen);
-                    let from = match datagram.remote_address {
-                        IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                            port,
-                            address: (a, b, c, d),
-                        }) => (Ipv4Addr::new(a, b, c, d), port),
-                        IpSocketAddress::Ipv6(_) => streams.peer,
-                    };
-                    return Ok((data, from));
-                }
-                Ok(_) => pollable.block(),
-                Err(code) => return Err(to_error(mrb, code, UDP, "recvfrom(2)")),
+    Datagrams::of(mrb, self_)?.with(mrb, |open| receive_from(mrb, open, maxlen, "recvfrom(2)"))
+}
+
+/// The next datagram `open` streams, cut to `maxlen`, and who sent it,
+/// waiting for one; with no peer nothing can arrive, so `call` raises
+/// `Errno::EACCES`.
+fn receive_from(
+    mrb: &Mrb,
+    open: &mut Open,
+    maxlen: usize,
+    call: &str,
+) -> Result<(Vec<u8>, (Ipv4Addr, u16)), Error> {
+    let Some(streams) = &open.streams else {
+        return Err(errno::error_by_name(mrb, c"EACCES", call));
+    };
+    let pollable = streams.incoming.subscribe();
+    loop {
+        match streams.incoming.receive(1) {
+            Ok(mut received) if !received.is_empty() => {
+                let datagram = received.swap_remove(0);
+                let mut data = datagram.data;
+                data.truncate(maxlen);
+                let from = match datagram.remote_address {
+                    IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                        port,
+                        address: (a, b, c, d),
+                    }) => (Ipv4Addr::new(a, b, c, d), port),
+                    IpSocketAddress::Ipv6(_) => streams.peer,
+                };
+                return Ok((data, from));
             }
+            Ok(_) => pollable.block(),
+            Err(code) => return Err(to_error(mrb, code, UDP, call)),
         }
-    })
+    }
 }
 
 /// `recv(maxlen, flags = 0)` answers the next datagram, cut to `maxlen`.

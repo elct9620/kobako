@@ -23,6 +23,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network.rb`
 - `test/e2e/test_network_tcp.rb`
 - `test/e2e/test_network_tcp_cruby.rb`
+- `test/e2e/test_network_socket_io.rb`
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_cruby.rb`
@@ -30,6 +31,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_http_policy.rb`
 - `test/e2e/test_network_https.rb`
 - `test/e2e/test_network_udp.rb`
+- `test/e2e/test_network_udp_cruby.rb`
 - `test/parity/test_network.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`

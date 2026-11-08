@@ -257,6 +257,11 @@ pub(crate) fn error_with_message(mrb: &Mrb, name: &core::ffi::CStr, message: &st
 
 /// The `Errno` class `name` names, carrying its message alone, as CRuby
 /// raises one for an IO that names no path.
+/// Whether the guest has an `Errno` class for the POSIX name `name`.
+pub(crate) fn is_known(name: &core::ffi::CStr) -> bool {
+    CODES.iter().any(|code| code.name == name)
+}
+
 pub(crate) fn error_alone(mrb: &Mrb, name: &core::ffi::CStr) -> Error {
     let message = CODES
         .iter()

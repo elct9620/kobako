@@ -5,13 +5,15 @@
 //! `NotImplementedError`, as it does with no Mount; a refusal raises the
 //! `Errno` CRuby's would.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::ffi::CString;
 use std::net::Ipv4Addr;
 
 use beni::prelude::*;
+use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, Exception, ExceptionClass, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash,
+    Error, Exception, ExceptionClass, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash,
     Symbol, TryConvert, TypedData, Value,
 };
 use std::time::Duration;
@@ -49,8 +51,51 @@ struct Open {
 #[beni::wrap(class = "TCPSocket", name = "Kobako::TCPSocket")]
 struct Connection {
     open: RefCell<Option<Open>>,
-    /// What a `gets` read past the line it answered.
+    /// What a read took from the host past what it answered.
     buffered: RefCell<Vec<u8>>,
+    sync: Cell<bool>,
+}
+
+/// A socket a read takes bytes from in order, as CRuby's read buffer stands
+/// before a socket: what an earlier read held back comes first.
+pub(crate) trait ByteSource {
+    /// What a read took past what it answered.
+    fn held(&self) -> &RefCell<Vec<u8>>;
+
+    /// The next bytes the host brings, waiting for some; `None` at the end.
+    fn receive(&self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error>;
+
+    /// Whether a write is sent at once, as `IO#sync` reads; a socket's is.
+    fn sync(&self) -> &Cell<bool>;
+}
+
+impl ByteSource for Connection {
+    fn held(&self) -> &RefCell<Vec<u8>> {
+        &self.buffered
+    }
+
+    fn receive(&self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
+        self.with(mrb, |open| loop {
+            match open.input.blocking_read(READ_CHUNK as u64) {
+                Ok(bytes) if bytes.is_empty() => continue,
+                Ok(bytes) => return Ok(Some(bytes)),
+                Err(StreamError::Closed) => return Ok(None),
+                Err(err) => return Err(stream_error(mrb, err)),
+            }
+        })
+    }
+
+    fn sync(&self) -> &Cell<bool> {
+        &self.sync
+    }
+}
+
+/// The socket `value` stands for, a `TCPSocket` or a `UDPSocket`.
+fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn ByteSource, Error> {
+    match Connection::of(mrb, value) {
+        Ok(connection) => Ok(connection),
+        Err(_) => crate::udp::source_of(mrb, value),
+    }
 }
 
 impl Connection {
@@ -80,6 +125,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<RClass, Error> {
     io.define_error(mrb, c"TimeoutError", mrb.exc_get(c"IOError")?)?;
     // A socket is an IO, as CRuby's `TCPSocket < IPSocket < BasicSocket < IO`.
     let basic = mrb.define_class(c"BasicSocket", io)?;
+    define_socket_io(mrb, basic)?;
     let ip = mrb.define_class(c"IPSocket", basic)?;
     let socket = mrb.define_class(c"TCPSocket", ip)?;
     Connection::mark_carriers(mrb)?;
@@ -88,13 +134,6 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<RClass, Error> {
     socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, -1))?;
     socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, -1))?;
     socket.define_method(mrb, c"write", beni::method!(tcp_socket_write, -1))?;
-    socket.define_method(mrb, c"read", beni::method!(tcp_socket_read, -1))?;
-    socket.define_method(
-        mrb,
-        c"readpartial",
-        beni::method!(tcp_socket_readpartial, -1),
-    )?;
-    socket.define_method(mrb, c"gets", beni::method!(tcp_socket_gets, -1))?;
     socket.define_method(
         mrb,
         c"close_write",
@@ -103,7 +142,42 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<RClass, Error> {
     socket.define_method(mrb, c"close", beni::method!(tcp_socket_close, 0))?;
     socket.define_method(mrb, c"closed?", beni::method!(tcp_socket_closed_p, 0))?;
     socket.define_method(mrb, c"peeraddr", beni::method!(tcp_socket_peeraddr, -1))?;
+    // `Socket` stands only for its constants and errors here; the guest makes
+    // no raw socket, so it has no `new`.
+    socket_class.singleton_class(mrb)?.funcall::<_, _, Value>(
+        mrb,
+        c"undef_method",
+        [Symbol::new(mrb, "new")?.as_value()],
+    )?;
     Ok(ip)
+}
+
+/// What every socket answers as an IO, as CRuby's `BasicSocket` does over its
+/// one descriptor: reads through a buffer before the socket, a position, sync,
+/// or listing it has none of answered as Linux answers each, and no copy,
+/// since WASI dups no socket.
+fn define_socket_io(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
+    basic.define_method(mrb, c"read", beni::method!(socket_read, -1))?;
+    basic.define_method(mrb, c"readpartial", beni::method!(socket_readpartial, -1))?;
+    basic.define_method(mrb, c"gets", beni::method!(socket_gets, -1))?;
+    basic.define_method(mrb, c"each_line", beni::method!(socket_each_line, -1))?;
+    basic.define_method(mrb, c"readlines", beni::method!(socket_readlines, -1))?;
+    basic.define_method(mrb, c"eof?", beni::method!(socket_eof_p, 0))?;
+    basic.define_method(mrb, c"eof", beni::method!(socket_eof_p, 0))?;
+    for name in [
+        c"seek", c"rewind", c"pos", c"pos=", c"tell", c"pread", c"pwrite",
+    ] {
+        basic.define_method(mrb, name, beni::method!(socket_unseekable, -1))?;
+    }
+    basic.define_method(mrb, c"fsync", beni::method!(socket_unsyncable, 0))?;
+    basic.define_method(mrb, c"fdatasync", beni::method!(socket_unsyncable, 0))?;
+    basic.define_method(mrb, c"advise", beni::method!(socket_advise, -1))?;
+    basic.define_method(mrb, c"sync", beni::method!(socket_sync, 0))?;
+    basic.define_method(mrb, c"sync=", beni::method!(socket_sync_set, 1))?;
+    for name in ["dup", "clone"] {
+        basic.funcall::<_, _, Value>(mrb, c"undef_method", [Symbol::new(mrb, name)?.as_value()])?;
+    }
+    Ok(())
 }
 
 /// Linux's address families, the numbers CRuby's `Socket` names them by.
@@ -298,6 +372,7 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             peer: (ip, port),
         })),
         buffered: RefCell::new(Vec::new()),
+        sync: Cell::new(true),
     };
     Ok(mrb.wrap_as(connection, class).as_value())
 }
@@ -330,12 +405,17 @@ fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
     mrb.class_get(c"IO")?.const_get(mrb, c"TimeoutError")
 }
 
+/// The `Errno` a stream's failure raises, by the POSIX name the host gives
+/// it, as CRuby raises `Errno::ECONNRESET` from a reset socket's read.
 fn stream_error(mrb: &Mrb, err: StreamError) -> Error {
     match err {
         StreamError::Closed => errno::error_by_name(mrb, c"EPIPE", "write(2)"),
         StreamError::LastOperationFailed(err) => {
             let name = err.to_debug_string();
-            errno::io_error(mrb, &name)
+            match CString::new(name.as_str()) {
+                Ok(name) if errno::is_known(&name) => errno::error_alone(mrb, &name),
+                _ => errno::io_error(mrb, &name),
+            }
         }
     }
 }
@@ -361,53 +441,76 @@ fn tcp_socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value,
     Ok((bytes.len() as i64).into_value(mrb))
 }
 
-/// What one blocking read brings, after what a `gets` held back; `None` at the
+/// Up to `len` bytes, what an earlier read held back first, else what the
+/// host brings next, holding back what the read did not take; `None` at the
 /// end.
-fn read_some(mrb: &Mrb, connection: &Connection, len: usize) -> Result<Option<Vec<u8>>, Error> {
-    let mut held = connection.buffered.borrow_mut();
-    if !held.is_empty() {
-        let take = held.len().min(len);
-        return Ok(Some(held.drain(..take).collect()));
+fn read_some(mrb: &Mrb, source: &dyn ByteSource, len: usize) -> Result<Option<Vec<u8>>, Error> {
+    let mut held = source.held().borrow_mut();
+    if held.is_empty() {
+        drop(held);
+        let Some(bytes) = source.receive(mrb)? else {
+            return Ok(None);
+        };
+        held = source.held().borrow_mut();
+        *held = bytes;
     }
-    drop(held);
-    connection.with(mrb, |open| loop {
-        match open.input.blocking_read(len as u64) {
-            Ok(bytes) if bytes.is_empty() => continue,
-            Ok(bytes) => return Ok(Some(bytes)),
-            Err(StreamError::Closed) => return Ok(None),
-            Err(err) => return Err(stream_error(mrb, err)),
-        }
+    let take = held.len().min(len);
+    Ok(Some(held.drain(..take).collect()))
+}
+
+/// `value`, a `String` buffer a read is given, made to hold `read`, or
+/// emptied when the read answers `nil`, as CRuby fills `outbuf`.
+fn fill(mrb: &Mrb, outbuf: Option<Value>, read: Value) -> Result<Value, Error> {
+    let Some(outbuf) = outbuf else {
+        return Ok(read);
+    };
+    let filling = match read.is_nil() {
+        true => mrb.str_new(b"").as_value(),
+        false => read,
+    };
+    outbuf.funcall::<_, _, Value>(mrb, c"replace", [filling])?;
+    Ok(match read.is_nil() {
+        true => read,
+        false => outbuf,
     })
 }
 
-/// `read(length = nil)` reads `length` bytes, or to the end without one, as
-/// CRuby's `IO#read` does; `nil` at the end when a length was asked for.
-fn tcp_socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let connection = Connection::of(mrb, self_)?;
-    let length = match args.first().filter(|v| !v.is_nil()) {
+/// `read(length = nil, outbuf = nil)` reads `length` bytes, or to the end
+/// without one, into `outbuf` when given, as CRuby's `IO#read` does; `nil` at
+/// the end when a length was asked for.
+fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let (length, outbuf) = match args {
+        [] => (None, None),
+        [length] => (Some(*length), None),
+        [length, outbuf] => (Some(*length), Some(*outbuf).filter(|buf| !buf.is_nil())),
+        _ => return Err(Error::argnum(mrb, args.len(), 0, 2)),
+    };
+    let length = match length.filter(|v| !v.is_nil()) {
         Some(v) => Some(
-            usize::try_from(i64::try_convert(*v, mrb)?)
+            usize::try_from(i64::try_convert(v, mrb)?)
                 .map_err(|_| argument_error(mrb, "negative length given"))?,
         ),
         None => None,
     };
+    let source = source_of(mrb, self_)?;
     let mut read = Vec::new();
     while length.is_none_or(|length| read.len() < length) {
         let want = length.map_or(READ_CHUNK, |length| length - read.len());
-        match read_some(mrb, connection, want)? {
+        match read_some(mrb, source, want)? {
             Some(bytes) => read.extend(bytes),
             None => break,
         }
     }
-    if read.is_empty() && length.is_some_and(|length| length > 0) {
-        return Ok(qnil().as_value());
-    }
-    Ok(mrb.str_new(&read).as_value())
+    let answer = match read.is_empty() && length.is_some_and(|length| length > 0) {
+        true => qnil().as_value(),
+        false => mrb.str_new(&read).as_value(),
+    };
+    fill(mrb, outbuf, answer)
 }
 
 /// `readpartial(maxlen, outbuf = nil)` answers what one read brings, into
 /// `outbuf` when given, raising `EOFError` at the end, as CRuby does.
-fn tcp_socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+fn socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (maxlen, outbuf) = match args {
         [maxlen] => (*maxlen, None),
         [maxlen, outbuf] => (*maxlen, Some(*outbuf).filter(|buf| !buf.is_nil())),
@@ -415,14 +518,8 @@ fn tcp_socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Val
     };
     let maxlen = usize::try_from(i64::try_convert(maxlen, mrb)?)
         .map_err(|_| argument_error(mrb, "negative length given"))?;
-    match read_some(mrb, Connection::of(mrb, self_)?, maxlen)? {
-        Some(bytes) => {
-            let read = mrb.str_new(&bytes).as_value();
-            match outbuf {
-                Some(outbuf) => outbuf.funcall(mrb, c"replace", [read]),
-                None => Ok(read),
-            }
-        }
+    match read_some(mrb, source_of(mrb, self_)?, maxlen)? {
+        Some(bytes) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
         None => Err(Error::new(
             mrb,
             mrb.exc_get(c"EOFError")?,
@@ -431,31 +528,143 @@ fn tcp_socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Val
     }
 }
 
-/// `gets` answers the next line, its newline kept, or `nil` at the end.
-fn tcp_socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (separator, limit) = line_args_of(mrb, args)?;
-    let connection = Connection::of(mrb, self_)?;
+/// The next line, its separator kept unless `chomp`, or `None` at the end.
+fn next_line(
+    mrb: &Mrb,
+    source: &dyn ByteSource,
+    (separator, limit, chomp): &LineArgs,
+) -> Result<Option<Vec<u8>>, Error> {
     let mut line = Vec::new();
     loop {
-        if let Some(end) = line_end_of(&line, separator.as_deref(), limit) {
+        if let Some(end) = line_end_of(&line, separator.as_deref(), *limit) {
             let rest = line.split_off(end);
-            connection.buffered.borrow_mut().splice(0..0, rest);
-            return Ok(mrb.str_new(&line).as_value());
+            source.held().borrow_mut().splice(0..0, rest);
+            break;
         }
-        match read_some(mrb, connection, READ_CHUNK)? {
+        match read_some(mrb, source, READ_CHUNK)? {
             Some(bytes) => line.extend(bytes),
             None => break,
         }
     }
     if line.is_empty() {
-        return Ok(qnil().as_value());
+        return Ok(None);
     }
-    Ok(mrb.str_new(&line).as_value())
+    if let Some(separator) = separator.as_deref().filter(|_| *chomp) {
+        if line.ends_with(separator) {
+            line.truncate(line.len() - separator.len());
+        }
+    }
+    Ok(Some(line))
+}
+
+/// `gets(sep = $/, limit = nil, chomp: false)` answers the next line, or
+/// `nil` at the end.
+fn socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let line_args = line_args_of(mrb, args)?;
+    Ok(match next_line(mrb, source_of(mrb, self_)?, &line_args)? {
+        Some(line) => mrb.str_new(&line).as_value(),
+        None => qnil().as_value(),
+    })
+}
+
+/// `each_line(sep = $/, limit = nil, chomp: false) { |line| }` yields each
+/// line to the end.
+fn socket_each_line(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let block = scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?
+        .block
+        .ok_or_else(|| argument_error(mrb, "each_line needs a block"))?;
+    let line_args = line_args_of(mrb, args)?;
+    let source = source_of(mrb, self_)?;
+    while let Some(line) = next_line(mrb, source, &line_args)? {
+        let _scope = mrb.arena_scope();
+        block.call::<_, Value>(mrb, [mrb.str_new(&line).as_value()])?;
+    }
+    Ok(self_)
+}
+
+/// `readlines(sep = $/, limit = nil, chomp: false)` answers every line to the
+/// end.
+fn socket_readlines(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let line_args = line_args_of(mrb, args)?;
+    let source = source_of(mrb, self_)?;
+    let lines = mrb.ary_new();
+    while let Some(line) = next_line(mrb, source, &line_args)? {
+        lines.push(mrb, mrb.str_new(&line).as_value())?;
+    }
+    Ok(lines.as_value())
+}
+
+/// `eof?` waits for the next bytes, holding them for the next read, and
+/// answers whether the end came instead, as CRuby's fills its buffer.
+fn socket_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
+    let source = source_of(mrb, self_)?;
+    if !source.held().borrow().is_empty() {
+        return Ok(false);
+    }
+    match source.receive(mrb)? {
+        Some(bytes) => {
+            *source.held().borrow_mut() = bytes;
+            Ok(false)
+        }
+        None => Ok(true),
+    }
+}
+
+/// A call a socket has no position for raises `Errno::ESPIPE`, as Linux's
+/// `lseek`, `pread`, and `pwrite` answer one.
+fn socket_unseekable(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
+    Err(errno::error_alone(mrb, c"ESPIPE"))
+}
+
+/// A socket keeps nothing to sync, so `fsync` raises `Errno::EINVAL`, as
+/// Linux's answers it.
+fn socket_unsyncable(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
+    Err(errno::error_alone(mrb, c"EINVAL"))
+}
+
+/// `advise(advice, offset = 0, len = 0)` is taken and ignored, as Linux's
+/// `fadvise` takes advice on a socket.
+fn socket_advise(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
+    if !(1..=3).contains(&args.len()) {
+        return Err(Error::argnum(mrb, args.len(), 1, 3));
+    }
+    Ok(qnil().as_value())
+}
+
+fn socket_sync(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
+    Ok(source_of(mrb, self_)?.sync().get())
+}
+
+fn socket_sync_set(mrb: &Mrb, self_: Value, sync: Value) -> Result<Value, Error> {
+    source_of(mrb, self_)?.sync().set(sync.to_bool());
+    Ok(sync)
+}
+
+/// What `gets` and its kin take: the separator, `None` to read to the end,
+/// the limit, and whether to chomp the separator.
+type LineArgs = (Option<Vec<u8>>, Option<usize>, bool);
+
+/// `gets(sep = $/, limit = nil, chomp: false)`'s arguments; an empty
+/// separator reads a paragraph, as CRuby's does.
+fn line_args_of(mrb: &Mrb, args: &[Value]) -> Result<LineArgs, Error> {
+    let (args, chomp) = match args.split_last() {
+        Some((last, rest)) if RHash::try_convert(*last, mrb).is_ok() => {
+            let options = RHash::try_convert(*last, mrb)?;
+            let chomp: Value = options.aref(mrb, Symbol::new(mrb, "chomp")?.as_value())?;
+            (rest, chomp.to_bool())
+        }
+        _ => (args, false),
+    };
+    let (separator, limit) = separator_and_limit_of(mrb, args)?;
+    Ok((separator, limit, chomp))
 }
 
 /// `gets(sep = $/, limit = nil)`'s separator, `None` to read to the end, and
-/// its limit; an empty separator reads a paragraph, as CRuby's does.
-fn line_args_of(mrb: &Mrb, args: &[Value]) -> Result<(Option<Vec<u8>>, Option<usize>), Error> {
+/// its limit.
+fn separator_and_limit_of(
+    mrb: &Mrb,
+    args: &[Value],
+) -> Result<(Option<Vec<u8>>, Option<usize>), Error> {
     let limit_of = |value: Value| -> Result<Option<usize>, Error> {
         if value.is_nil() {
             return Ok(None);
@@ -525,7 +734,7 @@ fn tcp_socket_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// Whether `value` is a `TCPSocket` holding bytes a `gets` read past, which
 /// a read answers before the socket is asked, as CRuby's read buffer is.
 pub(crate) fn holds_buffered(mrb: &Mrb, value: Value) -> bool {
-    Connection::of(mrb, value).is_ok_and(|connection| !connection.buffered.borrow().is_empty())
+    source_of(mrb, value).is_ok_and(|source| !source.held().borrow().is_empty())
 }
 
 fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
