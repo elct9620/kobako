@@ -110,20 +110,6 @@ impl Invocation {
         self.table().get_mut(handle)
     }
 
-    fn incoming(
-        &mut self,
-        handle: IncomingDatagramStream,
-    ) -> wasmtime::Result<SocketFile<UdpSock>> {
-        Ok(self.table().get(handle)?.0.clone())
-    }
-
-    fn outgoing(
-        &mut self,
-        handle: OutgoingDatagramStream,
-    ) -> wasmtime::Result<SocketFile<UdpSock>> {
-        Ok(self.table().get(handle)?.socket.clone())
-    }
-
     /// The permit an outgoing datagram stream's last `check-send` gave.
     fn permit(&mut self, stream: OutgoingDatagramStream) -> wasmtime::Result<&mut u64> {
         Ok(&mut self.table().get_mut(stream)?.permit)
@@ -136,14 +122,6 @@ impl Invocation {
     ) -> wasmtime::Result<Pollable> {
         self.table()
             .push(table::Pollable::File(datagrams.get_file(), mask))
-    }
-
-    fn input(&mut self, handle: InputStream) -> wasmtime::Result<Stream> {
-        Ok(self.table().get(handle)?.0.clone())
-    }
-
-    fn output(&mut self, handle: OutputStream) -> wasmtime::Result<Stream> {
-        Ok(self.table().get(handle)?.stream.clone())
     }
 
     /// A stream's failure as WASI hands it out: the end as `closed`, anything
@@ -488,7 +466,7 @@ impl SocketsHost for Invocation {
         this: IncomingDatagramStream,
         max_results: u64,
     ) -> wasmtime::Result<Result<Vec<IncomingDatagram>, ErrorCode>> {
-        let datagrams = self.incoming(this)?;
+        let datagrams = self.table().get(this)?.0.clone();
         let peer = datagrams
             .sock
             .peer_addr()
@@ -513,7 +491,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: IncomingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
-        let datagrams = self.incoming(this)?;
+        let datagrams = self.table().get(this)?.0.clone();
         self.subscribe_datagrams(datagrams, PollMask::IN)
     }
 
@@ -529,7 +507,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: OutgoingDatagramStream,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        let datagrams = self.outgoing(this)?;
+        let datagrams = self.table().get(this)?.socket.clone();
         let found = datagrams.file().poll(None);
         let permitted = u64::from(found.contains(PollMask::OUT));
         *self.permit(this)? = permitted;
@@ -551,7 +529,7 @@ impl SocketsHost for Invocation {
                 "the guest sent more datagrams than check-send permitted",
             ));
         }
-        let stream = self.outgoing(this)?;
+        let stream = self.table().get(this)?.socket.clone();
         let mut sent = 0;
         for datagram in datagrams {
             let addressed = datagram.remote_address.as_ref().map(to_socket_addr);
@@ -579,7 +557,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: OutgoingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
-        let datagrams = self.outgoing(this)?;
+        let datagrams = self.table().get(this)?.socket.clone();
         self.subscribe_datagrams(datagrams, PollMask::OUT)
     }
 
@@ -597,7 +575,7 @@ impl IoHost for Invocation {
         this: InputStream,
         len: u64,
     ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
-        let stream = self.input(this)?;
+        let stream = self.table().get(this)?.0.clone();
         self.wait_on(&stream, PollMask::IN)?;
         self.read_now(&stream, len)
     }
@@ -608,13 +586,13 @@ impl IoHost for Invocation {
         this: InputStream,
         len: u64,
     ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
-        let stream = self.input(this)?;
+        let stream = self.table().get(this)?.0.clone();
         self.read_now(&stream, len)
     }
 
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
-        let stream = self.input(this)?;
+        let stream = self.table().get(this)?.0.clone();
         self.table()
             .push_child(table::Pollable::File(stream.file(), PollMask::IN), this)
     }
@@ -635,7 +613,7 @@ impl IoHost for Invocation {
                 "the guest handed blocking-write-and-flush more than 4096 bytes",
             ));
         }
-        let stream = self.output(this)?;
+        let stream = self.table().get(this)?.stream.clone();
         let mut rest = &contents[..];
         while !rest.is_empty() {
             self.wait_on(&stream, PollMask::OUT)?;
@@ -665,7 +643,7 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Result<u64, StreamError>> {
-        let stream = self.output(this)?;
+        let stream = self.table().get(this)?.stream.clone();
         if let Err(err) = stream.write(&[]) {
             return self.push_stream_error(err).map(Err);
         }
@@ -684,7 +662,7 @@ impl IoHost for Invocation {
         this: OutputStream,
         contents: Vec<u8>,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        let stream = self.output(this)?;
+        let stream = self.table().get(this)?.stream.clone();
         if contents.len() > stream.room() {
             return Err(wasmtime::Error::msg(
                 "the guest wrote past what check-write permitted",
@@ -702,7 +680,7 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        let stream = self.output(this)?;
+        let stream = self.table().get(this)?.stream.clone();
         if let Err(err) = stream.write(&[]) {
             return self.push_stream_error(err).map(Err);
         }
@@ -716,7 +694,7 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Pollable> {
-        let stream = self.output(this)?;
+        let stream = self.table().get(this)?.stream.clone();
         self.table()
             .push_child(table::Pollable::File(stream.file(), PollMask::OUT), this)
     }

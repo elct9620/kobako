@@ -1,5 +1,5 @@
 //! The resource table preview2 hands the guest its handles from, as
-//! wasmtime-wasi's `ResourceTable` is. Each handle takes a number from the
+//! wasmtime's `ResourceTable` is. Each handle takes a number from the
 //! space preview1's descriptors take theirs, since a socket is a file.
 
 use std::any::Any;
@@ -201,7 +201,8 @@ pub(crate) enum Pollable {
     /// `PollMask`, or an error or a hang-up, as Linux's `poll` reports both
     /// whatever was asked.
     File(SharedFile, PollMask),
-    /// Something that is always ready, as an unconnected socket is.
+    /// Something that is always ready, as a bind that settles as it starts
+    /// is.
     Ready,
 }
 
