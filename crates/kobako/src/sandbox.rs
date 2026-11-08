@@ -254,7 +254,7 @@ impl Sandbox {
         entry: Arc<dyn network::Entry>,
         build: impl FnOnce(&mut network::Builder),
     ) -> Result<(), Error> {
-        let mut builder = network::Builder::on(entry);
+        let mut builder = network::Builder::new(entry);
         build(&mut builder);
         self.network(name, Arc::new(builder))
     }

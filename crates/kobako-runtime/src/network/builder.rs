@@ -19,7 +19,7 @@ pub struct Builder {
 
 impl Builder {
     /// A builder adding to `entry`.
-    pub fn on(entry: Arc<dyn Entry>) -> Self {
+    pub fn new(entry: Arc<dyn Entry>) -> Self {
         Self {
             entry: Some(entry),
             ..Self::default()
@@ -145,7 +145,7 @@ mod tests {
     // @behavior NW-020
     #[test]
     fn a_builder_adds_its_endpoints_and_policies_to_the_given_entry() {
-        let mut net = Builder::on(Arc::new(Given));
+        let mut net = Builder::new(Arc::new(Given));
         net.endpoint(Endpoint::new("cache.internal", 6379).unwrap())
             .connect_policy(|connection: &Connection<'_>| connection.host != "10.0.0.9");
         let hosts = net
@@ -168,7 +168,7 @@ mod tests {
                 false,
                 false
             ),
-            "Builder::on must answer the given entry's endpoints then its own, and refuse what \
+            "Builder::new must answer the given entry's endpoints then its own, and refuse what \
              either's connect policy refuses"
         );
     }

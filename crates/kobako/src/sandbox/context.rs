@@ -88,7 +88,7 @@ impl Context<'_> {
         entry: Arc<dyn Entry>,
         build: impl FnOnce(&mut Builder),
     ) -> Result<(), Error> {
-        let mut builder = Builder::on(entry);
+        let mut builder = Builder::new(entry);
         build(&mut builder);
         self.network(name, Arc::new(builder))
     }

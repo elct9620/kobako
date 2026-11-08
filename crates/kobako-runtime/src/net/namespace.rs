@@ -323,7 +323,7 @@ impl Namespace {
     /// Connect a UDP socket to `addr`, the one peer the guest named, as
     /// `cred`. It passes the same steps a TCP connect does, as
     /// `udp_pre_connect` runs `connect4`; UDP opens no handshake, so the first
-    /// real address the ruleset admits is its peer. A stream naming no peer
+    /// real address the ruleset admits is its peer. A socket naming no peer
     /// would send each datagram anywhere, so it is refused.
     pub fn connect_datagram(
         &self,

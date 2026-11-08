@@ -215,11 +215,11 @@ module Kobako
 
       private
 
-      def allows?(hook, request)
+      def allows?(hook, asked)
         question = :"#{hook}?"
-        return false if @entry.respond_to?(question) && !@entry.public_send(question, request)
+        return false if @entry.respond_to?(question) && !@entry.public_send(question, asked)
 
-        @policies.fetch(hook).all? { |policy| policy.call(request) }
+        @policies.fetch(hook).all? { |policy| policy.call(asked) }
       end
     end
   end

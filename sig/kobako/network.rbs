@@ -104,7 +104,7 @@ module Kobako
 
       private
 
-      def allows?: (Symbol hook, untyped request) -> bool
+      def allows?: (Symbol hook, untyped asked) -> bool
     end
   end
 end
