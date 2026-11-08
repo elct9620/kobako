@@ -47,7 +47,7 @@ impl Invocation {
     /// Wait until `ready` answers, or trap as the deadline or an interrupt
     /// ends the run; the wait sleeps until the soonest pollable is due, or a
     /// queue `ready` registered on wakes.
-    fn wait_for<T>(
+    pub(crate) fn wait_for<T>(
         &self,
         due: Option<Instant>,
         mut ready: impl FnMut(Option<&mut PollTable>) -> Option<T>,
@@ -340,6 +340,7 @@ impl SocketsHost for Invocation {
         match socket.sock.finish_connect() {
             Ok(()) => {
                 *self.tcp(this)? = table::TcpSocket::Connected(socket.clone());
+                self.wasi().table().install(this.0, &socket);
                 let stream = Stream::Socket(socket);
                 let input = InputStream(self.push(Resource::InputStream(stream.clone()))?);
                 let output = OutputStream(self.push(Resource::OutputStream(stream))?);

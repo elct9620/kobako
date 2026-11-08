@@ -1,31 +1,56 @@
 //! `poll_oneoff`, the guest's wait: for a clock, or for a descriptor to be
 //! ready.
 //!
-//! Every descriptor kobako holds is ready at once, so only a clock ever
-//! waits. A wait passes on the guest's own clocks: the hermetic rung's
-//! never advance, so its waits end at once, and a permissive wait takes
-//! host time but never past the invocation's deadline. The host is the one
-//! waiting, where no epoch check reaches, so the wait sleeps on the runtime's
-//! wait primitive, which a deadline or an interrupt ends.
+//! A file's descriptor is ready at once; a socket's waits on its socket file
+//! until the peer or the host moves it. A wait for clocks alone passes on the
+//! guest's own clocks: the hermetic rung's never advance, so its waits end at
+//! once, and a permissive wait takes host time but never past the
+//! invocation's deadline. A clock beside a socket elapses in host time, as a
+//! wait beside a host-side producer does. The host is the one waiting, where
+//! no epoch check reaches, so the wait sleeps on the runtime's wait
+//! primitive, which a deadline or an interrupt ends.
 
 use std::time::{Duration, Instant};
 
 use kobako_runtime::vfs::PollMask;
-use kobako_runtime::wait::do_poll;
+use kobako_runtime::wait::{do_poll, PollTable};
 use wiggle::{GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
 use super::fd::file;
 use super::memory::GuestMemory;
 use super::types::{self, Clockid, Eventrwflags, Eventtype, Subclockflags, SubscriptionU};
+use crate::descriptors::{lock, SharedFile};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
-/// One subscription as the guest wrote it, and the error its event reports.
+/// One subscription as the guest wrote it, the error its event reports, and
+/// the socket file it waits on, if its descriptor is a socket's.
 struct Subscription {
     userdata: u64,
     kind: Kind,
     error: Errno,
+    socket: Option<SharedFile>,
+}
+
+impl Subscription {
+    /// What the socket's poll finds, registering on `table` for a wait that
+    /// will sleep.
+    fn socket_poll(&self, table: Option<&mut PollTable>) -> Option<PollMask> {
+        let socket = self.socket.as_ref()?;
+        Some(lock(socket).poll(table))
+    }
+
+    /// Whether the socket is ready for what the subscription asks, or has
+    /// failed or hung up, as Linux's `poll` reports `POLLERR` and `POLLHUP`
+    /// whatever was asked.
+    fn socket_ready(found: PollMask, kind: &Kind) -> bool {
+        let asked = match kind {
+            Kind::FdRead => PollMask::IN,
+            _ => PollMask::OUT,
+        };
+        found.contains(asked) || found.contains(PollMask::ERR) || found.contains(PollMask::HUP)
+    }
 }
 
 enum Kind {
@@ -57,26 +82,70 @@ pub(crate) fn poll_oneoff(
         Kind::Clock(left) => Some(left),
         Kind::FdRead | Kind::FdWrite => None,
     });
+    let files = subscriptions
+        .iter()
+        .any(|sub| !matches!(sub.kind, Kind::Clock(_)) && sub.socket.is_none());
     let waited = if clocks.clone().count() == subscriptions.len() {
         let soonest = clocks.min().unwrap_or(0);
         wait(invocation, soonest)?;
         soonest
+    } else if !files {
+        let started = Instant::now();
+        let due = clocks
+            .min()
+            .map(|left| started + Duration::from_nanos(left));
+        wait_for_socket(invocation, &subscriptions, due)?;
+        u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
     } else {
         0
     };
 
     let mut written = 0;
     for sub in &subscriptions {
-        let (ready, nbytes) = match sub.kind {
-            Kind::Clock(left) => (left <= waited, 0),
-            Kind::FdRead | Kind::FdWrite => (true, u64::from(sub.error == Errno::Success)),
+        let (ready, flags) = match (&sub.kind, sub.socket_poll(None)) {
+            (Kind::Clock(left), _) => (*left <= waited, Eventrwflags::empty()),
+            (kind, Some(found)) => (
+                Subscription::socket_ready(found, kind),
+                match found.contains(PollMask::HUP) {
+                    true => Eventrwflags::FD_READWRITE_HANGUP,
+                    false => Eventrwflags::empty(),
+                },
+            ),
+            (_, None) => (true, Eventrwflags::empty()),
         };
         if ready {
-            mem.write(events.add(written)?, to_event(sub, nbytes))?;
+            let nbytes = match sub.kind {
+                Kind::Clock(_) => 0,
+                Kind::FdRead | Kind::FdWrite => u64::from(sub.error == Errno::Success),
+            };
+            mem.write(events.add(written)?, to_event(sub, nbytes, flags))?;
             written += 1;
         }
     }
     Ok(written)
+}
+
+/// Wait until a socket a subscription names is ready, or the soonest clock is
+/// `due`, as Linux's `do_poll` registers on each file's queue and sleeps.
+fn wait_for_socket(
+    invocation: &Invocation,
+    subscriptions: &[Subscription],
+    due: Option<Instant>,
+) -> Answer {
+    let waited = invocation.wait_for(due, |mut table| {
+        let mut ready = due.is_some_and(|at| Instant::now() >= at);
+        for sub in subscriptions {
+            if let Some(found) = sub.socket_poll(table.as_deref_mut()) {
+                ready |= Subscription::socket_ready(found, &sub.kind);
+            }
+        }
+        ready.then_some(())
+    });
+    match waited {
+        Ok(()) => Ok(()),
+        Err(err) if err.is::<TimeoutTrap>() => Err(types::Error::trap(err)),
+        Err(_) => Err(Errno::Intr.into()),
+    }
 }
 
 fn read_subscription(
@@ -85,21 +154,30 @@ fn read_subscription(
     sub: GuestPtr<types::Subscription>,
 ) -> Answer<Subscription> {
     let sub = mem.read(sub)?;
-    let (kind, error) = match sub.u {
-        SubscriptionU::Clock(clock) => (read_clock(invocation, &clock)?, Errno::Success),
-        SubscriptionU::FdRead(subscribed) => (
-            Kind::FdRead,
-            poll_descriptor(invocation, subscribed, PollMask::IN)?,
-        ),
-        SubscriptionU::FdWrite(subscribed) => (
-            Kind::FdWrite,
-            poll_descriptor(invocation, subscribed, PollMask::OUT)?,
-        ),
+    let descriptors = invocation.wasi().descriptors();
+    let (kind, subscribed) = match sub.u {
+        SubscriptionU::Clock(clock) => {
+            return Ok(Subscription {
+                userdata: sub.userdata,
+                kind: read_clock(invocation, &clock)?,
+                error: Errno::Success,
+                socket: None,
+            })
+        }
+        SubscriptionU::FdRead(subscribed) => (Kind::FdRead, subscribed),
+        SubscriptionU::FdWrite(subscribed) => (Kind::FdWrite, subscribed),
+    };
+    let socket = descriptors.socket(subscribed.file_descriptor.into());
+    let error = match (&socket, &kind) {
+        (Some(_), _) => Errno::Success,
+        (None, Kind::FdRead) => poll_descriptor(invocation, subscribed, PollMask::IN)?,
+        (None, _) => poll_descriptor(invocation, subscribed, PollMask::OUT)?,
     };
     Ok(Subscription {
         userdata: sub.userdata,
         kind,
         error,
+        socket,
     })
 }
 
@@ -159,7 +237,7 @@ fn wait(invocation: &Invocation, nanos: u64) -> Answer {
     }
 }
 
-fn to_event(sub: &Subscription, nbytes: u64) -> types::Event {
+fn to_event(sub: &Subscription, nbytes: u64, flags: Eventrwflags) -> types::Event {
     types::Event {
         userdata: sub.userdata,
         error: sub.error,
@@ -168,10 +246,7 @@ fn to_event(sub: &Subscription, nbytes: u64) -> types::Event {
             Kind::FdRead => Eventtype::FdRead,
             Kind::FdWrite => Eventtype::FdWrite,
         },
-        fd_readwrite: types::EventFdReadwrite {
-            nbytes,
-            flags: Eventrwflags::empty(),
-        },
+        fd_readwrite: types::EventFdReadwrite { nbytes, flags },
     }
 }
 

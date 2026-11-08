@@ -6,7 +6,7 @@
 //! disagrees. Numbering follows Linux's `alloc_fd`: the lowest number no
 //! table holds is taken, a preview2 handle's included.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use kobako_runtime::filesystem::FilesystemError;
@@ -32,13 +32,22 @@ impl Descriptor {
     }
 }
 
+/// A socket's file, shared by every view of the socket.
+pub(crate) type SharedFile = Arc<Mutex<File>>;
+
+/// The shared `file`, which a read or a write takes `&mut`.
+pub(crate) fn lock(file: &SharedFile) -> MutexGuard<'_, File> {
+    file.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// The numbers both encodings hand out, from one space, as Linux's one
 /// fdtable numbers a regular file and a socket alike: a preview1 descriptor
 /// and a preview2 handle never share a number, and each counts once against
-/// the Invocation's open files.
-#[derive(Clone, Debug)]
+/// the Invocation's open files. A socket's number holds its file, so a
+/// preview1 call on it reaches the socket.
+#[derive(Clone)]
 pub(crate) struct Numbers {
-    taken: Arc<Mutex<BTreeSet<u32>>>,
+    taken: Arc<Mutex<BTreeMap<u32, Option<SharedFile>>>>,
     open_files: OpenFiles,
 }
 
@@ -50,8 +59,21 @@ impl Numbers {
         }
     }
 
-    fn taken(&self) -> MutexGuard<'_, BTreeSet<u32>> {
+    fn taken(&self) -> MutexGuard<'_, BTreeMap<u32, Option<SharedFile>>> {
         self.taken.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Have `n`, a socket's number, stand for its `file`, as `fd_install`
+    /// fills an fd with a `struct file`.
+    pub(crate) fn install(&self, n: u32, file: SharedFile) {
+        if let Some(slot) = self.taken().get_mut(&n) {
+            *slot = Some(file);
+        }
+    }
+
+    /// The socket file `n` stands for, if a socket's number holds one.
+    pub(crate) fn socket_file(&self, n: u32) -> Option<SharedFile> {
+        self.taken().get(&n).cloned().flatten()
     }
 
     /// The lowest number no table holds, as Linux's `alloc_fd` finds it;
@@ -62,7 +84,7 @@ impl Numbers {
             return None;
         }
         let taken = self.taken();
-        (0..=u32::MAX).find(|n| !taken.contains(n))
+        (0..=u32::MAX).find(|n| !taken.contains_key(n))
     }
 
     /// Take `n`, a number `lowest_unused` found or one just given back.
@@ -70,12 +92,12 @@ impl Numbers {
         self.open_files
             .open()
             .expect("a number lowest_unused found, or one just given back, has room in the count");
-        self.taken().insert(n);
+        self.taken().insert(n, None);
     }
 
     /// Give `n` back, so the next number found may be it.
     pub(crate) fn give_back(&self, n: u32) {
-        if self.taken().remove(&n) {
+        if self.taken().remove(&n).is_some() {
             self.open_files.close();
         }
     }
@@ -128,7 +150,7 @@ impl Descriptors {
         }
         for fd in used.keys() {
             numbers.open_files.open()?;
-            numbers.taken().insert(*fd);
+            numbers.taken().insert(*fd, None);
         }
         let cred = restrict_self(&opener, &mounts);
         let walk_guard = WalkGuard::new(&mounts);
@@ -163,6 +185,11 @@ impl Descriptors {
 
     pub(crate) fn get_mut(&mut self, fd: u32) -> Option<&mut Descriptor> {
         self.used.get_mut(&fd)
+    }
+
+    /// The socket file a preview2 socket installed at `fd`.
+    pub(crate) fn socket(&self, fd: u32) -> Option<SharedFile> {
+        self.numbers.socket_file(fd)
     }
 
     /// Take `fd` out of the table, freeing its number for reuse.

@@ -17,7 +17,7 @@ use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::path::retry_eagain;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
-use crate::descriptors::{Descriptor, Descriptors};
+use crate::descriptors::{lock, Descriptor, Descriptors};
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
 /// most userlands.
@@ -81,6 +81,19 @@ fn file_mut(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
     match table.get_mut(fd) {
         Some(descriptor) if !descriptor.file.is_path() => Ok(&mut descriptor.file),
         _ => Err(Errno::Badf.into()),
+    }
+}
+
+/// Run `call` on the open file `fd` stands for, a socket's included, as one
+/// fdtable holds a socket's file beside a regular one.
+fn with_open_file<T>(
+    table: &mut Descriptors,
+    fd: u32,
+    call: impl FnOnce(&mut File) -> Answer<T>,
+) -> Answer<T> {
+    match table.socket(fd) {
+        Some(socket) => call(&mut lock(&socket)),
+        None => call(file_mut(table, fd)?),
     }
 }
 
@@ -191,8 +204,18 @@ pub(crate) fn sync(table: &mut Descriptors, fd: u32, datasync: bool) -> Answer {
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
+    if let Some(socket) = table.socket(fd) {
+        return Ok(to_fdstat(&lock(&socket), false));
+    }
     let descriptor = descriptor(table, fd)?;
-    let file = &descriptor.file;
+    Ok(to_fdstat(
+        &descriptor.file,
+        descriptor.preopen_path.is_some(),
+    ))
+}
+
+/// What `fd_fdstat_get` reports of `file`, a preopen's root when `preopen`.
+fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
     let mut fs_flags = Fdflags::empty();
     fs_flags.set(Fdflags::APPEND, file.append());
     fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
@@ -203,7 +226,7 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
         rights.set(Rights::FD_READ, file.readable());
         rights.set(Rights::FD_WRITE, file.writable());
         (rights, rights)
-    } else if descriptor.preopen_path.is_some() {
+    } else if preopen {
         (preopen_rights(), directory_rights_inheriting())
     } else if file.is_directory() {
         let mut rights = Rights::all()
@@ -225,12 +248,12 @@ pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> 
         }
         (rights, rights)
     };
-    Ok(types::Fdstat {
+    types::Fdstat {
         fs_filetype: to_filetype(file.kind()),
         fs_flags,
         fs_rights_base,
         fs_rights_inheriting,
-    })
+    }
 }
 
 pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: Fdflags) -> Answer {
@@ -248,7 +271,11 @@ pub(crate) fn fdstat_set_rights(table: &Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filestat> {
-    Ok(to_filestat(table, descriptor(table, fd)?.file.getattr()?))
+    let stat = match table.socket(fd) {
+        Some(socket) => lock(&socket).getattr()?,
+        None => descriptor(table, fd)?.file.getattr()?,
+    };
+    Ok(to_filestat(table, stat))
 }
 
 /// A size Linux's signed `loff_t` reads as negative answers before the
@@ -329,10 +356,11 @@ pub(crate) fn read(
     iovs: types::IovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
-    let file = file_mut(table, fd)?;
-    file.may_read()?;
-    // Bounded before the file is asked, as a trap takes no bytes from a pipe.
-    Ok(file.read(mem.bytes_mut(buf)?)? as u32)
+    with_open_file(table, fd, |file| {
+        file.may_read()?;
+        // Bounded before the file is asked, as a trap takes no bytes from a pipe.
+        Ok(file.read(mem.bytes_mut(buf)?)? as u32)
+    })
 }
 
 /// The `dirent` header ahead of one entry's name, its `d_next` left for the
@@ -487,9 +515,10 @@ pub(crate) fn write(
     ciovs: types::CiovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
-    let file = file_mut(table, fd)?;
-    file.may_write()?;
-    Ok(file.write(mem.bytes(buf)?)? as u32)
+    with_open_file(table, fd, |file| {
+        file.may_write()?;
+        Ok(file.write(mem.bytes(buf)?)? as u32)
+    })
 }
 
 #[cfg(test)]

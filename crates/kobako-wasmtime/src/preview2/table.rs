@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use kobako_runtime::net::{
@@ -13,14 +13,14 @@ use kobako_runtime::net::{
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
 
-use crate::descriptors::Numbers;
+use crate::descriptors::{lock, Numbers, SharedFile};
 
 /// One socket file every view of a guest socket shares, as handles on one
 /// `struct file` share one `struct socket`: the protocol's half is `S`, and
 /// the last view dropped releases the socket.
 pub(crate) struct SocketFile<S> {
     pub(crate) sock: Arc<S>,
-    file: Arc<Mutex<File>>,
+    file: SharedFile,
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
     pub(crate) peer: SocketAddr,
@@ -48,7 +48,7 @@ impl<S> SocketFile<S> {
     /// The file, which a read or a write takes `&mut`, so the views share it
     /// behind a lock.
     pub(crate) fn file(&self) -> MutexGuard<'_, File> {
-        self.file.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.file)
     }
 }
 
@@ -287,6 +287,12 @@ impl Table {
 
     pub(crate) fn get_mut(&mut self, handle: u32) -> wasmtime::Result<&mut Resource> {
         self.entry_mut(handle).map(|entry| &mut entry.resource)
+    }
+
+    /// Have the socket's `handle` stand for its file, so a preview1 call on
+    /// the number reaches the socket, as one fdtable holds both.
+    pub(crate) fn install<S>(&self, handle: u32, socket: &SocketFile<S>) {
+        self.numbers.install(handle, socket.file.clone());
     }
 
     pub(crate) fn pollable(&self, handle: u32) -> wasmtime::Result<Pollable> {
