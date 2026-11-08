@@ -951,3 +951,15 @@ endpoint "api.example.com", port: 443
 | Given | an entry with endpoints, policies, and a credential |
 | When | the guest sends a request a connect hook refuses, and one to an IPv6 authority an endpoint names |
 | Then | the entry's endpoints were read once. No resolve policy is asked once a hook refused. The IPv6 one is refused, as the guest has no IPv6 |
+
+## `NW-078` A duck-typed endpoint takes the defaults and an IPAddr
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby entry whose endpoints are objects answering `host` and `port`, and `addresses` for one of them |
+| When | the script sends a request to each |
+| Then | the one answering no `addresses` leads only to public addresses, as an endpoint written without them does. The one naming an `IPAddr` speaks `:http` and leads where the prefix covers |
