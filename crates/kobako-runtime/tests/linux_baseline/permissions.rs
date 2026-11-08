@@ -10,7 +10,8 @@ use std::sync::{Arc, PoisonError};
 use std::thread;
 
 use kobako_runtime::filesystem::Filesystem;
-use kobako_runtime::mount::{Access, Policy};
+use kobako_runtime::grant::Policy;
+use kobako_runtime::mount::{Access, MountRequest};
 
 use crate::calls::{Call, Rng};
 use crate::kobako::Kobako;
@@ -43,9 +44,9 @@ struct PathBeneath {
 /// Reads anywhere, and changes only beneath `d`.
 struct WritesBeneathD;
 
-impl Policy for WritesBeneathD {
-    fn allows(&self, path: &str, access: Access) -> bool {
-        access == Access::Read || path.starts_with("/baseline/d/")
+impl Policy<MountRequest<'_>> for WritesBeneathD {
+    fn allows(&self, request: &MountRequest<'_>) -> bool {
+        request.access == Access::Read || request.path.starts_with("/baseline/d/")
     }
 }
 

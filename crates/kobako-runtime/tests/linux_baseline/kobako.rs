@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{Filesystem, FilesystemError, Iattr, SetTime};
-use kobako_runtime::mount::{Access, Mount, Policy};
+use kobako_runtime::grant::Policy;
+use kobako_runtime::mount::{Access, Mount, MountRequest};
 use kobako_runtime::security::{prepare_creds_within, restrict_self};
 use kobako_runtime::vfs::{
     self, Cred, DirContext, DirEmit, File, FileType, OpenFlags, OpenHow, VfsMount, Whence,
@@ -86,7 +87,10 @@ impl Kobako {
     }
 
     /// The root of `filesystem` mounted to change, beneath `policy`.
-    pub fn with_policy(filesystem: Arc<Filesystem>, policy: Arc<dyn Policy>) -> Self {
+    pub fn with_policy(
+        filesystem: Arc<Filesystem>,
+        policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
+    ) -> Self {
         let mount = Mount::new("/baseline", filesystem, Access::ReadWrite)
             .expect("/baseline is a guest path")
             .with_policy(policy);
