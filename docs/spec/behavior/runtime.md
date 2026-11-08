@@ -3992,3 +3992,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest calling a preview2 import that takes a list or a string |
 | When | it names one whose length runs past its memory, or whose length is negative as a signed number |
 | Then | the call traps before the host reads or keeps anything. The Canonical ABI traps on such a list too |
+
+## `RT-354` A preview2 call answered after the host gave up traps
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-282` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation whose host gave it up while a callback ran |
+| When | the guest makes any preview2 call |
+| Then | the call traps once it answered, as each preview1 call does, so the guest cannot go on as if answered |
