@@ -11,7 +11,7 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use crate::errno;
 use crate::io::argument_error;
-use crate::socket::{addr_array, on_peer, peer_of, to_error, to_ip_socket_address, AF_INET6};
+use crate::socket::{for_peer, peer_of, to_addr_array, to_error, to_ip_socket_address, AF_INET6};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
@@ -140,7 +140,7 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
     let host = host.to_r_string(mrb)?.to_string(mrb)?;
     let port = u16::try_from(i64::try_convert(port, mrb)?)
         .map_err(|_| argument_error(mrb, "port out of range"))?;
-    let call = on_peer("bind(2)", &host, port);
+    let call = for_peer("bind(2)", &host, port);
     let any = host.is_empty() || host.parse::<Ipv4Addr>() == Ok(Ipv4Addr::UNSPECIFIED);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         if !any {
@@ -314,7 +314,7 @@ fn udp_socket_recvfrom(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value,
     let (data, from) = receive(mrb, self_, args)?;
     let answer = mrb.ary_new();
     answer.push(mrb, mrb.str_new(&data).as_value())?;
-    answer.push(mrb, addr_array(mrb, from)?)?;
+    answer.push(mrb, to_addr_array(mrb, from)?)?;
     Ok(answer.as_value())
 }
 

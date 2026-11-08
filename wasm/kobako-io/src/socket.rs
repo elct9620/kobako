@@ -142,7 +142,7 @@ pub(crate) fn to_error(mrb: &Mrb, code: ErrorCode, class: &str, call: &str) -> E
 }
 
 /// The words CRuby's `Errno` carries for a call on `host` and `port`.
-pub(crate) fn on_peer(call: &str, host: &str, port: u16) -> String {
+pub(crate) fn for_peer(call: &str, host: &str, port: u16) -> String {
     format!("{call} for \"{host}\" port {port}")
 }
 
@@ -223,7 +223,7 @@ pub(crate) fn peer_of(
     let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
     let port = u16::try_from(i64::try_convert(port, mrb)?)
         .map_err(|_| argument_error(mrb, "port out of range"))?;
-    let call = on_peer(call, &host_text, port);
+    let call = for_peer(call, &host_text, port);
     let ip = match host_text.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(ip)) => ip,
         Ok(std::net::IpAddr::V6(_)) => {
@@ -265,7 +265,7 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
         return Err(errno::error_by_name(
             mrb,
             c"EACCES",
-            &on_peer("bind(2)", &ip.to_string(), port),
+            &for_peer("bind(2)", &ip.to_string(), port),
         ));
     }
     let failed = |code| to_error(mrb, code, TCP, &call);
@@ -330,7 +330,7 @@ fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
     mrb.class_get(c"IO")?.const_get(mrb, c"TimeoutError")
 }
 
-fn stream_failed(mrb: &Mrb, err: StreamError) -> Error {
+fn stream_error(mrb: &Mrb, err: StreamError) -> Error {
     match err {
         StreamError::Closed => errno::error_by_name(mrb, c"EPIPE", "write(2)"),
         StreamError::LastOperationFailed(err) => {
@@ -354,7 +354,7 @@ fn tcp_socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value,
         for chunk in bytes.chunks(WRITE_CHUNK) {
             open.output
                 .blocking_write_and_flush(chunk)
-                .map_err(|err| stream_failed(mrb, err))?;
+                .map_err(|err| stream_error(mrb, err))?;
         }
         Ok(())
     })?;
@@ -375,7 +375,7 @@ fn read_some(mrb: &Mrb, connection: &Connection, len: usize) -> Result<Option<Ve
             Ok(bytes) if bytes.is_empty() => continue,
             Ok(bytes) => return Ok(Some(bytes)),
             Err(StreamError::Closed) => return Ok(None),
-            Err(err) => return Err(stream_failed(mrb, err)),
+            Err(err) => return Err(stream_error(mrb, err)),
         }
     })
 }
@@ -540,11 +540,11 @@ fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// The guest names no host, so a reverse lookup asked for answers the address.
 fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, _reverse_lookup: &[Value]) -> Result<Value, Error> {
     let peer = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.peer))?;
-    addr_array(mrb, peer)
+    to_addr_array(mrb, peer)
 }
 
 /// An address as CRuby's `["AF_INET", port, host, host]`.
-pub(crate) fn addr_array(mrb: &Mrb, (ip, port): (Ipv4Addr, u16)) -> Result<Value, Error> {
+pub(crate) fn to_addr_array(mrb: &Mrb, (ip, port): (Ipv4Addr, u16)) -> Result<Value, Error> {
     let host = mrb.str_new(ip.to_string().as_bytes()).as_value();
     let addr = mrb.ary_new();
     addr.push(mrb, mrb.str_new(b"AF_INET").as_value())?;
