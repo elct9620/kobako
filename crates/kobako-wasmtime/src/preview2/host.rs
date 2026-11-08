@@ -26,6 +26,7 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{from_socket_addr, lookup_error_code, to_error_code, to_socket_addr};
 use super::table::{self, Resource, SocketFile, Stream};
+use crate::descriptors::share;
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
@@ -105,7 +106,7 @@ impl Invocation {
         mask: PollMask,
     ) -> wasmtime::Result<Pollable> {
         Ok(Pollable(self.push(Resource::Pollable(
-            table::Pollable::Stream(stream, mask),
+            table::Pollable::File(stream.file(), mask),
         ))?))
     }
 
@@ -152,7 +153,7 @@ impl Invocation {
     fn subscribe_datagrams(&mut self, handle: u32, mask: PollMask) -> wasmtime::Result<Pollable> {
         let datagrams = self.datagrams(handle)?;
         Ok(Pollable(self.push(Resource::Pollable(
-            table::Pollable::Datagrams(datagrams, mask),
+            table::Pollable::File(datagrams.get_file(), mask),
         ))?))
     }
 
@@ -198,7 +199,7 @@ impl Invocation {
 
     /// Wait until `stream`'s poll finds `mask`, or an error or a hang-up.
     fn wait_on(&self, stream: &Stream, mask: PollMask) -> wasmtime::Result<()> {
-        let pollable = table::Pollable::Stream(stream.clone(), mask);
+        let pollable = table::Pollable::File(stream.file(), mask);
         self.wait_for(None, |table| pollable.ready(table).then_some(()))
     }
 }
@@ -283,8 +284,9 @@ impl SocketsHost for Invocation {
                 ))
             }
         };
+        let file = share(lookup.file(self.wasi().descriptors().cred()));
         Ok(Pollable(self.push(Resource::Pollable(
-            table::Pollable::Lookup(lookup),
+            table::Pollable::File(file, PollMask::IN),
         ))?))
     }
 
@@ -664,7 +666,7 @@ impl IoHost for Invocation {
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
         let stream = self.stream(this.0)?;
         Ok(Pollable(self.wasi_mut().table_mut().push_child(
-            Resource::Pollable(table::Pollable::Stream(stream, PollMask::IN)),
+            Resource::Pollable(table::Pollable::File(stream.file(), PollMask::IN)),
             this.0,
         )?))
     }
@@ -768,7 +770,7 @@ impl IoHost for Invocation {
     ) -> wasmtime::Result<Pollable> {
         let stream = self.stream(this.0)?;
         Ok(Pollable(self.wasi_mut().table_mut().push_child(
-            Resource::Pollable(table::Pollable::Stream(stream, PollMask::OUT)),
+            Resource::Pollable(table::Pollable::File(stream.file(), PollMask::OUT)),
             this.0,
         )?))
     }

@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use kobako_runtime::net::{self, Exchange, FieldError, HttpError, RequestBody, ResponseHead};
+use kobako_runtime::vfs::PollMask;
 
 use super::bindings::wasi_http_types_0_2_12::{
     ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError, IncomingBody,
@@ -17,6 +18,7 @@ use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::table::{self, Resource, Stream};
+use crate::descriptors::share;
 use crate::invocation::Invocation;
 
 /// One header list, shared between a request and the `fields` its `headers`
@@ -415,7 +417,7 @@ impl HttpHost for Invocation {
             }
         };
         Ok(Ok(OutputStream(self.wasi_mut().table_mut().push_child(
-            Resource::OutputStream(Stream::Request(body)),
+            Resource::OutputStream(Stream::File(share(body.file()))),
             this.0,
         )?)))
     }
@@ -453,8 +455,11 @@ impl HttpHost for Invocation {
         this: FutureIncomingResponse,
     ) -> wasmtime::Result<Pollable> {
         self.advance(this)?;
+        let cred = self.wasi().descriptors().cred().clone();
         let pollable = match self.held(this.0)? {
-            Held::Future(Future::Sent(exchange)) => table::Pollable::Response(exchange.clone()),
+            Held::Future(Future::Sent(exchange)) => {
+                table::Pollable::File(share(exchange.response_file(&cred)), PollMask::IN)
+            }
             Held::Future(_) => table::Pollable::Ready,
             _ => {
                 return Err(wasmtime::Error::msg(
@@ -602,8 +607,9 @@ impl HttpHost for Invocation {
                 ))
             }
         };
+        let body = share(exchange.body_file(self.wasi().descriptors().cred()));
         Ok(Ok(InputStream(self.wasi_mut().table_mut().push_child(
-            Resource::InputStream(Stream::Response(exchange)),
+            Resource::InputStream(Stream::File(body)),
             this.0,
         )?)))
     }

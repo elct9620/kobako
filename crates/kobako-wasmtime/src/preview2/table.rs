@@ -4,17 +4,15 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, MutexGuard};
 use std::time::Instant;
 
-use kobako_runtime::net::{
-    Exchange, NameLookup, Namespace, RequestBody, TcpSock, UdpSock, MAX_SOCKET_BUFFER,
-};
+use kobako_runtime::net::{NameLookup, Namespace, TcpSock, UdpSock, MAX_SOCKET_BUFFER};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
 
-use crate::descriptors::{lock, Numbers, SharedFile};
+use crate::descriptors::{lock, share, Numbers, SharedFile};
 
 /// One socket file every view of a guest socket shares, as handles on one
 /// `struct file` share one `struct socket`: the protocol's half is `S`, and
@@ -41,7 +39,7 @@ impl<S> SocketFile<S> {
     pub(crate) fn new(sock: Arc<S>, file: File, peer: SocketAddr) -> Self {
         Self {
             sock,
-            file: Arc::new(Mutex::new(file)),
+            file: share(file),
             peer,
         }
     }
@@ -51,56 +49,64 @@ impl<S> SocketFile<S> {
     pub(crate) fn file(&self) -> MutexGuard<'_, File> {
         lock(&self.file)
     }
+
+    /// Another view of the file, as `get_file` takes a reference to one.
+    pub(crate) fn get_file(&self) -> SharedFile {
+        self.file.clone()
+    }
 }
 
-/// What an `input-stream` or an `output-stream` reads or writes: a socket file,
-/// a response's body, or a request's body.
+/// How many bytes `check-write` offers a stream onto a file that takes any
+/// write, as wasmtime-wasi offers a file's output stream.
+const FILE_WRITE_CAPACITY: usize = MAX_SOCKET_BUFFER;
+
+/// What an `input-stream` or an `output-stream` reads or writes: a socket's
+/// file, whose socket holds what was written until the host takes it, or any
+/// other file.
 #[derive(Clone)]
 pub(crate) enum Stream {
     Socket(SocketFile<TcpSock>),
-    Response(Arc<Exchange>),
-    Request(Arc<RequestBody>),
+    File(SharedFile),
 }
 
 impl Stream {
+    /// The file the stream stands on, as a view of one `struct file`.
+    pub(crate) fn file(&self) -> SharedFile {
+        match self {
+            Stream::Socket(socket) => socket.get_file(),
+            Stream::File(file) => file.clone(),
+        }
+    }
+
     /// Read what the stream holds now; `WouldBlock` while it holds nothing yet.
     pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        match self {
-            Stream::Socket(socket) => socket.file().read(buf),
-            Stream::Response(exchange) => exchange.read(buf),
-            Stream::Request(_) => Err(FilesystemError::BadDescriptor),
-        }
+        lock(&self.file()).read(buf)
     }
 
     /// Write what the stream takes now.
     pub(crate) fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
-        match self {
-            Stream::Socket(socket) => socket.file().write(buf),
-            Stream::Request(body) => body.write(buf),
-            Stream::Response(_) => Err(FilesystemError::BadDescriptor),
-        }
+        lock(&self.file()).write(buf)
     }
 
     /// How many bytes a write takes now.
     pub(crate) fn room(&self) -> usize {
         match self {
             Stream::Socket(socket) => socket.sock.send_room(),
-            Stream::Request(_) | Stream::Response(_) => MAX_SOCKET_BUFFER,
+            Stream::File(_) => FILE_WRITE_CAPACITY,
         }
     }
 
     /// Whether what was written has left for the host, so a flush is done.
     pub(crate) fn is_drained(&self) -> bool {
-        self.room() == MAX_SOCKET_BUFFER
+        match self {
+            Stream::Socket(socket) => socket.sock.send_room() == MAX_SOCKET_BUFFER,
+            Stream::File(_) => true,
+        }
     }
 
     /// What a poll finds, registering on `table` for a poll that will sleep.
     pub(crate) fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
-        match self {
-            Stream::Socket(socket) => socket.file().poll(table),
-            Stream::Response(exchange) => exchange.poll(table),
-            Stream::Request(_) => PollMask::OUT,
-        }
+        lock(&self.file()).poll(table)
     }
 }
 
@@ -157,15 +163,10 @@ pub(crate) enum TcpSocket {
 pub(crate) enum Pollable {
     /// A clock, ready once `at` passes in host time.
     Clock { at: Instant },
-    /// A stream, ready once its poll finds `PollMask`, or an error or a
-    /// hang-up.
-    Stream(Stream, PollMask),
-    /// A lookup, ready once it answers.
-    Lookup(Arc<NameLookup>),
-    /// A request in flight, ready once its response's head arrives.
-    Response(Arc<Exchange>),
-    /// A datagram stream, ready once its poll finds `PollMask`, or an error.
-    Datagrams(SocketFile<UdpSock>, PollMask),
+    /// A file a host-side producer fills, ready once its poll finds
+    /// `PollMask`, or an error or a hang-up, as Linux's `poll` reports both
+    /// whatever was asked.
+    File(SharedFile, PollMask),
     /// Something that is always ready, as an unconnected socket is.
     Ready,
 }
@@ -186,17 +187,11 @@ impl Pollable {
     pub(crate) fn ready(&self, table: Option<&mut PollTable>) -> bool {
         match self {
             Pollable::Clock { at } => Instant::now() >= *at,
-            Pollable::Stream(stream, mask) => {
-                let found = stream.poll(table);
+            Pollable::File(file, mask) => {
+                let found = lock(file).poll(table);
                 found.contains(*mask)
                     || found.contains(PollMask::ERR)
                     || found.contains(PollMask::HUP)
-            }
-            Pollable::Lookup(lookup) => lookup.poll(table),
-            Pollable::Response(exchange) => exchange.poll(table).contains(PollMask::OUT),
-            Pollable::Datagrams(datagrams, mask) => {
-                let found = datagrams.file().poll(table);
-                found.contains(*mask) || found.contains(PollMask::ERR)
             }
             Pollable::Ready => true,
         }
@@ -213,13 +208,7 @@ impl Pollable {
     /// Whether a host-side producer makes this ready, as a socket's peer, a
     /// resolver, or a server does.
     pub(crate) fn is_producer(&self) -> bool {
-        matches!(
-            self,
-            Pollable::Stream(..)
-                | Pollable::Lookup(_)
-                | Pollable::Response(_)
-                | Pollable::Datagrams(..)
-        )
+        matches!(self, Pollable::File(..))
     }
 }
 

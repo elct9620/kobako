@@ -9,6 +9,8 @@ use std::thread;
 
 use super::connections::{open, OpenConnections};
 use super::ProtocolFamily;
+use crate::filesystem::anon_inode_getfile;
+use crate::vfs::{Cred, FMode, File, FileOperations, OpenHow, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
 /// Why a lookup has no address, as WASI's `ip-name-lookup` names each.
@@ -95,11 +97,32 @@ impl NameLookup {
             .clone()
     }
 
-    /// Whether the lookup has answered, registering on `table` for a poll that
-    /// will sleep, as a file's `->poll` does.
-    pub fn poll(&self, table: Option<&mut PollTable>) -> bool {
-        poll_wait(&self.wait, table);
-        self.answer().is_some()
+    /// The lookup's file, opened as `cred`, as `anon_inode_getfile` makes one:
+    /// a poll finds it readable once the lookup answers.
+    pub fn file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
+        let how = OpenHow {
+            read: true,
+            nonblock: true,
+            ..OpenHow::default()
+        };
+        anon_inode_getfile(Box::new(LookupFile(self.clone())), &how, cred)
+    }
+}
+
+/// What answers for a lookup's file.
+struct LookupFile(Arc<NameLookup>);
+
+impl FileOperations for LookupFile {
+    fn poll(&self, _mode: FMode, table: Option<&mut PollTable>) -> PollMask {
+        poll_wait(&self.0.wait, table);
+        match self.0.answer() {
+            Some(_) => PollMask::IN,
+            None => PollMask::default(),
+        }
+    }
+
+    fn is_stream(&self) -> bool {
+        true
     }
 }
 

@@ -4,6 +4,7 @@
 //! A third party implements the same tables to bring its own, so they are
 //! named here too; the VFS, which calls them, owns them.
 
+mod anon_inodes;
 mod bind;
 mod overlay;
 mod path;
@@ -13,6 +14,7 @@ mod tmpfs;
 #[cfg(test)]
 pub(crate) mod wrap;
 
+pub(crate) use anon_inodes::anon_inode_getfile;
 pub use bind::Bind;
 pub use overlay::Overlay;
 pub use pipe::{create_pipe_files, PipeInodeInfo};

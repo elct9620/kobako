@@ -25,8 +25,9 @@ use super::connections::{open, OpenConnections, Place};
 use super::reactor::{Reactor, Ready, Registration, Task};
 use super::socket::to_error;
 use super::{platform_tls, ProtocolFamily, MAX_SOCKET_BUFFER};
+use crate::filesystem::anon_inode_getfile;
 use crate::network::{Protocol, Ruleset, Secret};
-use crate::vfs::{Cred, FilesystemError, PollMask};
+use crate::vfs::{Cred, FMode, File, FileOperations, FilesystemError, Kiocb, OpenHow, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
 /// Whether a request travels in clear or over TLS.
@@ -245,8 +246,19 @@ impl RequestBody {
         })
     }
 
+    /// The file the guest writes the body through, as `anon_inode_getfile`
+    /// makes one; it is always ready for a write.
+    pub fn file(self: &Arc<Self>) -> File {
+        let how = OpenHow {
+            write: true,
+            nonblock: true,
+            ..OpenHow::default()
+        };
+        anon_inode_getfile(Box::new(RequestBodyFile(self.clone())), &how, &self.cred)
+    }
+
     /// Append `buf`, refused past the Invocation's memory as `ENOMEM`.
-    pub fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
         self.cred.security_vm_enough_memory(buf.len())?;
         self.bytes
             .lock()
@@ -261,6 +273,23 @@ impl RequestBody {
         let bytes = std::mem::take(&mut *self.bytes.lock().unwrap_or_else(PoisonError::into_inner));
         self.cred.vm_unacct_memory(bytes.len());
         bytes
+    }
+}
+
+/// What answers for a request body's file.
+struct RequestBodyFile(Arc<RequestBody>);
+
+impl FileOperations for RequestBodyFile {
+    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.0.write(buf)
+    }
+
+    fn poll(&self, _mode: FMode, _table: Option<&mut PollTable>) -> PollMask {
+        PollMask::OUT
+    }
+
+    fn is_stream(&self) -> bool {
+        true
     }
 }
 
@@ -666,9 +695,29 @@ impl Exchange {
         }
     }
 
+    /// The file a poll finds readable once the response's head arrives or the
+    /// request fails, as `anon_inode_getfile` makes one.
+    pub fn response_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
+        anon_inode_getfile(Box::new(ResponseFile(self.clone())), &Self::reading(), cred)
+    }
+
+    /// The file the response's body reads from, as `anon_inode_getfile` makes
+    /// one.
+    pub fn body_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
+        anon_inode_getfile(Box::new(BodyFile(self.clone())), &Self::reading(), cred)
+    }
+
+    fn reading() -> OpenHow {
+        OpenHow {
+            read: true,
+            nonblock: true,
+            ..OpenHow::default()
+        }
+    }
+
     /// Read what the body holds into `buf`: zero at its end, `WouldBlock`
     /// while it holds nothing yet, and `ConnectionReset` for a body cut short.
-    pub fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
         if state.body.is_empty() {
             return match (state.body_end, state.body_error) {
@@ -689,23 +738,6 @@ impl Exchange {
         Ok(n)
     }
 
-    /// What a poll finds: the head arrived, or the body has bytes, its end,
-    /// or its failure, registering on `table` for a poll that will sleep.
-    pub fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
-        poll_wait(&self.wait, table);
-        let state = self.state();
-        let mut mask = PollMask::default();
-        if !matches!(state.phase, Phase::Sending)
-            && (!state.body.is_empty() || state.body_end || state.body_error)
-        {
-            mask = mask | PollMask::IN;
-        }
-        if !matches!(state.phase, Phase::Sending) {
-            mask = mask | PollMask::OUT;
-        }
-        mask
-    }
-
     /// Let the exchange go, dropping its task with the connection it holds.
     pub fn release(&self) {
         let task = self
@@ -717,6 +749,46 @@ impl Exchange {
             task.cancel();
         }
         *self.place.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    }
+}
+
+/// What answers for the file an exchange's response is awaited on.
+struct ResponseFile(Arc<Exchange>);
+
+impl FileOperations for ResponseFile {
+    fn poll(&self, _mode: FMode, table: Option<&mut PollTable>) -> PollMask {
+        poll_wait(&self.0.wait, table);
+        match self.0.state().phase {
+            Phase::Sending => PollMask::default(),
+            Phase::Answered(_) | Phase::Failed(_) => PollMask::IN,
+        }
+    }
+
+    fn is_stream(&self) -> bool {
+        true
+    }
+}
+
+/// What answers for the file an exchange's body is read from.
+struct BodyFile(Arc<Exchange>);
+
+impl FileOperations for BodyFile {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.0.read(buf)
+    }
+
+    fn poll(&self, _mode: FMode, table: Option<&mut PollTable>) -> PollMask {
+        poll_wait(&self.0.wait, table);
+        let state = self.0.state();
+        let settled = !matches!(state.phase, Phase::Sending);
+        match settled && (!state.body.is_empty() || state.body_end || state.body_error) {
+            true => PollMask::IN,
+            false => PollMask::default(),
+        }
+    }
+
+    fn is_stream(&self) -> bool {
+        true
     }
 }
 
