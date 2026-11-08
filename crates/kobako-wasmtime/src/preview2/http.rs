@@ -18,7 +18,6 @@ use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::table::{self, Stream};
-use crate::descriptors::share;
 use crate::invocation::Invocation;
 
 /// One header list, shared between a request and the `fields` its `headers`
@@ -357,7 +356,7 @@ impl HttpHost for Invocation {
         if std::mem::replace(&mut body.stream, true) {
             return Ok(Err(()));
         }
-        let stream = Stream::File(share(body.link.body.file()));
+        let stream = Stream::File(Arc::new(Mutex::new(body.link.body.alloc_file())));
         self.table()
             .push_child(table::OutputStream::new(stream), this)
             .map(Ok)
@@ -396,7 +395,8 @@ impl HttpHost for Invocation {
         let cred = self.wasi().descriptors().cred().clone();
         let pollable = match self.future(this)? {
             Future::Sent(exchange) => {
-                table::Pollable::File(share(exchange.response_file(&cred)), PollMask::IN)
+                let file = Arc::new(Mutex::new(exchange.alloc_response_file(&cred)));
+                table::Pollable::File(file, PollMask::IN)
             }
             _ => table::Pollable::Ready,
         };
@@ -501,7 +501,9 @@ impl HttpHost for Invocation {
             return Ok(Err(()));
         }
         let exchange = body.exchange.clone();
-        let file = share(exchange.body_file(self.wasi().descriptors().cred()));
+        let file = Arc::new(Mutex::new(
+            exchange.alloc_body_file(self.wasi().descriptors().cred()),
+        ));
         self.table()
             .push_child(table::InputStream(Stream::File(file)), this)
             .map(Ok)

@@ -5,7 +5,7 @@
 //! on the runtime's wait primitive.
 
 use std::net::Shutdown;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
@@ -29,7 +29,6 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{from_socket_addr, lookup_error_code, to_error_code, to_socket_addr};
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
-use crate::descriptors::share;
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
@@ -229,7 +228,9 @@ impl SocketsHost for Invocation {
         this: ResolveAddressStream,
     ) -> wasmtime::Result<Pollable> {
         let lookup = self.table().get(this)?.lookup.clone();
-        let file = share(lookup.file(self.wasi().descriptors().cred()));
+        let file = Arc::new(Mutex::new(
+            lookup.alloc_file(self.wasi().descriptors().cred()),
+        ));
         self.table().push(table::Pollable::File(file, PollMask::IN))
     }
 
@@ -253,7 +254,7 @@ impl SocketsHost for Invocation {
         if self.wasi().table().is_full() {
             return Ok(Err(ErrorCode::NewSocketLimit));
         }
-        let sock = match self.network().tcp_socket() {
+        let sock = match self.network().create_tcp_socket() {
             Ok(sock) => sock,
             Err(err) => return Ok(Err(to_error_code(&err))),
         };
@@ -372,7 +373,7 @@ impl SocketsHost for Invocation {
         if self.wasi().table().is_full() {
             return Ok(Err(ErrorCode::NewSocketLimit));
         }
-        let sock = self.network().udp_socket();
+        let sock = self.network().create_udp_socket();
         let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
         let handle: UdpSocket = self.table().push(table::UdpSocket {
             socket: socket.clone(),

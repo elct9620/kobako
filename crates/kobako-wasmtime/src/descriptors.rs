@@ -35,11 +35,6 @@ impl Descriptor {
 /// A file every view of it shares, as handles on one `struct file` do.
 pub(crate) type SharedFile = Arc<Mutex<File>>;
 
-/// `file`, for views to share.
-pub(crate) fn share(file: File) -> SharedFile {
-    Arc::new(Mutex::new(file))
-}
-
 /// The shared `file`, which a read or a write takes `&mut`.
 pub(crate) fn lock(file: &SharedFile) -> MutexGuard<'_, File> {
     file.lock().unwrap_or_else(PoisonError::into_inner)

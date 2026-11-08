@@ -4,7 +4,7 @@
 
 use std::any::Any;
 use std::collections::BTreeMap;
-use std::sync::{Arc, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use kobako_runtime::net::{NameLookup, Namespace, TcpSock, UdpSock, MAX_SOCKET_BUFFER};
@@ -12,7 +12,7 @@ use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
 
-use crate::descriptors::{lock, share, Numbers, SharedFile};
+use crate::descriptors::{lock, Numbers, SharedFile};
 
 /// One socket file every view of a guest socket shares, as handles on one
 /// `struct file` share one `struct socket`: the protocol's half is `S`, and
@@ -35,7 +35,7 @@ impl<S> SocketFile<S> {
     pub(crate) fn new(sock: Arc<S>, file: File) -> Self {
         Self {
             sock,
-            file: share(file),
+            file: Arc::new(Mutex::new(file)),
         }
     }
 

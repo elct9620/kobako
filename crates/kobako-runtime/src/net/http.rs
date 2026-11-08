@@ -246,9 +246,9 @@ impl RequestBody {
         })
     }
 
-    /// The file the guest writes the body through, as `anon_inode_getfile`
-    /// makes one; it is always ready for a write.
-    pub fn file(self: &Arc<Self>) -> File {
+    /// Allocate the file the guest writes the body through, as
+    /// `anon_inode_getfile` does; it is always ready for a write.
+    pub fn alloc_file(self: &Arc<Self>) -> File {
         let how = OpenHow {
             write: true,
             nonblock: true,
@@ -695,15 +695,15 @@ impl Exchange {
         }
     }
 
-    /// The file a poll finds readable once the response's head arrives or the
-    /// request fails, as `anon_inode_getfile` makes one.
-    pub fn response_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
+    /// Allocate the file a poll finds readable once the response's head
+    /// arrives or the request fails, as `anon_inode_getfile` does.
+    pub fn alloc_response_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
         anon_inode_getfile(Box::new(ResponseFile(self.clone())), &Self::reading(), cred)
     }
 
-    /// The file the response's body reads from, as `anon_inode_getfile` makes
-    /// one.
-    pub fn body_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
+    /// Allocate the file the response's body reads from, as
+    /// `anon_inode_getfile` does.
+    pub fn alloc_body_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
         anon_inode_getfile(Box::new(BodyFile(self.clone())), &Self::reading(), cred)
     }
 

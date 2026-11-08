@@ -292,14 +292,14 @@ impl Namespace {
         })
     }
 
-    /// A TCP socket connected to nothing, which connects through this
-    /// namespace's Protocol Family, as `inet_create` makes one.
-    pub fn tcp_socket(&self) -> Result<Arc<TcpSock>, FilesystemError> {
+    /// Create a TCP socket connected to nothing, which connects through this
+    /// namespace's Protocol Family, as `sock_create` does.
+    pub fn create_tcp_socket(&self) -> Result<Arc<TcpSock>, FilesystemError> {
         TcpSock::new(self.family.clone())
     }
 
-    /// A UDP socket connected to nothing, as `inet_create` makes one.
-    pub fn udp_socket(&self) -> Arc<UdpSock> {
+    /// Create a UDP socket connected to nothing, as `sock_create` does.
+    pub fn create_udp_socket(&self) -> Arc<UdpSock> {
         UdpSock::new()
     }
 
@@ -590,7 +590,7 @@ mod tests {
         cred: &Cred,
         addr: SocketAddr,
     ) -> Result<Arc<TcpSock>, FilesystemError> {
-        let sock = namespace.tcp_socket()?;
+        let sock = namespace.create_tcp_socket()?;
         namespace.connect(cred, &sock, addr).map(|()| sock)
     }
 
@@ -600,7 +600,7 @@ mod tests {
         cred: &Cred,
         addr: Option<SocketAddr>,
     ) -> Result<Arc<UdpSock>, FilesystemError> {
-        let sock = namespace.udp_socket();
+        let sock = namespace.create_udp_socket();
         namespace.connect_datagram(cred, &sock, addr).map(|()| sock)
     }
 

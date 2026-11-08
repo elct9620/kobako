@@ -97,9 +97,9 @@ impl NameLookup {
             .clone()
     }
 
-    /// The lookup's file, opened as `cred`, as `anon_inode_getfile` makes one:
-    /// a poll finds it readable once the lookup answers.
-    pub fn file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
+    /// Allocate the lookup's file, opened as `cred`, as `anon_inode_getfile`
+    /// does: a poll finds it readable once the lookup answers.
+    pub fn alloc_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
         let how = OpenHow {
             read: true,
             nonblock: true,
