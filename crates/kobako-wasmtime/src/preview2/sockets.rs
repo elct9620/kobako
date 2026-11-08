@@ -41,7 +41,7 @@ pub(crate) fn from_socket_addr(addr: SocketAddr) -> IpSocketAddress {
 /// The error code a lookup's failure answers. A name no A-label spells is
 /// refused as it is handed over, as an invalid argument; the same failure from
 /// a lookup's answer is a name that resolves to nothing.
-pub(crate) fn lookup_error_code(err: LookupError, handed_over: bool) -> ErrorCode {
+pub(crate) fn to_lookup_error_code(err: LookupError, handed_over: bool) -> ErrorCode {
     match err {
         LookupError::NameUnresolvable if handed_over => ErrorCode::InvalidArgument,
         LookupError::NameUnresolvable => ErrorCode::NameUnresolvable,

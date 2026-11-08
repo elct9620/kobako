@@ -24,7 +24,7 @@ use crate::invocation::Invocation;
 /// hands out.
 type Entries = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
 
-fn locked(entries: &Entries) -> MutexGuard<'_, Vec<(String, Vec<u8>)>> {
+fn lock(entries: &Entries) -> MutexGuard<'_, Vec<(String, Vec<u8>)>> {
     entries.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -42,7 +42,7 @@ pub(crate) struct BodyLink {
 impl BodyLink {
     /// Whether the request may leave: its body was never asked for, or was
     /// ended.
-    fn complete(&self) -> bool {
+    fn is_complete(&self) -> bool {
         !self.handed.load(Ordering::Acquire) || self.finished.load(Ordering::Acquire)
     }
 
@@ -135,7 +135,7 @@ fn to_error_code(err: HttpError) -> ErrorCode {
     }
 }
 
-fn method_name(method: &Method) -> Option<String> {
+fn to_method_name(method: &Method) -> Option<String> {
     let name = match method {
         Method::Get => "GET",
         Method::Head => "HEAD",
@@ -163,7 +163,7 @@ impl Invocation {
     /// Hand `request` to the namespace, which judges it here on the guest
     /// thread before the reactor sends it.
     fn send(&mut self, request: Request) -> Future {
-        let Some(method) = method_name(&request.method) else {
+        let Some(method) = to_method_name(&request.method) else {
             return Future::Refused(ErrorCode::HTTPRequestMethodInvalid);
         };
         let scheme = match request.scheme {
@@ -178,7 +178,7 @@ impl Invocation {
         if let Some(path) = request.path_with_query {
             outgoing.path_with_query = path;
         }
-        outgoing.headers = locked(&request.headers).clone();
+        outgoing.headers = lock(&request.headers).clone();
         outgoing.body = request.link.body.take();
         let Some(namespace) = self.wasi().table().network() else {
             return Future::Refused(ErrorCode::HTTPRequestDenied);
@@ -198,7 +198,7 @@ impl Invocation {
             *state = Future::Refused(ErrorCode::HTTPProtocolError);
             return Ok(());
         }
-        if !matches!(state, Future::Waiting(request) if request.link.complete()) {
+        if !matches!(state, Future::Waiting(request) if request.link.is_complete()) {
             return Ok(());
         }
         let Future::Waiting(request) = std::mem::replace(state, Future::Taken) else {
@@ -230,11 +230,11 @@ impl HttpHost for Invocation {
         }
         let entries = fields.entries.clone();
         match (
-            net::field_name(&name).map_err(to_header_error),
-            net::field_value(value).map_err(to_header_error),
+            net::to_field_name(&name).map_err(to_header_error),
+            net::to_field_value(value).map_err(to_header_error),
         ) {
             (Ok(name), Ok(value)) => {
-                locked(&entries).push((name, value));
+                lock(&entries).push((name, value));
                 Ok(Ok(()))
             }
             (Err(err), _) | (_, Err(err)) => Ok(Err(err)),
@@ -242,7 +242,7 @@ impl HttpHost for Invocation {
     }
 
     fn types_fields_entries(&mut self, this: Fields) -> wasmtime::Result<Vec<(String, Vec<u8>)>> {
-        let entries = locked(&self.table().get(this)?.entries).clone();
+        let entries = lock(&self.table().get(this)?.entries).clone();
         Ok(entries)
     }
 
@@ -294,7 +294,7 @@ impl HttpHost for Invocation {
         this: OutgoingRequest,
         method: Method,
     ) -> wasmtime::Result<Result<(), ()>> {
-        if method_name(&method).is_none() {
+        if to_method_name(&method).is_none() {
             return Ok(Err(()));
         }
         self.request(this)?.method = method;
@@ -543,7 +543,7 @@ impl HttpHost for Invocation {
         if self.wasi().table().network().is_none() {
             return Ok(Err(ErrorCode::HTTPRequestDenied));
         }
-        let future = match request.link.complete() {
+        let future = match request.link.is_complete() {
             true => self.send(request),
             false => Future::Waiting(request),
         };

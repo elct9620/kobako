@@ -137,7 +137,7 @@ impl UdpSock {
         }
     }
 
-    fn changed(&self, mut state: MutexGuard<'_, State>) {
+    fn pump_and_wake(&self, mut state: MutexGuard<'_, State>) {
         Self::pump(&mut state);
         drop(state);
         self.wait.wake_up();
@@ -158,7 +158,7 @@ impl UdpSock {
 impl Ready for UdpSock {
     fn ready(&self) {
         let state = self.state();
-        self.changed(state);
+        self.pump_and_wake(state);
     }
 }
 
@@ -198,7 +198,7 @@ impl ProtoOps for UdpSock {
         }
         state.sending.push_back(buf.to_vec());
         state.sending_bytes += buf.len();
-        self.changed(state);
+        self.pump_and_wake(state);
         Ok(buf.len())
     }
 

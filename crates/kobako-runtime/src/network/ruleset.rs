@@ -36,12 +36,12 @@ const METADATA_V6: [Ipv6Addr; 3] = [
     Ipv6Addr::new(0xfd20, 0xce, 0, 0, 0, 0, 0, 0x254),
 ];
 
-fn within(ip: Ipv4Addr, net: [u8; 4], prefix: u32) -> bool {
+fn is_within(ip: Ipv4Addr, net: [u8; 4], prefix: u32) -> bool {
     let mask = u32::MAX.checked_shl(32 - prefix).unwrap_or(0);
     u32::from(ip) & mask == u32::from(Ipv4Addr::from(net)) & mask
 }
 
-fn within_v6(ip: Ipv6Addr, net: Ipv6Addr, prefix: u32) -> bool {
+fn is_within_v6(ip: Ipv6Addr, net: Ipv6Addr, prefix: u32) -> bool {
     let mask = u128::MAX.checked_shl(128 - prefix).unwrap_or(0);
     u128::from(ip) & mask == u128::from(net) & mask
 }
@@ -50,7 +50,7 @@ fn within_v6(ip: Ipv6Addr, net: Ipv6Addr, prefix: u32) -> bool {
 /// address does, so each is judged as the IPv4 inside. NAT64 takes both the
 /// well-known prefix and the local-use one at its /96, as RFC 8215 lets a
 /// DNS64 synthesize either.
-fn unwrap_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+fn to_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     if let Some(v4) = ip.to_ipv4_mapped() {
         return Some(v4);
     }
@@ -58,9 +58,9 @@ fn unwrap_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     let local_nat64 = Ipv6Addr::new(0x64, 0xff9b, 1, 0, 0, 0, 0, 0);
     let compatible = Ipv6Addr::UNSPECIFIED;
     let carried = Ipv4Addr::from((u128::from(ip) & 0xffff_ffff) as u32);
-    match within_v6(ip, nat64, 96)
-        || within_v6(ip, local_nat64, 96)
-        || (within_v6(ip, compatible, 96) && u32::from(carried) > 1)
+    match is_within_v6(ip, nat64, 96)
+        || is_within_v6(ip, local_nat64, 96)
+        || (is_within_v6(ip, compatible, 96) && u32::from(carried) > 1)
     {
         true => Some(carried),
         false => None,
@@ -69,17 +69,17 @@ fn unwrap_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
 
 /// The set `ip` falls in, judging an IPv6 address carrying an IPv4 one as
 /// that IPv4 address.
-pub fn address_set(ip: IpAddr) -> AddressSet {
+pub fn address_set_of(ip: IpAddr) -> AddressSet {
     match ip {
-        IpAddr::V4(ip) => v4_set(ip),
-        IpAddr::V6(ip) => match unwrap_v4(ip) {
-            Some(v4) => v4_set(v4),
-            None => v6_set(ip),
+        IpAddr::V4(ip) => v4_set_of(ip),
+        IpAddr::V6(ip) => match to_v4(ip) {
+            Some(v4) => v4_set_of(v4),
+            None => v6_set_of(ip),
         },
     }
 }
 
-fn v4_set(ip: Ipv4Addr) -> AddressSet {
+fn v4_set_of(ip: Ipv4Addr) -> AddressSet {
     let globally_reachable = [
         ([192, 0, 0, 9], 32),
         ([192, 0, 0, 10], 32),
@@ -87,29 +87,29 @@ fn v4_set(ip: Ipv4Addr) -> AddressSet {
         ([192, 52, 193, 0], 24),
         ([192, 175, 48, 0], 24),
     ];
-    if METADATA_V4.contains(&ip) || within(ip, [169, 254, 0, 0], 16) {
+    if METADATA_V4.contains(&ip) || is_within(ip, [169, 254, 0, 0], 16) {
         AddressSet::Metadata
-    } else if within(ip, [127, 0, 0, 0], 8) || within(ip, [0, 0, 0, 0], 8) {
+    } else if is_within(ip, [127, 0, 0, 0], 8) || is_within(ip, [0, 0, 0, 0], 8) {
         AddressSet::Local
-    } else if within(ip, [10, 0, 0, 0], 8)
-        || within(ip, [172, 16, 0, 0], 12)
-        || within(ip, [192, 168, 0, 0], 16)
-        || within(ip, [100, 64, 0, 0], 10)
+    } else if is_within(ip, [10, 0, 0, 0], 8)
+        || is_within(ip, [172, 16, 0, 0], 12)
+        || is_within(ip, [192, 168, 0, 0], 16)
+        || is_within(ip, [100, 64, 0, 0], 10)
     {
         AddressSet::Private
     } else if globally_reachable
         .iter()
-        .any(|(net, prefix)| within(ip, *net, *prefix))
+        .any(|(net, prefix)| is_within(ip, *net, *prefix))
     {
         AddressSet::Public
-    } else if within(ip, [192, 0, 0, 0], 24)
-        || within(ip, [192, 0, 2, 0], 24)
-        || within(ip, [192, 88, 99, 0], 24)
-        || within(ip, [198, 18, 0, 0], 15)
-        || within(ip, [198, 51, 100, 0], 24)
-        || within(ip, [203, 0, 113, 0], 24)
-        || within(ip, [224, 0, 0, 0], 4)
-        || within(ip, [240, 0, 0, 0], 4)
+    } else if is_within(ip, [192, 0, 0, 0], 24)
+        || is_within(ip, [192, 0, 2, 0], 24)
+        || is_within(ip, [192, 88, 99, 0], 24)
+        || is_within(ip, [198, 18, 0, 0], 15)
+        || is_within(ip, [198, 51, 100, 0], 24)
+        || is_within(ip, [203, 0, 113, 0], 24)
+        || is_within(ip, [224, 0, 0, 0], 4)
+        || is_within(ip, [240, 0, 0, 0], 4)
     {
         AddressSet::Reserved
     } else {
@@ -121,7 +121,7 @@ fn v4_set(ip: Ipv4Addr) -> AddressSet {
 /// other address is reserved; within it, each block IANA's registry says no
 /// route reaches is reserved, save the ones inside `2001::/23` it marks
 /// globally reachable.
-fn v6_set(ip: Ipv6Addr) -> AddressSet {
+fn v6_set_of(ip: Ipv6Addr) -> AddressSet {
     let net = |a: u16, b: u16, c: u16| Ipv6Addr::new(a, b, c, 0, 0, 0, 0, 0);
     let globally_reachable = [
         (Ipv6Addr::new(0x2001, 1, 0, 0, 0, 0, 0, 1), 128),
@@ -132,20 +132,20 @@ fn v6_set(ip: Ipv6Addr) -> AddressSet {
         (net(0x2001, 0x20, 0), 28),
         (net(0x2001, 0x30, 0), 28),
     ];
-    if METADATA_V6.contains(&ip) || within_v6(ip, net(0xfe80, 0, 0), 10) {
+    if METADATA_V6.contains(&ip) || is_within_v6(ip, net(0xfe80, 0, 0), 10) {
         AddressSet::Metadata
     } else if ip == Ipv6Addr::LOCALHOST || ip == Ipv6Addr::UNSPECIFIED {
         AddressSet::Local
-    } else if within_v6(ip, net(0xfc00, 0, 0), 7) {
+    } else if is_within_v6(ip, net(0xfc00, 0, 0), 7) {
         AddressSet::Private
-    } else if !within_v6(ip, net(0x2000, 0, 0), 3)
-        || within_v6(ip, net(0x2001, 0xdb8, 0), 32)
-        || within_v6(ip, net(0x2002, 0, 0), 16)
-        || within_v6(ip, net(0x3fff, 0, 0), 20)
-        || (within_v6(ip, net(0x2001, 0, 0), 23)
+    } else if !is_within_v6(ip, net(0x2000, 0, 0), 3)
+        || is_within_v6(ip, net(0x2001, 0xdb8, 0), 32)
+        || is_within_v6(ip, net(0x2002, 0, 0), 16)
+        || is_within_v6(ip, net(0x3fff, 0, 0), 20)
+        || (is_within_v6(ip, net(0x2001, 0, 0), 23)
             && !globally_reachable
                 .iter()
-                .any(|(block, prefix)| within_v6(ip, *block, *prefix)))
+                .any(|(block, prefix)| is_within_v6(ip, *block, *prefix)))
     {
         AddressSet::Reserved
     } else {
@@ -198,8 +198,8 @@ fn parse_host(host: &str) -> Result<Host, EntryError> {
 
 fn contains(net: IpAddr, prefix: u8, ip: IpAddr) -> bool {
     match (net, ip) {
-        (IpAddr::V4(net), IpAddr::V4(ip)) => within(ip, net.octets(), u32::from(prefix)),
-        (IpAddr::V6(net), IpAddr::V6(ip)) => within_v6(ip, net, u32::from(prefix)),
+        (IpAddr::V4(net), IpAddr::V4(ip)) => is_within(ip, net.octets(), u32::from(prefix)),
+        (IpAddr::V6(net), IpAddr::V6(ip)) => is_within_v6(ip, net, u32::from(prefix)),
         _ => false,
     }
 }
@@ -265,9 +265,9 @@ impl Rule {
     fn leads_to(&self, ip: IpAddr, local: &[IpAddr]) -> bool {
         let own = local.contains(&ip);
         self.addresses.iter().any(|addresses| match addresses {
-            Addresses::Public => !own && address_set(ip) == AddressSet::Public,
-            Addresses::Private => !own && address_set(ip) == AddressSet::Private,
-            Addresses::Local => own || address_set(ip) == AddressSet::Local,
+            Addresses::Public => !own && address_set_of(ip) == AddressSet::Public,
+            Addresses::Private => !own && address_set_of(ip) == AddressSet::Private,
+            Addresses::Local => own || address_set_of(ip) == AddressSet::Local,
             Addresses::Cidr(net, prefix) => contains(*net, *prefix, ip),
         })
     }
@@ -364,13 +364,13 @@ impl Ruleset {
         local: &[IpAddr],
     ) -> Result<(), FilesystemError> {
         if matches!(
-            address_set(addr.ip()),
+            address_set_of(addr.ip()),
             AddressSet::Metadata | AddressSet::Reserved
         ) {
             return Err(FilesystemError::PermissionDenied);
         }
         let ip = match addr.ip() {
-            IpAddr::V6(v6) => unwrap_v4(v6).map_or(addr.ip(), IpAddr::V4),
+            IpAddr::V6(v6) => to_v4(v6).map_or(addr.ip(), IpAddr::V4),
             v4 => v4,
         };
         let led = self.rules.iter().any(|rule| {
@@ -396,13 +396,13 @@ impl Ruleset {
         protocol: Protocol,
     ) -> Result<(), FilesystemError> {
         if matches!(
-            address_set(addr.ip()),
+            address_set_of(addr.ip()),
             AddressSet::Metadata | AddressSet::Reserved
         ) {
             return Err(FilesystemError::PermissionDenied);
         }
         let ip = match addr.ip() {
-            IpAddr::V6(v6) => unwrap_v4(v6).map_or(addr.ip(), IpAddr::V4),
+            IpAddr::V6(v6) => to_v4(v6).map_or(addr.ip(), IpAddr::V4),
             v4 => v4,
         };
         let matched = self.rules.iter().any(|rule| {
@@ -424,7 +424,7 @@ mod tests {
     // @behavior NW-012
     #[test]
     fn each_address_falls_in_its_set() {
-        let set = |ip: &str| address_set(ip.parse().unwrap());
+        let set = |ip: &str| address_set_of(ip.parse().unwrap());
         assert_eq!(
             [
                 set("93.184.216.34"),
@@ -472,7 +472,7 @@ mod tests {
                 AddressSet::Reserved,
                 AddressSet::Public,
             ],
-            "address_set must class each address by IANA's registries, judging an IPv6 address \
+            "address_set_of must class each address by IANA's registries, judging an IPv6 address \
              carrying an IPv4 one as the IPv4 inside, and an IPv6 address public only within \
              2000::/3 and outside every block the registry says no route reaches"
         );

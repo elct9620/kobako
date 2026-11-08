@@ -8,7 +8,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use super::http::{
-    field_name, field_value, split_authority, Connector, Exchange, HttpError, Outbound,
+    split_authority, to_field_name, to_field_value, Connector, Exchange, HttpError, Outbound,
     OutgoingRequest, Scheme, Swap,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
@@ -101,11 +101,9 @@ impl Namespace {
     /// the seam frames every request itself. Any refusal answers `Denied`, and
     /// nothing is sent.
     pub fn send(&self, cred: &Cred, request: OutgoingRequest) -> Result<Arc<Exchange>, HttpError> {
-        if request
-            .headers
-            .iter()
-            .any(|(name, value)| field_name(name).is_err() || field_value(value.clone()).is_err())
-        {
+        if request.headers.iter().any(|(name, value)| {
+            to_field_name(name).is_err() || to_field_value(value.clone()).is_err()
+        }) {
             return Err(HttpError::Denied);
         }
         let (host, port) =
@@ -160,7 +158,7 @@ impl Namespace {
             return Err(HttpError::Denied);
         }
         let swaps = match request.scheme {
-            Scheme::Https => self.swaps(&sent, &request.headers),
+            Scheme::Https => self.swaps_of(&sent, &request.headers),
             Scheme::Http => Vec::new(),
         };
         let mut request = request;
@@ -180,7 +178,7 @@ impl Namespace {
     /// endpoint names its exact host and allows it, and the placement's header
     /// carries the placeholder. Each source answers here, on the guest thread,
     /// so its time counts against the deadline.
-    fn swaps(&self, sent: &Request<'_>, headers: &[(String, Vec<u8>)]) -> Vec<Swap> {
+    fn swaps_of(&self, sent: &Request<'_>, headers: &[(String, Vec<u8>)]) -> Vec<Swap> {
         let (host, port) = sent.authority;
         let mut swaps = Vec::new();
         for (rules, credentials) in &self.bound {
@@ -219,7 +217,7 @@ impl Namespace {
         if !self.resolve.iter().all(|policy| policy.allows(&request))
             || !self.ruleset.admits_name(&name)
         {
-            return Ok(NameLookup::answered(
+            return Ok(NameLookup::with_answer(
                 name,
                 Err(LookupError::NameUnresolvable),
             ));
@@ -305,8 +303,8 @@ impl Namespace {
 
     /// Whether a socket may bind `addr`: only the unspecified address and port
     /// 0, since the guest only reaches out, as Landlock's `BIND_*` rights
-    /// refuse every other bind.
-    pub fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
+    /// refuse every other bind, answered as Linux's `may_*` checks are.
+    pub fn may_bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
         match addr.ip().is_unspecified() && addr.port() == 0 {
             true => Ok(()),
             false => Err(FilesystemError::PermissionDenied),

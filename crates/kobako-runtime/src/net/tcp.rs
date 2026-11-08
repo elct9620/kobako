@@ -218,7 +218,7 @@ impl TcpSock {
 
     /// Move what can move, then wake every poller, since what a poll finds
     /// may have changed.
-    fn changed(&self, mut state: MutexGuard<'_, State>) {
+    fn pump_and_wake(&self, mut state: MutexGuard<'_, State>) {
         if !state.released {
             self.pump(&mut state);
         }
@@ -253,7 +253,7 @@ impl TcpSock {
             state.received.clear();
             state.received_end = true;
         }
-        self.changed(state);
+        self.pump_and_wake(state);
     }
 
     pub fn local_addr(&self) -> Option<SocketAddr> {
@@ -286,7 +286,7 @@ impl TcpSock {
 impl Ready for TcpSock {
     fn ready(&self) {
         let state = self.state();
-        self.changed(state);
+        self.pump_and_wake(state);
     }
 }
 
@@ -302,7 +302,7 @@ impl ProtoOps for TcpSock {
             for (slot, byte) in buf.iter_mut().zip(state.received.drain(..take)) {
                 *slot = byte;
             }
-            self.changed(state);
+            self.pump_and_wake(state);
             return Ok(take);
         }
         if let Some(err) = &state.received_error {
@@ -336,7 +336,7 @@ impl ProtoOps for TcpSock {
             return Err(FilesystemError::WouldBlock);
         }
         state.sending.extend(&buf[..take]);
-        self.changed(state);
+        self.pump_and_wake(state);
         Ok(take)
     }
 

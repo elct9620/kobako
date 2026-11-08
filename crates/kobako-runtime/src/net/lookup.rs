@@ -75,7 +75,7 @@ impl NameLookup {
     }
 
     /// A lookup answered at once, with no thread, as a refused name is.
-    pub(crate) fn answered(name: String, answer: Result<Vec<IpAddr>, LookupError>) -> Arc<Self> {
+    pub(crate) fn with_answer(name: String, answer: Result<Vec<IpAddr>, LookupError>) -> Arc<Self> {
         Arc::new(Self {
             name,
             answer: Mutex::new(Some(answer)),

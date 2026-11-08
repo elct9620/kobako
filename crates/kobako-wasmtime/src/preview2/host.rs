@@ -27,7 +27,7 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
     IncomingDatagram, IncomingDatagramStream, OutgoingDatagram, OutgoingDatagramStream, UdpSocket,
 };
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
-use super::sockets::{from_socket_addr, lookup_error_code, to_error_code, to_socket_addr};
+use super::sockets::{from_socket_addr, to_error_code, to_lookup_error_code, to_socket_addr};
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
@@ -190,7 +190,7 @@ impl SocketsHost for Invocation {
                     handed: false,
                 })
                 .map(Ok),
-            Err(err) => Ok(Err(lookup_error_code(err, true))),
+            Err(err) => Ok(Err(to_lookup_error_code(err, true))),
         }
     }
 
@@ -207,7 +207,7 @@ impl SocketsHost for Invocation {
         let lookup = stream.lookup.clone();
         let real = match lookup.answer() {
             None => return Ok(Err(ErrorCode::WouldBlock)),
-            Some(Err(err)) => return Ok(Err(lookup_error_code(err, false))),
+            Some(Err(err)) => return Ok(Err(to_lookup_error_code(err, false))),
             Some(Ok(real)) => real,
         };
         let namespace = self
@@ -399,7 +399,7 @@ impl SocketsHost for Invocation {
         let Some(addr) = to_socket_addr(&local_address) else {
             return Ok(Err(ErrorCode::InvalidArgument));
         };
-        if let Err(err) = self.network().bind(addr) {
+        if let Err(err) = self.network().may_bind(addr) {
             return Ok(Err(to_error_code(&err)));
         }
         self.udp(this)?.state = UdpState::Binding;

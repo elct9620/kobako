@@ -18,7 +18,7 @@ static PLATFORM: OnceLock<Option<(Arc<CryptoProvider>, Arc<Verifier>)>> = OnceLo
 /// environment, `SSL_CERT_FILE` on Linux among it, so a Wasm Driver builds it
 /// on the thread it is constructed on, holding its frontend's lock, and a
 /// later change to that environment is not seen.
-pub fn platform_tls() -> Option<Arc<ClientConfig>> {
+pub fn new_platform_tls() -> Option<Arc<ClientConfig>> {
     let (provider, verifier) = PLATFORM
         .get_or_init(|| {
             let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -41,7 +41,7 @@ mod tests {
 
     #[test]
     fn each_configuration_holds_a_session_store_of_its_own() {
-        let (Some(first), Some(second)) = (platform_tls(), platform_tls()) else {
+        let (Some(first), Some(second)) = (new_platform_tls(), new_platform_tls()) else {
             return;
         };
         assert!(

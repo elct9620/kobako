@@ -24,7 +24,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::{open, OpenConnections, Place};
 use super::reactor::{Reactor, Ready, Registration, Task};
 use super::socket::to_error;
-use super::{platform_tls, ProtocolFamily, MAX_SOCKET_BUFFER};
+use super::{new_platform_tls, ProtocolFamily, MAX_SOCKET_BUFFER};
 use crate::filesystem::anon_inode_getfile;
 use crate::network::{Protocol, Ruleset, Secret};
 use crate::vfs::{Cred, FMode, File, FileOperations, FilesystemError, Kiocb, OpenHow, PollMask};
@@ -73,7 +73,7 @@ pub fn is_token(text: &str) -> bool {
 
 /// The header name a guest may set, lowercase: a token, and none the seam
 /// writes itself.
-pub fn field_name(name: &str) -> Result<String, FieldError> {
+pub fn to_field_name(name: &str) -> Result<String, FieldError> {
     if !is_token(name) {
         return Err(FieldError::InvalidSyntax);
     }
@@ -85,7 +85,7 @@ pub fn field_name(name: &str) -> Result<String, FieldError> {
 }
 
 /// The header value a guest may set: one holding no CR, LF, or NUL.
-pub fn field_value(value: Vec<u8>) -> Result<Vec<u8>, FieldError> {
+pub fn to_field_value(value: Vec<u8>) -> Result<Vec<u8>, FieldError> {
     match value.iter().any(|b| matches!(b, b'\r' | b'\n' | 0)) {
         true => Err(FieldError::InvalidSyntax),
         false => Ok(value),
@@ -125,7 +125,7 @@ const BASIC: &[u8] = b"Basic ";
 /// RFC 4648's standard alphabet, which a basic pair is encoded in.
 const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-fn base64_encode(bytes: &[u8]) -> Vec<u8> {
+fn encode_base64(bytes: &[u8]) -> Vec<u8> {
     let mut encoded = Vec::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let n = chunk
@@ -143,7 +143,7 @@ fn base64_encode(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// The bytes `text` encodes, `None` for text that is no padded base64.
-fn base64_decode(text: &[u8]) -> Option<Vec<u8>> {
+fn decode_base64(text: &[u8]) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(4) {
         return None;
     }
@@ -182,11 +182,11 @@ impl Swap {
         if let Some(pair) = value
             .get(..BASIC.len())
             .filter(|scheme| scheme.eq_ignore_ascii_case(BASIC))
-            .and_then(|_| base64_decode(&value[BASIC.len()..]))
+            .and_then(|_| decode_base64(&value[BASIC.len()..]))
             .filter(|pair| self.finds_in(pair))
         {
             let mut swapped = BASIC.to_vec();
-            swapped.extend(base64_encode(&self.replace(&pair)));
+            swapped.extend(encode_base64(&self.replace(&pair)));
             return swapped;
         }
         self.replace(value)
@@ -403,7 +403,7 @@ impl Connector {
                 .and_then(Transport::new)
                 .map_err(|err| to_http_error(&err));
             match opened {
-                Ok(connection) => match connection.connected().await {
+                Ok(connection) => match connection.wait_for_connect().await {
                     Ok(()) => return Ok(connection),
                     Err(err) => last = to_http_error(&err),
                 },
@@ -485,8 +485,9 @@ impl Transport {
         })
     }
 
-    /// Once the connect under way settles, as `SO_ERROR` does.
-    async fn connected(&self) -> io::Result<()> {
+    /// Wait until the connect under way settles, as `SO_ERROR` does and
+    /// Linux's `inet_wait_for_connect` waits for.
+    async fn wait_for_connect(&self) -> io::Result<()> {
         poll_fn(|cx| {
             self.attempt(cx, false, || {
                 if let Some(err) = self.stream.take_error()? {
@@ -698,21 +699,23 @@ impl Exchange {
     /// Allocate the file a poll finds readable once the response's head
     /// arrives or the request fails, as `anon_inode_getfile` does.
     pub fn alloc_response_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
-        anon_inode_getfile(Box::new(ResponseFile(self.clone())), &Self::reading(), cred)
+        let how = OpenHow {
+            read: true,
+            nonblock: true,
+            ..OpenHow::default()
+        };
+        anon_inode_getfile(Box::new(ResponseFile(self.clone())), &how, cred)
     }
 
     /// Allocate the file the response's body reads from, as
     /// `anon_inode_getfile` does.
     pub fn alloc_body_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
-        anon_inode_getfile(Box::new(BodyFile(self.clone())), &Self::reading(), cred)
-    }
-
-    fn reading() -> OpenHow {
-        OpenHow {
+        let how = OpenHow {
             read: true,
             nonblock: true,
             ..OpenHow::default()
-        }
+        };
+        anon_inode_getfile(Box::new(BodyFile(self.clone())), &how, cred)
     }
 
     /// Read what the body holds into `buf`: zero at its end, `WouldBlock`
@@ -847,7 +850,7 @@ pub struct HyperOutbound {
 impl HyperOutbound {
     pub fn new() -> Self {
         Self {
-            tls: platform_tls(),
+            tls: new_platform_tls(),
         }
     }
 }
