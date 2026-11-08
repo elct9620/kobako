@@ -276,7 +276,7 @@ endpoint "api.example.com", port: 443
 | When | the script opens a `TCPSocket` there |
 | Then | the policy is handed a `Kobako::Network::Connection`. A falsy answer raises `Errno::EACCES` in the script |
 
-## `NW-022` A full worker cap answers EAGAIN
+## `NW-022` A full cap answers EAGAIN
 
 | Attribute | Value |
 | --- | --- |
@@ -284,9 +284,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose sockets' workers fill its cap, or the process's |
+| Given | a Sandbox whose sockets, requests, and lookups fill its cap, or the process's |
 | When | the guest connects once more |
-| Then | the connect answers `EAGAIN`, never a Trap, and dials nothing. A worker that ends gives its place back, and a forked child starts from none |
+| Then | the connect answers `EAGAIN`, never a Trap, and dials nothing. A socket released gives its place back, and a forked child starts from none |
 
 ## `NW-023` A frozen clock beside a socket elapses in host time
 
@@ -707,3 +707,15 @@ endpoint "api.example.com", port: 443
 | Given | a `UDPSocket` no `connect` has named a peer for |
 | When | the script binds a chosen port, sends with no address, sends to an address, then binds port `0` |
 | Then | the bind raises `Errno::EACCES` and the first send `Errno::EDESTADDRREQ`. The send to an address raises `Errno::EACCES`, and the bind to port `0` passes |
+
+## `NW-058` A response body past the buffer streams as the guest reads
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a server answering with a body several times the socket buffer |
+| When | the guest reads the body as it arrives |
+| Then | it reads every byte in order, and the body waiting for the guest never passes one socket buffer |

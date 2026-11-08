@@ -480,7 +480,7 @@ dialed.
 
 ```rust
 impl Namespace {
-    pub fn connect(&self, cred: &Cred, addr: SocketAddr, deadline: Option<Instant>) -> Result<Arc<TcpSock>, FilesystemError> {}
+    pub fn connect(&self, cred: &Cred, addr: SocketAddr) -> Result<Arc<TcpSock>, FilesystemError> {}
 }
 ```
 
@@ -561,7 +561,8 @@ pub enum LookupError {
 ## `ProtocolFamily`
 
 The backend that reaches the host network, as Linux's `net_proto_family`. A
-Rust Host App may hand its own.
+Rust Host App may hand its own. Each socket it hands out is non-blocking, so
+the reactor waits on it.
 
 ```rust
 pub trait ProtocolFamily: Send + Sync {}
@@ -569,11 +570,11 @@ pub trait ProtocolFamily: Send + Sync {}
 
 ## `ProtocolFamily::connect`
 
-A stream connected to the address, given up once the timeout passes.
+A non-blocking stream to the address, whose connect may still be under way.
 
 ```rust
 pub trait ProtocolFamily {
-    fn connect(&self, addr: SocketAddr, timeout: Option<Duration>) -> io::Result<Box<dyn Stream>>;
+    fn connect(&self, addr: SocketAddr) -> io::Result<TcpStream>;
 }
 ```
 
@@ -598,64 +599,6 @@ pub trait ProtocolFamily {
 }
 ```
 
-## `Stream`
-
-One connected stream a backend handed out.
-
-```rust
-pub trait Stream: Read + Write + Send {}
-```
-
-## `Stream::try_clone`
-
-A second handle on the same stream, so one worker reads while another writes.
-
-```rust
-pub trait Stream {
-    fn try_clone(&self) -> io::Result<Box<dyn Stream>>;
-}
-```
-
-## `Stream::shutdown`
-
-Shut one or both directions down, waking a read blocked on it.
-
-```rust
-pub trait Stream {
-    fn shutdown(&self, how: Shutdown) -> io::Result<()>;
-}
-```
-
-## `Stream::set_read_timeout`
-
-How long a read waits before it gives up.
-
-```rust
-pub trait Stream {
-    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
-}
-```
-
-## `Stream::local_addr`
-
-The address the stream's own end stands at.
-
-```rust
-pub trait Stream {
-    fn local_addr(&self) -> io::Result<SocketAddr>;
-}
-```
-
-## `Stream::peer_addr`
-
-The address the stream's peer stands at.
-
-```rust
-pub trait Stream {
-    fn peer_addr(&self) -> io::Result<SocketAddr>;
-}
-```
-
 ## `HostInet`
 
 The host's own TCP, as gVisor's `hostinet` hands a sandbox the host's sockets.
@@ -674,8 +617,8 @@ pub const SOCKET_BUFFER: usize = 64 * 1024;
 
 ## `Workers`
 
-How many worker threads one owner runs, and the most it may, as a cgroup's
-`pids.max` bounds its tasks. A forked child starts from none.
+How many sockets, requests, and lookups one owner holds, and its most, as a
+cgroup's `pids.max` bounds its tasks. A forked child starts from none.
 
 ```rust
 pub struct Workers {}
@@ -683,7 +626,7 @@ pub struct Workers {}
 
 ## `Workers::new`
 
-An owner running at most this many workers.
+An owner holding at most this many.
 
 ```rust
 impl Workers {
@@ -693,7 +636,7 @@ impl Workers {
 
 ## `SANDBOX_WORKERS`
 
-The most worker threads one Sandbox runs at once, two per open socket.
+The most sockets, requests, and lookups one Sandbox holds at once.
 
 ```rust
 pub const SANDBOX_WORKERS: usize = 64;
@@ -701,7 +644,8 @@ pub const SANDBOX_WORKERS: usize = 64;
 
 ## `PROCESS_WORKERS`
 
-The most worker threads the process runs at once, across every Sandbox.
+The most sockets, requests, and lookups the process holds at once, across
+every Sandbox.
 
 ```rust
 pub const PROCESS_WORKERS: usize = 1024;
@@ -709,7 +653,8 @@ pub const PROCESS_WORKERS: usize = 1024;
 
 ## `TcpSock`
 
-One TCP socket, shared by its socket file and the workers doing its host I/O.
+One TCP socket, shared by its socket file and the reactor watching its host
+socket.
 
 ```rust
 pub struct TcpSock {}
@@ -717,13 +662,13 @@ pub struct TcpSock {}
 
 ## `TcpSock::connect`
 
-A socket connecting on a worker to the first address that answers, in turn,
-given up at the deadline. It answers at once. Its two workers count against the
-Sandbox's and the process's, and a full count answers `WouldBlock`.
+A socket connecting to the first address that answers, in turn, without
+blocking. It answers at once. The socket counts against the Sandbox's and the
+process's caps until released, and a full count answers `WouldBlock`.
 
 ```rust
 impl TcpSock {
-    pub fn connect(family: Arc<dyn ProtocolFamily>, addrs: Vec<SocketAddr>, deadline: Option<Instant>, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
+    pub fn connect(family: Arc<dyn ProtocolFamily>, addrs: Vec<SocketAddr>, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
 }
 ```
 
@@ -902,7 +847,7 @@ its authority. Any refusal answers `Denied`, and nothing is sent.
 
 ```rust
 impl Namespace {
-    pub fn send(&self, cred: &Cred, request: OutgoingRequest, deadline: Option<Instant>) -> Result<Arc<Exchange>, HttpError> {}
+    pub fn send(&self, cred: &Cred, request: OutgoingRequest) -> Result<Arc<Exchange>, HttpError> {}
 }
 ```
 
@@ -976,18 +921,48 @@ pub struct ResponseHead {
 
 ## `Response`
 
-What the outbound seam answers: the head, and the body to read.
+What the outbound seam answers: the head, and the body to stream.
 
 ```rust
 pub struct Response {
     pub head: ResponseHead,
-    pub body: Box<dyn Read + Send>,
+    pub body: ResponseBody,
+}
+```
+
+## `Transport`
+
+The TCP connection the connector opened, non-blocking, read and written
+through tokio's I/O traits.
+
+```rust
+pub struct Transport {}
+```
+
+## `HyperOutbound`
+
+The default outbound seam: hyper's HTTP/1 client with no redirect, proxy, or
+decompression. Kobako's connector opens each connection, and TLS ends on the
+host. Each seam holds its own TLS configuration.
+
+```rust
+pub struct HyperOutbound {}
+```
+
+## `HyperOutbound::new`
+
+A seam trusting the OS's own store.
+
+```rust
+impl HyperOutbound {
+    pub fn new() -> Self {}
 }
 ```
 
 ## `Outbound`
 
-The replaceable HTTP sender. It dials only through the connector it is handed.
+The replaceable HTTP sender. It dials only through the connector it is handed,
+and its send runs on the reactor, so it never blocks.
 
 ```rust
 pub trait Outbound: Send + Sync {}
@@ -995,31 +970,11 @@ pub trait Outbound: Send + Sync {}
 
 ## `Outbound::send_request`
 
-Send a request through the connector, given up once the timeout passes.
+Send a request through the connector.
 
 ```rust
 pub trait Outbound {
-    fn send_request(&self, request: &OutgoingRequest, connector: &Connector, timeout: Option<Duration>) -> Result<Response, HttpError>;
-}
-```
-
-## `UreqOutbound`
-
-The default outbound seam: ureq with no redirect, proxy, or decompression, and
-no status read as an error.
-
-```rust
-pub struct UreqOutbound {}
-```
-
-## `UreqOutbound::new`
-
-A seam holding its own TLS configuration, so its sessions end with the
-Invocation that holds it.
-
-```rust
-impl UreqOutbound {
-    pub fn new() -> Self {}
+    fn send_request(&self, request: OutgoingRequest, connector: Connector) -> Sending;
 }
 ```
 
@@ -1044,11 +999,11 @@ impl Connector {
 
 ## `Connector::dial`
 
-A stream to the authority, given up once the timeout passes.
+A connection to the authority, once one of its addresses answers.
 
 ```rust
 impl Connector {
-    pub fn dial(&self, timeout: Option<Duration>) -> Result<Box<dyn Stream>, HttpError> {}
+    pub async fn dial(&self) -> Result<Transport, HttpError> {}
 }
 ```
 
@@ -1277,60 +1232,12 @@ impl Ruleset {
 
 ## `ProtocolFamily::connect_datagram`
 
-A datagram socket bound to an ephemeral port and connected to one peer. A family
-with no datagrams answers `Unsupported`.
+A non-blocking datagram socket bound to an ephemeral port and connected to one
+peer. A family with no datagrams answers `Unsupported`.
 
 ```rust
 pub trait ProtocolFamily {
-    fn connect_datagram(&self, _addr: SocketAddr) -> io::Result<Box<dyn Datagram>>;
-}
-```
-
-## `Datagram`
-
-One datagram socket the backend handed out, connected to one peer.
-
-```rust
-pub trait Datagram: Send + Sync {}
-```
-
-## `Datagram::send`
-
-Send one datagram to the peer.
-
-```rust
-pub trait Datagram {
-    fn send(&self, buf: &[u8]) -> io::Result<usize>;
-}
-```
-
-## `Datagram::recv`
-
-Receive one datagram from the peer.
-
-```rust
-pub trait Datagram {
-    fn recv(&self, buf: &mut [u8]) -> io::Result<usize>;
-}
-```
-
-## `Datagram::set_read_timeout`
-
-How long a receive waits before it gives up.
-
-```rust
-pub trait Datagram {
-    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
-}
-```
-
-## `Datagram::local_addr`
-
-The host's own end of the socket.
-
-```rust
-pub trait Datagram {
-    fn local_addr(&self) -> io::Result<SocketAddr>;
+    fn connect_datagram(&self, _addr: SocketAddr) -> io::Result<UdpSocket>;
 }
 ```
 
@@ -1344,8 +1251,8 @@ pub const MAX_DATAGRAM: usize = 65_507;
 
 ## `UdpSock`
 
-One UDP socket connected to one peer, shared by the socket file and its
-workers. A read takes one datagram.
+One UDP socket connected to one peer, shared by the socket file and the
+reactor watching its host socket. A read takes one datagram.
 
 ```rust
 pub struct UdpSock {}
@@ -1353,12 +1260,12 @@ pub struct UdpSock {}
 
 ## `UdpSock::connect`
 
-A socket connected to a peer, its host socket opened on a worker. Its two
-workers count against the Sandbox's and the process's.
+A socket connected to a peer, its host socket watched by the reactor. It counts
+against the Sandbox's and the process's caps until released.
 
 ```rust
 impl UdpSock {
-    pub fn connect(family: Arc<dyn ProtocolFamily>, addr: SocketAddr, deadline: Option<Instant>, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
+    pub fn connect(family: Arc<dyn ProtocolFamily>, addr: SocketAddr, workers: &Arc<Workers>) -> Result<Arc<Self>, FilesystemError> {}
 }
 ```
 
@@ -1379,6 +1286,6 @@ the ruleset pass it first, as they pass a TCP connect.
 
 ```rust
 impl Namespace {
-    pub fn connect_datagram(&self, cred: &Cred, addr: SocketAddr, deadline: Option<Instant>) -> Result<Arc<UdpSock>, FilesystemError> {}
+    pub fn connect_datagram(&self, cred: &Cred, addr: SocketAddr) -> Result<Arc<UdpSock>, FilesystemError> {}
 }
 ```

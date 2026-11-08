@@ -3860,7 +3860,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it subscribes to a clock through `wasi:clocks` |
 | Then | the call traps, since no handle is left to hand out |
 
-## `RT-342` A socket connects on a worker and its poll wakes once connected
+## `RT-342` A socket connects without blocking and its poll wakes once connected
 
 | Attribute | Value |
 | --- | --- |
