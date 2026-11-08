@@ -811,12 +811,78 @@ impl Namespace {
 
 ## `FieldError`
 
-Why a header the Guest names is not one it may set.
+Why a header the Guest names is not one it may set, or why a header list
+cannot take it.
 
 ```rust
 pub enum FieldError {
     InvalidSyntax,
     Forbidden,
+    TooLarge,
+    OutOfMemory,
+}
+```
+
+## `MAX_FIELD_SIZE`
+
+The most room one header list the Guest builds may take, as wasmtime's field
+limit. Each entry counts its name, its value, and its own place.
+
+```rust
+pub const MAX_FIELD_SIZE: usize = 128 * 1024;
+```
+
+## `Fields`
+
+A header list the Guest builds or reads. Its room counts against the
+Invocation's memory until it drops, so no list grows the host past the Guest's
+allotment.
+
+```rust
+pub struct Fields {}
+```
+
+## `Fields::new`
+
+An empty list, its room charged to a Cred.
+
+```rust
+impl Fields {
+    pub fn new(cred: Arc<Cred>) -> Arc<Self> {}
+}
+```
+
+## `Fields::with_entries`
+
+A list holding the given entries, as a response's headers are handed out. Its
+room is charged to a Cred, refused past the Invocation's memory as
+`OutOfMemory`. `MAX_FIELD_SIZE` bounds only what the Guest appends.
+
+```rust
+impl Fields {
+    pub fn with_entries(cred: Arc<Cred>, entries: Vec<(String, Vec<u8>)>) -> Result<Arc<Self>, FieldError> {}
+}
+```
+
+## `Fields::append`
+
+Append a header that `to_field_name` and `to_field_value` take. A list past
+`MAX_FIELD_SIZE` refuses it as `TooLarge`, and one past the Invocation's memory
+as `OutOfMemory`.
+
+```rust
+impl Fields {
+    pub fn append(&self, name: &str, value: Vec<u8>) -> Result<(), FieldError> {}
+}
+```
+
+## `Fields::entries`
+
+Every entry, in the order appended.
+
+```rust
+impl Fields {
+    pub fn entries(&self) -> Vec<(String, Vec<u8>)> {}
 }
 ```
 

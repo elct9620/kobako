@@ -988,3 +988,15 @@ endpoint "api.example.com", port: 443
 | Given | a guest holding a network Grant |
 | When | the script names `OpenSSL::SSL::SSLSocket` to wrap a `TCPSocket` |
 | Then | it raises `NameError`, where CRuby wraps the socket, since the guest has no TLS stack. TLS reaches the script only through an `https` request, which the host ends |
+
+## `NW-081` A header list past its room traps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-041` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest building headers through `wasi:http` |
+| When | it appends past 128 KiB of names and values, or past its `memory_limit` |
+| Then | the call traps, as wasmtime's field limit traps, since `header-error` has no case for it. A list holds its room against the Invocation's memory until it drops |
