@@ -6,6 +6,7 @@ require "test_helper"
 # the registration rules a network entry shares with a mount.
 class TestE2ENetwork < Minitest::Test
   include E2eGuestHelper
+  include NetworkLoopback
 
   def sandbox_with_api
     Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:api) { |net| net.endpoint "api.example.com", port: 443 }
@@ -56,5 +57,28 @@ class TestE2ENetwork < Minitest::Test
     end.value
 
     assert_equal 2, value, "ctx.network of a declared name must let the invocation run"
+  end
+
+  # An entry answering only endpoints, each any object with the fields read.
+  DuckEntry = Struct.new(:endpoints)
+  HostAndPort = Struct.new(:host, :port)
+  WithAddresses = Struct.new(:host, :port, :addresses)
+
+  REACH = <<~RUBY
+    public_only = begin; Net::HTTP.new("localhost", %<public>d).get("/"); rescue Errno::EACCES; :refused; end
+    [public_only, Net::HTTP.new("localhost", %<port>d).get("/").code]
+  RUBY
+
+  # @behavior NW-078
+  def test_a_duck_typed_endpoint_takes_the_defaults_and_an_ipaddr
+    with_http_server do |port, _seen|
+      entry = DuckEntry.new([HostAndPort.new("localhost", port + 1),
+                             WithAddresses.new("localhost", port, [IPAddr.new("127.0.0.0/8")])])
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:duck, entry)
+
+      assert_equal [:refused, "201"], sandbox.eval(format(REACH, public: port + 1, port: port)).value,
+                   "an endpoint object answering only host and port must lead only to public addresses, and one " \
+                   "naming an IPAddr must speak :http and lead where the IPAddr's prefix covers"
+    end
   end
 end

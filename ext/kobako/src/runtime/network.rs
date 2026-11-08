@@ -253,45 +253,50 @@ pub(super) fn to_grants(
     Ok((grants, pins))
 }
 
-/// The endpoint a Ruby object answering `host`, `port`, `protocol`, and
-/// `addresses` stands for.
+/// The endpoint a Ruby object answering `host` and `port` stands for, and
+/// `protocol`, `addresses`, and `rules` where it answers them; one it leaves
+/// out takes the default `Kobako::Network::Endpoint` gives it.
 fn to_endpoint(ruby: &Ruby, endpoint: Value) -> Result<Endpoint, MagnusError> {
     let refused = |message: String| MagnusError::new(ruby.exception_arg_error(), message);
     let host: String = endpoint
         .funcall::<_, _, Value>("host", ())?
         .funcall("to_s", ())?;
     let port: u16 = endpoint.funcall("port", ())?;
-    let protocol = match symbol_name(endpoint.funcall("protocol", ())?)?.as_deref() {
-        Some("http") => Protocol::Http,
-        Some("tcp") => Protocol::Tcp,
-        Some("udp") => Protocol::Udp,
-        _ => return Err(refused("protocol must be :http, :tcp, or :udp".to_string())),
-    };
-    let addresses: RArray = endpoint.funcall("addresses", ())?;
-    let addresses = (0..addresses.len() as isize)
-        .map(|index| {
-            to_addresses(addresses.entry(index)?).ok_or_else(|| {
-                refused("addresses must be :public, :private, :local, or a CIDR".to_string())
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let rules = match endpoint.respond_to("rules", false)? {
-        true => {
-            let rules: RArray = endpoint.funcall("rules", ())?;
+    let mut answered = Endpoint::new(host, port).map_err(|err| refused(err.to_string()))?;
+    if endpoint.respond_to("protocol", false)? {
+        answered = answered.with_protocol(
+            match symbol_name(endpoint.funcall("protocol", ())?)?.as_deref() {
+                Some("http") => Protocol::Http,
+                Some("tcp") => Protocol::Tcp,
+                Some("udp") => Protocol::Udp,
+                _ => return Err(refused("protocol must be :http, :tcp, or :udp".to_string())),
+            },
+        );
+    }
+    if endpoint.respond_to("addresses", false)? {
+        let addresses: RArray = endpoint.funcall("addresses", ())?;
+        answered = answered.with_addresses(
+            (0..addresses.len() as isize)
+                .map(|index| {
+                    to_addresses(addresses.entry(index)?).ok_or_else(|| {
+                        refused(
+                            "addresses must be :public, :private, :local, a CIDR, or an IPAddr"
+                                .to_string(),
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+    }
+    if endpoint.respond_to("rules", false)? {
+        let rules: RArray = endpoint.funcall("rules", ())?;
+        answered = answered.with_rules(
             (0..rules.len() as isize)
                 .map(|index| to_rule(rules.entry(index)?))
-                .collect::<Result<Vec<_>, _>>()?
-        }
-        false => Vec::new(),
-    };
-    Endpoint::new(host, port)
-        .map(|endpoint| {
-            endpoint
-                .with_protocol(protocol)
-                .with_addresses(addresses)
-                .with_rules(rules)
-        })
-        .map_err(|err| refused(err.to_string()))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+    }
+    Ok(answered)
 }
 
 /// The rule a Ruby object answering `allow`, `method`, and `path` stands for.
@@ -307,7 +312,8 @@ fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
     })
 }
 
-/// An address set's symbol, or a CIDR as `address/prefix`.
+/// An address set's symbol, a CIDR as `address/prefix`, or an `IPAddr`, which
+/// carries its prefix apart from its address.
 fn to_addresses(value: Value) -> Option<Addresses> {
     match symbol_name(value).ok()?.as_deref() {
         Some("public") => return Some(Addresses::Public),
@@ -316,7 +322,15 @@ fn to_addresses(value: Value) -> Option<Addresses> {
         Some(_) => return None,
         None => {}
     }
-    let cidr = RString::try_convert(value).ok()?.to_string().ok()?;
+    let cidr = match RString::try_convert(value) {
+        Ok(text) => text.to_string().ok()?,
+        Err(_) if value.respond_to("prefix", false).ok()? => {
+            let address: String = value.funcall("to_s", ()).ok()?;
+            let prefix: u8 = value.funcall("prefix", ()).ok()?;
+            format!("{address}/{prefix}")
+        }
+        Err(_) => return None,
+    };
     let (address, prefix) = cidr.split_once('/')?;
     let address: IpAddr = address.parse().ok()?;
     let prefix: u8 = prefix.parse().ok()?;
