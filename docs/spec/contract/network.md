@@ -509,7 +509,7 @@ impl Namespace {
 
 ## `NameLookup`
 
-One lookup in flight on a worker, then its answer.
+One lookup in flight on a thread of its own, then its answer.
 
 ```rust
 pub struct NameLookup {}
@@ -536,14 +536,14 @@ impl NameLookup {
 }
 ```
 
-## `NameLookup::poll`
+## `NameLookup::file`
 
-Whether the lookup has answered, registering on a poll table as a file's poll
-does.
+The lookup's file, as Linux's `anon_inode_getfile` makes one. A poll finds it
+readable once the lookup answers.
 
 ```rust
 impl NameLookup {
-    pub fn poll(&self, table: Option<&mut PollTable>) -> bool {}
+    pub fn file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {}
 }
 ```
 
@@ -1036,30 +1036,32 @@ impl Exchange {
 }
 ```
 
-## `Exchange::read`
+## `Exchange::response_file`
 
-Read what the body holds: zero at its end and `WouldBlock` while it holds
-nothing yet.
+The file a poll finds readable once the response's head arrives or the
+request fails, as Linux's `anon_inode_getfile` makes one.
 
 ```rust
 impl Exchange {
-    pub fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {}
+    pub fn response_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {}
 }
 ```
 
-## `Exchange::poll`
+## `Exchange::body_file`
 
-What a poll finds, the head or the body ready, registering on a poll table.
+The file the response's body reads from: zero at its end and `WouldBlock` while
+it holds nothing yet. A poll finds it readable once it holds bytes, ends, or
+fails.
 
 ```rust
 impl Exchange {
-    pub fn poll(&self, table: Option<&mut PollTable>) -> PollMask {}
+    pub fn body_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {}
 }
 ```
 
 ## `Exchange::release`
 
-Let the exchange go, so a worker blocked on a full buffer ends.
+Let the exchange go, dropping its task with the connection it holds.
 
 ```rust
 impl Exchange {
@@ -1086,13 +1088,14 @@ impl RequestBody {
 }
 ```
 
-## `RequestBody::write`
+## `RequestBody::file`
 
-Append bytes, refused past the Invocation's memory as `OutOfMemory`.
+The file a Guest writes the body through, as Linux's `anon_inode_getfile` makes
+one. A write appends, refused past the Invocation's memory as `OutOfMemory`.
 
 ```rust
 impl RequestBody {
-    pub fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {}
+    pub fn file(self: &Arc<Self>) -> File {}
 }
 ```
 
