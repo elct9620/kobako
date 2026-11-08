@@ -33,6 +33,9 @@ pub(crate) struct BodyLink {
     body: Arc<RequestBody>,
     handed: AtomicBool,
     finished: AtomicBool,
+    /// Whether the guest dropped the body without finishing it, which fails
+    /// its request, as wasmtime's `abort` does.
+    aborted: AtomicBool,
 }
 
 impl BodyLink {
@@ -40,6 +43,10 @@ impl BodyLink {
     /// ended.
     fn complete(&self) -> bool {
         !self.handed.load(Ordering::Acquire) || self.finished.load(Ordering::Acquire)
+    }
+
+    fn is_aborted(&self) -> bool {
+        self.aborted.load(Ordering::Acquire)
     }
 }
 
@@ -222,8 +229,15 @@ impl Invocation {
         }
     }
 
-    /// The future's request leaves once its body ended.
+    /// The future's request leaves once its body ended, and fails once its body
+    /// was dropped unfinished.
     fn advance(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<()> {
+        if let Held::Future(state) = self.held(future.0)? {
+            if matches!(state, Future::Waiting(request) if request.link.is_aborted()) {
+                *state = Future::Refused(ErrorCode::HTTPProtocolError);
+                return Ok(());
+            }
+        }
         let ready = matches!(
             self.held(future.0)?,
             Held::Future(Future::Waiting(request)) if request.link.complete()
@@ -297,6 +311,7 @@ impl HttpHost for Invocation {
             body: RequestBody::new(self.wasi().descriptors().cred().clone()),
             handed: AtomicBool::new(false),
             finished: AtomicBool::new(false),
+            aborted: AtomicBool::new(false),
         });
         Ok(OutgoingRequest(self.push_held(Held::Request(Request {
             method: Method::Get,
@@ -422,8 +437,13 @@ impl HttpHost for Invocation {
         Ok(Ok(()))
     }
 
+    /// A body dropped unfinished fails its request, as wasmtime-wasi-http aborts
+    /// it with an HTTP protocol error.
     fn types_outgoing_body_drop(&mut self, handle: OutgoingBody) -> wasmtime::Result<()> {
-        self.take_held(handle.0, Held::is_body).map(drop)
+        if let Held::Body { link, .. } = self.take_held(handle.0, Held::is_body)? {
+            link.aborted.store(true, Ordering::Release);
+        }
+        Ok(())
     }
 
     /// Ready once the response's head arrives; one whose request has not left
@@ -844,6 +864,39 @@ mod tests {
             (true, true, Ok(())),
             "outgoing-body.drop and finish must trap while the body's output-stream lives, \
              and finish once the stream is dropped"
+        );
+    }
+
+    // @behavior NW-071
+    #[test]
+    fn a_body_dropped_unfinished_fails_its_request() {
+        let mut guest = guest(Some(vec![
+            network::Endpoint::new("example.com", 80).unwrap()
+        ]));
+        let request = get(&mut guest, "example.com").unwrap();
+        let body = guest
+            .types_outgoing_request_body(request)
+            .unwrap()
+            .expect("the body is handed out once");
+        let future = guest
+            .outgoing_handler_handle(request, None)
+            .unwrap()
+            .expect("the request waits on its body");
+        let waiting = guest
+            .types_future_incoming_response_get(future)
+            .unwrap()
+            .is_none();
+        guest.types_outgoing_body_drop(body).unwrap();
+        let answer = guest
+            .types_future_incoming_response_get(future)
+            .unwrap()
+            .and_then(|answer| answer.ok())
+            .and_then(|response| response.err());
+        assert_eq!(
+            (waiting, answer),
+            (true, Some(ErrorCode::HTTPProtocolError)),
+            "future-incoming-response.get must wait while the outgoing-body is open, and answer \
+             HTTP-protocol-error once the body is dropped unfinished"
         );
     }
 }

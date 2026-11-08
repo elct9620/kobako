@@ -123,8 +123,14 @@ pub(crate) enum Resource {
     Pollable(Pollable),
     TcpSocket(TcpSocket),
     UdpSocket(UdpSocket),
-    /// An incoming or outgoing datagram stream.
+    /// An incoming datagram stream.
     Datagrams(SocketFile<UdpSock>),
+    /// An outgoing datagram stream, and how many datagrams its last
+    /// `check-send` permitted, as wasmtime keeps the permit a send spends.
+    OutgoingDatagrams {
+        socket: SocketFile<UdpSock>,
+        permit: u64,
+    },
     InputStream(Stream),
     OutputStream(Stream),
     /// One of `wasi:http`'s resources.
@@ -214,6 +220,9 @@ struct Entry {
     resource: Resource,
     parent: Option<u32>,
     children: usize,
+    /// Whether an output stream's flush is under way, as `io.wit` has
+    /// `check-write` answer zero until it completes.
+    flushing: bool,
 }
 
 pub(crate) struct Table {
@@ -274,6 +283,7 @@ impl Table {
                 resource,
                 parent,
                 children: 0,
+                flushing: false,
             },
         );
         Ok(handle)
@@ -294,6 +304,12 @@ impl Table {
 
     pub(crate) fn get_mut(&mut self, handle: u32) -> wasmtime::Result<&mut Resource> {
         self.entry_mut(handle).map(|entry| &mut entry.resource)
+    }
+
+    /// Whether `handle`'s flush is under way, which a later `check-write`
+    /// reads and a completed flush clears.
+    pub(crate) fn flushing(&mut self, handle: u32) -> wasmtime::Result<&mut bool> {
+        self.entry_mut(handle).map(|entry| &mut entry.flushing)
     }
 
     /// Have the socket's `handle` stand for its file, so a preview1 call on

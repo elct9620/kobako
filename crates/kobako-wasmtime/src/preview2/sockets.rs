@@ -65,17 +65,43 @@ pub(crate) fn to_error_code(err: &FilesystemError) -> ErrorCode {
         FilesystemError::WouldBlock => ErrorCode::WouldBlock,
         FilesystemError::TooManyOpenFiles => ErrorCode::NewSocketLimit,
         FilesystemError::AddressNotAvailable => ErrorCode::AddressNotBindable,
+        FilesystemError::AddressInUse => ErrorCode::AddressInUse,
         FilesystemError::HostUnreachable | FilesystemError::NetworkUnreachable => {
             ErrorCode::RemoteUnreachable
         }
         FilesystemError::ConnectionRefused => ErrorCode::ConnectionRefused,
-        FilesystemError::ConnectionReset | FilesystemError::BrokenPipe => {
-            ErrorCode::ConnectionReset
-        }
+        // WASI 0.2 names no broken pipe, so EPIPE answers `unknown`, as
+        // wasmtime-wasi's preview2 does.
+        FilesystemError::ConnectionReset => ErrorCode::ConnectionReset,
         FilesystemError::ConnectionAborted => ErrorCode::ConnectionAborted,
         FilesystemError::NotConnected | FilesystemError::AlreadyConnected => {
             ErrorCode::InvalidState
         }
         _ => ErrorCode::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // @behavior NW-074
+    #[test]
+    fn a_host_failure_answers_the_code_wasmtime_wasi_gives_it() {
+        assert_eq!(
+            [
+                FilesystemError::BrokenPipe,
+                FilesystemError::AddressInUse,
+                FilesystemError::ConnectionReset,
+            ]
+            .map(|err| to_error_code(&err)),
+            [
+                ErrorCode::Unknown,
+                ErrorCode::AddressInUse,
+                ErrorCode::ConnectionReset
+            ],
+            "EPIPE, EADDRINUSE, and ECONNRESET must answer unknown, address-in-use, and \
+             connection-reset, as wasmtime-wasi's preview2 maps them"
+        );
     }
 }

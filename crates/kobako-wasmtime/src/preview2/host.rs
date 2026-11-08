@@ -29,6 +29,10 @@ use super::table::{self, Resource, SocketFile, Stream};
 use crate::invocation::Invocation;
 use crate::trap::TimeoutTrap;
 
+/// The most one `blocking-write-and-flush` takes, past which `io.wit` says the
+/// call traps.
+const MAX_BLOCKING_WRITE: usize = 4096;
+
 impl Invocation {
     /// A pollable on the guest's own clocks: ready at once on frozen ones,
     /// and `nanos` of host time from now on live ones.
@@ -126,9 +130,22 @@ impl Invocation {
 
     fn datagrams(&self, handle: u32) -> wasmtime::Result<SocketFile<UdpSock>> {
         match self.wasi().table().get(handle)? {
-            Resource::Datagrams(datagrams) => Ok(datagrams.clone()),
+            Resource::Datagrams(datagrams)
+            | Resource::OutgoingDatagrams {
+                socket: datagrams, ..
+            } => Ok(datagrams.clone()),
             _ => Err(wasmtime::Error::msg(
                 "the guest named a handle that is not a datagram stream",
+            )),
+        }
+    }
+
+    /// The permit an outgoing datagram stream's last `check-send` gave.
+    fn permit(&mut self, stream: OutgoingDatagramStream) -> wasmtime::Result<&mut u64> {
+        match self.wasi_mut().table_mut().get_mut(stream.0)? {
+            Resource::OutgoingDatagrams { permit, .. } => Ok(permit),
+            _ => Err(wasmtime::Error::msg(
+                "the guest named a handle that is not an outgoing-datagram-stream",
             )),
         }
     }
@@ -498,7 +515,10 @@ impl SocketsHost for Invocation {
             _file: datagrams.clone(),
         };
         let incoming = IncomingDatagramStream(self.push(Resource::Datagrams(datagrams.clone()))?);
-        let outgoing = OutgoingDatagramStream(self.push(Resource::Datagrams(datagrams))?);
+        let outgoing = OutgoingDatagramStream(self.push(Resource::OutgoingDatagrams {
+            socket: datagrams,
+            permit: 0,
+        })?);
         Ok(Ok((incoming, outgoing)))
     }
 
@@ -559,16 +579,26 @@ impl SocketsHost for Invocation {
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
         let datagrams = self.datagrams(this.0)?;
         let found = datagrams.file().poll(None);
-        Ok(Ok(u64::from(found.contains(PollMask::OUT))))
+        let permitted = u64::from(found.contains(PollMask::OUT));
+        *self.permit(this)? = permitted;
+        Ok(Ok(permitted))
     }
 
     /// The datagrams sent in order, until the queue is full; one addressed to
-    /// another peer, or past what UDP carries, is refused.
+    /// another peer, or past what UDP carries, is refused. More than the last
+    /// `check-send` permitted traps, as `udp.wit` says it must, and a send
+    /// spends the permit.
     fn udp_outgoing_datagram_stream_send(
         &mut self,
         this: OutgoingDatagramStream,
         datagrams: Vec<OutgoingDatagram>,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        let permit = std::mem::take(self.permit(this)?);
+        if datagrams.len() as u64 > permit {
+            return Err(wasmtime::Error::msg(
+                "the guest sent more datagrams than check-send permitted",
+            ));
+        }
         let stream = self.datagrams(this.0)?;
         let mut sent = 0;
         for datagram in datagrams {
@@ -604,7 +634,9 @@ impl SocketsHost for Invocation {
         &mut self,
         handle: OutgoingDatagramStream,
     ) -> wasmtime::Result<()> {
-        self.drop_as(handle.0, |r| matches!(r, Resource::Datagrams(_)))
+        self.drop_as(handle.0, |r| {
+            matches!(r, Resource::OutgoingDatagrams { .. })
+        })
     }
 }
 
@@ -642,13 +674,18 @@ impl IoHost for Invocation {
         self.drop_as(handle.0, |r| matches!(r, Resource::InputStream(_)))
     }
 
-    /// Write every byte, waiting for room as it goes, then until what was
-    /// written has left for the host.
+    /// Write every byte, at most 4096, waiting for room as it goes, then until
+    /// what was written has left for the host.
     fn streams_output_stream_blocking_write_and_flush(
         &mut self,
         this: OutputStream,
         contents: Vec<u8>,
     ) -> wasmtime::Result<Result<(), StreamError>> {
+        if contents.len() > MAX_BLOCKING_WRITE {
+            return Err(wasmtime::Error::msg(
+                "the guest handed blocking-write-and-flush more than 4096 bytes",
+            ));
+        }
         let stream = self.stream(this.0)?;
         let mut rest = &contents[..];
         while !rest.is_empty() {
@@ -673,17 +710,22 @@ impl IoHost for Invocation {
         }
     }
 
-    /// How many bytes a write takes now, zero while the stream is full; a
-    /// failed stream answers its failure.
+    /// How many bytes a write takes now, zero while the stream is full or a
+    /// flush is under way; a failed stream answers its failure.
     fn streams_output_stream_check_write(
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Result<u64, StreamError>> {
         let stream = self.stream(this.0)?;
-        match stream.write(&[]) {
-            Ok(_) => Ok(Ok(stream.room() as u64)),
-            Err(err) => self.stream_error(err).map(Err),
+        if let Err(err) = stream.write(&[]) {
+            return self.stream_error(err).map(Err);
         }
+        let flushing = self.wasi_mut().table_mut().flushing(this.0)?;
+        if *flushing && !stream.drained() {
+            return Ok(Ok(0));
+        }
+        *flushing = false;
+        Ok(Ok(stream.room() as u64))
     }
 
     /// Write what `check-write` permitted; more than it permits traps, as
@@ -705,14 +747,18 @@ impl IoHost for Invocation {
         }
     }
 
-    /// What was written already goes to the host as it is taken, so a flush
-    /// asks nothing more of it.
+    /// Start a flush, which completes once what was written has left for the
+    /// host; `check-write` answers zero until then, as `io.wit` asks.
     fn streams_output_stream_flush(
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Result<(), StreamError>> {
-        self.streams_output_stream_check_write(this)
-            .map(|answer| answer.map(drop))
+        let stream = self.stream(this.0)?;
+        if let Err(err) = stream.write(&[]) {
+            return self.stream_error(err).map(Err);
+        }
+        *self.wasi_mut().table_mut().flushing(this.0)? = true;
+        Ok(Ok(()))
     }
 
     /// A pollable ready once the stream takes a write, the stream its parent,
@@ -1112,6 +1158,9 @@ mod tests {
                 .expect("the udp endpoint names the peer");
             let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
             guest.poll_pollable_block(room)?;
+            guest
+                .udp_outgoing_datagram_stream_check_send(outgoing)?
+                .expect("the stream with room permits a datagram");
             let sent = guest.udp_outgoing_datagram_stream_send(
                 outgoing,
                 vec![OutgoingDatagram {
@@ -1149,6 +1198,115 @@ mod tests {
              access-denied, and carry a datagram both ways with the peer a udp endpoint names; \
              got bind {fixed:?}, peerless {peerless:?}, received {} datagram(s)",
             answer.len()
+        );
+    }
+
+    // @behavior NW-072
+    #[test]
+    fn a_datagram_send_past_its_permit_traps() {
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = peer.local_addr().unwrap().port();
+        let mut guest = within_network(
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Udp),
+        );
+        let ping = || {
+            vec![OutgoingDatagram {
+                data: b"ping".to_vec(),
+                remote_address: None,
+            }]
+        };
+        let (unpermitted, permit, sent, spent) = run_task(
+            Some(Instant::now() + Duration::from_secs(10)),
+            || -> wasmtime::Result<_> {
+                let network = guest.instance_network_instance_network()?;
+                let socket = guest
+                    .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                    .expect("a network makes a socket");
+                guest
+                    .udp_udp_socket_start_bind(
+                        socket,
+                        network,
+                        IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                            port: 0,
+                            address: (0, 0, 0, 0),
+                        }),
+                    )?
+                    .expect("an ephemeral bind is the implicit one");
+                guest
+                    .udp_udp_socket_finish_bind(socket)?
+                    .expect("the bind settles");
+                let (_incoming, outgoing) = guest
+                    .udp_udp_socket_stream(
+                        socket,
+                        Some(IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                            port,
+                            address: (127, 0, 0, 1),
+                        })),
+                    )?
+                    .expect("the udp endpoint names the peer");
+                let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
+                guest.poll_pollable_block(room)?;
+                let unpermitted = guest
+                    .udp_outgoing_datagram_stream_send(outgoing, ping())
+                    .is_err();
+                let permit = guest.udp_outgoing_datagram_stream_check_send(outgoing)?;
+                let sent = guest.udp_outgoing_datagram_stream_send(outgoing, ping())?;
+                let spent = guest
+                    .udp_outgoing_datagram_stream_send(outgoing, ping())
+                    .is_err();
+                wasmtime::Result::Ok((unpermitted, permit, sent, spent))
+            },
+        )
+        .expect("the socket streams with its peer");
+        assert_eq!(
+            (unpermitted, permit, sent, spent),
+            (true, Ok(1), Ok(1), true),
+            "outgoing-datagram-stream.send must trap before any check-send and once its permit \
+             is spent, and send what check-send permitted"
+        );
+    }
+
+    // @behavior NW-073
+    #[test]
+    fn a_blocking_write_past_4096_bytes_traps() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut guest = networked(listener.local_addr().unwrap().port());
+        let answers = run_task(
+            Some(Instant::now() + Duration::from_secs(10)),
+            || -> wasmtime::Result<_> {
+                let socket = guest
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                    .expect("a network makes a socket");
+                let network = guest.instance_network_instance_network()?;
+                let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                    port: listener.local_addr().unwrap().port(),
+                    address: (127, 0, 0, 1),
+                });
+                guest
+                    .tcp_tcp_socket_start_connect(socket, network, remote)?
+                    .expect("an endpoint names the address");
+                let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+                guest.poll_pollable_block(connecting)?;
+                let (_input, output) = guest
+                    .tcp_tcp_socket_finish_connect(socket)?
+                    .expect("the listener accepts");
+                let past = guest
+                    .streams_output_stream_blocking_write_and_flush(output, vec![0; 4097])
+                    .is_err();
+                let within = guest
+                    .streams_output_stream_blocking_write_and_flush(output, vec![0; 4096])
+                    .map(|answer| answer.is_ok())?;
+                wasmtime::Result::Ok((past, within))
+            },
+        )
+        .expect("the socket connects");
+        assert_eq!(
+            answers,
+            (true, true),
+            "output-stream.blocking-write-and-flush must trap on 4097 bytes, as io.wit bounds it, \
+             and write 4096"
         );
     }
 
