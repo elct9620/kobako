@@ -23,10 +23,10 @@ module KobakoWasm
   MANIFEST   = File.join(CRATE_DIR, "Cargo.toml").freeze
   WASM_TARGET = "wasm32-wasip1"
 
-  # The Guest Binary build's output paths. Cargo derives the workspace-shared target
-  # directory from the workspace root rather than the cdylib member.
-  CRATE_TARGET_DIR  = File.join(WASM_WORKSPACE_DIR, "target").freeze
-  CRATE_WASM_OUTPUT = File.join(CRATE_TARGET_DIR, WASM_TARGET, "release", "kobako_wasm.wasm").freeze
+  # The Guest Binary build's target directory. Cargo derives the
+  # workspace-shared target directory from the workspace root rather than
+  # the cdylib member.
+  CRATE_TARGET_DIR = File.join(WASM_WORKSPACE_DIR, "target").freeze
 
   DATA_DIR  = File.join(ROOT, "data").freeze
   DATA_WASM = File.join(DATA_DIR, "kobako.wasm").freeze

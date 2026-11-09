@@ -60,13 +60,27 @@ module KobakoWasm
     end
 
     def run_cargo_release_build
-      args = ["cargo", "build", "--manifest-path", MANIFEST, "--release", "--target", WASM_TARGET]
+      args = ["cargo", "build", "--manifest-path", MANIFEST, "--release", "--target", WASM_TARGET,
+              "--target-dir", target_dir]
       args += ["--features", @features.join(",")] unless @features.empty?
       env  = cargo_build_env
       puts "[wasm:build] env=#{env.inspect}"
       puts "[wasm:build] ==> #{args.join(" ")}"
       raise "[wasm:build] cargo build failed" unless system(env, *args)
-      raise "[wasm:build] cargo built but #{CRATE_WASM_OUTPUT} is missing" unless File.exist?(CRATE_WASM_OUTPUT)
+      raise "[wasm:build] cargo built but #{crate_output} is missing" unless File.exist?(crate_output)
+    end
+
+    # A cdylib's file name carries no hash of its features, so variants
+    # sharing one target directory overwrite each other's and each rebuilds
+    # every time; each feature set keeps a target directory of its own.
+    def target_dir
+      return CRATE_TARGET_DIR if @features.empty?
+
+      File.join(CRATE_TARGET_DIR, "variants", @features.join("+"))
+    end
+
+    def crate_output
+      File.join(target_dir, WASM_TARGET, "release", "kobako_wasm.wasm")
     end
 
     # Bake the canonical boot state into the
@@ -75,7 +89,7 @@ module KobakoWasm
     # in data/.
     def bake_into_data_dir
       FileUtils.mkdir_p(DATA_DIR)
-      Baker.new.bake(CRATE_WASM_OUTPUT, @output)
+      Baker.new.bake(crate_output, @output)
       puts "[wasm:build] Guest Binary ready at #{@output} (#{File.size(@output)} bytes)"
     end
 
