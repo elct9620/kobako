@@ -176,11 +176,15 @@ mod tests {
                     .map(drop),
             ),
         ];
-        let filetype = guest
+        let fdstat = guest
             .fd_fdstat_get(&mut mem, fd.into())
             .ok()
             .map(|stat| stat.fs_filetype);
-        (calls, filetype)
+        let filestat = guest
+            .fd_filestat_get(&mut mem, fd.into())
+            .ok()
+            .map(|stat| stat.filetype);
+        (calls, fdstat.filter(|kind| filestat == Some(*kind)))
     }
 
     // @behavior RT-363
@@ -217,8 +221,9 @@ mod tests {
             ],
             "fd_seek, fd_tell, fd_pread, and fd_pwrite on a socket's number must answer ESPIPE, \
              fd_sync, fd_datasync, and fd_filestat_set_size EINVAL, fd_advise succeed, and \
-             fd_readdir ENOTDIR, as Linux answers each on a socket; fd_fdstat_get must report a \
-             TCP socket as a stream and a UDP socket as datagrams"
+             fd_readdir ENOTDIR, as Linux answers each on a socket; fd_fdstat_get and \
+             fd_filestat_get must both report a TCP socket as a stream and a UDP socket as \
+             datagrams"
         );
     }
 

@@ -40,6 +40,13 @@ use crate::trap::TimeoutTrap;
 /// call traps.
 const MAX_BLOCKING_WRITE: usize = 4096;
 
+/// The most datagrams one `receive` answers, as wasmtime-wasi's.
+const MAX_DATAGRAMS: usize = 16;
+
+/// About the most bytes one `receive` answers, each datagram counting one more
+/// for its record, as wasmtime-wasi's read allocation limit.
+const MAX_RECEIVE_BYTES: usize = 64 * 1024;
+
 impl Invocation {
     /// A pollable on the guest's own clocks, `nanos` of host time from now;
     /// the wait holding it decides when it is due.
@@ -331,8 +338,9 @@ impl SocketsHost for Invocation {
             }
             Err(FilesystemError::WouldBlock) => Ok(Err(ErrorCode::WouldBlock)),
             Err(err) => {
-                self.tcp(this)?.state = TcpState::Closed;
-                Ok(Err(to_error_code(&err)))
+                let code = to_error_code(&err);
+                self.tcp(this)?.state = TcpState::Closed(code);
+                Ok(Err(code))
             }
         }
     }
@@ -367,16 +375,18 @@ impl SocketsHost for Invocation {
         Ok(Ok(()))
     }
 
-    /// The guest's own end, once a connect bound it, at the virtual port the
-    /// namespace gave it; an unbound socket answers `invalid-state`, as
-    /// wasmtime's.
+    /// The guest's own end once connected, at the virtual port the namespace
+    /// gave it. As wasmtime's, a socket unbound or still connecting answers
+    /// `invalid-state`, and one whose connect failed answers its error.
     fn tcp_tcp_socket_local_address(
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
         let socket = self.tcp(this)?;
-        if !matches!(socket.state, TcpState::Connecting | TcpState::Connected) {
-            return Ok(Err(ErrorCode::InvalidState));
+        match socket.state {
+            TcpState::Connected => {}
+            TcpState::Closed(code) => return Ok(Err(code)),
+            TcpState::Unbound | TcpState::Connecting => return Ok(Err(ErrorCode::InvalidState)),
         }
         let port = socket.socket.sock.virtual_port();
         Ok(Ok(from_socket_addr(self.network().local_address(port))))
@@ -529,8 +539,8 @@ impl SocketsHost for Invocation {
         self.table().delete(handle).map(drop)
     }
 
-    /// Up to `max_results` datagrams the peer sent, without waiting; none yet
-    /// is an empty list.
+    /// Up to `max_results` datagrams the peer sent, without waiting, never
+    /// past `MAX_DATAGRAMS` or `MAX_RECEIVE_BYTES`; none yet is an empty list.
     fn udp_incoming_datagram_stream_receive(
         &mut self,
         this: IncomingDatagramStream,
@@ -541,14 +551,20 @@ impl SocketsHost for Invocation {
             .sock
             .peer_addr()
             .expect("a datagram stream is only handed out once its socket connects");
+        let max_results =
+            usize::try_from(max_results).map_or(MAX_DATAGRAMS, |max| max.min(MAX_DATAGRAMS));
         let mut received = Vec::new();
+        let mut sum = 0;
         let mut buf = vec![0; MAX_DATAGRAM];
-        while (received.len() as u64) < max_results {
+        while received.len() < max_results && sum < MAX_RECEIVE_BYTES {
             match datagrams.file().read(&mut buf) {
-                Ok(n) => received.push(IncomingDatagram {
-                    data: buf[..n].to_vec(),
-                    remote_address: from_socket_addr(peer),
-                }),
+                Ok(n) => {
+                    sum += 1 + n;
+                    received.push(IncomingDatagram {
+                        data: buf[..n].to_vec(),
+                        remote_address: from_socket_addr(peer),
+                    });
+                }
                 Err(FilesystemError::WouldBlock) => break,
                 Err(err) if received.is_empty() => return Ok(Err(to_error_code(&err))),
                 Err(_) => break,
@@ -726,7 +742,8 @@ impl IoHost for Invocation {
     }
 
     /// Write what `check-write` permitted; more than it permits traps, as
-    /// `io.wit` says a write past the permit must.
+    /// `io.wit` says a write past the permit must. The permit is for the next
+    /// write only, so a write spends all of it, as wasmtime's does.
     fn streams_output_stream_write(
         &mut self,
         this: OutputStream,
@@ -738,7 +755,7 @@ impl IoHost for Invocation {
                 "the guest wrote past what check-write permitted",
             ));
         }
-        output.permit -= contents.len();
+        output.permit = 0;
         let stream = output.stream.clone();
         match stream.write(&contents) {
             Ok(_) => Ok(Ok(())),
@@ -1271,6 +1288,123 @@ mod tests {
         );
     }
 
+    // @behavior NW-114
+    #[test]
+    fn a_tcp_socket_reads_its_own_end_only_once_connected() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let open = listener.local_addr().unwrap().port();
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let tcp = |port| {
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Tcp)
+        };
+        let mut guest = within_network_holding([tcp(open), tcp(closed)], None);
+        let (during, failure, after) =
+            run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+                let network = guest.instance_network_instance_network()?;
+                let connecting = guest
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                    .expect("a network makes a socket");
+                guest
+                    .tcp_tcp_socket_start_connect(connecting, network, ipv4((127, 0, 0, 1), open))?
+                    .expect("an endpoint names the listener");
+                let during = guest.tcp_tcp_socket_local_address(connecting)?;
+                let refused = guest
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                    .expect("a network makes a socket");
+                guest
+                    .tcp_tcp_socket_start_connect(refused, network, ipv4((127, 0, 0, 1), closed))?
+                    .expect("an endpoint names the closed port");
+                let settled = guest.tcp_tcp_socket_subscribe(refused)?;
+                guest.poll_pollable_block(settled)?;
+                let failure = guest.tcp_tcp_socket_finish_connect(refused)?.err();
+                let after = guest.tcp_tcp_socket_local_address(refused)?;
+                Ok::<_, wasmtime::Error>((during, failure, after))
+            })
+            .expect("the connects answer");
+        assert_eq!(
+            (during, failure, after),
+            (
+                Err(ErrorCode::InvalidState),
+                Some(ErrorCode::ConnectionRefused),
+                Err(ErrorCode::ConnectionRefused)
+            ),
+            "local-address of a TCP socket still connecting must answer invalid-state, and of \
+             one whose connect was refused the connect's error, as wasmtime-wasi answers each"
+        );
+    }
+
+    // @behavior NW-115
+    #[test]
+    fn one_datagram_receive_answers_at_most_sixteen() {
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = peer.local_addr().unwrap().port();
+        let mut guest = within_network(
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Udp),
+        );
+        let batches = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            guest
+                .udp_udp_socket_start_bind(socket, network, ipv4((0, 0, 0, 0), 0))?
+                .expect("an ephemeral bind is the implicit one");
+            guest
+                .udp_udp_socket_finish_bind(socket)?
+                .expect("the bind settles");
+            let (incoming, outgoing) = guest
+                .udp_udp_socket_stream(socket, Some(ipv4((127, 0, 0, 1), port)))?
+                .expect("the udp endpoint names the peer");
+            let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
+            guest.poll_pollable_block(room)?;
+            guest
+                .udp_outgoing_datagram_stream_check_send(outgoing)?
+                .expect("the stream with room permits a datagram");
+            guest
+                .udp_outgoing_datagram_stream_send(
+                    outgoing,
+                    vec![OutgoingDatagram {
+                        data: b"hi".to_vec(),
+                        remote_address: None,
+                    }],
+                )?
+                .expect("the datagram is sent");
+            let mut buf = [0; 16];
+            let (_, guest_end) = peer.recv_from(&mut buf)?;
+            for _ in 0..20 {
+                peer.send_to(b"ping", guest_end)?;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            let mut batches = Vec::new();
+            while batches.iter().sum::<usize>() < 20 {
+                let arrived = guest.udp_incoming_datagram_stream_subscribe(incoming)?;
+                guest.poll_pollable_block(arrived)?;
+                guest.poll_pollable_drop(arrived)?;
+                batches.push(
+                    guest
+                        .udp_incoming_datagram_stream_receive(incoming, 100)?
+                        .expect("the peer's datagrams are received")
+                        .len(),
+                );
+            }
+            Ok::<_, wasmtime::Error>(batches)
+        })
+        .expect("the datagrams arrive");
+        assert!(
+            batches.iter().all(|batch| *batch <= 16),
+            "receive with max-results 100 must answer at most sixteen datagrams a call, as \
+             wasmtime-wasi bounds one receive, got {batches:?}"
+        );
+    }
+
     // @behavior NW-055
     #[test]
     fn a_udp_socket_streams_only_with_a_peer_it_names() {
@@ -1520,15 +1654,16 @@ mod tests {
             let permitted = guest
                 .streams_output_stream_check_write(output)?
                 .expect("a connected stream permits");
-            let within = guest.streams_output_stream_write(output, vec![b'x'; permitted as usize]);
+            let within = guest.streams_output_stream_write(output, vec![b'x']);
             let past = guest.streams_output_stream_write(output, vec![b'x']);
             Ok::<_, wasmtime::Error>((permitted, within.is_ok(), past.is_err()))
         })
         .expect("the connect answers");
         assert!(
-            permitted > 0 && within && past,
-            "output-stream.write of what check-write permitted must succeed, and one more \
-             byte without another check-write must trap"
+            permitted > 1 && within && past,
+            "output-stream.write of one byte of what check-write permitted must succeed, and \
+             another byte without another check-write must trap, as a permit is for the next \
+             write only"
         );
     }
 

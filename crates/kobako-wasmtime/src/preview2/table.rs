@@ -12,6 +12,7 @@ use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
 
+use super::bindings::wasi_sockets_network_0_2_12::ErrorCode;
 use crate::descriptors::{lock, Numbers, SharedFile, SocketType};
 
 /// One socket file every view of a guest socket shares, as handles on one
@@ -190,9 +191,9 @@ pub(crate) enum TcpState {
     Unbound,
     Connecting,
     Connected,
-    /// A connect that failed, after which the socket takes no other, as
-    /// `tcp.wit` closes it.
-    Closed,
+    /// A connect that failed with its error, after which the socket takes no
+    /// other, as `tcp.wit` closes it.
+    Closed(ErrorCode),
 }
 
 /// What a pollable waits for.

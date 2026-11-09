@@ -129,6 +129,15 @@ fn to_filetype(file_type: FileType) -> Filetype {
     }
 }
 
+/// A socket of `kind` as a preview1 `filetype`, which tells a stream from a
+/// datagram socket where `st_mode` does not.
+fn to_socket_filetype(kind: SocketType) -> Filetype {
+    match kind {
+        SocketType::Stream => Filetype::SocketStream,
+        SocketType::Datagram => Filetype::SocketDgram,
+    }
+}
+
 /// A `filestat` for what a Filesystem reports a path names, as the guest
 /// holding `table` sees it, at time zero where it keeps no time.
 pub(crate) fn to_filestat(table: &Descriptors, stat: Kstat) -> types::Filestat {
@@ -205,12 +214,8 @@ pub(crate) fn sync(table: &mut Descriptors, fd: u32, datasync: bool) -> Answer {
 
 pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
     if let Some((socket, kind)) = table.socket_of(fd) {
-        let fs_filetype = match kind {
-            SocketType::Stream => Filetype::SocketStream,
-            SocketType::Datagram => Filetype::SocketDgram,
-        };
         return Ok(types::Fdstat {
-            fs_filetype,
+            fs_filetype: to_socket_filetype(kind),
             ..to_fdstat(&lock(&socket), false)
         });
     }
@@ -280,11 +285,14 @@ pub(crate) fn fdstat_set_rights(table: &Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filestat> {
-    let stat = match table.socket(fd) {
-        Some(socket) => lock(&socket).getattr()?,
-        None => descriptor(table, fd)?.file.getattr()?,
-    };
-    Ok(to_filestat(table, stat))
+    if let Some((socket, kind)) = table.socket_of(fd) {
+        let stat = lock(&socket).getattr()?;
+        return Ok(types::Filestat {
+            filetype: to_socket_filetype(kind),
+            ..to_filestat(table, stat)
+        });
+    }
+    Ok(to_filestat(table, descriptor(table, fd)?.file.getattr()?))
 }
 
 /// A size Linux's signed `loff_t` reads as negative answers before the
