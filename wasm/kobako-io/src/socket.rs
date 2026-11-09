@@ -326,6 +326,30 @@ pub(crate) fn peer_of(
     Ok((ip, port, call))
 }
 
+/// The local end `host` and `port` name for a bind, and the text naming it in
+/// an error, as CRuby's `rsock_addrinfo` reads them with `AI_PASSIVE`: `nil`,
+/// `""`, and `"<any>"` stand for any address and `"<broadcast>"` for the
+/// broadcast one; any other host resolves as a peer's does. The host decides
+/// which end a bind may take.
+pub(crate) fn local_of(
+    mrb: &Mrb,
+    host: Value,
+    port: Value,
+    class: &str,
+) -> Result<(Ipv4Addr, u16, String), Error> {
+    let text = match host.is_nil() {
+        true => String::new(),
+        false => host.to_r_string(mrb)?.to_string(mrb)?,
+    };
+    let ip = match text.as_str() {
+        "" | "<any>" => Ipv4Addr::UNSPECIFIED,
+        "<broadcast>" => Ipv4Addr::BROADCAST,
+        _ => return peer_of(mrb, host, port, None, class, "bind(2)"),
+    };
+    let (port, port_text) = port_of(mrb, port)?;
+    Ok((ip, port, for_peer("bind(2)", &text, port_text)))
+}
+
 /// The port `port` names, and its text, as Linux's `getaddrinfo` reads what
 /// CRuby hands it: `nil` or `""` is port 0, and an Integer or a String of
 /// digits keeps its low 16 bits. The guest has no services database, so any
@@ -363,8 +387,9 @@ pub(crate) fn to_ip_socket_address((ip, port): (Ipv4Addr, u16)) -> IpSocketAddre
 /// `TCPSocket.new(remote_host, remote_port, local_host = nil, local_port = nil,
 /// connect_timeout: nil)` connects to the IPv4 address `remote_host` names, or
 /// the one its name leads to, as the network the Sandbox gives allows. A local
-/// end the script chooses is refused, as a chosen bind is, and a connect
-/// slower than `connect_timeout` raises `IO::TimeoutError`, as CRuby's does.
+/// end the script chooses is bound first, as the host lets a bind take it,
+/// and a connect slower than `connect_timeout` raises `IO::TimeoutError`, as
+/// CRuby's does.
 fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
     const TCP: &str = "TCPSocket";
     let mut args = args.to_vec();
@@ -378,16 +403,22 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
     };
     let Timeouts { resolv, connect } = timeouts_of(mrb, options)?;
     let (ip, port, call) = peer_of(mrb, host, port, resolv, TCP, "connect(2)")?;
-    if local.iter().any(|end| !end.is_nil()) {
-        return Err(errno::error_by_name(
-            mrb,
-            c"EACCES",
-            &for_peer("bind(2)", &ip.to_string(), port),
-        ));
-    }
     let failed = |code| to_error(mrb, code, TCP, &call);
     let socket = create_tcp_socket(IpAddressFamily::Ipv4).map_err(failed)?;
     let network = instance_network();
+    if local.iter().any(|end| !end.is_nil()) {
+        let none = qnil().as_value();
+        let (local_host, local_port) = (
+            local.first().copied().unwrap_or(none),
+            local.get(1).copied().unwrap_or(none),
+        );
+        let (local_ip, local_port, bind_call) = local_of(mrb, local_host, local_port, TCP)?;
+        let refused = |code| to_error(mrb, code, TCP, &bind_call);
+        socket
+            .start_bind(&network, to_ip_socket_address((local_ip, local_port)))
+            .map_err(refused)?;
+        socket.finish_bind().map_err(refused)?;
+    }
     socket
         .start_connect(&network, to_ip_socket_address((ip, port)))
         .map_err(failed)?;

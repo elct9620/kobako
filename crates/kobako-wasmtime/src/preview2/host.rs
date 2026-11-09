@@ -283,6 +283,48 @@ impl SocketsHost for Invocation {
         Ok(Ok(handle))
     }
 
+    /// A bind the socket hooks pass, as `udp-socket.start-bind` asks; the
+    /// host socket takes its own address as it connects, so a bind settles
+    /// at once.
+    fn tcp_tcp_socket_start_bind(
+        &mut self,
+        this: TcpSocket,
+        network: Network,
+        local_address: IpSocketAddress,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        self.ensure_network(network)?;
+        match self.tcp(this)?.state {
+            TcpState::Unbound => {}
+            TcpState::Binding | TcpState::Connecting => {
+                return Ok(Err(ErrorCode::ConcurrencyConflict))
+            }
+            _ => return Ok(Err(ErrorCode::InvalidState)),
+        }
+        let Some(addr) =
+            to_socket_addr(&local_address).filter(|addr| is_valid_unicast_address(*addr))
+        else {
+            return Ok(Err(ErrorCode::InvalidArgument));
+        };
+        let cred = self.wasi().descriptors().cred().clone();
+        if let Err(err) = self.network().bind(&cred, addr) {
+            return Ok(Err(to_error_code(&err)));
+        }
+        self.tcp(this)?.state = TcpState::Binding;
+        Ok(Ok(()))
+    }
+
+    fn tcp_tcp_socket_finish_bind(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        let socket = self.tcp(this)?;
+        if socket.state != TcpState::Binding {
+            return Ok(Err(ErrorCode::NotInProgress));
+        }
+        socket.state = TcpState::Bound;
+        Ok(Ok(()))
+    }
+
     /// A connect passes the Invocation's namespace on what the guest named,
     /// which dials that exact address without blocking, so this answers at
     /// once.
@@ -295,8 +337,10 @@ impl SocketsHost for Invocation {
         self.ensure_network(network)?;
         let socket = self.tcp(this)?;
         match socket.state {
-            TcpState::Unbound => {}
-            TcpState::Connecting => return Ok(Err(ErrorCode::ConcurrencyConflict)),
+            TcpState::Unbound | TcpState::Bound => {}
+            TcpState::Binding | TcpState::Connecting => {
+                return Ok(Err(ErrorCode::ConcurrencyConflict))
+            }
             _ => return Ok(Err(ErrorCode::InvalidState)),
         }
         let sock = socket.socket.sock.clone();
@@ -377,8 +421,9 @@ impl SocketsHost for Invocation {
     }
 
     /// The guest's own end once connected, at the virtual port the namespace
-    /// gave it. As wasmtime's, a socket unbound or still connecting answers
-    /// `invalid-state`, and one whose connect failed answers its error.
+    /// gave it, and the unspecified end it bound before that. As wasmtime's,
+    /// a socket unbound or still connecting answers `invalid-state`, and one
+    /// whose connect failed answers its error.
     fn tcp_tcp_socket_local_address(
         &mut self,
         this: TcpSocket,
@@ -386,6 +431,9 @@ impl SocketsHost for Invocation {
         let socket = self.tcp(this)?;
         match socket.state {
             TcpState::Connected => {}
+            TcpState::Binding | TcpState::Bound => {
+                return Ok(Ok(from_socket_addr(self.network().local_address(None))))
+            }
             TcpState::Closed(code) => return Ok(Err(code)),
             TcpState::Unbound | TcpState::Connecting => return Ok(Err(ErrorCode::InvalidState)),
         }

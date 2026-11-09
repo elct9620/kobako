@@ -70,6 +70,8 @@ const IMPORTS: &[(&str, &[&str])] = &[
     (
         "wasi:sockets/tcp@0.2.12",
         &[
+            "[method]tcp-socket.start-bind",
+            "[method]tcp-socket.finish-bind",
             "[method]tcp-socket.start-connect",
             "[method]tcp-socket.finish-connect",
             "[method]tcp-socket.shutdown",

@@ -7,7 +7,32 @@ require "test_helper"
 # holds, and the calls CRuby's refuses.
 class TestE2ENetworkUdpCruby < Minitest::Test
   include E2eGuestHelper
+  include NetworkLoopback
   include UdpLoopback
+
+  BOUND = <<~RUBY
+    tcp = TCPSocket.new("127.0.0.1", %<tcp>d, "0.0.0.0", 0)
+    tcp.write("ping")
+    tcp.close_write
+    any = UDPSocket.new
+    bound = any.bind("<any>", "0")
+    named = begin; UDPSocket.new.bind("127.0.0.1", 0); rescue Errno::EACCES; :refused; end
+    [tcp.read, bound, named]
+  RUBY
+
+  # @behavior NW-117
+  def test_a_socket_binds_the_local_end_the_host_allows
+    with_upcase_server do |tcp|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:local) do |net|
+        net.endpoint "127.0.0.1", port: tcp, protocol: :tcp, addresses: [:local]
+      end
+
+      assert_equal ["PING", 0, :refused], sandbox.eval(format(BOUND, tcp: tcp)).value,
+                   "TCPSocket.new with local end \"0.0.0.0\" port 0 must connect and UDPSocket#bind to " \
+                   "\"<any>\" port \"0\" pass, as CRuby reads each with AI_PASSIVE, while a bind to " \
+                   "127.0.0.1 raises Errno::EACCES"
+    end
+  end
 
   READ = <<~RUBY
     socket = UDPSocket.new

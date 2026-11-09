@@ -12,7 +12,7 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 use crate::errno;
 use crate::io::argument_error;
 use crate::socket::{
-    ensure_reverse_lookup_flag, for_peer, local_addr_array, peer_of, to_addr_array, to_error,
+    ensure_reverse_lookup_flag, local_addr_array, local_of, peer_of, to_addr_array, to_error,
     to_ip_socket_address, ByteSource, AF_INET,
 };
 use crate::wasi::wasi::sockets::instance_network::instance_network;
@@ -151,13 +151,13 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
     Ok(mrb.wrap_as(datagrams, class).as_value())
 }
 
-/// Bind to any address on an ephemeral port, the one bind the guest makes.
-fn bind_any(open: &mut Open, port: u16) -> Result<(), ErrorCode> {
+/// Bind to `end` as the host lets a bind take it.
+fn bind_to(open: &mut Open, end: (Ipv4Addr, u16)) -> Result<(), ErrorCode> {
     if open.bound {
         return Err(ErrorCode::InvalidState);
     }
-    let any = to_ip_socket_address((Ipv4Addr::UNSPECIFIED, port));
-    open.socket.start_bind(&instance_network(), any)?;
+    open.socket
+        .start_bind(&instance_network(), to_ip_socket_address(end))?;
     let pollable = open.socket.subscribe();
     loop {
         match open.socket.finish_bind() {
@@ -170,19 +170,12 @@ fn bind_any(open: &mut Open, port: u16) -> Result<(), ErrorCode> {
     Ok(())
 }
 
-/// `bind(host, port)` binds to any address on port `0`; a chosen address or
-/// port raises `Errno::EACCES`, and a second bind `Errno::EINVAL`, as Linux's.
+/// `bind(host, port)` binds to the local end they name, as the host lets a
+/// bind take it; a second bind raises `Errno::EINVAL`, as Linux's.
 fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
-    let host = host.to_r_string(mrb)?.to_string(mrb)?;
-    let port = u16::try_from(i64::try_convert(port, mrb)?)
-        .map_err(|_| argument_error(mrb, "port out of range"))?;
-    let call = for_peer("bind(2)", &host, port);
-    let any = host.is_empty() || host.parse::<Ipv4Addr>() == Ok(Ipv4Addr::UNSPECIFIED);
+    let (ip, port, call) = local_of(mrb, host, port, UDP)?;
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
-        if !any {
-            return Err(errno::error_by_name(mrb, c"EACCES", &call));
-        }
-        bind_any(open, port).map_err(|code| match code {
+        bind_to(open, (ip, port)).map_err(|code| match code {
             ErrorCode::InvalidState => errno::error_by_name(mrb, c"EINVAL", &call),
             code => to_error(mrb, code, UDP, &call),
         })
@@ -197,7 +190,7 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
     let failed = |code| to_error(mrb, code, UDP, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         if !open.bound {
-            bind_any(open, 0).map_err(failed)?;
+            bind_to(open, (Ipv4Addr::UNSPECIFIED, 0)).map_err(failed)?;
         }
         open.streams = None;
         let (incoming, outgoing) = open

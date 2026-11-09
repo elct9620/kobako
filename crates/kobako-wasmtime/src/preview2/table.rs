@@ -189,6 +189,8 @@ pub(crate) struct TcpSocket {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TcpState {
     Unbound,
+    Binding,
+    Bound,
     Connecting,
     Connected,
     /// A connect that failed with its error, after which the socket takes no
