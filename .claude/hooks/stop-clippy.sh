@@ -9,16 +9,14 @@ set -euo pipefail
 
 root="${CLAUDE_PROJECT_DIR:?}"
 
-# Defer the whole gate while a benchmark is measuring — its CPU spike
-# would contend for cores and skew the numbers.
-if "$root/.claude/hooks/bench-guard.sh"; then exit 0; fi
+source "$root/.claude/hooks/stop-gate.sh"
+gate_start clippy
 
 clippy() {
   local label="$1"
   shift
-  if ! cargo clippy "$@" -q -- -D warnings >&2; then
-    echo "[clippy:$label] warnings found" >&2
-    exit 2
+  if ! cargo clippy "$@" -q -- -D warnings >>"$GATE_LOG" 2>&1; then
+    gate_fail "clippy:$label" <"$GATE_LOG"
   fi
 }
 
