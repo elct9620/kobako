@@ -720,7 +720,7 @@ struct State {
 /// One request in flight, then its response: the head once it arrives, and
 /// the body as the task reads it.
 pub struct Exchange {
-    state: Mutex<State>,
+    state: Arc<Mutex<State>>,
     wait: Arc<WaitQueueHead>,
     task: Mutex<Option<Arc<Task>>>,
     /// The request's place against its Sandbox's cap and the process's.
@@ -742,34 +742,31 @@ impl Exchange {
         let place = Some(place);
         let reactor = Reactor::current().map_err(|_| HttpError::Internal)?;
         let exchange = Arc::new(Self {
-            state: Mutex::new(State {
+            state: Arc::new(Mutex::new(State {
                 phase: Phase::Sending,
                 body: VecDeque::new(),
                 body_end: false,
                 body_error: false,
                 filler: None,
-            }),
+            })),
             wait: Arc::default(),
             task: Mutex::new(None),
             place: Mutex::new(place),
         });
-        let filling = Arc::downgrade(&exchange);
+        // The task holds what it answers into, never the exchange, so the
+        // exchange's last hold, which cancels the task, is never the task's.
+        let (state, wait) = (exchange.state.clone(), exchange.wait.clone());
         let sending = seam.send_request(request, connector);
         let task = reactor.spawn(async move {
-            let answer = sending.await;
-            let Some(exchange) = filling.upgrade() else {
-                return;
-            };
-            match answer {
+            match sending.await {
                 Ok(response) => {
-                    exchange.state().phase = Phase::Answered(response.head);
-                    exchange.wait.wake_up();
-                    drop(exchange);
-                    fill_body(&filling, response.body).await;
+                    lock(&state).phase = Phase::Answered(response.head);
+                    wait.wake_up();
+                    fill_body(&state, &wait, response.body).await;
                 }
                 Err(err) => {
-                    exchange.state().phase = Phase::Failed(err);
-                    exchange.wait.wake_up();
+                    lock(&state).phase = Phase::Failed(err);
+                    wait.wake_up();
                 }
             }
         });
@@ -778,7 +775,7 @@ impl Exchange {
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     /// The response's head, or why it has none; `None` while the request is
@@ -898,47 +895,41 @@ impl FileOperations for BodyFile {
     }
 }
 
+fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
+    state.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Move `body` into the exchange's buffer as room frees, never past the
-/// buffer, until the body ends or fails, or the exchange is gone; what a frame
-/// holds past the room waits here.
-async fn fill_body(exchange: &std::sync::Weak<Exchange>, mut body: ResponseBody) {
+/// buffer, until the body ends or fails, or the exchange lets the task go;
+/// what a frame holds past the room waits here.
+async fn fill_body(state: &Mutex<State>, wait: &WaitQueueHead, mut body: ResponseBody) {
     let mut pending = Bytes::new();
     loop {
         if pending.is_empty() {
-            let frame = poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await;
-            let Some(exchange) = exchange.upgrade() else {
-                return;
-            };
-            match frame {
+            match poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await {
                 Some(Ok(frame)) => {
                     pending = frame.into_data().unwrap_or_default();
                     continue;
                 }
-                Some(Err(_)) => exchange.state().body_error = true,
-                None => exchange.state().body_end = true,
+                Some(Err(_)) => lock(state).body_error = true,
+                None => lock(state).body_end = true,
             }
-            exchange.wait.wake_up();
+            wait.wake_up();
             return;
         }
         let room = poll_fn(|cx| {
-            let Some(exchange) = exchange.upgrade() else {
-                return Poll::Ready(None);
-            };
-            let mut state = exchange.state();
+            let mut state = lock(state);
             let room = MAX_SOCKET_BUFFER - state.body.len();
             if room > 0 {
-                return Poll::Ready(Some(room));
+                return Poll::Ready(room);
             }
             state.filler = Some(cx.waker().clone());
             Poll::Pending
         })
         .await;
-        let (Some(room), Some(exchange)) = (room, exchange.upgrade()) else {
-            return;
-        };
         let moved = pending.split_to(room.min(pending.len()));
-        exchange.state().body.extend(&moved[..]);
-        exchange.wait.wake_up();
+        lock(state).body.extend(&moved[..]);
+        wait.wake_up();
     }
 }
 
@@ -1730,5 +1721,92 @@ mod tests {
             "a credential must replace its placeholder inside a Basic pair and encode the pair \
              again, as OpenShell's does, and leave a pair without it as sent"
         );
+    }
+
+    mod stress {
+        use std::task::Context;
+        use std::time::Instant;
+
+        use super::*;
+
+        /// A body that never ends, a frame ready at every poll.
+        struct Endless;
+
+        impl Body for Endless {
+            type Data = Bytes;
+            type Error = HttpError;
+
+            fn poll_frame(
+                self: Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+            ) -> Poll<Option<Result<http_body::Frame<Bytes>, HttpError>>> {
+                Poll::Ready(Some(Ok(http_body::Frame::data(Bytes::from_static(
+                    &[0; 1024],
+                )))))
+            }
+        }
+
+        /// A seam answering each request at once with an endless body.
+        struct Streaming;
+
+        impl Outbound for Streaming {
+            fn send_request(&self, _: OutgoingRequest, _: Connector) -> ResponseFuture {
+                Box::pin(async {
+                    Ok(Response {
+                        head: ResponseHead {
+                            status: 200,
+                            headers: Vec::new(),
+                        },
+                        body: Endless.boxed_unsync(),
+                    })
+                })
+            }
+        }
+
+        // The reactor fills a body while the guest lets the exchange go, so the
+        // last hold may fall in the middle of a fill. The reactor must answer a
+        // request sent after every one of them.
+        // @behavior NW-082
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn an_exchange_let_go_while_its_body_fills_leaves_the_reactor_running() {
+            let mut entry = Builder::default();
+            entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
+            let network = Network::new("api", Arc::new(entry)).unwrap();
+            let namespace = Namespace::new(
+                [&network],
+                Arc::new(Resolving),
+                Arc::new(Streaming),
+                OpenConnections::new(None),
+                None,
+            )
+            .unwrap();
+            let cred = prepare_creds_within(&[], None);
+            let send = || {
+                namespace
+                    .send(
+                        &cred,
+                        OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+                    )
+                    .expect("an endpoint names the authority")
+            };
+            for _ in 0..20_000 {
+                let exchange = send();
+                while exchange.response().is_none() {
+                    std::hint::spin_loop();
+                }
+                let _ = exchange.read(&mut [0; 1]);
+            }
+            let last = send();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while last.response().is_none() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(1));
+            }
+            assert!(
+                last.response().is_some(),
+                "a request sent after 20,000 exchanges let go while their bodies fill must still \
+                 be answered, so no exchange's release ever stops the reactor"
+            );
+        }
     }
 }
