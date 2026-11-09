@@ -1563,12 +1563,21 @@ mod tests {
     fn an_https_request_opens_tls_before_any_byte_of_http() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
+        // The server reads the whole first record before it answers in clear,
+        // and drains the client before it closes: a close with bytes unread
+        // resets the connection on Windows before the client parses a byte.
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut first = [0; 1];
-            stream.read_exact(&mut first).unwrap();
+            let mut header = [0; 5];
+            stream.read_exact(&mut header).unwrap();
+            let length = u16::from_be_bytes([header[3], header[4]]);
+            stream
+                .read_exact(&mut vec![0; usize::from(length)])
+                .unwrap();
             stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
-            first[0]
+            stream.shutdown(std::net::Shutdown::Write).unwrap();
+            let _ = stream.read_to_end(&mut Vec::new());
+            header[0]
         });
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds_within(&[], None);
