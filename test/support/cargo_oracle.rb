@@ -128,16 +128,21 @@ class CargoOracle
   # pipes are forced to +binmode+ at construction so callers never
   # need to remember.
   #
-  # Named +Channel+ rather than +Process+ to leave +::Process+ usable
-  # for future +Process.kill+ / +Process.detach+ wiring inside the
-  # parent class.
+  # Named +Channel+ rather than +Process+ so +Process.kill+ inside it
+  # reaches +::Process+.
   class Channel
+    # The longest an oracle may take to answer one frame: a guest past its
+    # default 60-second deadline still answers within it, so one that has
+    # not answered is stuck, and the suite must not wait on it.
+    ANSWER_DEADLINE = 120
+
     def initialize(stdin, stdout, wait_thr)
       @stdin = stdin
       @stdout = stdout
       @wait_thr = wait_thr
       @stdin.binmode
       @stdout.binmode
+      @stdout.timeout = ANSWER_DEADLINE
     end
 
     def send_frame(payload)
@@ -147,19 +152,30 @@ class CargoOracle
     end
 
     # Read one result frame. Returns +[body, error_flag]+. Raises
-    # +EOFError+ if the stream closed before a full header arrived, or
-    # +IOError+ if the body is shorter than the header advertised.
+    # +EOFError+ if the stream closed before a full header arrived,
+    # +IOError+ if the body is shorter than the header advertised, and
+    # +IO::TimeoutError+ once the oracle, stuck past ANSWER_DEADLINE, was
+    # killed.
     def read_frame
       word = read_header
       body = read_body(word & ~ERROR_FLAG)
       [body, word.anybits?(ERROR_FLAG)]
+    rescue IO::TimeoutError
+      Process.kill(:KILL, @wait_thr.pid)
+      raise IO::TimeoutError, "the oracle answered nothing within #{ANSWER_DEADLINE}s and was killed; " \
+                              "what the frame it was sent asks for never finished"
     end
 
+    # Close both pipes and reap the oracle; one that has not exited within
+    # ANSWER_DEADLINE of its stdin closing is killed.
     def close
       safe_close(@stdin)
       drain_stdout
       safe_close(@stdout)
-      @wait_thr&.join
+      return if @wait_thr.join(ANSWER_DEADLINE)
+
+      Process.kill(:KILL, @wait_thr.pid)
+      @wait_thr.join
     end
 
     private
