@@ -140,6 +140,18 @@ socket's number -+         +--> wait queue <-- reactor
 
 The file is made with the socket, as Linux's `socket()` installs one before any connect. Both encodings number into one space, as Linux's one fdtable holds a file and a socket alike. A preview1 read, write, or poll on a socket's number reaches the same file. The guest's `TCPSocket` and `UDPSocket` are therefore each an `IO` that `IO.select` waits on. The last view dropped releases the host socket.
 
+## Socket Options
+
+A socket holds its options, as Linux's `struct sock` does, because the host socket exists only once a connect dials it. Each layer keeps the rules its own standard sets.
+
+| Layer | Keeps |
+|---|---|
+| guest gem | CRuby's names and forms, and Linux's EINVAL bounds |
+| Wasm Driver | WASI's rules: zero refused, a time clamped, a size read halved |
+| `kobako-runtime` | the value, Linux's defaults and doubling, the host socket's copy |
+
+A read answers the socket's own value, never the host's, so a host default such as its hop limit never reaches the guest. The options WASI defines are the only ones open; `TCP_NODELAY` and the rest answer `ENOPROTOOPT`.
+
 ## Virtual Addresses
 
 The guest sees only virtual addresses, so the host's network never reaches it.
