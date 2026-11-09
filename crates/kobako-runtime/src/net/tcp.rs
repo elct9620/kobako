@@ -56,7 +56,6 @@ struct State {
     /// The socket's pending failure, as `sk_err`: answered once, then
     /// cleared, as `sock_error` swaps it with zero.
     error: Option<FilesystemError>,
-    local: Option<SocketAddr>,
     /// The port the guest reads for its own end, which its namespace gave as
     /// the connect began, as a NAT's tuple pairs it with the host's.
     virtual_port: Option<u16>,
@@ -97,7 +96,6 @@ impl TcpSock {
                 send_shut: false,
                 fin_sent: false,
                 error: None,
-                local: None,
                 virtual_port: None,
                 named: None,
                 released: false,
@@ -235,7 +233,6 @@ impl TcpSock {
         let failure = match (stream.take_error(), stream.peer_addr()) {
             (Ok(Some(err)), _) | (Err(err), _) => err,
             (Ok(None), Ok(_)) => {
-                state.local = stream.local_addr().ok();
                 state.phase = Phase::Connected;
                 return;
             }
@@ -292,10 +289,6 @@ impl TcpSock {
             state.rcv_shut = true;
         }
         self.pump_and_wake(state);
-    }
-
-    pub fn local_addr(&self) -> Option<SocketAddr> {
-        self.state().local
     }
 
     /// The port the guest reads for its own end, once a connect began.

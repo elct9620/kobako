@@ -822,8 +822,8 @@ fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value,
 }
 
 /// `addr(reverse_lookup = nil)` answers the guest's own end as CRuby's
-/// `["AF_INET", port, host, host]`: the address the host hands the guest for
-/// it and the real port.
+/// `["AF_INET", port, host, host]`: the virtual address and port the host
+/// hands the guest for it.
 fn tcp_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if let Some(flag) = args.first() {
         ensure_reverse_lookup_flag(mrb, *flag)?;

@@ -500,14 +500,8 @@ impl Connector {
             Err(_) => {
                 let real = self.resolve().await?;
                 let local = self.family.local_addresses();
-                real.into_iter()
-                    .map(|ip| SocketAddr::new(ip, self.port))
-                    .filter(|addr| {
-                        self.ruleset
-                            .admit_resolved(&self.host, *addr, Protocol::Http, &local)
-                            .is_ok()
-                    })
-                    .collect()
+                self.ruleset
+                    .admit_resolved(&self.host, &real, self.port, Protocol::Http, &local)
             }
         };
         if addrs.is_empty() {
@@ -983,7 +977,7 @@ impl Outbound for HyperOutbound {
             let http = to_hyper_request(&request)?;
             let connection = connector.dial().await?;
             match tls {
-                None => exchange(Wire(connection), http).await,
+                None => send_over(Wire(connection), http).await,
                 Some(config) => {
                     let name = rustls::pki_types::ServerName::try_from(
                         connector.authority().0.to_string(),
@@ -993,7 +987,7 @@ impl Outbound for HyperOutbound {
                         .connect(name, connection)
                         .await
                         .map_err(|err| to_http_error(&err))?;
-                    exchange(Wire(session), http).await
+                    send_over(Wire(session), http).await
                 }
             }
         })
@@ -1022,7 +1016,7 @@ fn to_hyper_request(request: &OutgoingRequest) -> Result<hyper::Request<Full<Byt
 
 /// Send `request` over `wire` as HTTP/1, driving the connection beside it, and
 /// answer its response, whose body drives the connection on until it ends.
-async fn exchange<T>(
+async fn send_over<T>(
     wire: Wire<T>,
     request: hyper::Request<Full<Bytes>>,
 ) -> Result<Response, HttpError>

@@ -440,13 +440,13 @@ impl Ruleset {
 
 ## `Ruleset::admit_resolved`
 
-Whether the Guest may connect to a real address the name it looked up resolved
-to. An endpoint naming the name must lead there, and the host's own addresses
-are local.
+The real addresses a looked-up name resolved to that the Guest may connect to,
+in their order. An endpoint naming the name must lead to each, and the host's
+own addresses are local.
 
 ```rust
 impl Ruleset {
-    pub fn admit_resolved(&self, name: &str, addr: SocketAddr, protocol: Protocol, local: &[IpAddr]) -> Result<(), FilesystemError> {}
+    pub fn admit_resolved(&self, name: &str, real: &[IpAddr], port: u16, protocol: Protocol, local: &[IpAddr]) -> Vec<SocketAddr> {}
 }
 ```
 
@@ -729,16 +729,6 @@ Shut the writing side down once what is queued is sent, or stop reading.
 ```rust
 impl TcpSock {
     pub fn shutdown(&self, how: Shutdown) {}
-}
-```
-
-## `TcpSock::local_addr`
-
-The address the socket's own end stands at, once connected.
-
-```rust
-impl TcpSock {
-    pub fn local_addr(&self) -> Option<SocketAddr> {}
 }
 ```
 
@@ -1387,16 +1377,6 @@ the real peer back.
 ```rust
 impl UdpSock {
     pub fn peer_addr(&self) -> Option<SocketAddr> {}
-}
-```
-
-## `UdpSock::local_addr`
-
-The host's own end, once the socket opened.
-
-```rust
-impl UdpSock {
-    pub fn local_addr(&self) -> Option<SocketAddr> {}
 }
 ```
 

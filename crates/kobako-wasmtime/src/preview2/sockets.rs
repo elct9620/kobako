@@ -86,14 +86,14 @@ pub(crate) fn to_error_code(err: &FilesystemError) -> ErrorCode {
             ErrorCode::RemoteUnreachable
         }
         FilesystemError::ConnectionRefused => ErrorCode::ConnectionRefused,
-        // WASI 0.2 names no broken pipe, so EPIPE answers `unknown`, as
-        // wasmtime-wasi's preview2 does.
         FilesystemError::ConnectionReset => ErrorCode::ConnectionReset,
         FilesystemError::ConnectionAborted => ErrorCode::ConnectionAborted,
         FilesystemError::NotConnected | FilesystemError::AlreadyConnected => {
             ErrorCode::InvalidState
         }
         FilesystemError::MessageTooLong => ErrorCode::DatagramTooLarge,
+        // WASI 0.2 names no broken pipe, so EPIPE answers `unknown`, as
+        // wasmtime-wasi's preview2 does.
         _ => ErrorCode::Unknown,
     }
 }

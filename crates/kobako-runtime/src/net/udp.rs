@@ -31,7 +31,6 @@ struct State {
     /// Whether the host socket took the last send, until the reactor next
     /// sees it change, as `sock_writeable` reads its room.
     writable: bool,
-    local: Option<SocketAddr>,
     /// The port the guest reads for its own end, which its namespace gave as
     /// it first connected, as a NAT's tuple pairs it with the host's.
     virtual_port: Option<u16>,
@@ -59,7 +58,6 @@ impl UdpSock {
                 received: VecDeque::new(),
                 received_bytes: 0,
                 writable: true,
-                local: None,
                 virtual_port: None,
                 named: None,
                 place: None,
@@ -99,7 +97,6 @@ impl UdpSock {
         if let Some((mut earlier, registration)) = state.host.take() {
             registration.deregister(&mut earlier);
         }
-        state.local = socket.local_addr().ok();
         state.host = Some((socket, registration));
         state.named = Some(named);
         state.writable = true;
@@ -141,11 +138,6 @@ impl UdpSock {
         Self::pump(&mut state);
         drop(state);
         self.wait.wake_up();
-    }
-
-    /// The host's own end, once the socket opened.
-    pub fn local_addr(&self) -> Option<SocketAddr> {
-        self.state().local
     }
 
     /// The port the guest reads for its own end, once it connected.
@@ -298,7 +290,12 @@ mod tests {
     fn holding_a_datagram() -> (Arc<UdpSock>, UdpSocket) {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let sock = connected(peer.local_addr().unwrap());
-        peer.send_to(b"hello", sock.local_addr().unwrap()).unwrap();
+        let host = sock
+            .state()
+            .host
+            .as_ref()
+            .map(|(socket, _)| socket.local_addr());
+        peer.send_to(b"hello", host.unwrap().unwrap()).unwrap();
         until(&sock, PollMask::IN);
         (sock, peer)
     }

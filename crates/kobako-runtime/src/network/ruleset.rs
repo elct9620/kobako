@@ -351,38 +351,43 @@ impl Ruleset {
         })
     }
 
-    /// Whether the guest may open a `protocol` connection to `ip`, a real
-    /// address the name it looked up resolved to, at `port`. The fixed sets
+    /// The addresses at `port`, of `real` that the name the guest looked up
+    /// resolved to, it may open a `protocol` connection to, in their order;
+    /// the host's own addresses, `local`, count as local. The fixed sets
     /// refuse whatever an endpoint says; otherwise an endpoint naming the name
     /// at that port and protocol must lead to the address, so another allowed
     /// name answering the same address never borrows it.
     pub fn admit_resolved(
         &self,
         name: &str,
-        addr: SocketAddr,
+        real: &[IpAddr],
+        port: u16,
         protocol: Protocol,
         local: &[IpAddr],
-    ) -> Result<(), FilesystemError> {
+    ) -> Vec<SocketAddr> {
+        real.iter()
+            .map(|ip| SocketAddr::new(*ip, port))
+            .filter(|addr| self.leads(name, *addr, protocol, local))
+            .collect()
+    }
+
+    fn leads(&self, name: &str, addr: SocketAddr, protocol: Protocol, local: &[IpAddr]) -> bool {
         if matches!(
             address_set_of(addr.ip()),
             AddressSet::Metadata | AddressSet::Reserved
         ) {
-            return Err(FilesystemError::PermissionDenied);
+            return false;
         }
         let ip = match addr.ip() {
             IpAddr::V6(v6) => to_v4(v6).map_or(addr.ip(), IpAddr::V4),
             v4 => v4,
         };
-        let led = self.rules.iter().any(|rule| {
+        self.rules.iter().any(|rule| {
             rule.port == addr.port()
                 && rule.protocol == protocol
                 && rule.names(name)
                 && rule.leads_to(ip, local)
-        });
-        match led {
-            true => Ok(()),
-            false => Err(FilesystemError::PermissionDenied),
-        }
+        })
     }
 
     /// Whether the guest may open a `protocol` connection to `addr`, the

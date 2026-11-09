@@ -417,15 +417,9 @@ impl Namespace {
             }
             Some((name, real)) => {
                 let local = self.family.local_addresses();
-                let admitted = real
-                    .into_iter()
-                    .map(|ip| SocketAddr::new(ip, addr.port()))
-                    .filter(|real| {
-                        self.ruleset
-                            .admit_resolved(&name, *real, protocol, &local)
-                            .is_ok()
-                    })
-                    .collect::<Vec<_>>();
+                let admitted =
+                    self.ruleset
+                        .admit_resolved(&name, &real, addr.port(), protocol, &local);
                 if admitted.is_empty() {
                     return Err(FilesystemError::PermissionDenied);
                 }
