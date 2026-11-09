@@ -756,6 +756,28 @@ impl TcpSock {
 }
 ```
 
+## `TcpSock::keepalive`
+
+Whether the socket sends keepalive probes, as the socket itself holds it, never
+the host socket's own setting.
+
+```rust
+impl TcpSock {
+    pub fn keepalive(&self) -> bool {}
+}
+```
+
+## `TcpSock::set_keepalive`
+
+Send keepalive probes or stop. The socket holds the setting for each host
+socket it dials. One dialed already takes it at once.
+
+```rust
+impl TcpSock {
+    pub fn set_keepalive(&self, on: bool) -> Result<(), FilesystemError> {}
+}
+```
+
 ## `sock_alloc_file`
 
 The socket file of a socket, opened for reading and writing, as Linux's

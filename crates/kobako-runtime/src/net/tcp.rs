@@ -10,6 +10,8 @@ use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
+use socket2::SockRef;
+
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
@@ -65,6 +67,9 @@ struct State {
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
     named: Option<SocketAddr>,
+    /// The guest asked for keepalive probes, as `SOCK_KEEPOPEN`; the host
+    /// socket takes it as it is dialed.
+    keepalive: bool,
     /// Every view the guest held is gone.
     released: bool,
     /// The socket's place against its Sandbox's cap and the process's, given
@@ -110,6 +115,7 @@ impl TcpSock {
                 error: None,
                 virtual_port: None,
                 named: None,
+                keepalive: false,
                 released: false,
                 place: None,
                 memory: Some(memory),
@@ -170,6 +176,7 @@ impl TcpSock {
     fn dial_next(&self, state: &mut State, mut last: FilesystemError) {
         while let Some(addr) = state.untried.pop_front() {
             let dialed = self.family.connect(addr).and_then(|stream| {
+                Self::set_options(&stream, state)?;
                 let mut stream = mio::net::TcpStream::from_std(stream);
                 let ready: Weak<dyn Ready> = self.this.clone();
                 let registration = self.reactor.register(&mut stream, ready)?;
@@ -184,6 +191,11 @@ impl TcpSock {
             }
         }
         Self::close(state, last);
+    }
+
+    /// Give the host socket `stream` the options the guest set.
+    fn set_options(stream: &std::net::TcpStream, state: &State) -> io::Result<()> {
+        SockRef::from(stream).set_keepalive(state.keepalive)
     }
 
     /// Close the socket on `err`, as `tcp_done` does after a failed connect
@@ -335,6 +347,25 @@ impl TcpSock {
     /// The port the guest reads for its own end, once a connect began.
     pub fn virtual_port(&self) -> Option<u16> {
         self.state().virtual_port
+    }
+
+    /// Whether the socket sends keepalive probes, as `SO_KEEPALIVE` reads its
+    /// own flag, never the host's.
+    pub fn keepalive(&self) -> bool {
+        self.state().keepalive
+    }
+
+    /// Send keepalive probes or stop, as `tcp_set_keepalive` does; a socket
+    /// dialed already passes it to its host socket at once.
+    pub fn set_keepalive(&self, on: bool) -> Result<(), FilesystemError> {
+        let mut state = self.state();
+        if let Some((stream, _)) = &state.host {
+            SockRef::from(stream)
+                .set_keepalive(on)
+                .map_err(|err| to_error(&err))?;
+        }
+        state.keepalive = on;
+        Ok(())
     }
 
     /// Hold the port `alloc` gives as the guest's own, unless one is held.
@@ -505,6 +536,39 @@ mod tests {
             "a guest's TCP socket connected through the Protocol Family must leave the stream's \
              TCP_NODELAY off, as Linux's tcp_init_sock does, since WASI gives the guest no \
              option to set it"
+        );
+    }
+
+    /// Whether the host socket `sock` dialed sends keepalive probes.
+    fn host_keepalive(sock: &TcpSock) -> Option<bool> {
+        sock.state()
+            .host
+            .as_ref()
+            .map(|(stream, _)| SockRef::from(stream).keepalive().unwrap())
+    }
+
+    // @behavior RT-366
+    #[test]
+    fn a_socket_holds_its_options_and_gives_them_to_the_host_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let addr = listener.local_addr().unwrap();
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+            .expect("the reactor starts");
+        sock.set_keepalive(true)
+            .expect("an unconnected socket takes an option");
+        let before = (sock.keepalive(), host_keepalive(&sock));
+        sock.connect(vec![addr], addr, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
+        let dialed = host_keepalive(&sock);
+        sock.set_keepalive(false)
+            .expect("a connected socket takes an option");
+        let after = (sock.keepalive(), host_keepalive(&sock));
+        assert_eq!(
+            (before, dialed, after),
+            ((true, None), Some(true), (false, Some(false))),
+            "SO_KEEPALIVE set before a connect must be held by the socket and reach the host \
+             stream the Protocol Family dials; set once connected, it must reach that stream at \
+             once"
         );
     }
 

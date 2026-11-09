@@ -990,6 +990,7 @@ dependencies = [
  "rustix",
  "rustls",
  "rustls-platform-verifier",
+ "socket2",
  "tokio",
  "tokio-rustls",
  "zeroize",

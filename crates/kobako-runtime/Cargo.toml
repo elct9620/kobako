@@ -66,6 +66,9 @@ rustls-platform-verifier = "0.7.1"
 # The reactor: one thread waits on every host socket without blocking on
 # any, on epoll, kqueue, or IOCP alike.
 mio = { version = "1.2.0", features = ["os-poll", "net"] }
+# Sets the socket options a guest asks for, such as SO_KEEPALIVE, on the host
+# socket it dials, on POSIX and Windows alike; std sets only a few.
+socket2 = { version = "0.6.3", features = ["all"] }
 # Zeroes a credential's value as it drops, so a freed page holds no secret.
 zeroize = "1.9.1"
 

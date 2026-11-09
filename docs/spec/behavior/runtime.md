@@ -4113,3 +4113,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Protocol Family handing out the host streams it dials |
 | When | a guest's TCP socket connects through it |
 | Then | the socket's stream keeps `TCP_NODELAY` off, as Linux's `tcp_init_sock` leaves it. WASI gives the guest no option to set it |
+
+## `RT-366` A socket holds its options and gives them to the host socket it dials
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-342` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP socket a Wasm Driver asked for keepalive probes before it connected |
+| When | it connects through the Protocol Family, then the Wasm Driver turns the probes off |
+| Then | the host stream it dials sends probes, then stops at once. The socket answers its own setting, as Linux's `sock_getsockopt` reads the socket's flag |
