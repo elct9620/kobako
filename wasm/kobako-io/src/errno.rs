@@ -6,7 +6,7 @@ use std::io;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, Exception, ExceptionClass, Integer, IntoValue, Mrb, Value};
+use beni::{Error, Exception, ExceptionClass, Integer, IntoValue, Mrb, Qfalse, Qtrue, Value};
 
 /// One `Errno` class: its name, the WASI errno it answers, the number
 /// CRuby on Linux gives it as `Errno`, and its message.
@@ -177,13 +177,20 @@ fn sce_errno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 pub(crate) fn type_error(mrb: &Mrb, value: Value) -> Error {
+    // CRuby's `convert_type_err` names nil, true, and false by value.
+    let name = if value.is_nil() {
+        "nil".to_string()
+    } else if Qtrue::from_value(value).is_some() {
+        "true".to_string()
+    } else if Qfalse::from_value(value).is_some() {
+        "false".to_string()
+    } else {
+        value.classname(mrb)
+    };
     to_error(
         mrb,
         mrb.exception_type_error(),
-        &format!(
-            "no implicit conversion of {} into String",
-            value.classname(mrb)
-        ),
+        &format!("no implicit conversion of {name} into String"),
     )
 }
 
