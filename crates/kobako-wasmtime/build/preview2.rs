@@ -78,6 +78,8 @@ const IMPORTS: &[(&str, &[&str])] = &[
             "[method]tcp-socket.subscribe",
             "[method]tcp-socket.local-address",
             "[method]tcp-socket.remote-address",
+            "[method]tcp-socket.keep-alive-enabled",
+            "[method]tcp-socket.set-keep-alive-enabled",
             "[resource-drop]tcp-socket",
         ],
     ),
@@ -791,6 +793,8 @@ impl Bindgen for FunctionBody<'_> {
             Instruction::U16FromI32 => results.push(format!("({} as u16)", operands[0])),
             Instruction::U32FromI32 => results.push(format!("({} as u32)", operands[0])),
             Instruction::U64FromI64 => results.push(format!("({} as u64)", operands[0])),
+            Instruction::I32FromBool => results.push(format!("({} as i32)", operands[0])),
+            Instruction::BoolFromI32 => results.push(format!("({} != 0)", operands[0])),
             Instruction::ListCanonLift { element, .. } => {
                 let e = format!(
                     "{abi}::load_list::<{}>(&mut caller, {}, {})?",

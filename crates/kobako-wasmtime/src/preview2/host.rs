@@ -459,6 +459,34 @@ impl SocketsHost for Invocation {
         }
     }
 
+    /// Whether the socket sends keepalive probes, from the socket's own
+    /// setting.
+    fn tcp_tcp_socket_keep_alive_enabled(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<bool, ErrorCode>> {
+        let socket = self.tcp(this)?;
+        Ok(socket
+            .state
+            .ensure_takes_options()
+            .map(|()| socket.socket.sock.keepalive()))
+    }
+
+    fn tcp_tcp_socket_set_keep_alive_enabled(
+        &mut self,
+        this: TcpSocket,
+        value: bool,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        let socket = self.tcp(this)?;
+        Ok(socket.state.ensure_takes_options().and_then(|()| {
+            socket
+                .socket
+                .sock
+                .set_keepalive(value)
+                .map_err(|err| to_error_code(&err))
+        }))
+    }
+
     fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {
         self.table().delete(handle).map(drop)
     }

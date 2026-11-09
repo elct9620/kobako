@@ -198,6 +198,19 @@ pub(crate) enum TcpState {
     Closed(ErrorCode),
 }
 
+impl TcpState {
+    /// Whether a socket option may be read or set now: as wasmtime's, a
+    /// socket connecting answers `invalid-state`, and one whose connect
+    /// failed answers its error.
+    pub(crate) fn ensure_takes_options(self) -> Result<(), ErrorCode> {
+        match self {
+            Self::Connecting => Err(ErrorCode::InvalidState),
+            Self::Closed(code) => Err(code),
+            Self::Unbound | Self::Binding | Self::Bound | Self::Connected => Ok(()),
+        }
+    }
+}
+
 /// What a pollable waits for.
 #[derive(Clone)]
 pub(crate) enum Pollable {
