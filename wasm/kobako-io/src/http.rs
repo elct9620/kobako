@@ -49,6 +49,9 @@ struct Unread {
     /// Whether the response carries a body; one that carries none answers
     /// `nil` for it, as CRuby's does.
     carried: bool,
+    /// Whether a `content-length`, not chunks, bounds the body, so one cut
+    /// short ends at what arrived, as CRuby's `ignore_eof` reads it.
+    sized: bool,
 }
 
 impl Unread {
@@ -74,10 +77,16 @@ impl Unread {
                 self.finish();
                 Ok(None)
             }
-            Err(StreamError::LastOperationFailed(_)) => Err(errno::error_with_message(
+            // A body cut short: CRuby reads a sized one to what arrived, and
+            // raises `EOFError` inside chunks.
+            Err(StreamError::LastOperationFailed(_)) if self.sized => {
+                self.finish();
+                Ok(None)
+            }
+            Err(StreamError::LastOperationFailed(_)) => Err(Error::new(
                 mrb,
-                c"ECONNRESET",
-                "Connection reset by peer",
+                mrb.exc_get(c"EOFError")?,
+                "end of file reached",
             )),
         }
     }
@@ -323,14 +332,28 @@ fn to_bytes(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     Ok(unsafe { string.as_bytes(mrb) }.to_vec())
 }
 
-/// `Net::HTTP.new(address, port = nil)`: port 80 unless written, decided
-/// here, as CRuby's `use_ssl=` leaves the port as it was.
+/// `Net::HTTP.new(address, port = nil, p_addr = :ENV, ...)`: port 80 unless
+/// written, decided here, as CRuby's `use_ssl=` leaves the port as it was.
+/// A request reaches only its own endpoint, so a proxy the script names
+/// raises `NotImplementedError`; `:ENV` names none, as the guest holds no
+/// `http_proxy`.
 fn http_initialize(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (address, port) = match args {
-        [address] => (*address, qnil().as_value()),
-        [address, port, ..] => (*address, *port),
-        _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
+    let (address, port, proxy) = match args {
+        [address] => (*address, qnil().as_value(), &[][..]),
+        [address, port, proxy @ ..] if proxy.len() <= 6 => (*address, *port, proxy),
+        _ => return Err(Error::argnum(mrb, args.len(), 1, 8)),
     };
+    let env = Symbol::new(mrb, "ENV")?.as_value();
+    let names_proxy = proxy.iter().enumerate().any(|(at, given)| {
+        !given.is_nil()
+            && !(at == 0
+                && given
+                    .funcall::<_, _, bool>(mrb, c"==", [env])
+                    .unwrap_or(false))
+    });
+    if names_proxy {
+        return Err(errno::not_implemented(mrb, "Net::HTTP reaches no proxy"));
+    }
     let port = match port.is_nil() {
         true => HTTP_PORT.into_value(mrb),
         false => port,
@@ -444,7 +467,15 @@ fn http_use_ssl_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
     uses_ssl(mrb, self_)
 }
 
+/// `use_ssl = flag`; changing it once the session started raises `IOError`,
+/// as CRuby's does.
 fn http_set_use_ssl(mrb: &Mrb, self_: Value, flag: Value) -> Result<Value, Error> {
+    if http_started_p(mrb, self_)? && uses_ssl(mrb, self_)? != flag.to_bool() {
+        return Err(errno::io_error(
+            mrb,
+            "use_ssl value changed, but session already started",
+        ));
+    }
     ivar_set(mrb, self_, c"@use_ssl", flag.to_bool().into_value(mrb))?;
     Ok(flag)
 }
@@ -571,20 +602,52 @@ fn http_head(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     send_bodyless(mrb, self_, c"Head", args)
 }
 
+/// `delete(path, initheader = {"Depth" => "Infinity"})`, which takes no
+/// block, so its body is read whole, as CRuby's.
 fn http_delete(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_bodyless(mrb, self_, c"Delete", args)
+    let (path, header) = match args {
+        [path] => {
+            let header = mrb.hash_new();
+            header.aset(
+                mrb,
+                mrb.str_new(b"Depth").as_value(),
+                mrb.str_new(b"Infinity").as_value(),
+            )?;
+            (*path, header.as_value())
+        }
+        [path, header] => (*path, *header),
+        _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
+    };
+    let request = new_request(mrb, c"Delete", path, header)?;
+    send_request(mrb, self_, request, None, None)
 }
 
+/// `options(path, initheader = nil)`, which takes no block, so its body is
+/// read whole, as CRuby's.
 fn http_options(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_bodyless(mrb, self_, c"Options", args)
+    let (path, header) = match args {
+        [path] => (*path, qnil().as_value()),
+        [path, header] => (*path, *header),
+        _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
+    };
+    let request = new_request(mrb, c"Options", path, header)?;
+    send_request(mrb, self_, request, None, None)
 }
 
 fn http_post(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     send_with_body(mrb, self_, c"Post", args)
 }
 
+/// `put(path, data, initheader = nil)`, which takes no block, so its body is
+/// read whole, as CRuby's.
 fn http_put(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    send_with_body(mrb, self_, c"Put", args)
+    let (path, data, header) = match args {
+        [path, data] => (*path, *data, qnil().as_value()),
+        [path, data, header] => (*path, *data, *header),
+        _ => return Err(Error::argnum(mrb, args.len(), 2, 3)),
+    };
+    let request = new_request(mrb, c"Put", path, header)?;
+    send_request(mrb, self_, request, Some(data), None)
 }
 
 fn http_patch(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
@@ -687,7 +750,17 @@ fn send_request(
     let method = to_text(mrb, ivar_get(mrb, request, c"@method")?)?;
     let path = to_text(mrb, ivar_get(mrb, request, c"@path")?)?;
     let headers = headers_of(mrb, ivar_get(mrb, request, c"@header")?)?;
-    send_from(mrb, http, &method, &path, headers, body, given)
+    // A request outside a session runs inside one, as CRuby's
+    // `start { request(...) }` does, so `started?` answers true meanwhile.
+    let outside = !http_started_p(mrb, http)?;
+    if outside {
+        ivar_set(mrb, http, c"@started", true.into_value(mrb))?;
+    }
+    let answer = send_from(mrb, http, &method, &path, headers, body, given);
+    if outside {
+        ivar_set(mrb, http, c"@started", false.into_value(mrb))?;
+    }
+    answer
 }
 
 /// A request's `@header`, each name to its list of values.
@@ -868,6 +941,12 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
     let status = response.status();
     let carried = outgoing.method != "HEAD" && carries_body(status);
     let headers = response.headers().entries();
+    let named = |name: &str| {
+        headers
+            .iter()
+            .any(|(key, _)| key.eq_ignore_ascii_case(name))
+    };
+    let sized = named("content-length") && !named("transfer-encoding");
     let incoming = response
         .consume()
         .map_err(|()| failed("response body taken"))?;
@@ -882,6 +961,7 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
             body: Some(incoming),
             read: outgoing.limits.read,
             carried,
+            sized,
         },
     })
 }
@@ -1216,16 +1296,20 @@ fn exception_response(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     )
 }
 
-/// `content_length`: the `content-length` header as an Integer, or `nil`.
+/// `content_length`: the first run of digits in the `content-length` header
+/// as an Integer, or `nil`, as CRuby's `slice(/\d+/)` reads it.
 fn response_content_length(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let length = header_aref(mrb, self_, mrb.str_new(b"content-length").as_value())?;
     if length.is_nil() {
         return Ok(length);
     }
     let text = to_text(mrb, length)?;
-    match text.trim().parse::<i64>() {
-        Ok(length) => Ok(length.into_value(mrb)),
-        Err(_) => Err(net_error(
+    let digits = text
+        .split(|c: char| !c.is_ascii_digit())
+        .find(|run| !run.is_empty());
+    match digits.map(|run| run.parse::<i64>().unwrap_or(i64::MAX)) {
+        Some(length) => Ok(length.into_value(mrb)),
+        None => Err(net_error(
             mrb,
             c"HTTPHeaderSyntaxError",
             "wrong Content-Length format",
@@ -1463,24 +1547,46 @@ fn header_delete(mrb: &Mrb, self_: Value, name: Value) -> Result<Value, Error> {
     header.delete(mrb, key)
 }
 
-/// `content_type`: the media type without its parameters, or `nil`.
+/// `content_type`: the media type without its parameters, or `nil`, its main
+/// and sub types each stripped, as CRuby's `main_type` and `sub_type` are.
 fn header_content_type(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let value = header_aref(mrb, self_, mrb.str_new(b"content-type").as_value())?;
     if value.is_nil() {
         return Ok(value);
     }
     let value = to_text(mrb, value)?;
-    let media = value.split(';').next().unwrap_or_default().trim();
-    Ok(media.into_value(mrb))
+    let mut parts: Vec<&str> = value
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .split('/')
+        .collect();
+    while parts.last().is_some_and(|part| part.is_empty()) {
+        parts.pop();
+    }
+    let main = parts.first().copied().unwrap_or_default().trim();
+    Ok(match parts.get(1) {
+        Some(sub) => format!("{main}/{}", sub.trim()),
+        None => main.to_string(),
+    }
+    .into_value(mrb))
 }
 
-/// `content_type = type`: set the `content-type` header.
+/// `content_type = type`: set the `content-type` header; `nil` raises
+/// `NoMethodError`, as CRuby's `set_content_type` adds to it.
 fn request_set_content_type(mrb: &Mrb, self_: Value, media: Value) -> Result<Value, Error> {
+    if media.is_nil() {
+        return Err(Error::new(
+            mrb,
+            mrb.exc_get(c"NoMethodError")?,
+            "undefined method '+' for nil",
+        ));
+    }
     request_aset(mrb, self_, mrb.str_new(b"content-type").as_value(), media)
 }
 
 /// `basic_auth(user, password)`: an `authorization` header of the Basic
-/// scheme, as CRuby writes it.
+/// scheme, as CRuby writes it, answering the header's values as CRuby's.
 fn request_basic_auth(
     mrb: &Mrb,
     self_: Value,
@@ -1490,13 +1596,11 @@ fn request_basic_auth(
     let mut credentials = to_bytes(mrb, user)?;
     credentials.push(b':');
     credentials.extend(to_bytes(mrb, password)?);
-    let value = format!("Basic {}", to_base64(&credentials));
-    request_aset(
-        mrb,
-        self_,
-        mrb.str_new(b"authorization").as_value(),
-        value.into_value(mrb),
-    )
+    let value = format!("Basic {}", to_base64(&credentials)).into_value(mrb);
+    request_aset(mrb, self_, mrb.str_new(b"authorization").as_value(), value)?;
+    let values = mrb.ary_new();
+    values.push(mrb, value)?;
+    Ok(values.as_value())
 }
 
 /// `set_form_data(params, sep = "&")` and `form_data = params`: the params as
