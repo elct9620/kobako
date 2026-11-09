@@ -1483,3 +1483,16 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a loopback port nothing listens on |
 | When | the script starts a session, then sends a request. It also names a proxy |
 | Then | `start` passes and the request raises, where CRuby's `start` connects. A proxy raises `NotImplementedError`, since a request reaches only its own endpoint |
+
+## `NW-122` An HTTP connection sends without Nagle's delay
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+| relates | `RT-365` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Protocol Family handing out the host streams it dials |
+| When | an HTTP request reaches a server through it |
+| Then | the request's stream turns `TCP_NODELAY` on, as an HTTP client writes each request whole |

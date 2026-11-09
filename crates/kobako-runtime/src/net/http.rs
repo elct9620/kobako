@@ -1410,7 +1410,7 @@ mod tests {
         );
     }
 
-    // @behavior RT-365
+    // @behavior NW-122
     #[test]
     fn an_http_connection_sends_without_nagles_delay() {
         /// The host's network, keeping a handle on each stream it dials.
