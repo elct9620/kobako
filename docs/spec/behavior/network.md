@@ -30,6 +30,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_cruby.rb`
+- `test/e2e/test_network_http_edges.rb`
 - `test/e2e/test_network_http_headers.rb`
 - `test/e2e/test_network_http_session.rb`
 - `test/e2e/test_network_http_timeout.rb`
@@ -1446,3 +1447,39 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server that answers `"a\n\n\nb\nhello"` and closes |
 | When | the script reads zero bytes, gets a zero limit, then two paragraphs. It reads lines at a zero limit, gives bad advice, and writes after `close_write` |
 | Then | each zero answers `""`, and the paragraphs are `"a\n\n"` and `"b\nhello"`. Lines at zero raise `ArgumentError`, and the advice `NotImplementedError` or `TypeError`. The write raises `IOError`, as CRuby's IO does |
+
+## `NW-119` A response body cut short reads as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-042` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a loopback server that closes inside a body |
+| When | the script gets a body its `content-length` bounds, then one sent in chunks |
+| Then | the first answers what arrived, as CRuby's `ignore_eof` reads it. The chunked one raises `EOFError` |
+
+## `NW-120` A script's Net::HTTP verbs and setters answer as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-062` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a loopback server whose `content-length` is `"5, 5"` and `content-type` `"text / html"` |
+| When | the script sends `delete`, `options`, and `put` with blocks, and asks `started?` inside a request. It sets headers and `use_ssl` on a started session |
+| Then | each body is read whole and `delete` sends `Depth: Infinity`. `started?` is true, the length 5, and the type `"text/html"`. The setters answer or raise as CRuby's |
+
+## `NW-121` A script's Net::HTTP session connects at its first request
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-109` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a loopback port nothing listens on |
+| When | the script starts a session, then sends a request. It also names a proxy |
+| Then | `start` passes and the request raises, where CRuby's `start` connects. A proxy raises `NotImplementedError`, since a request reaches only its own endpoint |
