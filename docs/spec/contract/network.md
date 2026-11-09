@@ -644,6 +644,31 @@ How much a socket holds each way, as `sk_rcvbuf` and `sk_sndbuf` bound one.
 pub const MAX_SOCKET_BUFFER: usize = 64 * 1024;
 ```
 
+## `MAX_TCP_KEEPIDLE`
+
+The longest idle time a TCP socket takes before its first keepalive probe, in
+seconds, as Linux bounds it.
+
+```rust
+pub const MAX_TCP_KEEPIDLE: u32 = 32767;
+```
+
+## `MAX_TCP_KEEPINTVL`
+
+The longest wait between keepalive probes, in seconds, as Linux bounds it.
+
+```rust
+pub const MAX_TCP_KEEPINTVL: u32 = 32767;
+```
+
+## `MAX_TCP_KEEPCNT`
+
+The most keepalive probes a TCP socket sends unanswered, as Linux bounds it.
+
+```rust
+pub const MAX_TCP_KEEPCNT: u32 = 127;
+```
+
 ## `OpenConnections`
 
 How many connections one owner holds open, and its most, as a cgroup's

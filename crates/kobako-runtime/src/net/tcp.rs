@@ -16,7 +16,9 @@ use socket2::{SockRef, TcpKeepalive};
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{ensure_ttl, to_error, within, Buffers, ProtoOps, SocketMemory, IPDEFTTL};
+use super::socket::{
+    ensure_ttl, ensure_within, to_error, Buffers, ProtoOps, SocketMemory, IPDEFTTL,
+};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -30,18 +32,18 @@ const CHUNK: usize = 16 * 1024;
 
 /// Linux's keepalive defaults, `TCP_KEEPALIVE_TIME`, `TCP_KEEPALIVE_INTVL`,
 /// and `TCP_KEEPALIVE_PROBES`, in seconds and probes.
-const KEEPALIVE_TIME: u32 = 7200;
-const KEEPALIVE_INTVL: u32 = 75;
-const KEEPALIVE_PROBES: u32 = 9;
+const TCP_KEEPALIVE_TIME: u32 = 7200;
+const TCP_KEEPALIVE_INTVL: u32 = 75;
+const TCP_KEEPALIVE_PROBES: u32 = 9;
 
-/// Linux's ceilings on each, `MAX_TCP_KEEPIDLE`, `MAX_TCP_KEEPINTVL`, and
-/// `MAX_TCP_KEEPCNT`.
-const MAX_KEEPIDLE: u32 = 32767;
-const MAX_KEEPINTVL: u32 = 32767;
-const MAX_KEEPCNT: u32 = 127;
+/// Linux's ceilings on each, past which a set answers EINVAL.
+pub const MAX_TCP_KEEPIDLE: u32 = 32767;
+pub const MAX_TCP_KEEPINTVL: u32 = 32767;
+pub const MAX_TCP_KEEPCNT: u32 = 127;
 
 /// When a socket probes an idle peer, as `tcp_sock` keeps `keepalive_time`,
 /// `keepalive_intvl`, and `keepalive_probes` beside `SOCK_KEEPOPEN`.
+#[derive(Clone, Copy)]
 struct KeepAlive {
     on: bool,
     idle: u32,
@@ -51,7 +53,7 @@ struct KeepAlive {
 
 impl KeepAlive {
     /// The probes as the host socket takes them.
-    fn to_params(&self) -> TcpKeepalive {
+    fn to_params(self) -> TcpKeepalive {
         TcpKeepalive::new()
             .with_time(Duration::from_secs(self.idle.into()))
             .with_interval(Duration::from_secs(self.interval.into()))
@@ -153,9 +155,9 @@ impl TcpSock {
                 named: None,
                 keepalive: KeepAlive {
                     on: false,
-                    idle: KEEPALIVE_TIME,
-                    interval: KEEPALIVE_INTVL,
-                    count: KEEPALIVE_PROBES,
+                    idle: TCP_KEEPALIVE_TIME,
+                    interval: TCP_KEEPALIVE_INTVL,
+                    count: TCP_KEEPALIVE_PROBES,
                 },
                 buffers: Buffers::default(),
                 ttl: IPDEFTTL,
@@ -419,7 +421,7 @@ impl TcpSock {
     /// Idle `secs` before the first probe, as `tcp_sock_set_keepidle` takes
     /// 1 to `MAX_TCP_KEEPIDLE` and refuses the rest with EINVAL.
     pub fn set_keepidle(&self, secs: u32) -> Result<(), FilesystemError> {
-        within(secs, MAX_KEEPIDLE)?;
+        ensure_within(secs, MAX_TCP_KEEPIDLE)?;
         self.set_options_with(|state| state.keepalive.idle = secs)
     }
 
@@ -431,7 +433,7 @@ impl TcpSock {
     /// Wait `secs` between probes, as `tcp_sock_set_keepintvl` takes 1 to
     /// `MAX_TCP_KEEPINTVL`.
     pub fn set_keepintvl(&self, secs: u32) -> Result<(), FilesystemError> {
-        within(secs, MAX_KEEPINTVL)?;
+        ensure_within(secs, MAX_TCP_KEEPINTVL)?;
         self.set_options_with(|state| state.keepalive.interval = secs)
     }
 
@@ -443,7 +445,7 @@ impl TcpSock {
     /// Drop after `count` unanswered probes, as `tcp_sock_set_keepcnt` takes
     /// 1 to `MAX_TCP_KEEPCNT`.
     pub fn set_keepcnt(&self, count: u32) -> Result<(), FilesystemError> {
-        within(count, MAX_KEEPCNT)?;
+        ensure_within(count, MAX_TCP_KEEPCNT)?;
         self.set_options_with(|state| state.keepalive.count = count)
     }
 

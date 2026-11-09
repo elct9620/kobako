@@ -79,7 +79,7 @@ pub(crate) fn ensure_ttl(ttl: u8) -> Result<(), FilesystemError> {
 }
 
 /// `value` within 1 to `max`, else EINVAL, as Linux bounds a TCP option.
-pub(crate) fn within(value: u32, max: u32) -> Result<(), FilesystemError> {
+pub(crate) fn ensure_within(value: u32, max: u32) -> Result<(), FilesystemError> {
     match (1..=max).contains(&value) {
         true => Ok(()),
         false => Err(FilesystemError::InvalidInput),
