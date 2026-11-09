@@ -609,6 +609,22 @@ impl SocketsHost for Invocation {
         }
     }
 
+    fn tcp_tcp_socket_hop_limit(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<u8, ErrorCode>> {
+        self.tcp_option(this, TcpSock::ttl)
+    }
+
+    /// Zero answers `invalid-argument`, as the runtime refuses it.
+    fn tcp_tcp_socket_set_hop_limit(
+        &mut self,
+        this: TcpSocket,
+        value: u8,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        self.set_tcp_option(this, |sock| sock.set_ttl(value))
+    }
+
     fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {
         self.table().delete(handle).map(drop)
     }
@@ -688,6 +704,66 @@ impl SocketsHost for Invocation {
         }
         let port = socket.socket.sock.virtual_port();
         Ok(Ok(from_socket_addr(self.network().local_address(port))))
+    }
+
+    /// The hop limit, from the socket's own setting; a UDP socket takes an
+    /// option in any state, as wasmtime's does.
+    fn udp_udp_socket_unicast_hop_limit(
+        &mut self,
+        this: UdpSocket,
+    ) -> wasmtime::Result<Result<u8, ErrorCode>> {
+        Ok(Ok(self.udp(this)?.socket.sock.ttl()))
+    }
+
+    fn udp_udp_socket_set_unicast_hop_limit(
+        &mut self,
+        this: UdpSocket,
+        value: u8,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        let socket = self.udp(this)?;
+        Ok(socket
+            .socket
+            .sock
+            .set_ttl(value)
+            .map_err(|err| to_error_code(&err)))
+    }
+
+    fn udp_udp_socket_receive_buffer_size(
+        &mut self,
+        this: UdpSocket,
+    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        Ok(Ok(to_asked_size(self.udp(this)?.socket.sock.rcvbuf())))
+    }
+
+    fn udp_udp_socket_set_receive_buffer_size(
+        &mut self,
+        this: UdpSocket,
+        value: u64,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        let Some(bytes) = to_buffer_size(value) else {
+            return Ok(Err(ErrorCode::InvalidArgument));
+        };
+        self.udp(this)?.socket.sock.set_rcvbuf(bytes);
+        Ok(Ok(()))
+    }
+
+    fn udp_udp_socket_send_buffer_size(
+        &mut self,
+        this: UdpSocket,
+    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        Ok(Ok(to_asked_size(self.udp(this)?.socket.sock.sndbuf())))
+    }
+
+    fn udp_udp_socket_set_send_buffer_size(
+        &mut self,
+        this: UdpSocket,
+        value: u64,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        let Some(bytes) = to_buffer_size(value) else {
+            return Ok(Err(ErrorCode::InvalidArgument));
+        };
+        self.udp(this)?.socket.sock.set_sndbuf(bytes);
+        Ok(Ok(()))
     }
 
     /// The streams to the one peer the guest names, which passes the
