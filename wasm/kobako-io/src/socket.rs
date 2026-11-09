@@ -93,6 +93,19 @@ impl ByteSource for Connection {
     }
 }
 
+/// What `call` answers for the TCP socket `value` stands for, `None` when it
+/// stands for no `TCPSocket`; a closed one raises `IOError`.
+pub(crate) fn with_tcp_socket<T>(
+    mrb: &Mrb,
+    value: Value,
+    call: impl FnOnce(&TcpSocket) -> Result<T, Error>,
+) -> Result<Option<T>, Error> {
+    match Connection::of(mrb, value) {
+        Ok(connection) => connection.with(mrb, |open| call(&open.socket)).map(Some),
+        Err(_) => Ok(None),
+    }
+}
+
 /// The socket `value` stands for, a `TCPSocket` or a `UDPSocket`.
 fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn ByteSource, Error> {
     match Connection::of(mrb, value) {
@@ -129,6 +142,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<RClass, Error> {
     // A socket is an IO, as CRuby's `TCPSocket < IPSocket < BasicSocket < IO`.
     let basic = mrb.define_class(c"BasicSocket", io)?;
     define_socket_io(mrb, basic)?;
+    crate::sockopt::init(mrb, socket_class, basic)?;
     let ip = mrb.define_class(c"IPSocket", basic)?;
     let socket = mrb.define_class(c"TCPSocket", ip)?;
     Connection::mark_carriers(mrb)?;

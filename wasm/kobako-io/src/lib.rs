@@ -23,6 +23,7 @@ mod io;
 mod kernel_ext;
 mod select;
 mod socket;
+mod sockopt;
 mod stream;
 mod udp;
 mod wasi;

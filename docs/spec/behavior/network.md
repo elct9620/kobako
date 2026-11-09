@@ -27,6 +27,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_own_end.rb`
 - `test/e2e/test_network_socket_io.rb`
 - `test/e2e/test_network_socket_io_edges.rb`
+- `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_cruby.rb`
@@ -1496,3 +1497,16 @@ endpoint "api.example.com", port: 443
 | Given | a Protocol Family handing out the host streams it dials |
 | When | an HTTP request reaches a server through it |
 | Then | the request's stream turns `TCP_NODELAY` on, as an HTTP client writes each request whole |
+
+## `NW-123` A script's TCPSocket sets and reads SO_KEEPALIVE as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-067` |
+| relates | `RT-366` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script sets `SO_KEEPALIVE` by number, by name, by String, and by `Socket::Option`, and reads it back |
+| Then | each set answers 0 and each read a `Socket::Option` holding the setting, as CRuby's on Linux. A short value raises `Errno::EINVAL`, an unknown name or level `SocketError`, and a closed socket `IOError` |
