@@ -8,11 +8,10 @@ use beni::{
     Error, IntoValue, Mrb, Qfalse, Qtrue, RClass, RString, RTypedData, TryConvert, TypedData, Value,
 };
 
+use super::tcp::with_tcp_socket;
+use super::udp::with_udp_socket;
+use super::{family_of, socket_error, spelled, to_error, Family, AF_INET, AF_INET6};
 use crate::errno;
-use crate::socket::{
-    family_of, socket_error, spelled, to_error, with_tcp_socket, Family, AF_INET, AF_INET6,
-};
-use crate::udp::with_udp_socket;
 use crate::wasi::wasi::sockets::network::ErrorCode;
 use crate::wasi::wasi::sockets::tcp::TcpSocket;
 use crate::wasi::wasi::sockets::udp::UdpSocket;
@@ -140,7 +139,7 @@ fn size_error(mrb: &Mrb, len: usize) -> Error {
 
 /// Define the level and option constants on `Socket`, `Socket::Option`, and
 /// the two `BasicSocket` methods.
-pub(crate) fn init(mrb: &Mrb, socket: RClass, basic: RClass) -> Result<(), Error> {
+pub(super) fn init(mrb: &Mrb, socket: RClass, basic: RClass) -> Result<(), Error> {
     for level in &LEVELS {
         socket.const_set(mrb, format!("{}{}", level.prefix, level.name), level.number)?;
         for (name, number) in level.options {

@@ -1,0 +1,318 @@
+//! `TCPSocket`, one connection over `wasi:sockets/tcp`, as CRuby's
+//! `ext/socket/tcpsocket.c` opens one to a peer.
+
+use std::cell::{Cell, RefCell};
+use std::net::Ipv4Addr;
+use std::time::Duration;
+
+use beni::prelude::*;
+use beni::value::qnil;
+use beni::{
+    Error, ExceptionClass, IntoValue, Module, Mrb, RArray, RClass, RHash, Symbol, TryConvert,
+    TypedData, Value,
+};
+
+use super::address::{local_of, peer_of, to_ip_socket_address};
+use super::basic::{ByteSource, READ_CHUNK};
+use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
+use super::{stream_error, to_error};
+use crate::errno;
+use crate::io::argument_error;
+use crate::wasi::wait_within;
+use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
+use crate::wasi::wasi::sockets::instance_network::instance_network;
+use crate::wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
+use crate::wasi::wasi::sockets::tcp::{ShutdownType, TcpSocket};
+use crate::wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
+
+/// The most `blocking-write-and-flush` takes in one call, as WASI bounds it.
+const WRITE_CHUNK: usize = 4096;
+
+/// One connection, its streams dropped before the socket, as WASI asks of a
+/// child resource.
+struct Open {
+    input: InputStream,
+    output: OutputStream,
+    socket: TcpSocket,
+    peer: (Ipv4Addr, u16),
+    /// `close_write` closed the writing side, as CRuby's IO clears
+    /// `FMODE_WRITABLE`.
+    write_closed: Cell<bool>,
+}
+
+/// What a `TCPSocket` stands for, kept in its payload so a script's instance
+/// variables cannot rewrite it; `None` once closed.
+#[beni::wrap(class = "TCPSocket", name = "Kobako::TCPSocket")]
+pub(super) struct Connection {
+    open: RefCell<Option<Open>>,
+    /// What a read took from the host past what it answered.
+    buffered: RefCell<Vec<u8>>,
+    sync: Cell<bool>,
+}
+
+impl ByteSource for Connection {
+    fn held(&self) -> &RefCell<Vec<u8>> {
+        &self.buffered
+    }
+
+    fn receive(&self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
+        self.with(mrb, |open| loop {
+            match open.input.blocking_read(READ_CHUNK as u64) {
+                Ok(bytes) if bytes.is_empty() => continue,
+                Ok(bytes) => return Ok(Some(bytes)),
+                Err(StreamError::Closed) => return Ok(None),
+                Err(err) => return Err(stream_error(mrb, err)),
+            }
+        })
+    }
+
+    fn sync(&self) -> &Cell<bool> {
+        &self.sync
+    }
+}
+
+/// What `call` answers for the TCP socket `value` stands for, `None` when it
+/// stands for no `TCPSocket`; a closed one raises `IOError`.
+pub(super) fn with_tcp_socket<T>(
+    mrb: &Mrb,
+    value: Value,
+    call: impl FnOnce(&TcpSocket) -> Result<T, Error>,
+) -> Result<Option<T>, Error> {
+    match Connection::of(mrb, value) {
+        Ok(connection) => connection.with(mrb, |open| call(&open.socket)).map(Some),
+        Err(_) => Ok(None),
+    }
+}
+
+impl Connection {
+    pub(super) fn of<'a>(mrb: &Mrb, value: Value) -> Result<&'a Connection, Error> {
+        <&Connection>::try_convert(value, mrb)
+    }
+
+    fn with<T>(&self, mrb: &Mrb, call: impl FnOnce(&Open) -> Result<T, Error>) -> Result<T, Error> {
+        match self.open.borrow().as_ref() {
+            Some(open) => call(open),
+            None => Err(errno::io_error(mrb, "closed stream")),
+        }
+    }
+}
+
+/// Define `TCPSocket` under `ip`, its `IPSocket`.
+pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
+    let socket = mrb.define_class(c"TCPSocket", ip)?;
+    Connection::mark_carriers(mrb)?;
+    socket.define_method(mrb, c"fileno", beni::method!(tcp_socket_fileno, 0))?;
+    socket.define_method(mrb, c"to_i", beni::method!(tcp_socket_fileno, 0))?;
+    socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, -1))?;
+    socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, -1))?;
+    socket.define_method(mrb, c"write", beni::method!(tcp_socket_write, -1))?;
+    socket.define_method(
+        mrb,
+        c"close_write",
+        beni::method!(tcp_socket_close_write, 0),
+    )?;
+    socket.define_method(mrb, c"close", beni::method!(tcp_socket_close, 0))?;
+    socket.define_method(mrb, c"closed?", beni::method!(tcp_socket_closed_p, 0))?;
+    socket.define_method(mrb, c"peeraddr", beni::method!(tcp_socket_peeraddr, -1))?;
+    socket.define_method(mrb, c"addr", beni::method!(tcp_socket_addr, -1))?;
+    Ok(())
+}
+
+/// `TCPSocket.new(remote_host, remote_port, local_host = nil, local_port = nil,
+/// connect_timeout: nil)` connects to the IPv4 address `remote_host` names, or
+/// the one its name leads to, as the network the Sandbox gives allows. A local
+/// end the script chooses is bound first, as the host lets a bind take it,
+/// and a connect slower than `connect_timeout` raises `IO::TimeoutError`, as
+/// CRuby's does.
+fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
+    const TCP: &str = "TCPSocket";
+    let mut args = args.to_vec();
+    let options = args.last().copied().and_then(RHash::from_value);
+    if options.is_some() {
+        args.pop();
+    }
+    let (host, port, local) = match args.as_slice() {
+        [host, port, local @ ..] if local.len() <= 2 => (*host, *port, local),
+        _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
+    };
+    let Timeouts { resolv, connect } = timeouts_of(mrb, options)?;
+    let (ip, port, call) = peer_of(mrb, host, port, resolv, TCP, "connect(2)")?;
+    let failed = |code| to_error(mrb, code, TCP, &call);
+    let socket = create_tcp_socket(IpAddressFamily::Ipv4).map_err(failed)?;
+    let network = instance_network();
+    if local.iter().any(|end| !end.is_nil()) {
+        let none = qnil().as_value();
+        let (local_host, local_port) = (
+            local.first().copied().unwrap_or(none),
+            local.get(1).copied().unwrap_or(none),
+        );
+        let (local_ip, local_port, bind_call) = local_of(mrb, local_host, local_port, TCP)?;
+        let refused = |code| to_error(mrb, code, TCP, &bind_call);
+        socket
+            .start_bind(&network, to_ip_socket_address((local_ip, local_port)))
+            .map_err(refused)?;
+        socket.finish_bind().map_err(refused)?;
+    }
+    socket
+        .start_connect(&network, to_ip_socket_address((ip, port)))
+        .map_err(failed)?;
+    let pollable = socket.subscribe();
+    let (input, output) = loop {
+        match socket.finish_connect() {
+            Ok(streams) => break streams,
+            Err(ErrorCode::WouldBlock) => {
+                if !wait_within(&pollable, connect) {
+                    return Err(Error::new(
+                        mrb,
+                        io_timeout_error(mrb)?,
+                        &format!("user specified timeout for {ip} port {port}"),
+                    ));
+                }
+            }
+            Err(code) => return Err(failed(code)),
+        }
+    };
+    let connection = Connection {
+        open: RefCell::new(Some(Open {
+            input,
+            output,
+            socket,
+            peer: (ip, port),
+            write_closed: Cell::new(false),
+        })),
+        buffered: RefCell::new(Vec::new()),
+        sync: Cell::new(true),
+    };
+    Ok(mrb.wrap_as(connection, class).as_value())
+}
+
+/// The limits `TCPSocket.new`'s keywords set on resolving a name and on
+/// connecting.
+struct Timeouts {
+    resolv: Option<Duration>,
+    connect: Option<Duration>,
+}
+
+/// The limits `resolv_timeout:` and `connect_timeout:` set, refusing any
+/// keyword CRuby's does not take. `fast_fallback:` chooses between IPv6 and
+/// IPv4 attempts, so on a guest that speaks only IPv4 it changes nothing.
+fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
+    let mut timeouts = Timeouts {
+        resolv: None,
+        connect: None,
+    };
+    let Some(options) = options else {
+        return Ok(timeouts);
+    };
+    let keys: RArray = options.funcall(mrb, c"keys", ())?;
+    for i in 0..keys.len() {
+        let given: Value = keys.entry(mrb, i as isize)?;
+        let name = Symbol::from_value(given).and_then(|name| name.name(mrb).ok());
+        let limit = match name.as_deref() {
+            Some("resolv_timeout") => &mut timeouts.resolv,
+            Some("connect_timeout") => &mut timeouts.connect,
+            Some("fast_fallback") => continue,
+            _ => {
+                let name = given.inspect(mrb);
+                return Err(argument_error(mrb, &format!("unknown keyword: {name}")));
+            }
+        };
+        *limit = seconds_of(mrb, options.aref(mrb, given)?)?;
+    }
+    Ok(timeouts)
+}
+
+/// The Duration `sec` names, or none for `nil`.
+fn seconds_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>, Error> {
+    if sec.is_nil() {
+        return Ok(None);
+    }
+    Duration::try_from_secs_f64(f64::try_convert(sec, mrb)?)
+        .map(Some)
+        .map_err(|_| argument_error(mrb, "time interval must not be negative"))
+}
+
+fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
+    mrb.class_get(c"IO")?.const_get(mrb, c"TimeoutError")
+}
+
+/// `write(*objects)` sends every byte of each, answering how many it sent.
+fn tcp_socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Error> {
+    let mut bytes = Vec::new();
+    for object in objects {
+        let data = object
+            .funcall::<_, _, Value>(mrb, c"to_s", ())?
+            .to_r_string(mrb)?;
+        // SAFETY: the bytes are copied before the next mruby call.
+        bytes.extend_from_slice(unsafe { data.as_bytes(mrb) });
+    }
+    Connection::of(mrb, self_)?.with(mrb, |open| {
+        if open.write_closed.get() {
+            return Err(Error::new(
+                mrb,
+                mrb.exc_get(c"IOError")?,
+                "not opened for writing",
+            ));
+        }
+        for chunk in bytes.chunks(WRITE_CHUNK) {
+            open.output
+                .blocking_write_and_flush(chunk)
+                .map_err(|err| stream_error(mrb, err))?;
+        }
+        Ok(())
+    })?;
+    Ok((bytes.len() as i64).into_value(mrb))
+}
+
+/// `close_write` sends the FIN once what was written is sent, and a later
+/// write raises `IOError`, as CRuby's does.
+fn tcp_socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Connection::of(mrb, self_)?.with(mrb, |open| {
+        let _ = open.socket.shutdown(ShutdownType::Send);
+        open.write_closed.set(true);
+        Ok(())
+    })?;
+    Ok(qnil().as_value())
+}
+
+fn tcp_socket_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Connection::of(mrb, self_)?.open.borrow_mut().take();
+    Ok(qnil().as_value())
+}
+
+/// The socket's descriptor, its preview2 handle, which preview1's calls and
+/// `IO.select` reach as one fdtable holds a socket beside a file.
+fn tcp_socket_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let fd = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.handle()))?;
+    Ok((fd as i64).into_value(mrb))
+}
+
+fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Ok(Connection::of(mrb, self_)?
+        .open
+        .borrow()
+        .is_none()
+        .into_value(mrb))
+}
+
+/// `peeraddr(reverse_lookup = nil)` answers the peer as CRuby's
+/// `["AF_INET", port, host, host]`. The guest names no host, so a reverse
+/// lookup asked for answers the address.
+fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    if let Some(flag) = args.first() {
+        ensure_reverse_lookup_flag(mrb, *flag)?;
+    }
+    let peer = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.peer))?;
+    to_addr_array(mrb, peer)
+}
+
+/// `addr(reverse_lookup = nil)` answers the guest's own end as CRuby's
+/// `["AF_INET", port, host, host]`: the virtual address and port the host
+/// hands the guest for it.
+fn tcp_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    if let Some(flag) = args.first() {
+        ensure_reverse_lookup_flag(mrb, *flag)?;
+    }
+    let local = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.local_address()))?;
+    local_addr_array(mrb, local, "TCPSocket")
+}

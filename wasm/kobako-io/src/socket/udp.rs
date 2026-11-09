@@ -9,12 +9,12 @@ use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
+use super::address::{local_of, peer_of, to_ip_socket_address};
+use super::basic::ByteSource;
+use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
+use super::{family_of, to_error, Family, AF_INET};
 use crate::errno;
 use crate::io::argument_error;
-use crate::socket::{
-    ensure_reverse_lookup_flag, family_of, local_addr_array, local_of, peer_of, to_addr_array,
-    to_error, to_ip_socket_address, ByteSource, Family, AF_INET,
-};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
@@ -72,7 +72,7 @@ impl ByteSource for Datagrams {
 
 /// What `call` answers for the UDP socket `value` stands for, `None` when it
 /// stands for no `UDPSocket`; a closed one raises `IOError`.
-pub(crate) fn with_udp_socket<T>(
+pub(super) fn with_udp_socket<T>(
     mrb: &Mrb,
     value: Value,
     call: impl FnOnce(&UdpSocket) -> Result<T, Error>,
@@ -84,7 +84,7 @@ pub(crate) fn with_udp_socket<T>(
 }
 
 /// The `UDPSocket` `value` stands for, as a socket a read takes bytes from.
-pub(crate) fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn ByteSource, Error> {
+pub(super) fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn ByteSource, Error> {
     Ok(Datagrams::of(mrb, value)?)
 }
 
@@ -105,7 +105,7 @@ impl Datagrams {
     }
 }
 
-pub(crate) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
+pub(super) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
     // A socket is an IO, as CRuby's `UDPSocket < IPSocket < BasicSocket < IO`.
     let socket = mrb.define_class(c"UDPSocket", ip_socket)?;
     Datagrams::mark_carriers(mrb)?;
