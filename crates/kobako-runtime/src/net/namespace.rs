@@ -8,8 +8,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use super::http::{
-    split_authority, to_field_name, to_field_value, Connector, Exchange, HttpError, Outbound,
-    OutgoingRequest, Scheme, Swap,
+    carries, split_authority, to_field_name, to_field_value, Connector, Exchange, HttpError,
+    Outbound, OutgoingRequest, Scheme, Swap,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::{OpenConnections, ProtocolFamily, TcpSock, UdpSock};
@@ -206,11 +206,9 @@ impl Namespace {
             for credential in credentials {
                 let header = credential.placement.header();
                 let placeholder = credential.placeholder.as_bytes();
-                let carried = !placeholder.is_empty()
-                    && headers.iter().any(|(name, value)| {
-                        name.eq_ignore_ascii_case(header)
-                            && value.windows(placeholder.len()).any(|w| w == placeholder)
-                    });
+                let carried = headers.iter().any(|(name, value)| {
+                    name.eq_ignore_ascii_case(header) && carries(value, placeholder)
+                });
                 if !carried {
                     continue;
                 }

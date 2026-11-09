@@ -295,23 +295,12 @@ impl Swap {
         if !name.eq_ignore_ascii_case(&self.header) || self.placeholder.is_empty() {
             return value.to_vec();
         }
-        if let Some(pair) = value
-            .get(..BASIC.len())
-            .filter(|scheme| scheme.eq_ignore_ascii_case(BASIC))
-            .and_then(|_| decode_base64(&value[BASIC.len()..]))
-            .filter(|pair| self.finds_in(pair))
-        {
+        if let Some(pair) = basic_pair_of(value).filter(|pair| contains(pair, &self.placeholder)) {
             let mut swapped = BASIC.to_vec();
             swapped.extend(encode_base64(&self.replace(&pair)));
             return swapped;
         }
         self.replace(value)
-    }
-
-    fn finds_in(&self, value: &[u8]) -> bool {
-        value
-            .windows(self.placeholder.len())
-            .any(|window| window == self.placeholder.as_slice())
     }
 
     /// `value` with each placeholder replaced by the secret.
@@ -329,6 +318,26 @@ impl Swap {
         swapped.extend_from_slice(rest);
         swapped
     }
+}
+
+/// Whether a header's `value` carries `placeholder`, as sent or inside the
+/// pair a `Basic` value encodes, as OpenShell finds one.
+pub(crate) fn carries(value: &[u8], placeholder: &[u8]) -> bool {
+    !placeholder.is_empty()
+        && (contains(value, placeholder)
+            || basic_pair_of(value).is_some_and(|pair| contains(&pair, placeholder)))
+}
+
+/// The pair a `Basic` value encodes.
+fn basic_pair_of(value: &[u8]) -> Option<Vec<u8>> {
+    value
+        .get(..BASIC.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(BASIC))
+        .and_then(|_| decode_base64(&value[BASIC.len()..]))
+}
+
+fn contains(value: &[u8], part: &[u8]) -> bool {
+    value.windows(part.len()).any(|window| window == part)
 }
 
 impl OutgoingRequest {
@@ -1581,9 +1590,10 @@ mod tests {
         }
     }
 
-    /// The swaps a request carries once its entry binds a bearer credential to
-    /// `exact.example.com` and `*.example.com` on 443, allowing GET on `/api/**`.
-    fn swaps_for(scheme: Scheme, host: &str, path: &str, header: &str) -> Vec<Swap> {
+    /// The swaps a request with `header: value` carries once its entry binds a
+    /// credential to `exact.example.com` and `*.example.com` on 443, allowing
+    /// GET on `/api/**`.
+    fn swaps_for(scheme: Scheme, host: &str, path: &str, header: &str, value: &[u8]) -> Vec<Swap> {
         let mut entry = Builder::default();
         entry
             .endpoint(
@@ -1615,9 +1625,7 @@ mod tests {
         .unwrap();
         let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));
         request.path_with_query = path.to_string();
-        request
-            .headers
-            .push((header.to_string(), b"Bearer kobako-token".to_vec()));
+        request.headers.push((header.to_string(), value.to_vec()));
         let exchange = namespace
             .send(&prepare_creds_within(&[], None), request)
             .expect("an endpoint names the authority");
@@ -1638,7 +1646,9 @@ mod tests {
     // @behavior NW-050
     #[test]
     fn a_credential_binds_only_to_https_its_exact_host_and_an_allowed_path() {
-        let bound = |scheme, host, path, header| !swaps_for(scheme, host, path, header).is_empty();
+        let bound = |scheme, host, path, header| {
+            !swaps_for(scheme, host, path, header, b"Bearer kobako-token").is_empty()
+        };
         assert_eq!(
             [
                 bound(
@@ -1706,20 +1716,25 @@ mod tests {
 
     // @behavior NW-076
     #[test]
-    fn a_swap_replaces_the_placeholder_inside_a_basic_pair() {
-        let swap = Swap {
-            header: "authorization".to_string(),
-            placeholder: b"kobako-token".to_vec(),
-            secret: crate::network::Secret::new("s3cret"),
+    fn a_request_sends_its_secret_inside_a_basic_pair_carrying_the_placeholder() {
+        let sent = |value: &[u8]| {
+            swaps_for(
+                Scheme::Https,
+                "exact.example.com",
+                "/api/repos",
+                "authorization",
+                value,
+            )
+            .iter()
+            .fold(value.to_vec(), |value, swap| {
+                swap.apply("authorization", &value)
+            })
         };
         assert_eq!(
-            [
-                swap.apply("authorization", b"Basic dXNlcjprb2Jha28tdG9rZW4="),
-                swap.apply("authorization", b"Basic YQ=="),
-            ],
+            [sent(b"Basic dXNlcjprb2Jha28tdG9rZW4="), sent(b"Basic YQ=="),],
             [b"Basic dXNlcjpzM2NyZXQ=".to_vec(), b"Basic YQ==".to_vec()],
-            "a credential must replace its placeholder inside a Basic pair and encode the pair \
-             again, as OpenShell's does, and leave a pair without it as sent"
+            "a request whose Basic pair encodes the placeholder must go with the secret in the \
+             pair, encoded again, as OpenShell's does, and a pair without it must go as sent"
         );
     }
 
