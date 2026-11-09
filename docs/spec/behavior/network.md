@@ -35,6 +35,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_ends.rb`
 - `test/e2e/test_network_socket_addrinfo.rb`
 - `test/e2e/test_network_addrinfo.rb`
+- `test/e2e/test_network_socket_tcp.rb`
 - `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
@@ -1756,3 +1757,16 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server, and a UDP peer |
 | When | the script calls `local_address` and `remote_address` on a `TCPSocket` and on a `UDPSocket` before and after `connect` |
 | Then | each answers the `Addrinfo` of the end `addr` or `peeraddr` answers, of the socket's kind. A `UDPSocket` with no peer raises `Errno::ENOTCONN` |
+
+## `NW-143` A script connects with Socket.tcp, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+| relates | `NW-140` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script calls `Socket.tcp` with and without a block, and to a closed port |
+| Then | it answers a connected `TCPSocket`, where CRuby's answers a `Socket`, since the guest makes no raw socket. The block's socket is closed after it, and the call answers the block's value. A refusal names its end as `host:port`, as CRuby's does |

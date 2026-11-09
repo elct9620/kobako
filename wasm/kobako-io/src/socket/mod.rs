@@ -57,7 +57,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     addrinfo::init(mrb, socket_class, basic)?;
     let ip = mrb.define_class(c"IPSocket", basic)?;
     ip::init(mrb, ip)?;
-    tcp::init(mrb, ip)?;
+    tcp::init(mrb, socket_class, ip)?;
     udp::init(mrb, ip)?;
     // `Socket` stands only for its constants and errors here; the guest makes
     // no raw socket, so it has no `new`.

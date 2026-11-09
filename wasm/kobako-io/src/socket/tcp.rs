@@ -7,9 +7,10 @@ use std::task::Poll;
 use std::time::Duration;
 
 use beni::prelude::*;
+use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, ExceptionClass, IntoValue, Module, Mrb, RArray, RClass, RHash, Symbol, TryConvert,
+    Error, ExceptionClass, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash, Symbol, TryConvert,
     TypedData, Value,
 };
 
@@ -160,8 +161,9 @@ impl Connection {
     }
 }
 
-/// Define `TCPSocket` under `ip`, its `IPSocket`.
-pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
+/// Define `TCPSocket` under `ip`, its `IPSocket`, and `Socket.tcp`.
+pub(super) fn init(mrb: &Mrb, socket_class: RClass, ip: RClass) -> Result<(), Error> {
+    socket_class.define_singleton_method(mrb, c"tcp", beni::method!(socket_s_tcp, -1))?;
     let socket = mrb.define_class(c"TCPSocket", ip)?;
     Connection::mark_carriers(mrb)?;
     socket.define_method(mrb, c"fileno", beni::method!(tcp_socket_fileno, 0))?;
@@ -178,6 +180,44 @@ pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
 /// and a connect slower than `connect_timeout` raises `IO::TimeoutError`, as
 /// CRuby's does.
 fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
+    let connection = dial(mrb, args, Caller::TcpSocketNew)?;
+    Ok(mrb.wrap_as(connection, class).as_value())
+}
+
+/// `Socket.tcp(host, port, local_host = nil, local_port = nil,
+/// connect_timeout: nil, resolv_timeout: nil) { |socket| }` connects as
+/// `TCPSocket.new` does, answering a `TCPSocket` where CRuby's answers a
+/// `Socket`, since the guest makes no raw socket. With a block it yields the
+/// socket and closes it after, answering what the block answers. A connect
+/// slower than `connect_timeout` raises `Errno::ETIMEDOUT`, as CRuby's does.
+fn socket_s_tcp(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
+    let block = scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?.block;
+    let connection = dial(mrb, args, Caller::SocketTcp)?;
+    let socket = mrb
+        .wrap_as(connection, mrb.class_get(c"TCPSocket")?)
+        .as_value();
+    let Some(block) = block else {
+        return Ok(socket);
+    };
+    let answer = block.call::<_, Value>(mrb, [socket]);
+    socket.funcall::<_, _, Value>(mrb, c"close", ())?;
+    answer
+}
+
+/// Which call a connect answers for: `Socket.tcp` names its end as an
+/// `Addrinfo` shows it and times out as `Errno::ETIMEDOUT`, where
+/// `TCPSocket.new` quotes the host and raises `IO::TimeoutError`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Caller {
+    TcpSocketNew,
+    SocketTcp,
+}
+
+/// The connection `TCPSocket.new` and `Socket.tcp` open from their
+/// arguments: to the IPv4 address `remote_host` names, or the one its name
+/// leads to, from a local end the script chooses, bound first as the host
+/// lets a bind take it.
+fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> {
     const TCP: &str = "TCPSocket";
     let mut args = args.to_vec();
     let options = args.last().copied().and_then(RHash::from_value);
@@ -189,7 +229,12 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let Timeouts { resolv, connect } = timeouts_of(mrb, options)?;
-    let (ip, port, call) = peer_of(mrb, host, port, resolv, TCP, "connect(2)")?;
+    let (ip, port, quoted) = peer_of(mrb, host, port, resolv, TCP, "connect(2)")?;
+    let named = |call: &str, quoted: String, (ip, port): (Ipv4Addr, u16)| match caller {
+        Caller::TcpSocketNew => quoted,
+        Caller::SocketTcp => format!("{call} for {ip}:{port}"),
+    };
+    let call = named("connect(2)", quoted, (ip, port));
     let failed = |code| to_error(mrb, code, TCP, &call);
     let socket = create_tcp_socket(IpAddressFamily::Ipv4).map_err(failed)?;
     let network = instance_network();
@@ -199,7 +244,8 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             local.first().copied().unwrap_or(none),
             local.get(1).copied().unwrap_or(none),
         );
-        let (local_ip, local_port, bind_call) = local_of(mrb, local_host, local_port, TCP)?;
+        let (local_ip, local_port, quoted) = local_of(mrb, local_host, local_port, TCP)?;
+        let bind_call = named("bind(2)", quoted, (local_ip, local_port));
         let refused = |code| to_error(mrb, code, TCP, &bind_call);
         socket
             .start_bind(&network, to_ip_socket_address((local_ip, local_port)))
@@ -214,18 +260,24 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
         match socket.finish_connect() {
             Ok(streams) => break streams,
             Err(ErrorCode::WouldBlock) => {
-                if !wait_within(&pollable, connect) {
-                    return Err(Error::new(
+                if wait_within(&pollable, connect) {
+                    continue;
+                }
+                return Err(match caller {
+                    Caller::TcpSocketNew => Error::new(
                         mrb,
                         io_timeout_error(mrb)?,
                         &format!("user specified timeout for {ip} port {port}"),
-                    ));
-                }
+                    ),
+                    Caller::SocketTcp => {
+                        errno::error_by_name(mrb, c"ETIMEDOUT", "user specified timeout")
+                    }
+                });
             }
             Err(code) => return Err(failed(code)),
         }
     };
-    let connection = Connection {
+    Ok(Connection {
         open: RefCell::new(Some(Open {
             input,
             output,
@@ -233,8 +285,7 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             peer: (ip, port),
         })),
         io: IoState::new(),
-    };
-    Ok(mrb.wrap_as(connection, class).as_value())
+    })
 }
 
 /// The limits `TCPSocket.new`'s keywords set on resolving a name and on
