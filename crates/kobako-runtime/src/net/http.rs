@@ -1410,6 +1410,60 @@ mod tests {
         );
     }
 
+    // @behavior RT-365
+    #[test]
+    fn an_http_connection_sends_without_nagles_delay() {
+        /// The host's network, keeping a handle on each stream it dials.
+        #[derive(Default)]
+        struct Keeping(Mutex<Vec<std::net::TcpStream>>);
+        impl ProtocolFamily for Keeping {
+            fn connect(&self, addr: SocketAddr) -> io::Result<std::net::TcpStream> {
+                let stream = HostInet.connect(addr)?;
+                self.0.lock().unwrap().push(stream.try_clone()?);
+                Ok(stream)
+            }
+            fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
+                HostInet.resolve(name)
+            }
+        }
+        let (port, server) = answering_once();
+        let mut entry = Builder::default();
+        entry.endpoint(
+            Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_addresses(vec![crate::network::Addresses::Local]),
+        );
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let family = Arc::new(Keeping::default());
+        let namespace = Namespace::new(
+            [&network],
+            family.clone(),
+            Arc::new(HyperOutbound::new()),
+            OpenConnections::new(None),
+            None,
+        )
+        .expect("the endpoint compiles");
+        let cred = prepare_creds_within(&[], None);
+        let exchange = namespace
+            .send(&cred, get(&format!("127.0.0.1:{port}")))
+            .expect("the endpoint names the authority");
+        settled(&exchange).expect("the server answers");
+        server.join().unwrap();
+        let nodelay = family
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|stream| stream.nodelay().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            nodelay,
+            [true],
+            "an HTTP request sent through the Protocol Family must turn TCP_NODELAY on for the \
+             stream it dialed, as an HTTP client writes each request whole"
+        );
+    }
+
     // @behavior NW-058
     #[test]
     fn a_body_past_the_buffer_streams_as_it_is_read() {

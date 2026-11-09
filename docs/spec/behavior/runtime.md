@@ -4101,3 +4101,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a socket whose connect was refused, its failure not yet read |
 | When | a Wasm Driver asks it to connect again, then once more to a listener |
 | Then | the first answers ECONNREFUSED and dials nothing. The next connects and reads none of the earlier failure, as Linux disconnects a failed socket |
+
+## `RT-365` A guest's TCP socket keeps Nagle's algorithm and an HTTP connection sends at once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-342` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Protocol Family handing out the host streams it dials |
+| When | a guest's TCP socket connects through it, and an HTTP request reaches a server through it |
+| Then | the socket's stream keeps `TCP_NODELAY` off, as Linux's `tcp_init_sock` leaves it, since WASI gives the guest no option to set it. The request's stream turns it on, as an HTTP client writes each request whole |

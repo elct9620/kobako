@@ -490,6 +490,7 @@ mod tests {
         (sock, file, peer)
     }
 
+    // @behavior RT-365
     #[test]
     fn a_guest_socket_keeps_nagles_algorithm() {
         let (sock, _file, _peer) = connected();
@@ -501,8 +502,9 @@ mod tests {
         assert_eq!(
             nodelay,
             Some(false),
-            "a guest's TCP socket must leave TCP_NODELAY off, as Linux's tcp_init_sock does, \
-             since WASI gives the guest no option to set it"
+            "a guest's TCP socket connected through the Protocol Family must leave the stream's \
+             TCP_NODELAY off, as Linux's tcp_init_sock does, since WASI gives the guest no \
+             option to set it"
         );
     }
 
