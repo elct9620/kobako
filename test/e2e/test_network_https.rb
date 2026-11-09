@@ -40,4 +40,30 @@ class TestE2ENetworkHttps < Minitest::Test
                    "Net::HTTP with use_ssl to a server speaking clear must raise OpenSSL::SSL::SSLError"
     end
   end
+
+  TLS_SETTINGS = <<~RUBY
+    http = Net::HTTP.new("example.com", 443)
+    setters = %i[verify_mode= ca_file= ca_path= cert= key= cert_store= ssl_version= ciphers= verify_callback=
+                 set_debug_output].map do |name|
+      http.public_send(name, nil)
+      :answered
+    rescue NoMethodError
+      :undefined
+    end
+    constant = begin
+      OpenSSL::SSL::VERIFY_PEER
+    rescue NameError
+      :no_constant
+    end
+    [setters.uniq, constant]
+  RUBY
+
+  # @behavior NW-128
+  def test_net_http_defines_no_tls_setting_since_the_host_ends_tls
+    value = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(TLS_SETTINGS).value
+
+    assert_equal [[:undefined], :no_constant], value,
+                 "Net::HTTP must define none of CRuby's TLS settings or OpenSSL::SSL::VERIFY_PEER, where CRuby " \
+                 "takes each, since the host ends TLS and trusts the OS's store"
+  end
 end

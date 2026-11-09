@@ -1562,3 +1562,16 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server |
 | When | the script asks for `TCP_NODELAY`, sets `SO_KEEPALIVE` on a `UDPSocket`, and sets `SO_REUSEADDR` |
 | Then | the first two raise `Errno::ENOPROTOOPT` and the name `SocketError`, where CRuby sets each. WASI has no call for them, and the guest defines no constant for a name it cannot answer |
+
+## `NW-128` A script's Net::HTTP defines no TLS setting
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-048` |
+| relates | `NW-080` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | the script calls Net::HTTP's TLS setters, such as `verify_mode=` and `ca_file=`, and names `OpenSSL::SSL::VERIFY_PEER` |
+| Then | each setter raises `NoMethodError` and the constant `NameError`, where CRuby takes each. The host ends TLS and trusts the OS's store, so a script has nothing to set |
