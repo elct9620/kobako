@@ -1,7 +1,7 @@
 //! `TCPSocket`, one connection over `wasi:sockets/tcp`, as CRuby's
 //! `ext/socket/tcpsocket.c` opens one to a peer.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::net::Ipv4Addr;
 use std::task::Poll;
 use std::time::Duration;
@@ -14,7 +14,7 @@ use beni::{
 };
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
-use super::basic::{SocketIo, Wait};
+use super::basic::{IoState, SocketIo, Wait};
 use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
 use super::{stream_error, to_error};
 use crate::errno;
@@ -36,9 +36,6 @@ struct Open {
     output: OutputStream,
     socket: TcpSocket,
     peer: (Ipv4Addr, u16),
-    /// `close_write` closed the writing side, as CRuby's IO clears
-    /// `FMODE_WRITABLE`.
-    write_closed: Cell<bool>,
 }
 
 /// What a `TCPSocket` stands for, kept in its payload so a script's instance
@@ -46,14 +43,12 @@ struct Open {
 #[beni::wrap(class = "TCPSocket", name = "Kobako::TCPSocket")]
 pub(super) struct Connection {
     open: RefCell<Option<Open>>,
-    /// What a read took from the host past what it answered.
-    buffered: RefCell<Vec<u8>>,
-    sync: Cell<bool>,
+    io: IoState,
 }
 
 impl SocketIo for Connection {
-    fn held(&self) -> &RefCell<Vec<u8>> {
-        &self.buffered
+    fn io(&self) -> &IoState {
+        &self.io
     }
 
     fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error> {
@@ -78,7 +73,7 @@ impl SocketIo for Connection {
     /// all it is given and `write_nonblock` what there is room for.
     fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error> {
         self.with(mrb, |open| {
-            if open.write_closed.get() {
+            if self.io.write_closed.get() {
                 return Err(Error::new(
                     mrb,
                     mrb.exc_get(c"IOError")?,
@@ -106,10 +101,6 @@ impl SocketIo for Connection {
             open.output.flush().map_err(failed)?;
             Ok(Poll::Ready(now.len()))
         })
-    }
-
-    fn sync(&self) -> &Cell<bool> {
-        &self.sync
     }
 }
 
@@ -219,10 +210,8 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             output,
             socket,
             peer: (ip, port),
-            write_closed: Cell::new(false),
         })),
-        buffered: RefCell::new(Vec::new()),
-        sync: Cell::new(true),
+        io: IoState::new(),
     };
     Ok(mrb.wrap_as(connection, class).as_value())
 }
@@ -280,9 +269,10 @@ fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
 /// `close_write` sends the FIN once what was written is sent, and a later
 /// write raises `IOError`, as CRuby's does.
 fn tcp_socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    Connection::of(mrb, self_)?.with(mrb, |open| {
+    let connection = Connection::of(mrb, self_)?;
+    connection.with(mrb, |open| {
         let _ = open.socket.shutdown(ShutdownType::Send);
-        open.write_closed.set(true);
+        connection.io.write_closed.set(true);
         Ok(())
     })?;
     Ok(qnil().as_value())

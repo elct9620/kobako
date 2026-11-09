@@ -53,7 +53,7 @@ fn read_some(
     len: usize,
     wait: Wait,
 ) -> Result<Poll<Option<Vec<u8>>>, Error> {
-    let mut held = source.held().borrow_mut();
+    let mut held = source.io().held.borrow_mut();
     if held.is_empty() {
         drop(held);
         let bytes = match source.receive(mrb, READ_CHUNK, wait)? {
@@ -61,7 +61,7 @@ fn read_some(
             Poll::Ready(None) => return Ok(Poll::Ready(None)),
             Poll::Pending => return Ok(Poll::Pending),
         };
-        held = source.held().borrow_mut();
+        held = source.io().held.borrow_mut();
         *held = bytes;
     }
     let take = held.len().min(len);
@@ -179,7 +179,7 @@ fn next_line(
     loop {
         if let Some(end) = line_end_of(&line, separator, *limit) {
             let rest = line.split_off(end);
-            source.held().borrow_mut().splice(0..0, rest);
+            source.io().held.borrow_mut().splice(0..0, rest);
             break;
         }
         match waited(read_some(mrb, source, READ_CHUNK, Wait::Block)?) {
@@ -203,7 +203,7 @@ fn next_line(
 fn skip_newlines(mrb: &Mrb, source: &dyn SocketIo) -> Result<(), Error> {
     loop {
         {
-            let mut held = source.held().borrow_mut();
+            let mut held = source.io().held.borrow_mut();
             let newlines = held.iter().take_while(|byte| **byte == b'\n').count();
             held.drain(..newlines);
             if !held.is_empty() {
@@ -211,7 +211,7 @@ fn skip_newlines(mrb: &Mrb, source: &dyn SocketIo) -> Result<(), Error> {
             }
         }
         match waited(source.receive(mrb, READ_CHUNK, Wait::Block)?) {
-            Some(bytes) => *source.held().borrow_mut() = bytes,
+            Some(bytes) => *source.io().held.borrow_mut() = bytes,
             None => return Ok(()),
         }
     }
@@ -256,13 +256,13 @@ fn socket_readline(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
 
 /// The next byte, waiting for one, without taking it; `None` at the end.
 fn peek_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
-    if let Some(byte) = source.held().borrow().first() {
+    if let Some(byte) = source.io().held.borrow().first() {
         return Ok(Some(*byte));
     }
     match waited(source.receive(mrb, READ_CHUNK, Wait::Block)?) {
         Some(bytes) => {
             let first = bytes.first().copied();
-            *source.held().borrow_mut() = bytes;
+            *source.io().held.borrow_mut() = bytes;
             Ok(first)
         }
         None => Ok(None),
@@ -273,7 +273,7 @@ fn peek_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
 fn next_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
     let byte = peek_byte(mrb, source)?;
     if byte.is_some() {
-        source.held().borrow_mut().remove(0);
+        source.io().held.borrow_mut().remove(0);
     }
     Ok(byte)
 }
@@ -294,7 +294,7 @@ fn next_char(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<Vec<u8>>, Error>
     while char.len() < width {
         match peek_byte(mrb, source)? {
             Some(byte) if byte & 0xC0 == 0x80 => {
-                source.held().borrow_mut().remove(0);
+                source.io().held.borrow_mut().remove(0);
                 char.push(byte);
             }
             _ => break,
@@ -369,7 +369,8 @@ fn socket_each_byte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// first.
 fn push_back(source: &dyn SocketIo, bytes: &[u8]) {
     source
-        .held()
+        .io()
+        .held
         .borrow_mut()
         .splice(0..0, bytes.iter().copied());
 }
@@ -449,12 +450,12 @@ fn socket_readlines(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
 /// answers whether the end came instead, as CRuby's fills its buffer.
 fn socket_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
     let source = source_of(mrb, self_)?;
-    if !source.held().borrow().is_empty() {
+    if !source.io().held.borrow().is_empty() {
         return Ok(false);
     }
     match waited(source.receive(mrb, READ_CHUNK, Wait::Block)?) {
         Some(bytes) => {
-            *source.held().borrow_mut() = bytes;
+            *source.io().held.borrow_mut() = bytes;
             Ok(false)
         }
         None => Ok(true),
@@ -529,5 +530,5 @@ fn line_end_of(line: &[u8], separator: Option<&[u8]>, limit: Option<usize>) -> O
 /// Whether `value` is a socket holding bytes a `gets` read past, which a read
 /// answers before the socket is asked, as CRuby's read buffer is.
 pub(crate) fn holds_buffered(mrb: &Mrb, value: Value) -> bool {
-    source_of(mrb, value).is_ok_and(|source| !source.held().borrow().is_empty())
+    source_of(mrb, value).is_ok_and(|source| !source.io().held.borrow().is_empty())
 }

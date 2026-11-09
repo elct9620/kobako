@@ -24,12 +24,35 @@ pub(super) enum Wait {
     DontWait,
 }
 
-/// What a `BasicSocket` call reaches: the socket's receiving and sending, as
-/// Linux's `proto_ops` gives each socket type its own, and the read buffer
-/// CRuby keeps before it, whose bytes come first.
-pub(super) trait SocketIo {
+/// What CRuby's `rb_io_t` keeps beside a socket: the read buffer, whose
+/// bytes come first, whether writes are sent at once, and whether
+/// `close_write` closed the writing side.
+pub(super) struct IoState {
     /// What a read took past what it answered.
-    fn held(&self) -> &RefCell<Vec<u8>>;
+    pub(super) held: RefCell<Vec<u8>>,
+    /// Whether a write is sent at once, as `IO#sync` reads; a socket's is.
+    pub(super) sync: Cell<bool>,
+    /// `close_write` closed the writing side, as CRuby's IO clears
+    /// `FMODE_WRITABLE`.
+    pub(super) write_closed: Cell<bool>,
+}
+
+impl IoState {
+    pub(super) fn new() -> IoState {
+        IoState {
+            held: RefCell::new(Vec::new()),
+            sync: Cell::new(true),
+            write_closed: Cell::new(false),
+        }
+    }
+}
+
+/// What a `BasicSocket` call reaches: the socket's receiving and sending, as
+/// Linux's `proto_ops` gives each socket type its own, and what CRuby keeps
+/// beside it.
+pub(super) trait SocketIo {
+    /// The buffer and modes CRuby keeps beside the socket.
+    fn io(&self) -> &IoState;
 
     /// Up to `max` of the next bytes the host brings, `None` at the end;
     /// `Pending` when none have come and `wait` does not wait.
@@ -39,9 +62,6 @@ pub(super) trait SocketIo {
     /// for, answering how many were sent; `Pending` when there is no room and
     /// `wait` does not wait.
     fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error>;
-
-    /// Whether a write is sent at once, as `IO#sync` reads; a socket's is.
-    fn sync(&self) -> &Cell<bool>;
 }
 
 /// What a call that waits answers, which it does only once it is ready.
@@ -214,7 +234,7 @@ pub(super) fn direct_args<'a>(
         }
     }
     let source = source_of(mrb, self_)?;
-    if !source.held().borrow().is_empty() {
+    if !source.io().held.borrow().is_empty() {
         return Err(errno::io_error(mrb, refusal));
     }
     Ok((source, maxlen, outbuf))
@@ -295,11 +315,11 @@ fn socket_advise(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error
 }
 
 fn socket_sync(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
-    Ok(source_of(mrb, self_)?.sync().get())
+    Ok(source_of(mrb, self_)?.io().sync.get())
 }
 
 fn socket_sync_set(mrb: &Mrb, self_: Value, sync: Value) -> Result<Value, Error> {
-    source_of(mrb, self_)?.sync().set(sync.to_bool());
+    source_of(mrb, self_)?.io().sync.set(sync.to_bool());
     Ok(sync)
 }
 

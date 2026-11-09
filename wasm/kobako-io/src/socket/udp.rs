@@ -2,7 +2,7 @@
 //! names: a socket binds to any address on an ephemeral port, then streams
 //! with the one peer a `connect` names, as Linux's connected UDP socket does.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::net::Ipv4Addr;
 use std::task::Poll;
 
@@ -11,7 +11,7 @@ use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
-use super::basic::{direct_args, exception_option, waited, SocketIo, Wait};
+use super::basic::{direct_args, exception_option, waited, IoState, SocketIo, Wait};
 use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
 use super::{family_of, to_error, Family, AF_INET};
 use crate::errno;
@@ -49,14 +49,12 @@ struct Open {
 #[beni::wrap(class = "UDPSocket", name = "Kobako::UDPSocket")]
 struct Datagrams {
     open: RefCell<Option<Open>>,
-    /// What a read took of a datagram past what it answered.
-    held: RefCell<Vec<u8>>,
-    sync: Cell<bool>,
+    io: IoState,
 }
 
 impl SocketIo for Datagrams {
-    fn held(&self) -> &RefCell<Vec<u8>> {
-        &self.held
+    fn io(&self) -> &IoState {
+        &self.io
     }
 
     /// The next datagram, cut to `max`, as a datagram socket's read fills
@@ -75,10 +73,6 @@ impl SocketIo for Datagrams {
             None => Err(errno::error_alone(mrb, c"EDESTADDRREQ")),
         })?;
         Ok(sent.map(|()| bytes.len()))
-    }
-
-    fn sync(&self) -> &Cell<bool> {
-        &self.sync
     }
 }
 
@@ -172,8 +166,7 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             socket,
             bound: false,
         })),
-        held: RefCell::new(Vec::new()),
-        sync: Cell::new(true),
+        io: IoState::new(),
     };
     Ok(mrb.wrap_as(datagrams, class).as_value())
 }
