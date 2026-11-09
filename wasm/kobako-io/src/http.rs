@@ -268,9 +268,13 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     ] {
         net.define_class(mrb, name, response)?;
     }
-    for (_, name, family) in STATUS_CLASSES {
-        let family: RClass = net.const_get(mrb, *family)?;
+    for (status, name, _) in STATUSES {
+        let family: RClass = net.const_get(mrb, family_of(*status))?;
         net.define_class(mrb, *name, family)?;
+    }
+    for (alias, name) in STATUS_ALIASES {
+        let class: RClass = net.const_get(mrb, *name)?;
+        net.const_set(mrb, *alias, class)?;
     }
     Ok(())
 }
@@ -966,80 +970,136 @@ fn net_error(mrb: &Mrb, name: &core::ffi::CStr, message: &str) -> Error {
 /// The reason phrase HTTP/1.1 gives `status`, as CRuby reads it from the
 /// status line; WASI carries only the code.
 fn reason_of(status: u16) -> &'static str {
-    match status {
-        100 => "Continue",
-        101 => "Switching Protocols",
-        200 => "OK",
-        201 => "Created",
-        202 => "Accepted",
-        204 => "No Content",
-        206 => "Partial Content",
-        301 => "Moved Permanently",
-        302 => "Found",
-        303 => "See Other",
-        304 => "Not Modified",
-        307 => "Temporary Redirect",
-        308 => "Permanent Redirect",
-        400 => "Bad Request",
-        401 => "Unauthorized",
-        403 => "Forbidden",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        409 => "Conflict",
-        410 => "Gone",
-        422 => "Unprocessable Content",
-        429 => "Too Many Requests",
-        500 => "Internal Server Error",
-        501 => "Not Implemented",
-        502 => "Bad Gateway",
-        503 => "Service Unavailable",
-        504 => "Gateway Timeout",
-        _ => "",
-    }
+    STATUSES
+        .iter()
+        .find(|(code, ..)| *code == status)
+        .map_or("", |(_, _, reason)| reason)
 }
 
-/// The statuses CRuby gives a class of their own, each beneath its family, as
-/// `Net::HTTPOK` sits beneath `Net::HTTPSuccess`.
-const STATUS_CLASSES: &[(u16, &core::ffi::CStr, &core::ffi::CStr)] = &[
-    (200, c"HTTPOK", c"HTTPSuccess"),
-    (201, c"HTTPCreated", c"HTTPSuccess"),
-    (202, c"HTTPAccepted", c"HTTPSuccess"),
-    (204, c"HTTPNoContent", c"HTTPSuccess"),
-    (206, c"HTTPPartialContent", c"HTTPSuccess"),
-    (301, c"HTTPMovedPermanently", c"HTTPRedirection"),
-    (302, c"HTTPFound", c"HTTPRedirection"),
-    (303, c"HTTPSeeOther", c"HTTPRedirection"),
-    (304, c"HTTPNotModified", c"HTTPRedirection"),
-    (307, c"HTTPTemporaryRedirect", c"HTTPRedirection"),
-    (308, c"HTTPPermanentRedirect", c"HTTPRedirection"),
-    (400, c"HTTPBadRequest", c"HTTPClientError"),
-    (401, c"HTTPUnauthorized", c"HTTPClientError"),
-    (403, c"HTTPForbidden", c"HTTPClientError"),
-    (404, c"HTTPNotFound", c"HTTPClientError"),
-    (405, c"HTTPMethodNotAllowed", c"HTTPClientError"),
-    (409, c"HTTPConflict", c"HTTPClientError"),
-    (422, c"HTTPUnprocessableEntity", c"HTTPClientError"),
-    (429, c"HTTPTooManyRequests", c"HTTPClientError"),
-    (500, c"HTTPInternalServerError", c"HTTPServerError"),
-    (502, c"HTTPBadGateway", c"HTTPServerError"),
-    (503, c"HTTPServiceUnavailable", c"HTTPServerError"),
-    (504, c"HTTPGatewayTimeout", c"HTTPServerError"),
+/// The statuses CRuby gives a class of their own, as net-http's
+/// `CODE_TO_OBJ` names them, each with the reason phrase RFC 9110 and the
+/// IANA registry give it.
+const STATUSES: &[(u16, &core::ffi::CStr, &str)] = &[
+    (100, c"HTTPContinue", "Continue"),
+    (101, c"HTTPSwitchProtocol", "Switching Protocols"),
+    (102, c"HTTPProcessing", "Processing"),
+    (103, c"HTTPEarlyHints", "Early Hints"),
+    (200, c"HTTPOK", "OK"),
+    (201, c"HTTPCreated", "Created"),
+    (202, c"HTTPAccepted", "Accepted"),
+    (
+        203,
+        c"HTTPNonAuthoritativeInformation",
+        "Non-Authoritative Information",
+    ),
+    (204, c"HTTPNoContent", "No Content"),
+    (205, c"HTTPResetContent", "Reset Content"),
+    (206, c"HTTPPartialContent", "Partial Content"),
+    (207, c"HTTPMultiStatus", "Multi-Status"),
+    (208, c"HTTPAlreadyReported", "Already Reported"),
+    (226, c"HTTPIMUsed", "IM Used"),
+    (300, c"HTTPMultipleChoices", "Multiple Choices"),
+    (301, c"HTTPMovedPermanently", "Moved Permanently"),
+    (302, c"HTTPFound", "Found"),
+    (303, c"HTTPSeeOther", "See Other"),
+    (304, c"HTTPNotModified", "Not Modified"),
+    (305, c"HTTPUseProxy", "Use Proxy"),
+    (307, c"HTTPTemporaryRedirect", "Temporary Redirect"),
+    (308, c"HTTPPermanentRedirect", "Permanent Redirect"),
+    (400, c"HTTPBadRequest", "Bad Request"),
+    (401, c"HTTPUnauthorized", "Unauthorized"),
+    (402, c"HTTPPaymentRequired", "Payment Required"),
+    (403, c"HTTPForbidden", "Forbidden"),
+    (404, c"HTTPNotFound", "Not Found"),
+    (405, c"HTTPMethodNotAllowed", "Method Not Allowed"),
+    (406, c"HTTPNotAcceptable", "Not Acceptable"),
+    (
+        407,
+        c"HTTPProxyAuthenticationRequired",
+        "Proxy Authentication Required",
+    ),
+    (408, c"HTTPRequestTimeout", "Request Timeout"),
+    (409, c"HTTPConflict", "Conflict"),
+    (410, c"HTTPGone", "Gone"),
+    (411, c"HTTPLengthRequired", "Length Required"),
+    (412, c"HTTPPreconditionFailed", "Precondition Failed"),
+    (413, c"HTTPPayloadTooLarge", "Content Too Large"),
+    (414, c"HTTPURITooLong", "URI Too Long"),
+    (415, c"HTTPUnsupportedMediaType", "Unsupported Media Type"),
+    (416, c"HTTPRangeNotSatisfiable", "Range Not Satisfiable"),
+    (417, c"HTTPExpectationFailed", "Expectation Failed"),
+    (421, c"HTTPMisdirectedRequest", "Misdirected Request"),
+    (422, c"HTTPUnprocessableEntity", "Unprocessable Content"),
+    (423, c"HTTPLocked", "Locked"),
+    (424, c"HTTPFailedDependency", "Failed Dependency"),
+    (426, c"HTTPUpgradeRequired", "Upgrade Required"),
+    (428, c"HTTPPreconditionRequired", "Precondition Required"),
+    (429, c"HTTPTooManyRequests", "Too Many Requests"),
+    (
+        431,
+        c"HTTPRequestHeaderFieldsTooLarge",
+        "Request Header Fields Too Large",
+    ),
+    (
+        451,
+        c"HTTPUnavailableForLegalReasons",
+        "Unavailable For Legal Reasons",
+    ),
+    (500, c"HTTPInternalServerError", "Internal Server Error"),
+    (501, c"HTTPNotImplemented", "Not Implemented"),
+    (502, c"HTTPBadGateway", "Bad Gateway"),
+    (503, c"HTTPServiceUnavailable", "Service Unavailable"),
+    (504, c"HTTPGatewayTimeout", "Gateway Timeout"),
+    (
+        505,
+        c"HTTPVersionNotSupported",
+        "HTTP Version Not Supported",
+    ),
+    (506, c"HTTPVariantAlsoNegotiates", "Variant Also Negotiates"),
+    (507, c"HTTPInsufficientStorage", "Insufficient Storage"),
+    (508, c"HTTPLoopDetected", "Loop Detected"),
+    (510, c"HTTPNotExtended", "Not Extended"),
+    (
+        511,
+        c"HTTPNetworkAuthenticationRequired",
+        "Network Authentication Required",
+    ),
 ];
 
-/// The `Net::HTTPResponse` subclass a status stands for: its own, or its
-/// family's.
-fn response_class(mrb: &Mrb, status: u16) -> Result<RClass, Error> {
-    if let Some((_, name, _)) = STATUS_CLASSES.iter().find(|(code, ..)| *code == status) {
-        return mrb.module_get(c"Net")?.const_get(mrb, *name);
-    }
-    let name: &core::ffi::CStr = match status {
+/// The older names net-http keeps for a status class, each the same class.
+const STATUS_ALIASES: &[(&core::ffi::CStr, &core::ffi::CStr)] = &[
+    (c"HTTPMultipleChoice", c"HTTPMultipleChoices"),
+    (c"HTTPMovedTemporarily", c"HTTPFound"),
+    (c"HTTPRequestTimeOut", c"HTTPRequestTimeout"),
+    (c"HTTPRequestEntityTooLarge", c"HTTPPayloadTooLarge"),
+    (c"HTTPRequestURITooLong", c"HTTPURITooLong"),
+    (c"HTTPRequestURITooLarge", c"HTTPURITooLong"),
+    (
+        c"HTTPRequestedRangeNotSatisfiable",
+        c"HTTPRangeNotSatisfiable",
+    ),
+    (c"HTTPGatewayTimeOut", c"HTTPGatewayTimeout"),
+];
+
+/// The family class a status falls in, as `Net::HTTPSuccess` holds the 2xx.
+fn family_of(status: u16) -> &'static core::ffi::CStr {
+    match status {
         100..=199 => c"HTTPInformation",
         200..=299 => c"HTTPSuccess",
         300..=399 => c"HTTPRedirection",
         400..=499 => c"HTTPClientError",
         500..=599 => c"HTTPServerError",
         _ => c"HTTPUnknownResponse",
-    };
+    }
+}
+
+/// The `Net::HTTPResponse` subclass a status stands for: its own, or its
+/// family's.
+fn response_class(mrb: &Mrb, status: u16) -> Result<RClass, Error> {
+    let name = STATUSES
+        .iter()
+        .find(|(code, ..)| *code == status)
+        .map_or(family_of(status), |(_, name, _)| name);
     mrb.module_get(c"Net")?.const_get(mrb, name)
 }
 

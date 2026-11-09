@@ -80,12 +80,30 @@ class TestE2ENetworkHttpSession < Minitest::Test
     end
   end
 
+  CLASSES = <<~RUBY
+    http = Net::HTTP.new("127.0.0.1", %<port>d)
+    ["/203", "/451", "/501", "/418"].map { |path| http.get(path).class.to_s } +
+      [Net::HTTPRequestEntityTooLarge.equal?(Net::HTTPPayloadTooLarge), Net::HTTPNotImplemented.superclass.to_s]
+  RUBY
+
+  # @behavior NW-062
+  def test_a_response_takes_the_class_crubys_net_http_gives_its_status
+    with_serving_server do |port, _seen|
+      value = sandbox_reaching(port).eval(format(CLASSES, port: port)).value
+
+      assert_equal ["Net::HTTPNonAuthoritativeInformation", "Net::HTTPUnavailableForLegalReasons",
+                    "Net::HTTPNotImplemented", "Net::HTTPClientError", true, "Net::HTTPServerError"], value,
+                   "Net::HTTP#get must answer the class CRuby's net/http names for each status it knows, the " \
+                   "family's for one it does not, and its older names as the same class"
+    end
+  end
+
   SUBSET = <<~RUBY
     http = Net::HTTP.new("127.0.0.1", %<port>d)
     uri = begin; URI("http://127.0.0.1/"); rescue NoMethodError; :no_uri; end
     enumerator = begin; Net::HTTP::Get.new("/").each_header; rescue NotImplementedError; :no_enumerator; end
     relative = begin; http.request(Net::HTTP::Get.new("items")); rescue ArgumentError => e; e.message; end
-    [uri, enumerator, relative, http.get("/204").message]
+    [uri, enumerator, relative] + ["/204", "/203", "/451", "/505"].map { |path| http.get(path).message }
   RUBY
 
   # @behavior NW-109
@@ -93,7 +111,8 @@ class TestE2ENetworkHttpSession < Minitest::Test
     with_serving_server do |port, _seen|
       value = sandbox_reaching(port).eval(format(SUBSET, port: port)).value
 
-      assert_equal [:no_uri, :no_enumerator, "invalid path", "No Content"], value,
+      assert_equal [:no_uri, :no_enumerator, "invalid path", "No Content", "Non-Authoritative Information",
+                    "Unavailable For Legal Reasons", "HTTP Version Not Supported"], value,
                    "URI must raise NoMethodError, each_header with no block NotImplementedError, a relative path " \
                    "ArgumentError, and message must answer HTTP/1.1's reason phrase rather than the server's"
     end
