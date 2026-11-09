@@ -361,14 +361,10 @@ fn io_fdatasync(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     sync(mrb, self_, true)
 }
 
-/// `advise(advice, offset = 0, len = 0)` checks the advice as CRuby does
-/// before it reaches the stream, and answers `nil`.
-fn io_advise(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
-    // A `nil` offset or length is 0, as CRuby reads one.
-    let args =
-        scan_args::<(Value,), (Option<Option<i64>>, Option<Option<i64>>), (), (), (), ()>(mrb)?;
-    let (advice,) = args.required;
-    let (offset, len) = (args.optional.0.flatten(), args.optional.1.flatten());
+/// The `posix_fadvise` advice `advice` names, as CRuby checks it before any
+/// call: one that is no Symbol raises `TypeError`, and an unknown one
+/// `NotImplementedError`.
+pub(crate) fn advice_of(mrb: &Mrb, advice: Value) -> Result<usize, Error> {
     let symbol = Symbol::from_value(advice).ok_or_else(|| {
         let type_error = mrb.exception_type_error();
         match type_error {
@@ -377,10 +373,21 @@ fn io_advise(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
         }
     })?;
     let name = symbol.name(mrb)?;
-    let advice = ADVICES
+    ADVICES
         .iter()
         .position(|known| *known == name)
-        .ok_or_else(|| errno::not_implemented(mrb, &format!("Unsupported advice: :{name}")))?;
+        .ok_or_else(|| errno::not_implemented(mrb, &format!("Unsupported advice: :{name}")))
+}
+
+/// `advise(advice, offset = 0, len = 0)` checks the advice as CRuby does
+/// before it reaches the stream, and answers `nil`.
+fn io_advise(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
+    // A `nil` offset or length is 0, as CRuby reads one.
+    let args =
+        scan_args::<(Value,), (Option<Option<i64>>, Option<Option<i64>>), (), (), (), ()>(mrb)?;
+    let (advice,) = args.required;
+    let (offset, len) = (args.optional.0.flatten(), args.optional.1.flatten());
+    let advice = advice_of(mrb, advice)?;
     let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
     // SAFETY: `fd` is a descriptor this guest may reach; the call only reads
     // its arguments.

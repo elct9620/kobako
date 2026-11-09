@@ -44,6 +44,9 @@ struct Open {
     output: OutputStream,
     socket: TcpSocket,
     peer: (Ipv4Addr, u16),
+    /// `close_write` closed the writing side, as CRuby's IO clears
+    /// `FMODE_WRITABLE`.
+    write_closed: Cell<bool>,
 }
 
 /// What a `TCPSocket` stands for, kept in its payload so a script's instance
@@ -444,6 +447,7 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             output,
             socket,
             peer: (ip, port),
+            write_closed: Cell::new(false),
         })),
         buffered: RefCell::new(Vec::new()),
         sync: Cell::new(true),
@@ -527,6 +531,13 @@ fn tcp_socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value,
         bytes.extend_from_slice(unsafe { data.as_bytes(mrb) });
     }
     Connection::of(mrb, self_)?.with(mrb, |open| {
+        if open.write_closed.get() {
+            return Err(Error::new(
+                mrb,
+                mrb.exc_get(c"IOError")?,
+                "not opened for writing",
+            ));
+        }
         for chunk in bytes.chunks(WRITE_CHUNK) {
             open.output
                 .blocking_write_and_flush(chunk)
@@ -614,6 +625,9 @@ fn socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, 
     };
     let maxlen = usize::try_from(i64::try_convert(maxlen, mrb)?)
         .map_err(|_| argument_error(mrb, "negative length given"))?;
+    if maxlen == 0 {
+        return fill(mrb, outbuf, mrb.str_new(b"").as_value());
+    }
     match read_some(mrb, source_of(mrb, self_)?, maxlen)? {
         Some(bytes) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
         None => Err(Error::new(
@@ -625,14 +639,27 @@ fn socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, 
 }
 
 /// The next line, its separator kept unless `chomp`, or `None` at the end.
+/// A limit of zero answers an empty line at once; an empty separator reads a
+/// paragraph, skipping the newlines before it, as CRuby's `rspara` does.
 fn next_line(
     mrb: &Mrb,
     source: &dyn ByteSource,
     (separator, limit, chomp): &LineArgs,
 ) -> Result<Option<Vec<u8>>, Error> {
+    if *limit == Some(0) {
+        return Ok(Some(Vec::new()));
+    }
+    let paragraph = separator.as_deref().is_some_and(<[u8]>::is_empty);
+    if paragraph {
+        skip_newlines(mrb, source)?;
+    }
+    let separator = match paragraph {
+        true => Some(&b"\n\n"[..]),
+        false => separator.as_deref(),
+    };
     let mut line = Vec::new();
     loop {
-        if let Some(end) = line_end_of(&line, separator.as_deref(), *limit) {
+        if let Some(end) = line_end_of(&line, separator, *limit) {
             let rest = line.split_off(end);
             source.held().borrow_mut().splice(0..0, rest);
             break;
@@ -645,12 +672,40 @@ fn next_line(
     if line.is_empty() {
         return Ok(None);
     }
-    if let Some(separator) = separator.as_deref().filter(|_| *chomp) {
+    if let Some(separator) = separator.filter(|_| *chomp) {
         if line.ends_with(separator) {
             line.truncate(line.len() - separator.len());
         }
     }
     Ok(Some(line))
+}
+
+/// Drop the newlines that stand next, reading on until another byte or the
+/// end comes, as CRuby's `swallow` does before a paragraph.
+fn skip_newlines(mrb: &Mrb, source: &dyn ByteSource) -> Result<(), Error> {
+    loop {
+        {
+            let mut held = source.held().borrow_mut();
+            let newlines = held.iter().take_while(|byte| **byte == b'\n').count();
+            held.drain(..newlines);
+            if !held.is_empty() {
+                return Ok(());
+            }
+        }
+        match source.receive(mrb)? {
+            Some(bytes) => *source.held().borrow_mut() = bytes,
+            None => return Ok(()),
+        }
+    }
+}
+
+/// A limit of zero raises `ArgumentError` for `name`, as CRuby's `readlines`
+/// and `each_line` refuse one that would never end.
+fn ensure_limit(mrb: &Mrb, (_, limit, _): &LineArgs, name: &str) -> Result<(), Error> {
+    match limit {
+        Some(0) => Err(argument_error(mrb, &format!("invalid limit: 0 for {name}"))),
+        _ => Ok(()),
+    }
 }
 
 /// `gets(sep = $/, limit = nil, chomp: false)` answers the next line, or
@@ -670,6 +725,7 @@ fn socket_each_line(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
         .block
         .ok_or_else(|| argument_error(mrb, "each_line needs a block"))?;
     let line_args = line_args_of(mrb, args)?;
+    ensure_limit(mrb, &line_args, "each_line")?;
     let source = source_of(mrb, self_)?;
     while let Some(line) = next_line(mrb, source, &line_args)? {
         let _scope = mrb.arena_scope();
@@ -682,6 +738,7 @@ fn socket_each_line(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
 /// end.
 fn socket_readlines(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let line_args = line_args_of(mrb, args)?;
+    ensure_limit(mrb, &line_args, "readlines")?;
     let source = source_of(mrb, self_)?;
     let lines = mrb.ary_new();
     while let Some(line) = next_line(mrb, source, &line_args)? {
@@ -718,12 +775,13 @@ fn socket_unsyncable(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
     Err(errno::error_alone(mrb, c"EINVAL"))
 }
 
-/// `advise(advice, offset = 0, len = 0)` is taken and ignored, as Linux's
-/// `fadvise` takes advice on a socket.
+/// `advise(advice, offset = 0, len = 0)` checks the advice as a file's does,
+/// then is taken and ignored, as Linux's `fadvise` takes advice on a socket.
 fn socket_advise(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    if !(1..=3).contains(&args.len()) {
+    let Some(advice) = args.first().filter(|_| args.len() <= 3) else {
         return Err(Error::argnum(mrb, args.len(), 1, 3));
-    }
+    };
+    crate::stream::advice_of(mrb, *advice)?;
     Ok(qnil().as_value())
 }
 
@@ -773,12 +831,7 @@ fn separator_and_limit_of(
         }
         let text = value.to_r_string(mrb)?;
         // SAFETY: the bytes are copied before the next mruby call.
-        let bytes = unsafe { text.as_bytes(mrb) }.to_vec();
-        Ok(Some(if bytes.is_empty() {
-            b"\n\n".to_vec()
-        } else {
-            bytes
-        }))
+        Ok(Some(unsafe { text.as_bytes(mrb) }.to_vec()))
     };
     match args {
         [] => Ok((Some(b"\n".to_vec()), None)),
@@ -806,10 +859,12 @@ fn line_end_of(line: &[u8], separator: Option<&[u8]>, limit: Option<usize>) -> O
     }
 }
 
-/// `close_write` sends the FIN once what was written is sent.
+/// `close_write` sends the FIN once what was written is sent, and a later
+/// write raises `IOError`, as CRuby's does.
 fn tcp_socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Connection::of(mrb, self_)?.with(mrb, |open| {
         let _ = open.socket.shutdown(ShutdownType::Send);
+        open.write_closed.set(true);
         Ok(())
     })?;
     Ok(qnil().as_value())

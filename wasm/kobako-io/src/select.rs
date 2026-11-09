@@ -75,12 +75,20 @@ fn to_io(mrb: &Mrb, object: Value) -> Result<Value, Error> {
 
 /// `IO.select(read, write = nil, error = nil, timeout = nil)` answers
 /// `[readable, writable, []]` once one is ready, or `nil` at the timeout. The
-/// third set waits for nothing, since WASI reports no exceptional condition.
+/// third set is converted as CRuby's is but waits for nothing, since WASI
+/// reports no exceptional condition. A select of nothing with no timeout
+/// raises `Errno::ENOTSUP`, where CRuby's waits forever.
 fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
     let args =
         scan_args::<(Value,), (Option<Value>, Option<Value>, Option<Value>), (), (), (), ()>(mrb)?;
     let (read,) = args.required;
-    let (write, _error, timeout) = args.optional;
+    let (write, error, timeout) = args.optional;
+    if let Some(error) = error.filter(|set| !set.is_nil()) {
+        let error = RArray::try_convert(error, mrb)?;
+        for i in 0..error.len() {
+            to_io(mrb, error.entry(mrb, i as isize)?)?;
+        }
+    }
     let mut watched = Vec::new();
     for (set, events) in [(Some(read), POLLRDNORM), (write, POLLWRNORM)] {
         let Some(set) = set.filter(|set| !set.is_nil()) else {

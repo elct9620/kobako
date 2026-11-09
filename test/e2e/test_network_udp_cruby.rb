@@ -62,6 +62,10 @@ class TestE2ENetworkUdpCruby < Minitest::Test
     socket = UDPSocket.new
     [
       refused.call { UDPSocket.new(99) }.first,
+      refused.call { UDPSocket.new(:INET6) }.first,
+      refused.call { UDPSocket.new("PF_INET").close },
+      refused.call { UDPSocket.new("FOO") },
+      refused.call { UDPSocket.new(nil) }.first,
       refused.call { UDPSocket.new(Socket::AF_INET, 0) }.last,
       refused.call { socket.send("ping") }.last,
       refused.call { socket.recv }.last,
@@ -69,14 +73,18 @@ class TestE2ENetworkUdpCruby < Minitest::Test
     ]
   RUBY
 
+  CRUBY_REFUSES = ["Errno::EAFNOSUPPORT", "Errno::EAFNOSUPPORT", :passed,
+                   ["SocketError", "unknown socket domain: FOO"], "TypeError",
+                   "wrong number of arguments (given 2, expected 0..1)",
+                   "wrong number of arguments (given 1, expected 2..4)",
+                   "wrong number of arguments (given 0, expected 1..2)", "NoMethodError"].freeze
+
   # @behavior NW-098
   def test_a_udp_socket_refuses_what_crubys_refuses
-    value = sandbox_sending_to(9).eval(REFUSES).value
-
-    assert_equal ["Errno::EAFNOSUPPORT", "wrong number of arguments (given 2, expected 0..1)",
-                  "wrong number of arguments (given 1, expected 2..4)",
-                  "wrong number of arguments (given 0, expected 1..2)", "NoMethodError"], value,
-                 "UDPSocket.new of a family other than AF_INET must raise Errno::EAFNOSUPPORT; UDPSocket.new, " \
+    assert_equal CRUBY_REFUSES, sandbox_sending_to(9).eval(REFUSES).value,
+                 "UDPSocket.new of a family other than AF_INET by number or name must raise " \
+                 "Errno::EAFNOSUPPORT, PF_INET must open, an unknown name raise SocketError and nil TypeError, " \
+                 "as rsock_family_arg reads each; UDPSocket.new, " \
                  "#send, and #recv with a wrong argument count must raise ArgumentError naming CRuby's range; " \
                  "and Socket.new must raise NoMethodError"
   end

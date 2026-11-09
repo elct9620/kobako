@@ -7,7 +7,9 @@ use std::net::Ipv4Addr;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
+use beni::{
+    Error, ExceptionClass, IntoValue, Mrb, RClass, RString, Symbol, TryConvert, TypedData, Value,
+};
 
 use crate::errno;
 use crate::io::argument_error;
@@ -112,13 +114,90 @@ pub(crate) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
     Ok(())
 }
 
-/// Whether `family` names IPv4, as CRuby spells it by number or by name.
+/// The address families CRuby's `Socket` names, each also spelled with `AF_`
+/// or `PF_` before it, as `ext/socket/mkconstants.rb` lists them.
+const FAMILIES: &[&str] = &[
+    "ALG",
+    "APPLETALK",
+    "ATM",
+    "AX25",
+    "BLUETOOTH",
+    "CAN",
+    "CCITT",
+    "CHAOS",
+    "CNT",
+    "COIP",
+    "DATAKIT",
+    "DEC",
+    "DLI",
+    "E164",
+    "ECMA",
+    "HYLINK",
+    "IB",
+    "IMPLINK",
+    "INET",
+    "INET6",
+    "IPX",
+    "ISDN",
+    "ISO",
+    "KCM",
+    "KEY",
+    "LAT",
+    "LINK",
+    "LLC",
+    "LOCAL",
+    "MAX",
+    "MPLS",
+    "NATM",
+    "NDRV",
+    "NETBIOS",
+    "NETGRAPH",
+    "NETLINK",
+    "NS",
+    "OSI",
+    "PACKET",
+    "PPP",
+    "PPPOX",
+    "PUP",
+    "RDS",
+    "ROUTE",
+    "SIP",
+    "SNA",
+    "SYSTEM",
+    "TIPC",
+    "UNIX",
+    "UNSPEC",
+    "VSOCK",
+    "XDP",
+];
+
+/// Whether `family` names IPv4, as CRuby's `rsock_family_arg` reads a Symbol,
+/// a String, or an Integer; a name no family has raises `SocketError`.
 fn is_inet(mrb: &Mrb, family: Value) -> Result<bool, Error> {
-    if let Ok(number) = i64::try_convert(family, mrb) {
-        return Ok(number == AF_INET);
+    let text = match Symbol::from_value(family) {
+        Some(symbol) => Some(symbol.name(mrb)?.to_string()),
+        None if RString::from_value(family).is_some() => {
+            Some(family.to_r_string(mrb)?.to_string(mrb)?)
+        }
+        None => None,
+    };
+    let Some(name) = text else {
+        return Ok(i64::try_convert(family, mrb)? == AF_INET);
+    };
+    let bare = name
+        .strip_prefix("AF_")
+        .or_else(|| name.strip_prefix("PF_"))
+        .unwrap_or(&name);
+    if !FAMILIES.contains(&bare) {
+        let socket_error = ExceptionClass::from_value(mrb.class_get(c"SocketError")?.as_value())
+            .expect("SocketError is defined as an exception");
+        return Err(Error::new(
+            mrb,
+            socket_error,
+            &format!("unknown socket domain: {name}"),
+        ));
     }
-    let name = family.to_r_string(mrb)?.to_string(mrb)?;
-    Ok(matches!(name.as_str(), "INET" | "AF_INET"))
+    Ok(bare == "INET")
 }
 
 /// `UDPSocket.new(family = AF_INET)` makes an unbound IPv4 socket; any other

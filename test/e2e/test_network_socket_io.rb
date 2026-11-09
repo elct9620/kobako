@@ -86,12 +86,13 @@ class TestE2ENetworkSocketIo < Minitest::Test
       def initialize(io) = @io = io
       def to_io = @io
     end.new(TCPSocket.new("127.0.0.1", %<port>d))
-    refused = begin
-      IO.select([1])
-    rescue TypeError => e
-      e.message
+    refused = lambda do |&call|
+      call.call
+    rescue TypeError, SystemCallError => e
+      e.class.to_s
     end
-    [IO.select(nil, [wrapper], nil, 5)[1] == [wrapper], refused]
+    [IO.select(nil, [wrapper], nil, 5)[1] == [wrapper], refused.call { IO.select([1]) },
+     refused.call { IO.select(nil, [wrapper], [5], 5) }, refused.call { IO.select([]) }]
   RUBY
 
   # @behavior NW-110
@@ -99,9 +100,10 @@ class TestE2ENetworkSocketIo < Minitest::Test
     with_listening_server do |port|
       value = sandbox_reaching(port).eval(format(CONVERTED, port: port)).value
 
-      assert_equal [true, "no implicit conversion of Integer into IO"], value,
-                   "IO.select must answer an object whose to_io is a TCPSocket ready as it was given, and raise " \
-                   "TypeError for an Integer"
+      assert_equal [true, "TypeError", "TypeError", "Errno::ENOTSUP"], value,
+                   "IO.select must answer an object whose to_io is a TCPSocket ready as it was given, raise " \
+                   "TypeError for an Integer in its read or error set, and raise Errno::ENOTSUP with nothing to " \
+                   "wait on and no timeout"
     end
   end
 end
