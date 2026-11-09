@@ -462,16 +462,20 @@ impl TcpSock {
     }
 
     /// Change what the host socket takes; a socket dialed already passes the
-    /// change to its host socket at once.
+    /// change to its host socket at once, and keeps what it held should the
+    /// host refuse, as a failed `setsockopt` changes nothing.
     fn set_options_with(&self, change: impl FnOnce(&mut State)) -> Result<(), FilesystemError> {
         let mut state = self.state();
+        let kept = (state.keepalive, state.ttl);
         change(&mut state);
-        match &state.host {
-            Some((stream, _)) => {
-                Self::set_options(SockRef::from(stream), &state).map_err(|err| to_error(&err))
-            }
-            None => Ok(()),
-        }
+        let Some((stream, _)) = &state.host else {
+            return Ok(());
+        };
+        let set = Self::set_options(SockRef::from(stream), &state);
+        set.map_err(|err| {
+            (state.keepalive, state.ttl) = kept;
+            to_error(&err)
+        })
     }
 
     /// What the receive queue holds at most, as `SO_RCVBUF` reads `sk_rcvbuf`.
