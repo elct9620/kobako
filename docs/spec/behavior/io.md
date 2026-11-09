@@ -17,6 +17,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 - `test/e2e/test_io_write.rb`
 - `test/e2e/test_io_kernel.rb`
 - `test/e2e/test_io_state.rb`
+- `test/e2e/test_io_wait.rb`
 
 ## `IO-001` Only the captured descriptors and the guest's own files may be opened
 
@@ -398,3 +399,15 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox |
 | When | guest code wraps the output descriptor with no mode and with `nil`, then writes |
 | Then | the capture holds both writes |
+
+## `IO-044` A script waits on a file and a captured stream as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-042` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose script opened a file to read and another only to write |
+| When | the script calls `wait_readable` and `wait_writable` on each file, on `$stdout`, and on a closed file |
+| Then | a wait its stream is opened for answers the IO at once, as a file is always ready. A wait it is not opened for raises `IOError`, as `$stdout` does to read. The closed file raises `IOError` |

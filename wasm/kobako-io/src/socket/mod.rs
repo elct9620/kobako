@@ -24,7 +24,7 @@ use beni::{
     Error, Exception, ExceptionClass, Module, Mrb, RClass, RString, Symbol, TryConvert, Value,
 };
 
-pub(crate) use basic::holds_buffered;
+pub(crate) use basic::{holds_buffered, is_socket};
 
 use crate::errno;
 use crate::wasi::wasi::io::streams::StreamError;

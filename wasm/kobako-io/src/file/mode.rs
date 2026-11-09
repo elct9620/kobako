@@ -71,6 +71,11 @@ pub(crate) fn writes(held: c_int) -> bool {
     held & O_WRONLY != 0
 }
 
+/// Whether a descriptor whose `F_GETFL` is `held` was opened to read.
+pub(crate) fn reads(held: c_int) -> bool {
+    held & O_RDONLY != 0
+}
+
 /// The wasi-libc flags for CRuby's `flags`, or `None` for a bit no flag
 /// names or `WRONLY` beside `RDWR`, either of which would open differently
 /// than CRuby does.

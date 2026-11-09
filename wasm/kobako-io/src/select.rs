@@ -6,11 +6,11 @@
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, Integer, Mrb, RArray, RClass, Symbol, TryConvert, Value};
+use beni::{Error, Integer, IntoValue, Mrb, RArray, RClass, Symbol, TryConvert, Value};
 use core::ffi::{c_int, c_short};
 
 use crate::io::argument_error;
-use crate::{errno, socket};
+use crate::{descriptors, errno, socket};
 
 /// wasi-libc's `struct pollfd`.
 #[repr(C)]
@@ -33,7 +33,87 @@ unsafe extern "C" {
 
 pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     io.define_singleton_method(mrb, c"select", beni::method!(io_s_select, -1))?;
+    io.define_method(mrb, c"wait_readable", beni::method!(io_wait_readable, -1))?;
+    io.define_method(mrb, c"wait_writable", beni::method!(io_wait_writable, -1))?;
     Ok(())
+}
+
+/// Wait on `fds` at most `timeout` milliseconds, `-1` without end, as
+/// `select(2)` and every one-descriptor wait CRuby makes share one `poll`.
+fn poll_fds(mrb: &Mrb, fds: &mut [PollFd], timeout: c_int) -> Result<(), Error> {
+    // SAFETY: `fds` holds `fds.len()` initialised entries poll writes back.
+    if unsafe { poll(fds.as_mut_ptr(), fds.len(), timeout) } < 0 {
+        return Err(errno::from_io(
+            mrb,
+            &std::io::Error::last_os_error(),
+            "select(2)",
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `fd` came back ready for what it asked.
+fn is_ready(fd: &PollFd) -> bool {
+    fd.revents & (fd.events | POLLERR | POLLHUP) != 0
+}
+
+/// `wait_readable(timeout = nil)` answers the IO once a read would not wait,
+/// `true` when its buffer already holds bytes, or `nil` at the timeout, as
+/// CRuby's `rb_io_wait` polls the one descriptor `IO.select` would.
+fn io_wait_readable(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    wait_for(mrb, self_, args, POLLRDNORM)
+}
+
+/// `wait_writable(timeout = nil)` answers the IO once a write would not wait,
+/// or `nil` at the timeout.
+fn io_wait_writable(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    wait_for(mrb, self_, args, POLLWRNORM)
+}
+
+fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], events: c_short) -> Result<Value, Error> {
+    let timeout = match args {
+        [] => None,
+        [timeout] => Some(*timeout),
+        _ => return Err(Error::argnum(mrb, args.len(), 0, 1)),
+    };
+    let fd = waitable_fd(mrb, self_, events)?;
+    if events == POLLRDNORM && socket::holds_buffered(mrb, self_) {
+        return Ok(true.into_value(mrb));
+    }
+    let mut fds = [PollFd {
+        fd,
+        events,
+        revents: 0,
+    }];
+    poll_fds(mrb, &mut fds, to_millis(mrb, timeout)?)?;
+    Ok(match is_ready(&fds[0]) {
+        true => self_,
+        false => qnil().as_value(),
+    })
+}
+
+/// The descriptor a wait on `io` polls, refusing a stream not opened for the
+/// way it waits, as CRuby's `IOError` does: a captured stream only writes.
+fn waitable_fd(mrb: &Mrb, io: Value, events: c_short) -> Result<c_int, Error> {
+    if socket::is_socket(mrb, io) {
+        let fd = io.funcall::<_, _, Value>(mrb, c"fileno", ())?;
+        return Ok(Integer::try_convert(fd, mrb)?.to_i64(mrb)? as c_int);
+    }
+    let fd = crate::io::checked_fd(mrb, io, crate::stream::REACH_REFUSAL)?;
+    let (opened, refusal) = match events {
+        POLLRDNORM => (
+            !descriptors::is_channel(fd) && crate::io::opened_to_read(fd),
+            "not opened for reading",
+        ),
+        _ => (
+            descriptors::is_channel(fd) || crate::io::opened_to_write(fd),
+            "not opened for writing",
+        ),
+    };
+    match opened {
+        true => Ok(fd),
+        false => Err(errno::io_error(mrb, refusal)),
+    }
 }
 
 /// One object a select names, the IO it stands for, and which of its sets it
@@ -122,20 +202,12 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
             })
         })
         .collect::<Result<Vec<_>, Error>>()?;
-    // SAFETY: `fds` holds `fds.len()` initialised entries poll writes back.
-    let ready = unsafe { poll(fds.as_mut_ptr(), fds.len(), timeout) };
-    if ready < 0 {
-        return Err(errno::from_io(
-            mrb,
-            &std::io::Error::last_os_error(),
-            "select(2)",
-        ));
-    }
+    poll_fds(mrb, &mut fds, timeout)?;
     let (readable, writable) = (mrb.ary_new(), mrb.ary_new());
     let mut any = false;
     for (w, fd) in watched.iter().zip(&fds) {
         let pending = w.events == POLLRDNORM && socket::holds_buffered(mrb, w.io);
-        if pending || fd.revents & (w.events | POLLERR | POLLHUP) != 0 {
+        if pending || is_ready(fd) {
             any = true;
             match w.events {
                 POLLRDNORM => readable.push(mrb, w.given)?,

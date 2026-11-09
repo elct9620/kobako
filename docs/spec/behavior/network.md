@@ -28,6 +28,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_io.rb`
 - `test/e2e/test_network_socket_io_edges.rb`
 - `test/e2e/test_network_socket_nonblock.rb`
+- `test/e2e/test_network_socket_wait.rb`
 - `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
@@ -1614,3 +1615,16 @@ endpoint "api.example.com", port: 443
 | Given | a UDP peer that answers each datagram it gets with `"hello"` |
 | When | the script calls `recvfrom_nonblock`, `recv_nonblock`, and `read_nonblock` before an answer comes, then `recvfrom_nonblock(3)` and `read_nonblock` after one does |
 | Then | before it comes each raises `IO::EAGAINWaitReadable` or answers `:wait_readable` with `exception: false`. After, `recvfrom_nonblock(3)` answers `["hel", ["AF_INET", port, host, host]]` and `read_nonblock` one whole datagram |
+
+## `NW-132` A script waits on a socket as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-065` |
+| relates | `NW-129`, `IO-044` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers `"a\nb"` to a line |
+| When | the script calls `wait_readable(0)` and `wait_writable(0)` before writing the line. It calls `wait_readable` after, again after a `gets`, and once the socket is closed |
+| Then | before the answer `wait_readable(0)` answers `nil` and `wait_writable(0)` the socket. After it `wait_readable` answers the socket, and `true` once a `gets` held bytes back. The closed socket raises `IOError` |

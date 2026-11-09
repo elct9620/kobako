@@ -553,6 +553,11 @@ fn line_end_of(line: &[u8], separator: Option<&[u8]>, limit: Option<usize>) -> O
     }
 }
 
+/// Whether `value` is a `TCPSocket` or a `UDPSocket`.
+pub(crate) fn is_socket(mrb: &Mrb, value: Value) -> bool {
+    source_of(mrb, value).is_ok()
+}
+
 /// Whether `value` is a socket holding bytes a `gets` read past, which a read
 /// answers before the socket is asked, as CRuby's read buffer is.
 pub(crate) fn holds_buffered(mrb: &Mrb, value: Value) -> bool {

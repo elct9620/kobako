@@ -32,7 +32,7 @@ const READ_REFUSAL: &str = "kobako IO reads only from a file this guest opened";
 
 /// What a stream standing for a descriptor this guest may no longer reach is
 /// refused with.
-const REACH_REFUSAL: &str =
+pub(crate) const REACH_REFUSAL: &str =
     "kobako IO reaches only fd 1 (stdout), fd 2 (stderr), or a file this guest opened";
 
 /// The advices `#advise` takes, in the order wasi-libc numbers them.
