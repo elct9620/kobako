@@ -502,7 +502,9 @@ impl Connector {
         (&self.host, self.port)
     }
 
-    /// A connection to the authority, once one of its addresses answers.
+    /// A connection to the authority, once one of its addresses answers. The
+    /// connector tries each admitted address in turn, as an HTTP client's
+    /// connector does, while a guest's TCP socket keeps a loop of its own.
     pub async fn dial(&self) -> Result<Transport, HttpError> {
         let addrs = match self.host.parse::<IpAddr>() {
             Ok(ip) => vec![SocketAddr::new(ip, self.port)],
