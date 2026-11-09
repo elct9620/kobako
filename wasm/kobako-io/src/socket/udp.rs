@@ -11,7 +11,9 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
-use super::basic::{direct_args, exception_option, ready_of, writer_of, IoState, SocketIo, Wait};
+use super::basic::{
+    direct_args, exception_option, open_socket_of, ready_of, IoState, SocketIo, Wait,
+};
 use super::ip::{local_end_of, to_addr_array};
 use super::{family_of, to_error, Family, AF_INET};
 use crate::errno;
@@ -295,7 +297,6 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         None => (None, "send(2)".to_string()),
     };
     let len = data.len();
-    writer_of(mrb, self_)?;
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         if open.send_shut {
             return Err(errno::error_by_name(mrb, c"EPIPE", &call));
@@ -405,7 +406,12 @@ fn receive_from_sender(
     wait: Wait,
     exception: bool,
 ) -> Result<Value, Error> {
-    let (_, maxlen, outbuf) = direct_args(mrb, self_, args, "recvfrom for buffered IO")?;
+    let (maxlen, outbuf) = direct_args(
+        mrb,
+        open_socket_of(mrb, self_)?,
+        args,
+        "recvfrom for buffered IO",
+    )?;
     let received = Datagrams::of(mrb, self_)?.with(mrb, |open| {
         receive_from(mrb, open, maxlen, "recvfrom(2)", wait)
     })?;

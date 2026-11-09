@@ -53,7 +53,12 @@ impl SocketIo for Connection {
         &self.io
     }
 
+    /// Asking for no bytes answers as the end, as a stream's `recv(2)`
+    /// returning 0 reads to CRuby.
     fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error> {
+        if max == 0 {
+            return self.with(mrb, |_| Ok(Poll::Ready(None)));
+        }
         self.with(mrb, |open| loop {
             let read = match wait {
                 Wait::Block => open.input.blocking_read(max as u64),

@@ -36,6 +36,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_addrinfo.rb`
 - `test/e2e/test_network_addrinfo.rb`
 - `test/e2e/test_network_socket_tcp.rb`
+- `test/e2e/test_network_socket_edges_cruby.rb`
 - `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
@@ -1646,7 +1647,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server that answers in parts and closes, and a UDP peer that answers datagrams |
 | When | the script calls `recv`, `sysread`, and `syswrite` on the TCP socket. It reads again while a `getc` holds bytes back, then at the end. It calls `recv` on the UDP socket after a `getc` |
-| Then | `recv` answers up to its length and `nil` at the end, and `sysread` raises `EOFError` there. `syswrite` answers its length. While bytes are held back each read raises `IOError` on either socket, as CRuby's does |
+| Then | `recv` answers up to its length and `nil` at the end, and `sysread` raises `EOFError` there. `syswrite` answers its length. While bytes are held back each read past the buffer raises `IOError` on either socket, as CRuby's does |
 
 ## `NW-134` A script reads a socket by byte and by character, as CRuby's
 
@@ -1670,7 +1671,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server that answers bytes |
 | When | the script calls `recv` with `0`, with `MSG_DONTWAIT`'s 64, and with `MSG_PEEK`'s 2 or `MSG_OOB`'s 1 |
-| Then | `0` and 64 read, 64 waiting as CRuby's `recv` does. The others raise `Errno::ENOTSUP`, where CRuby peeks or reads urgent data, since WASI carries no receive flag |
+| Then | `0` and 64 read, as CRuby's `recv` does. The others raise `Errno::ENOTSUP`, where CRuby peeks or reads urgent data, since WASI carries no receive flag |
 
 ## `NW-136` A script shuts a TCPSocket's sides, as CRuby's
 
@@ -1770,3 +1771,15 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server |
 | When | the script calls `Socket.tcp` with and without a block, and to a closed port |
 | Then | it answers a connected `TCPSocket`, where CRuby's answers a `Socket`, since the guest makes no raw socket. The block's socket is closed after it, and the call answers the block's value. A refusal names its end as `host:port`, as CRuby's does |
+
+## `NW-144` A script's socket answers its read and write edges as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-133`, `NW-136` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers paragraphs and closes, and a UDP peer |
+| When | the script calls `recv(0)` on each socket, then `recv` and `wait_readable` after `close_read`. It reads paragraphs, fills an `outbuf` at the end, and sends after `close_write` |
+| Then | a TCP `recv(0)` answers `nil`, and a UDP one drops a datagram. After `close_read`, `recv` reads and `wait_readable` raises `IOError`. A paragraph takes the newlines after it. At the end `readpartial` empties its `outbuf` and `recv` keeps it. The UDP send raises `Errno::EPIPE` |

@@ -116,7 +116,7 @@ pub(super) fn reader_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo,
 
 /// The socket `value` stands for, to write: a closed one, or one whose
 /// writing side `close_write` closed, raises `IOError`.
-pub(super) fn writer_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
+fn writer_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
     let source = open_socket_of(mrb, value)?;
     match source.io().write_closed.get() {
         true => Err(errno::io_error(mrb, "not opened for writing")),
@@ -282,15 +282,15 @@ fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Erro
 /// waits all the same, as CRuby's `recv` waits again on `EAGAIN`.
 const MSG_DONTWAIT: i64 = 0x40;
 
-/// What a receive past the buffer takes: `maxlen`, `flags`, and an `outbuf`,
-/// refusing a flag WASI carries none of with `Errno::ENOTSUP`. Bytes a read
-/// held back raise `IOError` naming `refusal`, as CRuby's.
-pub(super) fn direct_args<'a>(
+/// What a receive past `source`'s buffer takes: `maxlen`, `flags`, and an
+/// `outbuf`, refusing a flag WASI carries none of with `Errno::ENOTSUP`.
+/// Bytes a read held back raise `IOError` naming `refusal`, as CRuby's.
+pub(super) fn direct_args(
     mrb: &Mrb,
-    self_: Value,
+    source: &dyn SocketIo,
     args: &[Value],
     refusal: &str,
-) -> Result<(&'a dyn SocketIo, usize, Option<Value>), Error> {
+) -> Result<(usize, Option<Value>), Error> {
     let (maxlen, flags, outbuf) = match args {
         [maxlen] => (*maxlen, None, None),
         [maxlen, flags] => (*maxlen, Some(*flags), None),
@@ -307,11 +307,10 @@ pub(super) fn direct_args<'a>(
             return Err(errno::error_by_name(mrb, c"ENOTSUP", "recvfrom(2)"));
         }
     }
-    let source = reader_of(mrb, self_)?;
     if !source.io().held.borrow().is_empty() {
         return Err(errno::io_error(mrb, refusal));
     }
-    Ok((source, maxlen, outbuf))
+    Ok((maxlen, outbuf))
 }
 
 /// The side a `shutdown` argument names, as CRuby's `rsock_shutdown_how_arg`
@@ -404,15 +403,15 @@ fn socket_closed_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 }
 
 /// `recv(maxlen, flags = 0, outbuf = nil)` answers up to `maxlen` of what
-/// comes next, waiting for some, past any buffer; `nil` at the end.
+/// comes next, waiting for some, past any buffer, and `nil` at the end,
+/// leaving `outbuf` as it was. Like CRuby's `recvfrom(2)`, it reads whether
+/// or not `close_read` closed the reading side.
 fn socket_recv(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (source, maxlen, outbuf) = direct_args(mrb, self_, args, "recv for buffered IO")?;
-    if maxlen == 0 {
-        return fill(mrb, outbuf, mrb.str_new(b"").as_value());
-    }
+    let source = open_socket_of(mrb, self_)?;
+    let (maxlen, outbuf) = direct_args(mrb, source, args, "recv for buffered IO")?;
     match ready_of(source.receive(mrb, maxlen, Wait::Block)?) {
         Some(bytes) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
-        None => fill(mrb, outbuf, qnil().as_value()),
+        None => Ok(qnil().as_value()),
     }
 }
 
@@ -424,7 +423,8 @@ fn socket_sysread(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
         [maxlen, outbuf] => [*maxlen, qnil().as_value(), *outbuf],
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
-    let (source, maxlen, outbuf) = direct_args(mrb, self_, &args, "sysread for buffered IO")?;
+    let source = reader_of(mrb, self_)?;
+    let (maxlen, outbuf) = direct_args(mrb, source, &args, "sysread for buffered IO")?;
     if maxlen == 0 {
         return fill(mrb, outbuf, mrb.str_new(b"").as_value());
     }
@@ -440,13 +440,11 @@ fn socket_sysread(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
 /// `exception: false`. Bytes a read held back raise `IOError`, as CRuby's.
 fn socket_recv_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (args, exception) = exception_option(mrb, args)?;
-    let (source, maxlen, outbuf) = direct_args(mrb, self_, args, "recvfrom for buffered IO")?;
-    if maxlen == 0 {
-        return fill(mrb, outbuf, mrb.str_new(b"").as_value());
-    }
+    let source = open_socket_of(mrb, self_)?;
+    let (maxlen, outbuf) = direct_args(mrb, source, args, "recvfrom for buffered IO")?;
     match source.receive(mrb, maxlen, Wait::DontWait)? {
         Poll::Ready(Some(bytes)) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
-        Poll::Ready(None) => fill(mrb, outbuf, qnil().as_value()),
+        Poll::Ready(None) => Ok(qnil().as_value()),
         Poll::Pending => would_wait(mrb, Direction::Read, "recvfrom(2) would block", exception),
     }
 }
@@ -482,7 +480,20 @@ fn socket_sync_set(mrb: &Mrb, self_: Value, sync: Value) -> Result<Value, Error>
     Ok(sync)
 }
 
-/// Whether `value` is a `TCPSocket` or a `UDPSocket`.
-pub(crate) fn is_socket(mrb: &Mrb, value: Value) -> bool {
-    source_of(mrb, value).is_ok()
+/// The handle a wait on the socket `value` polls, `None` when `value` is no
+/// socket. A closed socket, or a side `close_read` or `close_write` closed,
+/// raises `IOError`, as CRuby checks an IO before it waits on it.
+pub(crate) fn waitable_handle(
+    mrb: &Mrb,
+    value: Value,
+    direction: Direction,
+) -> Result<Option<u32>, Error> {
+    if source_of(mrb, value).is_err() {
+        return Ok(None);
+    }
+    let source = match direction {
+        Direction::Read => reader_of(mrb, value)?,
+        Direction::Write => writer_of(mrb, value)?,
+    };
+    source.handle(mrb).map(Some)
 }

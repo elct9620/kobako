@@ -35,7 +35,7 @@ use beni::{
     Error, Exception, ExceptionClass, Module, Mrb, RClass, RString, Symbol, TryConvert, Value,
 };
 
-pub(crate) use basic::is_socket;
+pub(crate) use basic::waitable_handle;
 pub(crate) use buffer::holds_buffered;
 
 use crate::errno;

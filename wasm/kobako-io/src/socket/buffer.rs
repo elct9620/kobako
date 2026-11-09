@@ -163,14 +163,18 @@ fn read_partial(
     match read_some(mrb, reader_of(mrb, self_)?, maxlen, wait)? {
         Poll::Ready(Some(bytes)) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
         Poll::Ready(None) if !exception => fill(mrb, outbuf, qnil().as_value()),
-        Poll::Ready(None) => Err(end_of_file(mrb)),
+        Poll::Ready(None) => {
+            fill(mrb, outbuf, qnil().as_value())?;
+            Err(end_of_file(mrb))
+        }
         Poll::Pending => would_wait(mrb, Direction::Read, "read would block", exception),
     }
 }
 
 /// The next line, its separator kept unless `chomp`, or `None` at the end.
 /// A limit of zero answers an empty line at once; an empty separator reads a
-/// paragraph, skipping the newlines before it, as CRuby's `rspara` does.
+/// paragraph, skipping the newlines before and after it, as CRuby's `rspara`
+/// does.
 fn next_line(
     mrb: &Mrb,
     source: &dyn SocketIo,
@@ -202,6 +206,9 @@ fn next_line(
     if line.is_empty() {
         return Ok(None);
     }
+    if paragraph {
+        skip_newlines(mrb, source)?;
+    }
     if let Some(separator) = separator.filter(|_| *chomp) {
         if line.ends_with(separator) {
             line.truncate(line.len() - separator.len());
@@ -211,7 +218,7 @@ fn next_line(
 }
 
 /// Drop the newlines that stand next, reading on until another byte or the
-/// end comes, as CRuby's `swallow` does before a paragraph.
+/// end comes, as CRuby's `swallow` does around a paragraph.
 fn skip_newlines(mrb: &Mrb, source: &dyn SocketIo) -> Result<(), Error> {
     while ready_of(refill(mrb, source, Wait::Block)?) {
         let mut held = source.io().held.borrow_mut();

@@ -9,7 +9,7 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Mrb, RArray, RClass, Symbol, TryConvert, Value};
 use core::ffi::{c_int, c_short};
 
-use crate::io::argument_error;
+use crate::io::{argument_error, Direction};
 use crate::{descriptors, errno, socket};
 
 /// wasi-libc's `struct pollfd`.
@@ -95,9 +95,12 @@ fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], events: c_short) -> Result<
 /// The descriptor a wait on `io` polls, refusing a stream not opened for the
 /// way it waits, as CRuby's `IOError` does: a captured stream only writes.
 fn waitable_fd(mrb: &Mrb, io: Value, events: c_short) -> Result<c_int, Error> {
-    if socket::is_socket(mrb, io) {
-        let fd = io.funcall::<_, _, Value>(mrb, c"fileno", ())?;
-        return Ok(Integer::try_convert(fd, mrb)?.to_i64(mrb)? as c_int);
+    let direction = match events {
+        POLLRDNORM => Direction::Read,
+        _ => Direction::Write,
+    };
+    if let Some(handle) = socket::waitable_handle(mrb, io, direction)? {
+        return Ok(handle as c_int);
     }
     let fd = crate::io::checked_fd(mrb, io, crate::stream::REACH_REFUSAL)?;
     let (opened, refusal) = match events {
