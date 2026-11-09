@@ -160,7 +160,7 @@ impl UdpSock {
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => state.error = Some(to_error(&err)),
+                Err(err) => state.error = Some(to_udp_error(&err)),
             }
         }
     }
@@ -290,7 +290,7 @@ impl ProtoOps for UdpSock {
                 state.writable = false;
                 Err(FilesystemError::WouldBlock)
             }
-            Err(err) => Err(to_error(&err)),
+            Err(err) => Err(to_udp_error(&err)),
         }
     }
 
@@ -325,6 +325,16 @@ impl ProtoOps for UdpSock {
         }
         drop(state);
         self.wait.wake_up();
+    }
+}
+
+/// A host failure as Linux's UDP answers it. Windows reports an ICMP port
+/// unreachable as `WSAECONNRESET`, where Linux's `__udp4_lib_err` sets
+/// `ECONNREFUSED`, and a datagram socket has no connection to reset.
+fn to_udp_error(err: &io::Error) -> FilesystemError {
+    match to_error(err) {
+        FilesystemError::ConnectionReset => FilesystemError::ConnectionRefused,
+        other => other,
     }
 }
 
@@ -518,6 +528,18 @@ mod tests {
             (&b"ping"[..], &b"PO"[..], Err(FilesystemError::WouldBlock)),
             "a UDP socket must send a datagram to its peer and read one back per read, cut to the \
              buffer, with the rest of it gone"
+        );
+    }
+
+    // @behavior NW-070
+    #[test]
+    fn a_reset_the_host_reports_on_udp_reads_as_refused() {
+        let reset = io::Error::from(io::ErrorKind::ConnectionReset);
+        assert_eq!(
+            to_udp_error(&reset),
+            FilesystemError::ConnectionRefused,
+            "a UDP socket's failure the host reports as a reset, as Windows reports an ICMP port \
+             unreachable, must answer ECONNREFUSED, as Linux's does"
         );
     }
 
