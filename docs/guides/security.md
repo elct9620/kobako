@@ -120,7 +120,7 @@ A name an endpoint names goes to the host's resolver, so each lookup is egress.
 
 A wildcard leads only to `:public` addresses or a CIDR you write, so a name under it never reaches your own network.
 
-An endpoint on port 53 or 853 must name an exact host, or the entry is refused. A DNS server the guest reaches resolves any name the guest asks, past every endpoint, so name only one you trust to answer.
+An endpoint on port 53 or 853 lets the guest ask a DNS server directly, past every endpoint. The addresses it learns there still meet the endpoints when it connects. The server still sees every name the guest asks, so name only a server you trust.
 
 ### Echoing Endpoints
 

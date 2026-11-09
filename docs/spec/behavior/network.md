@@ -442,18 +442,6 @@ endpoint "api.example.com", port: 443
 | When | the script opens a `TCPSocket` to it |
 | Then | it raises `Socket::ResolutionError`, a `SocketError`, with Linux's `getaddrinfo` words and its `EAI_NONAME` code, as CRuby does |
 
-## `NW-035` A DNS endpoint needs an exact name
-
-| Attribute | Value |
-| --- | --- |
-| relates | `NW-029` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an endpoint on port 53 or 853 whose host is a wildcard, an address, or a prefix |
-| When | the ruleset compiles |
-| Then | it is refused, since such an endpoint opens a channel past kobako's resolver; an exact name stands |
-
 ## `NW-036` A Ruby resolve policy refuses a name an endpoint names
 
 | Attribute | Value |
