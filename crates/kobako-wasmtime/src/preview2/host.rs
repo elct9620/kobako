@@ -117,6 +117,18 @@ impl Invocation {
             .push_child(table::Pollable::File(stream.file(), mask), socket)
     }
 
+    /// Pass a bind to `local_address` through the socket hooks, once WASI
+    /// takes it as a unicast address, as both sockets' `start-bind` ask.
+    fn bind_local(&mut self, local_address: &IpSocketAddress) -> Result<(), ErrorCode> {
+        let addr = to_socket_addr(local_address)
+            .filter(|addr| is_valid_unicast_address(*addr))
+            .ok_or(ErrorCode::InvalidArgument)?;
+        let cred = self.wasi().descriptors().cred().clone();
+        self.network()
+            .bind(&cred, addr)
+            .map_err(|err| to_error_code(&err))
+    }
+
     fn tcp(&mut self, handle: TcpSocket) -> wasmtime::Result<&mut table::TcpSocket> {
         self.table().get_mut(handle)
     }
@@ -283,7 +295,7 @@ impl SocketsHost for Invocation {
         Ok(Ok(handle))
     }
 
-    /// A bind the socket hooks pass, as `udp-socket.start-bind` asks; the
+    /// A bind the socket hooks pass, as `tcp-socket.start-bind` asks; the
     /// host socket takes its own address as it connects, so a bind settles
     /// at once.
     fn tcp_tcp_socket_start_bind(
@@ -300,14 +312,8 @@ impl SocketsHost for Invocation {
             }
             _ => return Ok(Err(ErrorCode::InvalidState)),
         }
-        let Some(addr) =
-            to_socket_addr(&local_address).filter(|addr| is_valid_unicast_address(*addr))
-        else {
-            return Ok(Err(ErrorCode::InvalidArgument));
-        };
-        let cred = self.wasi().descriptors().cred().clone();
-        if let Err(err) = self.network().bind(&cred, addr) {
-            return Ok(Err(to_error_code(&err)));
+        if let Err(code) = self.bind_local(&local_address) {
+            return Ok(Err(code));
         }
         self.tcp(this)?.state = TcpState::Binding;
         Ok(Ok(()))
@@ -500,14 +506,8 @@ impl SocketsHost for Invocation {
             UdpState::Binding => return Ok(Err(ErrorCode::ConcurrencyConflict)),
             _ => return Ok(Err(ErrorCode::InvalidState)),
         }
-        let Some(addr) =
-            to_socket_addr(&local_address).filter(|addr| is_valid_unicast_address(*addr))
-        else {
-            return Ok(Err(ErrorCode::InvalidArgument));
-        };
-        let cred = self.wasi().descriptors().cred().clone();
-        if let Err(err) = self.network().bind(&cred, addr) {
-            return Ok(Err(to_error_code(&err)));
+        if let Err(code) = self.bind_local(&local_address) {
+            return Ok(Err(code));
         }
         self.udp(this)?.state = UdpState::Binding;
         Ok(Ok(()))
@@ -1435,7 +1435,7 @@ mod tests {
             for _ in 0..20 {
                 peer.send_to(b"ping", guest_end)?;
             }
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(500));
             let mut batches = Vec::new();
             while batches.iter().sum::<usize>() < 20 {
                 let arrived = guest.udp_incoming_datagram_stream_subscribe(incoming)?;
@@ -1451,10 +1451,11 @@ mod tests {
             Ok::<_, wasmtime::Error>(batches)
         })
         .expect("the datagrams arrive");
-        assert!(
-            batches.iter().all(|batch| *batch <= 16),
-            "receive with max-results 100 must answer at most sixteen datagrams a call, as \
-             wasmtime-wasi bounds one receive, got {batches:?}"
+        assert_eq!(
+            batches,
+            [16, 4],
+            "receive with max-results 100 of twenty queued datagrams must answer sixteen, then the \
+             other four, as wasmtime-wasi bounds one receive"
         );
     }
 
