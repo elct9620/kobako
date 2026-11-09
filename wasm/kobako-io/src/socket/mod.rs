@@ -8,6 +8,14 @@
 //! Each class lives in its own file, as CRuby's `ext/socket` keeps one per
 //! class; what they share, the `Socket` constants and errors, lives here, as
 //! `init.c` holds it.
+//!
+//! A read either goes through the buffer CRuby's `io.c` keeps before a
+//! socket, as `read`, `readpartial`, `read_nonblock`, `gets`, and `getc` do,
+//! or past it, as `recv`, `recv_nonblock`, and `sysread` do, which refuse
+//! while the buffer holds bytes. Both reach one receive per socket type, and
+//! every write one send, each taking whether the call waits, as Linux carries
+//! `MSG_DONTWAIT` into one `recvmsg` or `sendmsg`. A wait on one IO polls as
+//! `IO.select` does.
 
 mod address;
 mod addrinfo;

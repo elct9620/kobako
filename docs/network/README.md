@@ -231,5 +231,6 @@ A refusal reaches the script as the `Errno` CRuby's would raise, and the script 
 | an IPv6 family or literal | `Errno::EAFNOSUPPORT` |
 | a full connection cap | `Errno::EAGAIN` |
 | the open file limit, at a new socket | `Errno::EMFILE` |
+| a receive flag WASI carries none of, such as `MSG_PEEK` | `Errno::ENOTSUP` |
 
 A wait past the deadline traps as `TimeoutTrap`, not as an `Errno`.
