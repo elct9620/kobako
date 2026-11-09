@@ -45,4 +45,12 @@ class TestParityErrors < Parity::Case
       invocations: [{ verb: "eval", source: 'a = []; 200.times { a << ("x" * 100_000) }; nil' }]
     )
   end
+
+  # @behavior OC-027
+  def test_memory_default_cap
+    assert_parity Parity::Scenario.new(
+      name: "memory-default-cap",
+      invocations: [{ verb: "eval", source: 'a = []; 200.times { a << ("x" * 100_000) }; nil' }]
+    )
+  end
 end
