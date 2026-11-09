@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
-    sock_alloc_file, Namespace, ProtoOps, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
+    sock_alloc_file, Namespace, ProtoOps, TcpSock, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
 };
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
@@ -28,8 +28,9 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
 };
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{
-    from_socket_addr, is_valid_remote_address, is_valid_unicast_address, to_error_code,
-    to_lookup_error_code, to_socket_addr,
+    from_socket_addr, is_valid_remote_address, is_valid_unicast_address, to_asked_size,
+    to_buffer_size, to_error_code, to_keepalive_secs, to_lookup_error_code, to_nanos,
+    to_socket_addr, MAX_KEEPALIVE_COUNT,
 };
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
 use crate::descriptors::SocketType;
@@ -58,6 +59,34 @@ impl Invocation {
 
     pub(super) fn table(&mut self) -> &mut table::Table {
         self.wasi_mut().table_mut()
+    }
+
+    /// What `read` answers of the TCP socket `this`, in a state that takes
+    /// an option.
+    fn tcp_option<T>(
+        &mut self,
+        this: TcpSocket,
+        read: impl FnOnce(&TcpSock) -> T,
+    ) -> wasmtime::Result<Result<T, ErrorCode>> {
+        let socket = self.tcp(this)?;
+        Ok(socket
+            .state
+            .ensure_takes_options()
+            .map(|()| read(&socket.socket.sock)))
+    }
+
+    /// Set an option of the TCP socket `this` through `set`, in a state that
+    /// takes one.
+    fn set_tcp_option(
+        &mut self,
+        this: TcpSocket,
+        set: impl FnOnce(&TcpSock) -> Result<(), FilesystemError>,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        let socket = self.tcp(this)?;
+        Ok(socket
+            .state
+            .ensure_takes_options()
+            .and_then(|()| set(&socket.socket.sock).map_err(|err| to_error_code(&err))))
     }
 
     /// Wait until `ready` answers, or trap as the deadline or an interrupt
@@ -465,11 +494,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<bool, ErrorCode>> {
-        let socket = self.tcp(this)?;
-        Ok(socket
-            .state
-            .ensure_takes_options()
-            .map(|()| socket.socket.sock.keepalive()))
+        self.tcp_option(this, TcpSock::keepalive)
     }
 
     fn tcp_tcp_socket_set_keep_alive_enabled(
@@ -477,14 +502,111 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
         value: bool,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        let socket = self.tcp(this)?;
-        Ok(socket.state.ensure_takes_options().and_then(|()| {
-            socket
-                .socket
-                .sock
-                .set_keepalive(value)
-                .map_err(|err| to_error_code(&err))
-        }))
+        self.set_tcp_option(this, |sock| sock.set_keepalive(value))
+    }
+
+    fn tcp_tcp_socket_keep_alive_idle_time(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        self.tcp_option(this, |sock| to_nanos(sock.keepidle()))
+    }
+
+    /// As wasmtime's, zero answers `invalid-argument` and any other time is
+    /// clamped to what Linux takes.
+    fn tcp_tcp_socket_set_keep_alive_idle_time(
+        &mut self,
+        this: TcpSocket,
+        value: u64,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        match to_keepalive_secs(value) {
+            Some(secs) => self.set_tcp_option(this, |sock| sock.set_keepidle(secs)),
+            None => Ok(Err(ErrorCode::InvalidArgument)),
+        }
+    }
+
+    fn tcp_tcp_socket_keep_alive_interval(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        self.tcp_option(this, |sock| to_nanos(sock.keepintvl()))
+    }
+
+    fn tcp_tcp_socket_set_keep_alive_interval(
+        &mut self,
+        this: TcpSocket,
+        value: u64,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        match to_keepalive_secs(value) {
+            Some(secs) => self.set_tcp_option(this, |sock| sock.set_keepintvl(secs)),
+            None => Ok(Err(ErrorCode::InvalidArgument)),
+        }
+    }
+
+    fn tcp_tcp_socket_keep_alive_count(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<u32, ErrorCode>> {
+        self.tcp_option(this, TcpSock::keepcnt)
+    }
+
+    /// As wasmtime's, zero answers `invalid-argument` and any other count is
+    /// clamped to Linux's ceiling.
+    fn tcp_tcp_socket_set_keep_alive_count(
+        &mut self,
+        this: TcpSocket,
+        value: u32,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        if value == 0 {
+            return Ok(Err(ErrorCode::InvalidArgument));
+        }
+        self.set_tcp_option(this, |sock| {
+            sock.set_keepcnt(value.min(MAX_KEEPALIVE_COUNT))
+        })
+    }
+
+    /// Half what the receive queue holds, as wasmtime answers it on Linux,
+    /// so a guest reads back about the size it asked for.
+    fn tcp_tcp_socket_receive_buffer_size(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        self.tcp_option(this, |sock| to_asked_size(sock.rcvbuf()))
+    }
+
+    fn tcp_tcp_socket_set_receive_buffer_size(
+        &mut self,
+        this: TcpSocket,
+        value: u64,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        match to_buffer_size(value) {
+            Some(bytes) => self.set_tcp_option(this, |sock| {
+                sock.set_rcvbuf(bytes);
+                Ok(())
+            }),
+            None => Ok(Err(ErrorCode::InvalidArgument)),
+        }
+    }
+
+    fn tcp_tcp_socket_send_buffer_size(
+        &mut self,
+        this: TcpSocket,
+    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        self.tcp_option(this, |sock| to_asked_size(sock.sndbuf()))
+    }
+
+    fn tcp_tcp_socket_set_send_buffer_size(
+        &mut self,
+        this: TcpSocket,
+        value: u64,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        match to_buffer_size(value) {
+            Some(bytes) => self.set_tcp_option(this, |sock| {
+                sock.set_sndbuf(bytes);
+                Ok(())
+            }),
+            None => Ok(Err(ErrorCode::InvalidArgument)),
+        }
     }
 
     fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {

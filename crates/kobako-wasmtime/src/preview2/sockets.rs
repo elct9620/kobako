@@ -9,6 +9,37 @@ use kobako_runtime::vfs::FilesystemError;
 
 use super::bindings::wasi_sockets_network_0_2_12::{ErrorCode, IpSocketAddress, Ipv4SocketAddress};
 
+const NANOS_PER_SEC: u64 = 1_000_000_000;
+
+/// The longest keepalive time and the most probes, Linux's `MAX_TCP_KEEPIDLE`
+/// and `MAX_TCP_KEEPCNT`, which wasmtime clamps to as the lowest across hosts.
+const MAX_KEEPALIVE_SECS: u64 = 32767;
+pub(crate) const MAX_KEEPALIVE_COUNT: u32 = 127;
+
+/// A time in seconds as the nanoseconds WASI's `duration` counts.
+pub(crate) fn to_nanos(secs: u32) -> u64 {
+    u64::from(secs) * NANOS_PER_SEC
+}
+
+/// A keepalive time in whole seconds, clamped to 1 through Linux's ceiling
+/// as wasmtime clamps it; zero has none, as WIT answers it `invalid-argument`.
+pub(crate) fn to_keepalive_secs(nanos: u64) -> Option<u32> {
+    let secs = (nanos / NANOS_PER_SEC).clamp(1, MAX_KEEPALIVE_SECS);
+    (nanos != 0).then(|| u32::try_from(secs).expect("clamped within u32"))
+}
+
+/// The size a guest asked for, as a socket's queue holds twice it; wasmtime
+/// halves Linux's answer the same way.
+pub(crate) fn to_asked_size(held: usize) -> u64 {
+    u64::try_from(held / 2).unwrap_or(u64::MAX)
+}
+
+/// A buffer size a set takes; zero has none, as WIT answers it
+/// `invalid-argument`.
+pub(crate) fn to_buffer_size(value: u64) -> Option<usize> {
+    (value != 0).then(|| usize::try_from(value).unwrap_or(usize::MAX))
+}
+
 /// The IPv4 address the guest named; an IPv6 one has no answer, since the
 /// guest is IPv4-only.
 pub(crate) fn to_socket_addr(addr: &IpSocketAddress) -> Option<SocketAddr> {
