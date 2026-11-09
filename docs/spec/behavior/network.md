@@ -26,6 +26,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_tcp_arguments.rb`
 - `test/e2e/test_network_own_end.rb`
 - `test/e2e/test_network_socket_io.rb`
+- `test/e2e/test_network_socket_io_edges.rb`
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_cruby.rb`
@@ -1198,8 +1199,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a network entry, and a guest that speaks only IPv4 |
-| When | the script opens a `UDPSocket` of a family other than `Socket::AF_INET`. Then it calls `new`, `send`, and `recv` with a wrong argument count |
-| Then | the family raises `Errno::EAFNOSUPPORT`, and each count raises `ArgumentError` naming the range CRuby's takes. `Socket.new` raises `NoMethodError`, where CRuby opens a socket, since a script opens only a `TCPSocket` or a `UDPSocket` |
+| When | the script opens a `UDPSocket` of a family other than `Socket::AF_INET`, by number or by name. It opens one of a name no family has. Then it calls `new`, `send`, and `recv` with a wrong argument count |
+| Then | the family raises `Errno::EAFNOSUPPORT`, and the unknown name `SocketError`, as `rsock_family_arg` reads each. Each count raises `ArgumentError` naming the range CRuby's takes. `Socket.new` raises `NoMethodError`, where CRuby opens a socket, since a script opens only a `TCPSocket` or a `UDPSocket` |
 
 ## `NW-099` A script's port is read as Linux reads a service
 
@@ -1344,8 +1345,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a script holding a `TCPSocket`, an object whose `to_io` answers it, and an Integer |
-| When | it selects the object, then the Integer |
-| Then | the object is answered ready as it was given, and the Integer raises `TypeError`, as CRuby's `IO.select` does |
+| When | it selects the object, then the Integer in the read set and in the error set. It then selects nothing with no timeout |
+| Then | the object is answered ready as it was given. The Integer raises `TypeError` in either set, as CRuby's `IO.select` does. Selecting nothing raises `Errno::ENOTSUP`, where CRuby's waits forever |
 
 ## `NW-111` A Context replaces an entry with what a builder adds to it
 
@@ -1433,3 +1434,15 @@ endpoint "api.example.com", port: 443
 | Given | a TCP and a UDP endpoint naming loopback peers |
 | When | the script names `"0.0.0.0"` port 0 as a `TCPSocket`'s local end and binds a `UDPSocket` to `"<any>"` port `"0"`. It then binds another to `127.0.0.1` |
 | Then | the TCP socket connects and the first bind passes, as CRuby reads each with `AI_PASSIVE`. The bind to `127.0.0.1` raises `Errno::EACCES`, as the host refuses it |
+
+## `NW-118` A script's socket answers IO's edge calls as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-095` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers `"a\n\n\nb\nhello"` and closes |
+| When | the script reads zero bytes, gets a zero limit, then two paragraphs. It reads lines at a zero limit, gives bad advice, and writes after `close_write` |
+| Then | each zero answers `""`, and the paragraphs are `"a\n\n"` and `"b\nhello"`. Lines at zero raise `ArgumentError`, and the advice `NotImplementedError` or `TypeError`. The write raises `IOError`, as CRuby's IO does |
