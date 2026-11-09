@@ -778,6 +778,111 @@ impl TcpSock {
 }
 ```
 
+## `TcpSock::keepidle`
+
+Seconds a connection idles before the first keepalive probe.
+
+```rust
+impl TcpSock {
+    pub fn keepidle(&self) -> u32 {}
+}
+```
+
+## `TcpSock::set_keepidle`
+
+Idle that many seconds before the first probe. A value outside 1 to 32767
+answers EINVAL, as Linux bounds it.
+
+```rust
+impl TcpSock {
+    pub fn set_keepidle(&self, secs: u32) -> Result<(), FilesystemError> {}
+}
+```
+
+## `TcpSock::keepintvl`
+
+Seconds between keepalive probes.
+
+```rust
+impl TcpSock {
+    pub fn keepintvl(&self) -> u32 {}
+}
+```
+
+## `TcpSock::set_keepintvl`
+
+Wait that many seconds between probes. A value outside 1 to 32767 answers
+EINVAL.
+
+```rust
+impl TcpSock {
+    pub fn set_keepintvl(&self, secs: u32) -> Result<(), FilesystemError> {}
+}
+```
+
+## `TcpSock::keepcnt`
+
+Keepalive probes left unanswered before the connection drops.
+
+```rust
+impl TcpSock {
+    pub fn keepcnt(&self) -> u32 {}
+}
+```
+
+## `TcpSock::set_keepcnt`
+
+Drop the connection after that many unanswered probes. A value outside 1 to
+127 answers EINVAL.
+
+```rust
+impl TcpSock {
+    pub fn set_keepcnt(&self, count: u32) -> Result<(), FilesystemError> {}
+}
+```
+
+## `TcpSock::rcvbuf`
+
+The most the receive queue holds, as `SO_RCVBUF` reads it.
+
+```rust
+impl TcpSock {
+    pub fn rcvbuf(&self) -> usize {}
+}
+```
+
+## `TcpSock::set_rcvbuf`
+
+Hold twice the size in the receive queue, as Linux doubles it. The result
+never passes the buffer the socket reserved.
+
+```rust
+impl TcpSock {
+    pub fn set_rcvbuf(&self, bytes: usize) {}
+}
+```
+
+## `TcpSock::sndbuf`
+
+The most the send queue holds, as `SO_SNDBUF` reads it.
+
+```rust
+impl TcpSock {
+    pub fn sndbuf(&self) -> usize {}
+}
+```
+
+## `TcpSock::set_sndbuf`
+
+Hold twice the size in the send queue. The result never passes the buffer
+the socket reserved.
+
+```rust
+impl TcpSock {
+    pub fn set_sndbuf(&self, bytes: usize) {}
+}
+```
+
 ## `sock_alloc_file`
 
 The socket file of a socket, opened for reading and writing, as Linux's

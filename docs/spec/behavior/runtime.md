@@ -4125,3 +4125,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a TCP socket a Wasm Driver asked for keepalive probes before it connected |
 | When | it connects through the Protocol Family, then the Wasm Driver turns the probes off |
 | Then | the host stream it dials sends probes, then stops at once. The socket answers its own setting, as Linux's `sock_getsockopt` reads the socket's flag |
+
+## `RT-367` A socket bounds its keepalive probes as Linux does and dials with them
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-366` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a new TCP socket |
+| When | a Wasm Driver reads its keepalive probes, sets values Linux refuses, then sets values Linux takes and connects |
+| Then | it reads Linux's defaults of 7200 seconds, 75 seconds, and 9 probes. An idle time or interval outside 1 to 32767 and a count outside 1 to 127 answer EINVAL. The host stream it dials takes the values set |
+
+## `RT-368` A socket doubles its buffer sizes and holds its queues within them
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-366` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket and a peer writing more than a small buffer holds |
+| When | a Wasm Driver sets each buffer size large, then small |
+| Then | each reads twice the size set, within the buffer the socket reserved and above Linux's least, as `sock_setsockopt` doubles it. The queues hold no more than they read |

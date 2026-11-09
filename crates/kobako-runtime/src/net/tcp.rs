@@ -9,13 +9,14 @@ use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::time::Duration;
 
-use socket2::SockRef;
+use socket2::{SockRef, TcpKeepalive};
 
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{to_error, ProtoOps, SocketMemory};
+use super::socket::{to_error, within, Buffers, ProtoOps, SocketMemory};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -26,6 +27,37 @@ pub const MAX_SOCKET_BUFFER: usize = 64 * 1024;
 
 /// How much one host read moves at once.
 const CHUNK: usize = 16 * 1024;
+
+/// Linux's keepalive defaults, `TCP_KEEPALIVE_TIME`, `TCP_KEEPALIVE_INTVL`,
+/// and `TCP_KEEPALIVE_PROBES`, in seconds and probes.
+const KEEPALIVE_TIME: u32 = 7200;
+const KEEPALIVE_INTVL: u32 = 75;
+const KEEPALIVE_PROBES: u32 = 9;
+
+/// Linux's ceilings on each, `MAX_TCP_KEEPIDLE`, `MAX_TCP_KEEPINTVL`, and
+/// `MAX_TCP_KEEPCNT`.
+const MAX_KEEPIDLE: u32 = 32767;
+const MAX_KEEPINTVL: u32 = 32767;
+const MAX_KEEPCNT: u32 = 127;
+
+/// When a socket probes an idle peer, as `tcp_sock` keeps `keepalive_time`,
+/// `keepalive_intvl`, and `keepalive_probes` beside `SOCK_KEEPOPEN`.
+struct KeepAlive {
+    on: bool,
+    idle: u32,
+    interval: u32,
+    count: u32,
+}
+
+impl KeepAlive {
+    /// The probes as the host socket takes them.
+    fn to_params(&self) -> TcpKeepalive {
+        TcpKeepalive::new()
+            .with_time(Duration::from_secs(self.idle.into()))
+            .with_interval(Duration::from_secs(self.interval.into()))
+            .with_retries(self.count)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Phase {
@@ -67,9 +99,11 @@ struct State {
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
     named: Option<SocketAddr>,
-    /// The guest asked for keepalive probes, as `SOCK_KEEPOPEN`; the host
-    /// socket takes it as it is dialed.
-    keepalive: bool,
+    /// The keepalive probes the guest asked for; the host socket takes them
+    /// as it is dialed.
+    keepalive: KeepAlive,
+    /// How much each queue holds, as `sk_rcvbuf` and `sk_sndbuf`.
+    buffers: Buffers,
     /// Every view the guest held is gone.
     released: bool,
     /// The socket's place against its Sandbox's cap and the process's, given
@@ -115,7 +149,13 @@ impl TcpSock {
                 error: None,
                 virtual_port: None,
                 named: None,
-                keepalive: false,
+                keepalive: KeepAlive {
+                    on: false,
+                    idle: KEEPALIVE_TIME,
+                    interval: KEEPALIVE_INTVL,
+                    count: KEEPALIVE_PROBES,
+                },
+                buffers: Buffers::default(),
                 released: false,
                 place: None,
                 memory: Some(memory),
@@ -176,7 +216,7 @@ impl TcpSock {
     fn dial_next(&self, state: &mut State, mut last: FilesystemError) {
         while let Some(addr) = state.untried.pop_front() {
             let dialed = self.family.connect(addr).and_then(|stream| {
-                Self::set_options(&stream, state)?;
+                Self::set_options(SockRef::from(&stream), state)?;
                 let mut stream = mio::net::TcpStream::from_std(stream);
                 let ready: Weak<dyn Ready> = self.this.clone();
                 let registration = self.reactor.register(&mut stream, ready)?;
@@ -194,8 +234,9 @@ impl TcpSock {
     }
 
     /// Give the host socket `stream` the options the guest set.
-    fn set_options(stream: &std::net::TcpStream, state: &State) -> io::Result<()> {
-        SockRef::from(stream).set_keepalive(state.keepalive)
+    fn set_options(socket: SockRef<'_>, state: &State) -> io::Result<()> {
+        socket.set_tcp_keepalive(&state.keepalive.to_params())?;
+        socket.set_keepalive(state.keepalive.on)
     }
 
     /// Close the socket on `err`, as `tcp_done` does after a failed connect
@@ -249,8 +290,9 @@ impl TcpSock {
             return Ok(());
         };
         let mut chunk = [0; CHUNK];
-        while state.received.len() < MAX_SOCKET_BUFFER && !state.received_end {
-            let room = (MAX_SOCKET_BUFFER - state.received.len()).min(CHUNK);
+        let rcvbuf = state.buffers.rcvbuf;
+        while state.received.len() < rcvbuf && !state.received_end {
+            let room = (rcvbuf - state.received.len()).min(CHUNK);
             match stream.read(&mut chunk[..room]) {
                 Ok(0) => state.received_end = true,
                 Ok(n) => state.received.extend(&chunk[..n]),
@@ -321,7 +363,8 @@ impl TcpSock {
 
     /// How many bytes a send would take now.
     pub fn send_room(&self) -> usize {
-        MAX_SOCKET_BUFFER - self.state().sending.len()
+        let state = self.state();
+        state.buffers.sndbuf.saturating_sub(state.sending.len())
     }
 
     /// Whether everything sent has left for the host, as Linux's `SIOCOUTQ`
@@ -352,20 +395,87 @@ impl TcpSock {
     /// Whether the socket sends keepalive probes, as `SO_KEEPALIVE` reads its
     /// own flag, never the host's.
     pub fn keepalive(&self) -> bool {
-        self.state().keepalive
+        self.state().keepalive.on
     }
 
-    /// Send keepalive probes or stop, as `tcp_set_keepalive` does; a socket
-    /// dialed already passes it to its host socket at once.
+    /// Send keepalive probes or stop, as `tcp_set_keepalive` does.
     pub fn set_keepalive(&self, on: bool) -> Result<(), FilesystemError> {
+        self.set_keepalive_with(|keepalive| keepalive.on = on)
+    }
+
+    /// Seconds a connection idles before the first probe, as
+    /// `TCP_KEEPIDLE` reads.
+    pub fn keepidle(&self) -> u32 {
+        self.state().keepalive.idle
+    }
+
+    /// Idle `secs` before the first probe, as `tcp_sock_set_keepidle` takes
+    /// 1 to `MAX_TCP_KEEPIDLE` and refuses the rest with EINVAL.
+    pub fn set_keepidle(&self, secs: u32) -> Result<(), FilesystemError> {
+        within(secs, MAX_KEEPIDLE)?;
+        self.set_keepalive_with(|keepalive| keepalive.idle = secs)
+    }
+
+    /// Seconds between probes, as `TCP_KEEPINTVL` reads.
+    pub fn keepintvl(&self) -> u32 {
+        self.state().keepalive.interval
+    }
+
+    /// Wait `secs` between probes, as `tcp_sock_set_keepintvl` takes 1 to
+    /// `MAX_TCP_KEEPINTVL`.
+    pub fn set_keepintvl(&self, secs: u32) -> Result<(), FilesystemError> {
+        within(secs, MAX_KEEPINTVL)?;
+        self.set_keepalive_with(|keepalive| keepalive.interval = secs)
+    }
+
+    /// Probes unanswered before the connection drops, as `TCP_KEEPCNT` reads.
+    pub fn keepcnt(&self) -> u32 {
+        self.state().keepalive.count
+    }
+
+    /// Drop after `count` unanswered probes, as `tcp_sock_set_keepcnt` takes
+    /// 1 to `MAX_TCP_KEEPCNT`.
+    pub fn set_keepcnt(&self, count: u32) -> Result<(), FilesystemError> {
+        within(count, MAX_KEEPCNT)?;
+        self.set_keepalive_with(|keepalive| keepalive.count = count)
+    }
+
+    /// Change the keepalive probes; a socket dialed already passes them to its
+    /// host socket at once.
+    fn set_keepalive_with(
+        &self,
+        change: impl FnOnce(&mut KeepAlive),
+    ) -> Result<(), FilesystemError> {
         let mut state = self.state();
-        if let Some((stream, _)) = &state.host {
-            SockRef::from(stream)
-                .set_keepalive(on)
-                .map_err(|err| to_error(&err))?;
+        change(&mut state.keepalive);
+        match &state.host {
+            Some((stream, _)) => {
+                Self::set_options(SockRef::from(stream), &state).map_err(|err| to_error(&err))
+            }
+            None => Ok(()),
         }
-        state.keepalive = on;
-        Ok(())
+    }
+
+    /// What the receive queue holds at most, as `SO_RCVBUF` reads `sk_rcvbuf`.
+    pub fn rcvbuf(&self) -> usize {
+        self.state().buffers.rcvbuf
+    }
+
+    /// Hold at most twice `bytes` in the receive queue, as `sock_setsockopt`
+    /// sets `sk_rcvbuf`.
+    pub fn set_rcvbuf(&self, bytes: usize) {
+        self.state().buffers.set_rcvbuf(bytes);
+    }
+
+    /// What the send queue holds at most, as `SO_SNDBUF` reads `sk_sndbuf`.
+    pub fn sndbuf(&self) -> usize {
+        self.state().buffers.sndbuf
+    }
+
+    /// Hold at most twice `bytes` in the send queue, as `sock_setsockopt`
+    /// sets `sk_sndbuf`.
+    pub fn set_sndbuf(&self, bytes: usize) {
+        self.state().buffers.set_sndbuf(bytes);
     }
 
     /// Hold the port `alloc` gives as the guest's own, unless one is held.
@@ -447,7 +557,9 @@ impl ProtoOps for TcpSock {
             Phase::Connected if !state.send_shut && state.error.is_none() => {}
             _ => return Err(state.error.take().unwrap_or(FilesystemError::BrokenPipe)),
         }
-        let take = buf.len().min(MAX_SOCKET_BUFFER - state.sending.len());
+        let take = buf
+            .len()
+            .min(state.buffers.sndbuf.saturating_sub(state.sending.len()));
         if take == 0 && !buf.is_empty() {
             return Err(FilesystemError::WouldBlock);
         }
@@ -473,7 +585,7 @@ impl ProtoOps for TcpSock {
             mask = mask | PollMask::IN;
         }
         if state.phase != Phase::Connecting
-            && (send_shutdown || state.sending.len() < MAX_SOCKET_BUFFER)
+            && (send_shutdown || state.sending.len() < state.buffers.sndbuf)
         {
             mask = mask | PollMask::OUT;
         }
@@ -569,6 +681,73 @@ mod tests {
             "SO_KEEPALIVE set before a connect must be held by the socket and reach the host \
              stream the Protocol Family dials; set once connected, it must reach that stream at \
              once"
+        );
+    }
+
+    // @behavior RT-367
+    #[test]
+    fn a_socket_bounds_its_keepalive_probes_as_linux_and_dials_with_them() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let addr = listener.local_addr().unwrap();
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+            .expect("the reactor starts");
+        let defaults = (sock.keepidle(), sock.keepintvl(), sock.keepcnt());
+        let refused = [
+            sock.set_keepidle(0),
+            sock.set_keepidle(32768),
+            sock.set_keepintvl(32768),
+            sock.set_keepcnt(128),
+        ];
+        sock.set_keepidle(30).expect("an idle time Linux takes");
+        sock.set_keepintvl(10).expect("an interval Linux takes");
+        sock.set_keepcnt(3).expect("a count Linux takes");
+        sock.connect(vec![addr], addr, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
+        let host = sock.state().host.as_ref().map(|(stream, _)| {
+            let host = SockRef::from(stream);
+            (
+                host.tcp_keepalive_time().unwrap(),
+                host.tcp_keepalive_interval().unwrap(),
+                host.tcp_keepalive_retries().unwrap(),
+            )
+        });
+        assert_eq!(
+            (defaults, refused, host),
+            (
+                (7200, 75, 9),
+                [(); 4].map(|()| Err(FilesystemError::InvalidInput)),
+                Some((Duration::from_secs(30), Duration::from_secs(10), 3))
+            ),
+            "a socket must read Linux's keepalive defaults, refuse with EINVAL an idle time or \
+             interval outside 1 to 32767 and a count outside 1 to 127, and give the host stream it \
+             dials the probes it was set"
+        );
+    }
+
+    // @behavior RT-368
+    #[test]
+    fn a_socket_doubles_its_buffer_sizes_and_holds_its_queues_within_them() {
+        let (sock, file, mut peer) = connected();
+        let defaults = (sock.rcvbuf(), sock.sndbuf());
+        sock.set_rcvbuf(10_000_000);
+        let capped = sock.rcvbuf();
+        sock.set_sndbuf(1000);
+        sock.set_rcvbuf(1000);
+        let set = (sock.rcvbuf(), sock.sndbuf(), sock.send_room());
+        peer.write_all(&[7; 10_000]).expect("the peer writes");
+        wait_for(&file, PollMask::IN);
+        let held = sock.state().received.len();
+        assert_eq!(
+            (defaults, capped, set, held <= 2304),
+            (
+                (MAX_SOCKET_BUFFER, MAX_SOCKET_BUFFER),
+                MAX_SOCKET_BUFFER,
+                (2304, 4608, 4608),
+                true
+            ),
+            "SO_RCVBUF and SO_SNDBUF must double a size as Linux does, within the socket's \
+             reserved buffer and above Linux's least, and the queues must hold no more than they \
+             say; the receive queue held {held}"
         );
     }
 

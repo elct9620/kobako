@@ -11,6 +11,8 @@ use crate::vfs::{
 };
 use crate::wait::PollTable;
 
+use super::MAX_SOCKET_BUFFER;
+
 /// What one protocol answers for its socket, as Linux's `struct proto_ops`:
 /// the file's reads and writes, what a poll finds, and the release once every
 /// view is gone.
@@ -24,6 +26,52 @@ pub trait ProtoOps: Send + Sync {
     fn poll(&self, table: Option<&mut PollTable>) -> PollMask;
     /// Let go of the host socket, as `sock_close` runs on the last `fput`.
     fn release(&self);
+}
+
+/// The least `SO_RCVBUF` and `SO_SNDBUF` leave a queue, Linux's
+/// `SOCK_MIN_RCVBUF` and `SOCK_MIN_SNDBUF`.
+const SOCK_MIN_RCVBUF: usize = 2304;
+const SOCK_MIN_SNDBUF: usize = 4608;
+
+/// How much a socket's queues hold, as `sk_rcvbuf` and `sk_sndbuf`. Each
+/// starts at, and never passes, the buffer its memory reserved, which plays
+/// `rmem_max` and `wmem_max` as twice the most a set takes.
+pub(crate) struct Buffers {
+    pub(crate) rcvbuf: usize,
+    pub(crate) sndbuf: usize,
+}
+
+impl Default for Buffers {
+    fn default() -> Self {
+        Self {
+            rcvbuf: MAX_SOCKET_BUFFER,
+            sndbuf: MAX_SOCKET_BUFFER,
+        }
+    }
+}
+
+impl Buffers {
+    /// Twice `bytes`, within the cap, as `sock_setsockopt` doubles a value to
+    /// leave room for its bookkeeping.
+    fn doubled(bytes: usize, least: usize) -> usize {
+        (bytes.min(MAX_SOCKET_BUFFER / 2) * 2).max(least)
+    }
+
+    pub(crate) fn set_rcvbuf(&mut self, bytes: usize) {
+        self.rcvbuf = Self::doubled(bytes, SOCK_MIN_RCVBUF);
+    }
+
+    pub(crate) fn set_sndbuf(&mut self, bytes: usize) {
+        self.sndbuf = Self::doubled(bytes, SOCK_MIN_SNDBUF);
+    }
+}
+
+/// `value` within 1 to `max`, else EINVAL, as Linux bounds a TCP option.
+pub(crate) fn within(value: u32, max: u32) -> Result<(), FilesystemError> {
+    match (1..=max).contains(&value) {
+        true => Ok(()),
+        false => Err(FilesystemError::InvalidInput),
+    }
 }
 
 /// The memory a producer's buffers may hold, reserved against the Invocation's
