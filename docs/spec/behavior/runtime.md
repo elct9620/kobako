@@ -4149,3 +4149,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a connected TCP socket and a peer writing more than a small buffer holds |
 | When | a Wasm Driver sets each buffer size large, then small |
 | Then | each reads twice the size set, within the buffer the socket reserved and above Linux's least, as `sock_setsockopt` doubles it. The queues hold no more than they read |
+
+## `RT-369` A socket holds its hop limit for the host socket it dials
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-366` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a new TCP socket |
+| When | a Wasm Driver reads its hop limit, sets zero, then sets a limit before and after it connects |
+| Then | it reads Linux's 64 rather than the host's own default. Zero answers EINVAL. The host stream it dials takes each limit set |

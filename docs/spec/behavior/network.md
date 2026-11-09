@@ -1523,3 +1523,16 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server |
 | When | the script reads, then sets, `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, `TCP_KEEPCNT`, `SO_RCVBUF`, and `SO_SNDBUF` |
 | Then | each reads Linux's default, refuses with `Errno::EINVAL` what Linux refuses, and reads back what was set. A buffer size reads twice the size set, above Linux's least and within the socket's own buffer |
+
+## `NW-125` A UDP socket holds its hop limit and receive buffer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-053` |
+| relates | `RT-369` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a new UDP socket and a peer sending it more datagrams than a small buffer holds |
+| When | a Wasm Driver sets its hop limit and both buffer sizes, then connects to the peer |
+| Then | it reads Linux's default hop limit and refuses zero. The host socket it connects takes the limit set. Each buffer reads twice its size, and datagrams past the receive buffer are dropped |

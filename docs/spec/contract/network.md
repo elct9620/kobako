@@ -883,6 +883,28 @@ impl TcpSock {
 }
 ```
 
+## `TcpSock::ttl`
+
+The hop limit the socket sends with. It starts at Linux's 64, never the
+host's own default.
+
+```rust
+impl TcpSock {
+    pub fn ttl(&self) -> u8 {}
+}
+```
+
+## `TcpSock::set_ttl`
+
+Send with the hop limit given, on each host socket dialed. Zero answers
+EINVAL.
+
+```rust
+impl TcpSock {
+    pub fn set_ttl(&self, ttl: u8) -> Result<(), FilesystemError> {}
+}
+```
+
 ## `sock_alloc_file`
 
 The socket file of a socket, opened for reading and writing, as Linux's
@@ -1508,6 +1530,69 @@ the real peer back.
 ```rust
 impl UdpSock {
     pub fn peer_addr(&self) -> Option<SocketAddr> {}
+}
+```
+
+## `UdpSock::rcvbuf`
+
+The most the receive queue holds, as `SO_RCVBUF` reads it.
+
+```rust
+impl UdpSock {
+    pub fn rcvbuf(&self) -> usize {}
+}
+```
+
+## `UdpSock::set_rcvbuf`
+
+Hold twice the size in the receive queue, as Linux doubles it. A datagram past
+it is dropped.
+
+```rust
+impl UdpSock {
+    pub fn set_rcvbuf(&self, bytes: usize) {}
+}
+```
+
+## `UdpSock::sndbuf`
+
+What `SO_SNDBUF` reads. A send reaches the host at once, so no queue of the
+socket's own holds it.
+
+```rust
+impl UdpSock {
+    pub fn sndbuf(&self) -> usize {}
+}
+```
+
+## `UdpSock::set_sndbuf`
+
+Read back twice the size as `SO_SNDBUF`.
+
+```rust
+impl UdpSock {
+    pub fn set_sndbuf(&self, bytes: usize) {}
+}
+```
+
+## `UdpSock::ttl`
+
+The hop limit the socket sends with. It starts at Linux's 64, never the
+host's own default.
+
+```rust
+impl UdpSock {
+    pub fn ttl(&self) -> u8 {}
+}
+```
+
+## `UdpSock::set_ttl`
+
+Send with the hop limit given. Zero answers EINVAL.
+
+```rust
+impl UdpSock {
+    pub fn set_ttl(&self, ttl: u8) -> Result<(), FilesystemError> {}
 }
 ```
 

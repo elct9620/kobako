@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{to_error, ProtoOps, SocketMemory};
+use super::socket::{ensure_ttl, to_error, Buffers, ProtoOps, SocketMemory, IPDEFTTL};
 use super::MAX_SOCKET_BUFFER;
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -42,6 +42,11 @@ struct State {
     /// What the receive queue may hold, reserved against the Invocation's
     /// memory until the socket is released.
     memory: Option<SocketMemory>,
+    /// How much the receive queue holds, as `sk_rcvbuf`, and what `SO_SNDBUF`
+    /// reads.
+    buffers: Buffers,
+    /// The hop limit sent with, as `inet_sock` keeps `uc_ttl`.
+    ttl: u8,
 }
 
 /// One UDP socket, shared by the socket file and the reactor.
@@ -68,6 +73,8 @@ impl UdpSock {
                 named: None,
                 place: None,
                 memory: Some(memory),
+                buffers: Buffers::default(),
+                ttl: IPDEFTTL,
             }),
             wait: Arc::default(),
             this: this.clone(),
@@ -108,11 +115,11 @@ impl UdpSock {
             false => Some(open(open_connections).ok_or(FilesystemError::WouldBlock)?),
         };
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
-        let mut socket = mio::net::UdpSocket::from_std(
-            family
-                .connect_datagram(addr)
-                .map_err(|err| to_error(&err))?,
-        );
+        let host = family
+            .connect_datagram(addr)
+            .and_then(|socket| socket.set_ttl(self.state().ttl.into()).map(|()| socket))
+            .map_err(|err| to_error(&err))?;
+        let mut socket = mio::net::UdpSocket::from_std(host);
         let ready: Weak<dyn Ready> = self.this.clone();
         let registration = reactor
             .register(&mut socket, ready)
@@ -146,7 +153,7 @@ impl UdpSock {
         loop {
             match socket.recv(&mut datagram) {
                 Ok(n) => {
-                    if state.received_bytes + n <= MAX_SOCKET_BUFFER {
+                    if state.received_bytes + n <= state.buffers.rcvbuf {
                         state.received.push_back(datagram[..n].to_vec());
                         state.received_bytes += n;
                     }
@@ -179,6 +186,45 @@ impl UdpSock {
     /// `getpeername4` maps the real peer back.
     pub fn peer_addr(&self) -> Option<SocketAddr> {
         self.state().named
+    }
+
+    /// What the receive queue holds at most, as `SO_RCVBUF` reads `sk_rcvbuf`.
+    pub fn rcvbuf(&self) -> usize {
+        self.state().buffers.rcvbuf
+    }
+
+    /// Hold at most twice `bytes` in the receive queue; past it a datagram is
+    /// dropped, as a full `sk_rcvbuf` drops one.
+    pub fn set_rcvbuf(&self, bytes: usize) {
+        self.state().buffers.set_rcvbuf(bytes);
+    }
+
+    /// What `SO_SNDBUF` reads. A send goes to the host at once, so no queue of
+    /// the socket's own holds it.
+    pub fn sndbuf(&self) -> usize {
+        self.state().buffers.sndbuf
+    }
+
+    /// Read back twice `bytes` as `SO_SNDBUF`.
+    pub fn set_sndbuf(&self, bytes: usize) {
+        self.state().buffers.set_sndbuf(bytes);
+    }
+
+    /// The hop limit the socket sends with, as `IP_TTL` reads it.
+    pub fn ttl(&self) -> u8 {
+        self.state().ttl
+    }
+
+    /// Send with hop limit `ttl`, refusing zero with EINVAL, as
+    /// `do_ip_setsockopt` does; a host socket already there takes it at once.
+    pub fn set_ttl(&self, ttl: u8) -> Result<(), FilesystemError> {
+        ensure_ttl(ttl)?;
+        let mut state = self.state();
+        if let Some((socket, _)) = &state.host {
+            socket.set_ttl(ttl.into()).map_err(|err| to_error(&err))?;
+        }
+        state.ttl = ttl;
+        Ok(())
     }
 }
 
@@ -327,6 +373,56 @@ mod tests {
         peer.send_to(b"hello", host.unwrap().unwrap()).unwrap();
         until(&sock, PollMask::IN);
         (sock, peer)
+    }
+
+    // @behavior NW-125
+    #[test]
+    fn a_udp_socket_holds_its_hop_limit_and_receive_buffer() {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = peer.local_addr().unwrap();
+        let sock =
+            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+        let defaults = (sock.ttl(), sock.rcvbuf(), sock.sndbuf());
+        let zero = sock.set_ttl(0);
+        sock.set_ttl(9).expect("a hop limit Linux takes");
+        sock.set_rcvbuf(1000);
+        sock.set_sndbuf(1000);
+        let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
+        sock.connect(&family, addr, addr, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
+        let host = sock
+            .state()
+            .host
+            .as_ref()
+            .map(|(socket, _)| (socket.ttl().unwrap(), socket.local_addr().unwrap()));
+        let (host_ttl, local) = host.expect("the socket holds its host socket");
+        for _ in 0..4 {
+            peer.send_to(&[1; 1000], local).unwrap();
+        }
+        // Loopback hands datagrams over a moment apart, so wait for the two
+        // the buffer fits, then give the rest time to arrive and be dropped.
+        let started = Instant::now();
+        while sock.state().received.len() < 2 && started.elapsed() < Duration::from_secs(5) {
+            sock.on_event();
+            thread::sleep(Duration::from_millis(1));
+        }
+        thread::sleep(Duration::from_millis(50));
+        sock.on_event();
+        let held = sock.state().received.len();
+        assert_eq!(
+            (defaults, zero, host_ttl, sock.rcvbuf(), sock.sndbuf(), held),
+            (
+                (64, MAX_SOCKET_BUFFER, MAX_SOCKET_BUFFER),
+                Err(FilesystemError::InvalidInput),
+                9,
+                2304,
+                4608,
+                2
+            ),
+            "a UDP socket must read Linux's default hop limit, refuse zero with EINVAL, give the \
+             host socket it connects the limit set, and drop datagrams past a receive buffer \
+             doubled as Linux doubles it"
+        );
     }
 
     // @behavior NW-086

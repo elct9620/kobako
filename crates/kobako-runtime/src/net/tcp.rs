@@ -16,7 +16,7 @@ use socket2::{SockRef, TcpKeepalive};
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{to_error, within, Buffers, ProtoOps, SocketMemory};
+use super::socket::{ensure_ttl, to_error, within, Buffers, ProtoOps, SocketMemory, IPDEFTTL};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -104,6 +104,8 @@ struct State {
     keepalive: KeepAlive,
     /// How much each queue holds, as `sk_rcvbuf` and `sk_sndbuf`.
     buffers: Buffers,
+    /// The hop limit sent with, as `inet_sock` keeps `uc_ttl`.
+    ttl: u8,
     /// Every view the guest held is gone.
     released: bool,
     /// The socket's place against its Sandbox's cap and the process's, given
@@ -156,6 +158,7 @@ impl TcpSock {
                     count: KEEPALIVE_PROBES,
                 },
                 buffers: Buffers::default(),
+                ttl: IPDEFTTL,
                 released: false,
                 place: None,
                 memory: Some(memory),
@@ -236,7 +239,8 @@ impl TcpSock {
     /// Give the host socket `stream` the options the guest set.
     fn set_options(socket: SockRef<'_>, state: &State) -> io::Result<()> {
         socket.set_tcp_keepalive(&state.keepalive.to_params())?;
-        socket.set_keepalive(state.keepalive.on)
+        socket.set_keepalive(state.keepalive.on)?;
+        socket.set_ttl_v4(state.ttl.into())
     }
 
     /// Close the socket on `err`, as `tcp_done` does after a failed connect
@@ -400,7 +404,7 @@ impl TcpSock {
 
     /// Send keepalive probes or stop, as `tcp_set_keepalive` does.
     pub fn set_keepalive(&self, on: bool) -> Result<(), FilesystemError> {
-        self.set_keepalive_with(|keepalive| keepalive.on = on)
+        self.set_options_with(|state| state.keepalive.on = on)
     }
 
     /// Seconds a connection idles before the first probe, as
@@ -413,7 +417,7 @@ impl TcpSock {
     /// 1 to `MAX_TCP_KEEPIDLE` and refuses the rest with EINVAL.
     pub fn set_keepidle(&self, secs: u32) -> Result<(), FilesystemError> {
         within(secs, MAX_KEEPIDLE)?;
-        self.set_keepalive_with(|keepalive| keepalive.idle = secs)
+        self.set_options_with(|state| state.keepalive.idle = secs)
     }
 
     /// Seconds between probes, as `TCP_KEEPINTVL` reads.
@@ -425,7 +429,7 @@ impl TcpSock {
     /// `MAX_TCP_KEEPINTVL`.
     pub fn set_keepintvl(&self, secs: u32) -> Result<(), FilesystemError> {
         within(secs, MAX_KEEPINTVL)?;
-        self.set_keepalive_with(|keepalive| keepalive.interval = secs)
+        self.set_options_with(|state| state.keepalive.interval = secs)
     }
 
     /// Probes unanswered before the connection drops, as `TCP_KEEPCNT` reads.
@@ -437,17 +441,26 @@ impl TcpSock {
     /// 1 to `MAX_TCP_KEEPCNT`.
     pub fn set_keepcnt(&self, count: u32) -> Result<(), FilesystemError> {
         within(count, MAX_KEEPCNT)?;
-        self.set_keepalive_with(|keepalive| keepalive.count = count)
+        self.set_options_with(|state| state.keepalive.count = count)
     }
 
-    /// Change the keepalive probes; a socket dialed already passes them to its
-    /// host socket at once.
-    fn set_keepalive_with(
-        &self,
-        change: impl FnOnce(&mut KeepAlive),
-    ) -> Result<(), FilesystemError> {
+    /// The hop limit the socket sends with, as `IP_TTL` reads it.
+    pub fn ttl(&self) -> u8 {
+        self.state().ttl
+    }
+
+    /// Send with hop limit `ttl`, as `do_ip_setsockopt` takes 1 to 255 and
+    /// refuses zero with EINVAL.
+    pub fn set_ttl(&self, ttl: u8) -> Result<(), FilesystemError> {
+        ensure_ttl(ttl)?;
+        self.set_options_with(|state| state.ttl = ttl)
+    }
+
+    /// Change what the host socket takes; a socket dialed already passes the
+    /// change to its host socket at once.
+    fn set_options_with(&self, change: impl FnOnce(&mut State)) -> Result<(), FilesystemError> {
         let mut state = self.state();
-        change(&mut state.keepalive);
+        change(&mut state);
         match &state.host {
             Some((stream, _)) => {
                 Self::set_options(SockRef::from(stream), &state).map_err(|err| to_error(&err))
@@ -721,6 +734,35 @@ mod tests {
             "a socket must read Linux's keepalive defaults, refuse with EINVAL an idle time or \
              interval outside 1 to 32767 and a count outside 1 to 127, and give the host stream it \
              dials the probes it was set"
+        );
+    }
+
+    // @behavior RT-369
+    #[test]
+    fn a_socket_holds_its_hop_limit_for_the_host_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let addr = listener.local_addr().unwrap();
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+            .expect("the reactor starts");
+        let host_ttl = |sock: &TcpSock| {
+            sock.state()
+                .host
+                .as_ref()
+                .map(|(stream, _)| SockRef::from(stream).ttl_v4().unwrap())
+        };
+        let default = sock.ttl();
+        let zero = sock.set_ttl(0);
+        sock.set_ttl(7).expect("a hop limit Linux takes");
+        sock.connect(vec![addr], addr, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
+        let dialed = host_ttl(&sock);
+        sock.set_ttl(9)
+            .expect("a connected socket takes a hop limit");
+        assert_eq!(
+            (default, zero, dialed, sock.ttl(), host_ttl(&sock)),
+            (64, Err(FilesystemError::InvalidInput), Some(7), 9, Some(9)),
+            "a TCP socket must read Linux's default hop limit rather than the host's, refuse zero \
+             with EINVAL, and give the host stream it dials the limit set, at once once connected"
         );
     }
 

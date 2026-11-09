@@ -66,6 +66,18 @@ impl Buffers {
     }
 }
 
+/// The hop limit a socket sends with until the guest sets one, Linux's
+/// `IPDEFTTL`; the host's own default never reaches the guest.
+pub(crate) const IPDEFTTL: u8 = 64;
+
+/// A hop limit Linux takes, which is any but zero.
+pub(crate) fn ensure_ttl(ttl: u8) -> Result<(), FilesystemError> {
+    match ttl {
+        0 => Err(FilesystemError::InvalidInput),
+        _ => Ok(()),
+    }
+}
+
 /// `value` within 1 to `max`, else EINVAL, as Linux bounds a TCP option.
 pub(crate) fn within(value: u32, max: u32) -> Result<(), FilesystemError> {
     match (1..=max).contains(&value) {
