@@ -476,11 +476,12 @@ impl Namespace {
 
 Create a TCP socket connected to nothing, as Linux's `sock_create` does. Its
 file polls writable and hung up, a read answers `NotConnected`, and a write
-`BrokenPipe`.
+`BrokenPipe`. Its buffers count against the Cred's memory, and past it the
+socket answers `OutOfMemory`.
 
 ```rust
 impl Namespace {
-    pub fn create_tcp_socket(&self) -> Result<Arc<TcpSock>, FilesystemError> {}
+    pub fn create_tcp_socket(&self, cred: &Arc<Cred>) -> Result<Arc<TcpSock>, FilesystemError> {}
 }
 ```
 
@@ -827,11 +828,13 @@ impl Ruleset {
 
 An HTTP request in flight, once the socket hooks and an `http` endpoint pass
 its authority. A header `to_field_name` or `to_field_value` refuses is refused too.
-Any refusal answers `Denied`, and nothing is sent.
+Any refusal answers `Denied`, and nothing is sent. The body and the
+response's buffer count against the Cred's memory, and past it the request
+answers `Internal`.
 
 ```rust
 impl Namespace {
-    pub fn send(&self, cred: &Cred, request: OutgoingRequest) -> Result<Arc<Exchange>, HttpError> {}
+    pub fn send(&self, cred: &Arc<Cred>, request: OutgoingRequest) -> Result<Arc<Exchange>, HttpError> {}
 }
 ```
 
@@ -1395,11 +1398,12 @@ impl UdpSock {
 
 Create a UDP socket connected to nothing, as Linux's `sock_create` does. Its
 file polls writable, a read answers `WouldBlock`, and a write
-`DestinationAddressRequired`.
+`DestinationAddressRequired`. Its receive queue counts against the Cred's
+memory, and past it the socket answers `OutOfMemory`.
 
 ```rust
 impl Namespace {
-    pub fn create_udp_socket(&self) -> Arc<UdpSock> {}
+    pub fn create_udp_socket(&self, cred: &Arc<Cred>) -> Result<Arc<UdpSock>, FilesystemError> {}
 }
 ```
 

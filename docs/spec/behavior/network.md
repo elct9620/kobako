@@ -1420,3 +1420,16 @@ endpoint "api.example.com", port: 443
 | Given | a UDP stream whose peer sent twenty datagrams |
 | When | the guest receives with a `max-results` past twenty |
 | Then | the call answers sixteen datagrams, and the next answers the rest, as wasmtime-wasi bounds one receive |
+
+## `NW-116` A socket and an exchange hold their buffers against the Invocation's memory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-022` |
+| relates | `NW-081` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Invocation whose `memory_limit` holds one TCP socket's buffers |
+| When | it makes that socket, then a UDP socket and an HTTP request. It then lets the TCP socket go and makes the UDP socket again |
+| Then | the TCP socket is made. The UDP socket answers `ENOMEM` and the request fails before it is sent. Once the TCP socket is gone, the UDP socket is made. Linux counts a socket's buffers against its creator's memory cgroup |
