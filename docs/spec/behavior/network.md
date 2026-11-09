@@ -29,6 +29,8 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_io_edges.rb`
 - `test/e2e/test_network_socket_nonblock.rb`
 - `test/e2e/test_network_socket_wait.rb`
+- `test/e2e/test_network_socket_direct.rb`
+- `test/e2e/test_network_socket_chars.rb`
 - `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
@@ -1628,3 +1630,39 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server that answers `"a\nb"` to a line |
 | When | the script calls `wait_readable(0)` and `wait_writable(0)` before writing the line. It calls `wait_readable` after, again after a `gets`, and once the socket is closed |
 | Then | before the answer `wait_readable(0)` answers `nil` and `wait_writable(0)` the socket. After it `wait_readable` answers the socket, and `true` once a `gets` held bytes back. The closed socket raises `IOError` |
+
+## `NW-133` A script reads past a socket's buffer, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-129` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers in parts and closes, and a UDP peer that answers datagrams |
+| When | the script calls `recv`, `sysread`, and `syswrite` on the TCP socket. It reads again while a `getc` holds bytes back, then at the end. It calls `recv` on the UDP socket after a `getc` |
+| Then | `recv` answers up to its length and `nil` at the end, and `sysread` raises `EOFError` there. `syswrite` answers its length. While bytes are held back each read raises `IOError` on either socket, as CRuby's does |
+
+## `NW-134` A script reads a socket by byte and by character, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-095` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers UTF-8 text, an invalid byte, and closes |
+| When | the script calls `getc`, `readchar`, `getbyte`, `readbyte`, `ungetc`, `ungetbyte`, `readline`, `each_char`, and `each_byte`, then each again at the end |
+| Then | each answers as CRuby's IO does: a character takes its whole UTF-8 sequence and an invalid byte stands alone. What `ungetc` and `ungetbyte` push comes first. At the end the `get` forms answer `nil` and the `read` forms raise `EOFError` |
+
+## `NW-135` A receive flag WASI cannot carry raises
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-133` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers bytes |
+| When | the script calls `recv` with `0`, with `MSG_DONTWAIT`'s 64, and with `MSG_PEEK`'s 2 or `MSG_OOB`'s 1 |
+| Then | `0` and 64 read, 64 waiting as CRuby's `recv` does. The others raise `Errno::ENOTSUP`, where CRuby peeks or reads urgent data, since WASI carries no receive flag |

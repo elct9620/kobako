@@ -7,7 +7,9 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, Integer, Mrb, Proc, RArray, RClass, RHash, Symbol, TryConvert, Value};
+use beni::{
+    Error, Integer, IntoValue, Mrb, Proc, RArray, RClass, RHash, RString, Symbol, TryConvert, Value,
+};
 
 use super::basic::{exception_option, length_of, source_of, waited, SocketIo, Wait};
 use crate::io::{argument_error, would_wait, Direction};
@@ -26,6 +28,15 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
         beni::method!(socket_read_nonblock, -1),
     )?;
     basic.define_method(mrb, c"gets", beni::method!(socket_gets, -1))?;
+    basic.define_method(mrb, c"readline", beni::method!(socket_readline, -1))?;
+    basic.define_method(mrb, c"getc", beni::method!(socket_getc, 0))?;
+    basic.define_method(mrb, c"readchar", beni::method!(socket_readchar, 0))?;
+    basic.define_method(mrb, c"getbyte", beni::method!(socket_getbyte, 0))?;
+    basic.define_method(mrb, c"readbyte", beni::method!(socket_readbyte, 0))?;
+    basic.define_method(mrb, c"each_char", beni::method!(socket_each_char, 0))?;
+    basic.define_method(mrb, c"each_byte", beni::method!(socket_each_byte, 0))?;
+    basic.define_method(mrb, c"ungetc", beni::method!(socket_ungetc, 1))?;
+    basic.define_method(mrb, c"ungetbyte", beni::method!(socket_ungetbyte, 1))?;
     basic.define_method(mrb, c"each_line", beni::method!(socket_each_line, -1))?;
     basic.define_method(mrb, c"readlines", beni::method!(socket_readlines, -1))?;
     basic.define_method(mrb, c"eof?", beni::method!(socket_eof_p, 0))?;
@@ -140,11 +151,7 @@ fn read_partial(
     match read_some(mrb, source_of(mrb, self_)?, maxlen, wait)? {
         Poll::Ready(Some(bytes)) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
         Poll::Ready(None) if !exception => fill(mrb, outbuf, qnil().as_value()),
-        Poll::Ready(None) => Err(Error::new(
-            mrb,
-            mrb.exc_get(c"EOFError")?,
-            "end of file reached",
-        )),
+        Poll::Ready(None) => Err(end_of_file(mrb)),
         Poll::Pending => would_wait(mrb, Direction::Read, "read would block", exception),
     }
 }
@@ -227,6 +234,186 @@ fn socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
         Some(line) => mrb.str_new(&line).as_value(),
         None => qnil().as_value(),
     })
+}
+
+/// The `EOFError` a `read` form raises at the end, as CRuby's.
+fn end_of_file(mrb: &Mrb) -> Error {
+    match mrb.exc_get(c"EOFError") {
+        Ok(class) => Error::new(mrb, class, "end of file reached"),
+        Err(err) => err,
+    }
+}
+
+/// `readline(sep = $/, limit = nil, chomp: false)` answers as `gets` does,
+/// raising `EOFError` at the end.
+fn socket_readline(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let line_args = line_args_of(mrb, args)?;
+    match next_line(mrb, source_of(mrb, self_)?, &line_args)? {
+        Some(line) => Ok(mrb.str_new(&line).as_value()),
+        None => Err(end_of_file(mrb)),
+    }
+}
+
+/// The next byte, waiting for one, without taking it; `None` at the end.
+fn peek_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
+    if let Some(byte) = source.held().borrow().first() {
+        return Ok(Some(*byte));
+    }
+    match waited(source.receive(mrb, READ_CHUNK, Wait::Block)?) {
+        Some(bytes) => {
+            let first = bytes.first().copied();
+            *source.held().borrow_mut() = bytes;
+            Ok(first)
+        }
+        None => Ok(None),
+    }
+}
+
+/// The next byte, taking it; `None` at the end.
+fn next_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
+    let byte = peek_byte(mrb, source)?;
+    if byte.is_some() {
+        source.held().borrow_mut().remove(0);
+    }
+    Ok(byte)
+}
+
+/// The next character: a UTF-8 sequence whole, or a byte that starts none
+/// alone, as CRuby's `getc` reads its external encoding; `None` at the end.
+fn next_char(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<Vec<u8>>, Error> {
+    let Some(first) = next_byte(mrb, source)? else {
+        return Ok(None);
+    };
+    let width = match first {
+        0xC2..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF4 => 4,
+        _ => 1,
+    };
+    let mut char = vec![first];
+    while char.len() < width {
+        match peek_byte(mrb, source)? {
+            Some(byte) if byte & 0xC0 == 0x80 => {
+                source.held().borrow_mut().remove(0);
+                char.push(byte);
+            }
+            _ => break,
+        }
+    }
+    Ok(Some(char))
+}
+
+/// `getc` answers the next character, `nil` at the end.
+fn socket_getc(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Ok(match next_char(mrb, source_of(mrb, self_)?)? {
+        Some(char) => mrb.str_new(&char).as_value(),
+        None => qnil().as_value(),
+    })
+}
+
+/// `readchar` answers the next character, raising `EOFError` at the end.
+fn socket_readchar(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    match next_char(mrb, source_of(mrb, self_)?)? {
+        Some(char) => Ok(mrb.str_new(&char).as_value()),
+        None => Err(end_of_file(mrb)),
+    }
+}
+
+/// `getbyte` answers the next byte as an Integer, `nil` at the end.
+fn socket_getbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    Ok(match next_byte(mrb, source_of(mrb, self_)?)? {
+        Some(byte) => i64::from(byte).into_value(mrb),
+        None => qnil().as_value(),
+    })
+}
+
+/// `readbyte` answers the next byte as an Integer, raising `EOFError` at the
+/// end.
+fn socket_readbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    match next_byte(mrb, source_of(mrb, self_)?)? {
+        Some(byte) => Ok(i64::from(byte).into_value(mrb)),
+        None => Err(end_of_file(mrb)),
+    }
+}
+
+/// The block a call that yields to the end needs, as `each_line` asks for
+/// one.
+fn block_for(mrb: &Mrb, name: &str) -> Result<Proc, Error> {
+    scan_args::<(), (), (), (), (), Option<Proc>>(mrb)?
+        .block
+        .ok_or_else(|| argument_error(mrb, &format!("{name} needs a block")))
+}
+
+/// `each_char { |char| }` yields each character to the end.
+fn socket_each_char(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let block = block_for(mrb, "each_char")?;
+    let source = source_of(mrb, self_)?;
+    while let Some(char) = next_char(mrb, source)? {
+        let _scope = mrb.arena_scope();
+        block.call::<_, Value>(mrb, [mrb.str_new(&char).as_value()])?;
+    }
+    Ok(self_)
+}
+
+/// `each_byte { |byte| }` yields each byte as an Integer to the end.
+fn socket_each_byte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let block = block_for(mrb, "each_byte")?;
+    let source = source_of(mrb, self_)?;
+    while let Some(byte) = next_byte(mrb, source)? {
+        block.call::<_, Value>(mrb, [i64::from(byte).into_value(mrb)])?;
+    }
+    Ok(self_)
+}
+
+/// Put `bytes` back before what the buffer holds, for the next read to take
+/// first.
+fn push_back(source: &dyn SocketIo, bytes: &[u8]) {
+    source
+        .held()
+        .borrow_mut()
+        .splice(0..0, bytes.iter().copied());
+}
+
+/// `ungetc(string)` puts `string`, or the character an Integer numbers,
+/// back for the next read, as CRuby's does.
+fn socket_ungetc(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Error> {
+    let source = source_of(mrb, self_)?;
+    let bytes = match Integer::from_value(pushed) {
+        Some(_) => {
+            let code = u32::try_convert(pushed, mrb)?;
+            let char = char::from_u32(code)
+                .ok_or_else(|| argument_error(mrb, &format!("invalid character: {code}")))?;
+            char.to_string().into_bytes()
+        }
+        None => {
+            let text = RString::try_convert(pushed, mrb)
+                .map_err(|_| crate::errno::type_error(mrb, pushed))?;
+            // SAFETY: the bytes are copied before the next mruby call.
+            unsafe { text.as_bytes(mrb) }.to_vec()
+        }
+    };
+    push_back(source, &bytes);
+    Ok(qnil().as_value())
+}
+
+/// `ungetbyte(byte)` puts back an Integer's low byte, or a String's bytes;
+/// `nil` puts back nothing, as CRuby's does.
+fn socket_ungetbyte(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Error> {
+    let source = source_of(mrb, self_)?;
+    if pushed.is_nil() {
+        return Ok(qnil().as_value());
+    }
+    match Integer::from_value(pushed) {
+        Some(_) => push_back(source, &[i64::try_convert(pushed, mrb)? as u8]),
+        None => {
+            let text = RString::try_convert(pushed, mrb)
+                .map_err(|_| crate::errno::type_error(mrb, pushed))?;
+            // SAFETY: the bytes are copied before the next mruby call.
+            let bytes = unsafe { text.as_bytes(mrb) }.to_vec();
+            push_back(source, &bytes);
+        }
+    }
+    Ok(qnil().as_value())
 }
 
 /// `each_line(sep = $/, limit = nil, chomp: false) { |line| }` yields each

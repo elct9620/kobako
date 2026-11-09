@@ -77,7 +77,7 @@ class TestE2ENetworkUdpCruby < Minitest::Test
                    ["SocketError", "unknown socket domain: FOO"], "TypeError",
                    "wrong number of arguments (given 2, expected 0..1)",
                    "wrong number of arguments (given 1, expected 2..4)",
-                   "wrong number of arguments (given 0, expected 1..2)", "NoMethodError"].freeze
+                   "wrong number of arguments (given 0, expected 1..3)", "NoMethodError"].freeze
 
   # @behavior NW-098
   def test_a_udp_socket_refuses_what_crubys_refuses
