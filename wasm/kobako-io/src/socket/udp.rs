@@ -10,6 +10,7 @@ use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
+use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{direct_args, exception_option, waited, writer_of, IoState, SocketIo, Wait};
 use super::ip::{local_end_of, to_addr_array};
 use super::{family_of, to_error, Family, AF_INET};
@@ -103,6 +104,10 @@ impl SocketIo for Datagrams {
             Some(streams) => Ok(streams.peer),
             None => Err(errno::error_by_name(mrb, c"ENOTCONN", "getpeername(2)")),
         })
+    }
+
+    fn kind(&self) -> (i64, i64) {
+        (SOCK_DGRAM, IPPROTO_UDP)
     }
 
     fn close(&self) {

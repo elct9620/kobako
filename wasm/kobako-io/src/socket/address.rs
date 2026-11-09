@@ -113,7 +113,7 @@ pub(super) fn local_of(
 /// CRuby hands it: `nil` or `""` is port 0, and an Integer or a String of
 /// digits keeps its low 16 bits. The guest has no services database, so any
 /// other String raises `EAI_SERVICE`, as Linux without one does.
-fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
+pub(super) fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
     let text = if port.is_nil() {
         String::new()
     } else if Integer::from_value(port).is_some() {
@@ -151,9 +151,13 @@ pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
 /// The address `host` names to pack, as CRuby's `rsock_addrinfo` reads it:
 /// `nil` is the loopback, an Integer the IPv4 address it numbers, `""` and
 /// `"<any>"` any address, and `"<broadcast>"` the broadcast one. A literal is
-/// itself, and a name the address it leads to. The guest has no IPv6, so
-/// `nil` is IPv4's loopback.
-fn packed_host(mrb: &Mrb, host: Value) -> Result<IpAddr, Error> {
+/// itself, and a name the address it leads to within `limit`. The guest has
+/// no IPv6, so `nil` is IPv4's loopback.
+pub(super) fn packed_host(
+    mrb: &Mrb,
+    host: Value,
+    limit: Option<Duration>,
+) -> Result<IpAddr, Error> {
     if host.is_nil() {
         return Ok(Ipv4Addr::LOCALHOST.into());
     }
@@ -166,7 +170,7 @@ fn packed_host(mrb: &Mrb, host: Value) -> Result<IpAddr, Error> {
         "<broadcast>" => Ipv4Addr::BROADCAST.into(),
         _ => match text.parse::<IpAddr>() {
             Ok(ip) => ip,
-            Err(_) => resolve(mrb, &text, None, "Socket", "getaddrinfo(3)")?.into(),
+            Err(_) => resolve(mrb, &text, limit, "Socket", "getaddrinfo(3)")?.into(),
         },
     })
 }
@@ -197,16 +201,9 @@ pub(super) fn sockaddr_of(ip: IpAddr, port: u16) -> Vec<u8> {
     sockaddr
 }
 
-/// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name.
-fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
-    let (port, _) = port_of(mrb, port)?;
-    let ip = packed_host(mrb, host)?;
-    Ok(mrb.str_new(&sockaddr_of(ip, port)).as_value())
-}
-
-/// `Socket.unpack_sockaddr_in(sockaddr)` answers `[port, ip]`; a String no
-/// IPv4 or IPv6 `sockaddr` lays out raises `ArgumentError`, as CRuby's.
-fn socket_s_unpack_sockaddr_in(mrb: &Mrb, _self: Value, sockaddr: Value) -> Result<Value, Error> {
+/// The end a packed `sockaddr_in` or `sockaddr_in6` holds; a String no IPv4
+/// or IPv6 `sockaddr` lays out raises `ArgumentError`, as CRuby's.
+pub(super) fn unpacked(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error> {
     let bytes = Vec::<u8>::from_value(sockaddr).ok_or_else(|| errno::type_error(mrb, sockaddr))?;
     let family = bytes
         .get(..2)
@@ -219,7 +216,20 @@ fn socket_s_unpack_sockaddr_in(mrb: &Mrb, _self: Value, sockaddr: Value) -> Resu
         }
         _ => return Err(argument_error(mrb, "not an AF_INET/AF_INET6 sockaddr")),
     };
-    let port = u16::from_be_bytes([bytes[2], bytes[3]]);
+    Ok((ip, u16::from_be_bytes([bytes[2], bytes[3]])))
+}
+
+/// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name.
+fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
+    let (port, _) = port_of(mrb, port)?;
+    let ip = packed_host(mrb, host, None)?;
+    Ok(mrb.str_new(&sockaddr_of(ip, port)).as_value())
+}
+
+/// `Socket.unpack_sockaddr_in(sockaddr)` answers `[port, ip]`; a String no
+/// IPv4 or IPv6 `sockaddr` lays out raises `ArgumentError`, as CRuby's.
+fn socket_s_unpack_sockaddr_in(mrb: &Mrb, _self: Value, sockaddr: Value) -> Result<Value, Error> {
+    let (ip, port) = unpacked(mrb, sockaddr)?;
     let answer = mrb.ary_new();
     answer.push(mrb, i64::from(port).into_value(mrb))?;
     answer.push(mrb, mrb.str_new(ip.to_string().as_bytes()).as_value())?;

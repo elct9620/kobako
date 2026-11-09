@@ -33,6 +33,8 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_chars.rb`
 - `test/e2e/test_network_socket_shutdown.rb`
 - `test/e2e/test_network_socket_ends.rb`
+- `test/e2e/test_network_socket_addrinfo.rb`
+- `test/e2e/test_network_addrinfo.rb`
 - `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
@@ -1717,3 +1719,40 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server, and a UDP peer |
 | When | the script calls `getsockname`, `getpeername`, `addr`, and `peeraddr` on a `TCPSocket` and on a closed one. It calls each on a `UDPSocket` before and after `connect` |
 | Then | the packed ends unpack to what `addr` and `peeraddr` answer, virtual addresses included. A `UDPSocket` with no peer raises `Errno::ENOTCONN` for its peer, and the closed socket raises `IOError` |
+
+## `NW-140` A script builds and reads an Addrinfo, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-138` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a network entry naming `localhost` |
+| When | the script builds an `Addrinfo` with `tcp`, `udp`, `ip`, and `new`. It builds from literals, a packed address, an array, and `localhost`, and reads each one's parts and `inspect` |
+| Then | each answers as CRuby's, and `localhost` stands for its virtual address. A reverse lookup answers the address, and a packed address of no IP family raises `ArgumentError`. An `Addrinfo` defines no `connect`, `bind`, or `listen`, since the guest makes no raw socket |
+
+## `NW-141` A script looks up a name's Addrinfos, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-140` |
+| relates | `NW-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a network entry naming `localhost` |
+| When | the script calls `Addrinfo.getaddrinfo` and `Socket.getaddrinfo` for a literal and for `localhost`, with and without a family, kind, and `AI_CANONNAME`. It looks up a name no entry names |
+| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. The unnamed one raises `Socket::ResolutionError`, as CRuby's does |
+
+## `NW-142` A script reads a socket's ends as Addrinfos
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-139`, `NW-140` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server, and a UDP peer |
+| When | the script calls `local_address` and `remote_address` on a `TCPSocket` and on a `UDPSocket` before and after `connect` |
+| Then | each answers the `Addrinfo` of the end `addr` or `peeraddr` answers, of the socket's kind. A `UDPSocket` with no peer raises `Errno::ENOTCONN` |

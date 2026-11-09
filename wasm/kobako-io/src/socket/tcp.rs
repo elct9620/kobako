@@ -14,6 +14,7 @@ use beni::{
 };
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
+use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
 use super::basic::{IoState, SocketIo, Wait};
 use super::ip::local_end_of;
 use super::{stream_error, to_error};
@@ -118,6 +119,10 @@ impl SocketIo for Connection {
 
     fn peer_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
         self.with(mrb, |open| Ok(open.peer))
+    }
+
+    fn kind(&self) -> (i64, i64) {
+        (SOCK_STREAM, IPPROTO_TCP)
     }
 
     fn close(&self) {
@@ -269,7 +274,7 @@ fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
 }
 
 /// The Duration `sec` names, or none for `nil`.
-fn seconds_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>, Error> {
+pub(super) fn seconds_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>, Error> {
     if sec.is_nil() {
         return Ok(None);
     }

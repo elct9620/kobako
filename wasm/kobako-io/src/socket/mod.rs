@@ -10,6 +10,7 @@
 //! `init.c` holds it.
 
 mod address;
+mod addrinfo;
 mod basic;
 mod buffer;
 mod ip;
@@ -53,6 +54,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     basic::init(mrb, basic)?;
     option::init(mrb, socket_class, basic)?;
     address::init(mrb, socket_class)?;
+    addrinfo::init(mrb, socket_class, basic)?;
     let ip = mrb.define_class(c"IPSocket", basic)?;
     ip::init(mrb, ip)?;
     tcp::init(mrb, ip)?;

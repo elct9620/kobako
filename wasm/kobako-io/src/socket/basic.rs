@@ -80,6 +80,10 @@ pub(super) trait SocketIo {
     /// none it raises `Errno::ENOTCONN`.
     fn peer_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error>;
 
+    /// The socket's kind and protocol, as an `Addrinfo` of one of its ends
+    /// carries them.
+    fn kind(&self) -> (i64, i64);
+
     /// Release the socket, its streams before it.
     fn close(&self);
 
