@@ -21,6 +21,7 @@ class TestE2ENetworkAddrinfoInspect < Minitest::Test
      Addrinfo.new(packed, nil, :STREAM).inspect, Addrinfo.new(packed, nil, 5).inspect,
      Addrinfo.new(packed, :INET, 9, 7).inspect, Addrinfo.tcp("127.0.0.1", "0080").inspect,
      Addrinfo.tcp("", 80).inspect, Addrinfo.tcp("127.0.0.1", "80").inspect, Addrinfo.tcp("127.0.0.1", "").inspect,
+     Addrinfo.tcp("127.0.0.1", 65_616).inspect,
      Addrinfo.new(packed, :INET, :RAW, 1).inspect,
      refusal.call { Addrinfo.ip("127.0.0.1").family_addrinfo("127.0.0.2") }]
   RUBY
@@ -29,6 +30,7 @@ class TestE2ENetworkAddrinfoInspect < Minitest::Test
              "#<Addrinfo: 1.2.3.4:80 SOCK_STREAM>", "#<Addrinfo: 1.2.3.4:80 SOCK_SEQPACKET>",
              "#<Addrinfo: 1.2.3.4:80 SOCK_???(9) UNKNOWN_PROTOCOL(7)>", "#<Addrinfo: 127.0.0.1:80 TCP (:0080)>",
              "#<Addrinfo: 0.0.0.0:80 TCP ()>", "#<Addrinfo: 127.0.0.1:80 TCP>", "#<Addrinfo: 127.0.0.1 TCP (:)>",
+             "#<Addrinfo: 127.0.0.1:80 TCP (:65616)>",
              "#<Addrinfo: 1.2.3.4:80 SOCK_RAW IPPROTO_ICMP>",
              ["ArgumentError", "IP address needs host and port but 1 arguments given"]].freeze
 

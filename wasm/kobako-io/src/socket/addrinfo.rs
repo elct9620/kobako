@@ -9,8 +9,8 @@ use std::time::Duration;
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{
-    Error, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash, RString, Symbol, TryConvert,
-    TypedData, Value,
+    Error, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash, Symbol, TryConvert, TypedData,
+    Value,
 };
 
 use super::address::{end_of, packed_host, port_of, sockaddr_of};
@@ -260,7 +260,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     // What `inspect` shows past the address and port, as CRuby's
     // `make_inspectname` drops what they already show.
     let mut inspectname = name.clone().filter(|name| *name != ip.to_string());
-    if RString::from_value(service).is_some() && service_text != port.to_string() {
+    if !service.is_nil() && service_text != port.to_string() {
         inspectname = Some(format!(
             "{}:{service_text}",
             inspectname.unwrap_or_default()
