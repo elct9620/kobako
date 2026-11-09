@@ -122,6 +122,18 @@ A wildcard leads only to `:public` addresses or a CIDR you write, so a name unde
 
 An endpoint on port 53 or 853 lets the guest ask a DNS server directly, past every endpoint. The addresses it learns there still meet the endpoints when it connects. The server still sees every name the guest asks, so name only a server you trust.
 
+### Socket Options
+
+A guest tunes its own sockets through the options WASI defines, and each stays within what kobako already grants.
+
+| Option | What the guest can still do |
+|---|---|
+| keepalive probes | keep an admitted connection open while idle, within the run's deadline |
+| `SO_RCVBUF`, `SO_SNDBUF` | shrink a socket's queues, never past the memory each socket reserved |
+| `IP_TTL` | count the hops to a destination an endpoint admits, by sending with a short limit |
+
+A read answers the socket's own setting, so the host's defaults never reach the guest.
+
 ### Echoing Endpoints
 
 A credential is swapped in only on the way out, and a response passes untouched.
