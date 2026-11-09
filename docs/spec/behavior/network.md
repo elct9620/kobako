@@ -1090,7 +1090,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a UDP socket connected under a cap of one connection |
 | When | it connects to another peer |
-| Then | the connect succeeds, since the socket holds the place it took, as `__ip4_datagram_connect` repoints a socket |
+| Then | the connect succeeds, since the socket holds the place it took. The second peer hears from the port the first heard, as `__ip4_datagram_connect` repoints a socket |
 
 ## `NW-089` An address WASI calls invalid answers invalid-argument before any hook
 

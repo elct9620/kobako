@@ -71,7 +71,8 @@ impl UdpSock {
     /// the host socket watched by the reactor; it counts against
     /// `open_connections` and the process until released, and a full count
     /// answers `EAGAIN`. Connecting again moves the peer and keeps the place,
-    /// as `__ip4_datagram_connect` repoints a socket.
+    /// and within one family the host socket and its port, as
+    /// `__ip4_datagram_connect` repoints a socket.
     pub(crate) fn connect(
         &self,
         family: &Arc<dyn ProtocolFamily>,
@@ -79,6 +80,22 @@ impl UdpSock {
         named: SocketAddr,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<(), FilesystemError> {
+        {
+            let mut state = self.state();
+            let same_family = state.host.as_ref().is_some_and(|(socket, _)| {
+                socket
+                    .local_addr()
+                    .is_ok_and(|local| local.is_ipv4() == addr.is_ipv4())
+            });
+            if same_family {
+                if let Some((socket, _)) = state.host.as_ref() {
+                    socket.connect(addr).map_err(|err| to_error(&err))?;
+                }
+                state.named = Some(named);
+                state.writable = true;
+                return Ok(());
+            }
+        }
         let place = match self.state().place.is_some() {
             true => None,
             false => Some(open(open_connections).ok_or(FilesystemError::WouldBlock)?),
@@ -346,14 +363,29 @@ mod tests {
         let cap = OpenConnections::new(Some(1));
         let sock = UdpSock::new();
         let at = |peer: &UdpSocket| peer.local_addr().unwrap();
+        let heard_by = |peer: &UdpSocket| {
+            until(&sock, PollMask::OUT);
+            sock.sendmsg(b"ping").unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            peer.recv_from(&mut [0; 8])
+                .map(|(_, from)| from.port())
+                .ok()
+        };
         let once = sock.connect(&family, at(&first), at(&first), &cap);
+        let first_heard = heard_by(&first);
         let again = sock.connect(&family, at(&second), at(&second), &cap);
+        let second_heard = heard_by(&second);
         sock.release();
         assert_eq!(
-            (once, again),
-            (Ok(()), Ok(())),
+            (
+                once,
+                again,
+                first_heard.is_some() && first_heard == second_heard
+            ),
+            (Ok(()), Ok(()), true),
             "UdpSock::connect to a second peer under a cap of one must keep the place the \
-             socket holds, not answer EAGAIN"
+             socket holds, not answer EAGAIN, and the second peer must hear from the port the \
+             first heard"
         );
     }
 
