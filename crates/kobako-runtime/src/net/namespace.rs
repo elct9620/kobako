@@ -118,7 +118,11 @@ impl Namespace {
     /// one reaches nothing. A header the guest may not set is refused too, so
     /// the seam frames every request itself. Any refusal answers `Denied`, and
     /// nothing is sent.
-    pub fn send(&self, cred: &Cred, request: OutgoingRequest) -> Result<Arc<Exchange>, HttpError> {
+    pub fn send(
+        &self,
+        cred: &Arc<Cred>,
+        request: OutgoingRequest,
+    ) -> Result<Arc<Exchange>, HttpError> {
         if request.headers.iter().any(|(name, value)| {
             to_field_name(name).is_err() || to_field_value(value.clone()).is_err()
         }) {
@@ -188,6 +192,7 @@ impl Namespace {
                 request,
                 connector,
                 &self.open_connections,
+                cred,
             )
         })
     }
@@ -345,15 +350,18 @@ impl Namespace {
         Ok(())
     }
 
-    /// Create a TCP socket connected to nothing, which connects through this
-    /// namespace's Protocol Family, as `sock_create` does.
-    pub fn create_tcp_socket(&self) -> Result<Arc<TcpSock>, FilesystemError> {
-        TcpSock::new(self.family.clone())
+    /// Create a TCP socket connected to nothing for `cred`, which connects
+    /// through this namespace's Protocol Family, as `sock_create` does; its
+    /// buffers count against `cred`'s memory, as a socket's do against its
+    /// creator's memory cgroup.
+    pub fn create_tcp_socket(&self, cred: &Arc<Cred>) -> Result<Arc<TcpSock>, FilesystemError> {
+        TcpSock::new(self.family.clone(), cred)
     }
 
-    /// Create a UDP socket connected to nothing, as `sock_create` does.
-    pub fn create_udp_socket(&self) -> Arc<UdpSock> {
-        UdpSock::new()
+    /// Create a UDP socket connected to nothing for `cred`, as `sock_create`
+    /// does; its receive queue counts against `cred`'s memory.
+    pub fn create_udp_socket(&self, cred: &Arc<Cred>) -> Result<Arc<UdpSock>, FilesystemError> {
+        UdpSock::new(cred)
     }
 
     /// Bind a socket to `addr` as `cred`, once the socket hooks pass it, as
@@ -634,20 +642,20 @@ mod tests {
     /// A new TCP socket `namespace` connects to `addr` as `cred`.
     fn dial(
         namespace: &Namespace,
-        cred: &Cred,
+        cred: &Arc<Cred>,
         addr: SocketAddr,
     ) -> Result<Arc<TcpSock>, FilesystemError> {
-        let sock = namespace.create_tcp_socket()?;
+        let sock = namespace.create_tcp_socket(cred)?;
         namespace.connect(cred, &sock, addr).map(|()| sock)
     }
 
     /// A new UDP socket `namespace` connects to `addr` as `cred`.
     fn dial_datagram(
         namespace: &Namespace,
-        cred: &Cred,
+        cred: &Arc<Cred>,
         addr: Option<SocketAddr>,
     ) -> Result<Arc<UdpSock>, FilesystemError> {
-        let sock = namespace.create_udp_socket();
+        let sock = namespace.create_udp_socket(cred)?;
         namespace.connect_datagram(cred, &sock, addr).map(|()| sock)
     }
 

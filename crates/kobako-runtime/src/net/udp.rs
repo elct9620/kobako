@@ -13,9 +13,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{to_error, ProtoOps};
+use super::socket::{to_error, ProtoOps, SocketMemory};
 use super::MAX_SOCKET_BUFFER;
-use crate::vfs::{FilesystemError, PollMask};
+use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
 /// The most one IPv4 datagram carries.
@@ -39,6 +39,9 @@ struct State {
     named: Option<SocketAddr>,
     /// The socket's place against its Sandbox's cap and the process's.
     place: Option<Place>,
+    /// What the receive queue may hold, reserved against the Invocation's
+    /// memory until the socket is released.
+    memory: Option<SocketMemory>,
 }
 
 /// One UDP socket, shared by the socket file and the reactor.
@@ -49,9 +52,12 @@ pub struct UdpSock {
 }
 
 impl UdpSock {
-    /// A socket connected to nothing, as `inet_create` makes one.
-    pub(crate) fn new() -> Arc<Self> {
-        Arc::new_cyclic(|this| Self {
+    /// A socket connected to nothing, as `inet_create` makes one; its receive
+    /// queue is reserved against `cred`'s memory, and past it the socket
+    /// answers `ENOMEM`.
+    pub(crate) fn new(cred: &Arc<Cred>) -> Result<Arc<Self>, FilesystemError> {
+        let memory = SocketMemory::charge(cred, MAX_SOCKET_BUFFER)?;
+        Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 host: None,
                 error: None,
@@ -61,10 +67,11 @@ impl UdpSock {
                 virtual_port: None,
                 named: None,
                 place: None,
+                memory: Some(memory),
             }),
             wait: Arc::default(),
             this: this.clone(),
-        })
+        }))
     }
 
     /// Connect to `addr` through `family`, the guest having named `named`,
@@ -264,6 +271,9 @@ impl ProtoOps for UdpSock {
     fn release(&self) {
         let mut state = self.state();
         state.place = None;
+        state.received.clear();
+        state.received_bytes = 0;
+        state.memory = None;
         if let Some((mut socket, registration)) = state.host.take() {
             registration.deregister(&mut socket);
         }
@@ -281,10 +291,12 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use crate::net::HostInet;
+    use crate::security::prepare_creds_within;
 
     /// A socket connected to `addr` through the host.
     fn connected(addr: SocketAddr) -> Arc<UdpSock> {
-        let sock = UdpSock::new();
+        let sock =
+            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.connect(&family, addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
@@ -361,7 +373,8 @@ mod tests {
         let second = UdpSocket::bind("127.0.0.1:0").unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         let cap = OpenConnections::new(Some(1));
-        let sock = UdpSock::new();
+        let sock =
+            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
         let at = |peer: &UdpSocket| peer.local_addr().unwrap();
         let heard_by = |peer: &UdpSocket| {
             until(&sock, PollMask::OUT);

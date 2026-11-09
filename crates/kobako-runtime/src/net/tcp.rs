@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{to_error, ProtoOps};
-use crate::vfs::{FilesystemError, PollMask};
+use super::socket::{to_error, ProtoOps, SocketMemory};
+use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
 /// How much a socket holds each way before it stops reading and refuses
@@ -70,6 +70,9 @@ struct State {
     /// The socket's place against its Sandbox's cap and the process's, given
     /// back as it is released.
     place: Option<Place>,
+    /// What both buffers may hold, reserved against the Invocation's memory
+    /// until the socket is released.
+    memory: Option<SocketMemory>,
 }
 
 /// One TCP socket, shared by the socket file and the reactor.
@@ -84,8 +87,13 @@ pub struct TcpSock {
 
 impl TcpSock {
     /// A socket connected to nothing, which connects through `family`, as
-    /// `inet_create` makes one.
-    pub(crate) fn new(family: Arc<dyn ProtocolFamily>) -> Result<Arc<Self>, FilesystemError> {
+    /// `inet_create` makes one; its buffers are reserved against `cred`'s
+    /// memory, and past it the socket answers `ENOMEM`.
+    pub(crate) fn new(
+        family: Arc<dyn ProtocolFamily>,
+        cred: &Arc<Cred>,
+    ) -> Result<Arc<Self>, FilesystemError> {
+        let memory = SocketMemory::charge(cred, 2 * MAX_SOCKET_BUFFER)?;
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
@@ -104,6 +112,7 @@ impl TcpSock {
                 named: None,
                 released: false,
                 place: None,
+                memory: Some(memory),
             }),
             wait: Arc::default(),
             family,
@@ -349,7 +358,10 @@ impl TcpSock {
         let mut state = self.state();
         state.released = true;
         state.untried.clear();
+        state.received.clear();
+        state.sending.clear();
         state.place = None;
+        state.memory = None;
         Self::close_host(&mut state);
         drop(state);
         self.wait.wake_up();
@@ -454,12 +466,14 @@ mod tests {
     use super::*;
     use crate::net::{sock_alloc_file, HostInet};
     use crate::sched::testing::within_max_wait;
+    use crate::security::prepare_creds_within;
     use crate::vfs::File;
     use crate::wait::do_poll;
 
     /// A socket connecting to `addr` through the host.
     fn dialing(addr: SocketAddr) -> Arc<TcpSock> {
-        let sock = TcpSock::new(Arc::new(HostInet)).expect("the reactor starts");
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+            .expect("the reactor starts");
         sock.connect(vec![addr], addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         sock

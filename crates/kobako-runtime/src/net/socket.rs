@@ -26,6 +26,31 @@ pub trait ProtoOps: Send + Sync {
     fn release(&self);
 }
 
+/// The memory a producer's buffers may hold, reserved against the Invocation's
+/// as the producer is made and given back as it is let go, as
+/// `sk_forward_alloc` reserves what the memory cgroup charges a socket.
+pub(crate) struct SocketMemory {
+    cred: Arc<Cred>,
+    bytes: usize,
+}
+
+impl SocketMemory {
+    /// Reserve `bytes` for `cred`, refused past its memory as `ENOMEM`.
+    pub(crate) fn charge(cred: &Arc<Cred>, bytes: usize) -> Result<Self, FilesystemError> {
+        cred.security_vm_enough_memory(bytes)?;
+        Ok(Self {
+            cred: cred.clone(),
+            bytes,
+        })
+    }
+}
+
+impl Drop for SocketMemory {
+    fn drop(&mut self) {
+        self.cred.vm_unacct_memory(self.bytes);
+    }
+}
+
 /// The POSIX name a host socket's failure stands for; one with none carries
 /// only its kind, so no host address reaches the guest.
 pub(crate) fn to_error(err: &io::Error) -> FilesystemError {

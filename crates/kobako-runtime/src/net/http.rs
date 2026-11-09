@@ -23,7 +23,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::{open, OpenConnections, Place};
 use super::lookup::NameLookup;
 use super::reactor::{Reactor, Ready, Registration, Task};
-use super::socket::to_error;
+use super::socket::{to_error, SocketMemory};
 use super::{new_platform_tls, ProtocolFamily, MAX_SOCKET_BUFFER};
 use crate::filesystem::anon_inode_getfile;
 use crate::network::{Protocol, Ruleset, Secret};
@@ -393,7 +393,7 @@ impl RequestBody {
     }
 
     /// Take what was written, given back to the Invocation's memory, as the
-    /// request leaves with it.
+    /// exchange that sends it reserves it again.
     pub fn take(&self) -> Vec<u8> {
         let bytes = std::mem::take(&mut *self.bytes.lock().unwrap_or_else(PoisonError::into_inner));
         self.cred.vm_unacct_memory(bytes.len());
@@ -738,18 +738,25 @@ pub struct Exchange {
     task: Mutex<Option<Arc<Task>>>,
     /// The request's place against its Sandbox's cap and the process's.
     place: Mutex<Option<Arc<Place>>>,
+    /// What the request's body and the response's buffer hold, reserved
+    /// against the Invocation's memory until the exchange is released.
+    memory: Mutex<Option<SocketMemory>>,
 }
 
 impl Exchange {
     /// Send `request` through `seam` on the reactor, dialing through
     /// `connector`; it counts against `open_connections` and the process until
-    /// released, and a full count answers `ConnectionLimitReached`.
+    /// released, and a full count answers `ConnectionLimitReached`. Its body
+    /// and the response's buffer count against `cred`'s memory until then.
     pub(crate) fn start(
         seam: Arc<dyn Outbound>,
         request: OutgoingRequest,
         mut connector: Connector,
         open_connections: &Arc<OpenConnections>,
+        cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, HttpError> {
+        let memory = SocketMemory::charge(cred, request.body.len() + MAX_SOCKET_BUFFER)
+            .map_err(|_| HttpError::Internal)?;
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
         connector.place = Some(place.clone());
         let place = Some(place);
@@ -765,6 +772,7 @@ impl Exchange {
             wait: Arc::default(),
             task: Mutex::new(None),
             place: Mutex::new(place),
+            memory: Mutex::new(Some(memory)),
         });
         // The task holds what it answers into, never the exchange, so the
         // exchange's last hold, which cancels the task, is never the task's.
@@ -856,7 +864,9 @@ impl Exchange {
         if let Some(task) = task {
             task.cancel();
         }
+        lock(&self.state).body.clear();
         *self.place.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        *self.memory.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 }
 
@@ -978,7 +988,7 @@ impl Outbound for HyperOutbound {
             },
         };
         Box::pin(async move {
-            let http = to_hyper_request(&request)?;
+            let http = to_hyper_request(request)?;
             let connection = connector.dial().await?;
             match tls {
                 None => send_over(Wire(connection), http).await,
@@ -1001,7 +1011,7 @@ impl Outbound for HyperOutbound {
 /// `request` as hyper sends it: the path with its query as the target, a
 /// `host` header naming the authority, and each header with its credentials
 /// swapped in.
-fn to_hyper_request(request: &OutgoingRequest) -> Result<hyper::Request<Full<Bytes>>, HttpError> {
+fn to_hyper_request(request: OutgoingRequest) -> Result<hyper::Request<Full<Bytes>>, HttpError> {
     let mut builder = hyper::Request::builder()
         .method(request.method.as_str())
         .uri(request.path_with_query.as_str())
@@ -1014,7 +1024,7 @@ fn to_hyper_request(request: &OutgoingRequest) -> Result<hyper::Request<Full<Byt
         builder = builder.header(name.as_str(), value);
     }
     builder
-        .body(Full::new(Bytes::from(request.body.clone())))
+        .body(Full::new(Bytes::from(request.body)))
         .map_err(|_| HttpError::ProtocolError)
 }
 
@@ -1739,6 +1749,46 @@ mod tests {
             [b"Basic dXNlcjpzM2NyZXQ=".to_vec(), b"Basic YQ==".to_vec()],
             "a request whose Basic pair encodes the placeholder must go with the secret in the \
              pair, encoded again, as OpenShell's does, and a pair without it must go as sent"
+        );
+    }
+
+    // @behavior NW-116
+    #[test]
+    fn a_socket_and_an_exchange_hold_their_buffers_against_the_invocations_memory() {
+        let mut entry = Builder::default();
+        entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
+        let network = Network::new("api", Arc::new(entry)).unwrap();
+        let namespace = Namespace::new(
+            [&network],
+            Arc::new(Resolving),
+            Arc::new(Recording::default()),
+            OpenConnections::new(None),
+            None,
+        )
+        .unwrap();
+        let cred = prepare_creds_within(&[], Some(2 * MAX_SOCKET_BUFFER));
+        let tcp = namespace.create_tcp_socket(&cred);
+        let udp = namespace.create_udp_socket(&cred).err();
+        let sent = namespace
+            .send(
+                &cred,
+                OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+            )
+            .err();
+        let made = tcp.is_ok();
+        drop(tcp);
+        let again = namespace.create_udp_socket(&cred).is_ok();
+        assert_eq!(
+            (made, udp, sent, again),
+            (
+                true,
+                Some(FilesystemError::OutOfMemory),
+                Some(HttpError::Internal),
+                true
+            ),
+            "with a memory_limit holding one TCP socket's buffers, a UDP socket must answer \
+             ENOMEM and a request fail before it is sent, and a UDP socket must be made once the \
+             TCP socket is gone"
         );
     }
 

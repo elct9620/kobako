@@ -267,7 +267,8 @@ impl SocketsHost for Invocation {
         if self.wasi().table().is_full() {
             return Ok(Err(ErrorCode::NewSocketLimit));
         }
-        let sock = match self.network().create_tcp_socket() {
+        let cred = self.wasi().descriptors().cred().clone();
+        let sock = match self.network().create_tcp_socket(&cred) {
             Ok(sock) => sock,
             Err(err) => return Ok(Err(to_error_code(&err))),
         };
@@ -420,7 +421,11 @@ impl SocketsHost for Invocation {
         if self.wasi().table().is_full() {
             return Ok(Err(ErrorCode::NewSocketLimit));
         }
-        let sock = self.network().create_udp_socket();
+        let cred = self.wasi().descriptors().cred().clone();
+        let sock = match self.network().create_udp_socket(&cred) {
+            Ok(sock) => sock,
+            Err(err) => return Ok(Err(to_error_code(&err))),
+        };
         let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
         let handle: UdpSocket = self.table().push_file(table::UdpSocket {
             socket: socket.clone(),
