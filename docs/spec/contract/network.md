@@ -439,7 +439,7 @@ impl Ruleset {
 }
 ```
 
-## `Ruleset::admit_resolved`
+## `Ruleset::admitted_of`
 
 The real addresses a looked-up name resolved to that the Guest may connect to,
 in their order. An endpoint naming the name must lead to each, and the host's
@@ -447,7 +447,7 @@ own addresses are local.
 
 ```rust
 impl Ruleset {
-    pub fn admit_resolved(&self, name: &str, real: &[IpAddr], port: u16, protocol: Protocol, local: &[IpAddr]) -> Vec<SocketAddr> {}
+    pub fn admitted_of(&self, name: &str, real: &[IpAddr], port: u16, protocol: Protocol, local: &[IpAddr]) -> Vec<SocketAddr> {}
 }
 ```
 
@@ -736,8 +736,8 @@ impl TcpSock {
 
 ## `TcpSock::virtual_port`
 
-The port the Guest reads for the socket's own end, once a connect began. With
-`local_addr` it pairs what the Guest reads with the host's own end.
+The port the Guest reads for the socket's own end, once a connect began. The
+host's own port stays inside the socket.
 
 ```rust
 impl TcpSock {
@@ -1386,8 +1386,8 @@ impl UdpSock {
 
 ## `UdpSock::virtual_port`
 
-The port the Guest reads for the socket's own end, once it connected. With
-`local_addr` it pairs what the Guest reads with the host's own end.
+The port the Guest reads for the socket's own end, once it connected. The
+host's own port stays inside the socket.
 
 ```rust
 impl UdpSock {

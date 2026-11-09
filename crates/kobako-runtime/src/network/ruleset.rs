@@ -348,7 +348,7 @@ impl Ruleset {
     /// refuse whatever an endpoint says; otherwise an endpoint naming the name
     /// at that port and protocol must lead to the address, so another allowed
     /// name answering the same address never borrows it.
-    pub fn admit_resolved(
+    pub fn admitted_of(
         &self,
         name: &str,
         real: &[IpAddr],
@@ -358,11 +358,17 @@ impl Ruleset {
     ) -> Vec<SocketAddr> {
         real.iter()
             .map(|ip| SocketAddr::new(*ip, port))
-            .filter(|addr| self.leads(name, *addr, protocol, local))
+            .filter(|addr| self.admits_resolved(name, *addr, protocol, local))
             .collect()
     }
 
-    fn leads(&self, name: &str, addr: SocketAddr, protocol: Protocol, local: &[IpAddr]) -> bool {
+    fn admits_resolved(
+        &self,
+        name: &str,
+        addr: SocketAddr,
+        protocol: Protocol,
+        local: &[IpAddr],
+    ) -> bool {
         if matches!(
             address_set_of(addr.ip()),
             AddressSet::Metadata | AddressSet::Reserved

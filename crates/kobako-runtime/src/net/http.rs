@@ -510,7 +510,7 @@ impl Connector {
                 let real = self.resolve().await?;
                 let local = self.family.local_addresses();
                 self.ruleset
-                    .admit_resolved(&self.host, &real, self.port, Protocol::Http, &local)
+                    .admitted_of(&self.host, &real, self.port, Protocol::Http, &local)
             }
         };
         if addrs.is_empty() {

@@ -425,7 +425,7 @@ impl Namespace {
                 let local = self.family.local_addresses();
                 let admitted =
                     self.ruleset
-                        .admit_resolved(&name, &real, addr.port(), protocol, &local);
+                        .admitted_of(&name, &real, addr.port(), protocol, &local);
                 if admitted.is_empty() {
                     return Err(FilesystemError::PermissionDenied);
                 }
