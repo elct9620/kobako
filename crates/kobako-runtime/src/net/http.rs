@@ -574,7 +574,11 @@ impl Ready for Waiters {
 }
 
 impl Transport {
+    /// The connection `stream` begins, sent without Nagle's delay, as an HTTP
+    /// client writes each request whole; a guest's own socket keeps Linux's
+    /// default.
     fn new(stream: std::net::TcpStream) -> io::Result<Self> {
+        stream.set_nodelay(true)?;
         let mut stream = mio::net::TcpStream::from_std(stream);
         let waiters = Arc::new(Waiters::default());
         let ready: Arc<dyn Ready> = waiters.clone();

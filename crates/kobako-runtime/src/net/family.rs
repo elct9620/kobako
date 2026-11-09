@@ -40,9 +40,7 @@ pub struct HostInet;
 
 impl ProtocolFamily for HostInet {
     fn connect(&self, addr: SocketAddr) -> io::Result<TcpStream> {
-        let stream = mio::net::TcpStream::connect(addr)?;
-        stream.set_nodelay(true)?;
-        Ok(stream.into())
+        Ok(mio::net::TcpStream::connect(addr)?.into())
     }
 
     /// The host's resolver, asked for `name` with its trailing dot, so no

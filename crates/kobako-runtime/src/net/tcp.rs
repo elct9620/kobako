@@ -476,6 +476,22 @@ mod tests {
         (sock, file, peer)
     }
 
+    #[test]
+    fn a_guest_socket_keeps_nagles_algorithm() {
+        let (sock, _file, _peer) = connected();
+        let nodelay = sock
+            .state()
+            .host
+            .as_ref()
+            .map(|(stream, _)| stream.nodelay().unwrap());
+        assert_eq!(
+            nodelay,
+            Some(false),
+            "a guest's TCP socket must leave TCP_NODELAY off, as Linux's tcp_init_sock does, \
+             since WASI gives the guest no option to set it"
+        );
+    }
+
     /// Wait on `file`'s poll until it holds `mask`.
     fn wait_for(file: &File, mask: PollMask) {
         let found = within_max_wait(|| {
