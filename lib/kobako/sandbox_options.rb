@@ -46,8 +46,9 @@ module Kobako
     # process.
     DEFAULT_OPEN_FILE_LIMIT = 1024
 
-    # The default +open_connection_limit+: 6, as a Cloudflare Worker holds six
-    # connections open at once.
+    # The default +open_connection_limit+: 6, after the six connections a
+    # Cloudflare Worker may have waiting at once; kobako counts every socket,
+    # request, and lookup the Sandbox holds open.
     DEFAULT_OPEN_CONNECTION_LIMIT = 6
 
     # The default +connection_limit+: 50, a Cloudflare Worker's subrequests

@@ -114,8 +114,11 @@ module Kobako
     # Kobako::Network::Connection, and its +request?+ each
     # Kobako::Network::Request; any entry refusing refuses. Returns +self+.
     #
-    # Raises ArgumentError for an empty or duplicate name, a malformed
-    # endpoint, or a call after the first invocation.
+    # Raises ArgumentError for an empty or duplicate name, an endpoint with an
+    # empty host, a port outside 1 to 65535, or an unknown protocol, or a call
+    # after the first invocation. An
+    # endpoint the ruleset refuses, such as a wildcard leading to +:private+,
+    # fails the invocation that compiles it with Kobako::TrapError.
     def network(name, entry = nil, &builder)
       refuse_once_invoked("network")
       @grants.register(Catalog::Network.new(name: name, entry: entry, &builder))

@@ -78,10 +78,13 @@ The guest sees only virtual addresses, so the host's network never reaches it.
 |---|---|---|
 | a lookup | a name to a virtual address | — |
 | `remote-address` | real to virtual | cgroup `getpeername4` |
+| `local-address` | `198.19.255.254`, at a virtual port | `ip_local_port_range` |
 | a UDP receive | real to virtual | cgroup `recvmsg4` |
 | a connect to an unmapped one | refused, `EACCES` | — |
 
-The range is `198.18.0.0/15`, inside the reserved set, so no real destination lies in it. Each Invocation allocates from the bottom and never reuses an address for a second name.
+The range is `198.18.0.0/15`, inside the reserved set, so no real destination lies in it. Each Invocation allocates from the bottom and never reuses an address for a second name. A lookup never hands out `198.19.255.254`, the guest's own end.
+
+A connected socket's own port is virtual too, numbered from 32768 in connect order. The host's ephemeral port would carry its connection state into the guest, as CVE-2022-1012 showed. The socket keeps both ends, as a NAT's tuple does.
 
 ## Waiting
 
