@@ -55,8 +55,8 @@ class TestE2ENetworkAddrinfo < Minitest::Test
   def test_a_script_builds_and_reads_an_addrinfo_as_crubys
     assert_equal [PARTS, PREDICATES, *NAMED], naming_localhost.eval(BUILT).value,
                  "Addrinfo.tcp, .udp, .ip, and .new must answer each part and #inspect as CRuby's on Linux, a name " \
-                 "its virtual address, #getnameinfo the address, a packed address of no IP family ArgumentError, " \
-                 "and no #connect, #bind, or #listen"
+                 "its virtual address, #getnameinfo the address, a packed address of no IP family ArgumentError " \
+                 "where CRuby's answers one of unknown family, and no #connect, #bind, or #listen"
   end
 
   LOOKED_UP = <<~RUBY

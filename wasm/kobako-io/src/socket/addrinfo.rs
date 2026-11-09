@@ -25,6 +25,9 @@ use crate::io::argument_error;
 pub(super) const SOCK_STREAM: i64 = 1;
 pub(super) const SOCK_DGRAM: i64 = 2;
 const SOCK_RAW: i64 = 3;
+const SOCK_RDM: i64 = 4;
+const SOCK_SEQPACKET: i64 = 5;
+const SOCK_PACKET: i64 = 10;
 pub(super) const IPPROTO_TCP: i64 = 6;
 pub(super) const IPPROTO_UDP: i64 = 17;
 
@@ -214,7 +217,7 @@ struct Hints {
 /// A name leads to its virtual address, and `nil` to the loopback, or to any
 /// address with `AI_PASSIVE`.
 fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<Addrinfo>, Error> {
-    let (port, _) = port_of(mrb, service)?;
+    let (port, service_text) = port_of(mrb, service)?;
     let name = match node.is_nil() || Integer::from_value(node).is_some() {
         true => None,
         false => Some(node.to_r_string(mrb)?.to_string(mrb)?),
@@ -232,6 +235,15 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     if hints.family.is_some_and(|family| family != afamily_of(ip)) {
         return Err(resolution_error(mrb, EAI_ADDRFAMILY));
     }
+    // What `inspect` shows past the address and port, as CRuby's
+    // `make_inspectname` drops what they already show.
+    let mut inspectname = name.clone().filter(|name| *name != ip.to_string());
+    if !service_text.is_empty() && service_text != port.to_string() {
+        inspectname = Some(format!(
+            "{}:{service_text}",
+            inspectname.unwrap_or_default()
+        ));
+    }
     // glibc's table: a raw socket takes whichever protocol is asked.
     let kinds = [
         (SOCK_STREAM, Some(IPPROTO_TCP)),
@@ -248,9 +260,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
         }
         let protocol = protocol.unwrap_or(hints.protocol);
         let mut info = Addrinfo::new(ip, port, (socktype, protocol));
-        info.inspectname = name
-            .clone()
-            .filter(|_| !numeric || name.as_deref() == Some(""));
+        info.inspectname = inspectname.clone();
         if found.is_empty() && hints.flags & AI_CANONNAME != 0 && !numeric {
             info.canonname = name.clone();
         }
@@ -498,21 +508,25 @@ fn addrinfo_inspect(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
             family => format!(" PF_???({family})"),
         };
     }
+    let internet = info.pfamily == AF_INET || info.pfamily == AF_INET6;
     match (info.socktype, info.protocol) {
-        (SOCK_STREAM, 0 | IPPROTO_TCP) => text += " TCP",
-        (SOCK_DGRAM, 0 | IPPROTO_UDP) => text += " UDP",
+        (SOCK_STREAM, 0 | IPPROTO_TCP) if internet => text += " TCP",
+        (SOCK_DGRAM, 0 | IPPROTO_UDP) if internet => text += " UDP",
         (socktype, protocol) => {
-            text += match socktype {
-                0 => "",
-                SOCK_STREAM => " SOCK_STREAM",
-                SOCK_DGRAM => " SOCK_DGRAM",
-                SOCK_RAW => " SOCK_RAW",
-                _ => " SOCK_???",
+            text += &match socktype {
+                0 => String::new(),
+                SOCK_STREAM => " SOCK_STREAM".to_string(),
+                SOCK_DGRAM => " SOCK_DGRAM".to_string(),
+                SOCK_RAW => " SOCK_RAW".to_string(),
+                SOCK_RDM => " SOCK_RDM".to_string(),
+                SOCK_SEQPACKET => " SOCK_SEQPACKET".to_string(),
+                SOCK_PACKET => " SOCK_PACKET".to_string(),
+                socktype => format!(" SOCK_???({socktype})"),
             };
             text += &match protocol {
                 0 => String::new(),
-                IPPROTO_TCP => " IPPROTO_TCP".to_string(),
-                IPPROTO_UDP => " IPPROTO_UDP".to_string(),
+                IPPROTO_TCP if internet => " IPPROTO_TCP".to_string(),
+                IPPROTO_UDP if internet => " IPPROTO_UDP".to_string(),
                 protocol => format!(" UNKNOWN_PROTOCOL({protocol})"),
             };
         }
@@ -537,10 +551,14 @@ fn addrinfo_ipv6_to_ipv4(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let carried = ip
         .to_ipv4_mapped()
         .or_else(|| v4_compat(&ip).then(|| ip.to_ipv4()).flatten());
-    match carried {
-        Some(v4) => Addrinfo::new(v4.into(), info.port, (info.socktype, info.protocol)).wrap(mrb),
-        None => Ok(qnil().as_value()),
-    }
+    // CRuby's carries the kind and the names over, and no port.
+    let Some(v4) = carried else {
+        return Ok(qnil().as_value());
+    };
+    let mut converted = Addrinfo::new(v4.into(), 0, (info.socktype, info.protocol));
+    converted.inspectname = info.inspectname.clone();
+    converted.canonname = info.canonname.clone();
+    converted.wrap(mrb)
 }
 
 /// `getnameinfo(flags = 0)` answers `[host, service]`. The guest names no
@@ -565,8 +583,10 @@ fn addrinfo_getnameinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value
 /// `family_addrinfo(host, port)` answers the `Addrinfo` they lead to of this
 /// one's family and kind.
 fn addrinfo_family_addrinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let [host, port] = args else {
-        return Err(Error::argnum(mrb, args.len(), 2, 2));
+    let (host, port) = match args {
+        [] => return Err(argument_error(mrb, "no address specified")),
+        [host, port] => (*host, *port),
+        _ => return Err(Error::argnum(mrb, args.len(), 2, 2)),
     };
     let info = Addrinfo::of(mrb, self_)?;
     let hints = Hints {
@@ -576,9 +596,7 @@ fn addrinfo_family_addrinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<V
         flags: 0,
         limit: None,
     };
-    let mut found = lookup(mrb, *host, *port, &hints)?.remove(0);
-    (found.socktype, found.protocol) = (info.socktype, info.protocol);
-    found.wrap(mrb)
+    lookup(mrb, host, port, &hints)?.remove(0).wrap(mrb)
 }
 
 /// `Socket.getaddrinfo(host, service, family = nil, socktype = nil, protocol

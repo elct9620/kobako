@@ -205,6 +205,9 @@ pub(super) fn sockaddr_of(ip: IpAddr, port: u16) -> Vec<u8> {
 /// or IPv6 `sockaddr` lays out raises `ArgumentError`, as CRuby's.
 pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error> {
     let bytes = Vec::<u8>::from_value(sockaddr).ok_or_else(|| errno::type_error(mrb, sockaddr))?;
+    if bytes.len() < 2 {
+        return Err(argument_error(mrb, "too short sockaddr"));
+    }
     let family = bytes
         .get(..2)
         .map(|family| u16::from_ne_bytes([family[0], family[1]]));

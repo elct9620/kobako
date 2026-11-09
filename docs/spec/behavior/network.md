@@ -35,6 +35,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_ends.rb`
 - `test/e2e/test_network_socket_addrinfo.rb`
 - `test/e2e/test_network_addrinfo.rb`
+- `test/e2e/test_network_addrinfo_inspect.rb`
 - `test/e2e/test_network_socket_tcp.rb`
 - `test/e2e/test_network_socket_edges_cruby.rb`
 - `test/e2e/test_network_socket_options.rb`
@@ -1732,7 +1733,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a network entry naming `localhost` |
 | When | the script builds an `Addrinfo` with `tcp`, `udp`, `ip`, and `new`. It builds from literals, a packed address, an array, and `localhost`, and reads each one's parts and `inspect` |
-| Then | each answers as CRuby's, and `localhost` stands for its virtual address. A reverse lookup answers the address, and a packed address of no IP family raises `ArgumentError`. An `Addrinfo` defines no `connect`, `bind`, or `listen`, since the guest makes no raw socket |
+| Then | each answers as CRuby's, and `localhost` stands for its virtual address. A reverse lookup answers the address. A packed address of no IP family raises `ArgumentError`, where CRuby's answers one of unknown family. An `Addrinfo` defines no `connect`, `bind`, or `listen`, since the guest makes no raw socket |
 
 ## `NW-141` A script looks up a name's Addrinfos, as CRuby's
 
