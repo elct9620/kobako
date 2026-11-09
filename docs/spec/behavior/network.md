@@ -1137,8 +1137,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a connected socket's output stream, whose `check-write` permitted some bytes |
-| When | the guest writes those bytes, then one more without asking `check-write` again |
-| Then | the first write succeeds and the second traps, as `io.wit` says a write past the last permit must |
+| When | the guest writes one byte of them, then one more without asking `check-write` again |
+| Then | the first write succeeds and the second traps. A permit is for the next write only, as `io.wit` says |
 
 ## `NW-093` A request's parts are judged as they are set
 
@@ -1396,3 +1396,27 @@ endpoint "api.example.com", port: 443
 | Given | a connected TCP socket and a streaming UDP socket, each with its streams and a pollable still held |
 | When | the guest drops a socket, or streams the UDP socket again |
 | Then | the call traps, as wasmtime-wasi traps a parent dropped first and a second stream while the first lives. Once the children are dropped, each succeeds |
+
+## `NW-114` A TCP socket's own end answers only once connected
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-112` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP socket whose connect is under way, and one whose connect was refused |
+| When | the guest asks each for `local-address` |
+| Then | the connecting one answers `invalid-state`, and the refused one answers the connect's error, as wasmtime-wasi answers each |
+
+## `NW-115` One datagram receive answers at most sixteen
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-053` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP stream whose peer sent twenty datagrams |
+| When | the guest receives with a `max-results` past twenty |
+| Then | the call answers sixteen datagrams, and the next answers the rest, as wasmtime-wasi bounds one receive |

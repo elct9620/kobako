@@ -4086,5 +4086,5 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a guest holding a new preview2 TCP socket and a new UDP socket |
-| When | it seeks, tells, reads or writes at an offset, syncs, sizes, advises, and lists each number through preview1. It then asks each fdstat |
-| Then | a position or an offset answers ESPIPE, a sync or a size EINVAL, and a listing ENOTDIR. Advice succeeds, as Linux answers each on a socket. The fdstat reports a TCP socket as a stream and a UDP socket as datagrams |
+| When | it seeks, tells, reads or writes at an offset, syncs, sizes, advises, and lists each number through preview1. It then asks each fdstat and filestat |
+| Then | a position or an offset answers ESPIPE, a sync or a size EINVAL, and a listing ENOTDIR. Advice succeeds, as Linux answers each on a socket. Both stats report a TCP socket as a stream and a UDP socket as datagrams |
