@@ -52,7 +52,9 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     let basic = mrb.define_class(c"BasicSocket", io)?;
     basic::init(mrb, basic)?;
     option::init(mrb, socket_class, basic)?;
+    address::init(mrb, socket_class)?;
     let ip = mrb.define_class(c"IPSocket", basic)?;
+    ip::init(mrb, ip)?;
     tcp::init(mrb, ip)?;
     udp::init(mrb, ip)?;
     // `Socket` stands only for its constants and errors here; the guest makes

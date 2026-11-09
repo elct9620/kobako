@@ -32,6 +32,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_direct.rb`
 - `test/e2e/test_network_socket_chars.rb`
 - `test/e2e/test_network_socket_shutdown.rb`
+- `test/e2e/test_network_socket_ends.rb`
 - `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
@@ -1692,3 +1693,27 @@ endpoint "api.example.com", port: 443
 | Given | a UDP peer that answers datagrams |
 | When | the script calls `shutdown` before `connect`, then `shutdown(:WR)` after it, then sends |
 | Then | the first raises `Errno::ENOTCONN`, the second answers 0, and the send raises `Errno::EPIPE`, as Linux's datagram socket does |
+
+## `NW-138` A script packs and unpacks a socket address, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a network entry naming `localhost` |
+| When | the script calls `Socket.sockaddr_in` with IPv4 and IPv6 literals, the passive names, a number, and `localhost`. It unpacks each, and a String no family names |
+| Then | each packs as Linux's `sockaddr_in` or `sockaddr_in6`, and a name packs its virtual address. `nil` packs `127.0.0.1`, where CRuby's packs `::1`, since the guest has no IPv6. The unknown String raises `ArgumentError`, as CRuby's does |
+
+## `NW-139` A script reads a socket's ends, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server, and a UDP peer |
+| When | the script calls `getsockname`, `getpeername`, `addr`, and `peeraddr` on a `TCPSocket` and on a closed one. It calls each on a `UDPSocket` before and after `connect` |
+| Then | the packed ends unpack to what `addr` and `peeraddr` answer, virtual addresses included. A `UDPSocket` with no peer raises `Errno::ENOTCONN` for its peer, and the closed socket raises `IOError` |

@@ -11,7 +11,7 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::basic::{direct_args, exception_option, waited, writer_of, IoState, SocketIo, Wait};
-use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
+use super::ip::{local_end_of, to_addr_array};
 use super::{family_of, to_error, Family, AF_INET};
 use crate::errno;
 use crate::io::{would_wait, Direction};
@@ -91,6 +91,20 @@ impl SocketIo for Datagrams {
         })
     }
 
+    /// The socket's own end; one not bound yet answers the unspecified
+    /// address.
+    fn local_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
+        let local = self.with(mrb, |open| Ok(open.socket.local_address()))?;
+        local_end_of(mrb, local, UDP)
+    }
+
+    fn peer_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
+        self.with(mrb, |open| match &open.streams {
+            Some(streams) => Ok(streams.peer),
+            None => Err(errno::error_by_name(mrb, c"ENOTCONN", "getpeername(2)")),
+        })
+    }
+
     fn close(&self) {
         self.open.borrow_mut().take();
     }
@@ -152,7 +166,6 @@ pub(super) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
         c"recvfrom_nonblock",
         beni::method!(udp_socket_recvfrom_nonblock, -1),
     )?;
-    socket.define_method(mrb, c"addr", beni::method!(udp_socket_addr, -1))?;
     Ok(())
 }
 
@@ -406,14 +419,4 @@ fn receive_from_sender(
     answer.push(mrb, outbuf.unwrap_or(mesg))?;
     answer.push(mrb, to_addr_array(mrb, from)?)?;
     Ok(answer.as_value())
-}
-
-/// `addr(reverse_lookup = nil)` answers the socket's own end as `TCPSocket`'s
-/// does; one not bound yet answers the unspecified address.
-fn udp_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    if let Some(flag) = args.first() {
-        ensure_reverse_lookup_flag(mrb, *flag)?;
-    }
-    let local = Datagrams::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.local_address()))?;
-    local_addr_array(mrb, local, UDP)
 }

@@ -1,14 +1,15 @@
 //! The end a host and a port name, as CRuby's `rsock_addrinfo` reads them
 //! for `getaddrinfo`: an IPv4 literal, or the address a name leads to.
 
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
 use beni::prelude::*;
-use beni::{Error, Integer, Mrb, TryConvert, Value};
+use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
 use super::{no_network, resolution_error, to_error, EAI_AGAIN, EAI_NONAME, EAI_SERVICE};
 use crate::errno;
+use crate::io::argument_error;
 use crate::wasi::wait_within;
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::ip_name_lookup::resolve_addresses;
@@ -131,6 +132,98 @@ fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
     }
     let number = digits.parse::<u64>().unwrap_or(u64::MAX);
     Ok((number as u16, text))
+}
+
+/// Define `Socket.sockaddr_in`, `Socket.pack_sockaddr_in`, and
+/// `Socket.unpack_sockaddr_in`.
+pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
+    for name in [c"sockaddr_in", c"pack_sockaddr_in"] {
+        socket.define_singleton_method(mrb, name, beni::method!(socket_s_sockaddr_in, 2))?;
+    }
+    socket.define_singleton_method(
+        mrb,
+        c"unpack_sockaddr_in",
+        beni::method!(socket_s_unpack_sockaddr_in, 1),
+    )?;
+    Ok(())
+}
+
+/// The address `host` names to pack, as CRuby's `rsock_addrinfo` reads it:
+/// `nil` is the loopback, an Integer the IPv4 address it numbers, `""` and
+/// `"<any>"` any address, and `"<broadcast>"` the broadcast one. A literal is
+/// itself, and a name the address it leads to. The guest has no IPv6, so
+/// `nil` is IPv4's loopback.
+fn packed_host(mrb: &Mrb, host: Value) -> Result<IpAddr, Error> {
+    if host.is_nil() {
+        return Ok(Ipv4Addr::LOCALHOST.into());
+    }
+    if Integer::from_value(host).is_some() {
+        return Ok(Ipv4Addr::from(i64::try_convert(host, mrb)? as u32).into());
+    }
+    let text = host.to_r_string(mrb)?.to_string(mrb)?;
+    Ok(match text.as_str() {
+        "" | "<any>" => Ipv4Addr::UNSPECIFIED.into(),
+        "<broadcast>" => Ipv4Addr::BROADCAST.into(),
+        _ => match text.parse::<IpAddr>() {
+            Ok(ip) => ip,
+            Err(_) => resolve(mrb, &text, None, "Socket", "getaddrinfo(3)")?.into(),
+        },
+    })
+}
+
+/// Linux's address families as a `sockaddr` begins with them.
+const AF_INET: u16 = 2;
+const AF_INET6: u16 = 10;
+
+/// `(ip, port)` as Linux lays out a `sockaddr_in`, or a `sockaddr_in6` for an
+/// IPv6 address: the family in host order, the port in network order.
+pub(super) fn sockaddr_of(ip: IpAddr, port: u16) -> Vec<u8> {
+    let mut sockaddr = Vec::with_capacity(28);
+    match ip {
+        IpAddr::V4(ip) => {
+            sockaddr.extend(AF_INET.to_ne_bytes());
+            sockaddr.extend(port.to_be_bytes());
+            sockaddr.extend(ip.octets());
+            sockaddr.extend([0; 8]);
+        }
+        IpAddr::V6(ip) => {
+            sockaddr.extend(AF_INET6.to_ne_bytes());
+            sockaddr.extend(port.to_be_bytes());
+            sockaddr.extend([0; 4]);
+            sockaddr.extend(ip.octets());
+            sockaddr.extend([0; 4]);
+        }
+    }
+    sockaddr
+}
+
+/// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name.
+fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
+    let (port, _) = port_of(mrb, port)?;
+    let ip = packed_host(mrb, host)?;
+    Ok(mrb.str_new(&sockaddr_of(ip, port)).as_value())
+}
+
+/// `Socket.unpack_sockaddr_in(sockaddr)` answers `[port, ip]`; a String no
+/// IPv4 or IPv6 `sockaddr` lays out raises `ArgumentError`, as CRuby's.
+fn socket_s_unpack_sockaddr_in(mrb: &Mrb, _self: Value, sockaddr: Value) -> Result<Value, Error> {
+    let bytes = Vec::<u8>::from_value(sockaddr).ok_or_else(|| errno::type_error(mrb, sockaddr))?;
+    let family = bytes
+        .get(..2)
+        .map(|family| u16::from_ne_bytes([family[0], family[1]]));
+    let ip: IpAddr = match (family, bytes.len()) {
+        (Some(AF_INET), 16..) => Ipv4Addr::new(bytes[4], bytes[5], bytes[6], bytes[7]).into(),
+        (Some(AF_INET6), 28..) => {
+            let octets: [u8; 16] = bytes[8..24].try_into().expect("sixteen bytes");
+            Ipv6Addr::from(octets).into()
+        }
+        _ => return Err(argument_error(mrb, "not an AF_INET/AF_INET6 sockaddr")),
+    };
+    let port = u16::from_be_bytes([bytes[2], bytes[3]]);
+    let answer = mrb.ary_new();
+    answer.push(mrb, i64::from(port).into_value(mrb))?;
+    answer.push(mrb, mrb.str_new(ip.to_string().as_bytes()).as_value())?;
+    Ok(answer.as_value())
 }
 
 /// `(ip, port)` as WASI names a socket address.

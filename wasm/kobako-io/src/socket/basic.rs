@@ -3,7 +3,7 @@
 //! receiving and sending, and the calls that reach them past the buffer.
 
 use std::cell::{Cell, RefCell};
-use std::net::Shutdown;
+use std::net::{Ipv4Addr, Shutdown};
 use std::task::Poll;
 
 use beni::prelude::*;
@@ -12,6 +12,7 @@ use beni::{
     Error, IntoValue, Mrb, Qfalse, Qtrue, RArray, RClass, RHash, Symbol, TryConvert, Value,
 };
 
+use super::address::sockaddr_of;
 use super::buffer::fill;
 use super::tcp::Connection;
 use crate::errno;
@@ -71,6 +72,14 @@ pub(super) trait SocketIo {
     /// Shut the side `how` names, as `shutdown(2)` does.
     fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error>;
 
+    /// The socket's own end, as `getsockname(2)` answers it: an unbound one
+    /// answers the unspecified address.
+    fn local_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error>;
+
+    /// The peer as the guest named it, as `getpeername(2)` answers it; with
+    /// none it raises `Errno::ENOTCONN`.
+    fn peer_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error>;
+
     /// Release the socket, its streams before it.
     fn close(&self);
 
@@ -78,7 +87,7 @@ pub(super) trait SocketIo {
 }
 
 /// The socket `value` stands for, open: a closed one raises `IOError`.
-fn opened<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
+pub(super) fn opened<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
     let source = source_of(mrb, value)?;
     match source.is_closed() {
         true => Err(errno::io_error(mrb, "closed stream")),
@@ -200,6 +209,8 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     basic.define_method(mrb, c"close_write", beni::method!(socket_close_write, 0))?;
     basic.define_method(mrb, c"close", beni::method!(socket_close, 0))?;
     basic.define_method(mrb, c"closed?", beni::method!(socket_closed_p, 0))?;
+    basic.define_method(mrb, c"getsockname", beni::method!(socket_getsockname, 0))?;
+    basic.define_method(mrb, c"getpeername", beni::method!(socket_getpeername, 0))?;
     super::buffer::init(mrb, basic)?;
     for name in [
         c"seek", c"rewind", c"pos", c"pos=", c"tell", c"pread", c"pwrite",
@@ -353,6 +364,18 @@ fn socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
         source.close();
     }
     Ok(qnil().as_value())
+}
+
+/// `getsockname` answers the socket's own end packed as a `sockaddr_in`.
+fn socket_getsockname(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let (ip, port) = opened(mrb, self_)?.local_end(mrb)?;
+    Ok(mrb.str_new(&sockaddr_of(ip.into(), port)).as_value())
+}
+
+/// `getpeername` answers the peer packed as a `sockaddr_in`.
+fn socket_getpeername(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let (ip, port) = opened(mrb, self_)?.peer_end(mrb)?;
+    Ok(mrb.str_new(&sockaddr_of(ip.into(), port)).as_value())
 }
 
 /// `close` releases the socket; closing it again does nothing.

@@ -15,7 +15,7 @@ use beni::{
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::basic::{IoState, SocketIo, Wait};
-use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
+use super::ip::local_end_of;
 use super::{stream_error, to_error};
 use crate::errno;
 use crate::io::argument_error;
@@ -111,6 +111,15 @@ impl SocketIo for Connection {
         })
     }
 
+    fn local_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
+        let local = self.with(mrb, |open| Ok(open.socket.local_address()))?;
+        local_end_of(mrb, local, "TCPSocket")
+    }
+
+    fn peer_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
+        self.with(mrb, |open| Ok(open.peer))
+    }
+
     fn close(&self) {
         self.open.borrow_mut().take();
     }
@@ -154,8 +163,6 @@ pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
     socket.define_method(mrb, c"to_i", beni::method!(tcp_socket_fileno, 0))?;
     socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, -1))?;
     socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, -1))?;
-    socket.define_method(mrb, c"peeraddr", beni::method!(tcp_socket_peeraddr, -1))?;
-    socket.define_method(mrb, c"addr", beni::method!(tcp_socket_addr, -1))?;
     Ok(())
 }
 
@@ -280,26 +287,4 @@ fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
 fn tcp_socket_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let fd = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.handle()))?;
     Ok((fd as i64).into_value(mrb))
-}
-
-/// `peeraddr(reverse_lookup = nil)` answers the peer as CRuby's
-/// `["AF_INET", port, host, host]`. The guest names no host, so a reverse
-/// lookup asked for answers the address.
-fn tcp_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    if let Some(flag) = args.first() {
-        ensure_reverse_lookup_flag(mrb, *flag)?;
-    }
-    let peer = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.peer))?;
-    to_addr_array(mrb, peer)
-}
-
-/// `addr(reverse_lookup = nil)` answers the guest's own end as CRuby's
-/// `["AF_INET", port, host, host]`: the virtual address and port the host
-/// hands the guest for it.
-fn tcp_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    if let Some(flag) = args.first() {
-        ensure_reverse_lookup_flag(mrb, *flag)?;
-    }
-    let local = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.local_address()))?;
-    local_addr_array(mrb, local, "TCPSocket")
 }

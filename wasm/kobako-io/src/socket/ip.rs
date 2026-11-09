@@ -4,27 +4,59 @@
 use std::net::Ipv4Addr;
 
 use beni::prelude::*;
-use beni::{Error, IntoValue, Mrb, Qtrue, Symbol, Value};
+use beni::{Error, IntoValue, Mrb, Qtrue, RClass, Symbol, Value};
 
+use super::basic::opened;
 use super::to_error;
 use crate::io::argument_error;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpSocketAddress, Ipv4SocketAddress};
 
-/// What `addr` answers for `local`, a socket's own end: an unbound socket's
-/// `invalid-state` stands for the unspecified address, as Linux's
-/// `getsockname` answers an unbound one.
-pub(super) fn local_addr_array(
+/// Define `IPSocket#addr` and `IPSocket#peeraddr`.
+pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
+    ip.define_method(mrb, c"addr", beni::method!(ip_socket_addr, -1))?;
+    ip.define_method(mrb, c"peeraddr", beni::method!(ip_socket_peeraddr, -1))?;
+    Ok(())
+}
+
+/// `addr(reverse_lookup = nil)` answers the socket's own end: the virtual
+/// address and port the host hands the guest for it.
+fn ip_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    reverse_lookup_of(mrb, args)?;
+    to_addr_array(mrb, opened(mrb, self_)?.local_end(mrb)?)
+}
+
+/// `peeraddr(reverse_lookup = nil)` answers the peer, as the guest named it.
+/// The guest names no host, so a reverse lookup asked for answers the
+/// address.
+fn ip_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    reverse_lookup_of(mrb, args)?;
+    to_addr_array(mrb, opened(mrb, self_)?.peer_end(mrb)?)
+}
+
+/// `addr` and `peeraddr` take at most a `reverse_lookup` flag.
+fn reverse_lookup_of(mrb: &Mrb, args: &[Value]) -> Result<(), Error> {
+    match args {
+        [] => Ok(()),
+        [flag] => ensure_reverse_lookup_flag(mrb, *flag),
+        _ => Err(Error::argnum(mrb, args.len(), 0, 1)),
+    }
+}
+
+/// A socket's own end as `getsockname` answers `local`: an unbound socket's
+/// `invalid-state` stands for the unspecified address, as Linux's answers an
+/// unbound one.
+pub(super) fn local_end_of(
     mrb: &Mrb,
     local: Result<IpSocketAddress, ErrorCode>,
     class: &str,
-) -> Result<Value, Error> {
+) -> Result<(Ipv4Addr, u16), Error> {
     match local {
         Ok(IpSocketAddress::Ipv4(Ipv4SocketAddress {
             port,
             address: (a, b, c, d),
-        })) => to_addr_array(mrb, (Ipv4Addr::new(a, b, c, d), port)),
+        })) => Ok((Ipv4Addr::new(a, b, c, d), port)),
         Ok(IpSocketAddress::Ipv6(_)) | Err(ErrorCode::InvalidState) => {
-            to_addr_array(mrb, (Ipv4Addr::UNSPECIFIED, 0))
+            Ok((Ipv4Addr::UNSPECIFIED, 0))
         }
         Err(code) => Err(to_error(mrb, code, class, "getsockname(2)")),
     }
@@ -32,7 +64,7 @@ pub(super) fn local_addr_array(
 
 /// Refuses a `reverse_lookup` flag CRuby's refuses: one of `nil`, `true`,
 /// `false`, `:hostname`, or `:numeric` passes.
-pub(super) fn ensure_reverse_lookup_flag(mrb: &Mrb, flag: Value) -> Result<(), Error> {
+fn ensure_reverse_lookup_flag(mrb: &Mrb, flag: Value) -> Result<(), Error> {
     if !flag.to_bool() || Qtrue::from_value(flag).is_some() {
         return Ok(());
     }
