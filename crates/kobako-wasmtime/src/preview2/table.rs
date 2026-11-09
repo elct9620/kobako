@@ -344,6 +344,15 @@ impl Table {
         Ok(handle)
     }
 
+    /// Whether `parent` still has a child of kind `H`, as wasmtime's
+    /// `iter_children` answers.
+    pub(crate) fn has_child<H: Handle>(&self, parent: impl Handle) -> bool {
+        let parent = Some(parent.index());
+        self.entries
+            .values()
+            .any(|entry| entry.parent == parent && entry.resource.is::<H::Host>())
+    }
+
     fn entry(&self, handle: u32) -> wasmtime::Result<&Entry> {
         self.entries
             .get(&handle)

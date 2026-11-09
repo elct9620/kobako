@@ -100,9 +100,14 @@ impl Invocation {
         sock_alloc_file(sock, self.wasi().descriptors().cred())
     }
 
-    fn subscribe_stream(&mut self, stream: Stream, mask: PollMask) -> wasmtime::Result<Pollable> {
+    fn subscribe_socket(
+        &mut self,
+        stream: Stream,
+        mask: PollMask,
+        socket: TcpSocket,
+    ) -> wasmtime::Result<Pollable> {
         self.table()
-            .push(table::Pollable::File(stream.file(), mask))
+            .push_child(table::Pollable::File(stream.file(), mask), socket)
     }
 
     fn tcp(&mut self, handle: TcpSocket) -> wasmtime::Result<&mut table::TcpSocket> {
@@ -316,8 +321,12 @@ impl SocketsHost for Invocation {
             Ok(()) => {
                 self.tcp(this)?.state = TcpState::Connected;
                 let stream = Stream::Socket(socket);
-                let input = self.table().push(table::InputStream(stream.clone()))?;
-                let output = self.table().push(table::OutputStream::new(stream))?;
+                let input = self
+                    .table()
+                    .push_child(table::InputStream(stream.clone()), this)?;
+                let output = self
+                    .table()
+                    .push_child(table::OutputStream::new(stream), this)?;
                 Ok(Ok((input, output)))
             }
             Err(FilesystemError::WouldBlock) => Ok(Err(ErrorCode::WouldBlock)),
@@ -335,10 +344,10 @@ impl SocketsHost for Invocation {
     fn tcp_tcp_socket_subscribe(&mut self, this: TcpSocket) -> wasmtime::Result<Pollable> {
         let socket = self.tcp(this)?;
         if socket.state != TcpState::Connecting {
-            return self.table().push(table::Pollable::Ready);
+            return self.table().push_child(table::Pollable::Ready, this);
         }
         let socket = socket.socket.clone();
-        self.subscribe_stream(Stream::Socket(socket), PollMask::OUT)
+        self.subscribe_socket(Stream::Socket(socket), PollMask::OUT, this)
     }
 
     fn tcp_tcp_socket_shutdown(
@@ -476,6 +485,12 @@ impl SocketsHost for Invocation {
         this: UdpSocket,
         remote_address: Option<IpSocketAddress>,
     ) -> wasmtime::Result<Result<(IncomingDatagramStream, OutgoingDatagramStream), ErrorCode>> {
+        let table = self.table();
+        if table.has_child::<IncomingDatagramStream>(this)
+            || table.has_child::<OutgoingDatagramStream>(this)
+        {
+            return Err(wasmtime::Error::msg("UDP streams not dropped yet"));
+        }
         let socket = self.udp(this)?;
         if !matches!(socket.state, UdpState::Bound | UdpState::Streaming) {
             return Ok(Err(ErrorCode::InvalidState));
@@ -493,18 +508,21 @@ impl SocketsHost for Invocation {
         self.udp(this)?.state = UdpState::Streaming;
         let incoming = self
             .table()
-            .push(table::IncomingDatagramStream(datagrams.clone()))?;
-        let outgoing = self.table().push(table::OutgoingDatagramStream {
-            socket: datagrams,
-            permit: 0,
-        })?;
+            .push_child(table::IncomingDatagramStream(datagrams.clone()), this)?;
+        let outgoing = self.table().push_child(
+            table::OutgoingDatagramStream {
+                socket: datagrams,
+                permit: 0,
+            },
+            this,
+        )?;
         Ok(Ok((incoming, outgoing)))
     }
 
     /// Ready at once, since a bind settles as it starts.
     fn udp_udp_socket_subscribe(&mut self, this: UdpSocket) -> wasmtime::Result<Pollable> {
         self.udp(this)?;
-        self.table().push(table::Pollable::Ready)
+        self.table().push_child(table::Pollable::Ready, this)
     }
 
     fn udp_udp_socket_drop(&mut self, handle: UdpSocket) -> wasmtime::Result<()> {
@@ -1054,13 +1072,13 @@ mod tests {
 
     /// A hermetic invocation whose network holds `endpoint`, or none.
     fn within_network(endpoint: network::Endpoint) -> Invocation {
-        within_network_holding(endpoint, None)
+        within_network_holding([endpoint], None)
     }
 
-    /// A hermetic invocation whose network holds `endpoint`, holding at most
+    /// A hermetic invocation whose network holds `endpoints`, holding at most
     /// `open_file_limit` files.
     fn within_network_holding(
-        endpoint: network::Endpoint,
+        endpoints: impl IntoIterator<Item = network::Endpoint>,
         open_file_limit: Option<usize>,
     ) -> Invocation {
         let config = Config {
@@ -1076,7 +1094,9 @@ mod tests {
             security: Vec::new(),
         };
         let mut entry = network::Builder::default();
-        entry.endpoint(endpoint);
+        for endpoint in endpoints {
+            entry.endpoint(endpoint);
+        }
         let grant = Grant::Network(network::Network::new("local", Arc::new(entry)).unwrap());
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_connections())
             .expect("WASI context must build");
@@ -1151,6 +1171,103 @@ mod tests {
                 ),
             "a lookup of a name an endpoint names must hand out one virtual address then end, and \
              a socket connected through it must read that virtual address back as its peer"
+        );
+    }
+
+    // @behavior NW-113
+    #[test]
+    fn a_socket_dropped_while_its_streams_live_traps() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (tcp_port, udp_port) = (
+            listener.local_addr().unwrap().port(),
+            peer.local_addr().unwrap().port(),
+        );
+        let mut guest = within_network_holding(
+            [
+                network::Endpoint::new("127.0.0.1", tcp_port)
+                    .unwrap()
+                    .with_protocol(network::Protocol::Tcp),
+                network::Endpoint::new("127.0.0.1", udp_port)
+                    .unwrap()
+                    .with_protocol(network::Protocol::Udp),
+            ],
+            None,
+        );
+        let at = |port| {
+            IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port,
+                address: (127, 0, 0, 1),
+            })
+        };
+        let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let tcp = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(tcp, network, at(tcp_port))?
+                .expect("an endpoint names the address");
+            let connecting = guest.tcp_tcp_socket_subscribe(tcp)?;
+            guest.poll_pollable_block(connecting)?;
+            guest.poll_pollable_drop(connecting)?;
+            let (input, output) = guest
+                .tcp_tcp_socket_finish_connect(tcp)?
+                .expect("the listener accepts");
+            let streams_held = guest.tcp_tcp_socket_drop(tcp).is_err();
+            guest.streams_input_stream_drop(input)?;
+            guest.streams_output_stream_drop(output)?;
+            let ready = guest.tcp_tcp_socket_subscribe(tcp)?;
+            let pollable_held = guest.tcp_tcp_socket_drop(tcp).is_err();
+            guest.poll_pollable_drop(ready)?;
+            let tcp_late = guest.tcp_tcp_socket_drop(tcp).is_ok();
+
+            let udp = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            let any = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port: 0,
+                address: (0, 0, 0, 0),
+            });
+            guest
+                .udp_udp_socket_start_bind(udp, network, any)?
+                .expect("an ephemeral bind is the implicit one");
+            guest
+                .udp_udp_socket_finish_bind(udp)?
+                .expect("the bind settles");
+            let (incoming, outgoing) = guest
+                .udp_udp_socket_stream(udp, Some(at(udp_port)))?
+                .expect("the udp endpoint names the peer");
+            let again_early = guest
+                .udp_udp_socket_stream(udp, Some(at(udp_port)))
+                .is_err();
+            let udp_early = guest.udp_udp_socket_drop(udp).is_err();
+            guest.udp_incoming_datagram_stream_drop(incoming)?;
+            guest.udp_outgoing_datagram_stream_drop(outgoing)?;
+            let again_late = guest
+                .udp_udp_socket_stream(udp, Some(at(udp_port)))?
+                .map(|(incoming, outgoing)| {
+                    guest.udp_incoming_datagram_stream_drop(incoming)?;
+                    guest.udp_outgoing_datagram_stream_drop(outgoing)
+                })
+                .is_ok_and(|dropped| dropped.is_ok());
+            let udp_late = guest.udp_udp_socket_drop(udp).is_ok();
+            Ok::<_, wasmtime::Error>([
+                streams_held,
+                pollable_held,
+                tcp_late,
+                again_early,
+                udp_early,
+                again_late,
+                udp_late,
+            ])
+        })
+        .expect("the sockets connect");
+        assert_eq!(
+            answers, [true; 7],
+            "a tcp-socket or udp-socket dropped while its streams or pollable live, and a second \
+             udp stream while the first lives, must trap as wasmtime-wasi traps them, and each \
+             must succeed once the children are dropped"
         );
     }
 
@@ -1650,7 +1767,7 @@ mod tests {
         let endpoint = network::Endpoint::new("127.0.0.1", 9)
             .unwrap()
             .with_protocol(network::Protocol::Tcp);
-        let mut guest = within_network_holding(endpoint, Some(3));
+        let mut guest = within_network_holding([endpoint], Some(3));
         assert_eq!(
             (
                 guest
@@ -1680,7 +1797,7 @@ mod tests {
             .unwrap()
             .with_protocol(network::Protocol::Tcp)
             .with_addresses(vec![network::Addresses::Local]);
-        let mut guest = within_network_holding(endpoint, Some(4));
+        let mut guest = within_network_holding([endpoint], Some(4));
         let started = Instant::now();
         let connected = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
