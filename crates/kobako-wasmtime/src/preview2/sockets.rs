@@ -11,20 +11,16 @@ use super::bindings::wasi_sockets_network_0_2_12::{ErrorCode, IpSocketAddress, I
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 
-/// The longest keepalive time and the most probes, Linux's `MAX_TCP_KEEPIDLE`
-/// and `MAX_TCP_KEEPCNT`, which wasmtime clamps to as the lowest across hosts.
-const MAX_KEEPALIVE_SECS: u64 = 32767;
-pub(crate) const MAX_KEEPALIVE_COUNT: u32 = 127;
-
 /// A time in seconds as the nanoseconds WASI's `duration` counts.
 pub(crate) fn to_nanos(secs: u32) -> u64 {
     u64::from(secs) * NANOS_PER_SEC
 }
 
-/// A keepalive time in whole seconds, clamped to 1 through Linux's ceiling
-/// as wasmtime clamps it; zero has none, as WIT answers it `invalid-argument`.
-pub(crate) fn to_keepalive_secs(nanos: u64) -> Option<u32> {
-    let secs = (nanos / NANOS_PER_SEC).clamp(1, MAX_KEEPALIVE_SECS);
+/// A keepalive time in whole seconds, clamped to 1 through `max`, the
+/// runtime's ceiling, as wasmtime clamps it; zero has none, as WIT answers it
+/// `invalid-argument`.
+pub(crate) fn to_keepalive_secs(nanos: u64, max: u32) -> Option<u32> {
+    let secs = (nanos / NANOS_PER_SEC).clamp(1, u64::from(max));
     (nanos != 0).then(|| u32::try_from(secs).expect("clamped within u32"))
 }
 

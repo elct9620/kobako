@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
     sock_alloc_file, Namespace, ProtoOps, TcpSock, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
+    MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
@@ -30,7 +31,7 @@ use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{
     from_socket_addr, is_valid_remote_address, is_valid_unicast_address, to_asked_size,
     to_buffer_size, to_error_code, to_keepalive_secs, to_lookup_error_code, to_nanos,
-    to_socket_addr, MAX_KEEPALIVE_COUNT,
+    to_socket_addr,
 };
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
 use crate::descriptors::SocketType;
@@ -519,7 +520,7 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
         value: u64,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        match to_keepalive_secs(value) {
+        match to_keepalive_secs(value, MAX_TCP_KEEPIDLE) {
             Some(secs) => self.set_tcp_option(this, |sock| sock.set_keepidle(secs)),
             None => Ok(Err(ErrorCode::InvalidArgument)),
         }
@@ -537,7 +538,7 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
         value: u64,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        match to_keepalive_secs(value) {
+        match to_keepalive_secs(value, MAX_TCP_KEEPINTVL) {
             Some(secs) => self.set_tcp_option(this, |sock| sock.set_keepintvl(secs)),
             None => Ok(Err(ErrorCode::InvalidArgument)),
         }
@@ -560,9 +561,7 @@ impl SocketsHost for Invocation {
         if value == 0 {
             return Ok(Err(ErrorCode::InvalidArgument));
         }
-        self.set_tcp_option(this, |sock| {
-            sock.set_keepcnt(value.min(MAX_KEEPALIVE_COUNT))
-        })
+        self.set_tcp_option(this, |sock| sock.set_keepcnt(value.min(MAX_TCP_KEEPCNT)))
     }
 
     /// Half what the receive queue holds, as wasmtime answers it on Linux,
