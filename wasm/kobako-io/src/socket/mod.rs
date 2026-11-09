@@ -27,6 +27,7 @@ mod tcp;
 mod udp;
 
 use std::ffi::CString;
+use std::time::Duration;
 
 use beni::prelude::*;
 use beni::value::qnil;
@@ -38,6 +39,7 @@ pub(crate) use basic::is_socket;
 pub(crate) use buffer::holds_buffered;
 
 use crate::errno;
+use crate::io::argument_error;
 use crate::wasi::wasi::io::streams::StreamError;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
 use crate::wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
@@ -183,6 +185,17 @@ fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
         return Err(socket_error(mrb, &format!("unknown socket domain: {name}")));
     }
     Ok(Family::Named(bare.to_string()))
+}
+
+/// The Duration `sec` names, or none for `nil`, as a socket's timeout
+/// keywords read it.
+fn seconds_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>, Error> {
+    if sec.is_nil() {
+        return Ok(None);
+    }
+    Duration::try_from_secs_f64(f64::try_convert(sec, mrb)?)
+        .map(Some)
+        .map_err(|_| argument_error(mrb, "time interval must not be negative"))
 }
 
 /// The `NotImplementedError` a `class` raises when the Sandbox gives the guest

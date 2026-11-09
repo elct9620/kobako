@@ -10,15 +10,15 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, ExceptionClass, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash, Symbol, TryConvert,
-    TypedData, Value,
+    Error, ExceptionClass, Module, Mrb, Proc, RArray, RClass, RHash, Symbol, TryConvert, TypedData,
+    Value,
 };
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
 use super::basic::{IoState, SocketIo, Wait};
 use super::ip::local_end_of;
-use super::{stream_error, to_error};
+use super::{seconds_of, stream_error, to_error};
 use crate::errno;
 use crate::io::argument_error;
 use crate::wasi::wait_within;
@@ -126,6 +126,10 @@ impl SocketIo for Connection {
         (SOCK_STREAM, IPPROTO_TCP)
     }
 
+    fn handle(&self, mrb: &Mrb) -> Result<u32, Error> {
+        self.with(mrb, |open| Ok(open.socket.handle()))
+    }
+
     fn close(&self) {
         self.open.borrow_mut().take();
     }
@@ -166,8 +170,6 @@ pub(super) fn init(mrb: &Mrb, socket_class: RClass, ip: RClass) -> Result<(), Er
     socket_class.define_singleton_method(mrb, c"tcp", beni::method!(socket_s_tcp, -1))?;
     let socket = mrb.define_class(c"TCPSocket", ip)?;
     Connection::mark_carriers(mrb)?;
-    socket.define_method(mrb, c"fileno", beni::method!(tcp_socket_fileno, 0))?;
-    socket.define_method(mrb, c"to_i", beni::method!(tcp_socket_fileno, 0))?;
     socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, -1))?;
     socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, -1))?;
     Ok(())
@@ -324,23 +326,6 @@ fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
     Ok(timeouts)
 }
 
-/// The Duration `sec` names, or none for `nil`.
-pub(super) fn seconds_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>, Error> {
-    if sec.is_nil() {
-        return Ok(None);
-    }
-    Duration::try_from_secs_f64(f64::try_convert(sec, mrb)?)
-        .map(Some)
-        .map_err(|_| argument_error(mrb, "time interval must not be negative"))
-}
-
 fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
     mrb.class_get(c"IO")?.const_get(mrb, c"TimeoutError")
-}
-
-/// The socket's descriptor, its preview2 handle, which preview1's calls and
-/// `IO.select` reach as one fdtable holds a socket beside a file.
-fn tcp_socket_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.handle()))?;
-    Ok((fd as i64).into_value(mrb))
 }

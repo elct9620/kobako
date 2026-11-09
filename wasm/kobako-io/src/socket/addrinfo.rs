@@ -13,10 +13,12 @@ use beni::{
     Value,
 };
 
-use super::address::{packed_host, port_of, sockaddr_of, unpacked};
-use super::basic::opened;
-use super::tcp::seconds_of;
-use super::{family_of, resolution_error, socket_error, spelled, Family, AF_INET, AF_INET6};
+use super::address::{end_of, packed_host, port_of, sockaddr_of};
+use super::basic::open_socket_of;
+use super::{
+    family_of, resolution_error, seconds_of, socket_error, spelled, Family, AF_INET, AF_INET6,
+    EAI_NONAME,
+};
 use crate::io::argument_error;
 
 /// Linux's socket kinds, and the protocols each IP kind carries.
@@ -33,9 +35,8 @@ const AI_NUMERICHOST: i64 = 4;
 const NI_NUMERICHOST: i64 = 1;
 const NI_NUMERICSERV: i64 = 2;
 
-/// glibc's `EAI_NONAME`, `EAI_FAMILY`, and `EAI_ADDRFAMILY`, with
-/// `gai_strerror`'s words for each.
-const EAI_NONAME: (i32, &str) = (-2, "Name or service not known");
+/// glibc's `EAI_FAMILY` and `EAI_ADDRFAMILY`, with `gai_strerror`'s words for
+/// each.
 const EAI_FAMILY: (i32, &str) = (-6, "ai_family not supported");
 const EAI_ADDRFAMILY: (i32, &str) = (-9, "Address family for hostname not supported");
 
@@ -85,11 +86,7 @@ fn afamily_of(ip: IpAddr) -> i64 {
 
 /// The `Addrinfo` of the end `(ip, port)` a socket of `kind` holds, as
 /// `local_address` and `remote_address` answer.
-pub(super) fn of_end(
-    mrb: &Mrb,
-    (ip, port): (Ipv4Addr, u16),
-    kind: (i64, i64),
-) -> Result<Value, Error> {
+fn from_end(mrb: &Mrb, (ip, port): (Ipv4Addr, u16), kind: (i64, i64)) -> Result<Value, Error> {
     Addrinfo::new(ip.into(), port, kind).wrap(mrb)
 }
 
@@ -389,7 +386,7 @@ fn addrinfo_s_new(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Erro
             (ip, port, host.filter(|host| *host != ip.to_string()))
         }
         None => {
-            let (ip, port) = unpacked(mrb, sockaddr)?;
+            let (ip, port) = end_of(mrb, sockaddr)?;
             (ip, port, None)
         }
     };
@@ -618,14 +615,14 @@ fn socket_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value
 
 /// `local_address` answers the socket's own end as an `Addrinfo` of its kind.
 fn socket_local_address(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let socket = opened(mrb, self_)?;
-    of_end(mrb, socket.local_end(mrb)?, socket.kind())
+    let socket = open_socket_of(mrb, self_)?;
+    from_end(mrb, socket.local_end(mrb)?, socket.kind())
 }
 
 /// `remote_address` answers the peer as an `Addrinfo` of the socket's kind.
 fn socket_remote_address(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let socket = opened(mrb, self_)?;
-    of_end(mrb, socket.peer_end(mrb)?, socket.kind())
+    let socket = open_socket_of(mrb, self_)?;
+    from_end(mrb, socket.peer_end(mrb)?, socket.kind())
 }
 
 /// Whether an IPv6 address is IPv4-compatible: the IPv4 address in its last

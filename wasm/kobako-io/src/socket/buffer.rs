@@ -11,7 +11,7 @@ use beni::{
     Error, Integer, IntoValue, Mrb, Proc, RArray, RClass, RHash, RString, Symbol, TryConvert, Value,
 };
 
-use super::basic::{exception_option, length_of, reader_of, source_of, waited, SocketIo, Wait};
+use super::basic::{exception_option, length_of, reader_of, ready_of, source_of, SocketIo, Wait};
 use crate::io::{argument_error, would_wait, Direction};
 
 /// The most a read through the buffer asks of one receive: the size of the
@@ -53,19 +53,31 @@ fn read_some(
     len: usize,
     wait: Wait,
 ) -> Result<Poll<Option<Vec<u8>>>, Error> {
-    let mut held = source.io().held.borrow_mut();
-    if held.is_empty() {
-        drop(held);
-        let bytes = match source.receive(mrb, READ_CHUNK, wait)? {
-            Poll::Ready(Some(bytes)) => bytes,
-            Poll::Ready(None) => return Ok(Poll::Ready(None)),
-            Poll::Pending => return Ok(Poll::Pending),
-        };
-        held = source.io().held.borrow_mut();
-        *held = bytes;
+    match refill(mrb, source, wait)? {
+        Poll::Ready(true) => {}
+        Poll::Ready(false) => return Ok(Poll::Ready(None)),
+        Poll::Pending => return Ok(Poll::Pending),
     }
+    let mut held = source.io().held.borrow_mut();
     let take = held.len().min(len);
     Ok(Poll::Ready(Some(held.drain(..take).collect())))
+}
+
+/// Fill the buffer from the host when it holds nothing, as CRuby's
+/// `io_fillbuf` does, answering whether bytes came before the end; `Pending`
+/// when none have come and `wait` does not wait.
+fn refill(mrb: &Mrb, source: &dyn SocketIo, wait: Wait) -> Result<Poll<bool>, Error> {
+    if !source.io().held.borrow().is_empty() {
+        return Ok(Poll::Ready(true));
+    }
+    Ok(match source.receive(mrb, READ_CHUNK, wait)? {
+        Poll::Ready(Some(bytes)) => {
+            *source.io().held.borrow_mut() = bytes;
+            Poll::Ready(true)
+        }
+        Poll::Ready(None) => Poll::Ready(false),
+        Poll::Pending => Poll::Pending,
+    })
 }
 
 /// `value`, a `String` buffer a read is given, made to hold `read`, or
@@ -103,7 +115,7 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
     let mut read = Vec::new();
     while length.is_none_or(|length| read.len() < length) {
         let want = length.map_or(READ_CHUNK, |length| length - read.len());
-        match waited(read_some(mrb, source, want, Wait::Block)?) {
+        match ready_of(read_some(mrb, source, want, Wait::Block)?) {
             Some(bytes) => read.extend(bytes),
             None => break,
         }
@@ -182,7 +194,7 @@ fn next_line(
             source.io().held.borrow_mut().splice(0..0, rest);
             break;
         }
-        match waited(read_some(mrb, source, READ_CHUNK, Wait::Block)?) {
+        match ready_of(read_some(mrb, source, READ_CHUNK, Wait::Block)?) {
             Some(bytes) => line.extend(bytes),
             None => break,
         }
@@ -201,20 +213,15 @@ fn next_line(
 /// Drop the newlines that stand next, reading on until another byte or the
 /// end comes, as CRuby's `swallow` does before a paragraph.
 fn skip_newlines(mrb: &Mrb, source: &dyn SocketIo) -> Result<(), Error> {
-    loop {
-        {
-            let mut held = source.io().held.borrow_mut();
-            let newlines = held.iter().take_while(|byte| **byte == b'\n').count();
-            held.drain(..newlines);
-            if !held.is_empty() {
-                return Ok(());
-            }
-        }
-        match waited(source.receive(mrb, READ_CHUNK, Wait::Block)?) {
-            Some(bytes) => *source.io().held.borrow_mut() = bytes,
-            None => return Ok(()),
+    while ready_of(refill(mrb, source, Wait::Block)?) {
+        let mut held = source.io().held.borrow_mut();
+        let newlines = held.iter().take_while(|byte| **byte == b'\n').count();
+        held.drain(..newlines);
+        if !held.is_empty() {
+            break;
         }
     }
+    Ok(())
 }
 
 /// A limit of zero raises `ArgumentError` for `name`, as CRuby's `readlines`
@@ -237,7 +244,7 @@ fn socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
 }
 
 /// The `EOFError` a `read` form raises at the end, as CRuby's.
-fn end_of_file(mrb: &Mrb) -> Error {
+pub(super) fn end_of_file(mrb: &Mrb) -> Error {
     match mrb.exc_get(c"EOFError") {
         Ok(class) => Error::new(mrb, class, "end of file reached"),
         Err(err) => err,
@@ -256,17 +263,8 @@ fn socket_readline(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
 
 /// The next byte, waiting for one, without taking it; `None` at the end.
 fn peek_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
-    if let Some(byte) = source.io().held.borrow().first() {
-        return Ok(Some(*byte));
-    }
-    match waited(source.receive(mrb, READ_CHUNK, Wait::Block)?) {
-        Some(bytes) => {
-            let first = bytes.first().copied();
-            *source.io().held.borrow_mut() = bytes;
-            Ok(first)
-        }
-        None => Ok(None),
-    }
+    ready_of(refill(mrb, source, Wait::Block)?);
+    Ok(source.io().held.borrow().first().copied())
 }
 
 /// The next byte, taking it; `None` at the end.
@@ -449,17 +447,7 @@ fn socket_readlines(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
 /// `eof?` waits for the next bytes, holding them for the next read, and
 /// answers whether the end came instead, as CRuby's fills its buffer.
 fn socket_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
-    let source = reader_of(mrb, self_)?;
-    if !source.io().held.borrow().is_empty() {
-        return Ok(false);
-    }
-    match waited(source.receive(mrb, READ_CHUNK, Wait::Block)?) {
-        Some(bytes) => {
-            *source.io().held.borrow_mut() = bytes;
-            Ok(false)
-        }
-        None => Ok(true),
-    }
+    Ok(!ready_of(refill(mrb, reader_of(mrb, self_)?, Wait::Block)?))
 }
 
 /// What `gets` and its kin take: the separator, `None` to read to the end,

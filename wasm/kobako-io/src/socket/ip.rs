@@ -6,7 +6,7 @@ use std::net::Ipv4Addr;
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, Qtrue, RClass, Symbol, Value};
 
-use super::basic::opened;
+use super::basic::open_socket_of;
 use super::to_error;
 use crate::io::argument_error;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpSocketAddress, Ipv4SocketAddress};
@@ -22,7 +22,7 @@ pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
 /// address and port the host hands the guest for it.
 fn ip_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     reverse_lookup_of(mrb, args)?;
-    to_addr_array(mrb, opened(mrb, self_)?.local_end(mrb)?)
+    to_addr_array(mrb, open_socket_of(mrb, self_)?.local_end(mrb)?)
 }
 
 /// `peeraddr(reverse_lookup = nil)` answers the peer, as the guest named it.
@@ -30,7 +30,7 @@ fn ip_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
 /// address.
 fn ip_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     reverse_lookup_of(mrb, args)?;
-    to_addr_array(mrb, opened(mrb, self_)?.peer_end(mrb)?)
+    to_addr_array(mrb, open_socket_of(mrb, self_)?.peer_end(mrb)?)
 }
 
 /// `addr` and `peeraddr` take at most a `reverse_lookup` flag.

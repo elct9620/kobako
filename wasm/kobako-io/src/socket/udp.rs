@@ -11,7 +11,7 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
-use super::basic::{direct_args, exception_option, waited, writer_of, IoState, SocketIo, Wait};
+use super::basic::{direct_args, exception_option, ready_of, writer_of, IoState, SocketIo, Wait};
 use super::ip::{local_end_of, to_addr_array};
 use super::{family_of, to_error, Family, AF_INET};
 use crate::errno;
@@ -110,6 +110,10 @@ impl SocketIo for Datagrams {
         (SOCK_DGRAM, IPPROTO_UDP)
     }
 
+    fn handle(&self, mrb: &Mrb) -> Result<u32, Error> {
+        self.with(mrb, |open| Ok(open.socket.handle()))
+    }
+
     fn close(&self) {
         self.open.borrow_mut().take();
     }
@@ -158,8 +162,6 @@ pub(super) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
     // A socket is an IO, as CRuby's `UDPSocket < IPSocket < BasicSocket < IO`.
     let socket = mrb.define_class(c"UDPSocket", ip_socket)?;
     Datagrams::mark_carriers(mrb)?;
-    socket.define_method(mrb, c"fileno", beni::method!(udp_socket_fileno, 0))?;
-    socket.define_method(mrb, c"to_i", beni::method!(udp_socket_fileno, 0))?;
     socket.define_singleton_method(mrb, c"new", beni::method!(udp_socket_s_new, -1))?;
     socket.define_singleton_method(mrb, c"open", beni::method!(udp_socket_s_new, -1))?;
     socket.define_method(mrb, c"bind", beni::method!(udp_socket_bind, 2))?;
@@ -269,7 +271,7 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
 }
 
 /// The bytes of `mesg`, as CRuby's `send` converts it.
-fn bytes_of(mrb: &Mrb, mesg: Value) -> Result<Vec<u8>, Error> {
+fn mesg_bytes_of(mrb: &Mrb, mesg: Value) -> Result<Vec<u8>, Error> {
     let mesg = mesg.to_r_string(mrb)?;
     // SAFETY: the bytes are copied before the next mruby call.
     Ok(unsafe { mesg.as_bytes(mrb) }.to_vec())
@@ -284,7 +286,7 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         [mesg, _flags, host, port] => (*mesg, Some((*host, *port))),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
-    let data = bytes_of(mrb, mesg)?;
+    let data = mesg_bytes_of(mrb, mesg)?;
     let (remote_address, call) = match to {
         Some((host, port)) => {
             let (ip, port, call) = peer_of(mrb, host, port, None, UDP, "sendto(2)")?;
@@ -306,7 +308,7 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
             };
             return Err(errno::error_by_name(mrb, name, &call));
         };
-        send_datagram(mrb, streams, data, remote_address, &call, Wait::Block).map(waited)
+        send_datagram(mrb, streams, data, remote_address, &call, Wait::Block).map(ready_of)
     })?;
     Ok((len as i64).into_value(mrb))
 }
@@ -341,12 +343,6 @@ fn send_datagram(
             _ => return Ok(Poll::Ready(())),
         }
     }
-}
-
-/// The number the socket's preview2 handle took, which `IO.select` waits on.
-fn udp_socket_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = Datagrams::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.handle()))?;
-    Ok((fd as i64).into_value(mrb))
 }
 
 /// The next datagram `open` streams, cut to `maxlen`, and who sent it,

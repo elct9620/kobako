@@ -13,7 +13,7 @@ use beni::{
 };
 
 use super::address::sockaddr_of;
-use super::buffer::fill;
+use super::buffer::{end_of_file, fill};
 use super::tcp::Connection;
 use crate::errno;
 use crate::io::{argument_error, would_wait, Direction};
@@ -84,6 +84,10 @@ pub(super) trait SocketIo {
     /// carries them.
     fn kind(&self) -> (i64, i64);
 
+    /// The socket's preview2 handle, which preview1's calls and `IO.select`
+    /// reach as one fdtable holds a socket beside a file.
+    fn handle(&self, mrb: &Mrb) -> Result<u32, Error>;
+
     /// Release the socket, its streams before it.
     fn close(&self);
 
@@ -91,7 +95,7 @@ pub(super) trait SocketIo {
 }
 
 /// The socket `value` stands for, open: a closed one raises `IOError`.
-pub(super) fn opened<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
+pub(super) fn open_socket_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
     let source = source_of(mrb, value)?;
     match source.is_closed() {
         true => Err(errno::io_error(mrb, "closed stream")),
@@ -103,7 +107,7 @@ pub(super) fn opened<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Er
 /// side `close_read` closed, raises `IOError`, as CRuby's checks it before
 /// any read, the buffer's included.
 pub(super) fn reader_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
-    let source = opened(mrb, value)?;
+    let source = open_socket_of(mrb, value)?;
     match source.io().read_closed.get() {
         true => Err(errno::io_error(mrb, "not opened for reading")),
         false => Ok(source),
@@ -113,7 +117,7 @@ pub(super) fn reader_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo,
 /// The socket `value` stands for, to write: a closed one, or one whose
 /// writing side `close_write` closed, raises `IOError`.
 pub(super) fn writer_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
-    let source = opened(mrb, value)?;
+    let source = open_socket_of(mrb, value)?;
     match source.io().write_closed.get() {
         true => Err(errno::io_error(mrb, "not opened for writing")),
         false => Ok(source),
@@ -121,7 +125,7 @@ pub(super) fn writer_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo,
 }
 
 /// What a call that waits answers, which it does only once it is ready.
-pub(super) fn waited<T>(poll: Poll<T>) -> T {
+pub(super) fn ready_of<T>(poll: Poll<T>) -> T {
     match poll {
         Poll::Ready(value) => value,
         Poll::Pending => unreachable!("a call that waits returns once it is ready"),
@@ -167,7 +171,7 @@ pub(super) fn exception_option<'a>(
 }
 
 /// The bytes `object` spells, as CRuby's `IO#write` converts it.
-fn bytes_of(mrb: &Mrb, object: Value) -> Result<Vec<u8>, Error> {
+fn written_bytes_of(mrb: &Mrb, object: Value) -> Result<Vec<u8>, Error> {
     let data = object
         .funcall::<_, _, Value>(mrb, c"to_s", ())?
         .to_r_string(mrb)?;
@@ -194,6 +198,8 @@ pub(super) fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo,
 /// or listing it has none of answered as Linux answers each, and no copy,
 /// since WASI dups no socket.
 pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
+    basic.define_method(mrb, c"fileno", beni::method!(socket_fileno, 0))?;
+    basic.define_method(mrb, c"to_i", beni::method!(socket_fileno, 0))?;
     basic.define_method(mrb, c"write", beni::method!(socket_write, -1))?;
     basic.define_method(
         mrb,
@@ -232,14 +238,19 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     Ok(())
 }
 
+/// `fileno` answers the socket's descriptor, its preview2 handle.
+fn socket_fileno(mrb: &Mrb, self_: Value) -> Result<i64, Error> {
+    Ok(i64::from(source_of(mrb, self_)?.handle(mrb)?))
+}
+
 /// `write(*objects)` sends what the objects spell, answering how many bytes
 /// it sent, as CRuby's `IO#write` joins them.
 fn socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Error> {
     let mut bytes = Vec::new();
     for object in objects {
-        bytes.extend(bytes_of(mrb, *object)?);
+        bytes.extend(written_bytes_of(mrb, *object)?);
     }
-    let sent = waited(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
+    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
     Ok((sent as i64).into_value(mrb))
 }
 
@@ -252,7 +263,7 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
     let [string] = args else {
         return Err(Error::argnum(mrb, args.len(), 1, 1));
     };
-    let bytes = bytes_of(mrb, *string)?;
+    let bytes = written_bytes_of(mrb, *string)?;
     match writer_of(mrb, self_)?.send(mrb, &bytes, Wait::DontWait)? {
         Poll::Ready(sent) => Ok((sent as i64).into_value(mrb)),
         Poll::Pending => would_wait(mrb, Direction::Write, "write would block", exception),
@@ -262,8 +273,8 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
 /// `syswrite(string)` sends every byte of `string` past any buffer,
 /// answering how many it sent.
 fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Error> {
-    let bytes = bytes_of(mrb, string)?;
-    let sent = waited(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
+    let bytes = written_bytes_of(mrb, string)?;
+    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
     Ok((sent as i64).into_value(mrb))
 }
 
@@ -339,7 +350,7 @@ fn socket_shutdown(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         return Err(Error::argnum(mrb, args.len(), 0, 1));
     }
     let how = shutdown_of(mrb, args.first().copied())?;
-    opened(mrb, self_)?.shutdown(mrb, how)?;
+    open_socket_of(mrb, self_)?.shutdown(mrb, how)?;
     Ok(0.into_value(mrb))
 }
 
@@ -347,7 +358,7 @@ fn socket_shutdown(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
 /// socket once its writing side is closed too, as CRuby's `rb_io_close_read`
 /// does for a socket.
 fn socket_close_read(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let source = opened(mrb, self_)?;
+    let source = open_socket_of(mrb, self_)?;
     source.shutdown(mrb, Shutdown::Read)?;
     let io = source.io();
     io.read_closed.set(true);
@@ -360,7 +371,7 @@ fn socket_close_read(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// `close_write` sends the FIN once what was written is sent and refuses a
 /// later write, closing the socket once its reading side is closed too.
 fn socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let source = opened(mrb, self_)?;
+    let source = open_socket_of(mrb, self_)?;
     source.shutdown(mrb, Shutdown::Write)?;
     let io = source.io();
     io.write_closed.set(true);
@@ -372,13 +383,13 @@ fn socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// `getsockname` answers the socket's own end packed as a `sockaddr_in`.
 fn socket_getsockname(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (ip, port) = opened(mrb, self_)?.local_end(mrb)?;
+    let (ip, port) = open_socket_of(mrb, self_)?.local_end(mrb)?;
     Ok(mrb.str_new(&sockaddr_of(ip.into(), port)).as_value())
 }
 
 /// `getpeername` answers the peer packed as a `sockaddr_in`.
 fn socket_getpeername(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let (ip, port) = opened(mrb, self_)?.peer_end(mrb)?;
+    let (ip, port) = open_socket_of(mrb, self_)?.peer_end(mrb)?;
     Ok(mrb.str_new(&sockaddr_of(ip.into(), port)).as_value())
 }
 
@@ -399,7 +410,7 @@ fn socket_recv(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
     if maxlen == 0 {
         return fill(mrb, outbuf, mrb.str_new(b"").as_value());
     }
-    match waited(source.receive(mrb, maxlen, Wait::Block)?) {
+    match ready_of(source.receive(mrb, maxlen, Wait::Block)?) {
         Some(bytes) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
         None => fill(mrb, outbuf, qnil().as_value()),
     }
@@ -417,13 +428,9 @@ fn socket_sysread(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
     if maxlen == 0 {
         return fill(mrb, outbuf, mrb.str_new(b"").as_value());
     }
-    match waited(source.receive(mrb, maxlen, Wait::Block)?) {
+    match ready_of(source.receive(mrb, maxlen, Wait::Block)?) {
         Some(bytes) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
-        None => Err(Error::new(
-            mrb,
-            mrb.exc_get(c"EOFError")?,
-            "end of file reached",
-        )),
+        None => Err(end_of_file(mrb)),
     }
 }
 

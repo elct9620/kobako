@@ -18,7 +18,7 @@ use crate::wasi::wasi::sockets::network::{
 };
 
 /// The words CRuby's `Errno` carries for a call on `host` and `port`.
-pub(super) fn for_peer(call: &str, host: &str, port: impl std::fmt::Display) -> String {
+fn for_peer(call: &str, host: &str, port: impl std::fmt::Display) -> String {
     format!("{call} for \"{host}\" port {port}")
 }
 
@@ -203,7 +203,7 @@ pub(super) fn sockaddr_of(ip: IpAddr, port: u16) -> Vec<u8> {
 
 /// The end a packed `sockaddr_in` or `sockaddr_in6` holds; a String no IPv4
 /// or IPv6 `sockaddr` lays out raises `ArgumentError`, as CRuby's.
-pub(super) fn unpacked(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error> {
+pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error> {
     let bytes = Vec::<u8>::from_value(sockaddr).ok_or_else(|| errno::type_error(mrb, sockaddr))?;
     let family = bytes
         .get(..2)
@@ -229,7 +229,7 @@ fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Re
 /// `Socket.unpack_sockaddr_in(sockaddr)` answers `[port, ip]`; a String no
 /// IPv4 or IPv6 `sockaddr` lays out raises `ArgumentError`, as CRuby's.
 fn socket_s_unpack_sockaddr_in(mrb: &Mrb, _self: Value, sockaddr: Value) -> Result<Value, Error> {
-    let (ip, port) = unpacked(mrb, sockaddr)?;
+    let (ip, port) = end_of(mrb, sockaddr)?;
     let answer = mrb.ary_new();
     answer.push(mrb, i64::from(port).into_value(mrb))?;
     answer.push(mrb, mrb.str_new(ip.to_string().as_bytes()).as_value())?;

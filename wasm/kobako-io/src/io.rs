@@ -410,8 +410,6 @@ fn write_newline(mrb: &Mrb, self_: Value) -> Result<(), Error> {
     write_one(mrb, self_, nl)
 }
 
-/// Returned as `Err`, so the bridge frame raises it only after the Rust
-/// frame has unwound — unlike a direct `mrb_raise` long-jump.
 /// Which way a call that would wait was going, as CRuby's
 /// `IO::WaitReadable` and `IO::WaitWritable` tell them apart.
 #[derive(Clone, Copy)]
@@ -484,6 +482,8 @@ pub(crate) fn would_wait(
     Ok(Symbol::new(mrb, name)?.as_value())
 }
 
+/// Returned as `Err`, so the bridge frame raises it only after the Rust
+/// frame has unwound — unlike a direct `mrb_raise` long-jump.
 pub(crate) fn argument_error(mrb: &Mrb, msg: &str) -> Error {
     match mrb.exception_arg_error() {
         Ok(cls) => Error::new(mrb, cls, msg),
