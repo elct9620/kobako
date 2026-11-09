@@ -197,8 +197,9 @@ impl Policies {
 
 ## `Builder`
 
-An entry built in code, as Ruby's DSL block builds one. Its endpoints and
-policies add to those of an entry given beside it.
+An entry built in code, as Ruby's DSL block builds one. Its endpoints,
+credentials, and policies add to those of an entry given beside it.
+`Builder::default()` adds to none, as a block given alone does.
 
 ```rust
 pub struct Builder {}

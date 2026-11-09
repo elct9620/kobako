@@ -1,12 +1,14 @@
 //! An entry built in code, adding to one given beside it, as Ruby's
-//! `Kobako::Network::Builder` adds a block's endpoints and policies to an object.
+//! `Kobako::Network::Builder` adds a block's endpoints, credentials, and
+//! policies to an object.
 
 use std::sync::Arc;
 
 use super::{Connection, Credential, Endpoint, Entry, Name, Policies, Request};
 use crate::grant::Policy;
 
-/// An entry whose endpoints and policies are the given entry's, then its own.
+/// An entry whose endpoints, credentials, and policies are the given entry's,
+/// then its own; `Builder::default()` is given none, as a Ruby block alone.
 #[derive(Default)]
 pub struct Builder {
     entry: Option<Arc<dyn Entry>>,
