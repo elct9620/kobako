@@ -291,7 +291,7 @@ fn socket_setsockopt(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, E
             .unwrap_or(Err(Refused::Unknown)),
     };
     set.map(|()| 0.into_value(mrb))
-        .map_err(|refused| refused.to_error(mrb, level, "setsockopt(2)"))
+        .map_err(|refused| refused.into_error(mrb, level, "setsockopt(2)"))
 }
 
 /// Why a socket answered no option: WASI's error, an option WASI has no call
@@ -311,7 +311,7 @@ impl From<ErrorCode> for Refused {
 impl Refused {
     /// The `Errno` Linux answers: an unknown option at a level it knows
     /// raises ENOPROTOOPT, and a level it does not ENOTSUP.
-    fn to_error(self, mrb: &Mrb, level: i32, call: &str) -> Error {
+    fn into_error(self, mrb: &Mrb, level: i32, call: &str) -> Error {
         let known = LEVELS.iter().any(|known| known.number == level);
         match self {
             Self::Wasi(code) => to_error(mrb, code, "BasicSocket", call),
@@ -435,7 +435,7 @@ fn socket_getsockopt(
         None => with_udp_socket(mrb, self_, |socket| Ok(udp_option(socket, option)))?
             .unwrap_or(Err(Refused::Unknown)),
     };
-    let value = read.map_err(|refused| refused.to_error(mrb, level, "getsockopt(2)"))?;
+    let value = read.map_err(|refused| refused.into_error(mrb, level, "getsockopt(2)"))?;
     let option = SockOption {
         family: AF_INET,
         level,
