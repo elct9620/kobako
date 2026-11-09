@@ -53,7 +53,7 @@ class TestE2ENetworkSocketOptionsCruby < Minitest::Test
   UNANSWERED = <<~RUBY
     answer = lambda do |&call|
       call.call
-    rescue StandardError => e
+    rescue StandardError, NotImplementedError => e
       "\#{e.class}: \#{e.message}"
     end
     socket = TCPSocket.new("127.0.0.1", %<port>d)
@@ -62,24 +62,33 @@ class TestE2ENetworkSocketOptionsCruby < Minitest::Test
       answer.call { socket.getsockopt(:TCP, :NODELAY) },
       answer.call { socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1) },
       answer.call { udp.setsockopt(:SOCKET, :KEEPALIVE, true) },
-      answer.call { socket.setsockopt(:SOCKET, :REUSEADDR, 1) }
+      answer.call { socket.setsockopt(:SOCKET, :REUSEADDR, 1) },
+      answer.call { Socket::Option.int(:UNIX, :SOCKET, :KEEPALIVE, 1) },
+      answer.call { Socket::Option.int(:BOGUS, :SOCKET, :KEEPALIVE, 1) }
     ]
     socket.close
     udp.close
     answers
   RUBY
 
+  UNANSWERED_ANSWERS = [
+    "Errno::ENOPROTOOPT: Protocol not available - getsockopt(2)",
+    "Errno::ENOPROTOOPT: Protocol not available - setsockopt(2)",
+    "Errno::ENOPROTOOPT: Protocol not available - setsockopt(2)",
+    "SocketError: unknown socket level option name: REUSEADDR",
+    "NotImplementedError: address family UNIX is unimplemented: the guest numbers only INET and INET6",
+    "SocketError: unknown socket domain: BOGUS"
+  ].freeze
+
   # @behavior NW-127
   def test_an_option_wasi_has_no_call_for_raises_where_cruby_sets_it
     with_upcase_server do |port|
       value = sandbox_reaching(port).eval(format(UNANSWERED, port: port)).value
 
-      assert_equal ["Errno::ENOPROTOOPT: Protocol not available - getsockopt(2)",
-                    "Errno::ENOPROTOOPT: Protocol not available - setsockopt(2)",
-                    "Errno::ENOPROTOOPT: Protocol not available - setsockopt(2)",
-                    "SocketError: unknown socket level option name: REUSEADDR"], value,
-                   "TCP_NODELAY and a UDPSocket's SO_KEEPALIVE must raise Errno::ENOPROTOOPT and a name the guest " \
-                   "defines no constant for SocketError, where CRuby sets each, since WASI has no call for them"
+      assert_equal UNANSWERED_ANSWERS, value,
+                   "TCP_NODELAY and a UDPSocket's SO_KEEPALIVE must raise Errno::ENOPROTOOPT, a name the guest " \
+                   "defines no constant for SocketError, and a family CRuby knows but the guest cannot number " \
+                   "NotImplementedError, where CRuby takes each; a family no one knows raises SocketError as CRuby's"
     end
   end
 end

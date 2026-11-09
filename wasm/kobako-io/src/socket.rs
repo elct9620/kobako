@@ -14,7 +14,7 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
     Error, Exception, ExceptionClass, Integer, IntoValue, Module, Mrb, Proc, Qtrue, RArray, RClass,
-    RHash, Symbol, TryConvert, TypedData, Value,
+    RHash, RString, Symbol, TryConvert, TypedData, Value,
 };
 use std::time::Duration;
 
@@ -201,6 +201,99 @@ fn define_socket_io(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
 /// Linux's address families, the numbers CRuby's `Socket` names them by.
 pub(crate) const AF_INET: i64 = 2;
 pub(crate) const AF_INET6: i64 = 10;
+
+/// The address families CRuby's `Socket` names, each also spelled with `AF_`
+/// or `PF_` before it, as `ext/socket/mkconstants.rb` lists them.
+const FAMILIES: &[&str] = &[
+    "ALG",
+    "APPLETALK",
+    "ATM",
+    "AX25",
+    "BLUETOOTH",
+    "CAN",
+    "CCITT",
+    "CHAOS",
+    "CNT",
+    "COIP",
+    "DATAKIT",
+    "DEC",
+    "DLI",
+    "E164",
+    "ECMA",
+    "HYLINK",
+    "IB",
+    "IMPLINK",
+    "INET",
+    "INET6",
+    "IPX",
+    "ISDN",
+    "ISO",
+    "KCM",
+    "KEY",
+    "LAT",
+    "LINK",
+    "LLC",
+    "LOCAL",
+    "MAX",
+    "MPLS",
+    "NATM",
+    "NDRV",
+    "NETBIOS",
+    "NETGRAPH",
+    "NETLINK",
+    "NS",
+    "OSI",
+    "PACKET",
+    "PPP",
+    "PPPOX",
+    "PUP",
+    "RDS",
+    "ROUTE",
+    "SIP",
+    "SNA",
+    "SYSTEM",
+    "TIPC",
+    "UNIX",
+    "UNSPEC",
+    "VSOCK",
+    "XDP",
+];
+
+/// An address family a script names: a number, or a family CRuby names,
+/// without its `AF_` or `PF_`.
+pub(crate) enum Family {
+    Number(i64),
+    Named(String),
+}
+
+/// The family `value` names, as CRuby's `rsock_family_arg` reads a Symbol, a
+/// String, or an Integer; a name no family has raises `SocketError`.
+pub(crate) fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
+    let text = match Symbol::from_value(value) {
+        Some(symbol) => Some(symbol.name(mrb)?.to_string()),
+        None if RString::from_value(value).is_some() => {
+            Some(value.to_r_string(mrb)?.to_string(mrb)?)
+        }
+        None => None,
+    };
+    let Some(name) = text else {
+        return Ok(Family::Number(i64::try_convert(value, mrb)?));
+    };
+    let bare = name
+        .strip_prefix("AF_")
+        .or_else(|| name.strip_prefix("PF_"))
+        .unwrap_or(&name);
+    if !FAMILIES.contains(&bare) {
+        let socket_error = ExceptionClass::from_value(mrb.class_get(c"SocketError")?.as_value())
+            .expect("SocketError is defined as an exception");
+        return Err(Error::new(
+            mrb,
+            socket_error,
+            &format!("unknown socket domain: {name}"),
+        ));
+    }
+    Ok(Family::Named(bare.to_string()))
+}
 
 /// The `NotImplementedError` a `class` raises when the Sandbox gives the guest
 /// no network.

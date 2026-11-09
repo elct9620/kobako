@@ -1560,8 +1560,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server |
-| When | the script asks for `TCP_NODELAY`, sets `SO_KEEPALIVE` on a `UDPSocket`, and sets `SO_REUSEADDR` |
-| Then | the first two raise `Errno::ENOPROTOOPT` and the name `SocketError`, where CRuby sets each. WASI has no call for them, and the guest defines no constant for a name it cannot answer |
+| When | the script asks for `TCP_NODELAY`, sets `SO_KEEPALIVE` on a `UDPSocket`, and sets `SO_REUSEADDR`. It makes a `Socket::Option` for `AF_UNIX`, then for a family no one names |
+| Then | the first two raise `Errno::ENOPROTOOPT` and the name `SocketError`, where CRuby sets each. `AF_UNIX` raises `NotImplementedError`, where CRuby numbers it, since the guest numbers only IPv4 and IPv6. The unknown family raises `SocketError`, as CRuby's does |
 
 ## `NW-128` A script's Net::HTTP defines no TLS setting
 

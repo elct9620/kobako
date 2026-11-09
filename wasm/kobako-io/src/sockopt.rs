@@ -10,7 +10,7 @@ use beni::{
 };
 
 use crate::errno;
-use crate::socket::{to_error, with_tcp_socket, AF_INET, AF_INET6};
+use crate::socket::{family_of, to_error, with_tcp_socket, Family, AF_INET, AF_INET6};
 use crate::udp::with_udp_socket;
 use crate::wasi::wasi::sockets::network::ErrorCode;
 use crate::wasi::wasi::sockets::tcp::TcpSocket;
@@ -221,20 +221,19 @@ fn optname_of(mrb: &Mrb, level: i32, value: Value) -> Result<i32, Error> {
         })
 }
 
-/// The family `value` names: IPv4 or IPv6, as the guest's sockets know no
-/// other.
-fn family_of(mrb: &Mrb, value: Value) -> Result<i64, Error> {
-    let Some(name) = spelled(mrb, value)? else {
-        return i64::try_convert(value, mrb);
-    };
-    let bare = name
-        .strip_prefix("AF_")
-        .or_else(|| name.strip_prefix("PF_"))
-        .unwrap_or(&name);
-    match bare {
-        "INET" => Ok(AF_INET),
-        "INET6" => Ok(AF_INET6),
-        _ => Err(socket_error(mrb, &format!("unknown socket domain: {name}"))),
+/// The number of the family `value` names. The guest numbers only IPv4 and
+/// IPv6, so another family CRuby knows raises `NotImplementedError`.
+fn family_number_of(mrb: &Mrb, value: Value) -> Result<i64, Error> {
+    match family_of(mrb, value)? {
+        Family::Number(number) => Ok(number),
+        Family::Named(name) if name == "INET" => Ok(AF_INET),
+        Family::Named(name) if name == "INET6" => Ok(AF_INET6),
+        Family::Named(name) => Err(errno::not_implemented(
+            mrb,
+            &format!(
+                "address family {name} is unimplemented: the guest numbers only INET and INET6"
+            ),
+        )),
     }
 }
 
@@ -453,7 +452,7 @@ fn new_option(
 ) -> Result<Value, Error> {
     let level_number = level_of(mrb, level)?;
     let option = SockOption {
-        family: family_of(mrb, family)?,
+        family: family_number_of(mrb, family)?,
         level: level_number,
         optname: optname_of(mrb, level_number, optname)?,
         data,
