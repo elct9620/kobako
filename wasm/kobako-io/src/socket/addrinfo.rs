@@ -9,8 +9,8 @@ use std::time::Duration;
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{
-    Error, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash, Symbol, TryConvert, TypedData,
-    Value,
+    Error, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash, RString, Symbol, TryConvert,
+    TypedData, Value,
 };
 
 use super::address::{end_of, packed_host, port_of, sockaddr_of};
@@ -30,6 +30,28 @@ const SOCK_SEQPACKET: i64 = 5;
 const SOCK_PACKET: i64 = 10;
 pub(super) const IPPROTO_TCP: i64 = 6;
 pub(super) const IPPROTO_UDP: i64 = 17;
+
+/// The IP protocols CRuby names on Linux, as `inspect` shows a protocol
+/// beside a kind it does not imply.
+const IP_PROTOCOLS: &[(i64, &str)] = &[
+    (1, "IPPROTO_ICMP"),
+    (2, "IPPROTO_IGMP"),
+    (IPPROTO_TCP, "IPPROTO_TCP"),
+    (8, "IPPROTO_EGP"),
+    (12, "IPPROTO_PUP"),
+    (IPPROTO_UDP, "IPPROTO_UDP"),
+    (22, "IPPROTO_IDP"),
+    (29, "IPPROTO_TP"),
+    (41, "IPPROTO_IPV6"),
+    (43, "IPPROTO_ROUTING"),
+    (44, "IPPROTO_FRAGMENT"),
+    (50, "IPPROTO_ESP"),
+    (51, "IPPROTO_AH"),
+    (58, "IPPROTO_ICMPV6"),
+    (59, "IPPROTO_NONE"),
+    (60, "IPPROTO_DSTOPTS"),
+    (255, "IPPROTO_RAW"),
+];
 
 /// glibc's `getaddrinfo` and `getnameinfo` flags the guest's lookup reads.
 const AI_PASSIVE: i64 = 1;
@@ -238,7 +260,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     // What `inspect` shows past the address and port, as CRuby's
     // `make_inspectname` drops what they already show.
     let mut inspectname = name.clone().filter(|name| *name != ip.to_string());
-    if !service_text.is_empty() && service_text != port.to_string() {
+    if RString::from_value(service).is_some() && service_text != port.to_string() {
         inspectname = Some(format!(
             "{}:{service_text}",
             inspectname.unwrap_or_default()
@@ -525,9 +547,10 @@ fn addrinfo_inspect(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
             };
             text += &match protocol {
                 0 => String::new(),
-                IPPROTO_TCP if internet => " IPPROTO_TCP".to_string(),
-                IPPROTO_UDP if internet => " IPPROTO_UDP".to_string(),
-                protocol => format!(" UNKNOWN_PROTOCOL({protocol})"),
+                protocol => match IP_PROTOCOLS.iter().find(|(number, _)| *number == protocol) {
+                    Some((_, name)) if internet => format!(" {name}"),
+                    _ => format!(" UNKNOWN_PROTOCOL({protocol})"),
+                },
             };
         }
     }
@@ -586,7 +609,13 @@ fn addrinfo_family_addrinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<V
     let (host, port) = match args {
         [] => return Err(argument_error(mrb, "no address specified")),
         [host, port] => (*host, *port),
-        _ => return Err(Error::argnum(mrb, args.len(), 2, 2)),
+        _ => {
+            let message = format!(
+                "IP address needs host and port but {} arguments given",
+                args.len()
+            );
+            return Err(argument_error(mrb, &message));
+        }
     };
     let info = Addrinfo::of(mrb, self_)?;
     let hints = Hints {

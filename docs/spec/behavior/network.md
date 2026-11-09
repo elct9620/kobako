@@ -1782,5 +1782,5 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server that answers paragraphs and closes, and a UDP peer |
-| When | the script calls `recv(0)` on each socket, then `recv` and `wait_readable` after `close_read`. It reads paragraphs, fills an `outbuf` at the end, and sends after `close_write` |
-| Then | a TCP `recv(0)` answers `nil`, and a UDP one drops a datagram. After `close_read`, `recv` reads and `wait_readable` raises `IOError`. A paragraph takes the newlines after it. At the end `readpartial` empties its `outbuf` and `recv` keeps it. The UDP send raises `Errno::EPIPE` |
+| When | the script calls `recv(0)` on each socket, and `recv_nonblock(0)` before bytes come. It calls `recv` and `wait_readable` after `close_read`, reads paragraphs, fills an `outbuf` at the end, and sends after `close_write` |
+| Then | a TCP `recv(0)` answers `nil` once bytes come, and a UDP one drops a datagram. Before bytes come `recv_nonblock(0)` raises `IO::EAGAINWaitReadable`. After `close_read`, `recv` reads what came and `wait_readable` raises `IOError`. A paragraph takes the newlines after it. At the end `readpartial` empties its `outbuf` and `recv` keeps it. The UDP send raises `Errno::EPIPE` |

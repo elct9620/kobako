@@ -17,8 +17,8 @@ class TestE2ENetworkSocketEnds < Minitest::Test
       pack.call(1, "<any>"), pack.call(1, nil), pack.call(1, 5), pack.call(443, "::1"), pack.call(70_000, "1.2.3.4")
     ]
     unpack = ->(port, host) { Socket.unpack_sockaddr_in(Socket.pack_sockaddr_in(port, host)) }
-    refused = begin
-      Socket.unpack_sockaddr_in("xx")
+    refused = %w[xx x].map do |sockaddr|
+      Socket.unpack_sockaddr_in(sockaddr)
     rescue ArgumentError => e
       e.message
     end
@@ -43,7 +43,8 @@ class TestE2ENetworkSocketEnds < Minitest::Test
       net.endpoint "localhost", port: 9, protocol: :tcp, addresses: [:local]
     end
 
-    assert_equal [PACKED, [8080, "1.2.3.4"], [1, "fe80::1"], [9, "198.18.0.0"], "not an AF_INET/AF_INET6 sockaddr"],
+    assert_equal [PACKED, [8080, "1.2.3.4"], [1, "fe80::1"], [9, "198.18.0.0"],
+                  ["not an AF_INET/AF_INET6 sockaddr", "too short sockaddr"]],
                  sandbox.eval(PACKS).value,
                  "Socket.sockaddr_in must pack each host and port as Linux's sockaddr_in or sockaddr_in6, nil as " \
                  "127.0.0.1 and a name as its virtual address; Socket.unpack_sockaddr_in must answer [port, ip] " \

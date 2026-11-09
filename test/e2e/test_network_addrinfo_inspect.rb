@@ -20,21 +20,23 @@ class TestE2ENetworkAddrinfoInspect < Minitest::Test
      refusal.call { Addrinfo.ip("127.0.0.1").family_addrinfo },
      Addrinfo.new(packed, nil, :STREAM).inspect, Addrinfo.new(packed, nil, 5).inspect,
      Addrinfo.new(packed, :INET, 9, 7).inspect, Addrinfo.tcp("127.0.0.1", "0080").inspect,
-     Addrinfo.tcp("", 80).inspect, Addrinfo.tcp("127.0.0.1", "80").inspect,
-     refusal.call { Socket.unpack_sockaddr_in("x") }]
+     Addrinfo.tcp("", 80).inspect, Addrinfo.tcp("127.0.0.1", "80").inspect, Addrinfo.tcp("127.0.0.1", "").inspect,
+     Addrinfo.new(packed, :INET, :RAW, 1).inspect,
+     refusal.call { Addrinfo.ip("127.0.0.1").family_addrinfo("127.0.0.2") }]
   RUBY
 
   ANSWERS = ["#<Addrinfo: 1.2.3.4 TCP>", "#<Addrinfo: 127.0.0.2:80 TCP>", ["ArgumentError", "no address specified"],
              "#<Addrinfo: 1.2.3.4:80 SOCK_STREAM>", "#<Addrinfo: 1.2.3.4:80 SOCK_SEQPACKET>",
              "#<Addrinfo: 1.2.3.4:80 SOCK_???(9) UNKNOWN_PROTOCOL(7)>", "#<Addrinfo: 127.0.0.1:80 TCP (:0080)>",
-             "#<Addrinfo: 0.0.0.0:80 TCP ()>", "#<Addrinfo: 127.0.0.1:80 TCP>",
-             ["ArgumentError", "too short sockaddr"]].freeze
+             "#<Addrinfo: 0.0.0.0:80 TCP ()>", "#<Addrinfo: 127.0.0.1:80 TCP>", "#<Addrinfo: 127.0.0.1 TCP (:)>",
+             "#<Addrinfo: 1.2.3.4:80 SOCK_RAW IPPROTO_ICMP>",
+             ["ArgumentError", "IP address needs host and port but 1 arguments given"]].freeze
 
   # @behavior NW-140
   def test_an_addrinfo_shows_and_converts_as_crubys
     assert_equal ANSWERS, Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(SHOWN).value,
-                 "Addrinfo#inspect must name a kind only for an IP family, unknown kinds by number, and a service " \
-                 "spelled apart from its port; #ipv6_to_ipv4 must drop the port; #family_addrinfo must keep the " \
-                 "lookup's kind and refuse no address; a sockaddr too short for a family ArgumentError"
+                 "Addrinfo#inspect must name a kind only for an IP family, unknown kinds by number, each IP " \
+                 "protocol by name, and a service spelled apart from its port; #ipv6_to_ipv4 must drop the port; " \
+                 "#family_addrinfo must keep the lookup's kind and refuse anything but a host and a port"
   end
 end
