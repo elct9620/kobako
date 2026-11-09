@@ -11,6 +11,7 @@
 
 mod address;
 mod basic;
+mod buffer;
 mod ip;
 mod option;
 mod tcp;
@@ -24,7 +25,8 @@ use beni::{
     Error, Exception, ExceptionClass, Module, Mrb, RClass, RString, Symbol, TryConvert, Value,
 };
 
-pub(crate) use basic::{holds_buffered, is_socket};
+pub(crate) use basic::is_socket;
+pub(crate) use buffer::holds_buffered;
 
 use crate::errno;
 use crate::wasi::wasi::io::streams::StreamError;
