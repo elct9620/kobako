@@ -11,8 +11,10 @@ use beni::{
 
 use crate::errno;
 use crate::socket::{to_error, with_tcp_socket, AF_INET, AF_INET6};
+use crate::udp::with_udp_socket;
 use crate::wasi::wasi::sockets::network::ErrorCode;
 use crate::wasi::wasi::sockets::tcp::TcpSocket;
+use crate::wasi::wasi::sockets::udp::UdpSocket;
 
 // Linux's numbers for the levels and options the guest names.
 const IPPROTO_IP: i32 = 0;
@@ -281,34 +283,73 @@ fn socket_setsockopt(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, E
         }
         _ => return Err(Error::argnum(mrb, args.len(), 3, 3)),
     };
-    let set = with_tcp_socket(mrb, self_, |socket| {
-        set_tcp_option(socket, (level, optname), int_of(mrb, &data)?).map_err(|code| {
-            code.map_or_else(
-                || unknown_option(mrb, level, "setsockopt(2)"),
-                |code| to_error(mrb, code, "TCPSocket", "setsockopt(2)"),
-            )
-        })
-    })?;
-    match set {
-        Some(()) => Ok(0.into_value(mrb)),
-        None => Err(unknown_option(mrb, level, "setsockopt(2)")),
+    let int = int_of(mrb, &data)?;
+    let option = (level, optname);
+    let set = match with_tcp_socket(mrb, self_, |socket| Ok(set_tcp_option(socket, option, int)))? {
+        Some(set) => set,
+        None => with_udp_socket(mrb, self_, |socket| Ok(set_udp_option(socket, option, int)))?
+            .unwrap_or(Err(Refused::Unknown)),
+    };
+    set.map(|()| 0.into_value(mrb))
+        .map_err(|refused| refused.to_error(mrb, level, "setsockopt(2)"))
+}
+
+/// Why a socket answered no option: WASI's error, an option WASI has no call
+/// for, or a level the socket's protocol does not take.
+enum Refused {
+    Wasi(ErrorCode),
+    Unknown,
+    Unsupported,
+}
+
+impl From<ErrorCode> for Refused {
+    fn from(code: ErrorCode) -> Self {
+        Self::Wasi(code)
     }
 }
 
+impl Refused {
+    /// The `Errno` Linux answers: an unknown option at a level it knows
+    /// raises ENOPROTOOPT, and a level it does not ENOTSUP.
+    fn to_error(self, mrb: &Mrb, level: i32, call: &str) -> Error {
+        let known = LEVELS.iter().any(|known| known.number == level);
+        match self {
+            Self::Wasi(code) => to_error(mrb, code, "BasicSocket", call),
+            Self::Unknown if known => errno::error_by_name(mrb, c"ENOPROTOOPT", call),
+            Self::Unknown | Self::Unsupported => errno::error_by_name(mrb, c"ENOTSUP", call),
+        }
+    }
+}
+
+/// A buffer size as Linux reads one, unsigned, and as WASI takes it, never
+/// zero: Linux keeps its least for zero, which one byte also asks for.
+fn to_buffer_size(int: i32) -> u64 {
+    u64::from(int.cast_unsigned()).max(1)
+}
+
+/// A hop limit as `do_ip_setsockopt` takes `IP_TTL`: -1 for Linux's default,
+/// or 1 to 255.
+fn to_hop_limit(int: i32) -> Result<u8, Refused> {
+    match int {
+        -1 => Ok(64),
+        1..=255 => Ok(u8::try_from(int).expect("within u8")),
+        _ => Err(ErrorCode::InvalidArgument.into()),
+    }
+}
+
+/// A buffer size as Linux reads it back, twice what WASI answers.
+fn to_doubled(size: u64) -> i32 {
+    i32::try_from(size.saturating_mul(2)).unwrap_or(i32::MAX)
+}
+
 /// Set the option `(level, optname)` of a TCP socket to `int`, as Linux's
-/// `setsockopt(2)` reads it; `Err(None)` for an option WASI has no call for.
-fn set_tcp_option(
-    socket: &TcpSocket,
-    option: (i32, i32),
-    int: i32,
-) -> Result<(), Option<ErrorCode>> {
-    // Linux reads a buffer size as unsigned and keeps at least its least,
-    // where WASI refuses zero, so a size of zero asks for one byte.
-    let size = u64::from(int.cast_unsigned()).max(1);
-    match option {
+/// `setsockopt(2)` reads it.
+fn set_tcp_option(socket: &TcpSocket, option: (i32, i32), int: i32) -> Result<(), Refused> {
+    let set = match option {
         (SOL_SOCKET, SO_KEEPALIVE) => socket.set_keep_alive_enabled(int != 0),
-        (SOL_SOCKET, SO_RCVBUF) => socket.set_receive_buffer_size(size),
-        (SOL_SOCKET, SO_SNDBUF) => socket.set_send_buffer_size(size),
+        (SOL_SOCKET, SO_RCVBUF) => socket.set_receive_buffer_size(to_buffer_size(int)),
+        (SOL_SOCKET, SO_SNDBUF) => socket.set_send_buffer_size(to_buffer_size(int)),
+        (IPPROTO_IP, IP_TTL) => socket.set_hop_limit(to_hop_limit(int)?),
         (IPPROTO_TCP, TCP_KEEPIDLE) => {
             socket.set_keep_alive_idle_time(to_nanos(int, MAX_KEEPIDLE)?)
         }
@@ -319,38 +360,63 @@ fn set_tcp_option(
             Ok(count @ 1..=MAX_KEEPCNT) => socket.set_keep_alive_count(count),
             _ => Err(ErrorCode::InvalidArgument),
         },
-        _ => return Err(None),
-    }
-    .map_err(Some)
+        _ => return Err(Refused::Unknown),
+    };
+    Ok(set?)
 }
 
 /// `secs` as WASI's nanoseconds, within 1 to `max` as Linux takes a TCP
 /// keepalive time, else `invalid-argument`, which reads EINVAL.
-fn to_nanos(secs: i32, max: u32) -> Result<u64, Option<ErrorCode>> {
+fn to_nanos(secs: i32, max: u32) -> Result<u64, Refused> {
     match u32::try_from(secs) {
         Ok(secs @ 1..) if secs <= max => Ok(u64::from(secs) * NANOS_PER_SEC),
-        _ => Err(Some(ErrorCode::InvalidArgument)),
+        _ => Err(ErrorCode::InvalidArgument.into()),
     }
 }
 
 /// What the option `(level, optname)` of a TCP socket reads, as Linux's
-/// `getsockopt(2)` answers it; `Err(None)` for an option WASI has no call for.
-fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Option<ErrorCode>> {
-    let doubled = |size: u64| i32::try_from(size.saturating_mul(2)).unwrap_or(i32::MAX);
+/// `getsockopt(2)` answers it.
+fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Refused> {
     let secs = |nanos: u64| i32::try_from(nanos / NANOS_PER_SEC).unwrap_or(i32::MAX);
-    match option {
+    let read = match option {
         (SOL_SOCKET, SO_KEEPALIVE) => socket.keep_alive_enabled().map(i32::from),
         // WASI reads back the size asked for; Linux reads the doubled one.
-        (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(doubled),
-        (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(doubled),
+        (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(to_doubled),
+        (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(to_doubled),
+        (IPPROTO_IP, IP_TTL) => socket.hop_limit().map(i32::from),
         (IPPROTO_TCP, TCP_KEEPIDLE) => socket.keep_alive_idle_time().map(secs),
         (IPPROTO_TCP, TCP_KEEPINTVL) => socket.keep_alive_interval().map(secs),
         (IPPROTO_TCP, TCP_KEEPCNT) => socket
             .keep_alive_count()
             .map(|count| i32::try_from(count).unwrap_or(i32::MAX)),
-        _ => return Err(None),
-    }
-    .map_err(Some)
+        _ => return Err(Refused::Unknown),
+    };
+    Ok(read?)
+}
+
+/// Set the option `(level, optname)` of a UDP socket to `int`. A TCP option
+/// raises ENOPROTOOPT, as `udp_setsockopt` hands it to `ip_setsockopt`.
+fn set_udp_option(socket: &UdpSocket, option: (i32, i32), int: i32) -> Result<(), Refused> {
+    let set = match option {
+        (SOL_SOCKET, SO_RCVBUF) => socket.set_receive_buffer_size(to_buffer_size(int)),
+        (SOL_SOCKET, SO_SNDBUF) => socket.set_send_buffer_size(to_buffer_size(int)),
+        (IPPROTO_IP, IP_TTL) => socket.set_unicast_hop_limit(to_hop_limit(int)?),
+        _ => return Err(Refused::Unknown),
+    };
+    Ok(set?)
+}
+
+/// What the option `(level, optname)` of a UDP socket reads. A TCP option
+/// raises ENOTSUP, as Linux answers `getsockopt` at a level UDP does not take.
+fn udp_option(socket: &UdpSocket, option: (i32, i32)) -> Result<i32, Refused> {
+    let read = match option {
+        (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(to_doubled),
+        (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(to_doubled),
+        (IPPROTO_IP, IP_TTL) => socket.unicast_hop_limit().map(i32::from),
+        (IPPROTO_TCP, _) => return Err(Refused::Unsupported),
+        _ => return Err(Refused::Unknown),
+    };
+    Ok(read?)
 }
 
 /// `getsockopt(level, optname)`, answering a `Socket::Option` holding the
@@ -363,17 +429,13 @@ fn socket_getsockopt(
 ) -> Result<Value, Error> {
     let level = level_of(mrb, level)?;
     let optname = optname_of(mrb, level, optname)?;
-    let value = with_tcp_socket(mrb, self_, |socket| {
-        tcp_option(socket, (level, optname)).map_err(|code| {
-            code.map_or_else(
-                || unknown_option(mrb, level, "getsockopt(2)"),
-                |code| to_error(mrb, code, "TCPSocket", "getsockopt(2)"),
-            )
-        })
-    })?;
-    let Some(value) = value else {
-        return Err(unknown_option(mrb, level, "getsockopt(2)"));
+    let option = (level, optname);
+    let read = match with_tcp_socket(mrb, self_, |socket| Ok(tcp_option(socket, option)))? {
+        Some(read) => read,
+        None => with_udp_socket(mrb, self_, |socket| Ok(udp_option(socket, option)))?
+            .unwrap_or(Err(Refused::Unknown)),
     };
+    let value = read.map_err(|refused| refused.to_error(mrb, level, "getsockopt(2)"))?;
     let option = SockOption {
         family: AF_INET,
         level,
@@ -381,16 +443,6 @@ fn socket_getsockopt(
         data: value.to_le_bytes().to_vec(),
     };
     Ok(mrb.wrap(option).as_value())
-}
-
-/// The `Errno` Linux answers for an option the socket has no answer to: an
-/// unknown name at a level it knows, or a level it does not.
-fn unknown_option(mrb: &Mrb, level: i32, call: &str) -> Error {
-    let name = match LEVELS.iter().any(|known| known.number == level) {
-        true => c"ENOPROTOOPT",
-        false => c"ENOTSUP",
-    };
-    errno::error_by_name(mrb, name, call)
 }
 
 fn new_option(

@@ -28,6 +28,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_io.rb`
 - `test/e2e/test_network_socket_io_edges.rb`
 - `test/e2e/test_network_socket_options.rb`
+- `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_cruby.rb`
@@ -1536,3 +1537,28 @@ endpoint "api.example.com", port: 443
 | Given | a new UDP socket and a peer sending it more datagrams than a small buffer holds |
 | When | a Wasm Driver sets its hop limit and both buffer sizes, then connects to the peer |
 | Then | it reads Linux's default hop limit and refuses zero. The host socket it connects takes the limit set. Each buffer reads twice its size, and datagrams past the receive buffer are dropped |
+
+## `NW-126` A script sets hop limits and UDP options as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-123` |
+| relates | `NW-125` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script sets `IP_TTL` on a `TCPSocket` and a `UDPSocket`, and a `UDPSocket`'s buffer sizes. It asks the `UDPSocket` for TCP options |
+| Then | each answers as CRuby's on Linux: 64 by default, EINVAL outside 1 to 255, and -1 back to 64. A TCP option on a `UDPSocket` raises `Errno::ENOTSUP` to read and `Errno::ENOPROTOOPT` to set |
+
+## `NW-127` An option WASI has no call for raises where CRuby sets it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-123` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script asks for `TCP_NODELAY`, sets `SO_KEEPALIVE` on a `UDPSocket`, and sets `SO_REUSEADDR` |
+| Then | the first two raise `Errno::ENOPROTOOPT` and the name `SocketError`, where CRuby sets each. WASI has no call for them, and the guest defines no constant for a name it cannot answer |

@@ -72,6 +72,19 @@ impl ByteSource for Datagrams {
     }
 }
 
+/// What `call` answers for the UDP socket `value` stands for, `None` when it
+/// stands for no `UDPSocket`; a closed one raises `IOError`.
+pub(crate) fn with_udp_socket<T>(
+    mrb: &Mrb,
+    value: Value,
+    call: impl FnOnce(&UdpSocket) -> Result<T, Error>,
+) -> Result<Option<T>, Error> {
+    match Datagrams::of(mrb, value) {
+        Ok(datagrams) => datagrams.with(mrb, |open| call(&open.socket)).map(Some),
+        Err(_) => Ok(None),
+    }
+}
+
 /// The `UDPSocket` `value` stands for, as a socket a read takes bytes from.
 pub(crate) fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn ByteSource, Error> {
     Ok(Datagrams::of(mrb, value)?)
