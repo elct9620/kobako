@@ -2,7 +2,7 @@
 //! `ext/socket/tcpsocket.c` opens one to a peer.
 
 use std::cell::RefCell;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Shutdown};
 use std::task::Poll;
 use std::time::Duration;
 
@@ -69,17 +69,10 @@ impl SocketIo for Connection {
         })
     }
 
-    /// The bytes, once the writing side is open, as CRuby's `IO#write` sends
-    /// all it is given and `write_nonblock` what there is room for.
+    /// The bytes, as CRuby's `IO#write` sends all it is given and
+    /// `write_nonblock` what there is room for.
     fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error> {
         self.with(mrb, |open| {
-            if self.io.write_closed.get() {
-                return Err(Error::new(
-                    mrb,
-                    mrb.exc_get(c"IOError")?,
-                    "not opened for writing",
-                ));
-            }
             let failed = |err| stream_error(mrb, err);
             if wait == Wait::Block {
                 for chunk in bytes.chunks(WRITE_CHUNK) {
@@ -101,6 +94,29 @@ impl SocketIo for Connection {
             open.output.flush().map_err(failed)?;
             Ok(Poll::Ready(now.len()))
         })
+    }
+
+    /// The host shuts the side `how` names; shutting the writing side sends
+    /// the FIN once what was written is sent.
+    fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
+        let how = match how {
+            Shutdown::Read => ShutdownType::Receive,
+            Shutdown::Write => ShutdownType::Send,
+            Shutdown::Both => ShutdownType::Both,
+        };
+        self.with(mrb, |open| {
+            open.socket
+                .shutdown(how)
+                .map_err(|code| to_error(mrb, code, "TCPSocket", "shutdown(2)"))
+        })
+    }
+
+    fn close(&self) {
+        self.open.borrow_mut().take();
+    }
+
+    fn is_closed(&self) -> bool {
+        self.open.borrow().is_none()
     }
 }
 
@@ -138,13 +154,6 @@ pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
     socket.define_method(mrb, c"to_i", beni::method!(tcp_socket_fileno, 0))?;
     socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, -1))?;
     socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, -1))?;
-    socket.define_method(
-        mrb,
-        c"close_write",
-        beni::method!(tcp_socket_close_write, 0),
-    )?;
-    socket.define_method(mrb, c"close", beni::method!(tcp_socket_close, 0))?;
-    socket.define_method(mrb, c"closed?", beni::method!(tcp_socket_closed_p, 0))?;
     socket.define_method(mrb, c"peeraddr", beni::method!(tcp_socket_peeraddr, -1))?;
     socket.define_method(mrb, c"addr", beni::method!(tcp_socket_addr, -1))?;
     Ok(())
@@ -266,36 +275,11 @@ fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
     mrb.class_get(c"IO")?.const_get(mrb, c"TimeoutError")
 }
 
-/// `close_write` sends the FIN once what was written is sent, and a later
-/// write raises `IOError`, as CRuby's does.
-fn tcp_socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let connection = Connection::of(mrb, self_)?;
-    connection.with(mrb, |open| {
-        let _ = open.socket.shutdown(ShutdownType::Send);
-        connection.io.write_closed.set(true);
-        Ok(())
-    })?;
-    Ok(qnil().as_value())
-}
-
-fn tcp_socket_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    Connection::of(mrb, self_)?.open.borrow_mut().take();
-    Ok(qnil().as_value())
-}
-
 /// The socket's descriptor, its preview2 handle, which preview1's calls and
 /// `IO.select` reach as one fdtable holds a socket beside a file.
 fn tcp_socket_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let fd = Connection::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.handle()))?;
     Ok((fd as i64).into_value(mrb))
-}
-
-fn tcp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    Ok(Connection::of(mrb, self_)?
-        .open
-        .borrow()
-        .is_none()
-        .into_value(mrb))
 }
 
 /// `peeraddr(reverse_lookup = nil)` answers the peer as CRuby's

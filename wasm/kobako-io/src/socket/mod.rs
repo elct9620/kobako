@@ -41,6 +41,10 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     let socket_class = mrb.define_class(c"Socket", mrb.class_object())?;
     socket_class.const_set(mrb, c"AF_INET", AF_INET)?;
     socket_class.const_set(mrb, c"AF_INET6", AF_INET6)?;
+    // Linux's `shutdown(2)` sides.
+    socket_class.const_set(mrb, c"SHUT_RD", 0)?;
+    socket_class.const_set(mrb, c"SHUT_WR", 1)?;
+    socket_class.const_set(mrb, c"SHUT_RDWR", 2)?;
     let resolution = socket_class.define_error(mrb, c"ResolutionError", socket_error)?;
     resolution.define_method(mrb, c"error_code", beni::method!(resolution_error_code, 0))?;
     io.define_error(mrb, c"TimeoutError", mrb.exc_get(c"IOError")?)?;
@@ -246,7 +250,7 @@ pub(crate) fn resolution_error_with(mrb: &Mrb, code: i32, message: &str) -> Erro
 /// it, as CRuby raises `Errno::ECONNRESET` from a reset socket's read.
 pub(crate) fn stream_error(mrb: &Mrb, err: StreamError) -> Error {
     match err {
-        StreamError::Closed => errno::error_by_name(mrb, c"EPIPE", "write(2)"),
+        StreamError::Closed => errno::error_alone(mrb, c"EPIPE"),
         StreamError::LastOperationFailed(err) => {
             let name = err.to_debug_string();
             match CString::new(name.as_str()) {

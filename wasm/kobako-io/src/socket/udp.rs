@@ -3,15 +3,14 @@
 //! with the one peer a `connect` names, as Linux's connected UDP socket does.
 
 use std::cell::RefCell;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Shutdown};
 use std::task::Poll;
 
 use beni::prelude::*;
-use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
-use super::basic::{direct_args, exception_option, waited, IoState, SocketIo, Wait};
+use super::basic::{direct_args, exception_option, waited, writer_of, IoState, SocketIo, Wait};
 use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
 use super::{family_of, to_error, Family, AF_INET};
 use crate::errno;
@@ -42,6 +41,9 @@ struct Open {
     streams: Option<Streams>,
     socket: UdpSocket,
     bound: bool,
+    /// `shutdown` shut the sending side, as Linux's `SEND_SHUTDOWN`; WASI
+    /// has no shutdown for UDP, so the guest keeps it.
+    send_shut: bool,
 }
 
 /// What a `UDPSocket` stands for, kept in its payload so a script's instance
@@ -69,10 +71,32 @@ impl SocketIo for Datagrams {
     /// carrying no call, as CRuby's `IO#write` does.
     fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error> {
         let sent = self.with(mrb, |open| match &open.streams {
+            _ if open.send_shut => Err(errno::error_alone(mrb, c"EPIPE")),
             Some(streams) => send_datagram(mrb, streams, bytes.to_vec(), None, "write(2)", wait),
             None => Err(errno::error_alone(mrb, c"EDESTADDRREQ")),
         })?;
         Ok(sent.map(|()| bytes.len()))
+    }
+
+    /// A socket with no peer raises `Errno::ENOTCONN`, as Linux's. Shutting
+    /// the sending side refuses later sends; a datagram socket's reading side
+    /// keeps receiving, as Linux's does.
+    fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
+        self.with(mrb, |open| {
+            if open.streams.is_none() {
+                return Err(errno::error_by_name(mrb, c"ENOTCONN", "shutdown(2)"));
+            }
+            open.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
+            Ok(())
+        })
+    }
+
+    fn close(&self) {
+        self.open.borrow_mut().take();
+    }
+
+    fn is_closed(&self) -> bool {
+        self.open.borrow().is_none()
     }
 }
 
@@ -128,8 +152,6 @@ pub(super) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
         c"recvfrom_nonblock",
         beni::method!(udp_socket_recvfrom_nonblock, -1),
     )?;
-    socket.define_method(mrb, c"close", beni::method!(udp_socket_close, 0))?;
-    socket.define_method(mrb, c"closed?", beni::method!(udp_socket_closed_p, 0))?;
     socket.define_method(mrb, c"addr", beni::method!(udp_socket_addr, -1))?;
     Ok(())
 }
@@ -165,6 +187,7 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             streams: None,
             socket,
             bound: false,
+            send_shut: false,
         })),
         io: IoState::new(),
     };
@@ -252,7 +275,11 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         None => (None, "send(2)".to_string()),
     };
     let len = data.len();
+    writer_of(mrb, self_)?;
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
+        if open.send_shut {
+            return Err(errno::error_by_name(mrb, c"EPIPE", &call));
+        }
         let Some(streams) = &open.streams else {
             let name = if remote_address.is_some() {
                 c"EACCES"
@@ -381,11 +408,6 @@ fn receive_from_sender(
     Ok(answer.as_value())
 }
 
-fn udp_socket_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    Datagrams::of(mrb, self_)?.open.borrow_mut().take();
-    Ok(qnil().as_value())
-}
-
 /// `addr(reverse_lookup = nil)` answers the socket's own end as `TCPSocket`'s
 /// does; one not bound yet answers the unspecified address.
 fn udp_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
@@ -394,12 +416,4 @@ fn udp_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     }
     let local = Datagrams::of(mrb, self_)?.with(mrb, |open| Ok(open.socket.local_address()))?;
     local_addr_array(mrb, local, UDP)
-}
-
-fn udp_socket_closed_p(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    Ok(Datagrams::of(mrb, self_)?
-        .open
-        .borrow()
-        .is_none()
-        .into_value(mrb))
 }

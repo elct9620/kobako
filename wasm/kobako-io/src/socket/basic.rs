@@ -3,6 +3,7 @@
 //! receiving and sending, and the calls that reach them past the buffer.
 
 use std::cell::{Cell, RefCell};
+use std::net::Shutdown;
 use std::task::Poll;
 
 use beni::prelude::*;
@@ -25,16 +26,19 @@ pub(super) enum Wait {
 }
 
 /// What CRuby's `rb_io_t` keeps beside a socket: the read buffer, whose
-/// bytes come first, whether writes are sent at once, and whether
-/// `close_write` closed the writing side.
+/// bytes come first, whether writes are sent at once, and which sides
+/// `close_read` and `close_write` closed.
 pub(super) struct IoState {
     /// What a read took past what it answered.
     pub(super) held: RefCell<Vec<u8>>,
     /// Whether a write is sent at once, as `IO#sync` reads; a socket's is.
     pub(super) sync: Cell<bool>,
+    /// `close_read` closed the reading side, as CRuby's IO clears
+    /// `FMODE_READABLE`.
+    read_closed: Cell<bool>,
     /// `close_write` closed the writing side, as CRuby's IO clears
     /// `FMODE_WRITABLE`.
-    pub(super) write_closed: Cell<bool>,
+    write_closed: Cell<bool>,
 }
 
 impl IoState {
@@ -42,6 +46,7 @@ impl IoState {
         IoState {
             held: RefCell::new(Vec::new()),
             sync: Cell::new(true),
+            read_closed: Cell::new(false),
             write_closed: Cell::new(false),
         }
     }
@@ -62,6 +67,44 @@ pub(super) trait SocketIo {
     /// for, answering how many were sent; `Pending` when there is no room and
     /// `wait` does not wait.
     fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error>;
+
+    /// Shut the side `how` names, as `shutdown(2)` does.
+    fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error>;
+
+    /// Release the socket, its streams before it.
+    fn close(&self);
+
+    fn is_closed(&self) -> bool;
+}
+
+/// The socket `value` stands for, open: a closed one raises `IOError`.
+fn opened<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
+    let source = source_of(mrb, value)?;
+    match source.is_closed() {
+        true => Err(errno::io_error(mrb, "closed stream")),
+        false => Ok(source),
+    }
+}
+
+/// The socket `value` stands for, to read: a closed one, or one whose reading
+/// side `close_read` closed, raises `IOError`, as CRuby's checks it before
+/// any read, the buffer's included.
+pub(super) fn reader_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
+    let source = opened(mrb, value)?;
+    match source.io().read_closed.get() {
+        true => Err(errno::io_error(mrb, "not opened for reading")),
+        false => Ok(source),
+    }
+}
+
+/// The socket `value` stands for, to write: a closed one, or one whose
+/// writing side `close_write` closed, raises `IOError`.
+pub(super) fn writer_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
+    let source = opened(mrb, value)?;
+    match source.io().write_closed.get() {
+        true => Err(errno::io_error(mrb, "not opened for writing")),
+        false => Ok(source),
+    }
 }
 
 /// What a call that waits answers, which it does only once it is ready.
@@ -152,6 +195,11 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
         beni::method!(socket_recv_nonblock, -1),
     )?;
     basic.define_method(mrb, c"sysread", beni::method!(socket_sysread, -1))?;
+    basic.define_method(mrb, c"shutdown", beni::method!(socket_shutdown, -1))?;
+    basic.define_method(mrb, c"close_read", beni::method!(socket_close_read, 0))?;
+    basic.define_method(mrb, c"close_write", beni::method!(socket_close_write, 0))?;
+    basic.define_method(mrb, c"close", beni::method!(socket_close, 0))?;
+    basic.define_method(mrb, c"closed?", beni::method!(socket_closed_p, 0))?;
     super::buffer::init(mrb, basic)?;
     for name in [
         c"seek", c"rewind", c"pos", c"pos=", c"tell", c"pread", c"pwrite",
@@ -176,7 +224,7 @@ fn socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Err
     for object in objects {
         bytes.extend(bytes_of(mrb, *object)?);
     }
-    let sent = waited(source_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
+    let sent = waited(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
     Ok((sent as i64).into_value(mrb))
 }
 
@@ -190,7 +238,7 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
         return Err(Error::argnum(mrb, args.len(), 1, 1));
     };
     let bytes = bytes_of(mrb, *string)?;
-    match source_of(mrb, self_)?.send(mrb, &bytes, Wait::DontWait)? {
+    match writer_of(mrb, self_)?.send(mrb, &bytes, Wait::DontWait)? {
         Poll::Ready(sent) => Ok((sent as i64).into_value(mrb)),
         Poll::Pending => would_wait(mrb, Direction::Write, "write would block", exception),
     }
@@ -200,7 +248,7 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
 /// answering how many it sent.
 fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Error> {
     let bytes = bytes_of(mrb, string)?;
-    let sent = waited(source_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
+    let sent = waited(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
     Ok((sent as i64).into_value(mrb))
 }
 
@@ -233,11 +281,88 @@ pub(super) fn direct_args<'a>(
             return Err(errno::error_by_name(mrb, c"ENOTSUP", "recvfrom(2)"));
         }
     }
-    let source = source_of(mrb, self_)?;
+    let source = reader_of(mrb, self_)?;
     if !source.io().held.borrow().is_empty() {
         return Err(errno::io_error(mrb, refusal));
     }
     Ok((source, maxlen, outbuf))
+}
+
+/// The side a `shutdown` argument names, as CRuby's `rsock_shutdown_how_arg`
+/// reads it: `nil` for both, a number, or a name with or without `SHUT_`.
+fn shutdown_of(mrb: &Mrb, how: Option<Value>) -> Result<Shutdown, Error> {
+    let Some(how) = how.filter(|how| !how.is_nil()) else {
+        return Ok(Shutdown::Both);
+    };
+    if let Some(name) = super::spelled(mrb, how)? {
+        return match name.strip_prefix("SHUT_").unwrap_or(&name) {
+            "RD" => Ok(Shutdown::Read),
+            "WR" => Ok(Shutdown::Write),
+            "RDWR" => Ok(Shutdown::Both),
+            _ => Err(super::socket_error(
+                mrb,
+                &format!("unknown shutdown argument: {name}"),
+            )),
+        };
+    }
+    match i64::try_convert(how, mrb)? {
+        0 => Ok(Shutdown::Read),
+        1 => Ok(Shutdown::Write),
+        2 => Ok(Shutdown::Both),
+        _ => Err(argument_error(
+            mrb,
+            "`how' should be either :SHUT_RD, :SHUT_WR, :SHUT_RDWR",
+        )),
+    }
+}
+
+/// `shutdown(how = Socket::SHUT_RDWR)` shuts the side `how` names, answering
+/// 0. What has arrived still reads after the reading side shuts, and a write
+/// after the writing side shuts raises `Errno::EPIPE`, as Linux's.
+fn socket_shutdown(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    if args.len() > 1 {
+        return Err(Error::argnum(mrb, args.len(), 0, 1));
+    }
+    let how = shutdown_of(mrb, args.first().copied())?;
+    opened(mrb, self_)?.shutdown(mrb, how)?;
+    Ok(0.into_value(mrb))
+}
+
+/// `close_read` shuts the reading side and refuses a later read, closing the
+/// socket once its writing side is closed too, as CRuby's `rb_io_close_read`
+/// does for a socket.
+fn socket_close_read(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let source = opened(mrb, self_)?;
+    source.shutdown(mrb, Shutdown::Read)?;
+    let io = source.io();
+    io.read_closed.set(true);
+    if io.write_closed.get() {
+        source.close();
+    }
+    Ok(qnil().as_value())
+}
+
+/// `close_write` sends the FIN once what was written is sent and refuses a
+/// later write, closing the socket once its reading side is closed too.
+fn socket_close_write(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let source = opened(mrb, self_)?;
+    source.shutdown(mrb, Shutdown::Write)?;
+    let io = source.io();
+    io.write_closed.set(true);
+    if io.read_closed.get() {
+        source.close();
+    }
+    Ok(qnil().as_value())
+}
+
+/// `close` releases the socket; closing it again does nothing.
+fn socket_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    source_of(mrb, self_)?.close();
+    Ok(qnil().as_value())
+}
+
+fn socket_closed_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
+    Ok(source_of(mrb, self_)?.is_closed())
 }
 
 /// `recv(maxlen, flags = 0, outbuf = nil)` answers up to `maxlen` of what

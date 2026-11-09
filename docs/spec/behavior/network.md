@@ -31,6 +31,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_wait.rb`
 - `test/e2e/test_network_socket_direct.rb`
 - `test/e2e/test_network_socket_chars.rb`
+- `test/e2e/test_network_socket_shutdown.rb`
 - `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
@@ -1666,3 +1667,28 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server that answers bytes |
 | When | the script calls `recv` with `0`, with `MSG_DONTWAIT`'s 64, and with `MSG_PEEK`'s 2 or `MSG_OOB`'s 1 |
 | Then | `0` and 64 read, 64 waiting as CRuby's `recv` does. The others raise `Errno::ENOTSUP`, where CRuby peeks or reads urgent data, since WASI carries no receive flag |
+
+## `NW-136` A script shuts a TCPSocket's sides, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-118` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers a line and reads to its end |
+| When | the script calls `shutdown` by each name and number CRuby takes. It calls `close_read`, `close_write`, and `close` while a `gets` holds bytes back |
+| Then | each `shutdown` answers 0, and a name or number CRuby refuses raises as CRuby's does. A write after the writing side shuts raises `Errno::EPIPE`, and what arrived still reads after the reading side shuts. After `close_read` a read raises `IOError`, and the socket closes once both sides are. A closed socket raises `IOError` on every read, held bytes or not |
+
+## `NW-137` A script shuts a UDPSocket's sending side
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-136` |
+| relates | `NW-057` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP peer that answers datagrams |
+| When | the script calls `shutdown` before `connect`, then `shutdown(:WR)` after it, then sends |
+| Then | the first raises `Errno::ENOTCONN`, the second answers 0, and the send raises `Errno::EPIPE`, as Linux's datagram socket does |
