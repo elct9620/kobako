@@ -2259,46 +2259,6 @@ mod tests {
         );
     }
 
-    // The make holds only the directory it makes in, so only the removal
-    // holding that directory too, and removing it only once empty, keeps
-    // what the make made from going with it. The two land in the same
-    // instant only a few times in this many tries.
-    // @behavior FS-132
-    #[test]
-    fn a_removal_through_an_overlay_waits_for_a_change_in_that_directory() {
-        let (overlay, upper) = beside_its_upper([("upper/a/.keep", "")].into_iter().collect());
-        let stop = Arc::new(AtomicBool::new(false));
-        let churning = {
-            let stop = stop.clone();
-            thread::spawn(move || {
-                while !stop.load(Ordering::SeqCst) {
-                    let _ = crate::vfs::filename_mkdirat(&Arc::default(), &overlay, "a/b");
-                    let _ = crate::vfs::filename_rmdir(&Arc::default(), &overlay, "a/b");
-                }
-            })
-        };
-        let mut lost = 0;
-        for _ in 0..100_000 {
-            if crate::vfs::filename_mkdirat(&Arc::default(), &upper, "upper/a/b/made").is_ok() {
-                match crate::vfs::vfs_fstatat(&Arc::default(), &upper, "upper/a/b/made", false) {
-                    Ok(_) => {
-                        let _ =
-                            crate::vfs::filename_rmdir(&Arc::default(), &upper, "upper/a/b/made");
-                    }
-                    Err(_) => lost += 1,
-                }
-            }
-        }
-        stop.store(true, Ordering::SeqCst);
-        churning.join().expect("the Overlay's calls must not panic");
-        assert_eq!(
-            lost, 0,
-            "vfs::filename_mkdirat in a directory through a Mount of an Overlay's upper Tmpfs, while \
-             vfs::filename_rmdir removes that directory through the Overlay, must leave every \
-             directory it made standing"
-        );
-    }
-
     // The upper has room for the copy's entry but for less than
     // the lower file's bytes, so the copy fails part way.
     // @behavior FS-046
@@ -2817,6 +2777,46 @@ mod tests {
                     crate::sched::testing::join_scoped("the open", opening),
                 )
             })
+        }
+
+        // The make holds only the directory it makes in, so only the removal
+        // holding that directory too, and removing it only once empty, keeps
+        // what the make made from going with it. The two land in the same
+        // instant only a few times in this many tries.
+        // @behavior FS-132
+        #[test]
+        #[ignore = "a stress witness; run by rake crates:stress"]
+        fn a_removal_through_an_overlay_waits_for_a_change_in_that_directory() {
+            let (overlay, upper) = beside_its_upper([("upper/a/.keep", "")].into_iter().collect());
+            let stop = Arc::new(AtomicBool::new(false));
+            let churning = {
+                let stop = stop.clone();
+                thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        let _ = vfs::filename_mkdirat(&Arc::default(), &overlay, "a/b");
+                        let _ = vfs::filename_rmdir(&Arc::default(), &overlay, "a/b");
+                    }
+                })
+            };
+            let mut lost = 0;
+            for _ in 0..100_000 {
+                if vfs::filename_mkdirat(&Arc::default(), &upper, "upper/a/b/made").is_ok() {
+                    match vfs::vfs_fstatat(&Arc::default(), &upper, "upper/a/b/made", false) {
+                        Ok(_) => {
+                            let _ = vfs::filename_rmdir(&Arc::default(), &upper, "upper/a/b/made");
+                        }
+                        Err(_) => lost += 1,
+                    }
+                }
+            }
+            stop.store(true, Ordering::SeqCst);
+            churning.join().expect("the Overlay's calls must not panic");
+            assert_eq!(
+                lost, 0,
+                "vfs::filename_mkdirat in a directory through a Mount of an Overlay's upper \
+                 Tmpfs, while vfs::filename_rmdir removes that directory through the Overlay, \
+                 must leave every directory it made standing"
+            );
         }
 
         // A removal deciding how to hide the name before the copy up landed asked
