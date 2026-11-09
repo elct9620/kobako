@@ -1383,3 +1383,16 @@ endpoint "api.example.com", port: 443
 | Given | a TCP and a UDP endpoint naming loopback peers |
 | When | the script reads `addr` on each socket, the UDP one before it connects, after, and after it connects again. Then it connects to that address |
 | Then | each connected socket answers `198.19.255.254` and a port from 32768 up in connect order, never the host's. A second connect keeps the port. The unconnected one answers `0.0.0.0` port 0, and the connect raises `Errno::EACCES` |
+
+## `NW-113` A socket dropped while its streams live traps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016`, `NW-053` |
+| relates | `NW-064` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket and a streaming UDP socket, each with its streams and a pollable still held |
+| When | the guest drops a socket, or streams the UDP socket again |
+| Then | the call traps, as wasmtime-wasi traps a parent dropped first and a second stream while the first lives. Once the children are dropped, each succeeds |
