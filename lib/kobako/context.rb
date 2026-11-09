@@ -71,7 +71,7 @@ module Kobako
     def network(name, entry = nil, &builder)
       raise ArgumentError, "Kobako::Context is spent; ctx.network is only valid inside the #eval / #run block" if @spent
 
-      @replacements.replace(Catalog::Network.of(name, entry, &builder),
+      @replacements.replace(Catalog::Network.new(name: name, entry: entry, &builder),
                             "cannot override undeclared network entry #{name.to_s.inspect}")
       self
     end

@@ -2,7 +2,6 @@ module Kobako
   module Network
     type protocol = :http | :tcp | :udp
 
-
     class Endpoint < Data
       PROTOCOLS: Array[protocol]
       ADDRESS_SETS: Array[Symbol]

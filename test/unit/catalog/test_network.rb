@@ -13,7 +13,7 @@ module Kobako
     end
 
     def entry(name, &builder)
-      Catalog::Network.of(name, nil, &builder)
+      Catalog::Network.new(name: name, entry: nil, &builder)
     end
 
     # @behavior NW-002
@@ -70,10 +70,10 @@ module Kobako
 
     def test_a_block_adds_to_the_object_given_beside_it
       given = Struct.new(:endpoints).new([Network::Endpoint.new(host: "a.example.com", port: 443)])
-      network = Catalog::Network.of(:api, given) { |net| net.endpoint "b.example.com", port: 443 }
+      network = Catalog::Network.new(name: :api, entry: given) { |net| net.endpoint "b.example.com", port: 443 }
 
       assert_equal %w[a.example.com b.example.com], network.entry.endpoints.map(&:host),
-                   "Catalog::Network.of with an object and a block must answer the object's endpoints, then the block's"
+                   "an entry given as an object and a block must answer the object's endpoints, then the block's"
     end
 
     # An object refusing a connect to one host.
@@ -83,7 +83,7 @@ module Kobako
 
     # @behavior NW-021
     def test_a_block_policy_and_the_given_objects_connect_both_judge
-      builder = Catalog::Network.of(:guard, Refusing.new("10.0.0.9")) do |net|
+      builder = Catalog::Network.new(name: :guard, entry: Refusing.new("10.0.0.9")) do |net|
         net.policy(:connect) { |c| c.port != 22 }
       end.entry
       answers = [["10.0.0.1", 80], ["10.0.0.1", 22], ["10.0.0.9", 80]].map do |host, port|
@@ -101,7 +101,7 @@ module Kobako
 
     # @behavior NW-036
     def test_a_block_policy_and_the_given_objects_resolve_both_judge
-      builder = Catalog::Network.of(:guard, Unnaming.new("a.example.com")) do |net|
+      builder = Catalog::Network.new(name: :guard, entry: Unnaming.new("a.example.com")) do |net|
         net.policy(:resolve) { |name| !name.end_with?(".internal") }
       end.entry
 
@@ -111,7 +111,7 @@ module Kobako
 
     def test_a_block_adds_credentials_after_the_given_objects
       given = Struct.new(:credentials).new([:given])
-      builder = Catalog::Network.of(:api, given) do |net|
+      builder = Catalog::Network.new(name: :api, entry: given) do |net|
         net.credential(:bearer, placeholder: "kobako-token") { "s3cret" }
       end.entry
 
@@ -130,7 +130,7 @@ module Kobako
     def test_a_policy_for_an_unknown_hook_is_refused
       assert_raises(ArgumentError,
                     "Builder#policy for a hook other than :resolve, :connect, or :request must be refused") do
-        Catalog::Network.of(:guard, nil) { |net| net.policy(:listen) { true } }
+        Catalog::Network.new(name: :guard, entry: nil) { |net| net.policy(:listen) { true } }
       end
     end
   end

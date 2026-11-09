@@ -118,7 +118,7 @@ module Kobako
     # endpoint, or a call after the first invocation.
     def network(name, entry = nil, &builder)
       refuse_once_invoked("network")
-      @grants.register(Catalog::Network.of(name, entry, &builder))
+      @grants.register(Catalog::Network.new(name: name, entry: entry, &builder))
       self
     end
 

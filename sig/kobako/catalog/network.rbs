@@ -6,9 +6,9 @@ module Kobako
       attr_reader name: String
       attr_reader entry: untyped
 
-      def self.new: (name: String, entry: untyped) -> Network
+      def self.new: (name: untyped, entry: untyped) ?{ (Kobako::Network::Builder) -> void } -> Network
 
-      def self.of: (untyped name, untyped entry) ?{ (Kobako::Network::Builder) -> void } -> Network
+      def initialize: (name: untyped, entry: untyped) ?{ (Kobako::Network::Builder) -> void } -> void
 
       def key: () -> Grants::key
 

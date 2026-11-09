@@ -6,14 +6,15 @@ module Kobako
       # The entry named +name+: +entry+ as it stands, or a Builder adding the
       # block's endpoints to it. Raises ArgumentError for an empty name, which
       # no Context could replace it by.
-      def self.of(name, entry)
-        name = name.to_s
+      def initialize(name:, entry:)
+        name = name.to_s.freeze
         raise ArgumentError, "a network entry's name must not be empty" if name.empty?
-        return new(name: name.freeze, entry: entry) unless block_given?
 
-        builder = Kobako::Network::Builder.new(entry)
-        yield builder
-        new(name: name.freeze, entry: builder)
+        if block_given?
+          entry = Kobako::Network::Builder.new(entry)
+          yield entry
+        end
+        super
       end
 
       # The kind and name a Context replaces this entry by, so a Grant of
