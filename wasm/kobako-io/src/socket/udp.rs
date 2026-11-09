@@ -10,7 +10,7 @@ use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
-use super::basic::ByteSource;
+use super::basic::SocketIo;
 use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
 use super::{family_of, to_error, Family, AF_INET};
 use crate::errno;
@@ -53,7 +53,7 @@ struct Datagrams {
     sync: Cell<bool>,
 }
 
-impl ByteSource for Datagrams {
+impl SocketIo for Datagrams {
     fn held(&self) -> &RefCell<Vec<u8>> {
         &self.held
     }
@@ -63,6 +63,17 @@ impl ByteSource for Datagrams {
     fn receive(&self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
         self.with(mrb, |open| receive_from(mrb, open, MAX_DATAGRAM, "read(2)"))
             .map(|(data, _)| Some(data))
+    }
+
+    /// `bytes` as one datagram to the peer, as `write(2)` on a connected
+    /// datagram socket sends; with no peer it raises `Errno::EDESTADDRREQ`,
+    /// carrying no call, as CRuby's `IO#write` does.
+    fn send(&self, mrb: &Mrb, bytes: &[u8]) -> Result<usize, Error> {
+        self.with(mrb, |open| match &open.streams {
+            Some(streams) => send_datagram(mrb, streams, bytes.to_vec(), None, "write(2)"),
+            None => Err(errno::error_alone(mrb, c"EDESTADDRREQ")),
+        })?;
+        Ok(bytes.len())
     }
 
     fn sync(&self) -> &Cell<bool> {
@@ -84,7 +95,7 @@ pub(super) fn with_udp_socket<T>(
 }
 
 /// The `UDPSocket` `value` stands for, as a socket a read takes bytes from.
-pub(super) fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn ByteSource, Error> {
+pub(super) fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
     Ok(Datagrams::of(mrb, value)?)
 }
 
@@ -111,7 +122,6 @@ pub(super) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
     Datagrams::mark_carriers(mrb)?;
     socket.define_method(mrb, c"fileno", beni::method!(udp_socket_fileno, 0))?;
     socket.define_method(mrb, c"to_i", beni::method!(udp_socket_fileno, 0))?;
-    socket.define_method(mrb, c"write", beni::method!(udp_socket_write, -1))?;
     socket.define_singleton_method(mrb, c"new", beni::method!(udp_socket_s_new, -1))?;
     socket.define_singleton_method(mrb, c"open", beni::method!(udp_socket_s_new, -1))?;
     socket.define_method(mrb, c"bind", beni::method!(udp_socket_bind, 2))?;
@@ -254,25 +264,6 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
             return Err(errno::error_by_name(mrb, name, &call));
         };
         send_datagram(mrb, streams, data, remote_address, &call)
-    })?;
-    Ok((len as i64).into_value(mrb))
-}
-
-/// `write(*objects)` sends what the objects spell as one datagram to the peer,
-/// as `write(2)` on a connected datagram socket does; with no peer it raises
-/// `Errno::EDESTADDRREQ`, carrying no call, as CRuby's `IO#write` does.
-fn udp_socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Error> {
-    let mut data = Vec::new();
-    for object in objects {
-        data.extend(bytes_of(
-            mrb,
-            object.funcall::<_, _, Value>(mrb, c"to_s", ())?,
-        )?);
-    }
-    let len = data.len();
-    Datagrams::of(mrb, self_)?.with(mrb, |open| match &open.streams {
-        Some(streams) => send_datagram(mrb, streams, data, None, "write(2)"),
-        None => Err(errno::error_alone(mrb, c"EDESTADDRREQ")),
     })?;
     Ok((len as i64).into_value(mrb))
 }

@@ -7,7 +7,9 @@ use std::cell::{Cell, RefCell};
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, Integer, Mrb, Proc, RArray, RClass, RHash, Symbol, TryConvert, Value};
+use beni::{
+    Error, Integer, IntoValue, Mrb, Proc, RArray, RClass, RHash, Symbol, TryConvert, Value,
+};
 
 use super::tcp::Connection;
 use crate::errno;
@@ -17,21 +19,25 @@ use crate::io::argument_error;
 /// the host's socket buffer.
 pub(super) const READ_CHUNK: usize = 64 * 1024;
 
-/// A socket a read takes bytes from in order, as CRuby's read buffer stands
-/// before a socket: what an earlier read held back comes first.
-pub(super) trait ByteSource {
+/// What a `BasicSocket` call reaches: the socket's receiving and sending, as
+/// Linux's `proto_ops` gives each socket type its own, and the read buffer
+/// CRuby keeps before it, whose bytes come first.
+pub(super) trait SocketIo {
     /// What a read took past what it answered.
     fn held(&self) -> &RefCell<Vec<u8>>;
 
     /// The next bytes the host brings, waiting for some; `None` at the end.
     fn receive(&self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error>;
 
+    /// Send `bytes`, waiting for room, answering how many were sent.
+    fn send(&self, mrb: &Mrb, bytes: &[u8]) -> Result<usize, Error>;
+
     /// Whether a write is sent at once, as `IO#sync` reads; a socket's is.
     fn sync(&self) -> &Cell<bool>;
 }
 
 /// The socket `value` stands for, a `TCPSocket` or a `UDPSocket`.
-fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn ByteSource, Error> {
+fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
     match Connection::of(mrb, value) {
         Ok(connection) => Ok(connection),
         Err(_) => super::udp::source_of(mrb, value),
@@ -43,6 +49,7 @@ fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn ByteSource, Error> {
 /// or listing it has none of answered as Linux answers each, and no copy,
 /// since WASI dups no socket.
 pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
+    basic.define_method(mrb, c"write", beni::method!(socket_write, -1))?;
     basic.define_method(mrb, c"read", beni::method!(socket_read, -1))?;
     basic.define_method(mrb, c"readpartial", beni::method!(socket_readpartial, -1))?;
     basic.define_method(mrb, c"gets", beni::method!(socket_gets, -1))?;
@@ -66,10 +73,25 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     Ok(())
 }
 
+/// `write(*objects)` sends what the objects spell, answering how many bytes
+/// it sent, as CRuby's `IO#write` joins them.
+fn socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Error> {
+    let mut bytes = Vec::new();
+    for object in objects {
+        let data = object
+            .funcall::<_, _, Value>(mrb, c"to_s", ())?
+            .to_r_string(mrb)?;
+        // SAFETY: the bytes are copied before the next mruby call.
+        bytes.extend_from_slice(unsafe { data.as_bytes(mrb) });
+    }
+    let sent = source_of(mrb, self_)?.send(mrb, &bytes)?;
+    Ok((sent as i64).into_value(mrb))
+}
+
 /// Up to `len` bytes, what an earlier read held back first, else what the
 /// host brings next, holding back what the read did not take; `None` at the
 /// end.
-fn read_some(mrb: &Mrb, source: &dyn ByteSource, len: usize) -> Result<Option<Vec<u8>>, Error> {
+fn read_some(mrb: &Mrb, source: &dyn SocketIo, len: usize) -> Result<Option<Vec<u8>>, Error> {
     let mut held = source.held().borrow_mut();
     if held.is_empty() {
         drop(held);
@@ -161,7 +183,7 @@ fn socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, 
 /// paragraph, skipping the newlines before it, as CRuby's `rspara` does.
 fn next_line(
     mrb: &Mrb,
-    source: &dyn ByteSource,
+    source: &dyn SocketIo,
     (separator, limit, chomp): &LineArgs,
 ) -> Result<Option<Vec<u8>>, Error> {
     if *limit == Some(0) {
@@ -200,7 +222,7 @@ fn next_line(
 
 /// Drop the newlines that stand next, reading on until another byte or the
 /// end comes, as CRuby's `swallow` does before a paragraph.
-fn skip_newlines(mrb: &Mrb, source: &dyn ByteSource) -> Result<(), Error> {
+fn skip_newlines(mrb: &Mrb, source: &dyn SocketIo) -> Result<(), Error> {
     loop {
         {
             let mut held = source.held().borrow_mut();

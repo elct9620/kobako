@@ -13,7 +13,7 @@ use beni::{
 };
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
-use super::basic::{ByteSource, READ_CHUNK};
+use super::basic::{SocketIo, READ_CHUNK};
 use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
 use super::{stream_error, to_error};
 use crate::errno;
@@ -50,7 +50,7 @@ pub(super) struct Connection {
     sync: Cell<bool>,
 }
 
-impl ByteSource for Connection {
+impl SocketIo for Connection {
     fn held(&self) -> &RefCell<Vec<u8>> {
         &self.buffered
     }
@@ -63,6 +63,26 @@ impl ByteSource for Connection {
                 Err(StreamError::Closed) => return Ok(None),
                 Err(err) => return Err(stream_error(mrb, err)),
             }
+        })
+    }
+
+    /// Every byte, once the writing side is open, as CRuby's `IO#write` sends
+    /// all it is given.
+    fn send(&self, mrb: &Mrb, bytes: &[u8]) -> Result<usize, Error> {
+        self.with(mrb, |open| {
+            if open.write_closed.get() {
+                return Err(Error::new(
+                    mrb,
+                    mrb.exc_get(c"IOError")?,
+                    "not opened for writing",
+                ));
+            }
+            for chunk in bytes.chunks(WRITE_CHUNK) {
+                open.output
+                    .blocking_write_and_flush(chunk)
+                    .map_err(|err| stream_error(mrb, err))?;
+            }
+            Ok(bytes.len())
         })
     }
 
@@ -105,7 +125,6 @@ pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
     socket.define_method(mrb, c"to_i", beni::method!(tcp_socket_fileno, 0))?;
     socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, -1))?;
     socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, -1))?;
-    socket.define_method(mrb, c"write", beni::method!(tcp_socket_write, -1))?;
     socket.define_method(
         mrb,
         c"close_write",
@@ -234,34 +253,6 @@ fn seconds_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>, Error> {
 
 fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {
     mrb.class_get(c"IO")?.const_get(mrb, c"TimeoutError")
-}
-
-/// `write(*objects)` sends every byte of each, answering how many it sent.
-fn tcp_socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Error> {
-    let mut bytes = Vec::new();
-    for object in objects {
-        let data = object
-            .funcall::<_, _, Value>(mrb, c"to_s", ())?
-            .to_r_string(mrb)?;
-        // SAFETY: the bytes are copied before the next mruby call.
-        bytes.extend_from_slice(unsafe { data.as_bytes(mrb) });
-    }
-    Connection::of(mrb, self_)?.with(mrb, |open| {
-        if open.write_closed.get() {
-            return Err(Error::new(
-                mrb,
-                mrb.exc_get(c"IOError")?,
-                "not opened for writing",
-            ));
-        }
-        for chunk in bytes.chunks(WRITE_CHUNK) {
-            open.output
-                .blocking_write_and_flush(chunk)
-                .map_err(|err| stream_error(mrb, err))?;
-        }
-        Ok(())
-    })?;
-    Ok((bytes.len() as i64).into_value(mrb))
 }
 
 /// `close_write` sends the FIN once what was written is sent, and a later
