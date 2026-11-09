@@ -1421,3 +1421,15 @@ endpoint "api.example.com", port: 443
 | Given | an Invocation whose `memory_limit` holds one TCP socket's buffers |
 | When | it makes that socket, then a UDP socket and an HTTP request. It then lets the TCP socket go and makes the UDP socket again |
 | Then | the TCP socket is made. The UDP socket answers `ENOMEM` and the request fails before it is sent. Once the TCP socket is gone, the UDP socket is made. Linux counts a socket's buffers against its creator's memory cgroup |
+
+## `NW-117` A script's socket binds the local end the host allows
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-057`, `NW-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP and a UDP endpoint naming loopback peers |
+| When | the script names `"0.0.0.0"` port 0 as a `TCPSocket`'s local end and binds a `UDPSocket` to `"<any>"` port `"0"`. It then binds another to `127.0.0.1` |
+| Then | the TCP socket connects and the first bind passes, as CRuby reads each with `AI_PASSIVE`. The bind to `127.0.0.1` raises `Errno::EACCES`, as the host refuses it |
