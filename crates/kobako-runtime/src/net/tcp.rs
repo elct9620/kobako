@@ -698,6 +698,9 @@ mod tests {
     }
 
     // @behavior RT-367
+    // Windows sets keepalive timing through SIO_KEEPALIVE_VALS, which reads
+    // nothing back, so only the hosts that read it witness the dialed values.
+    #[cfg(not(windows))]
     #[test]
     fn a_socket_bounds_its_keepalive_probes_as_linux_and_dials_with_them() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
