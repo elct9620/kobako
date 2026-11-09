@@ -5,12 +5,13 @@
 
 use beni::prelude::*;
 use beni::{
-    Error, ExceptionClass, IntoValue, Mrb, Qfalse, Qtrue, RClass, RString, RTypedData, Symbol,
-    TryConvert, TypedData, Value,
+    Error, IntoValue, Mrb, Qfalse, Qtrue, RClass, RString, RTypedData, TryConvert, TypedData, Value,
 };
 
 use crate::errno;
-use crate::socket::{family_of, to_error, with_tcp_socket, Family, AF_INET, AF_INET6};
+use crate::socket::{
+    family_of, socket_error, spelled, to_error, with_tcp_socket, Family, AF_INET, AF_INET6,
+};
 use crate::udp::with_udp_socket;
 use crate::wasi::wasi::sockets::network::ErrorCode;
 use crate::wasi::wasi::sockets::tcp::TcpSocket;
@@ -137,17 +138,6 @@ fn size_error(mrb: &Mrb, len: usize) -> Error {
     }
 }
 
-fn socket_error(mrb: &Mrb, message: &str) -> Error {
-    match mrb
-        .class_get(c"SocketError")
-        .map(|class| ExceptionClass::from_value(class.as_value()))
-    {
-        Ok(Some(class)) => Error::new(mrb, class, message),
-        Ok(None) => Error::new(mrb, mrb.exception_standard_error(), message),
-        Err(err) => err,
-    }
-}
-
 /// Define the level and option constants on `Socket`, `Socket::Option`, and
 /// the two `BasicSocket` methods.
 pub(crate) fn init(mrb: &Mrb, socket: RClass, basic: RClass) -> Result<(), Error> {
@@ -174,17 +164,6 @@ pub(crate) fn init(mrb: &Mrb, socket: RClass, basic: RClass) -> Result<(), Error
     basic.define_method(mrb, c"setsockopt", beni::method!(socket_setsockopt, -1))?;
     basic.define_method(mrb, c"getsockopt", beni::method!(socket_getsockopt, 2))?;
     Ok(())
-}
-
-/// The name a Symbol or a String spells, `None` for any other value.
-fn spelled(mrb: &Mrb, value: Value) -> Result<Option<String>, Error> {
-    if let Some(symbol) = Symbol::from_value(value) {
-        return symbol.name(mrb).map(Some);
-    }
-    match RString::from_value(value) {
-        Some(text) => text.to_string(mrb).map(Some),
-        None => Ok(None),
-    }
 }
 
 /// The level `value` names, as CRuby's `rsock_level_arg` reads a Symbol, a

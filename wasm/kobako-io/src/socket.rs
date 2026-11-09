@@ -266,17 +266,34 @@ pub(crate) enum Family {
     Named(String),
 }
 
+/// The name a Symbol or a String spells, `None` for any other value, as
+/// CRuby's `ext/socket` reads a family, a level, or an option by name.
+pub(crate) fn spelled(mrb: &Mrb, value: Value) -> Result<Option<String>, Error> {
+    if let Some(symbol) = Symbol::from_value(value) {
+        return symbol.name(mrb).map(Some);
+    }
+    match RString::from_value(value) {
+        Some(text) => text.to_string(mrb).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// The `SocketError` carrying `message`.
+pub(crate) fn socket_error(mrb: &Mrb, message: &str) -> Error {
+    match mrb
+        .class_get(c"SocketError")
+        .map(|class| ExceptionClass::from_value(class.as_value()))
+    {
+        Ok(Some(class)) => Error::new(mrb, class, message),
+        Ok(None) => Error::new(mrb, mrb.exception_standard_error(), message),
+        Err(err) => err,
+    }
+}
+
 /// The family `value` names, as CRuby's `rsock_family_arg` reads a Symbol, a
 /// String, or an Integer; a name no family has raises `SocketError`.
 pub(crate) fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
-    let text = match Symbol::from_value(value) {
-        Some(symbol) => Some(symbol.name(mrb)?.to_string()),
-        None if RString::from_value(value).is_some() => {
-            Some(value.to_r_string(mrb)?.to_string(mrb)?)
-        }
-        None => None,
-    };
-    let Some(name) = text else {
+    let Some(name) = spelled(mrb, value)? else {
         return Ok(Family::Number(i64::try_convert(value, mrb)?));
     };
     let bare = name
@@ -284,13 +301,7 @@ pub(crate) fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
         .or_else(|| name.strip_prefix("PF_"))
         .unwrap_or(&name);
     if !FAMILIES.contains(&bare) {
-        let socket_error = ExceptionClass::from_value(mrb.class_get(c"SocketError")?.as_value())
-            .expect("SocketError is defined as an exception");
-        return Err(Error::new(
-            mrb,
-            socket_error,
-            &format!("unknown socket domain: {name}"),
-        ));
+        return Err(socket_error(mrb, &format!("unknown socket domain: {name}")));
     }
     Ok(Family::Named(bare.to_string()))
 }
