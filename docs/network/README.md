@@ -11,26 +11,96 @@ The Network Context owns the named entries, their endpoints, and the sockets the
 
 ## Layers
 
-Each layer mirrors one in Linux, so a rule lands where Linux puts it.
+A socket and a request take two paths through the same four parts, and meet again at the Protocol Family.
 
 ```
-guest gem        (a)  kobako-io
-   |
-Wasm Driver      (b)  kobako-wasmtime
-   |
-net::Namespace   (c)  kobako-runtime
-   |
-Protocol Family  (d)  HostInet
+                 L4                      L7
++- guest ---------------------------------------------+
+|          +--------------+        +--------------+   |
+|          | TCPSocket    |        | Net::HTTP    |   |
+|          +------+-------+        +------+-------+   |
++-----------------+-----------------------+-----------+
+                  | wasi:sockets          | wasi:http
+                  v                       v
++- kobako-wasmtime -----------------------------------+
+|          +--------------+        +--------------+   |
+|          | WIT Encoder  |        | WIT Encoder  |   |
+|          +------+-------+        +------+-------+   |
++-----------------+-----------------------+-----------+
+                  | connect               | send
+                  v                       v
++- kobako-runtime ------------------------------------+
+|          +--------------+        +--------------+   |
+|          | Socket Path  |        | HTTP Path    |   |
+|          +------+-------+        +------+-------+   |
++-----------------+-----------------------+-----------+
+                  | dials                 | dials
+                  v                       v
++- host ----------------------------------------------+
+|          +--------------------------------------+   |
+|          | Protocol Family                      |   |
+|          +--------------------------------------+   |
++-----------------------------------------------------+
 ```
-
-| Note | Layer |
-|---|---|
-| a | `TCPSocket`, `UDPSocket`, `Net::HTTP` over `wasi:sockets` and `wasi:http` |
-| b | encodes the WIT and holds the numbers |
-| c | the hooks, the ruleset, the virtual addresses |
-| d | the host's sockets and resolver, or a seam |
 
 The Wasm Driver only encodes. Every answer the guest sees is decided in `kobako-runtime`, so another Wasm Driver answers alike.
+
+### Linux Roles
+
+Each part mirrors a Linux role, so a rule lands where Linux puts it. The HTTP Path has no kernel counterpart; it is the egress proxy a Linux sandbox runs in userspace.
+
+| Part | L4 | L7 |
+|---|---|---|
+| guest | an application over socket calls | an application over a host HTTP client |
+| kobako-wasmtime | the syscall entry and fdtable | the same |
+| kobako-runtime | LSM, cgroup `connect4`, nftables, `struct sock` | an egress proxy, as OpenShell's supervisor |
+| host | the network beneath, as gVisor's `hostinet` | the same, behind a replaceable sender |
+
+### Socket Path
+
+A socket's connect passes the socket hooks, the virtual address map, and the ruleset before the socket dials.
+
+```
++---------------+  name  +----------------+  real   +-----------+
+| Socket Hooks  |------->| Virtual Map    |-------->| Ruleset   |
++---------------+        +----------------+         +-----+-----+
+                                                          | admitted
+                                                          v
+                                                    +-----------+
+                                                    | TcpSock   |
+                                                    +-----+-----+
+                                                          | one address
+                                                          v
+                                                    +-----------+
+                                                    | Protocol  |
+                                                    | Family    |
+                                                    +-----------+
+```
+
+The socket dials one admitted address at a time and moves to the next when one refuses. The reactor sees each refusal, so the socket owns this loop.
+
+### HTTP Path
+
+A request is judged on the guest thread, where Ruby policies and credential sources run. From `Outbound` on, it runs on the reactor.
+
+```
++---------------+  name  +-------------+  admits  +--------+
+| Socket Hooks  |------->| HTTP Rules  |--------->| Swaps  |
++---------------+        +-------------+          +---+----+
+                                                      | request
+                                                      v
++-----------+  filters  +-------------+  dials   +----------+
+| Ruleset   |<----------| Connector   |<---------| Outbound |
++-----------+           +------+------+          +----------+
+                               | one address
+                               v
+                        +-------------+
+                        | Protocol    |
+                        | Family      |
+                        +-------------+
+```
+
+`Swaps` are the credentials a request over `https` carries. A Rust Host App may replace the outbound sender, which still dials through the `Connector`, so the same ruleset judges it. The connector resolves the authority itself and tries each admitted address, as hyper-util's `HttpConnector` does.
 
 ## Outbound Path
 
@@ -85,6 +155,33 @@ The guest sees only virtual addresses, so the host's network never reaches it.
 The range is `198.18.0.0/15`, inside the reserved set, so no real destination lies in it. Each Invocation allocates from the bottom and never reuses an address for a second name. A lookup never hands out `198.19.255.254`, the guest's own end.
 
 A connected socket's own port is virtual too, numbered from 32768 in connect order. The host's ephemeral port would carry its connection state into the guest, as CVE-2022-1012 showed. The socket keeps both ends, as a NAT's tuple does.
+
+### Names and Literals
+
+`wasi:sockets` looks a name up and connects in two calls, so a virtual address carries the name from one to the other.
+
+```
+TCPSocket                 Namespace                 Protocol Family
+    |  resolve name           |                           |
+    |------------------------>|  resolve name             |
+    |                         |-------------------------->|
+    |                         |<--------------------------|
+    |  virtual address        |  real addresses           |
+    |<------------------------|                           |
+    |  connect virtual        |                           |
+    |------------------------>|  dial real                |
+    |                         |-------------------------->|
+```
+
+The connect is judged by the name, and dials only what that lookup admitted, so a second resolution never happens.
+
+| The guest names | Virtual address | Judged by |
+|---|---|---|
+| a name, over `wasi:sockets` | handed out by the lookup | the name, then each real address |
+| a literal IP | none | endpoints naming that address |
+| an HTTP authority | none | the name, then each real address, in one call |
+
+An HTTP request carries the name to the host itself, so no address ever reaches the guest.
 
 ## Waiting
 
