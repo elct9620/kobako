@@ -11,9 +11,29 @@ use beni::{
 
 use crate::errno;
 use crate::socket::{to_error, with_tcp_socket, AF_INET, AF_INET6};
+use crate::wasi::wasi::sockets::network::ErrorCode;
+use crate::wasi::wasi::sockets::tcp::TcpSocket;
 
+// Linux's numbers for the levels and options the guest names.
+const IPPROTO_IP: i32 = 0;
+const IP_TTL: i32 = 2;
 const SOL_SOCKET: i32 = 1;
+const SO_SNDBUF: i32 = 7;
+const SO_RCVBUF: i32 = 8;
 const SO_KEEPALIVE: i32 = 9;
+const IPPROTO_TCP: i32 = 6;
+const TCP_NODELAY: i32 = 1;
+const TCP_KEEPIDLE: i32 = 4;
+const TCP_KEEPINTVL: i32 = 5;
+const TCP_KEEPCNT: i32 = 6;
+
+/// Linux's ceilings on the keepalive options, `MAX_TCP_KEEPIDLE`,
+/// `MAX_TCP_KEEPINTVL`, and `MAX_TCP_KEEPCNT`, past which it answers EINVAL.
+const MAX_KEEPIDLE: u32 = 32767;
+const MAX_KEEPINTVL: u32 = 32767;
+const MAX_KEEPCNT: u32 = 127;
+
+const NANOS_PER_SEC: u64 = 1_000_000_000;
 
 /// One protocol level and the options CRuby names at it, each also spelled
 /// with the level's option prefix before it.
@@ -32,12 +52,12 @@ struct Level {
 /// The levels and options the guest names, at Linux's numbers.
 const LEVELS: [Level; 3] = [
     Level {
-        number: 0,
+        number: IPPROTO_IP,
         name: "IP",
         prefix: "IPPROTO_",
         option_prefix: "IP_",
         kind: "IP",
-        options: &[("TTL", 2)],
+        options: &[("TTL", IP_TTL)],
     },
     Level {
         number: SOL_SOCKET,
@@ -45,26 +65,35 @@ const LEVELS: [Level; 3] = [
         prefix: "SOL_",
         option_prefix: "SO_",
         kind: "socket",
-        options: &[("SNDBUF", 7), ("RCVBUF", 8), ("KEEPALIVE", SO_KEEPALIVE)],
+        options: &[
+            ("SNDBUF", SO_SNDBUF),
+            ("RCVBUF", SO_RCVBUF),
+            ("KEEPALIVE", SO_KEEPALIVE),
+        ],
     },
     Level {
-        number: 6,
+        number: IPPROTO_TCP,
         name: "TCP",
         prefix: "IPPROTO_",
         option_prefix: "TCP_",
         kind: "TCP",
         options: &[
-            ("NODELAY", 1),
-            ("KEEPIDLE", 4),
-            ("KEEPINTVL", 5),
-            ("KEEPCNT", 6),
+            ("NODELAY", TCP_NODELAY),
+            ("KEEPIDLE", TCP_KEEPIDLE),
+            ("KEEPINTVL", TCP_KEEPINTVL),
+            ("KEEPCNT", TCP_KEEPCNT),
         ],
     },
 ];
 
 /// The options whose `inspect` reads the value as an Integer, as CRuby's
 /// `sockopt_inspect` knows each to hold one.
-const INTEGER_OPTIONS: [(i32, i32); 4] = [(1, 9), (1, 8), (1, 7), (6, 1)];
+const INTEGER_OPTIONS: [(i32, i32); 4] = [
+    (SOL_SOCKET, SO_KEEPALIVE),
+    (SOL_SOCKET, SO_RCVBUF),
+    (SOL_SOCKET, SO_SNDBUF),
+    (IPPROTO_TCP, TCP_NODELAY),
+];
 
 /// One socket option: the family, level, and name it is for, and its value
 /// as the bytes `setsockopt(2)` takes, kept in the payload so a script's
@@ -252,19 +281,76 @@ fn socket_setsockopt(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, E
         }
         _ => return Err(Error::argnum(mrb, args.len(), 3, 3)),
     };
-    let set = with_tcp_socket(mrb, self_, |socket| match (level, optname) {
-        (SOL_SOCKET, SO_KEEPALIVE) => {
-            let on = int_of(mrb, &data)? != 0;
-            socket
-                .set_keep_alive_enabled(on)
-                .map_err(|code| to_error(mrb, code, "TCPSocket", "setsockopt(2)"))
-        }
-        _ => Err(unknown_option(mrb, level, "setsockopt(2)")),
+    let set = with_tcp_socket(mrb, self_, |socket| {
+        set_tcp_option(socket, (level, optname), int_of(mrb, &data)?).map_err(|code| {
+            code.map_or_else(
+                || unknown_option(mrb, level, "setsockopt(2)"),
+                |code| to_error(mrb, code, "TCPSocket", "setsockopt(2)"),
+            )
+        })
     })?;
     match set {
         Some(()) => Ok(0.into_value(mrb)),
         None => Err(unknown_option(mrb, level, "setsockopt(2)")),
     }
+}
+
+/// Set the option `(level, optname)` of a TCP socket to `int`, as Linux's
+/// `setsockopt(2)` reads it; `Err(None)` for an option WASI has no call for.
+fn set_tcp_option(
+    socket: &TcpSocket,
+    option: (i32, i32),
+    int: i32,
+) -> Result<(), Option<ErrorCode>> {
+    // Linux reads a buffer size as unsigned and keeps at least its least,
+    // where WASI refuses zero, so a size of zero asks for one byte.
+    let size = u64::from(int.cast_unsigned()).max(1);
+    match option {
+        (SOL_SOCKET, SO_KEEPALIVE) => socket.set_keep_alive_enabled(int != 0),
+        (SOL_SOCKET, SO_RCVBUF) => socket.set_receive_buffer_size(size),
+        (SOL_SOCKET, SO_SNDBUF) => socket.set_send_buffer_size(size),
+        (IPPROTO_TCP, TCP_KEEPIDLE) => {
+            socket.set_keep_alive_idle_time(to_nanos(int, MAX_KEEPIDLE)?)
+        }
+        (IPPROTO_TCP, TCP_KEEPINTVL) => {
+            socket.set_keep_alive_interval(to_nanos(int, MAX_KEEPINTVL)?)
+        }
+        (IPPROTO_TCP, TCP_KEEPCNT) => match u32::try_from(int) {
+            Ok(count @ 1..=MAX_KEEPCNT) => socket.set_keep_alive_count(count),
+            _ => Err(ErrorCode::InvalidArgument),
+        },
+        _ => return Err(None),
+    }
+    .map_err(Some)
+}
+
+/// `secs` as WASI's nanoseconds, within 1 to `max` as Linux takes a TCP
+/// keepalive time, else `invalid-argument`, which reads EINVAL.
+fn to_nanos(secs: i32, max: u32) -> Result<u64, Option<ErrorCode>> {
+    match u32::try_from(secs) {
+        Ok(secs @ 1..) if secs <= max => Ok(u64::from(secs) * NANOS_PER_SEC),
+        _ => Err(Some(ErrorCode::InvalidArgument)),
+    }
+}
+
+/// What the option `(level, optname)` of a TCP socket reads, as Linux's
+/// `getsockopt(2)` answers it; `Err(None)` for an option WASI has no call for.
+fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Option<ErrorCode>> {
+    let doubled = |size: u64| i32::try_from(size.saturating_mul(2)).unwrap_or(i32::MAX);
+    let secs = |nanos: u64| i32::try_from(nanos / NANOS_PER_SEC).unwrap_or(i32::MAX);
+    match option {
+        (SOL_SOCKET, SO_KEEPALIVE) => socket.keep_alive_enabled().map(i32::from),
+        // WASI reads back the size asked for; Linux reads the doubled one.
+        (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(doubled),
+        (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(doubled),
+        (IPPROTO_TCP, TCP_KEEPIDLE) => socket.keep_alive_idle_time().map(secs),
+        (IPPROTO_TCP, TCP_KEEPINTVL) => socket.keep_alive_interval().map(secs),
+        (IPPROTO_TCP, TCP_KEEPCNT) => socket
+            .keep_alive_count()
+            .map(|count| i32::try_from(count).unwrap_or(i32::MAX)),
+        _ => return Err(None),
+    }
+    .map_err(Some)
 }
 
 /// `getsockopt(level, optname)`, answering a `Socket::Option` holding the
@@ -277,12 +363,13 @@ fn socket_getsockopt(
 ) -> Result<Value, Error> {
     let level = level_of(mrb, level)?;
     let optname = optname_of(mrb, level, optname)?;
-    let value = with_tcp_socket(mrb, self_, |socket| match (level, optname) {
-        (SOL_SOCKET, SO_KEEPALIVE) => socket
-            .keep_alive_enabled()
-            .map(i32::from)
-            .map_err(|code| to_error(mrb, code, "TCPSocket", "getsockopt(2)")),
-        _ => Err(unknown_option(mrb, level, "getsockopt(2)")),
+    let value = with_tcp_socket(mrb, self_, |socket| {
+        tcp_option(socket, (level, optname)).map_err(|code| {
+            code.map_or_else(
+                || unknown_option(mrb, level, "getsockopt(2)"),
+                |code| to_error(mrb, code, "TCPSocket", "getsockopt(2)"),
+            )
+        })
     })?;
     let Some(value) = value else {
         return Err(unknown_option(mrb, level, "getsockopt(2)"));

@@ -1510,3 +1510,16 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server |
 | When | the script sets `SO_KEEPALIVE` by number, by name, by String, and by `Socket::Option`, and reads it back |
 | Then | each set answers 0 and each read a `Socket::Option` holding the setting, as CRuby's on Linux. A short value raises `Errno::EINVAL`, an unknown name or level `SocketError`, and a closed socket `IOError` |
+
+## `NW-124` A script tunes keepalive probes and buffer sizes as Linux takes them
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-123` |
+| relates | `RT-367`, `RT-368` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script reads, then sets, `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, `TCP_KEEPCNT`, `SO_RCVBUF`, and `SO_SNDBUF` |
+| Then | each reads Linux's default, refuses with `Errno::EINVAL` what Linux refuses, and reads back what was set. A buffer size reads twice the size set, above Linux's least and within the socket's own buffer |
