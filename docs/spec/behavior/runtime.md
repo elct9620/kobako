@@ -4025,9 +4025,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a socket that connected |
-| When | a Wasm Driver asks it to connect again |
-| Then | it answers EISCONN and dials nothing, as Linux's `__inet_stream_connect` answers |
+| Given | a socket that connected, and one that connected and was then reset |
+| When | a Wasm Driver asks each to connect again |
+| Then | each answers EISCONN and dials nothing, as Linux's `__inet_stream_connect` answers a socket that connected |
 
 ## `RT-357` A reset socket answers its error once, then as closed
 
@@ -4088,3 +4088,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a new preview2 TCP socket and a new UDP socket |
 | When | it seeks, tells, reads or writes at an offset, syncs, sizes, advises, and lists each number through preview1. It then asks each fdstat and filestat |
 | Then | a position or an offset answers ESPIPE, a sync or a size EINVAL, and a listing ENOTDIR. Advice succeeds, as Linux answers each on a socket. Both stats report a TCP socket as a stream and a UDP socket as datagrams |
+
+## `RT-364` A socket whose connect failed answers the failure, then connects afresh
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-342` |
+| relates | `RT-356` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a socket whose connect was refused, its failure not yet read |
+| When | a Wasm Driver asks it to connect again, then once more to a listener |
+| Then | the first answers ECONNREFUSED and dials nothing. The next connects and reads none of the earlier failure, as Linux disconnects a failed socket |
