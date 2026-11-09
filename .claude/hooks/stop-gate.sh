@@ -8,9 +8,10 @@ STOP_LOG_DIR="${TMPDIR:-/tmp}"
 STOP_LOG_DIR="${STOP_LOG_DIR%/}/kobako-stop-hook"
 SUMMARY_LINES=80
 
-# Start this hook's gate, emptying the log an earlier run left. A gate is
-# deferred while a benchmark measures, as its CPU spike would contend for
-# cores and skew the numbers.
+# Start this hook's gate, emptying the log an earlier run left. Every gate
+# steps aside while a benchmark measures, so one guard covers them all: a
+# heavy gate's CPU spike would skew the numbers, and a light one finds the
+# source as a measuring run leaves it, so it answers the same afterwards.
 gate_start() {
   if "$CLAUDE_PROJECT_DIR/.claude/hooks/bench-guard.sh"; then exit 0; fi
   mkdir -p "$STOP_LOG_DIR"

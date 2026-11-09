@@ -2,7 +2,7 @@
 # Stop: the full default task (`rake -P` lists it).
 #
 # The log names each task and each test as it starts, so a run that stalls
-# names where. A warm run takes about three minutes; one past LIMIT is
+# names where. A warm run takes under two minutes; one past LIMIT is
 # stuck, so each of its processes is sampled before it is killed, and the
 # hook fails naming the last task and test the run reached.
 set -euo pipefail
