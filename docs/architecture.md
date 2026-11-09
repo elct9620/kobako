@@ -165,7 +165,7 @@ An assembly composes replaceable parts around the fixed pillar. Each line names 
 ```
 Sandbox        = host model . Wasm Driver . kobako-runtime . Guest Binary
 Wasm Driver    = Engine + preview1, preview2 encodings   (kobako-wasmtime)
-kobako-runtime = host ABI endpoint + VFS + socket layer
+kobako-runtime = host ABI endpoint + VFS + socket layer + HTTP egress
 Guest Binary   = guest ABI endpoint + guest model + gems (kobako-wasm)
 host model     = Frontend + Codec                        (ext/ + lib/ | kobako)
 guest model    = flows + Codec                           (kobako-mruby | own Guest)
