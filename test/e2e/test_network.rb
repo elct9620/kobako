@@ -51,12 +51,32 @@ class TestE2ENetwork < Minitest::Test
     assert_equal 2, value, "Sandbox#network with an object answering no endpoints must let the invocation run"
   end
 
-  def test_a_context_replacing_a_declared_name_runs_the_invocation
-    value = sandbox_with_api.eval("1 + 1") do |ctx|
-      ctx.network(:api) { |net| net.endpoint "staging.example.com", port: 443 }
-    end.value
+  REACHED = <<~RUBY
+    [%<first>d, %<second>d].map do |port|
+      TCPSocket.new("127.0.0.1", port).close
+      :reached
+    rescue Errno::EACCES
+      :refused
+    end
+  RUBY
 
-    assert_equal 2, value, "ctx.network of a declared name must let the invocation run"
+  def tcp_to(net, port)
+    net.endpoint "127.0.0.1", port: port, protocol: :tcp, addresses: [:local]
+  end
+
+  # @behavior NW-006
+  def test_a_context_replaces_an_entry_for_its_invocation_only
+    with_listening_server do |own|
+      with_listening_server do |replaced|
+        sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:api) { |net| tcp_to(net, own) }
+        script = format(REACHED, first: own, second: replaced)
+        during = sandbox.eval(script) { |ctx| ctx.network(:api) { |net| tcp_to(net, replaced) } }.value
+
+        assert_equal [%i[refused reached], %i[reached refused]], [during, sandbox.eval(script).value],
+                     "ctx.network(:api) must give that invocation the replacing entry's endpoints, and the next " \
+                     "invocation the Sandbox's own"
+      end
+    end
   end
 
   # An entry answering only endpoints, each any object with the fields read.
