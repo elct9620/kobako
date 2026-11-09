@@ -38,6 +38,9 @@ enum Phase {
 
 struct State {
     phase: Phase,
+    /// The socket once connected, as `SS_CONNECTED`, which a later reset
+    /// leaves standing, so it never connects again.
+    connected: bool,
     /// The host socket, and its place in the reactor.
     host: Option<(mio::net::TcpStream, Registration)>,
     /// The addresses still to try, should the one connecting fail.
@@ -87,6 +90,7 @@ impl TcpSock {
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 phase: Phase::Unconnected,
+                connected: false,
                 host: None,
                 untried: VecDeque::new(),
                 received: VecDeque::new(),
@@ -121,10 +125,22 @@ impl TcpSock {
         named: SocketAddr,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<(), FilesystemError> {
-        match self.state().phase {
-            Phase::Connecting => return Err(FilesystemError::AlreadyInProgress),
-            Phase::Connected => return Err(FilesystemError::AlreadyConnected),
-            Phase::Unconnected | Phase::Closed => {}
+        {
+            let mut state = self.state();
+            match state.phase {
+                Phase::Connecting => return Err(FilesystemError::AlreadyInProgress),
+                Phase::Connected => return Err(FilesystemError::AlreadyConnected),
+                Phase::Closed if state.connected => return Err(FilesystemError::AlreadyConnected),
+                Phase::Closed => {
+                    let err = state
+                        .error
+                        .take()
+                        .unwrap_or(FilesystemError::ConnectionAborted);
+                    Self::disconnect(&mut state);
+                    return Err(err);
+                }
+                Phase::Unconnected => {}
+            }
         }
         let place = open(open_connections).ok_or(FilesystemError::WouldBlock)?;
         let mut state = self.state();
@@ -167,6 +183,21 @@ impl TcpSock {
         Self::close_host(state);
         state.phase = Phase::Closed;
         state.error = Some(err);
+    }
+
+    /// Return a socket whose connect failed to one never connected, as
+    /// `tcp_disconnect` clears what the failed connect left.
+    fn disconnect(state: &mut State) {
+        state.phase = Phase::Unconnected;
+        state.untried.clear();
+        state.received.clear();
+        state.received_end = false;
+        state.rcv_shut = false;
+        state.sending.clear();
+        state.send_shut = false;
+        state.fin_sent = false;
+        state.error = None;
+        state.named = None;
     }
 
     /// Let the host socket go, deregistered from the reactor.
@@ -234,6 +265,7 @@ impl TcpSock {
             (Ok(Some(err)), _) | (Err(err), _) => err,
             (Ok(None), Ok(_)) => {
                 state.phase = Phase::Connected;
+                state.connected = true;
                 return;
             }
             (Ok(None), Err(err)) if err.kind() == io::ErrorKind::NotConnected => return,
@@ -473,12 +505,53 @@ mod tests {
         let (sock, _file, _peer) = connected();
         sock.finish_connect().expect("the socket connected");
         let addr = sock.peer_addr().expect("a connected socket has a peer");
-        let again = sock.connect(vec![addr], addr, &OpenConnections::new(Some(1)));
+        let (was_reset, _reset_file) = reset();
+        let again = |sock: &TcpSock| sock.connect(vec![addr], addr, &OpenConnections::new(Some(1)));
         assert_eq!(
-            again,
-            Err(FilesystemError::AlreadyConnected),
-            "TcpSock::connect on a connected socket must answer EISCONN, as \
-             __inet_stream_connect does, before taking another place"
+            [again(&sock), again(&was_reset)],
+            [
+                Err(FilesystemError::AlreadyConnected),
+                Err(FilesystemError::AlreadyConnected)
+            ],
+            "TcpSock::connect on a connected socket, and on one connected then reset, must \
+             answer EISCONN, as __inet_stream_connect does, before taking another place"
+        );
+    }
+
+    // @behavior RT-364
+    #[test]
+    fn a_socket_whose_connect_failed_answers_the_failure_then_connects_afresh() {
+        let closed = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let refused_at = closed.local_addr().unwrap();
+        drop(closed);
+        let sock = dialing(refused_at);
+        let file = sock_alloc_file(sock.clone(), &Arc::default());
+        wait_for(&file, PollMask::ERR);
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let open_at = listener.local_addr().unwrap();
+        let connect = || sock.connect(vec![open_at], open_at, &OpenConnections::new(None));
+        let first = connect();
+        let second = connect();
+        listener
+            .accept()
+            .expect("the listener accepts the fresh connect");
+        wait_for(&file, PollMask::OUT);
+        assert_eq!(
+            (
+                first,
+                second,
+                sock.finish_connect(),
+                file.poll(None).contains(PollMask::ERR)
+            ),
+            (
+                Err(FilesystemError::ConnectionRefused),
+                Ok(()),
+                Ok(()),
+                false
+            ),
+            "TcpSock::connect on a socket whose connect was refused must answer ECONNREFUSED \
+             and dial nothing, then connect afresh with none of the failure left, as Linux \
+             disconnects a failed socket"
         );
     }
 
@@ -525,19 +598,19 @@ mod tests {
     }
 
     /// A socket file whose peer reset it, as a close with bytes unread does.
-    fn reset() -> File {
-        let (_sock, mut file, peer) = connected();
+    fn reset() -> (Arc<TcpSock>, File) {
+        let (sock, mut file, peer) = connected();
         file.write(b"unread").unwrap();
         std::thread::sleep(Duration::from_millis(20));
         drop(peer);
         wait_for(&file, PollMask::ERR);
-        file
+        (sock, file)
     }
 
     // @behavior RT-357
     #[test]
     fn a_reset_socket_answers_its_error_once_then_as_closed() {
-        let mut file = reset();
+        let (_sock, mut file) = reset();
         let mut buf = [0; 8];
         assert_eq!(
             (file.read(&mut buf), file.read(&mut buf), file.write(b"x")),
@@ -561,7 +634,7 @@ mod tests {
         wait_for(&refused, PollMask::ERR);
         let every = PollMask::IN | PollMask::OUT | PollMask::ERR | PollMask::HUP;
         assert_eq!(
-            (reset().poll(None), refused.poll(None)),
+            (reset().1.poll(None), refused.poll(None)),
             (every, every),
             "a socket file whose peer reset it, and one whose connect was refused, must each \
              poll IN, OUT, ERR, and HUP, as tcp_poll answers TCP_CLOSE"
