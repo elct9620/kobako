@@ -4,17 +4,18 @@
 
 use std::cell::{Cell, RefCell};
 use std::net::Ipv4Addr;
+use std::task::Poll;
 
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
-use super::basic::SocketIo;
+use super::basic::{exception_option, length_of, waited, SocketIo, Wait};
 use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
 use super::{family_of, to_error, Family, AF_INET};
 use crate::errno;
-use crate::io::argument_error;
+use crate::io::{argument_error, would_wait, Direction};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
@@ -26,8 +27,8 @@ use crate::wasi::wasi::sockets::udp_create_socket::create_udp_socket;
 
 const UDP: &str = "UDPSocket";
 
-/// The most one IPv4 datagram carries, so a read of one takes it whole.
-const MAX_DATAGRAM: usize = 65_507;
+/// A datagram received, and the end that sent it.
+type Datagram = (Vec<u8>, (Ipv4Addr, u16));
 
 /// The streams with one peer, dropped before their socket, as WASI asks of a
 /// child resource.
@@ -58,22 +59,22 @@ impl SocketIo for Datagrams {
         &self.held
     }
 
-    /// The next datagram whole, as a datagram socket's read fills CRuby's
-    /// buffer with one.
-    fn receive(&self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
-        self.with(mrb, |open| receive_from(mrb, open, MAX_DATAGRAM, "read(2)"))
-            .map(|(data, _)| Some(data))
+    /// The next datagram, cut to `max`, as a datagram socket's read fills
+    /// CRuby's buffer with one; a datagram socket has no end.
+    fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error> {
+        let received = self.with(mrb, |open| receive_from(mrb, open, max, "read(2)", wait))?;
+        Ok(received.map(|(data, _)| Some(data)))
     }
 
     /// `bytes` as one datagram to the peer, as `write(2)` on a connected
     /// datagram socket sends; with no peer it raises `Errno::EDESTADDRREQ`,
     /// carrying no call, as CRuby's `IO#write` does.
-    fn send(&self, mrb: &Mrb, bytes: &[u8]) -> Result<usize, Error> {
-        self.with(mrb, |open| match &open.streams {
-            Some(streams) => send_datagram(mrb, streams, bytes.to_vec(), None, "write(2)"),
+    fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error> {
+        let sent = self.with(mrb, |open| match &open.streams {
+            Some(streams) => send_datagram(mrb, streams, bytes.to_vec(), None, "write(2)", wait),
             None => Err(errno::error_alone(mrb, c"EDESTADDRREQ")),
         })?;
-        Ok(bytes.len())
+        Ok(sent.map(|()| bytes.len()))
     }
 
     fn sync(&self) -> &Cell<bool> {
@@ -129,6 +130,11 @@ pub(super) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
     socket.define_method(mrb, c"send", beni::method!(udp_socket_send, -1))?;
     socket.define_method(mrb, c"recv", beni::method!(udp_socket_recv, -1))?;
     socket.define_method(mrb, c"recvfrom", beni::method!(udp_socket_recvfrom, -1))?;
+    socket.define_method(
+        mrb,
+        c"recvfrom_nonblock",
+        beni::method!(udp_socket_recvfrom_nonblock, -1),
+    )?;
     socket.define_method(mrb, c"close", beni::method!(udp_socket_close, 0))?;
     socket.define_method(mrb, c"closed?", beni::method!(udp_socket_closed_p, 0))?;
     socket.define_method(mrb, c"addr", beni::method!(udp_socket_addr, -1))?;
@@ -263,33 +269,39 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
             };
             return Err(errno::error_by_name(mrb, name, &call));
         };
-        send_datagram(mrb, streams, data, remote_address, &call)
+        send_datagram(mrb, streams, data, remote_address, &call, Wait::Block).map(waited)
     })?;
     Ok((len as i64).into_value(mrb))
 }
 
-/// Send `data` to the peer `streams` reach, waiting for room.
+/// Send `data` to the peer `streams` reach, waiting for room unless `wait`
+/// does not wait.
 fn send_datagram(
     mrb: &Mrb,
     streams: &Streams,
     data: Vec<u8>,
     remote_address: Option<IpSocketAddress>,
     call: &str,
-) -> Result<(), Error> {
+    wait: Wait,
+) -> Result<Poll<()>, Error> {
     let datagram = [OutgoingDatagram {
         data,
         remote_address,
     }];
     let pollable = streams.outgoing.subscribe();
     loop {
-        match streams.outgoing.check_send() {
-            Ok(0) => pollable.block(),
-            Ok(_) => match streams.outgoing.send(&datagram) {
-                Ok(0) => pollable.block(),
-                Ok(_) => return Ok(()),
-                Err(code) => return Err(to_error(mrb, code, UDP, call)),
-            },
+        let sent = match streams.outgoing.check_send() {
+            Ok(0) => 0,
+            Ok(_) => streams
+                .outgoing
+                .send(&datagram)
+                .map_err(|code| to_error(mrb, code, UDP, call))?,
             Err(code) => return Err(to_error(mrb, code, UDP, call)),
+        };
+        match (sent, wait) {
+            (0, Wait::Block) => pollable.block(),
+            (0, Wait::DontWait) => return Ok(Poll::Pending),
+            _ => return Ok(Poll::Ready(())),
         }
     }
 }
@@ -302,24 +314,29 @@ fn udp_socket_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// The next datagram from the peer, cut to `maxlen`, and who sent it, waiting
 /// for one; with no peer nothing can arrive, so it raises `Errno::EACCES`.
-fn receive(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(Vec<u8>, (Ipv4Addr, u16)), Error> {
+fn receive(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Datagram, Error> {
     let maxlen = match args {
         [maxlen] | [maxlen, _] => usize::try_from(i64::try_convert(*maxlen, mrb)?)
             .map_err(|_| argument_error(mrb, "negative length given"))?,
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
-    Datagrams::of(mrb, self_)?.with(mrb, |open| receive_from(mrb, open, maxlen, "recvfrom(2)"))
+    Datagrams::of(mrb, self_)?
+        .with(mrb, |open| {
+            receive_from(mrb, open, maxlen, "recvfrom(2)", Wait::Block)
+        })
+        .map(waited)
 }
 
 /// The next datagram `open` streams, cut to `maxlen`, and who sent it,
-/// waiting for one; with no peer nothing can arrive, so `call` raises
-/// `Errno::EACCES`.
+/// waiting for one unless `wait` does not wait; with no peer nothing can
+/// arrive, so `call` raises `Errno::EACCES`.
 fn receive_from(
     mrb: &Mrb,
     open: &mut Open,
     maxlen: usize,
     call: &str,
-) -> Result<(Vec<u8>, (Ipv4Addr, u16)), Error> {
+    wait: Wait,
+) -> Result<Poll<Datagram>, Error> {
     let Some(streams) = &open.streams else {
         return Err(errno::error_by_name(mrb, c"EACCES", call));
     };
@@ -337,12 +354,45 @@ fn receive_from(
                     }) => (Ipv4Addr::new(a, b, c, d), port),
                     IpSocketAddress::Ipv6(_) => streams.peer,
                 };
-                return Ok((data, from));
+                return Ok(Poll::Ready((data, from)));
             }
+            Ok(_) if wait == Wait::DontWait => return Ok(Poll::Pending),
             Ok(_) => pollable.block(),
             Err(code) => return Err(to_error(mrb, code, UDP, call)),
         }
     }
+}
+
+/// `recvfrom_nonblock(maxlen, flags = 0, outbuf = nil, exception: true)`
+/// answers as `recvfrom` does, at once: with no datagram come yet it raises
+/// `IO::EAGAINWaitReadable`, or answers `:wait_readable` with
+/// `exception: false`. Bytes a read held back raise `IOError`, as CRuby's.
+fn udp_socket_recvfrom_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let (args, exception) = exception_option(mrb, args)?;
+    let (maxlen, outbuf) = match args {
+        [maxlen] | [maxlen, _] => (*maxlen, None),
+        [maxlen, _, outbuf] => (*maxlen, Some(*outbuf).filter(|buf| !buf.is_nil())),
+        _ => return Err(Error::argnum(mrb, args.len(), 1, 3)),
+    };
+    let maxlen = length_of(mrb, maxlen)?;
+    let datagrams = Datagrams::of(mrb, self_)?;
+    if !datagrams.held.borrow().is_empty() {
+        return Err(errno::io_error(mrb, "recvfrom for buffered IO"));
+    }
+    let received = datagrams.with(mrb, |open| {
+        receive_from(mrb, open, maxlen, "recvfrom(2)", Wait::DontWait)
+    })?;
+    let Poll::Ready((data, from)) = received else {
+        return would_wait(mrb, Direction::Read, "recvfrom(2) would block", exception);
+    };
+    let mesg = mrb.str_new(&data).as_value();
+    if let Some(outbuf) = outbuf {
+        outbuf.funcall::<_, _, Value>(mrb, c"replace", [mesg])?;
+    }
+    let answer = mrb.ary_new();
+    answer.push(mrb, outbuf.unwrap_or(mesg))?;
+    answer.push(mrb, to_addr_array(mrb, from)?)?;
+    Ok(answer.as_value())
 }
 
 /// `recv(maxlen, flags = 0)` answers the next datagram, cut to `maxlen`.

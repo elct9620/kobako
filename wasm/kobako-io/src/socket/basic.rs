@@ -3,21 +3,32 @@
 //! before the socket.
 
 use std::cell::{Cell, RefCell};
+use std::task::Poll;
 
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, Integer, IntoValue, Mrb, Proc, RArray, RClass, RHash, Symbol, TryConvert, Value,
+    Error, Integer, IntoValue, Mrb, Proc, Qfalse, Qtrue, RArray, RClass, RHash, Symbol, TryConvert,
+    Value,
 };
 
 use super::tcp::Connection;
 use crate::errno;
-use crate::io::argument_error;
+use crate::io::{argument_error, would_wait, Direction};
 
-/// The most a read without a length asks of one blocking read, the size of
-/// the host's socket buffer.
-pub(super) const READ_CHUNK: usize = 64 * 1024;
+/// The most a read through the buffer asks of one receive: the size of the
+/// host's socket buffer, and past the largest IPv4 datagram, so a datagram
+/// comes whole.
+const READ_CHUNK: usize = 64 * 1024;
+
+/// Whether one call waits for the socket, as Linux's `MSG_DONTWAIT` chooses
+/// for one `recvmsg` or `sendmsg`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Wait {
+    Block,
+    DontWait,
+}
 
 /// What a `BasicSocket` call reaches: the socket's receiving and sending, as
 /// Linux's `proto_ops` gives each socket type its own, and the read buffer
@@ -26,14 +37,78 @@ pub(super) trait SocketIo {
     /// What a read took past what it answered.
     fn held(&self) -> &RefCell<Vec<u8>>;
 
-    /// The next bytes the host brings, waiting for some; `None` at the end.
-    fn receive(&self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error>;
+    /// Up to `max` of the next bytes the host brings, `None` at the end;
+    /// `Pending` when none have come and `wait` does not wait.
+    fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error>;
 
-    /// Send `bytes`, waiting for room, answering how many were sent.
-    fn send(&self, mrb: &Mrb, bytes: &[u8]) -> Result<usize, Error>;
+    /// Send `bytes`, all of them when `wait` waits, else what there is room
+    /// for, answering how many were sent; `Pending` when there is no room and
+    /// `wait` does not wait.
+    fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error>;
 
     /// Whether a write is sent at once, as `IO#sync` reads; a socket's is.
     fn sync(&self) -> &Cell<bool>;
+}
+
+/// What a call that waits answers, which it does only once it is ready.
+pub(super) fn waited<T>(poll: Poll<T>) -> T {
+    match poll {
+        Poll::Ready(value) => value,
+        Poll::Pending => unreachable!("a call that waits returns once it is ready"),
+    }
+}
+
+/// The arguments before a trailing `exception:` keyword, and whether a call
+/// that would wait raises, as CRuby's `*_nonblock` methods take it: `true`
+/// unless given `false`.
+pub(super) fn exception_option<'a>(
+    mrb: &Mrb,
+    args: &'a [Value],
+) -> Result<(&'a [Value], bool), Error> {
+    let Some((last, rest)) = args.split_last() else {
+        return Ok((args, true));
+    };
+    let Some(options) = RHash::from_value(*last) else {
+        return Ok((args, true));
+    };
+    let keys: RArray = options.funcall(mrb, c"keys", ())?;
+    let mut exception = true;
+    for i in 0..keys.len() {
+        let key: Value = keys.entry(mrb, i as isize)?;
+        let named = Symbol::from_value(key).and_then(|key| key.name(mrb).ok());
+        if named.as_deref() != Some("exception") {
+            let message = format!("unknown keyword: {}", key.inspect(mrb));
+            return Err(argument_error(mrb, &message));
+        }
+        let given: Value = options.aref(mrb, key)?;
+        exception = match (Qtrue::from_value(given), Qfalse::from_value(given)) {
+            (Some(_), _) => true,
+            (_, Some(_)) => false,
+            _ => {
+                let message = format!(
+                    "expected true or false as exception: {}",
+                    given.inspect(mrb)
+                );
+                return Err(argument_error(mrb, &message));
+            }
+        };
+    }
+    Ok((rest, exception))
+}
+
+/// The bytes `object` spells, as CRuby's `IO#write` converts it.
+fn bytes_of(mrb: &Mrb, object: Value) -> Result<Vec<u8>, Error> {
+    let data = object
+        .funcall::<_, _, Value>(mrb, c"to_s", ())?
+        .to_r_string(mrb)?;
+    // SAFETY: the bytes are copied before the next mruby call.
+    Ok(unsafe { data.as_bytes(mrb) }.to_vec())
+}
+
+/// A length a read is given, refusing a negative one as CRuby's does.
+pub(super) fn length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
+    usize::try_from(i64::try_convert(length, mrb)?)
+        .map_err(|_| argument_error(mrb, "negative length given"))
 }
 
 /// The socket `value` stands for, a `TCPSocket` or a `UDPSocket`.
@@ -50,8 +125,23 @@ fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
 /// since WASI dups no socket.
 pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     basic.define_method(mrb, c"write", beni::method!(socket_write, -1))?;
+    basic.define_method(
+        mrb,
+        c"write_nonblock",
+        beni::method!(socket_write_nonblock, -1),
+    )?;
     basic.define_method(mrb, c"read", beni::method!(socket_read, -1))?;
     basic.define_method(mrb, c"readpartial", beni::method!(socket_readpartial, -1))?;
+    basic.define_method(
+        mrb,
+        c"read_nonblock",
+        beni::method!(socket_read_nonblock, -1),
+    )?;
+    basic.define_method(
+        mrb,
+        c"recv_nonblock",
+        beni::method!(socket_recv_nonblock, -1),
+    )?;
     basic.define_method(mrb, c"gets", beni::method!(socket_gets, -1))?;
     basic.define_method(mrb, c"each_line", beni::method!(socket_each_line, -1))?;
     basic.define_method(mrb, c"readlines", beni::method!(socket_readlines, -1))?;
@@ -78,31 +168,50 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
 fn socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Error> {
     let mut bytes = Vec::new();
     for object in objects {
-        let data = object
-            .funcall::<_, _, Value>(mrb, c"to_s", ())?
-            .to_r_string(mrb)?;
-        // SAFETY: the bytes are copied before the next mruby call.
-        bytes.extend_from_slice(unsafe { data.as_bytes(mrb) });
+        bytes.extend(bytes_of(mrb, *object)?);
     }
-    let sent = source_of(mrb, self_)?.send(mrb, &bytes)?;
+    let sent = waited(source_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
     Ok((sent as i64).into_value(mrb))
+}
+
+/// `write_nonblock(string, exception: true)` sends what there is room for at
+/// once, answering how many bytes it sent; with no room it raises
+/// `IO::EAGAINWaitWritable`, or answers `:wait_writable` with
+/// `exception: false`, as CRuby's does.
+fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let (args, exception) = exception_option(mrb, args)?;
+    let [string] = args else {
+        return Err(Error::argnum(mrb, args.len(), 1, 1));
+    };
+    let bytes = bytes_of(mrb, *string)?;
+    match source_of(mrb, self_)?.send(mrb, &bytes, Wait::DontWait)? {
+        Poll::Ready(sent) => Ok((sent as i64).into_value(mrb)),
+        Poll::Pending => would_wait(mrb, Direction::Write, "write would block", exception),
+    }
 }
 
 /// Up to `len` bytes, what an earlier read held back first, else what the
 /// host brings next, holding back what the read did not take; `None` at the
-/// end.
-fn read_some(mrb: &Mrb, source: &dyn SocketIo, len: usize) -> Result<Option<Vec<u8>>, Error> {
+/// end, and `Pending` when nothing came and `wait` does not wait.
+fn read_some(
+    mrb: &Mrb,
+    source: &dyn SocketIo,
+    len: usize,
+    wait: Wait,
+) -> Result<Poll<Option<Vec<u8>>>, Error> {
     let mut held = source.held().borrow_mut();
     if held.is_empty() {
         drop(held);
-        let Some(bytes) = source.receive(mrb)? else {
-            return Ok(None);
+        let bytes = match source.receive(mrb, READ_CHUNK, wait)? {
+            Poll::Ready(Some(bytes)) => bytes,
+            Poll::Ready(None) => return Ok(Poll::Ready(None)),
+            Poll::Pending => return Ok(Poll::Pending),
         };
         held = source.held().borrow_mut();
         *held = bytes;
     }
     let take = held.len().min(len);
-    Ok(Some(held.drain(..take).collect()))
+    Ok(Poll::Ready(Some(held.drain(..take).collect())))
 }
 
 /// `value`, a `String` buffer a read is given, made to hold `read`, or
@@ -133,17 +242,14 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
         _ => return Err(Error::argnum(mrb, args.len(), 0, 2)),
     };
     let length = match length.filter(|v| !v.is_nil()) {
-        Some(v) => Some(
-            usize::try_from(i64::try_convert(v, mrb)?)
-                .map_err(|_| argument_error(mrb, "negative length given"))?,
-        ),
+        Some(v) => Some(length_of(mrb, v)?),
         None => None,
     };
     let source = source_of(mrb, self_)?;
     let mut read = Vec::new();
     while length.is_none_or(|length| read.len() < length) {
         let want = length.map_or(READ_CHUNK, |length| length - read.len());
-        match read_some(mrb, source, want)? {
+        match waited(read_some(mrb, source, want, Wait::Block)?) {
             Some(bytes) => read.extend(bytes),
             None => break,
         }
@@ -158,23 +264,71 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
 /// `readpartial(maxlen, outbuf = nil)` answers what one read brings, into
 /// `outbuf` when given, raising `EOFError` at the end, as CRuby does.
 fn socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    read_partial(mrb, self_, args, Wait::Block, true)
+}
+
+/// `read_nonblock(maxlen, outbuf = nil, exception: true)` answers as
+/// `readpartial` does, at once: with nothing come yet it raises
+/// `IO::EAGAINWaitReadable`. With `exception: false` it answers
+/// `:wait_readable` instead, and `nil` at the end.
+fn socket_read_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let (args, exception) = exception_option(mrb, args)?;
+    read_partial(mrb, self_, args, Wait::DontWait, exception)
+}
+
+/// What one read brings, as CRuby's `io_getpartial` serves `readpartial` and
+/// `read_nonblock` alike, apart from whether it waits.
+fn read_partial(
+    mrb: &Mrb,
+    self_: Value,
+    args: &[Value],
+    wait: Wait,
+    exception: bool,
+) -> Result<Value, Error> {
     let (maxlen, outbuf) = match args {
         [maxlen] => (*maxlen, None),
         [maxlen, outbuf] => (*maxlen, Some(*outbuf).filter(|buf| !buf.is_nil())),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
-    let maxlen = usize::try_from(i64::try_convert(maxlen, mrb)?)
-        .map_err(|_| argument_error(mrb, "negative length given"))?;
+    let maxlen = length_of(mrb, maxlen)?;
     if maxlen == 0 {
         return fill(mrb, outbuf, mrb.str_new(b"").as_value());
     }
-    match read_some(mrb, source_of(mrb, self_)?, maxlen)? {
-        Some(bytes) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
-        None => Err(Error::new(
+    match read_some(mrb, source_of(mrb, self_)?, maxlen, wait)? {
+        Poll::Ready(Some(bytes)) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
+        Poll::Ready(None) if !exception => fill(mrb, outbuf, qnil().as_value()),
+        Poll::Ready(None) => Err(Error::new(
             mrb,
             mrb.exc_get(c"EOFError")?,
             "end of file reached",
         )),
+        Poll::Pending => would_wait(mrb, Direction::Read, "read would block", exception),
+    }
+}
+
+/// `recv_nonblock(maxlen, flags = 0, outbuf = nil, exception: true)` answers
+/// up to `maxlen` of what has come, `nil` at the end. With nothing come yet it
+/// raises `IO::EAGAINWaitReadable`, or answers `:wait_readable` with
+/// `exception: false`. Bytes a read held back raise `IOError`, as CRuby's.
+fn socket_recv_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let (args, exception) = exception_option(mrb, args)?;
+    let (maxlen, outbuf) = match args {
+        [maxlen] | [maxlen, _] => (*maxlen, None),
+        [maxlen, _, outbuf] => (*maxlen, Some(*outbuf).filter(|buf| !buf.is_nil())),
+        _ => return Err(Error::argnum(mrb, args.len(), 1, 3)),
+    };
+    let maxlen = length_of(mrb, maxlen)?;
+    let source = source_of(mrb, self_)?;
+    if !source.held().borrow().is_empty() {
+        return Err(errno::io_error(mrb, "recvfrom for buffered IO"));
+    }
+    if maxlen == 0 {
+        return fill(mrb, outbuf, mrb.str_new(b"").as_value());
+    }
+    match source.receive(mrb, maxlen, Wait::DontWait)? {
+        Poll::Ready(Some(bytes)) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
+        Poll::Ready(None) => fill(mrb, outbuf, qnil().as_value()),
+        Poll::Pending => would_wait(mrb, Direction::Read, "recvfrom(2) would block", exception),
     }
 }
 
@@ -204,7 +358,7 @@ fn next_line(
             source.held().borrow_mut().splice(0..0, rest);
             break;
         }
-        match read_some(mrb, source, READ_CHUNK)? {
+        match waited(read_some(mrb, source, READ_CHUNK, Wait::Block)?) {
             Some(bytes) => line.extend(bytes),
             None => break,
         }
@@ -232,7 +386,7 @@ fn skip_newlines(mrb: &Mrb, source: &dyn SocketIo) -> Result<(), Error> {
                 return Ok(());
             }
         }
-        match source.receive(mrb)? {
+        match waited(source.receive(mrb, READ_CHUNK, Wait::Block)?) {
             Some(bytes) => *source.held().borrow_mut() = bytes,
             None => return Ok(()),
         }
@@ -294,7 +448,7 @@ fn socket_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
     if !source.held().borrow().is_empty() {
         return Ok(false);
     }
-    match source.receive(mrb)? {
+    match waited(source.receive(mrb, READ_CHUNK, Wait::Block)?) {
         Some(bytes) => {
             *source.held().borrow_mut() = bytes;
             Ok(false)

@@ -3,6 +3,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::net::Ipv4Addr;
+use std::task::Poll;
 use std::time::Duration;
 
 use beni::prelude::*;
@@ -13,7 +14,7 @@ use beni::{
 };
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
-use super::basic::{SocketIo, READ_CHUNK};
+use super::basic::{SocketIo, Wait};
 use super::ip::{ensure_reverse_lookup_flag, local_addr_array, to_addr_array};
 use super::{stream_error, to_error};
 use crate::errno;
@@ -55,20 +56,27 @@ impl SocketIo for Connection {
         &self.buffered
     }
 
-    fn receive(&self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
+    fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error> {
         self.with(mrb, |open| loop {
-            match open.input.blocking_read(READ_CHUNK as u64) {
+            let read = match wait {
+                Wait::Block => open.input.blocking_read(max as u64),
+                Wait::DontWait => open.input.read(max as u64),
+            };
+            match read {
+                Ok(bytes) if bytes.is_empty() && wait == Wait::DontWait => {
+                    return Ok(Poll::Pending)
+                }
                 Ok(bytes) if bytes.is_empty() => continue,
-                Ok(bytes) => return Ok(Some(bytes)),
-                Err(StreamError::Closed) => return Ok(None),
+                Ok(bytes) => return Ok(Poll::Ready(Some(bytes))),
+                Err(StreamError::Closed) => return Ok(Poll::Ready(None)),
                 Err(err) => return Err(stream_error(mrb, err)),
             }
         })
     }
 
-    /// Every byte, once the writing side is open, as CRuby's `IO#write` sends
-    /// all it is given.
-    fn send(&self, mrb: &Mrb, bytes: &[u8]) -> Result<usize, Error> {
+    /// The bytes, once the writing side is open, as CRuby's `IO#write` sends
+    /// all it is given and `write_nonblock` what there is room for.
+    fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error> {
         self.with(mrb, |open| {
             if open.write_closed.get() {
                 return Err(Error::new(
@@ -77,12 +85,26 @@ impl SocketIo for Connection {
                     "not opened for writing",
                 ));
             }
-            for chunk in bytes.chunks(WRITE_CHUNK) {
-                open.output
-                    .blocking_write_and_flush(chunk)
-                    .map_err(|err| stream_error(mrb, err))?;
+            let failed = |err| stream_error(mrb, err);
+            if wait == Wait::Block {
+                for chunk in bytes.chunks(WRITE_CHUNK) {
+                    open.output
+                        .blocking_write_and_flush(chunk)
+                        .map_err(failed)?;
+                }
+                return Ok(Poll::Ready(bytes.len()));
             }
-            Ok(bytes.len())
+            if bytes.is_empty() {
+                return Ok(Poll::Ready(0));
+            }
+            let room = open.output.check_write().map_err(failed)? as usize;
+            if room == 0 {
+                return Ok(Poll::Pending);
+            }
+            let now = &bytes[..room.min(bytes.len())];
+            open.output.write(now).map_err(failed)?;
+            open.output.flush().map_err(failed)?;
+            Ok(Poll::Ready(now.len()))
         })
     }
 

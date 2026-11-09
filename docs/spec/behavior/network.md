@@ -27,6 +27,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_own_end.rb`
 - `test/e2e/test_network_socket_io.rb`
 - `test/e2e/test_network_socket_io_edges.rb`
+- `test/e2e/test_network_socket_nonblock.rb`
 - `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
@@ -40,6 +41,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_https.rb`
 - `test/e2e/test_network_udp.rb`
 - `test/e2e/test_network_udp_cruby.rb`
+- `test/e2e/test_network_udp_nonblock.rb`
 - `test/parity/test_network.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
@@ -1575,3 +1577,40 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox |
 | When | the script calls Net::HTTP's TLS setters, such as `verify_mode=` and `ca_file=`, and names `OpenSSL::SSL::VERIFY_PEER` |
 | Then | each setter raises `NoMethodError` and the constant `NameError`, where CRuby takes each. The host ends TLS and trusts the OS's store, so a script has nothing to set |
+
+## `NW-129` A script reads a TCPSocket without waiting, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-095` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers `"ab\ncd"` to a line and closes |
+| When | the script calls `read_nonblock` and `recv_nonblock` before the answer comes, then after it comes, then at its end |
+| Then | before it comes each raises `IO::EAGAINWaitReadable`, an `Errno::EAGAIN` that is an `IO::WaitReadable`, or answers `:wait_readable` with `exception: false`. After a `gets`, `read_nonblock` takes what the `gets` held back first. `recv_nonblock` then raises `IOError`, as CRuby's does over a buffer. At the end `read_nonblock` raises `EOFError` and `recv_nonblock` answers `nil` |
+
+## `NW-130` A script writes a socket without waiting, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-129` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that never reads |
+| When | the script calls `write_nonblock` until the socket is full, then after `close_write`. It calls `write_nonblock` on a `UDPSocket` with a peer and on one with none |
+| Then | each write answers how many bytes it sent. The full one raises `IO::EAGAINWaitWritable`, an `IO::WaitWritable`, or answers `:wait_writable` with `exception: false`. After `close_write` it raises `IOError`. The UDP write with a peer answers its length, and the one with none raises `Errno::EDESTADDRREQ` |
+
+## `NW-131` A script receives a datagram without waiting, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-129` |
+| relates | `NW-079` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP peer that answers each datagram it gets with `"hello"` |
+| When | the script calls `recvfrom_nonblock`, `recv_nonblock`, and `read_nonblock` before an answer comes, then `recvfrom_nonblock(3)` and `read_nonblock` after one does |
+| Then | before it comes each raises `IO::EAGAINWaitReadable` or answers `:wait_readable` with `exception: false`. After, `recvfrom_nonblock(3)` answers `["hel", ["AF_INET", port, host, host]]` and `read_nonblock` one whole datagram |

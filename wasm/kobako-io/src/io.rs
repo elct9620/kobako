@@ -34,7 +34,8 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, Integer, IntoValue, Mrb, RArray, RClass, RTypedData, TryConvert, TypedData, Value,
+    Error, ExceptionClass, Integer, IntoValue, Module, Mrb, RArray, RClass, RTypedData, Symbol,
+    TryConvert, TypedData, Value,
 };
 
 use crate::{descriptors, errno};
@@ -96,14 +97,13 @@ pub(crate) fn new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Err
 /// The gem-init step named after mruby's own `mrb_init_io`; the body order
 /// is the dependency order, the class before the instances built from it.
 pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
-    use beni::Module;
-
     // Spell `Object` as the super class via the canonical
     // `mrb->object_class` field (mirrors `mrbgems/mruby-io/src/io.c`).
     // Passing a NULL super to `mrb_define_class` makes mruby emit
     // `"no super class for 'IO', Object assumed"` via `mrb_warn` on
     // every install, leaking onto the guest `stderr` capture pipe.
     let io = mrb.define_class(c"IO", mrb.class_object())?;
+    define_wait_errors(mrb, io)?;
     // Marked before `File` derives from it, so a `File` carries a `Stream`.
     Stream::mark_carriers(mrb)?;
 
@@ -404,6 +404,78 @@ fn write_newline(mrb: &Mrb, self_: Value) -> Result<(), Error> {
 
 /// Returned as `Err`, so the bridge frame raises it only after the Rust
 /// frame has unwound — unlike a direct `mrb_raise` long-jump.
+/// Which way a call that would wait was going, as CRuby's
+/// `IO::WaitReadable` and `IO::WaitWritable` tell them apart.
+#[derive(Clone, Copy)]
+pub(crate) enum Direction {
+    Read,
+    Write,
+}
+
+/// `IO::WaitReadable`, `IO::WaitWritable`, and the `Errno::EAGAIN` each marks,
+/// `IO::EAGAINWaitReadable` and `IO::EAGAINWaitWritable`, with their
+/// `EWOULDBLOCK` names, as Linux numbers both alike and CRuby's `io.c`
+/// aliases them.
+fn define_wait_errors(mrb: &Mrb, io: RClass) -> Result<(), Error> {
+    let again: ExceptionClass = mrb.module_get(c"Errno")?.const_get(mrb, c"EAGAIN")?;
+    for (module, error, alias) in [
+        (
+            c"WaitReadable",
+            c"EAGAINWaitReadable",
+            c"EWOULDBLOCKWaitReadable",
+        ),
+        (
+            c"WaitWritable",
+            c"EAGAINWaitWritable",
+            c"EWOULDBLOCKWaitWritable",
+        ),
+    ] {
+        let marker = io.define_module(mrb, module)?;
+        let class = io.define_error(mrb, error, again)?;
+        class.include_module(mrb, marker)?;
+        io.const_set(mrb, alias, class)?;
+    }
+    Ok(())
+}
+
+/// The `IO::EAGAINWait*` a `call` that would wait going `direction` raises,
+/// as CRuby's `rb_readwrite_syserr_fail` words it.
+fn would_block(mrb: &Mrb, direction: Direction, call: &str) -> Error {
+    let name = match direction {
+        Direction::Read => c"EAGAINWaitReadable",
+        Direction::Write => c"EAGAINWaitWritable",
+    };
+    match mrb
+        .class_get(c"IO")
+        .and_then(|io| io.const_get::<_, ExceptionClass>(mrb, name))
+    {
+        Ok(class) => Error::new(
+            mrb,
+            class,
+            &format!("Resource temporarily unavailable - {call}"),
+        ),
+        Err(err) => err,
+    }
+}
+
+/// What a call that would wait answers: the `IO::EAGAINWait*` it raises, or,
+/// with `exception: false`, `:wait_readable` or `:wait_writable`.
+pub(crate) fn would_wait(
+    mrb: &Mrb,
+    direction: Direction,
+    call: &str,
+    exception: bool,
+) -> Result<Value, Error> {
+    if exception {
+        return Err(would_block(mrb, direction, call));
+    }
+    let name = match direction {
+        Direction::Read => "wait_readable",
+        Direction::Write => "wait_writable",
+    };
+    Ok(Symbol::new(mrb, name)?.as_value())
+}
+
 pub(crate) fn argument_error(mrb: &Mrb, msg: &str) -> Error {
     match mrb.exception_arg_error() {
         Ok(cls) => Error::new(mrb, cls, msg),
