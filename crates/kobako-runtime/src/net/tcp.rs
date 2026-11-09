@@ -219,7 +219,10 @@ impl TcpSock {
     fn dial_next(&self, state: &mut State, mut last: FilesystemError) {
         while let Some(addr) = state.untried.pop_front() {
             let dialed = self.family.connect(addr).and_then(|stream| {
-                Self::set_options(SockRef::from(&stream), state)?;
+                // A connect that already settled may refuse an option; its own
+                // outcome is what the guest reads, as wasmtime's `apply`
+                // ignores an option's failure on a socket it just made.
+                let _ = Self::set_options(SockRef::from(&stream), state);
                 let mut stream = mio::net::TcpStream::from_std(stream);
                 let ready: Weak<dyn Ready> = self.this.clone();
                 let registration = self.reactor.register(&mut stream, ready)?;
