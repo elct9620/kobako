@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use socket2::{SockRef, TcpKeepalive};
 
-use super::connections::{open, OpenConnections, Place};
+use super::connections::{open, OpenConnections};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
@@ -85,30 +85,16 @@ struct State {
     received: VecDeque<u8>,
     /// The peer ended its side, as a read of zero answers.
     received_end: bool,
-    /// The guest shut its reading side down, as `RCV_SHUTDOWN`; what arrived
-    /// still reads.
-    rcv_shut: bool,
     sending: VecDeque<u8>,
-    /// The guest shut its writing side down; the FIN leaves once the buffer
-    /// drains.
-    send_shut: bool,
+    /// The FIN left, once the writing side was shut and the buffer drained.
     fin_sent: bool,
-    /// The socket's pending failure, as `sk_err`: answered once, then
-    /// cleared, as `sock_error` swaps it with zero.
-    error: Option<FilesystemError>,
-    /// Its own end's port, its peer, its buffers, and its hop limit.
+    /// Its own end's port, its peer, its buffers, its hop limit, its pending
+    /// failure, which sides are shut, and its place and memory. What arrived
+    /// still reads once the reading side is shut.
     inet: InetSock,
     /// The keepalive probes the guest asked for; the host socket takes them
     /// as it is dialed.
     keepalive: KeepAlive,
-    /// Every view the guest held is gone.
-    released: bool,
-    /// The socket's place against its Sandbox's cap and the process's, given
-    /// back as it is released.
-    place: Option<Place>,
-    /// What both buffers may hold, reserved against the Invocation's memory
-    /// until the socket is released.
-    memory: Option<MemoryCharge>,
 }
 
 /// One TCP socket, shared by the socket file and the reactor.
@@ -139,21 +125,15 @@ impl TcpSock {
                 untried: VecDeque::new(),
                 received: VecDeque::new(),
                 received_end: false,
-                rcv_shut: false,
                 sending: VecDeque::new(),
-                send_shut: false,
                 fin_sent: false,
-                error: None,
-                inet: InetSock::new(),
+                inet: InetSock::new(memory),
                 keepalive: KeepAlive {
                     on: false,
                     idle: TCP_KEEPALIVE_TIME,
                     interval: TCP_KEEPALIVE_INTVL,
                     count: TCP_KEEPALIVE_PROBES,
                 },
-                released: false,
-                place: None,
-                memory: Some(memory),
             }),
             wait: Arc::default(),
             family,
@@ -183,6 +163,7 @@ impl TcpSock {
                 Phase::Closed if state.connected => return Err(FilesystemError::AlreadyConnected),
                 Phase::Closed => {
                     let err = state
+                        .inet
                         .error
                         .take()
                         .unwrap_or(FilesystemError::ConnectionAborted);
@@ -194,7 +175,7 @@ impl TcpSock {
         }
         let place = open(open_connections).ok_or(FilesystemError::WouldBlock)?;
         let mut state = self.state();
-        state.place = Some(place);
+        state.inet.place = Some(place);
         state.untried = addrs.into();
         state.inet.named = Some(named);
         state.phase = Phase::Connecting;
@@ -243,7 +224,7 @@ impl TcpSock {
     fn close(state: &mut State, err: FilesystemError) {
         Self::close_host(state);
         state.phase = Phase::Closed;
-        state.error = Some(err);
+        state.inet.error = Some(err);
     }
 
     /// Return a socket whose connect failed to one never connected, as
@@ -253,11 +234,11 @@ impl TcpSock {
         state.untried.clear();
         state.received.clear();
         state.received_end = false;
-        state.rcv_shut = false;
+        state.inet.rcv_shut = false;
         state.sending.clear();
-        state.send_shut = false;
+        state.inet.send_shut = false;
         state.fin_sent = false;
-        state.error = None;
+        state.inet.error = None;
         state.inet.named = None;
     }
 
@@ -310,7 +291,7 @@ impl TcpSock {
                 Err(err) => return Err(to_error(&err)),
             }
         }
-        if state.send_shut && state.sending.is_empty() && !state.fin_sent {
+        if state.inet.send_shut && state.sending.is_empty() && !state.fin_sent {
             let _ = stream.shutdown(Shutdown::Write);
             state.fin_sent = true;
         }
@@ -339,9 +320,7 @@ impl TcpSock {
     /// Move what can move, then wake every poller, since what a poll finds
     /// may have changed.
     fn pump_and_wake(&self, mut state: MutexGuard<'_, State>) {
-        if !state.released {
-            self.pump(&mut state);
-        }
+        self.pump(&mut state);
         drop(state);
         self.wait.wake_up();
     }
@@ -355,7 +334,11 @@ impl TcpSock {
             Phase::Unconnected => Err(FilesystemError::NotConnected),
             Phase::Connecting => Err(FilesystemError::WouldBlock),
             Phase::Connected => Ok(()),
-            Phase::Closed => Err(state.error.take().unwrap_or(FilesystemError::NotConnected)),
+            Phase::Closed => Err(state
+                .inet
+                .error
+                .take()
+                .unwrap_or(FilesystemError::NotConnected)),
         }
     }
 
@@ -401,12 +384,10 @@ impl TcpSock {
     /// runs on the last `fput`.
     fn release(&self) {
         let mut state = self.state();
-        state.released = true;
         state.untried.clear();
         state.received.clear();
         state.sending.clear();
-        state.place = None;
-        state.memory = None;
+        state.inet.release();
         Self::close_host(&mut state);
         drop(state);
         self.wait.wake_up();
@@ -437,11 +418,11 @@ impl ProtoOps for TcpSock {
             self.pump_and_wake(state);
             return Ok(take);
         }
-        if let Some(err) = state.error.take() {
+        if let Some(err) = state.inet.error.take() {
             return Err(err);
         }
         match state.phase {
-            _ if state.received_end || state.rcv_shut => Ok(0),
+            _ if state.received_end || state.inet.rcv_shut => Ok(0),
             Phase::Closed => Ok(0),
             Phase::Unconnected => Err(FilesystemError::NotConnected),
             Phase::Connecting | Phase::Connected => Err(FilesystemError::WouldBlock),
@@ -458,8 +439,14 @@ impl ProtoOps for TcpSock {
         let mut state = self.state();
         match state.phase {
             Phase::Connecting => return Err(FilesystemError::WouldBlock),
-            Phase::Connected if !state.send_shut && state.error.is_none() => {}
-            _ => return Err(state.error.take().unwrap_or(FilesystemError::BrokenPipe)),
+            Phase::Connected if !state.inet.send_shut && state.inet.error.is_none() => {}
+            _ => {
+                return Err(state
+                    .inet
+                    .error
+                    .take()
+                    .unwrap_or(FilesystemError::BrokenPipe))
+            }
         }
         let take = buf.len().min(
             state
@@ -483,8 +470,9 @@ impl ProtoOps for TcpSock {
         poll_wait(&self.wait, table);
         let state = self.state();
         let closed = matches!(state.phase, Phase::Unconnected | Phase::Closed);
-        let rcv_shutdown = state.received_end || state.rcv_shut || state.phase == Phase::Closed;
-        let send_shutdown = state.send_shut || state.phase == Phase::Closed;
+        let rcv_shutdown =
+            state.received_end || state.inet.rcv_shut || state.phase == Phase::Closed;
+        let send_shutdown = state.inet.send_shut || state.phase == Phase::Closed;
         let mut mask = PollMask::default();
         if closed || (rcv_shutdown && send_shutdown) {
             mask = mask | PollMask::HUP;
@@ -497,7 +485,7 @@ impl ProtoOps for TcpSock {
         {
             mask = mask | PollMask::OUT;
         }
-        if state.error.is_some() {
+        if state.inet.error.is_some() {
             mask = mask | PollMask::ERR;
         }
         mask
@@ -511,8 +499,7 @@ impl ProtoOps for TcpSock {
     /// since preview2 refuses a shutdown before the connect settles.
     fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
         let mut state = self.state();
-        state.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
-        state.rcv_shut |= matches!(how, Shutdown::Read | Shutdown::Both);
+        state.inet.mark_shutdown(how);
         let connected = state.phase == Phase::Connected;
         self.pump_and_wake(state);
         match connected {

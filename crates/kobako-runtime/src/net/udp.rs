@@ -10,7 +10,7 @@ use std::io;
 use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use super::connections::{open, OpenConnections, Place};
+use super::connections::{open, OpenConnections};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{to_error, to_ttl, InetSock, MemoryCharge, ProtoOps, SockOpt};
@@ -34,27 +34,17 @@ fn truesize_of(len: usize) -> usize {
 struct State {
     /// The host socket, and its place in the reactor, until released.
     host: Option<(mio::net::UdpSocket, Registration)>,
-    /// The socket's pending failure, as `sk_err`: answered once, then cleared.
-    error: Option<FilesystemError>,
     received: VecDeque<Vec<u8>>,
     received_bytes: usize,
     /// Whether the host socket took the last send, until the reactor next
     /// sees it change, as `sock_writeable` reads its room.
     writable: bool,
-    /// Its own end's port, its peer, its buffers, and its hop limit. A send
-    /// goes to the host at once, so `SO_SNDBUF` only reads back.
+    /// Its own end's port, its peer, its buffers, its hop limit, its pending
+    /// failure, which sides are shut, and its place and memory. A send goes
+    /// to the host at once, so `SO_SNDBUF` only reads back; once the reading
+    /// side is shut and the queue empties, a read answers zero, and once the
+    /// writing side is, a send answers `EPIPE`.
     inet: InetSock,
-    /// The guest shut its reading side down, as `RCV_SHUTDOWN`; once the
-    /// queue empties a read answers zero.
-    rcv_shut: bool,
-    /// The guest shut its writing side down, as `SEND_SHUTDOWN`; a send
-    /// answers `EPIPE`.
-    send_shut: bool,
-    /// The socket's place against its Sandbox's cap and the process's.
-    place: Option<Place>,
-    /// What the receive queue may hold, reserved against the Invocation's
-    /// memory until the socket is released.
-    memory: Option<MemoryCharge>,
 }
 
 /// One UDP socket, shared by the socket file and the reactor.
@@ -73,15 +63,10 @@ impl UdpSock {
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 host: None,
-                error: None,
                 received: VecDeque::new(),
                 received_bytes: 0,
                 writable: true,
-                inet: InetSock::new(),
-                rcv_shut: false,
-                send_shut: false,
-                place: None,
-                memory: Some(memory),
+                inet: InetSock::new(memory),
             }),
             wait: Arc::default(),
             this: this.clone(),
@@ -117,7 +102,7 @@ impl UdpSock {
                 return Ok(());
             }
         }
-        let place = match self.state().place.is_some() {
+        let place = match self.state().inet.place.is_some() {
             true => None,
             false => Some(open(open_connections).ok_or(FilesystemError::WouldBlock)?),
         };
@@ -143,7 +128,7 @@ impl UdpSock {
         state.inet.named = Some(named);
         state.writable = true;
         if let Some(place) = place {
-            state.place = Some(place);
+            state.inet.place = Some(place);
         }
         Ok(())
     }
@@ -171,7 +156,7 @@ impl UdpSock {
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => state.error = Some(to_udp_error(&err)),
+                Err(err) => state.inet.error = Some(to_udp_error(&err)),
             }
         }
     }
@@ -210,7 +195,7 @@ impl ProtoOps for UdpSock {
     /// only a blocking wait ends on `RCV_SHUTDOWN`.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
-        if let Some(err) = state.error.take() {
+        if let Some(err) = state.inet.error.take() {
             return Err(err);
         }
         let Some(datagram) = state.received.pop_front() else {
@@ -234,13 +219,13 @@ impl ProtoOps for UdpSock {
             return Err(FilesystemError::MessageTooLong);
         }
         let mut state = self.state();
-        if let Some(err) = state.error.take() {
+        if let Some(err) = state.inet.error.take() {
             return Err(err);
         }
         if state.inet.named.is_none() {
             return Err(FilesystemError::DestinationAddressRequired);
         }
-        if state.send_shut {
+        if state.inet.send_shut {
             return Err(FilesystemError::BrokenPipe);
         }
         let Some((socket, _)) = state.host.as_ref() else {
@@ -270,16 +255,16 @@ impl ProtoOps for UdpSock {
         poll_wait(&self.wait, table);
         let state = self.state();
         let mut mask = PollMask::default();
-        if !state.received.is_empty() || state.rcv_shut {
+        if !state.received.is_empty() || state.inet.rcv_shut {
             mask = mask | PollMask::IN;
         }
         if (state.host.is_some() && state.writable) || state.inet.named.is_none() {
             mask = mask | PollMask::OUT;
         }
-        if state.rcv_shut && state.send_shut {
+        if state.inet.rcv_shut && state.inet.send_shut {
             mask = mask | PollMask::HUP;
         }
-        if state.error.is_some() {
+        if state.inet.error.is_some() {
             mask = mask | PollMask::ERR;
         }
         mask
@@ -289,8 +274,7 @@ impl ProtoOps for UdpSock {
     /// connected to no peer marks them and answers `ENOTCONN`.
     fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
         let mut state = self.state();
-        state.rcv_shut |= matches!(how, Shutdown::Read | Shutdown::Both);
-        state.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
+        state.inet.mark_shutdown(how);
         let connected = state.inet.named.is_some();
         drop(state);
         self.wait.wake_up();
@@ -332,10 +316,9 @@ impl ProtoOps for UdpSock {
     /// Let the host socket go, deregistered from the reactor.
     fn release(&self) {
         let mut state = self.state();
-        state.place = None;
+        state.inet.release();
         state.received.clear();
         state.received_bytes = 0;
-        state.memory = None;
         if let Some((mut socket, registration)) = state.host.take() {
             registration.deregister(&mut socket);
         }
@@ -547,7 +530,7 @@ mod tests {
     #[test]
     fn a_failure_answers_before_the_datagram_it_holds() {
         let (sock, _peer) = readable_socket();
-        sock.state().error = Some(FilesystemError::ConnectionRefused);
+        sock.state().inet.error = Some(FilesystemError::ConnectionRefused);
         let polled = sock.poll(None);
         let mut buf = [0; 8];
         let first = sock.recvmsg(&mut buf);

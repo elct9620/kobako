@@ -12,6 +12,7 @@ use crate::vfs::{
 };
 use crate::wait::PollTable;
 
+use super::connections::Place;
 use super::MAX_SOCKET_BUFFER;
 
 /// What one protocol answers for its socket, as Linux's `struct proto_ops`:
@@ -80,16 +81,50 @@ pub(crate) struct InetSock {
     pub(crate) buffers: Buffers,
     /// The hop limit sent with, as `inet_sock` keeps `uc_ttl`.
     pub(crate) ttl: u8,
+    /// The socket's pending failure, as `sk_err`: answered once, then
+    /// cleared, as `sock_error` swaps it with zero.
+    pub(crate) error: Option<FilesystemError>,
+    /// The guest shut its reading side down, as `sk_shutdown`'s
+    /// `RCV_SHUTDOWN`.
+    pub(crate) rcv_shut: bool,
+    /// The guest shut its writing side down, as `SEND_SHUTDOWN`.
+    pub(crate) send_shut: bool,
+    /// The socket's place against its Sandbox's cap and the process's, given
+    /// back as it is released.
+    pub(crate) place: Option<Place>,
+    /// What its queues may hold, reserved against the Invocation's memory
+    /// until the socket is released.
+    memory: Option<MemoryCharge>,
 }
 
 impl InetSock {
-    pub(crate) fn new() -> Self {
+    /// A socket whose queues hold what `memory` reserved.
+    pub(crate) fn new(memory: MemoryCharge) -> Self {
         Self {
             virtual_port: None,
             named: None,
             buffers: Buffers::default(),
             ttl: IPDEFTTL,
+            error: None,
+            rcv_shut: false,
+            send_shut: false,
+            place: None,
+            memory: Some(memory),
         }
+    }
+
+    /// Mark the sides `how` names shut, as `inet_shutdown` sets
+    /// `sk_shutdown`.
+    pub(crate) fn mark_shutdown(&mut self, how: Shutdown) {
+        self.rcv_shut |= matches!(how, Shutdown::Read | Shutdown::Both);
+        self.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
+    }
+
+    /// Give back the socket's place and its memory, as `sk_free` does once
+    /// the socket is released.
+    pub(crate) fn release(&mut self) {
+        self.place = None;
+        self.memory = None;
     }
 
     /// What `opt` reads at the socket and IP levels, as `sk_getsockopt` and
