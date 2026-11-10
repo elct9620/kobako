@@ -7,6 +7,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use super::family::admitted_addresses_of;
 use super::http::{
     carries, split_authority, to_field_name, to_field_value, Connector, Exchange, HttpError,
     Outbound, OutgoingRequest, Scheme, Swap,
@@ -446,13 +447,14 @@ impl Namespace {
             }
             Some(None) => Err(FilesystemError::PermissionDenied),
             Some(Some((name, real))) => {
-                let local = self
-                    .family
-                    .local_addresses()
-                    .map_err(|_| FilesystemError::PermissionDenied)?;
-                let admitted =
-                    self.ruleset
-                        .admitted_addresses_of(&name, &real, addr.port(), protocol, &local);
+                let admitted = admitted_addresses_of(
+                    &*self.family,
+                    &self.ruleset,
+                    &name,
+                    &real,
+                    addr.port(),
+                    protocol,
+                );
                 if admitted.is_empty() {
                     return Err(FilesystemError::PermissionDenied);
                 }
@@ -901,6 +903,42 @@ mod tests {
             "Namespace::connect must refuse with EACCES, dialing nothing, when the Protocol \
              Family cannot read the host's own addresses, rather than judge the name's \
              addresses as if the host had none"
+        );
+    }
+
+    // @behavior NW-154
+    #[test]
+    fn a_request_is_refused_when_the_hosts_own_addresses_cannot_be_read() {
+        let family = Arc::new(ResolvesNames {
+            answers: Mutex::new(vec!["8.8.8.8".parse().unwrap()]),
+            local_unreadable: true,
+            ..ResolvesNames::default()
+        });
+        let endpoint = Endpoint::new("api.example.com", 80).unwrap();
+        let namespace = resolving_namespace(vec![endpoint], "", family.clone());
+        let cred = prepare_creds_within(&[], None);
+        let exchange = namespace
+            .send(
+                &cred,
+                OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+            )
+            .expect("the endpoint names the authority");
+        let started = std::time::Instant::now();
+        let answer = loop {
+            if let Some(answer) = exchange.response() {
+                break answer.err();
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "the request never settles"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        assert_eq!(
+            (answer, family.dialed.lock().unwrap().len()),
+            (Some(HttpError::Denied), 0),
+            "an HTTP request must answer Denied, dialing nothing, when the Protocol Family \
+             cannot read the host's own addresses"
         );
     }
 

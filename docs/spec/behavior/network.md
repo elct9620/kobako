@@ -1899,7 +1899,7 @@ endpoint "api.example.com", port: 443
 | When | the guest starts a bind and asks for `local-address`, then streams, checks a send, and sends no datagram, then one |
 | Then | the bind under way answers its address. The empty send answers zero and leaves the permit, so the next send of one datagram passes |
 
-## `NW-154` A connect is refused when the host's own addresses cannot be read
+## `NW-154` A connect or a request is refused when the host's own addresses cannot be read
 
 | Attribute | Value |
 | --- | --- |
@@ -1908,8 +1908,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a Protocol Family that cannot read the host's own addresses, and an endpoint naming a name |
-| When | the guest connects to the name's virtual address |
-| Then | the connect answers `EACCES` and dials nothing, rather than judging the name's addresses as if the host had none |
+| When | the guest connects to the name's virtual address, or sends an HTTP request to the name |
+| Then | the connect answers `EACCES` and the request `Denied`, each dialing nothing. Neither judges the name's addresses as if the host had none |
 
 ## `NW-155` A flushing stream's pollable waits until what it flushes has left
 

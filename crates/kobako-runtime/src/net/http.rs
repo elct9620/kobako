@@ -21,6 +21,7 @@ use http_body_util::{BodyExt, Full};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::{open, OpenConnections, Place};
+use super::family::admitted_addresses_of;
 use super::lookup::NameLookup;
 use super::reactor::{Reactor, Ready, Registration, Task};
 use super::socket::{take_connect_outcome, to_error, MemoryCharge};
@@ -512,16 +513,13 @@ impl Connector {
             Ok(ip) => vec![SocketAddr::new(ip, self.port)],
             Err(_) => {
                 let real = self.resolve().await?;
-                let local = self
-                    .family
-                    .local_addresses()
-                    .map_err(|_| HttpError::Denied)?;
-                self.ruleset.admitted_addresses_of(
+                admitted_addresses_of(
+                    &*self.family,
+                    &self.ruleset,
                     &self.host,
                     &real,
                     self.port,
                     Protocol::Http,
-                    &local,
                 )
             }
         };

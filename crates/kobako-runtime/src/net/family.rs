@@ -7,6 +7,8 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 
+use crate::network::{Protocol, Ruleset};
+
 /// What dials the host network.
 pub trait ProtocolFamily: Send + Sync {
     /// A non-blocking stream to `addr`, whose connect may still be under way,
@@ -71,6 +73,25 @@ impl ProtocolFamily for HostInet {
 
     fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {
         if_addrs::get_if_addrs().map(|interfaces| interfaces.into_iter().map(|i| i.ip()).collect())
+    }
+}
+
+/// The addresses `real`, resolved from `name`, the ruleset admits to `port`
+/// over `protocol`, judged against the host's own addresses as `family` reads
+/// them. A host whose addresses cannot be read admits none, so an unreadable
+/// interface list refuses a connect rather than judging as if the host had
+/// none. Every path that dials a name passes through here.
+pub(crate) fn admitted_addresses_of(
+    family: &dyn ProtocolFamily,
+    ruleset: &Ruleset,
+    name: &str,
+    real: &[IpAddr],
+    port: u16,
+    protocol: Protocol,
+) -> Vec<SocketAddr> {
+    match family.local_addresses() {
+        Ok(local) => ruleset.admitted_addresses_of(name, real, port, protocol, &local),
+        Err(_) => Vec::new(),
     }
 }
 
