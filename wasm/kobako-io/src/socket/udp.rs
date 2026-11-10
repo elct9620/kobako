@@ -15,10 +15,9 @@ use super::basic::{
     direct_args, exception_option, open_socket_of, ready_of, IoState, SocketIo, Wait,
 };
 use super::ip::{local_end_of, to_addr_array};
-use super::{family_of, to_error, Family, AF_INET};
+use super::{bind, family_of, to_error, Family, AF_INET};
 use crate::errno;
 use crate::io::{would_wait, Direction};
-use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
 };
@@ -221,16 +220,7 @@ fn bind_to(open: &mut Open, end: (Ipv4Addr, u16)) -> Result<(), ErrorCode> {
     if open.bound {
         return Err(ErrorCode::InvalidState);
     }
-    open.socket
-        .start_bind(&instance_network(), to_ip_socket_address(end))?;
-    let pollable = open.socket.subscribe();
-    loop {
-        match open.socket.finish_bind() {
-            Ok(()) => break,
-            Err(ErrorCode::WouldBlock) => pollable.block(),
-            Err(code) => return Err(code),
-        }
-    }
+    bind(&open.socket, end)?;
     open.bound = true;
     Ok(())
 }

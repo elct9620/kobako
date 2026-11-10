@@ -18,7 +18,7 @@ use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
 use super::basic::{IoState, SocketIo, Wait};
 use super::ip::local_end_of;
-use super::{seconds_of, stream_error, to_error};
+use super::{bind, seconds_of, stream_error, to_error};
 use crate::errno;
 use crate::io::argument_error;
 use crate::wasi::wait_within;
@@ -263,11 +263,8 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
         );
         let (local_ip, local_port, quoted) = local_of(mrb, local_host, local_port, TCP)?;
         let bind_call = named("bind(2)", quoted, (local_ip, local_port));
-        let refused = |code| to_error(mrb, code, TCP, &bind_call);
-        socket
-            .start_bind(&network, to_ip_socket_address((local_ip, local_port)))
-            .map_err(refused)?;
-        socket.finish_bind().map_err(refused)?;
+        bind(&socket, (local_ip, local_port))
+            .map_err(|code| to_error(mrb, code, TCP, &bind_call))?;
     }
     socket
         .start_connect(&network, to_ip_socket_address((ip, port)))

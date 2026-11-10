@@ -285,3 +285,52 @@ pub(crate) fn stream_error(mrb: &Mrb, err: StreamError) -> Error {
         }
     }
 }
+
+/// A socket WASI binds in two steps, `start-bind` then `finish-bind`, as its
+/// TCP and UDP sockets both do.
+pub(crate) trait Bind {
+    fn start_bind(&self, end: (std::net::Ipv4Addr, u16)) -> Result<(), ErrorCode>;
+    fn finish_bind(&self) -> Result<(), ErrorCode>;
+    fn subscribe(&self) -> crate::wasi::wasi::io::poll::Pollable;
+}
+
+macro_rules! bind_through_wasi {
+    ($($socket:ty),*) => {$(
+        impl Bind for $socket {
+            fn start_bind(&self, end: (std::net::Ipv4Addr, u16)) -> Result<(), ErrorCode> {
+                <$socket>::start_bind(
+                    self,
+                    &crate::wasi::wasi::sockets::instance_network::instance_network(),
+                    address::to_ip_socket_address(end),
+                )
+            }
+
+            fn finish_bind(&self) -> Result<(), ErrorCode> {
+                <$socket>::finish_bind(self)
+            }
+
+            fn subscribe(&self) -> crate::wasi::wasi::io::poll::Pollable {
+                <$socket>::subscribe(self)
+            }
+        }
+    )*};
+}
+
+bind_through_wasi!(
+    crate::wasi::wasi::sockets::tcp::TcpSocket,
+    crate::wasi::wasi::sockets::udp::UdpSocket
+);
+
+/// Bind `socket` to `end`, waiting while the host settles the bind, as
+/// Linux's `bind(2)` answers once it took hold.
+pub(crate) fn bind(socket: &impl Bind, end: (std::net::Ipv4Addr, u16)) -> Result<(), ErrorCode> {
+    socket.start_bind(end)?;
+    let pollable = socket.subscribe();
+    loop {
+        match socket.finish_bind() {
+            Ok(()) => return Ok(()),
+            Err(ErrorCode::WouldBlock) => pollable.block(),
+            Err(code) => return Err(code),
+        }
+    }
+}
