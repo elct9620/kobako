@@ -227,7 +227,7 @@ pub(crate) enum Pollable {
 
 impl Pollable {
     /// This pollable as a wait on `profile` holds it, beside a host-side
-    /// producer when `producer` says so: a clock is due as the posture has it.
+    /// producer when `producer` says so: a clock is due as the profile has it.
     pub(crate) fn for_wait(self, profile: Profile, producer: bool) -> Self {
         match self {
             Pollable::Clock { at } => Pollable::Clock {

@@ -29,6 +29,20 @@ impl std::fmt::Display for TimeoutTrap {
 
 impl std::error::Error for TimeoutTrap {}
 
+/// Marker error a host-side wait ends with when the frontend interrupts its
+/// thread before the deadline: preview1 answers it EINTR, as a signal ends
+/// Linux's `poll`, and preview2, which has no EINTR, traps with it.
+#[derive(Debug)]
+pub(crate) struct Interrupted;
+
+impl std::fmt::Display for Interrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the guest's wait was interrupted")
+    }
+}
+
+impl std::error::Error for Interrupted {}
+
 /// Epoch delta that keeps the deadline effectively unreachable when no
 /// wall-clock cap is configured. Half the epoch range rather than
 /// `u64::MAX`: wasmtime adds the delta to the engine's current epoch,

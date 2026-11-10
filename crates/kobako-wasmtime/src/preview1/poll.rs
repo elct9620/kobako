@@ -1,19 +1,19 @@
 //! `poll_oneoff`, the guest's wait: for a clock, or for a descriptor to be
 //! ready.
 //!
-//! A file's descriptor is ready at once; a socket's waits on its socket file
-//! until the peer or the host moves it. A wait for clocks alone passes on the
-//! guest's own clocks: the hermetic rung's never advance, so its waits end at
-//! once, and a permissive wait takes host time but never past the
-//! invocation's deadline. A clock beside a socket elapses in host time, as a
-//! wait beside a host-side producer does. The host is the one waiting, where
-//! no epoch check reaches, so the wait sleeps on the runtime's wait
-//! primitive, which a deadline or an interrupt ends.
+//! Each subscription becomes the pollable preview2 waits on, and preview2's
+//! poll answers which are ready, as wasmtime-wasi's preview1 builds its
+//! `poll_oneoff` on preview2's pollables. A file's descriptor is ready at
+//! once; a socket's waits on its socket file until the peer or the host
+//! moves it. A clock is due as the profile has it: at once on the hermetic
+//! profile's frozen clocks, and in host time beside a socket or on the
+//! permissive profile, never past the invocation's deadline. What only
+//! preview1 has stays here: which descriptor answers what, and EINTR for a
+//! wait the frontend interrupts.
 
 use std::time::{Duration, Instant};
 
 use kobako_runtime::vfs::PollMask;
-use kobako_runtime::wait::{do_poll, PollTable};
 use wiggle::{GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -22,7 +22,8 @@ use super::memory::GuestMemory;
 use super::types::{self, Clockid, Eventrwflags, Eventtype, Subclockflags, SubscriptionU};
 use crate::descriptors::{lock, SharedFile};
 use crate::invocation::Invocation;
-use crate::trap::TimeoutTrap;
+use crate::preview2::Pollable;
+use crate::trap::Interrupted;
 
 /// One subscription as the guest wrote it, the error its event reports, and
 /// the socket file it waits on, if its descriptor is a socket's.
@@ -34,20 +35,27 @@ struct Subscription {
 }
 
 impl Subscription {
-    /// What the socket's poll finds, registering on `table` for a wait that
-    /// will sleep.
-    fn poll_socket(&self, table: Option<&mut PollTable>) -> Option<PollMask> {
-        let socket = self.socket.as_ref()?;
-        Some(lock(socket).poll(table))
+    /// The pollable preview2 waits on for this subscription, a clock due
+    /// `started` plus what it has left.
+    fn to_pollable(&self, started: Instant) -> Pollable {
+        match (&self.kind, &self.socket) {
+            (Kind::Clock(left), _) => Pollable::Clock {
+                at: started + Duration::from_nanos(*left),
+            },
+            (Kind::FdRead, Some(socket)) => Pollable::File(socket.clone(), PollMask::IN),
+            (Kind::FdWrite, Some(socket)) => Pollable::File(socket.clone(), PollMask::OUT),
+            (_, None) => Pollable::Ready,
+        }
     }
 
-    /// Whether the socket is ready for what the subscription asks.
-    fn is_socket_ready(found: PollMask, kind: &Kind) -> bool {
-        let asked = match kind {
-            Kind::FdRead => PollMask::IN,
-            _ => PollMask::OUT,
-        };
-        found.is_ready_for(asked)
+    /// The flags its event carries: a socket that hung up says so.
+    fn flags(&self) -> Eventrwflags {
+        match &self.socket {
+            Some(socket) if lock(socket).poll(None).contains(PollMask::HUP) => {
+                Eventrwflags::FD_READWRITE_HANGUP
+            }
+            _ => Eventrwflags::empty(),
+        }
     }
 }
 
@@ -76,76 +84,29 @@ pub(crate) fn poll_oneoff(
         .map(|sub| read_subscription(invocation, mem, sub?))
         .collect::<Answer<Vec<_>>>()?;
 
-    let clocks = subscriptions.iter().filter_map(|sub| match sub.kind {
-        Kind::Clock(left) => Some(left),
-        Kind::FdRead | Kind::FdWrite => None,
-    });
-    let files = subscriptions
+    let started = Instant::now();
+    let pollables = subscriptions
         .iter()
-        .any(|sub| !matches!(sub.kind, Kind::Clock(_)) && sub.socket.is_none());
-    let waited = if clocks.clone().count() == subscriptions.len() {
-        let soonest = clocks.min().unwrap_or(0);
-        wait(invocation, soonest)?;
-        soonest
-    } else if !files {
-        let started = Instant::now();
-        let due = clocks.min().map(|left| {
-            invocation
-                .profile()
-                .clock_due(started + Duration::from_nanos(left), true)
-        });
-        wait_for_socket(invocation, &subscriptions, due)?;
-        u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
-    } else {
-        0
+        .map(|sub| sub.to_pollable(started))
+        .collect();
+    let ready = match invocation.poll_ready(pollables) {
+        Ok(ready) => ready,
+        Err(err) if err.is::<Interrupted>() => return Err(Errno::Intr.into()),
+        Err(err) => return Err(types::Error::trap(err)),
     };
 
-    let mut written = 0;
-    for sub in &subscriptions {
-        let (ready, flags) = match (&sub.kind, sub.poll_socket(None)) {
-            (Kind::Clock(left), _) => (*left <= waited, Eventrwflags::empty()),
-            (kind, Some(found)) => (
-                Subscription::is_socket_ready(found, kind),
-                match found.contains(PollMask::HUP) {
-                    true => Eventrwflags::FD_READWRITE_HANGUP,
-                    false => Eventrwflags::empty(),
-                },
-            ),
-            (_, None) => (true, Eventrwflags::empty()),
+    for (written, index) in ready.iter().enumerate() {
+        let sub = &subscriptions[*index as usize];
+        let nbytes = match sub.kind {
+            Kind::Clock(_) => 0,
+            Kind::FdRead | Kind::FdWrite => u64::from(sub.error == Errno::Success),
         };
-        if ready {
-            let nbytes = match sub.kind {
-                Kind::Clock(_) => 0,
-                Kind::FdRead | Kind::FdWrite => u64::from(sub.error == Errno::Success),
-            };
-            mem.write(events.add(written)?, to_event(sub, nbytes, flags))?;
-            written += 1;
-        }
+        mem.write(
+            events.add(written as u32)?,
+            to_event(sub, nbytes, sub.flags()),
+        )?;
     }
-    Ok(written)
-}
-
-/// Wait until a socket a subscription names is ready, or the soonest clock is
-/// `due`, as Linux's `do_poll` registers on each file's queue and sleeps.
-fn wait_for_socket(
-    invocation: &Invocation,
-    subscriptions: &[Subscription],
-    due: Option<Instant>,
-) -> Answer {
-    let waited = invocation.wait_for(due, |mut table| {
-        let mut ready = due.is_some_and(|at| Instant::now() >= at);
-        for sub in subscriptions {
-            if let Some(found) = sub.poll_socket(table.as_deref_mut()) {
-                ready |= Subscription::is_socket_ready(found, &sub.kind);
-            }
-        }
-        ready.then_some(())
-    });
-    match waited {
-        Ok(()) => Ok(()),
-        Err(err) if err.is::<TimeoutTrap>() => Err(types::Error::trap(err)),
-        Err(_) => Err(Errno::Intr.into()),
-    }
+    Ok(ready.len() as u32)
 }
 
 fn read_subscription(
@@ -220,27 +181,6 @@ fn read_clock(invocation: &Invocation, clock: &types::SubscriptionClock) -> Answ
     Ok(Kind::Clock(clock.timeout.saturating_sub(now)))
 }
 
-/// Wait on the guest's clocks alone until `nanos` are due as its posture has
-/// them, no further than the invocation's deadline, which ends it as a
-/// timeout. An interrupt of the thread ends it with EINTR, as a signal ends
-/// Linux's `poll`.
-fn wait(invocation: &Invocation, nanos: u64) -> Answer {
-    let due = invocation
-        .profile()
-        .clock_due(Instant::now() + Duration::from_nanos(nanos), false);
-    let left = due.saturating_duration_since(Instant::now());
-    if left.is_zero() {
-        return Ok(());
-    }
-    match do_poll(Some(left), |_| None::<()>) {
-        Ok(_) => Ok(()),
-        Err(_) if invocation.deadline().is_some_and(|at| Instant::now() >= at) => {
-            Err(types::Error::trap(wasmtime::Error::new(TimeoutTrap)))
-        }
-        Err(_) => Err(Errno::Intr.into()),
-    }
-}
-
 fn to_event(sub: &Subscription, nbytes: u64, flags: Eventrwflags) -> types::Event {
     types::Event {
         userdata: sub.userdata,
@@ -256,7 +196,7 @@ fn to_event(sub: &Subscription, nbytes: u64, flags: Eventrwflags) -> types::Even
 
 #[cfg(test)]
 mod tests {
-    //! Witness that a guest's clock wait passes on its posture's clocks:
+    //! Witness that a guest's clock wait passes on its profile's clocks:
     //! at once on the frozen ones, and on the live ones no further than
     //! the deadline.
     use std::time::{Duration, Instant};
@@ -295,7 +235,16 @@ mod tests {
             (i64.store (i32.const 24)
               (i64.add (i64.load (i32.const 128)) (i64.const 200000000)))
             (i32.store16 (i32.const 40) (i32.const 1))
-            (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96))))
+            (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96)))
+          (func (export "events_of_two_clocks") (result i32)
+            (i32.store8 (i32.const 8) (i32.const 0))
+            (i32.store (i32.const 16) (i32.const 1))
+            (i64.store (i32.const 24) (i64.const 1000000000))
+            (i32.store8 (i32.const 56) (i32.const 0))
+            (i32.store (i32.const 64) (i32.const 1))
+            (i64.store (i32.const 72) (i64.const 2000000000))
+            (drop (call $poll (i32.const 0) (i32.const 160) (i32.const 2) (i32.const 240)))
+            (i32.load (i32.const 240))))
     "#;
 
     /// Run the ten-second wait at `profile` under `deadline`, handing the
@@ -497,6 +446,22 @@ mod tests {
             [ERRNO_BADF, 0],
             "poll_oneoff on standard output must answer EBADF waiting to read and be ready to \
              write"
+        );
+    }
+
+    // @behavior RT-371
+    #[test]
+    fn a_hermetic_wait_on_two_clocks_fires_both_at_once() {
+        let (ended, spent) = call_wait(
+            "events_of_two_clocks",
+            Profile::Hermetic,
+            Some(Duration::from_secs(20)),
+            None,
+        );
+        assert!(
+            matches!(ended, Ok(2)) && spent < Duration::from_secs(1),
+            "a hermetic poll_oneoff on a one- and a two-second clock must report both events at \
+             once, not {ended:?} after {spent:?}"
         );
     }
 

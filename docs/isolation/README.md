@@ -169,6 +169,16 @@ Each ABI's encoding keeps its own table: preview1's fd table and preview2's reso
 | Linux compat syscalls | a second table, one kernel |
 | io_uring | the syscalls' VFS entry points (`io_uring/fs.c`) |
 
+### Shared Calls
+
+Where both encodings answer the same call, preview1 adapts to preview2, as `wasmtime-wasi`'s preview1 does. Waiting is that call today. `poll_oneoff` turns each subscription into a preview2 pollable and waits through preview2's poll, so one rule decides when a clock is due. A socket read or write through preview1 still reaches the socket's Open File, since its POSIX error names have no preview2 code.
+
+| Call | preview1 | Answered by |
+|---|---|---|
+| waiting | `poll_oneoff` | preview2's poll |
+| a socket's read, write | `fd_read`, `fd_write` | the socket's Open File |
+| a file's call | `path_*`, `fd_*` | the Open File, preview1 only |
+
 ## Trigger Conditions
 
 kobako stays at L5 until one of these holds; then L6 or the bridging is reconsidered.

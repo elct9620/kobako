@@ -4173,3 +4173,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a permissive guest under a deadline |
 | When | it reads the realtime clock, then waits until a fifth of a second past that time |
 | Then | the wait ends about a fifth of a second later, since both read one wall clock |
+
+## `RT-371` Every clock a hermetic wait holds is due at once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-073` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest running at the strongest profile |
+| When | it waits on a one-second and a two-second clock together, through preview1 and through preview2 |
+| Then | each wait reports both clocks at once, since the frozen clocks never reach either |

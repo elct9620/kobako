@@ -36,7 +36,7 @@ use super::sockets::{
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
 use crate::descriptors::SocketType;
 use crate::invocation::Invocation;
-use crate::trap::TimeoutTrap;
+use crate::trap::{Interrupted, TimeoutTrap};
 
 /// The most one `blocking-write-and-flush` takes, past which `io.wit` says the
 /// call traps.
@@ -90,9 +90,30 @@ impl Invocation {
             .and_then(|()| set(&socket.socket.sock).map_err(|err| to_error_code(&err))))
     }
 
-    /// Wait until `ready` answers, or trap as the deadline or an interrupt
-    /// ends the run; the wait sleeps until the soonest pollable is due, or a
-    /// queue `ready` registered on wakes.
+    /// The indices of `pollables` ready, once one is, as WASI's `poll` finds
+    /// them: each clock is due as the profile has it beside any host-side
+    /// producer among them. Both encodings wait here, so preview1's
+    /// `poll_oneoff` answers by the same rule.
+    pub(crate) fn poll_ready(&self, pollables: Vec<table::Pollable>) -> wasmtime::Result<Vec<u32>> {
+        let producer = pollables.iter().any(table::Pollable::is_producer);
+        let profile = self.profile();
+        let pollables = pollables
+            .into_iter()
+            .map(|pollable| pollable.for_wait(profile, producer))
+            .collect::<Vec<_>>();
+        let due = pollables.iter().filter_map(table::Pollable::due).min();
+        self.wait_for(due, |mut table| {
+            let ready = (0..pollables.len() as u32)
+                .filter(|i| pollables[*i as usize].is_ready(table.as_deref_mut()))
+                .collect::<Vec<_>>();
+            (!ready.is_empty()).then_some(ready)
+        })
+    }
+
+    /// Wait until `ready` answers, or end with `TimeoutTrap` at the deadline
+    /// and with `Interrupted` as the frontend interrupts; the wait sleeps
+    /// until the soonest pollable is due, or a queue `ready` registered on
+    /// wakes.
     pub(crate) fn wait_for<T>(
         &self,
         due: Option<Instant>,
@@ -113,7 +134,7 @@ impl Invocation {
                 Err(_) if self.deadline().is_some_and(|at| Instant::now() >= at) => {
                     return Err(wasmtime::Error::new(TimeoutTrap));
                 }
-                Err(_) => return Err(wasmtime::Error::msg("the guest's wait was interrupted")),
+                Err(_) => return Err(wasmtime::Error::new(Interrupted)),
             }
         }
     }
@@ -1085,11 +1106,7 @@ impl IoHost for Invocation {
 
     fn poll_pollable_block(&mut self, this: Pollable) -> wasmtime::Result<()> {
         let pollable = self.table().get(this)?.clone();
-        let producer = pollable.is_producer();
-        let pollable = pollable.for_wait(self.profile(), producer);
-        self.wait_for(pollable.due(), |table| {
-            pollable.is_ready(table).then_some(())
-        })
+        self.poll_ready(vec![pollable]).map(drop)
     }
 
     /// The indices of the pollables ready, once one is, as WASI's `poll`
@@ -1102,19 +1119,7 @@ impl IoHost for Invocation {
             .into_iter()
             .map(|handle| self.table().get(handle).cloned())
             .collect::<wasmtime::Result<Vec<_>>>()?;
-        let producer = pollables.iter().any(table::Pollable::is_producer);
-        let profile = self.profile();
-        let pollables = pollables
-            .into_iter()
-            .map(|pollable| pollable.for_wait(profile, producer))
-            .collect::<Vec<_>>();
-        let due = pollables.iter().filter_map(table::Pollable::due).min();
-        self.wait_for(due, |mut table| {
-            let ready = (0..pollables.len() as u32)
-                .filter(|i| pollables[*i as usize].is_ready(table.as_deref_mut()))
-                .collect::<Vec<_>>();
-            (!ready.is_empty()).then_some(ready)
-        })
+        self.poll_ready(pollables)
     }
 
     fn poll_pollable_drop(&mut self, handle: Pollable) -> wasmtime::Result<()> {
@@ -1329,6 +1334,22 @@ mod tests {
             "pollable.block on ten seconds of subscribe-duration at the hermetic posture must \
              return at once, not after {:?}",
             started.elapsed()
+        );
+    }
+
+    // @behavior RT-371
+    #[test]
+    fn a_hermetic_poll_on_two_clocks_finds_both_ready() {
+        let (mut store, _) = guest(Profile::Hermetic, None);
+        let guest = store.data_mut();
+        let clocks = [1_000_000_000, 2_000_000_000]
+            .map(|nanos| guest.monotonic_clock_subscribe_duration(nanos).unwrap());
+        let ready = guest.poll_poll(clocks.to_vec()).unwrap();
+        assert_eq!(
+            ready,
+            [0, 1],
+            "poll on a one- and a two-second subscribe-duration at the hermetic profile must \
+             find both ready at once"
         );
     }
 
