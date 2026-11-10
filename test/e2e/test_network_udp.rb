@@ -50,29 +50,26 @@ class TestE2ENetworkUdp < Minitest::Test
     [shape, selected, refused, written]
   RUBY
 
-  SHUT_SOCKETS = <<~RUBY
+  SHUT_READING = <<~RUBY
     socket = UDPSocket.new
     socket.connect("127.0.0.1", %<port>d)
     socket.shutdown(Socket::SHUT_RD)
-    readable = IO.select([socket], nil, nil, 0)&.first == [socket]
-    unconnected = begin
-      UDPSocket.new.shutdown
-      :passed
-    rescue SystemCallError => e
-      e.class.to_s
-    end
-    [readable, unconnected]
+    selected = IO.select([socket], nil, nil, 0)&.first == [socket]
+    waited = socket.wait_readable(0) == socket
+    pending = socket.recv_nonblock(16, exception: false)
+    socket.send("ping", 0)
+    [selected, waited, pending, socket.recv(16)]
   RUBY
 
   # @behavior NW-158
-  def test_a_scripts_udp_shutdown_reaches_its_socket
-    with_quiet_peer do |_peer, port|
-      value = udp_sandbox(port).eval(format(SHUT_SOCKETS, port: port)).value
+  def test_a_scripts_udp_socket_keeps_its_reading_sides_shutdown
+    with_upcase_peer do |port|
+      value = udp_sandbox(port).eval(format(SHUT_READING, port: port)).value
 
-      assert_equal [true, "Errno::ENOTCONN"], value,
-                   "IO.select on a UDPSocket whose reading side #shutdown shut must find it readable, as Linux's " \
-                   "datagram_poll answers, and #shutdown of a UDPSocket connected to no peer must raise " \
-                   "Errno::ENOTCONN"
+      assert_equal [true, true, :wait_readable, "PING"], value,
+                   "after UDPSocket#shutdown(SHUT_RD), IO.select and #wait_readable must find the socket readable " \
+                   "at once, as Linux's datagram_poll answers, while #recv_nonblock still answers :wait_readable " \
+                   "and #recv still waits for and reads the peer's answer, as Linux's udp_recvmsg delivers"
     end
   end
 

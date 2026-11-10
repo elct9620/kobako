@@ -12,7 +12,7 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 use super::address::{local_of, peer_of, peer_spelling_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
-    direct_args, exception_option, open_socket_of, ready_of, IoState, SocketIo, Wait,
+    direct_args, exception_option, open_socket_of, ready_of, IoState, Readiness, SocketIo, Wait,
 };
 use super::ip::{local_end_of, to_addr_array};
 use super::{bind, family_of, to_error, Family, AF_INET};
@@ -27,13 +27,6 @@ use crate::wasi::wasi::sockets::udp::{
 use crate::wasi::wasi::sockets::udp_create_socket::create_udp_socket;
 
 const UDP: &str = "UDPSocket";
-
-unsafe extern "C" {
-    /// wasi-libc's `shutdown(2)`, which reaches preview1's `sock_shutdown` on
-    /// the socket's number, since WASI 0.2 names no shutdown for UDP.
-    #[link_name = "shutdown"]
-    fn shutdown_socket(fd: core::ffi::c_int, how: core::ffi::c_int) -> core::ffi::c_int;
-}
 
 /// A datagram received, and the end that sent it.
 type Datagram = (Vec<u8>, (Ipv4Addr, u16));
@@ -67,9 +60,12 @@ struct OpenSocket {
     streams: Option<Streams>,
     socket: UdpSocket,
     bound: bool,
-    /// `shutdown` shut the sending side. The socket itself holds which sides
-    /// are shut; WASI 0.2's datagram send carries no `EPIPE`, so the guest
-    /// keeps this side too, to answer one.
+    /// `shutdown` shut the reading side, which only makes a wait ready at
+    /// once, as Linux's `datagram_poll` reports it while `udp_recvmsg` still
+    /// delivers. WASI 0.2 names no shutdown for UDP, so the guest keeps both
+    /// sides itself.
+    rcv_shut: bool,
+    /// `shutdown` shut the sending side, so a send answers `EPIPE`.
     send_shut: bool,
 }
 
@@ -105,24 +101,16 @@ impl SocketIo for Datagrams {
         Ok(sent.map(|()| bytes.len()))
     }
 
-    /// The socket marks the sides `how` names shut, as Linux's
-    /// `inet_shutdown` does, and one with no peer answers `Errno::ENOTCONN`.
-    /// Shutting the sending side refuses later sends; what arrived still
-    /// reads.
+    /// Mark the sides `how` names shut, as Linux's `inet_shutdown` does; one
+    /// with no peer raises `Errno::ENOTCONN`. Shutting the sending side
+    /// refuses later sends; what arrives still reads.
     fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
-        // wasi-libc's `SHUT_*` are WASI's own `sdflags`, not Linux's numbers.
-        let flag = match how {
-            Shutdown::Read => 1,
-            Shutdown::Write => 2,
-            Shutdown::Both => 3,
-        };
         self.with(mrb, |open| {
-            // SAFETY: the number is this socket's own, open while it is.
-            if unsafe { shutdown_socket(open.socket.handle() as core::ffi::c_int, flag) } < 0 {
-                let err = std::io::Error::last_os_error();
-                return Err(errno::from_io(mrb, &err, "shutdown(2)"));
+            if open.streams.is_none() {
+                return Err(errno::error_by_name(mrb, c"ENOTCONN", "shutdown(2)"));
             }
-            open.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
+            open.rcv_shut |= how != Shutdown::Write;
+            open.send_shut |= how != Shutdown::Read;
             Ok(())
         })
     }
@@ -147,6 +135,22 @@ impl SocketIo for Datagrams {
 
     fn handle(&self, mrb: &Mrb) -> Result<u32, Error> {
         self.with(mrb, |open| Ok(open.socket.handle()))
+    }
+
+    /// A socket with no peer never reads and answers a write at once, as a
+    /// write raises `Errno::EDESTADDRREQ` without waiting.
+    fn readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error> {
+        self.with(mrb, |open| {
+            Ok(match (direction, &open.streams) {
+                (Direction::Read, _) if open.rcv_shut => Readiness::Now,
+                (Direction::Read, Some(streams)) => Readiness::On(streams.incoming.subscribe()),
+                (Direction::Read, None) => Readiness::Never,
+                (Direction::Write, Some(streams)) if !open.send_shut => {
+                    Readiness::On(streams.outgoing.subscribe())
+                }
+                (Direction::Write, _) => Readiness::Now,
+            })
+        })
     }
 
     fn close(&self) {
@@ -242,6 +246,7 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             streams: None,
             socket,
             bound: false,
+            rcv_shut: false,
             send_shut: false,
         })),
         io: IoState::new(),

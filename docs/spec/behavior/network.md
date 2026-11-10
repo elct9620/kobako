@@ -1949,17 +1949,17 @@ endpoint "api.example.com", port: 443
 | When | the guest sends a path of tens of thousands of segments that the rule does not fit |
 | Then | the rule refuses it at once. Its work grows at most with the path's segments times the rule's |
 
-## `NW-158` A script's UDP shutdown reaches its socket
+## `NW-158` A script's UDPSocket keeps its reading side's shutdown
 
 | Attribute | Value |
 | --- | --- |
-| refines | `NW-152` |
+| refines | `NW-137` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a script's `UDPSocket` connected to a peer, and one connected to none |
-| When | the script shuts the connected socket's reading side, waits on it with `IO.select`, then shuts the other one |
-| Then | `IO.select` finds the shut socket readable, as Linux's `datagram_poll` answers. The unconnected socket raises `Errno::ENOTCONN` |
+| Given | a script's `UDPSocket` connected to a UDP peer that answers datagrams |
+| When | the script shuts the socket's reading side and waits on it with `IO.select` and `wait_readable`. It then reads without waiting, sends, and reads the answer |
+| Then | both waits find the socket readable, as Linux's `datagram_poll` answers. The read without waiting answers `:wait_readable`, and the answer still arrives, as Linux's `udp_recvmsg` delivers after `SHUT_RD` |
 
 ## `NW-159` An empty write leaves the permit check-write gave
 
@@ -2095,3 +2095,16 @@ endpoint "api.example.com", port: 443
 | Given | a script's `TCPSocket` and `UDPSocket`, each closed |
 | When | it seeks, reads the position, rewinds, syncs, or gives advice |
 | Then | each call raises `IOError`, as CRuby checks the stream before the call. An unsupported advice raises `NotImplementedError` first, as CRuby checks the advice ahead of the stream |
+
+## `NW-170` A script's socket numbers apart from its files
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-065` |
+| relates | `NW-079` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file it opened, a `TCPSocket`, and a `UDPSocket` |
+| When | it reads each `fileno`, then wraps each socket's number with `IO.new` |
+| Then | each socket's `fileno` lies above every file's, so no two match. Each `IO.new` raises `ArgumentError`, as a socket's number names no file. CRuby numbers both from one table. A guest built for preview1 numbers its files through preview1 and its sockets through preview2 |

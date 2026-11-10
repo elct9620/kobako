@@ -17,6 +17,7 @@ use super::buffer::{end_of_file, fill};
 use super::tcp::Connection;
 use crate::errno;
 use crate::io::{argument_error, would_wait, Direction};
+use crate::wasi::wasi::io::poll::Pollable;
 
 /// Whether one call waits for the socket, as Linux's `MSG_DONTWAIT` chooses
 /// for one `recvmsg` or `sendmsg`.
@@ -35,6 +36,18 @@ impl Wait {
         }
     }
 }
+
+/// When a wait on a socket ends.
+pub(crate) enum Readiness {
+    Now,
+    On(Pollable),
+    Never,
+}
+
+/// How far above its preview2 handle a socket's `fileno` sits. A guest built
+/// for preview1 numbers its files through preview1, which never reaches this
+/// many, so no socket's number names a file.
+const SOCKET_FILENO_OFFSET: i64 = 1 << 20;
 
 /// What CRuby's `rb_io_t` keeps beside a socket: the read buffer, whose
 /// bytes come first, whether writes are sent at once, and which sides
@@ -94,9 +107,13 @@ pub(super) trait SocketIo {
     /// carries them.
     fn kind(&self) -> (i64, i64);
 
-    /// The socket's preview2 handle, which preview1's calls and `IO.select`
-    /// reach as one fdtable holds a socket beside a file.
+    /// The socket's preview2 handle.
     fn handle(&self, mrb: &Mrb) -> Result<u32, Error>;
+
+    /// When a wait for the socket to read or write ends, as its `poll` would
+    /// answer: a shut side is ready at once, as Linux's `tcp_poll` and
+    /// `datagram_poll` report it.
+    fn readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error>;
 
     /// Release the socket, its streams before it.
     fn close(&self);
@@ -248,9 +265,9 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     Ok(())
 }
 
-/// `fileno` answers the socket's descriptor, its preview2 handle.
+/// `fileno` answers the socket's number, above every file's.
 fn socket_fileno(mrb: &Mrb, self_: Value) -> Result<i64, Error> {
-    Ok(i64::from(source_of(mrb, self_)?.handle(mrb)?))
+    Ok(SOCKET_FILENO_OFFSET + i64::from(source_of(mrb, self_)?.handle(mrb)?))
 }
 
 /// `write(*objects)` sends what the objects spell, answering how many bytes
@@ -495,14 +512,14 @@ fn socket_sync_set(mrb: &Mrb, self_: Value, sync: Value) -> Result<Value, Error>
     Ok(sync)
 }
 
-/// The handle a wait on the socket `value` polls, `None` when `value` is no
-/// socket. A closed socket, or a side `close_read` or `close_write` closed,
-/// raises `IOError`, as CRuby checks an IO before it waits on it.
-pub(crate) fn waitable_handle(
+/// When a wait on the socket `value` ends, `None` when `value` is no socket.
+/// A closed socket, or a side `close_read` or `close_write` closed, raises
+/// `IOError`, as CRuby checks an IO before it waits on it.
+pub(crate) fn readiness_of(
     mrb: &Mrb,
     value: Value,
     direction: Direction,
-) -> Result<Option<u32>, Error> {
+) -> Result<Option<Readiness>, Error> {
     if source_of(mrb, value).is_err() {
         return Ok(None);
     }
@@ -510,5 +527,21 @@ pub(crate) fn waitable_handle(
         Direction::Read => reader_of(mrb, value)?,
         Direction::Write => writer_of(mrb, value)?,
     };
-    source.handle(mrb).map(Some)
+    source.readiness(mrb, direction).map(Some)
+}
+
+/// When a select's wait on the socket `value` ends, `None` when `value` is no
+/// socket. Only a closed socket raises `IOError`, as CRuby's `select` checks
+/// nothing of a stream's modes.
+pub(crate) fn select_readiness_of(
+    mrb: &Mrb,
+    value: Value,
+    direction: Direction,
+) -> Result<Option<Readiness>, Error> {
+    if source_of(mrb, value).is_err() {
+        return Ok(None);
+    }
+    open_socket_of(mrb, value)?
+        .readiness(mrb, direction)
+        .map(Some)
 }

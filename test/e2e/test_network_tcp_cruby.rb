@@ -56,6 +56,31 @@ class TestE2ENetworkTcpCruby < Minitest::Test
     end
   end
 
+  NUMBERS = <<~RUBY
+    files = Array.new(3) { |i| File.open("/data/f\#{i}", "w") }
+    sockets = [TCPSocket.new("127.0.0.1", %<tcp>d), UDPSocket.new]
+    apart = sockets.all? { |socket| files.all? { |file| socket.fileno > file.fileno } }
+    wrapped = sockets.map do |socket|
+      IO.new(socket.fileno)
+      :wrapped
+    rescue ArgumentError
+      :refused
+    end
+    [apart, wrapped]
+  RUBY
+
+  # @behavior NW-170
+  def test_a_scripts_socket_numbers_apart_from_its_files
+    with_upcase_server do |tcp|
+      sandbox = loopback_sandbox(tcp).mount("/data", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+      value = sandbox.eval(format(NUMBERS, tcp: tcp)).value
+
+      assert_equal [true, %i[refused refused]], value,
+                   "a TCPSocket's and a UDPSocket's #fileno must lie above every file the script opened, and " \
+                   "IO.new on a socket's number must raise ArgumentError, since that number names no file"
+    end
+  end
+
   IPV6 = <<~RUBY
     [
       (begin; TCPSocket.new("::1", %<port>d); rescue Errno::EAFNOSUPPORT; :refused; end),

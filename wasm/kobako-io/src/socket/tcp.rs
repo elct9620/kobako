@@ -1,7 +1,7 @@
 //! `TCPSocket`, one connection over `wasi:sockets/tcp`, as CRuby's
 //! `ext/socket/tcpsocket.c` opens one to a peer.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::net::{Ipv4Addr, Shutdown};
 use std::task::Poll;
 use std::time::Duration;
@@ -16,11 +16,11 @@ use beni::{
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
-use super::basic::{IoState, SocketIo, Wait};
+use super::basic::{IoState, Readiness, SocketIo, Wait};
 use super::ip::local_end_of;
 use super::{bind, seconds_of, stream_error, to_error};
 use crate::errno;
-use crate::io::argument_error;
+use crate::io::{argument_error, Direction};
 use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
@@ -38,6 +38,10 @@ struct OpenSocket {
     output: OutputStream,
     socket: TcpSocket,
     peer: (Ipv4Addr, u16),
+    /// `shutdown` shut the reading side. WASI 0.2's `shutdown(receive)`
+    /// discards what arrived, where Linux's `SHUT_RD` still reads it, so the
+    /// guest keeps this side itself and the host never hears of it.
+    rcv_shut: Cell<bool>,
 }
 
 /// What a `TCPSocket` stands for, kept in its payload so a script's instance
@@ -54,26 +58,22 @@ impl SocketIo for Connection {
     }
 
     /// Asking for no bytes waits until the stream is readable, then answers
-    /// as the end, as a stream's `recv(2)` returning 0 reads to CRuby.
+    /// as the end, as a stream's `recv(2)` returning 0 reads to CRuby. Once
+    /// the reading side is shut, a read takes what has arrived and answers
+    /// the end rather than wait, as Linux's `tcp_recvmsg` stops at
+    /// `RCV_SHUTDOWN`.
     fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error> {
-        let timeout = wait.timeout();
-        if max == 0 {
-            return self.with(mrb, |open| {
-                let readable = open.input.subscribe();
-                Ok(match wait_within(&readable, timeout) {
-                    true => Poll::Ready(None),
-                    false => Poll::Pending,
-                })
+        if self.with(mrb, |open| Ok(open.rcv_shut.get()))? {
+            let received = match max {
+                0 => Poll::Pending,
+                _ => self.receive_open(mrb, max, Wait::DontWait)?,
+            };
+            return Ok(match received {
+                Poll::Pending => Poll::Ready(None),
+                ready => ready,
             });
         }
-        self.with(mrb, |open| {
-            match read_within(&open.input, max as u64, timeout) {
-                Ok(Some(bytes)) => Ok(Poll::Ready(Some(bytes))),
-                Ok(None) => Ok(Poll::Pending),
-                Err(StreamError::Closed) => Ok(Poll::Ready(None)),
-                Err(err) => Err(stream_error(mrb, err)),
-            }
-        })
+        self.receive_open(mrb, max, wait)
     }
 
     /// The bytes, as CRuby's `IO#write` sends all it is given and
@@ -103,18 +103,19 @@ impl SocketIo for Connection {
         })
     }
 
-    /// The host shuts the side `how` names; shutting the writing side sends
-    /// the FIN once what was written is sent.
+    /// The guest keeps a shut reading side; the host shuts the writing side,
+    /// sending the FIN once what was written is sent.
     fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
-        let how = match how {
-            Shutdown::Read => ShutdownType::Receive,
-            Shutdown::Write => ShutdownType::Send,
-            Shutdown::Both => ShutdownType::Both,
-        };
         self.with(mrb, |open| {
-            open.socket
-                .shutdown(how)
-                .map_err(|code| to_error(mrb, code, "TCPSocket", "shutdown(2)"))
+            if how != Shutdown::Read {
+                open.socket
+                    .shutdown(ShutdownType::Send)
+                    .map_err(|code| to_error(mrb, code, "TCPSocket", "shutdown(2)"))?;
+            }
+            if how != Shutdown::Write {
+                open.rcv_shut.set(true);
+            }
+            Ok(())
         })
     }
 
@@ -133,6 +134,16 @@ impl SocketIo for Connection {
 
     fn handle(&self, mrb: &Mrb) -> Result<u32, Error> {
         self.with(mrb, |open| Ok(open.socket.handle()))
+    }
+
+    fn readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error> {
+        self.with(mrb, |open| {
+            Ok(match direction {
+                Direction::Read if open.rcv_shut.get() => Readiness::Now,
+                Direction::Read => Readiness::On(open.input.subscribe()),
+                Direction::Write => Readiness::On(open.output.subscribe()),
+            })
+        })
     }
 
     fn close(&self) {
@@ -171,6 +182,30 @@ impl Connection {
             Some(open) => call(open),
             None => Err(errno::io_error(mrb, "closed stream")),
         }
+    }
+
+    /// Up to `max` bytes from a reading side still open, `None` at the end.
+    fn receive_open(
+        &self,
+        mrb: &Mrb,
+        max: usize,
+        wait: Wait,
+    ) -> Result<Poll<Option<Vec<u8>>>, Error> {
+        let timeout = wait.timeout();
+        self.with(mrb, |open| {
+            if max == 0 {
+                return Ok(match wait_within(&open.input.subscribe(), timeout) {
+                    true => Poll::Ready(None),
+                    false => Poll::Pending,
+                });
+            }
+            match read_within(&open.input, max as u64, timeout) {
+                Ok(Some(bytes)) => Ok(Poll::Ready(Some(bytes))),
+                Ok(None) => Ok(Poll::Pending),
+                Err(StreamError::Closed) => Ok(Poll::Ready(None)),
+                Err(err) => Err(stream_error(mrb, err)),
+            }
+        })
     }
 }
 
@@ -291,6 +326,7 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
             output,
             socket,
             peer: (ip, port),
+            rcv_shut: Cell::new(false),
         })),
         io: IoState::new(),
     })
