@@ -42,10 +42,6 @@ struct State {
     /// each skb's source, and the bytes they hold.
     receive_queue: VecDeque<(Vec<u8>, SocketAddr)>,
     rmem_alloc: usize,
-    /// The peer before the last connect, its real address beside the one the
-    /// guest named, so a datagram it sent before the connect still reads as
-    /// its own.
-    former_peer: Option<(SocketAddr, SocketAddr)>,
     /// Whether the host socket took the last send, until the reactor next
     /// sees it change, as `sock_writeable` reads its room.
     writable: bool,
@@ -74,7 +70,6 @@ impl UdpSock {
                 host: None,
                 receive_queue: VecDeque::new(),
                 rmem_alloc: 0,
-                former_peer: None,
                 writable: true,
                 inet: InetSock::new(memory),
             }),
@@ -104,11 +99,11 @@ impl UdpSock {
                     .is_ok_and(|local| local.is_ipv4() == addr.is_ipv4())
             });
             if same_family {
+                // What the old peer sent reads as its own, so it is taken in
+                // before the host socket repoints.
                 Self::pump(&mut state);
                 if let Some((socket, _)) = state.host.as_ref() {
-                    let former = socket.peer_addr().ok().zip(state.inet.peer);
                     socket.connect(addr).map_err(|err| to_error(&err))?;
-                    state.former_peer = former;
                 }
                 state.inet.peer = Some(peer);
                 state.writable = true;
@@ -173,28 +168,28 @@ impl UdpSock {
     }
 
     /// Read every datagram that arrived, without blocking, each labelled with
-    /// the peer it came from as the guest named it; a full receive queue drops
-    /// what comes, as a full `sk_rcvbuf` does. A failure the host reports is
-    /// kept pending and the queue reads on behind it, as datagrams queue
-    /// behind `sk_err`.
+    /// the peer the guest named; one an earlier peer sent as the socket
+    /// repointed is dropped, as a datagram may be lost. A full receive queue
+    /// drops what comes, as a full `sk_rcvbuf` does. A failure the host
+    /// reports is kept pending and the queue reads on behind it, as datagrams
+    /// queue behind `sk_err`.
     fn pump(state: &mut State) {
         let Some((socket, _)) = state.host.as_ref() else {
             return;
         };
-        let peers = [
-            socket.peer_addr().ok().zip(state.inet.peer),
-            state.former_peer,
-        ];
+        let peer = socket.peer_addr().ok();
+        let named = state.inet.peer;
         let mut datagram = vec![0; MAX_DATAGRAM];
         loop {
             match socket.recv_from(&mut datagram) {
                 Ok((n, from)) => {
-                    let named = peers.iter().flatten().find(|(real, _)| *real == from);
-                    let Some((_, named)) = named else { continue };
+                    let Some(named) = named.filter(|_| peer == Some(from)) else {
+                        continue;
+                    };
                     if state.rmem_alloc + truesize_of(n) <= state.inet.buffers.rcvbuf {
                         state
                             .receive_queue
-                            .push_back((datagram[..n].to_vec(), *named));
+                            .push_back((datagram[..n].to_vec(), named));
                         state.rmem_alloc += truesize_of(n);
                     }
                 }
@@ -582,23 +577,36 @@ mod tests {
         let second = UdpSocket::bind("127.0.0.1:0").unwrap();
         let (at_first, at_second) = (first.local_addr().unwrap(), second.local_addr().unwrap());
         let sock = connected_socket(at_first);
-        let local = |sock: &UdpSock| {
-            sock.state()
-                .host
-                .as_ref()
-                .map(|(socket, _)| socket.local_addr().unwrap())
-                .unwrap()
+        // The reactor stops taking datagrams in, so each stays in the host's
+        // queue until the socket itself takes it.
+        let local = {
+            let mut state = sock.state();
+            let (socket, registration) = state.host.as_mut().expect("a connected socket");
+            registration.deregister(socket);
+            socket.local_addr().unwrap()
         };
-        first.send_to(b"one", local(&sock)).unwrap();
-        wait_for(|table| sock.poll(table), PollMask::IN);
+        // An event the reactor took before the deregister may still run.
+        std::thread::sleep(Duration::from_millis(100));
+        let arrived = || {
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(5) {
+                let state = sock.state();
+                let (socket, _) = state.host.as_ref().expect("a connected socket");
+                if socket.peek_from(&mut [0; 8]).is_ok() {
+                    return;
+                }
+                drop(state);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        };
+        first.send_to(b"one", local).unwrap();
+        arrived();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.connect(&family, at_second, at_second, &OpenConnections::new(None))
             .expect("an uncapped socket connects again");
-        second.send_to(b"two", local(&sock)).unwrap();
-        let started = Instant::now();
-        while sock.state().receive_queue.len() < 2 && started.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        second.send_to(b"two", local).unwrap();
+        arrived();
+        UdpSock::pump(&mut sock.state());
         let mut buf = [0; 8];
         let mut read = || {
             sock.recvfrom(&mut buf)

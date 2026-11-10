@@ -193,12 +193,12 @@ fn parse_host(host: &str) -> Result<Host, EntryError> {
 
 /// `name` as the resolver, the hooks, and the endpoints judge it: lowercase,
 /// with no trailing dot for the root, and an IDN as its A-label; `None` when no
-/// A-label spells it.
+/// A-label spells it, as for a name left ending in an empty label.
 pub(crate) fn to_a_label(name: &str) -> Option<String> {
     let name = name.strip_suffix('.').unwrap_or(name);
     idna::domain_to_ascii(name)
         .ok()
-        .filter(|ascii| !ascii.is_empty())
+        .filter(|ascii| !ascii.is_empty() && !ascii.ends_with('.'))
 }
 
 /// The address an endpoint judges `ip` as, the IPv4 one an IPv6 address
@@ -586,16 +586,23 @@ mod tests {
         let rules = Ruleset::new([
             Endpoint::new("bücher.example", 443).unwrap(),
             Endpoint::new("*.例え.jp", 443).unwrap(),
+            Endpoint::new("rooted.example.", 443).unwrap(),
         ])
         .unwrap();
+        let empty_label = Ruleset::new([Endpoint::new("empty.example..", 443).unwrap()]);
         assert_eq!(
             [
                 rules.admits_name("xn--bcher-kva.example"),
                 rules.admits_name("www.xn--r8jz45g.jp"),
+                rules.admits_name(&to_a_label("Rooted.Example.").unwrap()),
+                empty_label.is_err(),
+                to_a_label("empty.example..").is_none(),
             ],
-            [true, true],
+            [true, true, true, true, true],
             "Ruleset::admits_name must match an endpoint written as an IDN, and a wildcard over \
-             one, against the A-label the guest's lookup asks for"
+             one, against the A-label the guest's lookup asks for; an endpoint and a lookup must \
+             drop the root's one trailing dot alike, and both refuse a name left ending in an \
+             empty label"
         );
     }
 

@@ -938,7 +938,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | endpoints written as an IDN, and as a wildcard over one |
 | When | the guest looks up the A-label of a name each covers |
-| Then | each endpoint names it, since an endpoint is judged in the form the guest's lookup is |
+| Then | each endpoint names it, since an endpoint is judged in the form the guest's lookup is. Both drop the root's one trailing dot, and both refuse a name left ending in an empty label |
 
 ## `NW-076` A credential's placeholder is swapped inside a Basic pair
 

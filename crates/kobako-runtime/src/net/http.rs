@@ -913,6 +913,33 @@ mod tests {
     use crate::network::{Builder, Endpoint, Network};
     use crate::security::prepare_creds_within;
 
+    #[test]
+    fn a_failed_dial_answers_the_code_its_host_error_names() {
+        let codes = [
+            io::ErrorKind::TimedOut,
+            io::ErrorKind::ConnectionRefused,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::InvalidData,
+            io::ErrorKind::HostUnreachable,
+        ]
+        .map(|kind| HttpError::from_io(&io::Error::from(kind)));
+        assert_eq!(
+            codes,
+            [
+                HttpError::ConnectionTimeout,
+                HttpError::ConnectionRefused,
+                HttpError::ConnectionTerminated,
+                HttpError::ConnectionTerminated,
+                HttpError::TlsProtocol,
+                HttpError::ConnectionRefused,
+            ],
+            "a dial that timed out, was refused, reset, aborted, sent bytes TLS could not read, or \
+             found no host must answer connection-timeout, connection-refused, \
+             connection-terminated twice, TLS-protocol-error, and connection-refused"
+        );
+    }
+
     /// A loopback server answering one request with `hello`, handing back the
     /// request line and headers it read.
     fn serve_once() -> (u16, thread::JoinHandle<Vec<String>>) {
