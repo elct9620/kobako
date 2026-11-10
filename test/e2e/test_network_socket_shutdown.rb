@@ -75,8 +75,8 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
 
   UDP_SIDES = <<~RUBY.freeze
     #{OUTCOME}
+    unconnected = outcome.call { UDPSocket.new.shutdown }
     socket = UDPSocket.new
-    unconnected = outcome.call { socket.shutdown }
     socket.connect("127.0.0.1", %<udp>d)
     early = UDPSocket.new
     marked = outcome.call { early.shutdown(:WR) }

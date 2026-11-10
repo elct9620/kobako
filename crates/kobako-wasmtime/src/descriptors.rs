@@ -49,7 +49,7 @@ pub(crate) const MAX_NUMBERS: usize = 1_000_000;
 pub(crate) struct Descriptors {
     used: BTreeMap<u32, Descriptor>,
     /// No number below this is free, as Linux's `next_fd` hints `alloc_fd`.
-    next: u32,
+    next_fd: u32,
     /// The files the Invocation holds, a preview2 resource's included.
     open_files: OpenFiles,
     /// Who the guest's calls are made for, as a task holds its `cred`.
@@ -99,7 +99,7 @@ impl Descriptors {
         let cred = restrict_self(&opener, &mounts);
         let walk_guard = WalkGuard::new(&mounts);
         Ok(Self {
-            next: used.len() as u32,
+            next_fd: used.len() as u32,
             used,
             open_files,
             cred,
@@ -136,7 +136,7 @@ impl Descriptors {
     pub(crate) fn remove(&mut self, fd: u32) -> Option<Descriptor> {
         let descriptor = self.used.remove(&fd)?;
         self.open_files.close();
-        self.next = self.next.min(fd);
+        self.next_fd = self.next_fd.min(fd);
         Some(descriptor)
     }
 
@@ -147,8 +147,8 @@ impl Descriptors {
             .open()
             .expect("a number lowest_unused found, or one just given back, has room in the count");
         self.used.insert(fd, descriptor);
-        if fd == self.next {
-            self.next = (fd..=u32::MAX)
+        if fd == self.next_fd {
+            self.next_fd = (fd..=u32::MAX)
                 .find(|fd| !self.used.contains_key(fd))
                 .unwrap_or(u32::MAX);
         }
@@ -162,7 +162,7 @@ impl Descriptors {
         if self.open_files.is_full() || self.used.len() >= MAX_NUMBERS {
             return None;
         }
-        (self.next..=u32::MAX).find(|fd| !self.used.contains_key(fd))
+        (self.next_fd..=u32::MAX).find(|fd| !self.used.contains_key(fd))
     }
 
     /// Add `descriptor` under the number `lowest_unused` finds; `None` when
