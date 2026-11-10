@@ -31,22 +31,26 @@ pub fn alloc(size: u32) -> u32 {
 
 /// The Canonical ABI's `cabi_realloc` behind the export of that name: room
 /// for `new_len` bytes at `align`, holding what stood at `old_ptr` when the
-/// host grows a list, or 0 when none is left. The old buffer stays, as every
-/// buffer here lives until the instance is dropped.
+/// host grows a list. An empty list takes no room and answers `align`, as
+/// wit-bindgen's runtime does, since the bindings never free one; with no
+/// room left it traps, so the host never writes at 0. The old buffer stays.
 pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {
     #[cfg(target_arch = "wasm32")]
     {
         extern "C" {
             fn aligned_alloc(align: usize, size: usize) -> *mut u8;
         }
+        if old_len == 0 && new_len == 0 {
+            return align;
+        }
         let align = (align as usize).max(1);
         // `aligned_alloc` takes a size that is a multiple of its alignment.
-        let size = (new_len as usize).div_ceil(align).max(1) * align;
+        let size = (new_len as usize).div_ceil(align) * align;
         // SAFETY: wasi-libc `aligned_alloc` takes a power-of-two alignment,
         // which the Canonical ABI always passes, and a size it divides.
         let ptr = unsafe { aligned_alloc(align, size) };
         if ptr.is_null() {
-            return 0;
+            core::arch::wasm32::unreachable();
         }
         if old_ptr != 0 {
             // SAFETY: the host handed back a buffer this guest allocated, of

@@ -4222,3 +4222,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest calling a preview2 import that takes lists |
 | When | its lists add up past the call's 128 MiB of hostcall fuel, each inside its memory, then stay within it |
 | Then | the first call traps before the host answers it, as wasmtime's lift traps. The second reaches the host |
+
+## `RT-375` The Guest Binary hands room for an empty list without taking any
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-068` |
+
+| Step | Statement |
+| --- | --- |
+| Given | the bundled Guest Binary |
+| When | the host asks its `cabi_realloc` for room for an empty list twice, then for more room than it has |
+| Then | both empty lists answer the alignment and take no room, as wit-bindgen's runtime does, since the bindings never free one. The last call traps, so the host never writes at 0 |

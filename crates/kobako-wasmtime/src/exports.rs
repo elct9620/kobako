@@ -64,9 +64,15 @@ mod tests {
     //! CI (which always builds it) and a silent skip locally.
     use std::path::Path;
 
-    use wasmtime::ExternType;
+    use kobako_runtime::profile::Profile;
+    use wasmtime::{ExternType, Store};
 
-    use crate::cache::load_module;
+    use crate::cache::{load_engine, load_module};
+    use crate::config::Config;
+    use crate::imports;
+    use crate::invocation::Invocation;
+    use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
+    use crate::wasi::{sandbox_connections, Wasi};
 
     const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
@@ -100,6 +106,46 @@ mod tests {
         assert_eq!(
             functions, ABI_EXPORTS,
             "data/kobako.wasm read through its export section must export exactly the ABI's functions"
+        );
+    }
+
+    // @behavior RT-375
+    #[test]
+    fn the_guest_binary_hands_an_empty_list_no_room_and_traps_with_none_left() {
+        let path = Path::new(WASM);
+        if !path.exists() {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
+            );
+            return;
+        }
+        let module = load_module(path).expect("the Guest Binary must load");
+        let config = Config::for_profile(Profile::Hermetic);
+        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
+            .expect("WASI context must build");
+        let mut store = Store::new(
+            load_engine().expect("shared engine"),
+            Invocation::new(None, wasi),
+        );
+        store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
+        let instance = imports::linker()
+            .expect("host imports must link")
+            .instantiate(&mut store, &module)
+            .expect("the Guest Binary must instantiate");
+        let realloc = instance
+            .get_typed_func::<(i32, i32, i32, i32), i32>(&mut store, "cabi_realloc")
+            .expect("the Guest Binary exports cabi_realloc");
+        let empty = [
+            realloc.call(&mut store, (0, 0, 4, 0)).ok(),
+            realloc.call(&mut store, (0, 0, 4, 0)).ok(),
+        ];
+        let past = realloc.call(&mut store, (0, 0, 1, i32::MAX)).is_err();
+        assert_eq!(
+            (empty, past),
+            ([Some(4), Some(4)], true),
+            "cabi_realloc asked twice for an empty list on 4 must answer 4 and take no room, and \
+             asked for more room than the Guest Binary has must trap rather than answer 0"
         );
     }
 }
