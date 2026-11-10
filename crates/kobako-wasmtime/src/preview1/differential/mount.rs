@@ -375,18 +375,7 @@ fn through_wasmtime_wasi(call: Call, path: &str) -> Observation {
 /// `host` behind a kobako `Bind` Mount at `AT`.
 fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
     let engine = load_engine().expect("shared engine must be constructible");
-    let config = Config {
-        timeout: None,
-        setup_timeout: None,
-        memory_limit: None,
-        stdout_limit: None,
-        stderr_limit: None,
-        open_file_limit: None,
-        open_connection_limit: None,
-        connection_limit: None,
-        profile: Profile::Hermetic,
-        security: Vec::new(),
-    };
+    let config = Config::for_profile(Profile::Hermetic);
     let directory = Bind::new(&host.0).expect("the host directory must open");
     let grant = Grant::Mount(
         Mount::new(

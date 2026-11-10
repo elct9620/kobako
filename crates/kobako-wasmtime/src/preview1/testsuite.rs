@@ -57,18 +57,7 @@ fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
     let bind = Bind::new(root).map_err(|err| err.to_string())?;
     let filesystem = Filesystem::new(Arc::new(bind)).map_err(|err| format!("{err:?}"))?;
     let mount = Mount::new("/", filesystem, Access::ReadWrite).map_err(|err| err.to_string())?;
-    let config = Config {
-        timeout: None,
-        setup_timeout: None,
-        memory_limit: None,
-        stdout_limit: None,
-        stderr_limit: None,
-        open_file_limit: None,
-        open_connection_limit: None,
-        connection_limit: None,
-        profile: Profile::Permissive,
-        security: Vec::new(),
-    };
+    let config = Config::for_profile(Profile::Permissive);
     let wasi = Wasi::for_invocation(
         &config,
         Vec::new(),

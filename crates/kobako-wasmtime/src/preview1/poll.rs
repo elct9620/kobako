@@ -266,18 +266,7 @@ mod tests {
         interrupted: Option<fn(Task)>,
     ) -> (wasmtime::Result<i32>, Duration) {
         let engine = load_engine().expect("shared engine must be constructible");
-        let config = Config {
-            timeout: None,
-            setup_timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            open_file_limit: None,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile,
-            security: Vec::new(),
-        };
+        let config = Config::for_profile(profile);
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
@@ -353,18 +342,7 @@ mod tests {
                 (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96))))
         "#;
         let engine = load_engine().expect("shared engine must be constructible");
-        let config = Config {
-            timeout: None,
-            setup_timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            open_file_limit: None,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile: Profile::Hermetic,
-            security: Vec::new(),
-        };
+        let config = Config::for_profile(Profile::Hermetic);
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));
@@ -407,18 +385,7 @@ mod tests {
                 (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96))))
         "#;
         let engine = load_engine().expect("shared engine must be constructible");
-        let config = Config {
-            timeout: None,
-            setup_timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            open_file_limit: None,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile: Profile::Hermetic,
-            security: Vec::new(),
-        };
+        let config = Config::for_profile(Profile::Hermetic);
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));

@@ -285,16 +285,9 @@ fn observe<T>(
 fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
     let engine = load_engine().expect("shared engine must be constructible");
     let config = Config {
-        timeout: None,
-        setup_timeout: None,
-        memory_limit: None,
         stdout_limit: limit,
         stderr_limit: limit,
-        open_file_limit: None,
-        open_connection_limit: None,
-        connection_limit: None,
-        profile: Profile::Hermetic,
-        security: Vec::new(),
+        ..Config::for_profile(Profile::Hermetic)
     };
     let wasi = Wasi::for_invocation(&config, stdin_bytes(), &[], &sandbox_connections())
         .expect("WASI context must build");

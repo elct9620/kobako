@@ -581,7 +581,6 @@ mod tests {
     use std::net::TcpListener;
     use std::time::{Duration as Wait, Instant};
 
-    use kobako_runtime::grant::Grant;
     use kobako_runtime::network;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::run_task;
@@ -603,31 +602,17 @@ mod tests {
         memory_limit: Option<usize>,
     ) -> Invocation {
         let config = Config {
-            timeout: None,
-            setup_timeout: None,
             memory_limit,
-            stdout_limit: None,
-            stderr_limit: None,
-            open_file_limit: None,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile: Profile::Hermetic,
-            security: Vec::new(),
+            ..Config::for_profile(Profile::Hermetic)
         };
-        let grants = endpoints
-            .map(|endpoints| {
-                let mut entry = network::Builder::default();
-                endpoints.into_iter().for_each(|endpoint| {
-                    entry.endpoint(endpoint);
-                });
-                vec![Grant::Network(
-                    network::Network::new("web", Arc::new(entry)).unwrap(),
-                )]
-            })
-            .unwrap_or_default();
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &grants, &sandbox_connections())
-            .expect("WASI context must build");
-        Invocation::new(None, wasi)
+        match endpoints {
+            Some(endpoints) => Invocation::with_network(&config, endpoints),
+            None => {
+                let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
+                    .expect("WASI context must build");
+                Invocation::new(None, wasi)
+            }
+        }
     }
 
     /// A GET for `/greeting` at `authority` over HTTP.

@@ -149,3 +149,30 @@ impl Invocation {
         self.limiter.0.peak()
     }
 }
+
+#[cfg(test)]
+impl Invocation {
+    /// An invocation under `config` whose one network entry holds
+    /// `endpoints`.
+    pub(crate) fn with_network(
+        config: &crate::config::Config,
+        endpoints: impl IntoIterator<Item = kobako_runtime::network::Endpoint>,
+    ) -> Self {
+        use kobako_runtime::grant::Grant;
+        use kobako_runtime::network::{Builder, Network};
+
+        let mut entry = Builder::default();
+        for endpoint in endpoints {
+            entry.endpoint(endpoint);
+        }
+        let grant = Grant::Network(Network::new("local", Arc::new(entry)).unwrap());
+        let wasi = Wasi::for_invocation(
+            config,
+            Vec::new(),
+            &[grant],
+            &crate::wasi::sandbox_connections(),
+        )
+        .expect("WASI context must build");
+        Self::new(None, wasi)
+    }
+}

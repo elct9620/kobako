@@ -1095,7 +1095,6 @@ mod tests {
     use super::super::error::IntoAnswer;
     use super::*;
     use crate::wasi::{sandbox_connections, Wasi};
-    use kobako_runtime::grant::Grant;
     use kobako_runtime::network;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::run_task;
@@ -1143,16 +1142,8 @@ mod tests {
     fn guest(profile: Profile, open_file_limit: Option<usize>) -> (Store<Invocation>, Instance) {
         let engine = load_engine().expect("shared engine must be constructible");
         let config = Config {
-            timeout: None,
-            setup_timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
             open_file_limit,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile,
-            security: Vec::new(),
+            ..Config::for_profile(profile)
         };
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
@@ -1396,25 +1387,10 @@ mod tests {
         open_file_limit: Option<usize>,
     ) -> Invocation {
         let config = Config {
-            timeout: None,
-            setup_timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
             open_file_limit,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile: Profile::Hermetic,
-            security: Vec::new(),
+            ..Config::for_profile(Profile::Hermetic)
         };
-        let mut entry = network::Builder::default();
-        for endpoint in endpoints {
-            entry.endpoint(endpoint);
-        }
-        let grant = Grant::Network(network::Network::new("local", Arc::new(entry)).unwrap());
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_connections())
-            .expect("WASI context must build");
-        Invocation::new(None, wasi)
+        Invocation::with_network(&config, endpoints)
     }
 
     // @behavior NW-030

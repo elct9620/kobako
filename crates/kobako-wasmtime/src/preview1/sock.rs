@@ -90,11 +90,9 @@ mod tests {
     //! file its preview2 handle opened.
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
-    use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use kobako_runtime::grant::Grant;
     use kobako_runtime::network;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::run_task;
@@ -109,33 +107,15 @@ mod tests {
     };
     use crate::preview2::bindings::{IoHost, SocketsHost};
     use crate::preview2::IntoAnswer;
-    use crate::wasi::{sandbox_connections, Wasi};
 
     /// A hermetic guest whose one network entry reaches `127.0.0.1:port` over
     /// TCP.
     fn networked(port: u16) -> Invocation {
-        let config = Config {
-            timeout: None,
-            setup_timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            open_file_limit: None,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile: Profile::Hermetic,
-            security: Vec::new(),
-        };
-        let mut entry = network::Builder::default();
-        entry.endpoint(
-            network::Endpoint::new("127.0.0.1", port)
-                .unwrap()
-                .with_protocol(network::Protocol::Tcp),
-        );
-        let grant = Grant::Network(network::Network::new("local", Arc::new(entry)).unwrap());
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[grant], &sandbox_connections())
-            .expect("WASI context must build");
-        let mut guest = Invocation::new(None, wasi);
+        let endpoint = network::Endpoint::new("127.0.0.1", port)
+            .unwrap()
+            .with_protocol(network::Protocol::Tcp);
+        let mut guest =
+            Invocation::with_network(&Config::for_profile(Profile::Hermetic), [endpoint]);
         // wiggle hands each call the guest's fuel; every call here gets plenty.
         guest.set_hostcall_fuel(usize::MAX);
         guest

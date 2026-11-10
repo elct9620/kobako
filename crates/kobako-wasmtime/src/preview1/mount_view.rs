@@ -537,16 +537,10 @@ impl Guest {
     ) -> Self {
         let engine = load_engine().expect("shared engine must be constructible");
         let config = Config {
-            timeout: None,
-            setup_timeout: None,
             memory_limit,
-            stdout_limit: None,
-            stderr_limit: None,
             open_file_limit,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile,
             security,
+            ..Config::for_profile(profile)
         };
         let wasi = Wasi::for_invocation(&config, Vec::new(), grants, &sandbox_connections())
             .expect("WASI context must build");

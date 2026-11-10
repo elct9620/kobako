@@ -73,3 +73,31 @@ impl ProtocolFamily for HostInet {
         if_addrs::get_if_addrs().map(|interfaces| interfaces.into_iter().map(|i| i.ip()).collect())
     }
 }
+
+/// Protocol Families the net tests share.
+#[cfg(test)]
+pub(crate) mod testing {
+    use std::io;
+    use std::net::{SocketAddr, TcpStream};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::ProtocolFamily;
+
+    /// A family refusing every dial, counting how often it is asked.
+    #[derive(Default)]
+    pub(crate) struct CountsDials(AtomicUsize);
+
+    impl CountsDials {
+        /// How many dials it refused.
+        pub(crate) fn dials(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+
+    impl ProtocolFamily for CountsDials {
+        fn connect(&self, _addr: SocketAddr) -> io::Result<TcpStream> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(io::ErrorKind::ConnectionRefused.into())
+        }
+    }
+}

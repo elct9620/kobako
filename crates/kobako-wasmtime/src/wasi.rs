@@ -300,18 +300,7 @@ mod tests {
     /// `profile` and return a reader for its exports.
     fn probe(profile: Profile) -> impl FnMut(&str) -> i64 {
         let engine = load_engine().expect("shared engine must be constructible");
-        let config = Config {
-            timeout: None,
-            setup_timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            open_file_limit: None,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile,
-            security: Vec::new(),
-        };
+        let config = Config::for_profile(profile);
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(None, wasi));

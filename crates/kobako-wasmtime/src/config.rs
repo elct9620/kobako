@@ -83,6 +83,26 @@ impl Default for Config {
 }
 
 #[cfg(test)]
+impl Config {
+    /// A config at `profile` that sets no cap, so a test names only the cap it
+    /// witnesses.
+    pub(crate) fn for_profile(profile: Profile) -> Self {
+        Config {
+            timeout: None,
+            setup_timeout: None,
+            memory_limit: None,
+            stdout_limit: None,
+            stderr_limit: None,
+            open_file_limit: None,
+            open_connection_limit: None,
+            connection_limit: None,
+            profile,
+            security: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

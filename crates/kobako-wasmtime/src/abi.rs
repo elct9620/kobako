@@ -74,16 +74,8 @@ mod tests {
             "/../../test/fixtures/minimal_spinning_start.wat"
         );
         let config = Config {
-            timeout: None,
             setup_timeout: Some(Duration::from_millis(300)),
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            open_file_limit: None,
-            open_connection_limit: None,
-            connection_limit: None,
-            profile: Profile::Hermetic,
-            security: Vec::new(),
+            ..Config::for_profile(Profile::Hermetic)
         };
         let built = Driver::new(Path::new(FIXTURE), config);
         assert!(

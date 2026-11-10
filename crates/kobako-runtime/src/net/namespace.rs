@@ -463,27 +463,38 @@ impl Namespace {
 }
 
 #[cfg(test)]
+impl Namespace {
+    /// The namespace `network` alone makes, dialing through `family` and
+    /// sending through `outbound`, with no connection limit; its endpoints
+    /// must compile.
+    pub(crate) fn for_network(
+        network: &Network,
+        family: Arc<dyn ProtocolFamily>,
+        outbound: Arc<dyn Outbound>,
+    ) -> Self {
+        Self::new(
+            [network],
+            family,
+            outbound,
+            OpenConnections::new(None),
+            None,
+        )
+        .expect("the endpoints compile")
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::io;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
     use std::time::Duration;
 
+    use super::super::family::testing::CountsDials;
     use super::*;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
     use crate::security::prepare_creds_within;
     use crate::vfs::SecurityOperations;
-
-    /// A family refusing every dial, counting how often it is asked.
-    #[derive(Default)]
-    struct Counted(AtomicUsize);
-
-    impl ProtocolFamily for Counted {
-        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            Err(io::ErrorKind::ConnectionRefused.into())
-        }
-    }
 
     /// Each connection a policy was asked about.
     type Seen = Arc<Mutex<Vec<(String, u16, Protocol)>>>;
@@ -515,7 +526,7 @@ mod tests {
         }
     }
 
-    fn namespace(allows: &[bool]) -> (Namespace, Arc<Counted>, Seen) {
+    fn namespace(allows: &[bool]) -> (Namespace, Arc<CountsDials>, Seen) {
         within(allows, None, None)
     }
 
@@ -525,7 +536,7 @@ mod tests {
         allows: &[bool],
         open: Option<usize>,
         total: Option<usize>,
-    ) -> (Namespace, Arc<Counted>, Seen) {
+    ) -> (Namespace, Arc<CountsDials>, Seen) {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let networks = allows
             .iter()
@@ -538,7 +549,7 @@ mod tests {
                 Network::new(format!("entry{index}"), Arc::new(entry)).unwrap()
             })
             .collect::<Vec<_>>();
-        let family = Arc::new(Counted::default());
+        let family = Arc::new(CountsDials::default());
         let namespace = Namespace::new(
             &networks,
             family.clone(),
@@ -596,14 +607,11 @@ mod tests {
             resolved: Arc::default(),
         });
         let network = Network::new("watched", entry.clone()).unwrap();
-        let namespace = Namespace::new(
-            [&network],
-            Arc::new(Counted::default()),
+        let namespace = Namespace::for_network(
+            &network,
+            Arc::new(CountsDials::default()),
             Arc::new(crate::net::HyperOutbound::new()),
-            OpenConnections::new(None),
-            None,
-        )
-        .expect("the endpoints compile");
+        );
         let cred = prepare_creds_within(&[], None);
         let get = |authority: &str| OutgoingRequest::new("GET", Scheme::Http, authority);
         let hooked = namespace.send(&cred, get("refused.example:4567")).err();
@@ -629,8 +637,7 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
-            matches!(answer, Err(FilesystemError::WouldBlock))
-                && family.0.load(Ordering::SeqCst) == 0,
+            matches!(answer, Err(FilesystemError::WouldBlock)) && family.dials() == 0,
             "Namespace::connect past the Sandbox's cap must answer EAGAIN, dialing nothing"
         );
     }
@@ -699,8 +706,7 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
-            matches!(answer, Err(FilesystemError::PermissionDenied))
-                && family.0.load(Ordering::SeqCst) == 0,
+            matches!(answer, Err(FilesystemError::PermissionDenied)) && family.dials() == 0,
             "Namespace::connect must refuse with EACCES, dialing nothing, once any entry's \
              connect policy refuses"
         );
@@ -720,7 +726,7 @@ mod tests {
             .expect("every policy allows");
         settle(&sock);
         assert_eq!(
-            family.0.load(Ordering::SeqCst),
+            family.dials(),
             1,
             "Namespace::connect every connect policy allows must dial the address once"
         );
@@ -741,13 +747,7 @@ mod tests {
             .map(|(host, _, _)| host.clone())
             .collect::<Vec<_>>();
         assert_eq!(
-            (
-                ipv6,
-                unmapped,
-                bound,
-                judged,
-                family.0.load(Ordering::SeqCst)
-            ),
+            (ipv6, unmapped, bound, judged, family.dials()),
             (
                 Some(FilesystemError::AddressFamilyNotSupported),
                 Some(FilesystemError::PermissionDenied),
@@ -779,7 +779,7 @@ mod tests {
         assert!(
             matches!(answer, Err(FilesystemError::PermissionDenied))
                 && seen.lock().unwrap().is_empty()
-                && family.0.load(Ordering::SeqCst) == 0,
+                && family.dials() == 0,
             "a Wasm Driver's security module refusing socket_connect must refuse before any \
              entry's connect policy is asked, dialing nothing"
         );
@@ -830,14 +830,7 @@ mod tests {
         });
         entry.resolve_policy(move |name: &Name<'_>| name.name != refused);
         let network = Network::new("names", Arc::new(entry)).unwrap();
-        Namespace::new(
-            [&network],
-            family,
-            Arc::new(crate::net::HyperOutbound::new()),
-            OpenConnections::new(None),
-            None,
-        )
-        .expect("the endpoints compile")
+        Namespace::for_network(&network, family, Arc::new(crate::net::HyperOutbound::new()))
     }
 
     fn tcp(host: &str, port: u16) -> Endpoint {
@@ -1073,14 +1066,11 @@ mod tests {
             }),
         )
         .unwrap();
-        let namespace = Namespace::new(
-            [&network],
+        let namespace = Namespace::for_network(
+            &network,
             Arc::new(crate::net::HostInet),
             Arc::new(crate::net::HyperOutbound::new()),
-            OpenConnections::new(None),
-            None,
-        )
-        .unwrap();
+        );
         let cred = prepare_creds_within(&[], None);
         let admitted = dial_datagram(&namespace, &cred, Some(peer.local_addr().unwrap()));
         let refused = dial_datagram(

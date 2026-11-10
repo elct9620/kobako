@@ -1199,6 +1199,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    use super::super::family::testing::CountsDials;
     use super::*;
     use crate::net::{HostInet, Namespace, OpenConnections};
     use crate::network::{Builder, Endpoint, Network};
@@ -1236,14 +1237,7 @@ mod tests {
             entry.endpoint(endpoint);
         });
         let network = Network::new("web", Arc::new(entry)).unwrap();
-        Namespace::new(
-            [&network],
-            Arc::new(HostInet),
-            Arc::new(HyperOutbound::new()),
-            OpenConnections::new(None),
-            None,
-        )
-        .expect("the endpoints compile")
+        Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()))
     }
 
     fn get(authority: &str) -> OutgoingRequest {
@@ -1290,31 +1284,17 @@ mod tests {
         }
     }
 
-    /// A host counting each dial it refuses.
-    #[derive(Default)]
-    struct Counting(std::sync::atomic::AtomicUsize);
-
-    impl ProtocolFamily for Counting {
-        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
-            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Err(io::ErrorKind::ConnectionRefused.into())
-        }
-    }
-
     #[test]
     fn an_https_request_without_trust_roots_dials_nothing() {
         let mut entry = Builder::default();
         entry.endpoint(Endpoint::new("127.0.0.1", 443).unwrap());
         let network = Network::new("web", Arc::new(entry)).unwrap();
-        let family = Arc::new(Counting::default());
-        let namespace = Namespace::new(
-            [&network],
+        let family = Arc::new(CountsDials::default());
+        let namespace = Namespace::for_network(
+            &network,
             family.clone(),
             Arc::new(HyperOutbound { tls: None }),
-            OpenConnections::new(None),
-            None,
-        )
-        .expect("the endpoints compile");
+        );
         let cred = prepare_creds_within(&[], None);
         let mut request = OutgoingRequest::new("GET", Scheme::Https, "127.0.0.1:443");
         request.path_with_query = "/".to_string();
@@ -1328,10 +1308,7 @@ mod tests {
             }
         };
         assert_eq!(
-            (
-                answer.err(),
-                family.0.load(std::sync::atomic::Ordering::SeqCst)
-            ),
+            (answer.err(), family.dials()),
             (Some(HttpError::TlsProtocol), 0),
             "an https request through a seam with no trust roots must answer TlsProtocol before \
              dialing the host"
@@ -1437,14 +1414,8 @@ mod tests {
         );
         let network = Network::new("web", Arc::new(entry)).unwrap();
         let family = Arc::new(Keeping::default());
-        let namespace = Namespace::new(
-            [&network],
-            family.clone(),
-            Arc::new(HyperOutbound::new()),
-            OpenConnections::new(None),
-            None,
-        )
-        .expect("the endpoint compiles");
+        let namespace =
+            Namespace::for_network(&network, family.clone(), Arc::new(HyperOutbound::new()));
         let cred = prepare_creds_within(&[], None);
         let exchange = namespace
             .send(&cred, get(&format!("127.0.0.1:{port}")))
@@ -1622,14 +1593,8 @@ mod tests {
                 false
             });
         let network = Network::new("web", Arc::new(entry)).unwrap();
-        let namespace = Namespace::new(
-            [&network],
-            Arc::new(HostInet),
-            Arc::new(HyperOutbound::new()),
-            OpenConnections::new(None),
-            None,
-        )
-        .unwrap();
+        let namespace =
+            Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()));
         let mut request = get(&format!("127.0.0.1:{port}"));
         request
             .headers
@@ -1696,14 +1661,7 @@ mod tests {
         let network = Network::new("api", Arc::new(entry)).unwrap();
         let seam = Arc::new(Recording::default());
         let family = Arc::new(Resolving);
-        let namespace = Namespace::new(
-            [&network],
-            family,
-            seam.clone(),
-            OpenConnections::new(None),
-            None,
-        )
-        .unwrap();
+        let namespace = Namespace::for_network(&network, family, seam.clone());
         let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));
         request.path_with_query = path.to_string();
         request.headers.push((header.to_string(), value.to_vec()));
@@ -1825,14 +1783,11 @@ mod tests {
         let mut entry = Builder::default();
         entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
         let network = Network::new("api", Arc::new(entry)).unwrap();
-        let namespace = Namespace::new(
-            [&network],
+        let namespace = Namespace::for_network(
+            &network,
             Arc::new(Resolving),
             Arc::new(Recording::default()),
-            OpenConnections::new(None),
-            None,
-        )
-        .unwrap();
+        );
         let cred = prepare_creds_within(&[], Some(2 * MAX_SOCKET_BUFFER));
         let tcp = namespace.create_tcp_socket(&cred);
         let udp = namespace.create_udp_socket(&cred).err();
@@ -1909,14 +1864,8 @@ mod tests {
             let mut entry = Builder::default();
             entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
             let network = Network::new("api", Arc::new(entry)).unwrap();
-            let namespace = Namespace::new(
-                [&network],
-                Arc::new(Resolving),
-                Arc::new(Streaming),
-                OpenConnections::new(None),
-                None,
-            )
-            .unwrap();
+            let namespace =
+                Namespace::for_network(&network, Arc::new(Resolving), Arc::new(Streaming));
             let cred = prepare_creds_within(&[], None);
             let send = || {
                 namespace
