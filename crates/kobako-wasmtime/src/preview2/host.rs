@@ -566,6 +566,7 @@ impl SocketsHost for Invocation {
         let socket = self.tcp(this)?;
         match (socket.state, socket.socket.sock.getpeername()) {
             (TcpState::Connected, Some(peer)) => Ok(Ok(from_socket_addr(peer))),
+            (TcpState::Closed(code), _) => Ok(Err(code)),
             _ => Ok(Err(ErrorCode::InvalidState)),
         }
     }
@@ -762,7 +763,7 @@ impl SocketsHost for Invocation {
         this: UdpSocket,
     ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
         let socket = self.udp(this)?;
-        if !matches!(socket.state, UdpState::Bound | UdpState::Streaming) {
+        if !socket.state.is_bound() {
             return Ok(Err(ErrorCode::InvalidState));
         }
         let port = socket.socket.sock.virtual_port();
@@ -837,7 +838,7 @@ impl SocketsHost for Invocation {
             return Err(wasmtime::Error::msg("UDP streams not dropped yet"));
         }
         let socket = self.udp(this)?;
-        if !matches!(socket.state, UdpState::Bound | UdpState::Streaming) {
+        if !socket.state.is_bound() {
             return Ok(Err(ErrorCode::InvalidState));
         }
         let datagrams = socket.socket.clone();
@@ -944,6 +945,9 @@ impl SocketsHost for Invocation {
         this: OutgoingDatagramStream,
         datagrams: Vec<OutgoingDatagram>,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+        if datagrams.is_empty() {
+            return Ok(Ok(0));
+        }
         let permit = std::mem::take(self.permit(this)?);
         if datagrams.len() as u64 > permit {
             return Err(wasmtime::Error::msg(
@@ -1627,6 +1631,57 @@ mod tests {
         );
     }
 
+    // @behavior NW-153
+    #[test]
+    fn a_udp_socket_answers_bound_and_empty_sends_as_wasmtimes() {
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = peer.local_addr().unwrap().port();
+        let mut guest = within_network(
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Udp),
+        );
+        let answers = (|| {
+            let network = guest.instance_network_instance_network()?;
+            let udp = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            guest
+                .udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0))?
+                .expect("an ephemeral bind is the implicit one");
+            let binding = guest.udp_udp_socket_local_address(udp)?.is_ok();
+            guest
+                .udp_udp_socket_finish_bind(udp)?
+                .expect("the bind settles");
+            let (_, outgoing) = guest
+                .udp_udp_socket_stream(udp, Some(ipv4((127, 0, 0, 1), port)))?
+                .expect("the udp endpoint names the peer");
+            let permitted = guest
+                .udp_outgoing_datagram_stream_check_send(outgoing)?
+                .expect("a streaming socket permits");
+            let empty = guest
+                .udp_outgoing_datagram_stream_send(outgoing, Vec::new())?
+                .ok();
+            let kept = guest
+                .udp_outgoing_datagram_stream_send(
+                    outgoing,
+                    vec![OutgoingDatagram {
+                        data: b"x".to_vec(),
+                        remote_address: None,
+                    }],
+                )?
+                .ok();
+            Ok::<_, wasmtime::Error>((binding, permitted > 0, empty, kept))
+        })()
+        .expect("the socket streams");
+        assert_eq!(
+            answers,
+            (true, true, Some(0), Some(1)),
+            "a UDP socket must answer local-address once its bind began, and an empty send must \
+             answer 0 without spending check-send's permit, as wasmtime-wasi answers both"
+        );
+    }
+
     // @behavior NW-147
     #[test]
     fn a_producer_dropped_while_its_pollable_lives_traps() {
@@ -1760,7 +1815,10 @@ mod tests {
                 let settled = guest.tcp_tcp_socket_subscribe(refused)?;
                 guest.poll_pollable_block(settled)?;
                 let failure = guest.tcp_tcp_socket_finish_connect(refused)?.err();
-                let after = guest.tcp_tcp_socket_local_address(refused)?;
+                let after = (
+                    guest.tcp_tcp_socket_local_address(refused)?,
+                    guest.tcp_tcp_socket_remote_address(refused)?.err(),
+                );
                 Ok::<_, wasmtime::Error>((during, failure, after))
             })
             .expect("the connects answer");
@@ -1769,10 +1827,14 @@ mod tests {
             (
                 Err(ErrorCode::InvalidState),
                 Some(ErrorCode::ConnectionRefused),
-                Err(ErrorCode::ConnectionRefused)
+                (
+                    Err(ErrorCode::ConnectionRefused),
+                    Some(ErrorCode::ConnectionRefused)
+                )
             ),
-            "local-address of a TCP socket still connecting must answer invalid-state, and of \
-             one whose connect was refused the connect's error, as wasmtime-wasi answers each"
+            "local-address of a TCP socket still connecting must answer invalid-state, and \
+             local-address and remote-address of one whose connect was refused the connect's \
+             error, as wasmtime-wasi answers each"
         );
     }
 

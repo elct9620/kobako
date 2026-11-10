@@ -1410,8 +1410,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a TCP socket whose connect is under way, and one whose connect was refused |
-| When | the guest asks each for `local-address` |
-| Then | the connecting one answers `invalid-state`, and the refused one answers the connect's error, as wasmtime-wasi answers each |
+| When | the guest asks each for `local-address`, and the refused one for `remote-address` |
+| Then | the connecting one answers `invalid-state`. The refused one answers the connect's error for both, as wasmtime-wasi answers each |
 
 ## `NW-115` One datagram receive answers at most sixteen
 
@@ -1885,3 +1885,16 @@ endpoint "api.example.com", port: 443
 | Given | a UDP socket connected to a peer, and one connected to none |
 | When | a Wasm Driver shuts the reading side down, then the writing side, then shuts the unconnected socket down |
 | Then | a read answers zero and polls readable, a send answers EPIPE, and both shut poll hung up. The unconnected socket answers ENOTCONN, as Linux's `inet_shutdown` |
+
+## `NW-153` A UDP socket answers its bind and an empty send as wasmtime-wasi's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-053` |
+| relates | `NW-091` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP endpoint naming a peer |
+| When | the guest starts a bind and asks for `local-address`, then streams, checks a send, and sends no datagram, then one |
+| Then | the bind under way answers its address. The empty send answers zero and leaves the permit, so the next send of one datagram passes |

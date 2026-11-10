@@ -124,6 +124,14 @@ pub(crate) enum UdpState {
     Streaming,
 }
 
+impl UdpState {
+    /// Whether a bind began, which binds a UDP socket at once, so wasmtime's
+    /// `is_bound` reads it bound before `finish-bind`.
+    pub(crate) fn is_bound(&self) -> bool {
+        !matches!(self, UdpState::Unbound)
+    }
+}
+
 /// A guest's handle to one kind of resource, as wasmtime's `Resource<T>`
 /// names the host type `T` its index stands for. The bindings implement it
 /// for each WIT resource, as `bindgen!` takes `with:`.
