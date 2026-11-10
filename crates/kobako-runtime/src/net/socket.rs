@@ -306,10 +306,23 @@ pub(crate) fn take_connect_outcome(stream: &mio::net::TcpStream) -> Option<io::R
     }
 }
 
-/// The POSIX name a host socket's failure stands for; one with none carries
-/// only its kind, so no host address reaches the guest.
+/// The POSIX name a host socket's failure stands for, read from its errno
+/// first where std names no kind for it; one with none carries only its kind,
+/// so no host address reaches the guest.
 pub(crate) fn to_error(err: &io::Error) -> FilesystemError {
+    #[cfg(unix)]
+    {
+        use rustix::io::Errno;
+        match Errno::from_io_error(err) {
+            Some(Errno::NOBUFS) => return FilesystemError::NoBufferSpace,
+            Some(Errno::HOSTDOWN) => return FilesystemError::HostUnreachable,
+            #[cfg(target_os = "linux")]
+            Some(Errno::NONET) => return FilesystemError::NetworkUnreachable,
+            _ => {}
+        }
+    }
     match err.kind() {
+        io::ErrorKind::NetworkDown => FilesystemError::NetworkDown,
         io::ErrorKind::ConnectionRefused => FilesystemError::ConnectionRefused,
         io::ErrorKind::ConnectionReset => FilesystemError::ConnectionReset,
         io::ErrorKind::ConnectionAborted => FilesystemError::ConnectionAborted,
@@ -464,5 +477,29 @@ pub(crate) mod testing {
         let found =
             within_max_wait(|| do_poll(None, |table| poll(table).contains(mask).then_some(())));
         assert_eq!(found, Ok(Some(())), "the socket's poll must find {mask:?}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // @behavior NW-074
+    #[cfg(unix)]
+    #[test]
+    fn a_host_socket_failure_answers_the_posix_name_its_errno_holds() {
+        use rustix::io::Errno;
+        let answers = [Errno::NETDOWN, Errno::NOBUFS, Errno::HOSTDOWN]
+            .map(|errno| to_error(&io::Error::from_raw_os_error(errno.raw_os_error())));
+        assert_eq!(
+            answers,
+            [
+                FilesystemError::NetworkDown,
+                FilesystemError::NoBufferSpace,
+                FilesystemError::HostUnreachable
+            ],
+            "a host socket failing with ENETDOWN, ENOBUFS, or EHOSTDOWN must answer ENETDOWN, \
+             ENOBUFS, and EHOSTUNREACH, read from its errno where std names no kind"
+        );
     }
 }

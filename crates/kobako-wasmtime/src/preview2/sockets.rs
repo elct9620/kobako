@@ -109,15 +109,15 @@ pub(crate) fn to_error_code(err: &FilesystemError) -> ErrorCode {
             ErrorCode::NotSupported
         }
         FilesystemError::InvalidInput => ErrorCode::InvalidArgument,
-        FilesystemError::OutOfMemory => ErrorCode::OutOfMemory,
+        FilesystemError::OutOfMemory | FilesystemError::NoBufferSpace => ErrorCode::OutOfMemory,
         FilesystemError::TimedOut => ErrorCode::Timeout,
         FilesystemError::WouldBlock => ErrorCode::WouldBlock,
         FilesystemError::TooManyOpenFiles => ErrorCode::NewSocketLimit,
         FilesystemError::AddressNotAvailable => ErrorCode::AddressNotBindable,
         FilesystemError::AddressInUse => ErrorCode::AddressInUse,
-        FilesystemError::HostUnreachable | FilesystemError::NetworkUnreachable => {
-            ErrorCode::RemoteUnreachable
-        }
+        FilesystemError::HostUnreachable
+        | FilesystemError::NetworkUnreachable
+        | FilesystemError::NetworkDown => ErrorCode::RemoteUnreachable,
         FilesystemError::ConnectionRefused => ErrorCode::ConnectionRefused,
         FilesystemError::ConnectionReset => ErrorCode::ConnectionReset,
         FilesystemError::ConnectionAborted => ErrorCode::ConnectionAborted,
@@ -143,15 +143,20 @@ mod tests {
                 FilesystemError::BrokenPipe,
                 FilesystemError::AddressInUse,
                 FilesystemError::ConnectionReset,
+                FilesystemError::NetworkDown,
+                FilesystemError::NoBufferSpace,
             ]
             .map(|err| to_error_code(&err)),
             [
                 ErrorCode::Unknown,
                 ErrorCode::AddressInUse,
-                ErrorCode::ConnectionReset
+                ErrorCode::ConnectionReset,
+                ErrorCode::RemoteUnreachable,
+                ErrorCode::OutOfMemory,
             ],
-            "EPIPE, EADDRINUSE, and ECONNRESET must answer unknown, address-in-use, and \
-             connection-reset, as wasmtime-wasi's preview2 maps them"
+            "EPIPE, EADDRINUSE, ECONNRESET, ENETDOWN, and ENOBUFS must answer unknown, \
+             address-in-use, connection-reset, remote-unreachable, and out-of-memory, as \
+             wasmtime-wasi's preview2 maps them"
         );
     }
 }

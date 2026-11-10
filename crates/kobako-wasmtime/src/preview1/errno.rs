@@ -47,6 +47,8 @@ fn from_posix_name(name: &str) -> Option<Errno> {
         "ETIMEDOUT" => Errno::Timedout,
         "EHOSTUNREACH" => Errno::Hostunreach,
         "ENETUNREACH" => Errno::Netunreach,
+        "ENETDOWN" => Errno::Netdown,
+        "ENOBUFS" => Errno::Nobufs,
         "EADDRNOTAVAIL" => Errno::Addrnotavail,
         "EADDRINUSE" => Errno::Addrinuse,
         "EPIPE" => Errno::Pipe,
