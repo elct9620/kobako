@@ -746,31 +746,12 @@ impl TcpSock {
 
 ## `sock_alloc_file`
 
-The socket file of a socket of one kind, opened for reading and writing, as
-Linux's `sock_alloc_file` makes one. Dropping it releases the socket.
+The socket file of a socket, opened for reading and writing, as Linux's
+`sock_alloc_file` makes one. It never waits: a read or write that would
+answers `WouldBlock`. Dropping it releases the socket.
 
 ```rust
-pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, sock_type: SockType, cred: &Arc<Cred>) -> File {}
-```
-
-## `sock_from_file`
-
-The socket a socket file holds and its kind, as Linux's `sock_from_file`
-reaches one; any other file holds none.
-
-```rust
-pub fn sock_from_file(file: &File) -> Option<(Arc<dyn ProtoOps>, SockType)> {}
-```
-
-## `SockType`
-
-Which kind of socket a file holds, as Linux's `sock->type` names it.
-
-```rust
-pub enum SockType {
-    Stream,
-    Dgram,
-}
+pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, cred: &Arc<Cred>) -> File {}
 ```
 
 ## `MemoryCharge`
@@ -863,18 +844,6 @@ address out.
 ```rust
 pub trait ProtoOps {
     fn getsockname(&self) -> SocketAddr;
-}
-```
-
-## `ProtoOps::accept`
-
-A connection the socket accepts, as Linux's `proto_ops.accept`. No socket of
-the Guest's listens, so a stream refuses as `InvalidInput` and a datagram one
-as `Unsupported`.
-
-```rust
-pub trait ProtoOps {
-    fn accept(&self) -> Result<Arc<dyn ProtoOps>, FilesystemError>;
 }
 ```
 

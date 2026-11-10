@@ -295,11 +295,6 @@ impl ProtoOps for UdpSock {
         self.state().inet.getsockname()
     }
 
-    /// A datagram socket accepts nothing, as `sock_no_accept` answers.
-    fn accept(&self) -> Result<Arc<dyn ProtoOps>, FilesystemError> {
-        Err(FilesystemError::Unsupported)
-    }
-
     /// The buffers and the hop limit; UDP has no TCP option.
     fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError> {
         self.state().inet.getsockopt(opt)
@@ -518,31 +513,11 @@ mod tests {
         );
     }
 
-    // @behavior NW-152
-    #[test]
-    fn a_blocking_read_of_a_udp_socket_whose_reading_side_is_shut_answers_the_end() {
-        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let sock = connected_socket(peer.local_addr().unwrap());
-        sock.shutdown(Shutdown::Read)
-            .expect("a connected socket shuts down");
-        let read = crate::sched::testing::within_max_wait(|| {
-            crate::net::sock_recvmsg(sock.as_ref(), &mut [0; 4], false)
-        });
-        assert_eq!(
-            read,
-            Ok(0),
-            "a blocking receive on a UDP socket whose reading side is shut and whose queue is \
-             empty must answer zero at once, as __skb_wait_for_more_packets ends on \
-             RCV_SHUTDOWN, rather than wait on a poll that is already readable"
-        );
-    }
-
     // @behavior NW-086
     #[test]
     fn a_zero_byte_read_keeps_the_datagram() {
         let (sock, _peer) = readable_socket();
-        let mut file =
-            crate::net::sock_alloc_file(sock.clone(), crate::net::SockType::Dgram, &Arc::default());
+        let mut file = crate::net::sock_alloc_file(sock.clone(), &Arc::default());
         let mut buf = [0; 8];
         let zero = file.read(&mut []);
         let next = file.read(&mut buf).map(|n| buf[..n].to_vec());

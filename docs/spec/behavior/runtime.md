@@ -4211,3 +4211,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | its last view is dropped, or the bytes arrive |
 | Then | the peer reads a reset, as Linux resets a connection whose data it throws away. A released socket lets go of itself |
 
+## `RT-381` A socket file never waits
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-343` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket's file whose peer has sent nothing, its non-blocking flag cleared |
+| When | a Wasm Driver reads it |
+| Then | the read answers EAGAIN at once. WASI's sockets never block, so no encoding needs a socket's file to wait |
+

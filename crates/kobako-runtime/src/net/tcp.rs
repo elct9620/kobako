@@ -565,11 +565,6 @@ impl ProtoOps for TcpSock {
         self.state().inet.getsockname()
     }
 
-    /// A stream socket that never listens accepts nothing.
-    fn accept(&self) -> Result<Arc<dyn ProtoOps>, FilesystemError> {
-        Err(FilesystemError::InvalidInput)
-    }
-
     /// Its own keepalive flag and probes, never the host's, beside the
     /// buffers and the hop limit.
     fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError> {
@@ -640,7 +635,7 @@ mod tests {
 
     use super::*;
     use crate::net::socket::testing::wait_for;
-    use crate::net::{sock_alloc_file, HostInet, SockType};
+    use crate::net::{sock_alloc_file, HostInet};
     use crate::security::prepare_creds_within;
     use crate::vfs::File;
 
@@ -658,10 +653,25 @@ mod tests {
     fn connected_socket() -> (Arc<TcpSock>, File, std::net::TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let sock = dial(listener.local_addr().unwrap());
-        let file = sock_alloc_file(sock.clone(), SockType::Stream, &Arc::default());
+        let file = sock_alloc_file(sock.clone(), &Arc::default());
         let (peer, _) = listener.accept().expect("the listener accepts");
         wait_for(|table| file.poll(table), PollMask::OUT);
         (sock, file, peer)
+    }
+
+    // @behavior RT-381
+    #[test]
+    fn a_socket_file_never_waits() {
+        let (_sock, mut file, _peer) = connected_socket();
+        file.setfl(false, false);
+        let started = std::time::Instant::now();
+        let read = crate::sched::testing::within_max_wait(|| file.read(&mut [0; 8]));
+        assert_eq!(
+            (read, started.elapsed() < Duration::from_secs(1)),
+            (Err(FilesystemError::WouldBlock), true),
+            "File::read of a connected socket whose peer sent nothing must answer EAGAIN at \
+             once, its non-blocking flag cleared or not, since WASI's sockets never block"
+        );
     }
 
     // @behavior RT-365
@@ -878,7 +888,7 @@ mod tests {
         let refused_at = closed.local_addr().unwrap();
         drop(closed);
         let sock = dial(refused_at);
-        let file = sock_alloc_file(sock.clone(), SockType::Stream, &Arc::default());
+        let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(|table| file.poll(table), PollMask::ERR);
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let open_at = listener.local_addr().unwrap();
@@ -1094,78 +1104,13 @@ mod tests {
         );
     }
 
-    // @behavior RT-380
-    #[test]
-    fn a_socket_file_whose_nonblock_flag_was_cleared_waits_for_its_peer() {
-        let (_sock, mut file, mut peer) = connected_socket();
-        let mut buf = [0; 8];
-        let before = file.read(&mut buf);
-        file.setfl(false, false);
-        let writer = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(50));
-            peer.write_all(b"late").unwrap();
-            peer
-        });
-        let after = crate::sched::testing::within_max_wait(|| file.read(&mut buf));
-        drop(writer.join());
-        assert_eq!(
-            (before, after),
-            (Err(FilesystemError::WouldBlock), Ok(4)),
-            "File::read of a socket opened non-blocking must answer EAGAIN before bytes come, \
-             and once its non-blocking flag is cleared must wait for the peer's bytes, as \
-             sock_read_iter waits without O_NONBLOCK"
-        );
-    }
-
-    // @behavior RT-380
-    #[test]
-    fn a_full_socket_file_whose_nonblock_flag_was_cleared_waits_for_room() {
-        let (_sock, mut file, mut peer) = connected_socket();
-        fill(&mut file);
-        let before = file.write(b"x");
-        file.setfl(false, false);
-        let whole = vec![7; 4 * MAX_SOCKET_BUFFER];
-        let reader = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(50));
-            peer.set_read_timeout(Some(Duration::from_millis(500)))
-                .unwrap();
-            let mut chunk = [0; 64 * 1024];
-            while peer.read(&mut chunk).is_ok_and(|n| n > 0) {}
-            peer
-        });
-        let after = crate::sched::testing::within_max_wait(|| file.write(&whole));
-        drop(reader.join());
-        assert_eq!(
-            (before, after),
-            (Err(FilesystemError::WouldBlock), Ok(whole.len())),
-            "File::write of a full socket opened non-blocking must answer EAGAIN, and once its \
-             non-blocking flag is cleared must wait until the peer reads room free and take \
-             every byte it was handed, as tcp_sendmsg_locked waits for memory"
-        );
-    }
-
-    // @behavior RT-380
-    #[test]
-    fn a_blocking_read_ends_with_the_deadline() {
-        let (_sock, mut file, _peer) = connected_socket();
-        file.setfl(false, false);
-        let deadline = std::time::Instant::now() + Duration::from_millis(100);
-        let read = crate::sched::run_task(Some(deadline), || file.read(&mut [0; 8]));
-        assert_eq!(
-            read,
-            Err(FilesystemError::Interrupted),
-            "File::read of a socket whose non-blocking flag was cleared must end its wait with \
-             the deadline, before the peer sends anything"
-        );
-    }
-
     // @behavior RT-358
     #[test]
     fn a_reset_or_refused_socket_polls_hung_up() {
         let closed = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = closed.local_addr().unwrap();
         drop(closed);
-        let refused = sock_alloc_file(dial(addr), SockType::Stream, &Arc::default());
+        let refused = sock_alloc_file(dial(addr), &Arc::default());
         wait_for(|table| refused.poll(table), PollMask::ERR);
         let every = PollMask::IN | PollMask::OUT | PollMask::ERR | PollMask::HUP;
         assert_eq!(
@@ -1237,7 +1182,7 @@ mod tests {
             .and_then(|listener| listener.local_addr())
             .unwrap();
         let sock = dial(addr);
-        let file = sock_alloc_file(sock.clone(), SockType::Stream, &Arc::default());
+        let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
             sock.finish_connect(),

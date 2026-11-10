@@ -2,7 +2,6 @@
 //! stands on sockfs, and its file hands each call to the protocol's operations,
 //! as `socket_file_ops` hands them to `proto_ops`.
 
-use std::any::Any;
 use std::io;
 use std::net::{Ipv4Addr, Shutdown, SocketAddr};
 use std::sync::{Arc, LazyLock};
@@ -13,7 +12,7 @@ use crate::vfs::{
     alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
     FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
 };
-use crate::wait::{do_poll, PollTable};
+use crate::wait::PollTable;
 
 use super::connections::Place;
 
@@ -47,10 +46,6 @@ pub trait ProtoOps: Send + Sync {
     /// namespace gave as the connect began, or the unspecified address
     /// before then, as Linux answers an unbound socket.
     fn getsockname(&self) -> SocketAddr;
-    /// A connection the socket accepts, as `->accept`; no socket of the
-    /// guest's listens, so a stream answers `EINVAL`, as `inet_accept` on one
-    /// not listening, and a datagram one `EOPNOTSUPP`, as `sock_no_accept`.
-    fn accept(&self) -> Result<Arc<dyn ProtoOps>, FilesystemError>;
     /// The value `opt` holds on this socket, never the host's; one the
     /// protocol has not answers `ProtocolNotAvailable`.
     fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError>;
@@ -374,97 +369,26 @@ impl InodeOperations for SockFs {
     }
 }
 
-/// Which kind of socket a file holds, as Linux's `sock->type` names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum SockType {
-    Stream,
-    Dgram,
-}
-
 /// What answers for a socket file, as `socket_file_ops` hands each call to the
-/// socket: the protocol's operations and the socket's kind, as `struct socket`
-/// holds `ops` and `type`. The file is opened non-blocking, as a WASI 0.2
-/// socket is, so a read or write that would wait answers EAGAIN and the guest
-/// polls; one whose non-blocking flag was cleared waits instead.
+/// socket's protocol operations. The file never waits: a read or write that
+/// would wait answers EAGAIN and the guest polls, since WASI's sockets never
+/// block and no encoding clears the file's `O_NONBLOCK`.
 struct SocketFile {
     ops: Arc<dyn ProtoOps>,
-    sock_type: SockType,
-}
-
-/// Receive into `buf` from `sock`, as Linux's `sock_recvmsg`: with
-/// `nonblock`, as `MSG_DONTWAIT`, nothing yet answers EAGAIN; without it the
-/// call waits on the socket's queue until something arrives, ending with the
-/// deadline or the interrupt, as `sk_wait_data` ends on a signal. A socket a
-/// poll finds readable that still holds nothing has no more to give, so it
-/// answers the end, as a shut reading side answers zero to a blocking read.
-pub fn sock_recvmsg(
-    sock: &dyn ProtoOps,
-    buf: &mut [u8],
-    nonblock: bool,
-) -> Result<usize, FilesystemError> {
-    loop {
-        match sock.recvmsg(buf) {
-            Err(FilesystemError::WouldBlock) if !nonblock => {
-                if sock.poll(None).is_ready_for(PollMask::IN) {
-                    return Ok(0);
-                }
-                do_poll(None, |table| {
-                    sock.poll(table).is_ready_for(PollMask::IN).then_some(())
-                })?;
-            }
-            answer => return answer,
-        }
-    }
-}
-
-/// Send `buf` through `sock`, as Linux's `sock_sendmsg`: with `nonblock` it
-/// takes what fits, EAGAIN when nothing does; without it the call waits for
-/// room until the whole buffer is taken, as `tcp_sendmsg_locked` waits in
-/// `sk_stream_wait_memory`, answering what it took if a failure or the
-/// deadline comes after some.
-pub fn sock_sendmsg(
-    sock: &dyn ProtoOps,
-    buf: &[u8],
-    nonblock: bool,
-) -> Result<usize, FilesystemError> {
-    let mut sent = 0;
-    loop {
-        let failure = match sock.sendmsg(&buf[sent..]) {
-            Ok(n) => {
-                sent += n;
-                if nonblock || sent == buf.len() {
-                    return Ok(sent);
-                }
-                continue;
-            }
-            Err(FilesystemError::WouldBlock) if !nonblock => do_poll(None, |table| {
-                let mask = sock.poll(table);
-                (mask.contains(PollMask::OUT) || mask.contains(PollMask::ERR)).then_some(())
-            })
-            .err(),
-            Err(err) => Some(err),
-        };
-        match failure {
-            None => {}
-            Some(_) if sent > 0 => return Ok(sent),
-            Some(err) => return Err(err),
-        }
-    }
 }
 
 impl FileOperations for SocketFile {
     /// A read of nothing answers zero before the socket is asked, as
     /// `sock_read_iter` does, so it takes no datagram.
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         if buf.is_empty() {
             return Ok(0);
         }
-        sock_recvmsg(self.ops.as_ref(), buf, iocb.nonblock)
+        self.ops.recvmsg(buf)
     }
 
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-        sock_sendmsg(self.ops.as_ref(), buf, iocb.nonblock)
+    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        self.ops.sendmsg(buf)
     }
 
     fn poll(&self, _mode: FMode, table: Option<&mut PollTable>) -> PollMask {
@@ -482,10 +406,9 @@ impl Drop for SocketFile {
     }
 }
 
-/// The socket file of `sock`, a socket of `sock_type`, opened as `cred` for
-/// reading and writing, as Linux's `sock_alloc_file` makes one; dropping it
-/// releases the socket.
-pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, sock_type: SockType, cred: &Arc<Cred>) -> File {
+/// The socket file of `sock`, opened as `cred` for reading and writing, as
+/// Linux's `sock_alloc_file` makes one; dropping it releases the socket.
+pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, cred: &Arc<Cred>) -> File {
     let inode = Inode::new(&Kstat::new(FileType::Sock, 0), Arc::new(SockFs));
     alloc_file_pseudo(
         inode,
@@ -496,20 +419,9 @@ pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, sock_type: SockType, cred: &Arc<
             nonblock: true,
             ..OpenHow::default()
         },
-        Box::new(SocketFile {
-            ops: sock,
-            sock_type,
-        }),
+        Box::new(SocketFile { ops: sock }),
         cred,
     )
-}
-
-/// The socket `file` holds and its kind, if it is a socket file, as Linux's
-/// `sock_from_file` reaches one.
-pub fn sock_from_file(file: &File) -> Option<(Arc<dyn ProtoOps>, SockType)> {
-    (file.f_op() as &dyn Any)
-        .downcast_ref::<SocketFile>()
-        .map(|socket| (socket.ops.clone(), socket.sock_type))
 }
 
 /// What the socket tests share.

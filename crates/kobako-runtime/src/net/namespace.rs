@@ -708,8 +708,7 @@ mod tests {
                 let sock = dial(&namespace, &cred, listener.local_addr().unwrap()).unwrap();
                 peers.push(listener.accept().unwrap().0);
                 settle(&sock);
-                let mut file =
-                    crate::net::sock_alloc_file(sock.clone(), crate::net::SockType::Stream, &cred);
+                let mut file = crate::net::sock_alloc_file(sock.clone(), &cred);
                 while file.write(&[7; 16 * 1024]).is_ok() {}
                 let held = Arc::downgrade(&sock);
                 drop((sock, file));

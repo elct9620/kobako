@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
-    sock_alloc_file, Namespace, ProtoOps, SockOpt, SockType, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
+    sock_alloc_file, Namespace, ProtoOps, SockOpt, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
     MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
 use kobako_runtime::vfs::{Cred, FilesystemError, PollMask};
@@ -180,15 +180,13 @@ impl Invocation {
             .expect("a socket is only made with a network")
     }
 
-    /// A socket of `sock_type` `create` makes in the Invocation's network, with its file
-    /// installed at the number its handle `resource` takes, as `__sys_socket`
-    /// makes one and `fd_install`s it. With no network, or for an IPv6
-    /// `family`, it is `not-supported`, and past the open file limit
-    /// `new-socket-limit`.
+    /// A socket `create` makes in the Invocation's network, with its file,
+    /// handed out as the handle `resource` takes, as `__sys_socket` makes one.
+    /// With no network, or for an IPv6 `family`, it is `not-supported`, and
+    /// past the open file limit `new-socket-limit`.
     fn create_socket<S: ProtoOps + 'static, H: table::Handle>(
         &mut self,
         family: IpAddressFamily,
-        sock_type: SockType,
         create: impl FnOnce(&Namespace, &Arc<Cred>) -> Result<Arc<S>, FilesystemError>,
         resource: impl FnOnce(SocketFile<S>) -> H::Host,
     ) -> Result<H, SocketError> {
@@ -200,7 +198,7 @@ impl Invocation {
         }
         let cred = self.wasi().descriptors().cred().clone();
         let sock = create(self.network(), &cred)?;
-        let socket = SocketFile::new(sock.clone(), sock_alloc_file(sock, sock_type, &cred));
+        let socket = SocketFile::new(sock.clone(), sock_alloc_file(sock, &cred));
         Ok(self.table().push_file(resource(socket))?)
     }
 
@@ -333,15 +331,12 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<TcpSocket, SocketError> {
-        self.create_socket(
-            address_family,
-            SockType::Stream,
-            Namespace::create_tcp_socket,
-            |socket| table::TcpSocket {
+        self.create_socket(address_family, Namespace::create_tcp_socket, |socket| {
+            table::TcpSocket {
                 socket,
                 state: TcpState::Unbound,
-            },
-        )
+            }
+        })
     }
 
     /// A bind the socket hooks pass, as `tcp-socket.start-bind` asks; the
@@ -609,15 +604,12 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<UdpSocket, SocketError> {
-        self.create_socket(
-            address_family,
-            SockType::Dgram,
-            Namespace::create_udp_socket,
-            |socket| table::UdpSocket {
+        self.create_socket(address_family, Namespace::create_udp_socket, |socket| {
+            table::UdpSocket {
                 socket,
                 state: UdpState::Unbound,
-            },
-        )
+            }
+        })
     }
 
     /// The guest only sends to a peer it names, so the one bind it makes is

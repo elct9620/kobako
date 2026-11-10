@@ -1884,7 +1884,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a UDP socket connected to a peer, and one connected to none |
 | When | a Wasm Driver shuts the reading side down, then the writing side, then shuts the unconnected socket down |
-| Then | the socket polls readable, yet a read of its empty queue answers EAGAIN, as a non-blocking Linux socket does. A blocking read answers zero at once. A send answers EPIPE, and both shut poll hung up. The unconnected socket answers ENOTCONN, as Linux's `inet_shutdown` |
+| Then | the socket polls readable, yet a read of its empty queue answers EAGAIN, as a non-blocking Linux socket does. A send answers EPIPE, and both shut poll hung up. The unconnected socket answers ENOTCONN, as Linux's `inet_shutdown` |
 
 ## `NW-153` A UDP socket answers its bind and an empty send as wasmtime-wasi's
 

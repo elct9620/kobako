@@ -512,11 +512,6 @@ impl File {
         self.nonblock
     }
 
-    /// What answers for it, as `f_op`.
-    pub(crate) fn f_op(&self) -> &dyn FileOperations {
-        self.ops.as_ref()
-    }
-
     /// Whether what each write needs read back is durable before it answers.
     pub fn dsync(&self) -> bool {
         self.dsync
