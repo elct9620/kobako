@@ -351,7 +351,7 @@ impl SocketsHost for Invocation {
         self.ensure_network(network)?;
         match self.tcp(this)?.state {
             TcpState::Unbound => {}
-            TcpState::Binding | TcpState::Connecting => {
+            state if state == TcpState::Binding || state.is_connecting() => {
                 return Err(ErrorCode::ConcurrencyConflict.into())
             }
             _ => return Err(ErrorCode::InvalidState.into()),
@@ -383,7 +383,7 @@ impl SocketsHost for Invocation {
         let socket = self.tcp(this)?;
         match socket.state {
             TcpState::Unbound | TcpState::Bound => {}
-            TcpState::Binding | TcpState::Connecting => {
+            state if state == TcpState::Binding || state.is_connecting() => {
                 return Err(ErrorCode::ConcurrencyConflict.into())
             }
             _ => return Err(ErrorCode::InvalidState.into()),
@@ -393,14 +393,19 @@ impl SocketsHost for Invocation {
             .filter(|addr| is_valid_remote_address(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().descriptors().cred();
-        // Past the address's own checks the attempt has begun, so its failure
-        // closes the socket, as `sockets.wit` has a socket connect once.
-        if let Err(err) = self.network().connect(cred, &sock, addr) {
-            let code = to_error_code(&err);
-            self.tcp(this)?.state = TcpState::Closed(code);
-            return Err(code.into());
-        }
-        self.tcp(this)?.state = TcpState::Connecting;
+        // Past the address's own checks the attempt is under way, so its
+        // failure waits for `finish-connect`, as wasmtime's connecting future
+        // checks permission and dials, and then closes the socket. A full
+        // connection count is refused at once, as `would-block` from
+        // `finish-connect` would read as a connect still under way.
+        self.tcp(this)?.state = match self.network().connect(cred, &sock, addr) {
+            Ok(()) => TcpState::Connecting,
+            Err(FilesystemError::WouldBlock) => {
+                self.tcp(this)?.state = TcpState::Closed(ErrorCode::WouldBlock);
+                return Err(ErrorCode::WouldBlock.into());
+            }
+            Err(err) => TcpState::ConnectFailed(to_error_code(&err)),
+        };
         Ok(())
     }
 
@@ -412,11 +417,16 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
     ) -> Result<(InputStream, OutputStream), SocketError> {
         let socket = self.tcp(this)?;
-        if socket.state != TcpState::Connecting {
-            return Err(ErrorCode::NotInProgress.into());
-        }
+        let finished = match socket.state {
+            TcpState::Connecting => socket.socket.sock.finish_connect(),
+            TcpState::ConnectFailed(code) => {
+                socket.state = TcpState::Closed(code);
+                return Err(code.into());
+            }
+            _ => return Err(ErrorCode::NotInProgress.into()),
+        };
         let socket = socket.socket.clone();
-        match socket.sock.finish_connect() {
+        match finished {
             Ok(()) => {
                 self.tcp(this)?.state = TcpState::Connected;
                 let stream = Stream::Socket(socket);
@@ -479,7 +489,9 @@ impl SocketsHost for Invocation {
                 Ok(from_socket_addr(socket.socket.sock.getsockname()))
             }
             TcpState::Closed(code) => Err(code.into()),
-            TcpState::Unbound | TcpState::Connecting => Err(ErrorCode::InvalidState.into()),
+            TcpState::Unbound | TcpState::Connecting | TcpState::ConnectFailed(_) => {
+                Err(ErrorCode::InvalidState.into())
+            }
         }
     }
 
@@ -753,22 +765,18 @@ impl SocketsHost for Invocation {
         max_results: u64,
     ) -> Result<Vec<IncomingDatagram>, SocketError> {
         let datagrams = self.table().get(this)?.0.clone();
-        let peer = datagrams
-            .sock
-            .getpeername()
-            .expect("a datagram stream is only handed out once its socket connects");
         let max_results =
             usize::try_from(max_results).map_or(MAX_DATAGRAMS, |max| max.min(MAX_DATAGRAMS));
         let mut received = Vec::new();
         let mut sum = 0;
         let mut buf = vec![0; MAX_DATAGRAM];
         while received.len() < max_results && sum < MAX_RECEIVE_BYTES {
-            match datagrams.file().read(&mut buf) {
-                Ok(n) => {
+            match datagrams.sock.recvfrom(&mut buf) {
+                Ok((n, from)) => {
                     sum += 1 + n;
                     received.push(IncomingDatagram {
                         data: buf[..n].to_vec(),
-                        remote_address: from_socket_addr(peer),
+                        remote_address: from_socket_addr(from),
                     });
                 }
                 Err(FilesystemError::WouldBlock) => break,
@@ -994,7 +1002,12 @@ impl IoHost for Invocation {
         if !contents.is_empty() {
             output.permit = 0;
         }
-        output.stream.clone().write(&contents)?;
+        // A socket whose send buffer shrank since check-write takes less than
+        // it permitted; holding the rest would pass the memory the socket
+        // reserved, so the write fails rather than drop it unseen.
+        if output.stream.clone().write(&contents)? < contents.len() {
+            return Err(FilesystemError::NoBufferSpace.into());
+        }
         Ok(())
     }
 
@@ -1894,21 +1907,30 @@ mod tests {
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
                 .into_answer()?
                 .expect("a network makes a socket");
-            let refused = guest
+            let started = guest
                 .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port ^ 1))
                 .into_answer()?;
+            let refused = guest
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
+                .map(drop);
             let again = guest
                 .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
                 .into_answer()?;
-            Ok::<_, wasmtime::Error>((refused, again))
+            Ok::<_, wasmtime::Error>((started, refused, again))
         })
         .expect("the calls answer");
         assert_eq!(
             answers,
-            (Err(ErrorCode::AccessDenied), Err(ErrorCode::InvalidState)),
-            "a TCP socket whose start-connect no endpoint allows must answer access-denied and \
-             then invalid-state to a connect it would allow, as sockets.wit closes a socket \
-             after a failed connection attempt"
+            (
+                Ok(()),
+                Err(ErrorCode::AccessDenied),
+                Err(ErrorCode::InvalidState)
+            ),
+            "a TCP socket's start-connect no endpoint allows must succeed and its finish-connect \
+             answer access-denied, as wasmtime-wasi's connect fails once under way, and a later \
+             connect it would allow invalid-state, as sockets.wit closes a socket after a failed \
+             connection attempt"
         );
     }
 
@@ -2500,6 +2522,49 @@ mod tests {
             (true, true),
             "output-stream.write of no bytes must succeed and leave the check-write permit, so \
              one byte after it still writes, as wasmtime's write does"
+        );
+    }
+
+    // @behavior NW-171
+    #[test]
+    fn a_write_the_socket_no_longer_takes_whole_fails() {
+        let (mut guest, listener) = guest_and_listener();
+        let port = listener.local_addr().unwrap().port();
+        let started = Instant::now();
+        let written = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (_, output) = guest
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
+                .expect("the listener accepts");
+            let permit = guest
+                .streams_output_stream_check_write(output)
+                .into_answer()?
+                .expect("a connected stream permits");
+            guest
+                .tcp_tcp_socket_set_send_buffer_size(socket, 1)
+                .into_answer()?
+                .expect("a connected socket takes a send buffer size");
+            let written = guest
+                .streams_output_stream_write(output, vec![0; permit as usize])
+                .into_answer()?;
+            Ok::<_, wasmtime::Error>(written.is_ok())
+        })
+        .expect("the calls answer");
+        assert!(
+            !written,
+            "output-stream.write of the whole check-write permit after the guest shrank the \
+             socket's send buffer must fail rather than drop the bytes the socket no longer takes"
         );
     }
 

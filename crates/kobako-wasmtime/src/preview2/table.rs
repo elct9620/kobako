@@ -225,6 +225,9 @@ pub(crate) enum TcpState {
     Binding,
     Bound,
     Connecting,
+    /// A connect that failed as it began, its error kept for `finish-connect`
+    /// to answer, as wasmtime's connecting future resolves to it.
+    ConnectFailed(ErrorCode),
     Connected,
     /// A connect that failed with its error, after which the socket takes no
     /// other, as `tcp.wit` closes it.
@@ -232,12 +235,17 @@ pub(crate) enum TcpState {
 }
 
 impl TcpState {
+    /// Whether a connect is under way, its failure not yet answered.
+    pub(crate) fn is_connecting(self) -> bool {
+        matches!(self, Self::Connecting | Self::ConnectFailed(_))
+    }
+
     /// Whether a socket option may be read or set now: as wasmtime's, a
     /// socket connecting answers `invalid-state`, and one whose connect
     /// failed answers its error.
     pub(crate) fn ensure_takes_options(self) -> Result<(), ErrorCode> {
         match self {
-            Self::Connecting => Err(ErrorCode::InvalidState),
+            Self::Connecting | Self::ConnectFailed(_) => Err(ErrorCode::InvalidState),
             Self::Closed(code) => Err(code),
             Self::Unbound | Self::Binding | Self::Bound | Self::Connected => Ok(()),
         }

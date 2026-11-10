@@ -2067,9 +2067,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest's TCP socket whose connect failed past the address's own checks |
-| When | it connects again through preview2 |
-| Then | the socket answers `invalid-state`, as `sockets.wit` closes a socket after a failed connection attempt |
+| Given | a guest's TCP socket whose connect fails past the address's own checks and the connection count |
+| When | it starts the connect, finishes it, then connects again through preview2 |
+| Then | the start succeeds and the finish answers the failure, as wasmtime-wasi's connect fails once under way. The socket then answers `invalid-state`, as `sockets.wit` closes a socket after a failed connection attempt |
 
 ## `NW-168` A connected UDP socket sends to the peer it names again
 
@@ -2107,3 +2107,28 @@ endpoint "api.example.com", port: 443
 | Given | a script holding a file it opened, a `TCPSocket`, and a `UDPSocket` |
 | When | it reads each `fileno`, then wraps each socket's number with `IO.new` |
 | Then | each socket's `fileno` lies above every file's, so no two match. Each `IO.new` raises `ArgumentError`, as a socket's number names no file. CRuby numbers both from one table. A guest built for preview1 numbers its files through preview1 and its sockets through preview2 |
+
+## `NW-171` A write the socket no longer takes whole fails
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-159` |
+| relates | `NW-116` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket's output stream, whose `check-write` permitted some bytes |
+| When | the guest shrinks the socket's send buffer, then writes every permitted byte |
+| Then | the write fails, rather than drop the bytes the socket no longer takes. Holding them would pass the memory the socket reserved |
+
+## `NW-172` A datagram reads with the peer that sent it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-088` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket holding a datagram its first peer sent |
+| When | it connects to a second peer, which sends one too, and the socket reads both |
+| Then | each datagram reads with the peer that sent it, as `udp_recvmsg` names each one's source. Neither takes the peer the socket streams with now |
