@@ -392,8 +392,6 @@ struct SocketFile {
     sock_type: SockType,
 }
 
-impl SocketFile {}
-
 /// Receive into `buf` from `sock`, as Linux's `sock_recvmsg`: with
 /// `nonblock`, as `MSG_DONTWAIT`, nothing yet answers EAGAIN; without it the
 /// call waits on the socket's queue until something arrives, ending with the
