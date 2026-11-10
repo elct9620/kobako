@@ -762,7 +762,8 @@ fn write_linker(
             let _ = writeln!(
                 out,
                 "linker.func_wrap({module:?}, {:?}, |mut caller: wasmtime::Caller<'_, T>{params}| \
-                 -> wasmtime::Result<{result}> {{\n{aligned}{}}})?;",
+                 -> wasmtime::Result<{result}> {{\n\
+                 let mut fuel = crate::preview2::abi::Fuel::new(&mut caller);\n{aligned}{}}})?;",
                 func.name, body.src
             );
         }
@@ -937,7 +938,7 @@ impl Bindgen for FunctionBody<'_> {
             Instruction::BoolFromI32 => results.push(format!("({} != 0)", operands[0])),
             Instruction::ListCanonLift { element, .. } => {
                 let e = format!(
-                    "{abi}::load_list::<{}>(&mut caller, {}, {})?",
+                    "{abi}::load_list::<{}>(&mut caller, &mut fuel, {}, {})?",
                     to_rust_type(resolve, element),
                     operands[0],
                     operands[1]
@@ -946,7 +947,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::StringLift => {
                 let e = format!(
-                    "{abi}::load_string(&mut caller, {}, {})?",
+                    "{abi}::load_string(&mut caller, &mut fuel, {}, {})?",
                     operands[0], operands[1]
                 );
                 results.push(self.bind(e));
@@ -980,6 +981,7 @@ impl Bindgen for FunctionBody<'_> {
                 let _ = writeln!(
                     self.src,
                     "let {len} = {abi}::list_len(&mut caller, {ptr}, {given}, {size}, {align})?;\n\
+                     fuel.spend({len}, {size})?;\n\
                      let mut {list} = Vec::with_capacity({len});\n\
                      for i in 0..{len} {{ let base = {ptr}.wrapping_add((i * {size}) as i32); {list}.push({block}); }}",
                     ptr = operands[0],

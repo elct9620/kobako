@@ -1116,6 +1116,8 @@ mod tests {
           (import "wasi:io/poll@0.2.12" "poll" (func $poll (param i32 i32 i32)))
           (import "wasi:sockets/ip-name-lookup@0.2.12" "resolve-addresses"
             (func $resolve (param i32 i32 i32 i32)))
+          (import "wasi:sockets/udp@0.2.12" "[method]outgoing-datagram-stream.send"
+            (func $send (param i32 i32 i32 i32)))
           (memory (export "memory") 1)
           (global $bump (mut i32) (i32.const 4096))
           (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
@@ -1132,7 +1134,9 @@ mod tests {
           (func (export "resolve") (param i32 i32)
             (call $resolve (local.get 0) (i32.const 128) (local.get 1) (i32.const 32)))
           (func (export "resolve_into") (param i32 i32)
-            (call $resolve (local.get 0) (i32.const 128) (i32.const 0) (local.get 1))))
+            (call $resolve (local.get 0) (i32.const 128) (i32.const 0) (local.get 1)))
+          (func (export "send") (param i32 i32 i32)
+            (call $send (local.get 0) (local.get 1) (local.get 2) (i32.const 32))))
     "#;
 
     /// A guest at `profile`, holding at most `open_file_limit` files.
@@ -1262,6 +1266,39 @@ mod tests {
                  name, each past one page of memory, must trap rather than panic or answer"
             );
         }
+    }
+
+    // @behavior RT-374
+    #[test]
+    fn lists_past_the_calls_hostcall_fuel_trap_before_the_host_answers() {
+        let (mut store, instance) = guest(Profile::Hermetic, None);
+        let memory = instance.get_memory(&mut store, "memory").expect("memory");
+        memory.grow(&mut store, 3).expect("four pages");
+        // Each datagram's data names the same 60000 bytes at 0, so 2400 of
+        // them name 144 MB while the guest holds 256 KiB.
+        const RECORDS: usize = 65536;
+        for i in 0..2400 {
+            let record = RECORDS + i * 44;
+            memory.data_mut(&mut store)[record + 4..record + 8]
+                .copy_from_slice(&60_000u32.to_le_bytes());
+        }
+        // No stream was made, so a call the lift lets through traps there.
+        let answer = |store: &mut Store<Invocation>, count: i32| {
+            call::<(i32, i32, i32), ()>(store, &instance, "send", (99, RECORDS as i32, count))
+                .map_err(|trap| trap.root_cause().to_string())
+        };
+        let past = answer(&mut store, 2400);
+        let within = answer(&mut store, 2);
+        assert!(
+            past.as_ref()
+                .is_err_and(|trap| trap.contains("hostcall fuel"))
+                && within
+                    .as_ref()
+                    .is_err_and(|trap| !trap.contains("hostcall fuel")),
+            "outgoing-datagram-stream.send of 2400 datagrams naming one 60000-byte region must \
+             trap on its hostcall fuel before the host answers, and of two must reach the host; \
+             got {past:?} and {within:?}"
+        );
     }
 
     // @behavior RT-373

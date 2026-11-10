@@ -120,12 +120,38 @@ pub(crate) fn list_len(
     Ok(len)
 }
 
+/// What one call may have the host copy out of the guest's memory, the
+/// hostcall fuel wasmtime hands each host call, as preview1's calls spend it.
+/// Each list a call lifts spends its bytes first, so lists naming one region
+/// of memory over and over cannot multiply what the host holds.
+pub(crate) struct Fuel(usize);
+
+impl Fuel {
+    pub(crate) fn new(caller: &mut Caller<'_, impl Sized>) -> Self {
+        Self(caller.as_context_mut().hostcall_fuel())
+    }
+
+    /// Spend `len` elements of `size` bytes, or trap once the call's fuel is
+    /// gone, as wasmtime's `consume_fuel_array`.
+    pub(crate) fn spend(&mut self, len: usize, size: usize) -> wasmtime::Result<()> {
+        self.0 = len
+            .checked_mul(size)
+            .and_then(|bytes| self.0.checked_sub(bytes))
+            .ok_or_else(|| {
+                wasmtime::Error::msg("the guest had a call copy more than its hostcall fuel allows")
+            })?;
+        Ok(())
+    }
+}
+
 pub(crate) fn load_list<S: Scalar>(
     caller: &mut Caller<'_, impl Sized>,
+    fuel: &mut Fuel,
     at: i32,
     len: i32,
 ) -> wasmtime::Result<Vec<S>> {
     let len = list_len(caller, at, len, S::SIZE, S::SIZE)?;
+    fuel.spend(len, S::SIZE)?;
     let mut bytes = vec![0; len * S::SIZE];
     read(caller, address(at, 0), &mut bytes)?;
     Ok((0..len)
@@ -137,10 +163,13 @@ pub(crate) fn load_list<S: Scalar>(
 /// other bytes trap, as the ABI's lift does.
 pub(crate) fn load_string(
     caller: &mut Caller<'_, impl Sized>,
+    fuel: &mut Fuel,
     at: i32,
     len: i32,
 ) -> wasmtime::Result<String> {
-    let mut bytes = vec![0; list_len(caller, at, len, 1, 1)?];
+    let len = list_len(caller, at, len, 1, 1)?;
+    fuel.spend(len, 1)?;
+    let mut bytes = vec![0; len];
     read(caller, address(at, 0), &mut bytes)?;
     String::from_utf8(bytes).map_err(|_| invalid("string"))
 }

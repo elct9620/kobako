@@ -4209,3 +4209,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest calling a preview2 import that answers through a return area |
 | When | it names the area off the answer's alignment, then on it |
 | Then | the misaligned call traps before any answer is written, as the Canonical ABI traps, and the aligned one answers |
+
+## `RT-374` A preview2 call lifting past its hostcall fuel traps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-353` |
+| relates | `RT-096` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest calling a preview2 import that takes lists |
+| When | its lists add up past the call's 128 MiB of hostcall fuel, each inside its memory, then stay within it |
+| Then | the first call traps before the host answers it, as wasmtime's lift traps. The second reaches the host |
