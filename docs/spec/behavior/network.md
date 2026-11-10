@@ -1947,3 +1947,15 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint whose rule holds several `**` |
 | When | the guest sends a path of tens of thousands of segments that the rule does not fit |
 | Then | the rule refuses it at once. Its work grows at most with the path's segments times the rule's |
+
+## `NW-158` A script's UDP shutdown reaches its socket
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-152` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script's `UDPSocket` connected to a peer, and one connected to none |
+| When | the script shuts the connected socket's reading side, waits on it with `IO.select`, then shuts the other one |
+| Then | `IO.select` finds the shut socket readable, as Linux's `datagram_poll` answers. The unconnected socket raises `Errno::ENOTCONN` |

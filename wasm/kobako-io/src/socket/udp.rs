@@ -28,6 +28,13 @@ use crate::wasi::wasi::sockets::udp_create_socket::create_udp_socket;
 
 const UDP: &str = "UDPSocket";
 
+unsafe extern "C" {
+    /// wasi-libc's `shutdown(2)`, which reaches preview1's `sock_shutdown` on
+    /// the socket's number, since WASI 0.2 names no shutdown for UDP.
+    #[link_name = "shutdown"]
+    fn shutdown_socket(fd: core::ffi::c_int, how: core::ffi::c_int) -> core::ffi::c_int;
+}
+
 /// A datagram received, and the end that sent it.
 type Datagram = (Vec<u8>, (Ipv4Addr, u16));
 
@@ -43,8 +50,9 @@ struct OpenSocket {
     streams: Option<Streams>,
     socket: UdpSocket,
     bound: bool,
-    /// `shutdown` shut the sending side, as Linux's `SEND_SHUTDOWN`; WASI
-    /// has no shutdown for UDP, so the guest keeps it.
+    /// `shutdown` shut the sending side. The socket itself holds which sides
+    /// are shut; WASI 0.2's datagram send carries no `EPIPE`, so the guest
+    /// keeps this side too, to answer one.
     send_shut: bool,
 }
 
@@ -80,13 +88,22 @@ impl SocketIo for Datagrams {
         Ok(sent.map(|()| bytes.len()))
     }
 
-    /// A socket with no peer raises `Errno::ENOTCONN`, as Linux's. Shutting
-    /// the sending side refuses later sends; a datagram socket's reading side
-    /// keeps receiving, as Linux's does.
+    /// The socket marks the sides `how` names shut, as Linux's
+    /// `inet_shutdown` does, and one with no peer answers `Errno::ENOTCONN`.
+    /// Shutting the sending side refuses later sends; what arrived still
+    /// reads.
     fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
+        // wasi-libc's `SHUT_*` are WASI's own `sdflags`, not Linux's numbers.
+        let flag = match how {
+            Shutdown::Read => 1,
+            Shutdown::Write => 2,
+            Shutdown::Both => 3,
+        };
         self.with(mrb, |open| {
-            if open.streams.is_none() {
-                return Err(errno::error_by_name(mrb, c"ENOTCONN", "shutdown(2)"));
+            // SAFETY: the number is this socket's own, open while it is.
+            if unsafe { shutdown_socket(open.socket.handle() as core::ffi::c_int, flag) } < 0 {
+                let err = std::io::Error::last_os_error();
+                return Err(errno::from_io(mrb, &err, "shutdown(2)"));
             }
             open.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
             Ok(())

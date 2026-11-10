@@ -50,6 +50,32 @@ class TestE2ENetworkUdp < Minitest::Test
     [shape, selected, refused, written]
   RUBY
 
+  SHUT_SOCKETS = <<~RUBY
+    socket = UDPSocket.new
+    socket.connect("127.0.0.1", %<port>d)
+    socket.shutdown(Socket::SHUT_RD)
+    readable = IO.select([socket], nil, nil, 0)&.first == [socket]
+    unconnected = begin
+      UDPSocket.new.shutdown
+      :passed
+    rescue SystemCallError => e
+      e.class.to_s
+    end
+    [readable, unconnected]
+  RUBY
+
+  # @behavior NW-158
+  def test_a_scripts_udp_shutdown_reaches_its_socket
+    with_quiet_peer do |_peer, port|
+      value = udp_sandbox(port).eval(format(SHUT_SOCKETS, port: port)).value
+
+      assert_equal [true, "Errno::ENOTCONN"], value,
+                   "IO.select on a UDPSocket whose reading side #shutdown shut must find it readable, as Linux's " \
+                   "datagram_poll answers, and #shutdown of a UDPSocket connected to no peer must raise " \
+                   "Errno::ENOTCONN"
+    end
+  end
+
   # @behavior NW-079
   def test_a_udp_socket_is_an_io_that_io_select_waits_on
     with_quiet_peer do |peer, port|
