@@ -9,7 +9,7 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
-use super::address::{local_of, peer_of, to_ip_socket_address};
+use super::address::{local_of, named_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
     direct_args, exception_option, open_socket_of, ready_of, IoState, SocketIo, Wait,
@@ -44,6 +44,17 @@ struct Streams {
     incoming: IncomingDatagramStream,
     outgoing: OutgoingDatagramStream,
     peer: (Ipv4Addr, u16),
+    /// The host as `connect` was handed it, so a send naming it again reaches
+    /// the same peer without another lookup.
+    named: String,
+}
+
+impl Streams {
+    /// Whether `host` and `port` name the peer: the host as `connect` spelled
+    /// it, or the address it streams with.
+    fn names(&self, host: &str, port: u16) -> bool {
+        port == self.peer.1 && (host == self.named || host.parse() == Ok(self.peer.0))
+    }
 }
 
 struct OpenSocket {
@@ -82,7 +93,7 @@ impl SocketIo for Datagrams {
     fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error> {
         let sent = self.with(mrb, |open| match &open.streams {
             _ if open.send_shut => Err(errno::error_alone(mrb, c"EPIPE")),
-            Some(streams) => send_datagram(mrb, streams, bytes.to_vec(), None, "write(2)", wait),
+            Some(streams) => send_datagram(mrb, streams, bytes.to_vec(), "write(2)", wait),
             None => Err(errno::error_alone(mrb, c"EDESTADDRREQ")),
         })?;
         Ok(sent.map(|()| bytes.len()))
@@ -258,6 +269,7 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
 /// `connect(host, port)` streams with the peer `host` and `port` name, binding
 /// first if no bind came before, as Linux's autobind does.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
+    let named = host.to_r_string(mrb)?.to_string(mrb)?;
     let (ip, port, call) = peer_of(mrb, host, port, None, UDP, "connect(2)")?;
     let failed = |code| to_error(mrb, code, UDP, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
@@ -273,6 +285,7 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
             incoming,
             outgoing,
             peer: (ip, port),
+            named,
         });
         Ok(())
     })?;
@@ -296,10 +309,10 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let data = mesg_bytes_of(mrb, mesg)?;
-    let (remote_address, call) = match to {
+    let (named, call) = match to {
         Some((host, port)) => {
-            let (ip, port, call) = peer_of(mrb, host, port, None, UDP, "sendto(2)")?;
-            (Some(to_ip_socket_address((ip, port))), call)
+            let (host, port, call) = named_of(mrb, host, port, "sendto(2)")?;
+            (Some((host, port)), call)
         }
         None => (None, "send(2)".to_string()),
     };
@@ -308,15 +321,19 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         if open.send_shut {
             return Err(errno::error_by_name(mrb, c"EPIPE", &call));
         }
-        let Some(streams) = &open.streams else {
-            let name = if remote_address.is_some() {
-                c"EACCES"
-            } else {
-                c"EDESTADDRREQ"
+        let peer = open.streams.as_ref().filter(|streams| {
+            named
+                .as_ref()
+                .is_none_or(|(host, port)| streams.names(host, *port))
+        });
+        let Some(streams) = peer else {
+            let name = match named {
+                Some(_) => c"EACCES",
+                None => c"EDESTADDRREQ",
             };
             return Err(errno::error_by_name(mrb, name, &call));
         };
-        send_datagram(mrb, streams, data, remote_address, &call, Wait::Block).map(ready_of)
+        send_datagram(mrb, streams, data, &call, Wait::Block).map(ready_of)
     })?;
     Ok((len as i64).into_value(mrb))
 }
@@ -327,13 +344,12 @@ fn send_datagram(
     mrb: &Mrb,
     streams: &Streams,
     data: Vec<u8>,
-    remote_address: Option<IpSocketAddress>,
     call: &str,
     wait: Wait,
 ) -> Result<Poll<()>, Error> {
     let datagram = [OutgoingDatagram {
         data,
-        remote_address,
+        remote_address: None,
     }];
     let pollable = streams.outgoing.subscribe();
     loop {

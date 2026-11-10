@@ -23,10 +23,10 @@ pub trait ProtocolFamily: Send + Sync {
 
     /// The host's own addresses, as Linux's `local` routing table holds them,
     /// read at each connect. A family with none answers an empty list; one
-    /// that cannot read them answers the failure, and the connect is refused
-    /// rather than judged as if the host had none.
+    /// that cannot read them, or does not say, answers a failure, and the
+    /// connect is refused rather than judged as if the host had none.
     fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {
-        Ok(Vec::new())
+        Err(io::ErrorKind::Unsupported.into())
     }
 
     /// A non-blocking datagram socket bound to an ephemeral port and connected

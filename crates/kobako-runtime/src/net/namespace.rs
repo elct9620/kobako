@@ -146,11 +146,6 @@ impl Namespace {
         let (host, port) =
             split_authority(&request.authority, request.scheme).ok_or(HttpError::Denied)?;
         let literal = host.parse::<IpAddr>().ok();
-        // The guest has no IPv6, so an IPv6 literal reaches nothing, as its
-        // sockets answer EAFNOSUPPORT.
-        if literal.is_some_and(|ip| ip.is_ipv6()) {
-            return Err(HttpError::Denied);
-        }
         let host = match literal {
             Some(_) => host,
             None => normalize(&host).map_err(|_| HttpError::Denied)?,
@@ -159,15 +154,15 @@ impl Namespace {
         if self.judge(cred, &connection).is_err() {
             return Err(HttpError::Denied);
         }
+        // The guest has no IPv6, so an IPv6 literal reaches nothing once the
+        // hooks judged it, as its sockets answer EAFNOSUPPORT.
         let reachable = match literal {
+            Some(ip) if ip.is_ipv6() => false,
             Some(ip) => self
                 .ruleset
                 .admit_literal(SocketAddr::new(ip, port), Protocol::Http)
                 .is_ok(),
-            None => self
-                .resolve
-                .iter()
-                .all(|policy| policy.allows(&Name::new(&host))),
+            None => self.allows_lookup(&host),
         };
         let path = request
             .path_with_query
@@ -213,16 +208,19 @@ impl Namespace {
     /// as NXDOMAIN before any query, as a real one would.
     pub fn resolve(&self, name: &str) -> Result<Arc<NameLookup>, LookupError> {
         let name = normalize(name)?;
-        let request = Name::new(&name);
-        if !self.resolve.iter().all(|policy| policy.allows(&request))
-            || !self.ruleset.admits_name(&name)
-        {
+        if !self.allows_lookup(&name) || !self.ruleset.admits_name(&name) {
             return Ok(NameLookup::with_answer(
                 name,
                 Err(LookupError::NameUnresolvable),
             ));
         }
         NameLookup::start(self.family.clone(), name, &self.open_connections)
+    }
+
+    /// Whether every `resolve` policy lets `name`, normalized, be looked up.
+    fn allows_lookup(&self, name: &str) -> bool {
+        let request = Name::new(name);
+        self.resolve.iter().all(|policy| policy.allows(&request))
     }
 
     /// `connect`, made only while the Invocation has a connection left and
@@ -561,6 +559,8 @@ mod tests {
     struct CountsReads {
         reads: AtomicUsize,
         resolved: Arc<AtomicUsize>,
+        /// Each host the connect policy was asked about.
+        judged: Arc<Mutex<Vec<String>>>,
     }
 
     impl Entry for CountsReads {
@@ -574,8 +574,10 @@ mod tests {
 
         fn policies(&self) -> Policies {
             let resolved = self.resolved.clone();
+            let judged = self.judged.clone();
             Policies::default()
-                .with_connect(Arc::new(|connection: &Connection<'_>| {
+                .with_connect(Arc::new(move |connection: &Connection<'_>| {
+                    judged.lock().unwrap().push(connection.host.to_string());
                     connection.host != "refused.example"
                 }))
                 .with_resolve(Arc::new(move |_: &Name<'_>| {
@@ -599,6 +601,7 @@ mod tests {
         let entry = Arc::new(CountsReads {
             reads: AtomicUsize::new(0),
             resolved: Arc::default(),
+            judged: Arc::default(),
         });
         let network = Network::new("watched", entry.clone()).unwrap();
         let namespace = Namespace::for_network(
@@ -615,12 +618,19 @@ mod tests {
                 entry.reads.load(Ordering::SeqCst),
                 hooked,
                 entry.resolved.load(Ordering::SeqCst),
-                ipv6
+                ipv6,
+                entry.judged.lock().unwrap().clone()
             ),
-            (1, Some(HttpError::Denied), 0, Some(HttpError::Denied)),
+            (
+                1,
+                Some(HttpError::Denied),
+                0,
+                Some(HttpError::Denied),
+                vec!["refused.example".to_string(), "::1".to_string()]
+            ),
             "Namespace::new must read an entry's endpoints once, Namespace::send must ask no \
-             resolve policy once a connect hook refused, and must refuse an IPv6 authority an \
-             endpoint names"
+             resolve policy once a connect hook refused, and must let the connect hook judge an \
+             IPv6 authority an endpoint names before refusing it, as a socket's connect does"
         );
     }
 
@@ -948,6 +958,46 @@ mod tests {
             "Namespace::connect must refuse with EACCES, dialing nothing, when the Protocol \
              Family cannot read the host's own addresses, rather than judge the name's \
              addresses as if the host had none"
+        );
+    }
+
+    /// A family resolving every name to `8.8.8.8` that does not say the host's
+    /// own addresses, counting how often it dials.
+    #[derive(Default)]
+    struct SaysNoLocalAddresses(AtomicUsize);
+
+    impl ProtocolFamily for SaysNoLocalAddresses {
+        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(io::ErrorKind::ConnectionRefused.into())
+        }
+
+        fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
+            Ok(vec!["8.8.8.8".parse().unwrap()])
+        }
+    }
+
+    // @behavior NW-154
+    #[test]
+    fn a_connect_is_refused_through_a_family_that_does_not_say_the_hosts_own_addresses() {
+        let family = Arc::new(SaysNoLocalAddresses::default());
+        let mut entry = crate::network::Builder::default();
+        entry.endpoint(tcp("api.example.com", 443));
+        let network = Network::new("names", Arc::new(entry)).unwrap();
+        let namespace = Namespace::for_network(
+            &network,
+            family.clone(),
+            Arc::new(crate::net::HyperOutbound::new()),
+        );
+        let cred = prepare_creds_within(&[], None);
+        let mut at = resolve_virtual_address(&namespace, "api.example.com");
+        at.set_port(443);
+        let answer = dial(&namespace, &cred, at).err();
+        assert_eq!(
+            (answer, family.0.load(Ordering::SeqCst)),
+            (Some(FilesystemError::PermissionDenied), 0),
+            "Namespace::connect through a Protocol Family that leaves the host's own addresses \
+             unsaid must refuse with EACCES, dialing nothing, as one that cannot read them does"
         );
     }
 

@@ -614,7 +614,8 @@ pub trait ProtocolFamily {
 ## `ProtocolFamily::local_addresses`
 
 The host's own addresses, as Linux's local routing table holds them. A family
-that cannot read them answers the failure, and the connect is refused.
+that cannot read them, or does not say, answers a failure, and the connect is
+refused.
 
 ```rust
 pub trait ProtocolFamily {

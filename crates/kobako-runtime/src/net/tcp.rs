@@ -17,8 +17,8 @@ use super::connections::{open, OpenConnections};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
-    ensure_within, take_connect_outcome, to_error, to_ttl, InetSock, MemoryCharge, ProtoOps,
-    SockOpt, MAX_SOCKET_BUFFER,
+    ensure_within, set_hop_limit, take_connect_outcome, to_error, to_ttl, InetSock, MemoryCharge,
+    ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -227,7 +227,7 @@ impl TcpSock {
     fn set_options(socket: SockRef<'_>, state: &State) -> io::Result<()> {
         socket.set_tcp_keepalive(&state.keepalive.to_params())?;
         socket.set_keepalive(state.keepalive.on)?;
-        socket.set_ttl_v4(state.inet.ttl.into())
+        set_hop_limit(socket, state.inet.ttl)
     }
 
     /// Close the socket on `err`, as `tcp_done` does after a failed connect

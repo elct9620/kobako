@@ -51,6 +51,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_https.rb`
 - `test/e2e/test_network_udp.rb`
 - `test/e2e/test_network_udp_cruby.rb`
+- `test/e2e/test_network_udp_named.rb`
 - `test/e2e/test_network_udp_nonblock.rb`
 - `test/parity/test_network.rb`
 - `test/unit/catalog/test_network.rb`
@@ -960,7 +961,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an entry with endpoints, policies, and a credential |
 | When | the guest sends a request a connect hook refuses, and one to an IPv6 authority an endpoint names |
-| Then | the entry's endpoints were read once. No resolve policy is asked once a hook refused. The IPv6 one is refused, as the guest has no IPv6 |
+| Then | the entry's endpoints were read once. No resolve policy is asked once a hook refused. The hooks judge the IPv6 one as a socket's connect does. It is then refused, as the guest has no IPv6 |
 
 ## `NW-078` A duck-typed endpoint takes the defaults and an IPAddr
 
@@ -1907,7 +1908,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a Protocol Family that cannot read the host's own addresses, and an endpoint naming a name |
+| Given | a Protocol Family that cannot read the host's own addresses or leaves them unsaid, and an endpoint naming a name |
 | When | the guest connects to the name's virtual address, or sends an HTTP request to the name |
 | Then | the connect answers `EACCES` and the request `Denied`, each dialing nothing. Neither judges the name's addresses as if the host had none |
 
@@ -2070,3 +2071,15 @@ endpoint "api.example.com", port: 443
 | Given | a guest's TCP socket whose connect failed past the address's own checks |
 | When | it connects again through preview2 |
 | Then | the socket answers `invalid-state`, as `sockets.wit` closes a socket after a failed connection attempt |
+
+## `NW-168` A connected UDP socket sends to the peer it names again
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-057` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script's `UDPSocket` connected to an endpoint's name |
+| When | it sends naming that name and port, then naming another address |
+| Then | the first reaches the peer the socket streams with, without another lookup. The second raises `Errno::EACCES` |

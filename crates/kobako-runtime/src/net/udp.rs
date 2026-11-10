@@ -13,8 +13,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use super::connections::{open, OpenConnections};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{to_error, to_ttl, InetSock, MemoryCharge, ProtoOps, SockOpt};
-use super::MAX_SOCKET_BUFFER;
+use socket2::SockRef;
+
+use super::socket::{
+    set_hop_limit, to_error, to_ttl, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -109,9 +112,7 @@ impl UdpSock {
         let host = family
             .connect_datagram(addr)
             .and_then(|socket| {
-                socket
-                    .set_ttl(self.state().inet.ttl.into())
-                    .map(|()| socket)
+                set_hop_limit(SockRef::from(&socket), self.state().inet.ttl).map(|()| socket)
             })
             .map_err(|err| to_error(&err))?;
         let mut socket = mio::net::UdpSocket::from_std(host);
@@ -312,7 +313,7 @@ impl ProtoOps for UdpSock {
         }
         let ttl = to_ttl(value)?;
         if let Some((socket, _)) = &state.host {
-            socket.set_ttl(ttl.into()).map_err(|err| to_error(&err))?;
+            set_hop_limit(SockRef::from(socket), ttl).map_err(|err| to_error(&err))?;
         }
         state.inet.ttl = ttl;
         Ok(())

@@ -7,6 +7,8 @@ use std::io;
 use std::net::{Ipv4Addr, Shutdown, SocketAddr};
 use std::sync::{Arc, LazyLock};
 
+use socket2::SockRef;
+
 use crate::vfs::{
     alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
     FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
@@ -231,6 +233,16 @@ pub(crate) fn to_ttl(ttl: u32) -> Result<u8, FilesystemError> {
     match u8::try_from(ttl) {
         Ok(0) | Err(_) => Err(FilesystemError::InvalidInput),
         Ok(ttl) => Ok(ttl),
+    }
+}
+
+/// Give the host socket `socket` the hop limit `ttl`, as `IP_TTL` on an IPv4
+/// one and `IPV6_UNICAST_HOPS` on an IPv6 one, since the guest's IPv4 socket
+/// may reach the host over IPv6 and each family keeps its own.
+pub(crate) fn set_hop_limit(socket: SockRef<'_>, ttl: u8) -> io::Result<()> {
+    match socket.local_addr()?.is_ipv6() {
+        true => socket.set_unicast_hops_v6(ttl.into()),
+        false => socket.set_ttl_v4(ttl.into()),
     }
 }
 
