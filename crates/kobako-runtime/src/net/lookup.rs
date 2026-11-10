@@ -170,9 +170,5 @@ impl FileOperations for LookupFile {
 /// lowercase, with no trailing dot, and an IDN as its A-label. A name no
 /// A-label spells has no lookup.
 pub(crate) fn normalize(name: &str) -> Result<String, LookupError> {
-    let name = name.strip_suffix('.').unwrap_or(name);
-    match idna::domain_to_ascii(name) {
-        Ok(ascii) if !ascii.is_empty() => Ok(ascii),
-        _ => Err(LookupError::NameUnresolvable),
-    }
+    crate::network::to_a_label(name).ok_or(LookupError::NameUnresolvable)
 }

@@ -871,16 +871,15 @@ impl HttpError {
             Some(_) => return Self::TlsProtocol,
             None => {}
         }
-        match err.kind() {
-            io::ErrorKind::TimedOut => Self::ConnectionTimeout,
-            io::ErrorKind::ConnectionRefused => Self::ConnectionRefused,
-            io::ErrorKind::InvalidData => Self::TlsProtocol,
-            _ => match to_error(err) {
-                FilesystemError::ConnectionReset | FilesystemError::ConnectionAborted => {
-                    Self::ConnectionTerminated
-                }
-                _ => Self::ConnectionRefused,
-            },
+        if err.kind() == io::ErrorKind::InvalidData {
+            return Self::TlsProtocol;
+        }
+        match to_error(err) {
+            FilesystemError::TimedOut => Self::ConnectionTimeout,
+            FilesystemError::ConnectionReset | FilesystemError::ConnectionAborted => {
+                Self::ConnectionTerminated
+            }
+            _ => Self::ConnectionRefused,
         }
     }
 

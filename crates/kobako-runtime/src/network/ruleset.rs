@@ -181,17 +181,24 @@ fn parse_host(host: &str) -> Result<Host, EntryError> {
     }
     // A name is judged as its A-label, the form the guest's lookup is judged
     // in, so an IDN an endpoint names matches the name the guest asks for.
-    let name = host.trim_end_matches('.');
     let a_label = |name: &str| {
-        idna::domain_to_ascii(name)
-            .ok()
-            .filter(|ascii| !ascii.is_empty())
+        to_a_label(name)
             .ok_or_else(|| EntryError(format!("an endpoint's name has no A-label: {host}")))
     };
-    match name.strip_prefix("*.") {
+    match host.strip_prefix("*.") {
         Some(suffix) if !suffix.is_empty() => Ok(Host::Wildcard(a_label(suffix)?)),
-        _ => Ok(Host::Name(a_label(name)?)),
+        _ => Ok(Host::Name(a_label(host)?)),
     }
+}
+
+/// `name` as the resolver, the hooks, and the endpoints judge it: lowercase,
+/// with no trailing dot for the root, and an IDN as its A-label; `None` when no
+/// A-label spells it.
+pub(crate) fn to_a_label(name: &str) -> Option<String> {
+    let name = name.strip_suffix('.').unwrap_or(name);
+    idna::domain_to_ascii(name)
+        .ok()
+        .filter(|ascii| !ascii.is_empty())
 }
 
 /// The address an endpoint judges `ip` as, the IPv4 one an IPv6 address
