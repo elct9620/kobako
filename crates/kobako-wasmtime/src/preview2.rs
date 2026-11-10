@@ -4,12 +4,15 @@
 //! package.
 
 pub(crate) mod abi;
+mod error;
 mod host;
 mod http;
 mod sockets;
 mod table;
 
 pub(crate) use bindings::add_to_linker;
+#[cfg(test)]
+pub(crate) use error::IntoAnswer;
 pub(crate) use table::{Pollable, Table};
 
 #[allow(clippy::all, unused_parens)]

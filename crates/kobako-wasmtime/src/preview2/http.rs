@@ -17,6 +17,7 @@ use super::bindings::wasi_http_types_0_2_12::{
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
+use super::error;
 use super::table::{self, Stream};
 use crate::descriptors::SharedFile;
 use crate::invocation::Invocation;
@@ -217,6 +218,17 @@ impl Invocation {
 }
 
 impl HttpHost for Invocation {
+    fn types_convert_error_code(&mut self, err: error::HttpError) -> wasmtime::Result<ErrorCode> {
+        err.downcast()
+    }
+
+    fn types_convert_header_error(
+        &mut self,
+        err: error::HeaderError,
+    ) -> wasmtime::Result<HeaderError> {
+        err.downcast()
+    }
+
     fn types_fields_new(&mut self) -> wasmtime::Result<Fields> {
         let entries = net::Fields::new(self.wasi().descriptors().cred().clone());
         self.table().push(resource::Fields {
@@ -233,20 +245,22 @@ impl HttpHost for Invocation {
         this: Fields,
         name: String,
         value: Vec<u8>,
-    ) -> wasmtime::Result<Result<(), HeaderError>> {
+    ) -> Result<(), error::HeaderError> {
         let fields = self.table().get(this)?;
         if !fields.mutable {
             // The header is read before the list is found immutable, as
             // wasmtime parses one before it asks whether it may change.
             let read = net::to_field_name(&name).and_then(|_| net::to_field_value(value));
-            return Ok(Err(
-                read.map_or_else(to_header_error, |_| HeaderError::Immutable)
-            ));
+            return Err(read
+                .map_or_else(to_header_error, |_| HeaderError::Immutable)
+                .into());
         }
         match fields.entries.append(&name, value) {
-            Ok(()) => Ok(Ok(())),
-            Err(err @ (FieldError::TooLarge | FieldError::OutOfMemory)) => Err(to_field_trap(err)),
-            Err(err) => Ok(Err(to_header_error(err))),
+            Ok(()) => Ok(()),
+            Err(err @ (FieldError::TooLarge | FieldError::OutOfMemory)) => {
+                Err(to_field_trap(err).into())
+            }
+            Err(err) => Err(to_header_error(err).into()),
         }
     }
 
@@ -371,13 +385,13 @@ impl HttpHost for Invocation {
         &mut self,
         this: OutgoingBody,
         trailers: Option<Fields>,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), error::HttpError> {
         let link = self.table().delete(this)?.link;
         if let Some(trailers) = trailers {
             self.table().delete(trailers)?;
         }
         link.finished.store(true, Ordering::Release);
-        Ok(Ok(()))
+        Ok(())
     }
 
     /// A body dropped unfinished fails its request, as wasmtime-wasi-http aborts
@@ -534,29 +548,30 @@ impl HttpHost for Invocation {
         &mut self,
         request: OutgoingRequest,
         options: Option<RequestOptions>,
-    ) -> wasmtime::Result<Result<FutureIncomingResponse, ErrorCode>> {
+    ) -> Result<FutureIncomingResponse, error::HttpError> {
         let request = self.table().delete(request)?.0;
         if options.is_some() {
             return Err(wasmtime::Error::msg(
                 "the guest named request-options, which kobako never hands out",
-            ));
+            )
+            .into());
         }
         if self.wasi().table().network().is_none() {
-            return Ok(Err(ErrorCode::HTTPRequestDenied));
+            return Err(ErrorCode::HTTPRequestDenied.into());
         }
         if self.wasi().table().is_full() {
-            return Ok(Err(ErrorCode::ConnectionLimitReached));
+            return Err(ErrorCode::ConnectionLimitReached.into());
         }
         let future = match request.link.is_complete() {
             true => self.send(request),
             false => Future::Waiting(request),
         };
         if let Future::Refused(code) = future {
-            return Ok(Err(code));
+            return Err(code.into());
         }
-        self.table()
-            .push_file(resource::FutureIncomingResponse(future))
-            .map(Ok)
+        Ok(self
+            .table()
+            .push_file(resource::FutureIncomingResponse(future))?)
     }
 }
 
@@ -571,6 +586,7 @@ mod tests {
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::run_task;
 
+    use super::super::IntoAnswer;
     use super::*;
     use crate::config::Config;
     use crate::preview2::bindings::IoHost;
@@ -637,7 +653,7 @@ mod tests {
         let request = get(&mut guest, "example.com").unwrap();
         assert!(
             matches!(
-                guest.outgoing_handler_handle(request, None),
+                guest.outgoing_handler_handle(request, None).into_answer(),
                 Ok(Err(ErrorCode::HTTPRequestDenied))
             ),
             "outgoing-handler.handle with no network entry must answer HTTP-request-denied"
@@ -668,7 +684,8 @@ mod tests {
         let (status, kind, body) = run_task(Some(started + Wait::from_secs(10)), || {
             let request = get(&mut guest, &format!("127.0.0.1:{port}"))?;
             let future = guest
-                .outgoing_handler_handle(request, None)?
+                .outgoing_handler_handle(request, None)
+                .into_answer()?
                 .expect("an endpoint names the authority");
             let ready = guest.types_future_incoming_response_subscribe(future)?;
             guest.poll_pollable_block(ready)?;
@@ -690,7 +707,10 @@ mod tests {
                 .expect("consumed once");
             let stream = guest.types_incoming_body_stream(body)?.expect("one stream");
             let mut read = Vec::new();
-            while let Ok(bytes) = guest.streams_input_stream_blocking_read(stream, 64)? {
+            while let Ok(bytes) = guest
+                .streams_input_stream_blocking_read(stream, 64)
+                .into_answer()?
+            {
                 read.extend(bytes);
             }
             Ok::<_, wasmtime::Error>((status, kind, read))
@@ -738,7 +758,8 @@ mod tests {
                 let guest = guest.as_mut().unwrap();
                 let request = get(guest, &format!("127.0.0.1:{port}"))?;
                 let future = guest
-                    .outgoing_handler_handle(request, None)?
+                    .outgoing_handler_handle(request, None)
+                    .into_answer()?
                     .expect("an endpoint names the authority");
                 let ready = guest.types_future_incoming_response_subscribe(future)?;
                 guest.poll_pollable_block(ready)?;
@@ -785,6 +806,7 @@ mod tests {
         let set = |guest: &mut Invocation, fields, name: &str| {
             guest
                 .types_fields_append(fields, name.to_string(), b"x".to_vec())
+                .into_answer()
                 .unwrap()
         };
         let answers = [
@@ -823,8 +845,9 @@ mod tests {
             let fields = guest.types_fields_new().unwrap();
             let mut taken = 0;
             for i in 0..200 {
-                if let Err(trap) =
-                    guest.types_fields_append(fields, format!("x-{i}"), vec![b'v'; 1024])
+                if let Err(trap) = guest
+                    .types_fields_append(fields, format!("x-{i}"), vec![b'v'; 1024])
+                    .into_answer()
                 {
                     guest.types_fields_drop(fields).unwrap();
                     return (taken, trap.to_string());
@@ -857,6 +880,7 @@ mod tests {
         let fields = guest.types_fields_new().unwrap();
         let control = guest
             .types_fields_append(fields, "x-ok".to_string(), b"a\x01b".to_vec())
+            .into_answer()
             .unwrap();
         let request = guest.types_outgoing_request_new(fields).unwrap();
         let mut authority = |value: &str| {
@@ -908,7 +932,7 @@ mod tests {
             .unwrap()
             .expect("a path with a fragment");
         let target = guest.request(request).unwrap().path_with_query.clone();
-        let answer = guest.outgoing_handler_handle(request, None);
+        let answer = guest.outgoing_handler_handle(request, None).into_answer();
         assert!(
             target.as_deref() == Some("/admin")
                 && matches!(answer, Ok(Err(ErrorCode::HTTPRequestDenied))),
@@ -932,6 +956,7 @@ mod tests {
         assert_eq!(
             guest
                 .types_fields_append(frozen, "bad name".to_string(), b"x".to_vec())
+                .into_answer()
                 .unwrap(),
             Err(HeaderError::InvalidSyntax),
             "fields.append of a name that is no token to an immutable list must answer \
@@ -953,9 +978,15 @@ mod tests {
             .unwrap()
             .expect("the stream is handed out once");
         let dropped = guest.types_outgoing_body_drop(body).is_err();
-        let finished = guest.types_outgoing_body_finish(body, None).is_err();
+        let finished = guest
+            .types_outgoing_body_finish(body, None)
+            .into_answer()
+            .is_err();
         guest.streams_output_stream_drop(stream).unwrap();
-        let after = guest.types_outgoing_body_finish(body, None).unwrap();
+        let after = guest
+            .types_outgoing_body_finish(body, None)
+            .into_answer()
+            .unwrap();
         assert_eq!(
             (dropped, finished, after),
             (true, true, Ok(())),
@@ -977,6 +1008,7 @@ mod tests {
             .expect("the body is handed out once");
         let future = guest
             .outgoing_handler_handle(request, None)
+            .into_answer()
             .unwrap()
             .expect("the request waits on its body");
         let waiting = guest

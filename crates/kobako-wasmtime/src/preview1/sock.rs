@@ -108,6 +108,7 @@ mod tests {
         IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
     };
     use crate::preview2::bindings::{IoHost, SocketsHost};
+    use crate::preview2::IntoAnswer;
     use crate::wasi::{sandbox_connections, Wasi};
 
     /// A hermetic guest whose one network entry reaches `127.0.0.1:port` over
@@ -149,7 +150,8 @@ mod tests {
             Some(Instant::now() + Duration::from_secs(10)),
             || -> wasmtime::Result<_> {
                 let socket = guest
-                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()?
                     .expect("a network makes a socket");
                 let network = guest.instance_network_instance_network()?;
                 let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
@@ -157,12 +159,14 @@ mod tests {
                     address: (127, 0, 0, 1),
                 });
                 guest
-                    .tcp_tcp_socket_start_connect(socket, network, remote)?
+                    .tcp_tcp_socket_start_connect(socket, network, remote)
+                    .into_answer()?
                     .expect("an endpoint names the address");
                 let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
                 guest.poll_pollable_block(connecting)?;
                 guest
-                    .tcp_tcp_socket_finish_connect(socket)?
+                    .tcp_tcp_socket_finish_connect(socket)
+                    .into_answer()?
                     .expect("the listener accepts");
                 wasmtime::Result::Ok(socket)
             },
@@ -261,10 +265,12 @@ mod tests {
         let mut guest = networked(9);
         let tcp = guest
             .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+            .into_answer()
             .unwrap()
             .expect("a network makes a TCP socket");
         let udp = guest
             .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+            .into_answer()
             .unwrap()
             .expect("a network makes a UDP socket");
         let linux = vec![
@@ -301,10 +307,12 @@ mod tests {
         let mut guest = networked(9);
         let tcp = guest
             .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+            .into_answer()
             .unwrap()
             .expect("a network makes a TCP socket");
         let udp = guest
             .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+            .into_answer()
             .unwrap()
             .expect("a network makes a UDP socket");
         assert_eq!(
@@ -481,7 +489,8 @@ mod tests {
             Some(Instant::now() + Duration::from_secs(10)),
             || -> wasmtime::Result<_> {
                 let socket = guest
-                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()?
                     .expect("a network makes a socket");
                 let network = guest.instance_network_instance_network()?;
                 let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
@@ -489,7 +498,8 @@ mod tests {
                     address: (127, 0, 0, 1),
                 });
                 guest
-                    .tcp_tcp_socket_start_connect(socket, network, remote)?
+                    .tcp_tcp_socket_start_connect(socket, network, remote)
+                    .into_answer()?
                     .expect("an endpoint names the address");
                 let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
                 guest.poll_pollable_block(connecting)?;

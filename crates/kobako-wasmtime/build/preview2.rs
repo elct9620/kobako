@@ -231,6 +231,17 @@ const WITH: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The host type each WIT error stands for, as `bindgen!` takes
+/// `trappable_error_type:`, keyed by interface and type name: a function
+/// answering a lone `result<_, e>` of one returns it, so its host answers the
+/// error or traps through one `?`.
+const TRAPPABLE: &[(&str, &str, &str)] = &[
+    ("wasi:io/streams@0.2.12", "stream-error", "StreamError"),
+    ("wasi:sockets/network@0.2.12", "error-code", "SocketError"),
+    ("wasi:http/types@0.2.12", "error-code", "HttpError"),
+    ("wasi:http/types@0.2.12", "header-error", "HeaderError"),
+];
+
 /// Where the generated file is included, so every type has one path.
 const ROOT: &str = "crate::preview2::bindings";
 
@@ -351,8 +362,8 @@ fn to_rust_type(resolve: &Resolve, ty: &Type) -> String {
     }
 }
 
-/// The resource `id` names, through every `use` alias of it.
-fn resource_of(resolve: &Resolve, mut id: TypeId) -> TypeId {
+/// The type `id` names, through every `use` alias of it.
+fn definition_of(resolve: &Resolve, mut id: TypeId) -> TypeId {
     while let TypeDefKind::Type(Type::Id(aliased)) = resolve.types[id].kind {
         id = aliased;
     }
@@ -363,7 +374,7 @@ fn resource_of(resolve: &Resolve, mut id: TypeId) -> TypeId {
 fn to_structural_type(resolve: &Resolve, kind: &TypeDefKind) -> String {
     match kind {
         TypeDefKind::Handle(Handle::Own(r) | Handle::Borrow(r)) => {
-            type_path_of(resolve, resource_of(resolve, *r))
+            type_path_of(resolve, definition_of(resolve, *r))
         }
         TypeDefKind::List(t) => format!("Vec<{}>", to_rust_type(resolve, t)),
         TypeDefKind::Option(t) => format!("Option<{}>", to_rust_type(resolve, t)),
@@ -524,6 +535,59 @@ fn to_method_name(resolve: &Resolve, id: InterfaceId, func: &Function) -> String
     format!("{interface}_{owner}{}", to_snake(&item))
 }
 
+/// A WIT error `TRAPPABLE` gives a host type.
+struct Trappable {
+    /// The error's own definition, past every `use` alias.
+    error: TypeId,
+    /// The host type a method answering it returns.
+    host: String,
+}
+
+impl Trappable {
+    /// The trappable error `func` answers, as `bindgen!` special-cases a
+    /// function whose one result is `result<_, e>` with `e` in its table.
+    fn of(resolve: &Resolve, func: &Function) -> Option<Self> {
+        let Some(Type::Id(result)) = func.result else {
+            return None;
+        };
+        let TypeDefKind::Result(result) = &resolve.types[result].kind else {
+            return None;
+        };
+        let Some(Type::Id(error)) = result.err else {
+            return None;
+        };
+        let error = definition_of(resolve, error);
+        let def = &resolve.types[error];
+        let TypeOwner::Interface(owner) = def.owner else {
+            return None;
+        };
+        let interface = resolve.id_of(owner)?;
+        let name = def.name.as_deref()?;
+        TRAPPABLE
+            .iter()
+            .find(|(i, t, _)| *i == interface && *t == name)
+            .map(|(_, _, host)| Self {
+                error,
+                host: format!("{HOSTS}::error::{host}"),
+            })
+    }
+
+    /// The method turning the host type back into the WIT error, or into a
+    /// trap, on the trait of the interface that declares it, as `bindgen!`
+    /// names it `convert_<error>`.
+    fn convert_method_of(&self, resolve: &Resolve) -> String {
+        let def = &resolve.types[self.error];
+        let TypeOwner::Interface(owner) = def.owner else {
+            unreachable!("a trappable error belongs to an interface");
+        };
+        format!(
+            "{}_convert_{}",
+            to_snake(resolve.interfaces[owner].name.as_deref().expect("named")),
+            to_snake(def.name.as_deref().expect("a named error"))
+        )
+    }
+}
+
 /// The trait one WIT package's imports are answered through, as `IoHost` for
 /// `wasi:io`.
 fn package_trait_of(resolve: &Resolve, id: InterfaceId) -> String {
@@ -555,6 +619,7 @@ fn write_host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: 
             "#[allow(unused_variables, clippy::too_many_arguments)]\npub trait {name} {{"
         );
         write_package_methods(resolve, &package, out);
+        write_convert_methods(resolve, imports, &package, out);
         out.push_str("}\n\n");
     }
     let _ = writeln!(
@@ -575,13 +640,27 @@ fn write_package_methods(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], 
                 .iter()
                 .map(|p| format!(", {}: {}", to_snake(&p.name), to_rust_type(resolve, &p.ty)))
                 .collect::<String>();
-            let result = func
-                .result
-                .as_ref()
-                .map_or("()".into(), |t| to_rust_type(resolve, t));
+            let result = match (Trappable::of(resolve, func), func.result) {
+                (Some(trappable), Some(Type::Id(result))) => {
+                    let TypeDefKind::Result(result) = &resolve.types[result].kind else {
+                        unreachable!("a trappable function answers a result");
+                    };
+                    let ok = result
+                        .ok
+                        .as_ref()
+                        .map_or("()".into(), |t| to_rust_type(resolve, t));
+                    format!("Result<{ok}, {}>", trappable.host)
+                }
+                (_, result) => format!(
+                    "wasmtime::Result<{}>",
+                    result
+                        .as_ref()
+                        .map_or("()".into(), |t| to_rust_type(resolve, t))
+                ),
+            };
             let _ = writeln!(
                 out,
-                "fn {}(&mut self{params}) -> wasmtime::Result<{result}>;",
+                "fn {}(&mut self{params}) -> {result};",
                 to_method_name(resolve, *id, func),
             );
         }
@@ -592,6 +671,36 @@ fn write_package_methods(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], 
                 "fn {interface}_{}_drop(&mut self, handle: {}) -> wasmtime::Result<()>;",
                 to_snake(name),
                 type_path_of(resolve, ty),
+            );
+        }
+    }
+}
+
+/// One `convert_<error>` method for each trappable error some import answers
+/// and an interface of `package` declares.
+fn write_convert_methods(
+    resolve: &Resolve,
+    imports: &[(InterfaceId, &[&str])],
+    package: &[(InterfaceId, &[&str])],
+    out: &mut String,
+) {
+    let mut written = Vec::<TypeId>::new();
+    let answered = imports
+        .iter()
+        .flat_map(|(id, names)| functions_of(resolve, *id, names))
+        .filter_map(|func| Trappable::of(resolve, func));
+    for trappable in answered {
+        let declared = package
+            .iter()
+            .any(|(id, _)| resolve.types[trappable.error].owner == TypeOwner::Interface(*id));
+        if declared && !written.contains(&trappable.error) {
+            written.push(trappable.error);
+            let _ = writeln!(
+                out,
+                "fn {}(&mut self, err: {}) -> wasmtime::Result<{}>;",
+                trappable.convert_method_of(resolve),
+                trappable.host,
+                type_path_of(resolve, trappable.error),
             );
         }
     }
@@ -631,7 +740,7 @@ fn write_linker(
                 [one] => to_core_type(one).to_string(),
                 _ => unreachable!("a core import answers at most one value"),
             };
-            let mut body = FunctionBody::new(resolve, sizes, to_method_name(resolve, *id, func));
+            let mut body = FunctionBody::new(resolve, sizes, *id, func);
             abi::call(
                 resolve,
                 abi::AbiVariant::GuestImport,
@@ -678,6 +787,8 @@ struct FunctionBody<'a> {
     resolve: &'a Resolve,
     sizes: &'a SizeAlign,
     method: String,
+    /// The `convert_<error>` method a trappable answer passes through.
+    convert: Option<String>,
     src: String,
     blocks: Vec<String>,
     stack: Vec<String>,
@@ -685,11 +796,12 @@ struct FunctionBody<'a> {
 }
 
 impl<'a> FunctionBody<'a> {
-    fn new(resolve: &'a Resolve, sizes: &'a SizeAlign, method: String) -> Self {
+    fn new(resolve: &'a Resolve, sizes: &'a SizeAlign, id: InterfaceId, func: &Function) -> Self {
         Self {
             resolve,
             sizes,
-            method,
+            method: to_method_name(resolve, id, func),
+            convert: Trappable::of(resolve, func).map(|t| t.convert_method_of(resolve)),
             src: String::new(),
             blocks: Vec::new(),
             stack: Vec::new(),
@@ -930,7 +1042,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::HandleLift { handle, .. } => {
                 let (Handle::Own(r) | Handle::Borrow(r)) = handle;
-                let path = type_path_of(resolve, resource_of(resolve, *r));
+                let path = type_path_of(resolve, definition_of(resolve, *r));
                 results.push(format!("{path}({} as u32)", operands[0]))
             }
             Instruction::HandleLower { .. } => results.push(format!("({}.0 as i32)", operands[0])),
@@ -1033,7 +1145,14 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::CallInterface { func, .. } => {
                 let args = operands.join(", ");
-                let call = format!("caller.data_mut().{}({args})?", self.method);
+                let call = match &self.convert {
+                    Some(convert) => format!(
+                        "match caller.data_mut().{}({args}) {{ Ok(answer) => Ok(answer), \
+                         Err(err) => Err(caller.data_mut().{convert}(err)?) }}",
+                        self.method
+                    ),
+                    None => format!("caller.data_mut().{}({args})?", self.method),
+                };
                 let answered = match func.result {
                     Some(_) => Some(self.bind(call)),
                     None => {

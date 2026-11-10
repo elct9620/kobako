@@ -19,7 +19,7 @@ use kobako_runtime::wait::{do_poll, PollTable};
 use super::bindings::wasi_clocks_monotonic_clock_0_2_12 as monotonic_clock;
 use super::bindings::wasi_io_error_0_2_12::Error;
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
-use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream, StreamError};
+use super::bindings::wasi_io_streams_0_2_12::{self as streams, InputStream, OutputStream};
 use super::bindings::wasi_sockets_ip_name_lookup_0_2_12::ResolveAddressStream;
 use super::bindings::wasi_sockets_network_0_2_12::{
     ErrorCode, IpAddress, IpAddressFamily, IpSocketAddress, Network,
@@ -29,6 +29,7 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
     IncomingDatagram, IncomingDatagramStream, OutgoingDatagram, OutgoingDatagramStream, UdpSocket,
 };
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
+use super::error::{SocketError, StreamError};
 use super::sockets::{
     from_socket_addr, is_valid_remote_address, is_valid_unicast_address, to_asked_size,
     to_buffer_size, to_error_code, to_hop_limit, to_keepalive_secs, to_lookup_error_code, to_nanos,
@@ -65,19 +66,10 @@ impl Invocation {
 
     /// What `opt` reads of the TCP socket `this`, in a state that takes an
     /// option.
-    fn tcp_option(
-        &mut self,
-        this: TcpSocket,
-        opt: SockOpt,
-    ) -> wasmtime::Result<Result<u32, ErrorCode>> {
+    fn tcp_option(&mut self, this: TcpSocket, opt: SockOpt) -> Result<u32, SocketError> {
         let socket = self.tcp(this)?;
-        Ok(socket.state.ensure_takes_options().and_then(|()| {
-            socket
-                .socket
-                .sock
-                .getsockopt(opt)
-                .map_err(|err| to_error_code(&err))
-        }))
+        socket.state.ensure_takes_options()?;
+        Ok(socket.socket.sock.getsockopt(opt)?)
     }
 
     /// Set `opt` of the TCP socket `this` to `value`, in a state that takes
@@ -87,26 +79,16 @@ impl Invocation {
         this: TcpSocket,
         opt: SockOpt,
         value: u32,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), SocketError> {
         let socket = self.tcp(this)?;
-        Ok(socket.state.ensure_takes_options().and_then(|()| {
-            socket
-                .socket
-                .sock
-                .setsockopt(opt, value)
-                .map_err(|err| to_error_code(&err))
-        }))
+        socket.state.ensure_takes_options()?;
+        Ok(socket.socket.sock.setsockopt(opt, value)?)
     }
 
     /// What `opt` reads of the UDP socket `this`, which takes an option in
     /// any state, as wasmtime's does.
-    fn udp_option(
-        &mut self,
-        this: UdpSocket,
-        opt: SockOpt,
-    ) -> wasmtime::Result<Result<u32, ErrorCode>> {
-        let sock = &self.udp(this)?.socket.sock;
-        Ok(sock.getsockopt(opt).map_err(|err| to_error_code(&err)))
+    fn udp_option(&mut self, this: UdpSocket, opt: SockOpt) -> Result<u32, SocketError> {
+        Ok(self.udp(this)?.socket.sock.getsockopt(opt)?)
     }
 
     /// Set `opt` of the UDP socket `this` to `value`.
@@ -115,11 +97,8 @@ impl Invocation {
         this: UdpSocket,
         opt: SockOpt,
         value: u32,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        let sock = &self.udp(this)?.socket.sock;
-        Ok(sock
-            .setsockopt(opt, value)
-            .map_err(|err| to_error_code(&err)))
+    ) -> Result<(), SocketError> {
+        Ok(self.udp(this)?.socket.sock.setsockopt(opt, value)?)
     }
 
     /// The indices of `pollables` ready, once one is, as WASI's `poll` finds
@@ -201,22 +180,19 @@ impl Invocation {
         kind: SocketType,
         create: impl FnOnce(&Namespace, &Arc<Cred>) -> Result<Arc<S>, FilesystemError>,
         resource: impl FnOnce(SocketFile<S>) -> H::Host,
-    ) -> wasmtime::Result<Result<H, ErrorCode>> {
+    ) -> Result<H, SocketError> {
         if self.wasi().table().network().is_none() || family == IpAddressFamily::Ipv6 {
-            return Ok(Err(ErrorCode::NotSupported));
+            return Err(ErrorCode::NotSupported.into());
         }
         if self.wasi().table().is_full() {
-            return Ok(Err(ErrorCode::NewSocketLimit));
+            return Err(ErrorCode::NewSocketLimit.into());
         }
         let cred = self.wasi().descriptors().cred().clone();
-        let sock = match create(self.network(), &cred) {
-            Ok(sock) => sock,
-            Err(err) => return Ok(Err(to_error_code(&err))),
-        };
+        let sock = create(self.network(), &cred)?;
         let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
         let handle: H = self.table().push_file(resource(socket.clone()))?;
         self.wasi().table().install(handle, &socket, kind);
-        Ok(Ok(handle))
+        Ok(handle)
     }
 
     fn subscribe_socket(
@@ -231,14 +207,12 @@ impl Invocation {
 
     /// Pass a bind to `local_address` through the socket hooks, once WASI
     /// takes it as a unicast address, as both sockets' `start-bind` ask.
-    fn bind_local(&mut self, local_address: &IpSocketAddress) -> Result<(), ErrorCode> {
+    fn bind_local(&mut self, local_address: &IpSocketAddress) -> Result<(), SocketError> {
         let addr = to_socket_addr(local_address)
             .filter(|addr| is_valid_unicast_address(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().descriptors().cred().clone();
-        self.network()
-            .bind(&cred, addr)
-            .map_err(|err| to_error_code(&err))
+        Ok(self.network().bind(&cred, addr)?)
     }
 
     fn tcp(&mut self, handle: TcpSocket) -> wasmtime::Result<&mut table::TcpSocket> {
@@ -264,34 +238,18 @@ impl Invocation {
             .push_child(table::Pollable::File(datagrams.get_file(), mask), stream)
     }
 
-    /// A stream's failure as WASI hands it out: the end as `closed`, anything
-    /// else as an error the guest may read.
-    fn push_stream_error(&mut self, err: FilesystemError) -> wasmtime::Result<StreamError> {
-        match err {
-            FilesystemError::BrokenPipe => Ok(StreamError::Closed),
-            err => Ok(StreamError::LastOperationFailed(
-                self.table().push(table::Error(err))?,
-            )),
-        }
-    }
-
     /// Read what the stream holds, up to `len`, without waiting: nothing yet
     /// reads as an empty list, and the end as `closed`.
-    fn read_now(
-        &mut self,
-        stream: &Stream,
-        len: u64,
-    ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
+    fn read_now(stream: &Stream, len: u64) -> Result<Vec<u8>, StreamError> {
         let mut buf = vec![0; len.min(MAX_SOCKET_BUFFER as u64) as usize];
-        let read = stream.read(&mut buf);
-        match read {
-            Ok(0) if !buf.is_empty() => Ok(Err(StreamError::Closed)),
+        match stream.read(&mut buf) {
+            Ok(0) if !buf.is_empty() => Err(StreamError::Closed),
             Ok(n) => {
                 buf.truncate(n);
-                Ok(Ok(buf))
+                Ok(buf)
             }
-            Err(FilesystemError::WouldBlock) => Ok(Ok(Vec::new())),
-            Err(err) => self.push_stream_error(err).map(Err),
+            Err(FilesystemError::WouldBlock) => Ok(Vec::new()),
+            Err(err) => Err(err.into()),
         }
     }
 
@@ -303,6 +261,10 @@ impl Invocation {
 }
 
 impl SocketsHost for Invocation {
+    fn network_convert_error_code(&mut self, err: SocketError) -> wasmtime::Result<ErrorCode> {
+        err.downcast()
+    }
+
     fn instance_network_instance_network(&mut self) -> wasmtime::Result<Network> {
         self.table().push(table::Network)
     }
@@ -318,27 +280,23 @@ impl SocketsHost for Invocation {
         &mut self,
         network: Network,
         name: String,
-    ) -> wasmtime::Result<Result<ResolveAddressStream, ErrorCode>> {
+    ) -> Result<ResolveAddressStream, SocketError> {
         self.ensure_network(network)?;
         let Some(namespace) = self.wasi().table().network() else {
-            return Ok(Err(ErrorCode::PermanentResolverFailure));
+            return Err(ErrorCode::PermanentResolverFailure.into());
         };
         if self.wasi().table().is_full() {
-            return Ok(Err(ErrorCode::NewSocketLimit));
+            return Err(ErrorCode::NewSocketLimit.into());
         }
-        match namespace.resolve(&name) {
-            Ok(lookup) => {
-                let file = lookup.alloc_file(self.wasi().descriptors().cred());
-                self.table()
-                    .push_file(table::ResolveAddressStream {
-                        lookup,
-                        file: Arc::new(Mutex::new(file)),
-                        handed: false,
-                    })
-                    .map(Ok)
-            }
-            Err(err) => Ok(Err(to_lookup_error_code(err, true))),
-        }
+        let lookup = namespace
+            .resolve(&name)
+            .map_err(|err| to_lookup_error_code(err, true))?;
+        let file = lookup.alloc_file(self.wasi().descriptors().cred());
+        Ok(self.table().push_file(table::ResolveAddressStream {
+            lookup,
+            file: Arc::new(Mutex::new(file)),
+            handed: false,
+        })?)
     }
 
     /// The name's one virtual address, then the end; a lookup still under way
@@ -346,10 +304,10 @@ impl SocketsHost for Invocation {
     fn ip_name_lookup_resolve_address_stream_resolve_next_address(
         &mut self,
         this: ResolveAddressStream,
-    ) -> wasmtime::Result<Result<Option<IpAddress>, ErrorCode>> {
+    ) -> Result<Option<IpAddress>, SocketError> {
         let stream = self.table().get(this)?;
         if stream.handed {
-            return Ok(Ok(None));
+            return Ok(None);
         }
         let lookup = stream.lookup.clone();
         let namespace = self
@@ -359,13 +317,12 @@ impl SocketsHost for Invocation {
             .expect("a lookup is only made with a network");
         let cred = self.wasi().descriptors().cred();
         let at = match namespace.alloc_virtual_address(cred, &lookup) {
-            None => return Ok(Err(ErrorCode::WouldBlock)),
-            Some(Err(err)) => return Ok(Err(to_lookup_error_code(err, false))),
-            Some(Ok(at)) => at,
+            None => return Err(ErrorCode::WouldBlock.into()),
+            Some(answer) => answer.map_err(|err| to_lookup_error_code(err, false))?,
         };
         self.table().get_mut(this)?.handed = true;
         let [a, b, c, d] = at.octets();
-        Ok(Ok(Some(IpAddress::Ipv4((a, b, c, d)))))
+        Ok(Some(IpAddress::Ipv4((a, b, c, d))))
     }
 
     fn ip_name_lookup_resolve_address_stream_subscribe(
@@ -390,7 +347,7 @@ impl SocketsHost for Invocation {
     fn tcp_create_socket_create_tcp_socket(
         &mut self,
         address_family: IpAddressFamily,
-    ) -> wasmtime::Result<Result<TcpSocket, ErrorCode>> {
+    ) -> Result<TcpSocket, SocketError> {
         self.create_socket(
             address_family,
             SocketType::Stream,
@@ -410,32 +367,27 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
         network: Network,
         local_address: IpSocketAddress,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), SocketError> {
         self.ensure_network(network)?;
         match self.tcp(this)?.state {
             TcpState::Unbound => {}
             TcpState::Binding | TcpState::Connecting => {
-                return Ok(Err(ErrorCode::ConcurrencyConflict))
+                return Err(ErrorCode::ConcurrencyConflict.into())
             }
-            _ => return Ok(Err(ErrorCode::InvalidState)),
+            _ => return Err(ErrorCode::InvalidState.into()),
         }
-        if let Err(code) = self.bind_local(&local_address) {
-            return Ok(Err(code));
-        }
+        self.bind_local(&local_address)?;
         self.tcp(this)?.state = TcpState::Binding;
-        Ok(Ok(()))
+        Ok(())
     }
 
-    fn tcp_tcp_socket_finish_bind(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    fn tcp_tcp_socket_finish_bind(&mut self, this: TcpSocket) -> Result<(), SocketError> {
         let socket = self.tcp(this)?;
         if socket.state != TcpState::Binding {
-            return Ok(Err(ErrorCode::NotInProgress));
+            return Err(ErrorCode::NotInProgress.into());
         }
         socket.state = TcpState::Bound;
-        Ok(Ok(()))
+        Ok(())
     }
 
     /// A connect passes the Invocation's namespace on what the guest named,
@@ -446,28 +398,24 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
         network: Network,
         remote_address: IpSocketAddress,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), SocketError> {
         self.ensure_network(network)?;
         let socket = self.tcp(this)?;
         match socket.state {
             TcpState::Unbound | TcpState::Bound => {}
             TcpState::Binding | TcpState::Connecting => {
-                return Ok(Err(ErrorCode::ConcurrencyConflict))
+                return Err(ErrorCode::ConcurrencyConflict.into())
             }
-            _ => return Ok(Err(ErrorCode::InvalidState)),
+            _ => return Err(ErrorCode::InvalidState.into()),
         }
         let sock = socket.socket.sock.clone();
-        let Some(addr) =
-            to_socket_addr(&remote_address).filter(|addr| is_valid_remote_address(*addr))
-        else {
-            return Ok(Err(ErrorCode::InvalidArgument));
-        };
+        let addr = to_socket_addr(&remote_address)
+            .filter(|addr| is_valid_remote_address(*addr))
+            .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().descriptors().cred();
-        if let Err(err) = self.network().connect(cred, &sock, addr) {
-            return Ok(Err(to_error_code(&err)));
-        }
+        self.network().connect(cred, &sock, addr)?;
         self.tcp(this)?.state = TcpState::Connecting;
-        Ok(Ok(()))
+        Ok(())
     }
 
     /// The streams of a connect that landed, as WASI hands them out once; one
@@ -476,10 +424,10 @@ impl SocketsHost for Invocation {
     fn tcp_tcp_socket_finish_connect(
         &mut self,
         this: TcpSocket,
-    ) -> wasmtime::Result<Result<(InputStream, OutputStream), ErrorCode>> {
+    ) -> Result<(InputStream, OutputStream), SocketError> {
         let socket = self.tcp(this)?;
         if socket.state != TcpState::Connecting {
-            return Ok(Err(ErrorCode::NotInProgress));
+            return Err(ErrorCode::NotInProgress.into());
         }
         let socket = socket.socket.clone();
         match socket.sock.finish_connect() {
@@ -492,13 +440,13 @@ impl SocketsHost for Invocation {
                 let output = self
                     .table()
                     .push_child(table::OutputStream::new(stream), this)?;
-                Ok(Ok((input, output)))
+                Ok((input, output))
             }
-            Err(FilesystemError::WouldBlock) => Ok(Err(ErrorCode::WouldBlock)),
+            Err(FilesystemError::WouldBlock) => Err(ErrorCode::WouldBlock.into()),
             Err(err) => {
                 let code = to_error_code(&err);
                 self.tcp(this)?.state = TcpState::Closed(code);
-                Ok(Err(code))
+                Err(code.into())
             }
         }
     }
@@ -520,21 +468,17 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
         shutdown_type: ShutdownType,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), SocketError> {
         let socket = self.tcp(this)?;
         if socket.state != TcpState::Connected {
-            return Ok(Err(ErrorCode::InvalidState));
+            return Err(ErrorCode::InvalidState.into());
         }
         let how = match shutdown_type {
             ShutdownType::Receive => Shutdown::Read,
             ShutdownType::Send => Shutdown::Write,
             ShutdownType::Both => Shutdown::Both,
         };
-        Ok(socket
-            .socket
-            .sock
-            .shutdown(how)
-            .map_err(|err| to_error_code(&err)))
+        Ok(socket.socket.sock.shutdown(how)?)
     }
 
     /// The guest's own end once connected, at the virtual port the namespace
@@ -544,55 +488,49 @@ impl SocketsHost for Invocation {
     fn tcp_tcp_socket_local_address(
         &mut self,
         this: TcpSocket,
-    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
+    ) -> Result<IpSocketAddress, SocketError> {
         let socket = self.tcp(this)?;
         match socket.state {
             TcpState::Connected => {}
             TcpState::Binding | TcpState::Bound => {
-                return Ok(Ok(from_socket_addr(self.network().local_address(None))))
+                return Ok(from_socket_addr(self.network().local_address(None)))
             }
-            TcpState::Closed(code) => return Ok(Err(code)),
-            TcpState::Unbound | TcpState::Connecting => return Ok(Err(ErrorCode::InvalidState)),
+            TcpState::Closed(code) => return Err(code.into()),
+            TcpState::Unbound | TcpState::Connecting => return Err(ErrorCode::InvalidState.into()),
         }
         let port = socket.socket.sock.virtual_port();
-        Ok(Ok(from_socket_addr(self.network().local_address(port))))
+        Ok(from_socket_addr(self.network().local_address(port)))
     }
 
     /// The peer as the guest named it.
     fn tcp_tcp_socket_remote_address(
         &mut self,
         this: TcpSocket,
-    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
+    ) -> Result<IpSocketAddress, SocketError> {
         let socket = self.tcp(this)?;
         match (socket.state, socket.socket.sock.getpeername()) {
-            (TcpState::Connected, Some(peer)) => Ok(Ok(from_socket_addr(peer))),
-            (TcpState::Closed(code), _) => Ok(Err(code)),
-            _ => Ok(Err(ErrorCode::InvalidState)),
+            (TcpState::Connected, Some(peer)) => Ok(from_socket_addr(peer)),
+            (TcpState::Closed(code), _) => Err(code.into()),
+            _ => Err(ErrorCode::InvalidState.into()),
         }
     }
 
     /// Whether the socket sends keepalive probes, from the socket's own
     /// setting.
-    fn tcp_tcp_socket_keep_alive_enabled(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<bool, ErrorCode>> {
-        Ok(self.tcp_option(this, SockOpt::KeepAlive)?.map(|on| on != 0))
+    fn tcp_tcp_socket_keep_alive_enabled(&mut self, this: TcpSocket) -> Result<bool, SocketError> {
+        Ok(self.tcp_option(this, SockOpt::KeepAlive)? != 0)
     }
 
     fn tcp_tcp_socket_set_keep_alive_enabled(
         &mut self,
         this: TcpSocket,
         value: bool,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), SocketError> {
         self.set_tcp_option(this, SockOpt::KeepAlive, u32::from(value))
     }
 
-    fn tcp_tcp_socket_keep_alive_idle_time(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        Ok(self.tcp_option(this, SockOpt::KeepIdle)?.map(to_nanos))
+    fn tcp_tcp_socket_keep_alive_idle_time(&mut self, this: TcpSocket) -> Result<u64, SocketError> {
+        Ok(to_nanos(self.tcp_option(this, SockOpt::KeepIdle)?))
     }
 
     /// As wasmtime's, zero answers `invalid-argument` and any other time is
@@ -601,35 +539,25 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
         value: u64,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        match to_keepalive_secs(value, MAX_TCP_KEEPIDLE) {
-            Some(secs) => self.set_tcp_option(this, SockOpt::KeepIdle, secs),
-            None => Ok(Err(ErrorCode::InvalidArgument)),
-        }
+    ) -> Result<(), SocketError> {
+        let secs = to_keepalive_secs(value, MAX_TCP_KEEPIDLE).ok_or(ErrorCode::InvalidArgument)?;
+        self.set_tcp_option(this, SockOpt::KeepIdle, secs)
     }
 
-    fn tcp_tcp_socket_keep_alive_interval(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        Ok(self.tcp_option(this, SockOpt::KeepIntvl)?.map(to_nanos))
+    fn tcp_tcp_socket_keep_alive_interval(&mut self, this: TcpSocket) -> Result<u64, SocketError> {
+        Ok(to_nanos(self.tcp_option(this, SockOpt::KeepIntvl)?))
     }
 
     fn tcp_tcp_socket_set_keep_alive_interval(
         &mut self,
         this: TcpSocket,
         value: u64,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        match to_keepalive_secs(value, MAX_TCP_KEEPINTVL) {
-            Some(secs) => self.set_tcp_option(this, SockOpt::KeepIntvl, secs),
-            None => Ok(Err(ErrorCode::InvalidArgument)),
-        }
+    ) -> Result<(), SocketError> {
+        let secs = to_keepalive_secs(value, MAX_TCP_KEEPINTVL).ok_or(ErrorCode::InvalidArgument)?;
+        self.set_tcp_option(this, SockOpt::KeepIntvl, secs)
     }
 
-    fn tcp_tcp_socket_keep_alive_count(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<u32, ErrorCode>> {
+    fn tcp_tcp_socket_keep_alive_count(&mut self, this: TcpSocket) -> Result<u32, SocketError> {
         self.tcp_option(this, SockOpt::KeepCnt)
     }
 
@@ -639,56 +567,43 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
         value: u32,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), SocketError> {
         if value == 0 {
-            return Ok(Err(ErrorCode::InvalidArgument));
+            return Err(ErrorCode::InvalidArgument.into());
         }
         self.set_tcp_option(this, SockOpt::KeepCnt, value.min(MAX_TCP_KEEPCNT))
     }
 
     /// Half what the receive queue holds, as wasmtime answers it on Linux,
     /// so a guest reads back about the size it asked for.
-    fn tcp_tcp_socket_receive_buffer_size(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        Ok(self.tcp_option(this, SockOpt::RcvBuf)?.map(to_asked_size))
+    fn tcp_tcp_socket_receive_buffer_size(&mut self, this: TcpSocket) -> Result<u64, SocketError> {
+        Ok(to_asked_size(self.tcp_option(this, SockOpt::RcvBuf)?))
     }
 
     fn tcp_tcp_socket_set_receive_buffer_size(
         &mut self,
         this: TcpSocket,
         value: u64,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        match to_buffer_size(value) {
-            Some(bytes) => self.set_tcp_option(this, SockOpt::RcvBuf, bytes),
-            None => Ok(Err(ErrorCode::InvalidArgument)),
-        }
+    ) -> Result<(), SocketError> {
+        let bytes = to_buffer_size(value).ok_or(ErrorCode::InvalidArgument)?;
+        self.set_tcp_option(this, SockOpt::RcvBuf, bytes)
     }
 
-    fn tcp_tcp_socket_send_buffer_size(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        Ok(self.tcp_option(this, SockOpt::SndBuf)?.map(to_asked_size))
+    fn tcp_tcp_socket_send_buffer_size(&mut self, this: TcpSocket) -> Result<u64, SocketError> {
+        Ok(to_asked_size(self.tcp_option(this, SockOpt::SndBuf)?))
     }
 
     fn tcp_tcp_socket_set_send_buffer_size(
         &mut self,
         this: TcpSocket,
         value: u64,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        match to_buffer_size(value) {
-            Some(bytes) => self.set_tcp_option(this, SockOpt::SndBuf, bytes),
-            None => Ok(Err(ErrorCode::InvalidArgument)),
-        }
+    ) -> Result<(), SocketError> {
+        let bytes = to_buffer_size(value).ok_or(ErrorCode::InvalidArgument)?;
+        self.set_tcp_option(this, SockOpt::SndBuf, bytes)
     }
 
-    fn tcp_tcp_socket_hop_limit(
-        &mut self,
-        this: TcpSocket,
-    ) -> wasmtime::Result<Result<u8, ErrorCode>> {
-        Ok(self.tcp_option(this, SockOpt::Ttl)?.map(to_hop_limit))
+    fn tcp_tcp_socket_hop_limit(&mut self, this: TcpSocket) -> Result<u8, SocketError> {
+        Ok(to_hop_limit(self.tcp_option(this, SockOpt::Ttl)?))
     }
 
     /// Zero answers `invalid-argument`, as the runtime refuses it.
@@ -696,7 +611,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
         value: u8,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), SocketError> {
         self.set_tcp_option(this, SockOpt::Ttl, u32::from(value))
     }
 
@@ -709,7 +624,7 @@ impl SocketsHost for Invocation {
     fn udp_create_socket_create_udp_socket(
         &mut self,
         address_family: IpAddressFamily,
-    ) -> wasmtime::Result<Result<UdpSocket, ErrorCode>> {
+    ) -> Result<UdpSocket, SocketError> {
         self.create_socket(
             address_family,
             SocketType::Datagram,
@@ -729,30 +644,25 @@ impl SocketsHost for Invocation {
         this: UdpSocket,
         network: Network,
         local_address: IpSocketAddress,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), SocketError> {
         self.ensure_network(network)?;
         match self.udp(this)?.state {
             UdpState::Unbound => {}
-            UdpState::Binding => return Ok(Err(ErrorCode::ConcurrencyConflict)),
-            _ => return Ok(Err(ErrorCode::InvalidState)),
+            UdpState::Binding => return Err(ErrorCode::ConcurrencyConflict.into()),
+            _ => return Err(ErrorCode::InvalidState.into()),
         }
-        if let Err(code) = self.bind_local(&local_address) {
-            return Ok(Err(code));
-        }
+        self.bind_local(&local_address)?;
         self.udp(this)?.state = UdpState::Binding;
-        Ok(Ok(()))
+        Ok(())
     }
 
-    fn udp_udp_socket_finish_bind(
-        &mut self,
-        this: UdpSocket,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    fn udp_udp_socket_finish_bind(&mut self, this: UdpSocket) -> Result<(), SocketError> {
         let socket = self.udp(this)?;
         if socket.state != UdpState::Binding {
-            return Ok(Err(ErrorCode::NotInProgress));
+            return Err(ErrorCode::NotInProgress.into());
         }
         socket.state = UdpState::Bound;
-        Ok(Ok(()))
+        Ok(())
     }
 
     /// The guest's own end, once bound, at the virtual port the namespace gave
@@ -761,66 +671,53 @@ impl SocketsHost for Invocation {
     fn udp_udp_socket_local_address(
         &mut self,
         this: UdpSocket,
-    ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
+    ) -> Result<IpSocketAddress, SocketError> {
         let socket = self.udp(this)?;
         if !socket.state.is_bound() {
-            return Ok(Err(ErrorCode::InvalidState));
+            return Err(ErrorCode::InvalidState.into());
         }
         let port = socket.socket.sock.virtual_port();
-        Ok(Ok(from_socket_addr(self.network().local_address(port))))
+        Ok(from_socket_addr(self.network().local_address(port)))
     }
 
     /// The hop limit, from the socket's own setting; a UDP socket takes an
     /// option in any state, as wasmtime's does.
-    fn udp_udp_socket_unicast_hop_limit(
-        &mut self,
-        this: UdpSocket,
-    ) -> wasmtime::Result<Result<u8, ErrorCode>> {
-        Ok(self.udp_option(this, SockOpt::Ttl)?.map(to_hop_limit))
+    fn udp_udp_socket_unicast_hop_limit(&mut self, this: UdpSocket) -> Result<u8, SocketError> {
+        Ok(to_hop_limit(self.udp_option(this, SockOpt::Ttl)?))
     }
 
     fn udp_udp_socket_set_unicast_hop_limit(
         &mut self,
         this: UdpSocket,
         value: u8,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+    ) -> Result<(), SocketError> {
         self.set_udp_option(this, SockOpt::Ttl, u32::from(value))
     }
 
-    fn udp_udp_socket_receive_buffer_size(
-        &mut self,
-        this: UdpSocket,
-    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        Ok(self.udp_option(this, SockOpt::RcvBuf)?.map(to_asked_size))
+    fn udp_udp_socket_receive_buffer_size(&mut self, this: UdpSocket) -> Result<u64, SocketError> {
+        Ok(to_asked_size(self.udp_option(this, SockOpt::RcvBuf)?))
     }
 
     fn udp_udp_socket_set_receive_buffer_size(
         &mut self,
         this: UdpSocket,
         value: u64,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        match to_buffer_size(value) {
-            Some(bytes) => self.set_udp_option(this, SockOpt::RcvBuf, bytes),
-            None => Ok(Err(ErrorCode::InvalidArgument)),
-        }
+    ) -> Result<(), SocketError> {
+        let bytes = to_buffer_size(value).ok_or(ErrorCode::InvalidArgument)?;
+        self.set_udp_option(this, SockOpt::RcvBuf, bytes)
     }
 
-    fn udp_udp_socket_send_buffer_size(
-        &mut self,
-        this: UdpSocket,
-    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        Ok(self.udp_option(this, SockOpt::SndBuf)?.map(to_asked_size))
+    fn udp_udp_socket_send_buffer_size(&mut self, this: UdpSocket) -> Result<u64, SocketError> {
+        Ok(to_asked_size(self.udp_option(this, SockOpt::SndBuf)?))
     }
 
     fn udp_udp_socket_set_send_buffer_size(
         &mut self,
         this: UdpSocket,
         value: u64,
-    ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        match to_buffer_size(value) {
-            Some(bytes) => self.set_udp_option(this, SockOpt::SndBuf, bytes),
-            None => Ok(Err(ErrorCode::InvalidArgument)),
-        }
+    ) -> Result<(), SocketError> {
+        let bytes = to_buffer_size(value).ok_or(ErrorCode::InvalidArgument)?;
+        self.set_udp_option(this, SockOpt::SndBuf, bytes)
     }
 
     /// The streams to the one peer the guest names, which passes the
@@ -830,27 +727,26 @@ impl SocketsHost for Invocation {
         &mut self,
         this: UdpSocket,
         remote_address: Option<IpSocketAddress>,
-    ) -> wasmtime::Result<Result<(IncomingDatagramStream, OutgoingDatagramStream), ErrorCode>> {
+    ) -> Result<(IncomingDatagramStream, OutgoingDatagramStream), SocketError> {
         let table = self.table();
         if table.has_child::<IncomingDatagramStream>(this)
             || table.has_child::<OutgoingDatagramStream>(this)
         {
-            return Err(wasmtime::Error::msg("UDP streams not dropped yet"));
+            return Err(wasmtime::Error::msg("UDP streams not dropped yet").into());
         }
         let socket = self.udp(this)?;
         if !socket.state.is_bound() {
-            return Ok(Err(ErrorCode::InvalidState));
+            return Err(ErrorCode::InvalidState.into());
         }
         let datagrams = socket.socket.clone();
         let peer = match remote_address.as_ref().map(to_socket_addr) {
             Some(Some(addr)) if is_valid_remote_address(addr) => Some(addr),
-            Some(_) => return Ok(Err(ErrorCode::InvalidArgument)),
+            Some(_) => return Err(ErrorCode::InvalidArgument.into()),
             None => None,
         };
         let cred = self.wasi().descriptors().cred();
-        if let Err(err) = self.network().connect_datagram(cred, &datagrams.sock, peer) {
-            return Ok(Err(to_error_code(&err)));
-        }
+        self.network()
+            .connect_datagram(cred, &datagrams.sock, peer)?;
         self.udp(this)?.state = UdpState::Streaming;
         let incoming = self
             .table()
@@ -862,7 +758,7 @@ impl SocketsHost for Invocation {
             },
             this,
         )?;
-        Ok(Ok((incoming, outgoing)))
+        Ok((incoming, outgoing))
     }
 
     /// Ready at once, since a bind settles as it starts.
@@ -881,7 +777,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: IncomingDatagramStream,
         max_results: u64,
-    ) -> wasmtime::Result<Result<Vec<IncomingDatagram>, ErrorCode>> {
+    ) -> Result<Vec<IncomingDatagram>, SocketError> {
         let datagrams = self.table().get(this)?.0.clone();
         let peer = datagrams
             .sock
@@ -902,11 +798,11 @@ impl SocketsHost for Invocation {
                     });
                 }
                 Err(FilesystemError::WouldBlock) => break,
-                Err(err) if received.is_empty() => return Ok(Err(to_error_code(&err))),
+                Err(err) if received.is_empty() => return Err(err.into()),
                 Err(_) => break,
             }
         }
-        Ok(Ok(received))
+        Ok(received)
     }
 
     fn udp_incoming_datagram_stream_subscribe(
@@ -928,12 +824,12 @@ impl SocketsHost for Invocation {
     fn udp_outgoing_datagram_stream_check_send(
         &mut self,
         this: OutgoingDatagramStream,
-    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+    ) -> Result<u64, SocketError> {
         let datagrams = self.table().get(this)?.socket.clone();
         let found = datagrams.file().poll(None);
         let permitted = u64::from(found.contains(PollMask::OUT));
         *self.permit(this)? = permitted;
-        Ok(Ok(permitted))
+        Ok(permitted)
     }
 
     /// The datagrams sent in order, until the queue is full; one addressed to
@@ -944,15 +840,16 @@ impl SocketsHost for Invocation {
         &mut self,
         this: OutgoingDatagramStream,
         datagrams: Vec<OutgoingDatagram>,
-    ) -> wasmtime::Result<Result<u64, ErrorCode>> {
+    ) -> Result<u64, SocketError> {
         if datagrams.is_empty() {
-            return Ok(Ok(0));
+            return Ok(0);
         }
         let permit = std::mem::take(self.permit(this)?);
         if datagrams.len() as u64 > permit {
             return Err(wasmtime::Error::msg(
                 "the guest sent more datagrams than check-send permitted",
-            ));
+            )
+            .into());
         }
         let stream = self.table().get(this)?.socket.clone();
         let mut sent = 0;
@@ -969,11 +866,11 @@ impl SocketsHost for Invocation {
             };
             match refused {
                 None => sent += 1,
-                Some(code) if sent == 0 => return Ok(Err(code)),
+                Some(code) if sent == 0 => return Err(code.into()),
                 Some(_) => break,
             }
         }
-        Ok(Ok(sent))
+        Ok(sent)
     }
 
     fn udp_outgoing_datagram_stream_subscribe(
@@ -993,14 +890,29 @@ impl SocketsHost for Invocation {
 }
 
 impl IoHost for Invocation {
+    /// The end as `closed`, a trap as itself, and any other failure as an
+    /// error the guest may read, as wasmtime-wasi-io hands one out.
+    fn streams_convert_stream_error(
+        &mut self,
+        err: StreamError,
+    ) -> wasmtime::Result<streams::StreamError> {
+        match err {
+            StreamError::Closed => Ok(streams::StreamError::Closed),
+            StreamError::LastOperationFailed(err) => Ok(streams::StreamError::LastOperationFailed(
+                self.table().push(table::Error(err))?,
+            )),
+            StreamError::Trap(trap) => Err(trap),
+        }
+    }
+
     fn streams_input_stream_blocking_read(
         &mut self,
         this: InputStream,
         len: u64,
-    ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
+    ) -> Result<Vec<u8>, StreamError> {
         let stream = self.table().get(this)?.0.clone();
         self.wait_on(&stream, PollMask::IN)?;
-        self.read_now(&stream, len)
+        Self::read_now(&stream, len)
     }
 
     /// What the stream holds now, none while it holds nothing yet.
@@ -1008,9 +920,9 @@ impl IoHost for Invocation {
         &mut self,
         this: InputStream,
         len: u64,
-    ) -> wasmtime::Result<Result<Vec<u8>, StreamError>> {
+    ) -> Result<Vec<u8>, StreamError> {
         let stream = self.table().get(this)?.0.clone();
-        self.read_now(&stream, len)
+        Self::read_now(&stream, len)
     }
 
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
@@ -1030,21 +942,21 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
         contents: Vec<u8>,
-    ) -> wasmtime::Result<Result<(), StreamError>> {
+    ) -> Result<(), StreamError> {
         if contents.len() > MAX_BLOCKING_WRITE {
             return Err(wasmtime::Error::msg(
                 "the guest handed blocking-write-and-flush more than 4096 bytes",
-            ));
+            )
+            .into());
         }
         let stream = self.table().get(this)?.stream.clone();
         let mut rest = &contents[..];
         while !rest.is_empty() {
             self.wait_on(&stream, PollMask::OUT)?;
-            let written = stream.write(rest);
-            match written {
+            match stream.write(rest) {
                 Ok(n) => rest = &rest[n..],
                 Err(FilesystemError::WouldBlock) => {}
-                Err(err) => return self.push_stream_error(err).map(Err),
+                Err(err) => return Err(err.into()),
             }
         }
         // Registering through the stream's poll puts the wait on its queue,
@@ -1053,11 +965,8 @@ impl IoHost for Invocation {
             let failed = stream.poll(table).contains(PollMask::ERR);
             (failed || stream.is_drained()).then_some(())
         })?;
-        let written = stream.write(&[]);
-        match written {
-            Ok(_) => Ok(Ok(())),
-            Err(err) => self.push_stream_error(err).map(Err),
-        }
+        stream.write(&[])?;
+        Ok(())
     }
 
     /// How many bytes a write takes now, zero while the stream is full or a
@@ -1065,19 +974,17 @@ impl IoHost for Invocation {
     fn streams_output_stream_check_write(
         &mut self,
         this: OutputStream,
-    ) -> wasmtime::Result<Result<u64, StreamError>> {
+    ) -> Result<u64, StreamError> {
         let stream = self.table().get(this)?.stream.clone();
-        if let Err(err) = stream.write(&[]) {
-            return self.push_stream_error(err).map(Err);
-        }
+        stream.write(&[])?;
         let output = self.table().get_mut(this)?;
         if table::OutputStream::is_flushing(&stream, &output.flushing) {
             output.permit = 0;
-            return Ok(Ok(0));
+            return Ok(0);
         }
         output.flushing.store(false, Ordering::Release);
         output.permit = stream.room();
-        Ok(Ok(output.permit as u64))
+        Ok(output.permit as u64)
     }
 
     /// Write what `check-write` permitted; more than it permits traps, as
@@ -1087,36 +994,28 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
         contents: Vec<u8>,
-    ) -> wasmtime::Result<Result<(), StreamError>> {
+    ) -> Result<(), StreamError> {
         let output = self.table().get_mut(this)?;
         if contents.len() > output.permit {
-            return Err(wasmtime::Error::msg(
-                "the guest wrote past what check-write permitted",
-            ));
+            return Err(
+                wasmtime::Error::msg("the guest wrote past what check-write permitted").into(),
+            );
         }
         output.permit = 0;
-        let stream = output.stream.clone();
-        match stream.write(&contents) {
-            Ok(_) => Ok(Ok(())),
-            Err(err) => self.push_stream_error(err).map(Err),
-        }
+        output.stream.clone().write(&contents)?;
+        Ok(())
     }
 
     /// Start a flush, which completes once what was written has left for the
     /// host; `check-write` answers zero until then, as `io.wit` asks.
-    fn streams_output_stream_flush(
-        &mut self,
-        this: OutputStream,
-    ) -> wasmtime::Result<Result<(), StreamError>> {
+    fn streams_output_stream_flush(&mut self, this: OutputStream) -> Result<(), StreamError> {
         let stream = self.table().get(this)?.stream.clone();
-        if let Err(err) = stream.write(&[]) {
-            return self.push_stream_error(err).map(Err);
-        }
+        stream.write(&[])?;
         self.table()
             .get(this)?
             .flushing
             .store(true, Ordering::Release);
-        Ok(Ok(()))
+        Ok(())
     }
 
     /// A pollable ready once `check-write` would offer a byte, the stream its
@@ -1193,6 +1092,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::super::bindings::wasi_sockets_network_0_2_12::Ipv4SocketAddress;
+    use super::super::error::IntoAnswer;
     use super::*;
     use crate::wasi::{sandbox_connections, Wasi};
     use kobako_runtime::grant::Grant;
@@ -1488,7 +1388,9 @@ mod tests {
         let network = guest.instance_network_instance_network().unwrap();
         assert!(
             matches!(
-                guest.ip_name_lookup_resolve_addresses(network, "example.com".to_string()),
+                guest
+                    .ip_name_lookup_resolve_addresses(network, "example.com".to_string())
+                    .into_answer(),
                 Ok(Err(ErrorCode::PermanentResolverFailure))
             ),
             "resolve-addresses with no network entry must answer permanent-resolver-failure"
@@ -1510,30 +1412,41 @@ mod tests {
         let (handed, end, remote) = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let stream = guest
-                .ip_name_lookup_resolve_addresses(network, "localhost".to_string())?
+                .ip_name_lookup_resolve_addresses(network, "localhost".to_string())
+                .into_answer()?
                 .expect("an endpoint names the name");
             let answered = guest.ip_name_lookup_resolve_address_stream_subscribe(stream)?;
             guest.poll_pollable_block(answered)?;
             let handed = guest
-                .ip_name_lookup_resolve_address_stream_resolve_next_address(stream)?
+                .ip_name_lookup_resolve_address_stream_resolve_next_address(stream)
+                .into_answer()?
                 .expect("localhost resolves");
-            let end = guest.ip_name_lookup_resolve_address_stream_resolve_next_address(stream)?;
+            let end = guest
+                .ip_name_lookup_resolve_address_stream_resolve_next_address(stream)
+                .into_answer()?;
             let Some(IpAddress::Ipv4(address)) = handed else {
                 return Err(wasmtime::Error::msg("no IPv4 address handed out"));
             };
             let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress { port, address });
             guest
-                .tcp_tcp_socket_start_connect(socket, network, remote)?
+                .tcp_tcp_socket_start_connect(socket, network, remote)
+                .into_answer()?
                 .expect("the endpoint leads to loopback");
             let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
             guest.poll_pollable_block(connecting)?;
             guest
-                .tcp_tcp_socket_finish_connect(socket)?
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
                 .expect("the listener accepts");
-            Ok((handed, end, guest.tcp_tcp_socket_remote_address(socket)?))
+            Ok((
+                handed,
+                end,
+                guest.tcp_tcp_socket_remote_address(socket).into_answer()?,
+            ))
         })
         .expect("the lookup and the connect answer");
         assert!(
@@ -1580,16 +1493,19 @@ mod tests {
         let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let tcp = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             guest
-                .tcp_tcp_socket_start_connect(tcp, network, at(tcp_port))?
+                .tcp_tcp_socket_start_connect(tcp, network, at(tcp_port))
+                .into_answer()?
                 .expect("an endpoint names the address");
             let connecting = guest.tcp_tcp_socket_subscribe(tcp)?;
             guest.poll_pollable_block(connecting)?;
             guest.poll_pollable_drop(connecting)?;
             let (input, output) = guest
-                .tcp_tcp_socket_finish_connect(tcp)?
+                .tcp_tcp_socket_finish_connect(tcp)
+                .into_answer()?
                 .expect("the listener accepts");
             let streams_held = guest.tcp_tcp_socket_drop(tcp).is_err();
             guest.streams_input_stream_drop(input)?;
@@ -1600,29 +1516,35 @@ mod tests {
             let tcp_late = guest.tcp_tcp_socket_drop(tcp).is_ok();
 
             let udp = guest
-                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             let any = IpSocketAddress::Ipv4(Ipv4SocketAddress {
                 port: 0,
                 address: (0, 0, 0, 0),
             });
             guest
-                .udp_udp_socket_start_bind(udp, network, any)?
+                .udp_udp_socket_start_bind(udp, network, any)
+                .into_answer()?
                 .expect("an ephemeral bind is the implicit one");
             guest
-                .udp_udp_socket_finish_bind(udp)?
+                .udp_udp_socket_finish_bind(udp)
+                .into_answer()?
                 .expect("the bind settles");
             let (incoming, outgoing) = guest
-                .udp_udp_socket_stream(udp, Some(at(udp_port)))?
+                .udp_udp_socket_stream(udp, Some(at(udp_port)))
+                .into_answer()?
                 .expect("the udp endpoint names the peer");
             let again_early = guest
                 .udp_udp_socket_stream(udp, Some(at(udp_port)))
+                .into_answer()
                 .is_err();
             let udp_early = guest.udp_udp_socket_drop(udp).is_err();
             guest.udp_incoming_datagram_stream_drop(incoming)?;
             guest.udp_outgoing_datagram_stream_drop(outgoing)?;
             let again_late = guest
-                .udp_udp_socket_stream(udp, Some(at(udp_port)))?
+                .udp_udp_socket_stream(udp, Some(at(udp_port)))
+                .into_answer()?
                 .map(|(incoming, outgoing)| {
                     guest.udp_incoming_datagram_stream_drop(incoming)?;
                     guest.udp_outgoing_datagram_stream_drop(outgoing)
@@ -1661,23 +1583,32 @@ mod tests {
         let answers = (|| {
             let network = guest.instance_network_instance_network()?;
             let udp = guest
-                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             guest
-                .udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0))?
+                .udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0))
+                .into_answer()?
                 .expect("an ephemeral bind is the implicit one");
-            let binding = guest.udp_udp_socket_local_address(udp)?.is_ok();
+            let binding = guest
+                .udp_udp_socket_local_address(udp)
+                .into_answer()?
+                .is_ok();
             guest
-                .udp_udp_socket_finish_bind(udp)?
+                .udp_udp_socket_finish_bind(udp)
+                .into_answer()?
                 .expect("the bind settles");
             let (_, outgoing) = guest
-                .udp_udp_socket_stream(udp, Some(ipv4((127, 0, 0, 1), port)))?
+                .udp_udp_socket_stream(udp, Some(ipv4((127, 0, 0, 1), port)))
+                .into_answer()?
                 .expect("the udp endpoint names the peer");
             let permitted = guest
-                .udp_outgoing_datagram_stream_check_send(outgoing)?
+                .udp_outgoing_datagram_stream_check_send(outgoing)
+                .into_answer()?
                 .expect("a streaming socket permits");
             let empty = guest
-                .udp_outgoing_datagram_stream_send(outgoing, Vec::new())?
+                .udp_outgoing_datagram_stream_send(outgoing, Vec::new())
+                .into_answer()?
                 .ok();
             let kept = guest
                 .udp_outgoing_datagram_stream_send(
@@ -1686,7 +1617,8 @@ mod tests {
                         data: b"x".to_vec(),
                         remote_address: None,
                     }],
-                )?
+                )
+                .into_answer()?
                 .ok();
             Ok::<_, wasmtime::Error>((binding, permitted > 0, empty, kept))
         })()
@@ -1720,24 +1652,28 @@ mod tests {
         let answers = (|| {
             let network = guest.instance_network_instance_network()?;
             let udp = guest
-                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             let any = IpSocketAddress::Ipv4(Ipv4SocketAddress {
                 port: 0,
                 address: (0, 0, 0, 0),
             });
             guest
-                .udp_udp_socket_start_bind(udp, network, any)?
+                .udp_udp_socket_start_bind(udp, network, any)
+                .into_answer()?
                 .expect("an ephemeral bind is the implicit one");
             guest
-                .udp_udp_socket_finish_bind(udp)?
+                .udp_udp_socket_finish_bind(udp)
+                .into_answer()?
                 .expect("the bind settles");
             let peer_at = IpSocketAddress::Ipv4(Ipv4SocketAddress {
                 port: udp_port,
                 address: (127, 0, 0, 1),
             });
             let (incoming, outgoing) = guest
-                .udp_udp_socket_stream(udp, Some(peer_at))?
+                .udp_udp_socket_stream(udp, Some(peer_at))
+                .into_answer()?
                 .expect("the udp endpoint names the peer");
             let readable = guest.udp_incoming_datagram_stream_subscribe(incoming)?;
             let writable = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
@@ -1749,7 +1685,8 @@ mod tests {
                 && guest.udp_outgoing_datagram_stream_drop(outgoing).is_ok();
 
             let lookup = guest
-                .ip_name_lookup_resolve_addresses(network, "localhost".to_string())?
+                .ip_name_lookup_resolve_addresses(network, "localhost".to_string())
+                .into_answer()?
                 .expect("an endpoint names localhost");
             let resolved = guest.ip_name_lookup_resolve_address_stream_subscribe(lookup)?;
             let lookup_held = guest
@@ -1772,7 +1709,8 @@ mod tests {
                 .types_outgoing_request_body(request)?
                 .expect("a request hands out its body once");
             let future = guest
-                .outgoing_handler_handle(request, None)?
+                .outgoing_handler_handle(request, None)
+                .into_answer()?
                 .expect("a request whose body is unfinished waits in its future");
             guest.types_outgoing_body_drop(body)?;
             let arrived = guest.types_future_incoming_response_subscribe(future)?;
@@ -1817,24 +1755,36 @@ mod tests {
             run_task(Some(Instant::now() + Duration::from_secs(10)), || {
                 let network = guest.instance_network_instance_network()?;
                 let connecting = guest
-                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()?
                     .expect("a network makes a socket");
                 guest
-                    .tcp_tcp_socket_start_connect(connecting, network, ipv4((127, 0, 0, 1), open))?
+                    .tcp_tcp_socket_start_connect(connecting, network, ipv4((127, 0, 0, 1), open))
+                    .into_answer()?
                     .expect("an endpoint names the listener");
-                let during = guest.tcp_tcp_socket_local_address(connecting)?;
+                let during = guest
+                    .tcp_tcp_socket_local_address(connecting)
+                    .into_answer()?;
                 let refused = guest
-                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()?
                     .expect("a network makes a socket");
                 guest
-                    .tcp_tcp_socket_start_connect(refused, network, ipv4((127, 0, 0, 1), closed))?
+                    .tcp_tcp_socket_start_connect(refused, network, ipv4((127, 0, 0, 1), closed))
+                    .into_answer()?
                     .expect("an endpoint names the closed port");
                 let settled = guest.tcp_tcp_socket_subscribe(refused)?;
                 guest.poll_pollable_block(settled)?;
-                let failure = guest.tcp_tcp_socket_finish_connect(refused)?.err();
+                let failure = guest
+                    .tcp_tcp_socket_finish_connect(refused)
+                    .into_answer()?
+                    .err();
                 let after = (
-                    guest.tcp_tcp_socket_local_address(refused)?,
-                    guest.tcp_tcp_socket_remote_address(refused)?.err(),
+                    guest.tcp_tcp_socket_local_address(refused).into_answer()?,
+                    guest
+                        .tcp_tcp_socket_remote_address(refused)
+                        .into_answer()?
+                        .err(),
                 );
                 Ok::<_, wasmtime::Error>((during, failure, after))
             })
@@ -1868,21 +1818,26 @@ mod tests {
         let batches = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
-                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             guest
-                .udp_udp_socket_start_bind(socket, network, ipv4((0, 0, 0, 0), 0))?
+                .udp_udp_socket_start_bind(socket, network, ipv4((0, 0, 0, 0), 0))
+                .into_answer()?
                 .expect("an ephemeral bind is the implicit one");
             guest
-                .udp_udp_socket_finish_bind(socket)?
+                .udp_udp_socket_finish_bind(socket)
+                .into_answer()?
                 .expect("the bind settles");
             let (incoming, outgoing) = guest
-                .udp_udp_socket_stream(socket, Some(ipv4((127, 0, 0, 1), port)))?
+                .udp_udp_socket_stream(socket, Some(ipv4((127, 0, 0, 1), port)))
+                .into_answer()?
                 .expect("the udp endpoint names the peer");
             let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
             guest.poll_pollable_block(room)?;
             guest
-                .udp_outgoing_datagram_stream_check_send(outgoing)?
+                .udp_outgoing_datagram_stream_check_send(outgoing)
+                .into_answer()?
                 .expect("the stream with room permits a datagram");
             guest
                 .udp_outgoing_datagram_stream_send(
@@ -1891,7 +1846,8 @@ mod tests {
                         data: b"hi".to_vec(),
                         remote_address: None,
                     }],
-                )?
+                )
+                .into_answer()?
                 .expect("the datagram is sent");
             let mut buf = [0; 16];
             let (_, guest_end) = peer.recv_from(&mut buf)?;
@@ -1906,7 +1862,8 @@ mod tests {
                 guest.poll_pollable_drop(arrived)?;
                 batches.push(
                     guest
-                        .udp_incoming_datagram_stream_receive(incoming, 100)?
+                        .udp_incoming_datagram_stream_receive(incoming, 100)
+                        .into_answer()?
                         .expect("the peer's datagrams are received")
                         .len(),
                 );
@@ -1949,26 +1906,37 @@ mod tests {
         let (fixed, peerless, answer) = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let fixed_socket = guest
-                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
-            let fixed = guest.udp_udp_socket_start_bind(fixed_socket, network, any(4000))?;
+            let fixed = guest
+                .udp_udp_socket_start_bind(fixed_socket, network, any(4000))
+                .into_answer()?;
             let socket = guest
-                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             guest
-                .udp_udp_socket_start_bind(socket, network, any(0))?
+                .udp_udp_socket_start_bind(socket, network, any(0))
+                .into_answer()?
                 .expect("an ephemeral bind is the implicit one");
             guest
-                .udp_udp_socket_finish_bind(socket)?
+                .udp_udp_socket_finish_bind(socket)
+                .into_answer()?
                 .expect("the bind settles");
-            let peerless = guest.udp_udp_socket_stream(socket, None)?.map(drop);
+            let peerless = guest
+                .udp_udp_socket_stream(socket, None)
+                .into_answer()?
+                .map(drop);
             let (incoming, outgoing) = guest
-                .udp_udp_socket_stream(socket, Some(at(port)))?
+                .udp_udp_socket_stream(socket, Some(at(port)))
+                .into_answer()?
                 .expect("the udp endpoint names the peer");
             let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
             guest.poll_pollable_block(room)?;
             guest
-                .udp_outgoing_datagram_stream_check_send(outgoing)?
+                .udp_outgoing_datagram_stream_check_send(outgoing)
+                .into_answer()?
                 .expect("the stream with room permits a datagram");
             let sent = guest.udp_outgoing_datagram_stream_send(
                 outgoing,
@@ -1976,7 +1944,7 @@ mod tests {
                     data: b"ping".to_vec(),
                     remote_address: None,
                 }],
-            )?;
+            );
             if !matches!(sent, Ok(1)) {
                 return Err(wasmtime::Error::msg("the datagram was not sent"));
             }
@@ -1986,7 +1954,8 @@ mod tests {
             let arrived = guest.udp_incoming_datagram_stream_subscribe(incoming)?;
             guest.poll_pollable_block(arrived)?;
             let answer = guest
-                .udp_incoming_datagram_stream_receive(incoming, 4)?
+                .udp_incoming_datagram_stream_receive(incoming, 4)
+                .into_answer()?
                 .expect("the peer's datagram is received");
             Ok((fixed, peerless, answer))
         })
@@ -2035,25 +2004,32 @@ mod tests {
         let answers = run_task(Some(started + Duration::from_secs(30)), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             guest
-                .tcp_tcp_socket_set_send_buffer_size(socket, 4096)?
+                .tcp_tcp_socket_set_send_buffer_size(socket, 4096)
+                .into_answer()?
                 .expect("a socket takes a send buffer");
             guest
-                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))?
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
                 .expect("the endpoint names the listener");
             let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
             guest.poll_pollable_block(connecting)?;
             let (_, output) = guest
-                .tcp_tcp_socket_finish_connect(socket)?
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
                 .expect("the listener accepts");
             let (mut peer, _) = listener.accept().unwrap();
             // Fill the host's buffers and the socket's own, the peer reading
             // nothing, so what a flush holds cannot leave.
             let mut quiet = 0;
             while quiet < 20 {
-                match guest.streams_output_stream_check_write(output)? {
+                match guest
+                    .streams_output_stream_check_write(output)
+                    .into_answer()?
+                {
                     Ok(0) => {
                         quiet += 1;
                         std::thread::sleep(Duration::from_millis(5));
@@ -2061,13 +2037,16 @@ mod tests {
                     Ok(room) => {
                         quiet = 0;
                         let chunk = vec![b'x'; room.min(4096) as usize];
-                        let _ = guest.streams_output_stream_write(output, chunk)?;
+                        let _ = guest
+                            .streams_output_stream_write(output, chunk)
+                            .into_answer()?;
                     }
                     Err(_) => break,
                 }
             }
             guest
-                .streams_output_stream_flush(output)?
+                .streams_output_stream_flush(output)
+                .into_answer()?
                 .expect("a connected stream flushes");
             let writable = guest.streams_output_stream_subscribe(output)?;
             let now = guest.monotonic_clock_subscribe_duration(0)?;
@@ -2077,7 +2056,10 @@ mod tests {
                 while std::io::Read::read(&mut peer, &mut sink).is_ok_and(|n| n > 0) {}
             });
             guest.poll_pollable_block(writable)?;
-            let after = guest.streams_output_stream_check_write(output)?.ok();
+            let after = guest
+                .streams_output_stream_check_write(output)
+                .into_answer()?
+                .ok();
             Ok::<_, wasmtime::Error>((while_held, after, reader))
         })
         .expect("the stream fills and drains");
@@ -2098,10 +2080,12 @@ mod tests {
         let connect = |guest: &mut Invocation, to| {
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()
                 .unwrap()
                 .expect("a network makes a socket");
             guest
                 .tcp_tcp_socket_start_connect(socket, network, to)
+                .into_answer()
                 .unwrap()
         };
         let connects = [
@@ -2112,10 +2096,12 @@ mod tests {
         ];
         let udp = guest
             .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+            .into_answer()
             .unwrap()
             .expect("a network makes a socket");
         let bind = guest
             .udp_udp_socket_start_bind(udp, network, ipv4((224, 0, 0, 1), 0))
+            .into_answer()
             .unwrap();
         assert_eq!(
             (connects, bind),
@@ -2137,17 +2123,27 @@ mod tests {
         let network = guest.instance_network_instance_network().unwrap();
         let socket = guest
             .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+            .into_answer()
             .unwrap()
             .expect("a network makes a socket");
         let to = ipv4((127, 0, 0, 1), port);
-        let first = guest.tcp_tcp_socket_start_connect(socket, network, to.clone());
-        let again = guest.tcp_tcp_socket_start_connect(socket, network, to);
+        let first = guest
+            .tcp_tcp_socket_start_connect(socket, network, to.clone())
+            .into_answer();
+        let again = guest
+            .tcp_tcp_socket_start_connect(socket, network, to)
+            .into_answer();
         let udp = guest
             .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+            .into_answer()
             .unwrap()
             .expect("a network makes a socket");
-        let bound = guest.udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0));
-        let rebound = guest.udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0));
+        let bound = guest
+            .udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0))
+            .into_answer();
+        let rebound = guest
+            .udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0))
+            .into_answer();
         assert_eq!(
             (
                 first.unwrap(),
@@ -2175,28 +2171,36 @@ mod tests {
         let answered = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let fresh = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             let idle = guest.tcp_tcp_socket_subscribe(fresh)?;
             guest.poll_pollable_block(idle)?;
             let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             guest
-                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))?
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
                 .expect("the endpoint names the listener");
             let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
             guest.poll_pollable_block(connecting)?;
             let (_, output) = guest
-                .tcp_tcp_socket_finish_connect(socket)?
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
                 .expect("the listener accepts");
             // The listener never reads, so the send buffer fills and a wait
             // for room would hold; the pollable answers anyway once connected.
             loop {
-                match guest.streams_output_stream_check_write(output)? {
+                match guest
+                    .streams_output_stream_check_write(output)
+                    .into_answer()?
+                {
                     Ok(0) => break,
                     Ok(n) => guest
-                        .streams_output_stream_write(output, vec![b'x'; n as usize])?
+                        .streams_output_stream_write(output, vec![b'x'; n as usize])
+                        .into_answer()?
                         .expect("the stream takes what it permitted"),
                     Err(_) => return Err(wasmtime::Error::msg("the stream failed")),
                 }
@@ -2222,21 +2226,29 @@ mod tests {
         let (permitted, within, past) = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             guest
-                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))?
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
                 .expect("the endpoint names the listener");
             let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
             guest.poll_pollable_block(connecting)?;
             let (_, output) = guest
-                .tcp_tcp_socket_finish_connect(socket)?
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
                 .expect("the listener accepts");
             let permitted = guest
-                .streams_output_stream_check_write(output)?
+                .streams_output_stream_check_write(output)
+                .into_answer()?
                 .expect("a connected stream permits");
-            let within = guest.streams_output_stream_write(output, vec![b'x']);
-            let past = guest.streams_output_stream_write(output, vec![b'x']);
+            let within = guest
+                .streams_output_stream_write(output, vec![b'x'])
+                .into_answer();
+            let past = guest
+                .streams_output_stream_write(output, vec![b'x'])
+                .into_answer();
             Ok::<_, wasmtime::Error>((permitted, within.is_ok(), past.is_err()))
         })
         .expect("the connect answers");
@@ -2262,37 +2274,44 @@ mod tests {
         let sent = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
-                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             let any = IpSocketAddress::Ipv4(Ipv4SocketAddress {
                 port: 0,
                 address: (0, 0, 0, 0),
             });
             guest
-                .udp_udp_socket_start_bind(socket, network, any)?
+                .udp_udp_socket_start_bind(socket, network, any)
+                .into_answer()?
                 .expect("an ephemeral bind is the implicit one");
             guest
-                .udp_udp_socket_finish_bind(socket)?
+                .udp_udp_socket_finish_bind(socket)
+                .into_answer()?
                 .expect("the bind settles");
             let peer_address = IpSocketAddress::Ipv4(Ipv4SocketAddress {
                 port,
                 address: (127, 0, 0, 1),
             });
             let (_, outgoing) = guest
-                .udp_udp_socket_stream(socket, Some(peer_address))?
+                .udp_udp_socket_stream(socket, Some(peer_address))
+                .into_answer()?
                 .expect("the udp endpoint names the peer");
             let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
             guest.poll_pollable_block(room)?;
             guest
-                .udp_outgoing_datagram_stream_check_send(outgoing)?
+                .udp_outgoing_datagram_stream_check_send(outgoing)
+                .into_answer()?
                 .expect("the stream with room permits a datagram");
-            guest.udp_outgoing_datagram_stream_send(
-                outgoing,
-                vec![OutgoingDatagram {
-                    data: vec![0; MAX_DATAGRAM + 1],
-                    remote_address: None,
-                }],
-            )
+            guest
+                .udp_outgoing_datagram_stream_send(
+                    outgoing,
+                    vec![OutgoingDatagram {
+                        data: vec![0; MAX_DATAGRAM + 1],
+                        remote_address: None,
+                    }],
+                )
+                .into_answer()
         })
         .expect("the send answers");
         assert!(
@@ -2323,7 +2342,8 @@ mod tests {
             || -> wasmtime::Result<_> {
                 let network = guest.instance_network_instance_network()?;
                 let socket = guest
-                    .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                    .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()?
                     .expect("a network makes a socket");
                 guest
                     .udp_udp_socket_start_bind(
@@ -2333,10 +2353,12 @@ mod tests {
                             port: 0,
                             address: (0, 0, 0, 0),
                         }),
-                    )?
+                    )
+                    .into_answer()?
                     .expect("an ephemeral bind is the implicit one");
                 guest
-                    .udp_udp_socket_finish_bind(socket)?
+                    .udp_udp_socket_finish_bind(socket)
+                    .into_answer()?
                     .expect("the bind settles");
                 let (_incoming, outgoing) = guest
                     .udp_udp_socket_stream(
@@ -2345,17 +2367,24 @@ mod tests {
                             port,
                             address: (127, 0, 0, 1),
                         })),
-                    )?
+                    )
+                    .into_answer()?
                     .expect("the udp endpoint names the peer");
                 let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
                 guest.poll_pollable_block(room)?;
                 let unpermitted = guest
                     .udp_outgoing_datagram_stream_send(outgoing, ping())
+                    .into_answer()
                     .is_err();
-                let permit = guest.udp_outgoing_datagram_stream_check_send(outgoing)?;
-                let sent = guest.udp_outgoing_datagram_stream_send(outgoing, ping())?;
+                let permit = guest
+                    .udp_outgoing_datagram_stream_check_send(outgoing)
+                    .into_answer()?;
+                let sent = guest
+                    .udp_outgoing_datagram_stream_send(outgoing, ping())
+                    .into_answer()?;
                 let spent = guest
                     .udp_outgoing_datagram_stream_send(outgoing, ping())
+                    .into_answer()
                     .is_err();
                 wasmtime::Result::Ok((unpermitted, permit, sent, spent))
             },
@@ -2378,7 +2407,8 @@ mod tests {
             Some(Instant::now() + Duration::from_secs(10)),
             || -> wasmtime::Result<_> {
                 let socket = guest
-                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()?
                     .expect("a network makes a socket");
                 let network = guest.instance_network_instance_network()?;
                 let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
@@ -2386,18 +2416,22 @@ mod tests {
                     address: (127, 0, 0, 1),
                 });
                 guest
-                    .tcp_tcp_socket_start_connect(socket, network, remote)?
+                    .tcp_tcp_socket_start_connect(socket, network, remote)
+                    .into_answer()?
                     .expect("an endpoint names the address");
                 let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
                 guest.poll_pollable_block(connecting)?;
                 let (_input, output) = guest
-                    .tcp_tcp_socket_finish_connect(socket)?
+                    .tcp_tcp_socket_finish_connect(socket)
+                    .into_answer()?
                     .expect("the listener accepts");
                 let past = guest
                     .streams_output_stream_blocking_write_and_flush(output, vec![0; 4097])
+                    .into_answer()
                     .is_err();
                 let within = guest
                     .streams_output_stream_blocking_write_and_flush(output, vec![0; 4096])
+                    .into_answer()
                     .map(|answer| answer.is_ok())?;
                 wasmtime::Result::Ok((past, within))
             },
@@ -2419,7 +2453,8 @@ mod tests {
         let started = Instant::now();
         let answer = run_task(Some(started + Duration::from_secs(10)), || {
             let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("a network makes a socket");
             let network = guest.instance_network_instance_network()?;
             let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
@@ -2427,12 +2462,14 @@ mod tests {
                 address: (127, 0, 0, 1),
             });
             guest
-                .tcp_tcp_socket_start_connect(socket, network, remote)?
+                .tcp_tcp_socket_start_connect(socket, network, remote)
+                .into_answer()?
                 .expect("an endpoint names the address");
             let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
             guest.poll_pollable_block(connecting)?;
             let (input, _output) = guest
-                .tcp_tcp_socket_finish_connect(socket)?
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
                 .expect("the listener accepts");
             let silent = guest.streams_input_stream_subscribe(input)?;
             let clock = guest.monotonic_clock_subscribe_duration(50_000_000)?;
@@ -2488,10 +2525,12 @@ mod tests {
             (
                 guest
                     .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()
                     .ok()
                     .and_then(|answer| answer.err()),
                 guest
                     .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()
                     .ok()
                     .and_then(|answer| answer.err()),
             ),
@@ -2514,6 +2553,7 @@ mod tests {
         let network = guest.instance_network_instance_network().unwrap();
         let lookup = guest
             .ip_name_lookup_resolve_addresses(network, "example.com".to_string())
+            .into_answer()
             .ok()
             .and_then(|answer| answer.err());
         let headers = guest.types_fields_new().unwrap();
@@ -2528,6 +2568,7 @@ mod tests {
             .unwrap();
         let sent = guest
             .outgoing_handler_handle(request, None)
+            .into_answer()
             .ok()
             .and_then(|answer| answer.err());
         assert_eq!(
@@ -2556,18 +2597,25 @@ mod tests {
         let connected = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
                 .expect("one file is left for the socket");
             let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
                 port,
                 address: (127, 0, 0, 1),
             });
             guest
-                .tcp_tcp_socket_start_connect(socket, network, remote)?
+                .tcp_tcp_socket_start_connect(socket, network, remote)
+                .into_answer()?
                 .expect("the endpoint names the listener");
             let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
             guest.poll_pollable_block(connecting)?;
-            Ok::<_, wasmtime::Error>(guest.tcp_tcp_socket_finish_connect(socket)?.is_ok())
+            Ok::<_, wasmtime::Error>(
+                guest
+                    .tcp_tcp_socket_finish_connect(socket)
+                    .into_answer()?
+                    .is_ok(),
+            )
         });
         assert!(
             matches!(connected, Ok(true)),
@@ -2660,6 +2708,19 @@ mod tests {
         assert!(
             wrong && kept,
             "tcp-socket's drop of a network handle must trap and leave the network held"
+        );
+    }
+
+    // @behavior RT-348
+    #[test]
+    fn a_handle_of_another_kind_where_a_network_is_taken_traps() {
+        let (mut store, instance) = guest(Profile::Hermetic, None);
+        let pollable = call::<i64, i32>(&mut store, &instance, "subscribe", 0).expect("a pollable");
+        let answer = call::<(i32, i32), ()>(&mut store, &instance, "resolve", (pollable, 0));
+        assert!(
+            answer.is_err(),
+            "resolve-addresses handed a pollable where its network is taken must trap, not \
+             answer an error-code"
         );
     }
 }
