@@ -7,17 +7,16 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use super::egress::EgressProxy;
 use super::family::admitted_addresses_of;
 use super::http::{
-    carries, split_authority, to_field_name, to_field_value, Connector, Exchange, HttpError,
-    Outbound, OutgoingRequest, Scheme, Swap,
+    to_field_name, to_field_value, Exchange, HttpError, Outbound, OutgoingRequest, Scheme,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
+use super::transport::{split_authority, Connector};
 use super::{OpenConnections, ProtocolFamily, TcpSock, UdpSock};
 use crate::grant::Policy;
-use crate::network::{
-    Connection, Credential, EntryError, Name, Network, Protocol, Request, Ruleset,
-};
+use crate::network::{Connection, EntryError, Name, Network, Protocol, Request, Ruleset};
 use crate::vfs::{Cred, FilesystemError};
 
 /// The bottom of the virtual range, `198.18.0.0/15`, inside the reserved set,
@@ -49,9 +48,8 @@ pub struct Namespace {
     ruleset: Arc<Ruleset>,
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
     connect: Vec<Arc<dyn for<'a> Policy<Connection<'a>>>>,
-    request: Vec<Arc<dyn for<'a> Policy<Request<'a>>>>,
-    /// Each entry's own endpoints and the credentials bound to them.
-    bound: Vec<(Ruleset, Vec<Credential>)>,
+    /// The HTTP layer's request policies and bound credentials.
+    egress: EgressProxy,
     family: Arc<dyn ProtocolFamily>,
     outbound: Arc<dyn Outbound>,
     open_connections: Arc<OpenConnections>,
@@ -101,8 +99,10 @@ impl Namespace {
             ruleset: Arc::new(ruleset),
             resolve: policies.iter().filter_map(|p| p.resolve.clone()).collect(),
             connect: policies.iter().filter_map(|p| p.connect.clone()).collect(),
-            request: policies.iter().filter_map(|p| p.request.clone()).collect(),
-            bound,
+            egress: EgressProxy {
+                request: policies.iter().filter_map(|p| p.request.clone()).collect(),
+                bound,
+            },
             family,
             outbound,
             open_connections,
@@ -172,12 +172,12 @@ impl Namespace {
         let sent = Request::new((&host, port), &method, scheme, path, &names);
         let admitted = reachable
             && self.ruleset.admits_request(&host, port, &method, path)
-            && self.request.iter().all(|policy| policy.allows(&sent));
+            && self.egress.admits(&sent);
         if !admitted {
             return Err(HttpError::Denied);
         }
         let swaps = match request.scheme {
-            Scheme::Https => self.swaps_of(&sent, &request.headers),
+            Scheme::Https => self.egress.swaps_of(&sent, &request.headers),
             Scheme::Http => Vec::new(),
         };
         let mut request = request;
@@ -192,38 +192,6 @@ impl Namespace {
                 cred,
             )
         })
-    }
-
-    /// The credentials bound to `sent`, a request over `https`: an entry's own
-    /// endpoint names its exact host and allows it, and the placement's header
-    /// carries the placeholder. Each source answers here, on the guest thread,
-    /// so its time counts against the deadline.
-    fn swaps_of(&self, sent: &Request<'_>, headers: &[(String, Vec<u8>)]) -> Vec<Swap> {
-        let (host, port) = sent.authority;
-        let mut swaps = Vec::new();
-        for (rules, credentials) in &self.bound {
-            if !rules.binds(host, port, sent.method, sent.path) {
-                continue;
-            }
-            for credential in credentials {
-                let header = credential.placement.header();
-                let placeholder = credential.placeholder.as_bytes();
-                let carried = headers.iter().any(|(name, value)| {
-                    name.eq_ignore_ascii_case(header) && carries(value, placeholder)
-                });
-                if !carried {
-                    continue;
-                }
-                if let Some(secret) = credential.source.value(sent) {
-                    swaps.push(Swap {
-                        header: header.to_string(),
-                        placeholder: placeholder.to_vec(),
-                        secret,
-                    });
-                }
-            }
-        }
-        swaps
     }
 
     /// A lookup of `name`. The name is normalized, then each entry's `resolve`

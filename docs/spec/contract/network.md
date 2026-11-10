@@ -12,6 +12,7 @@ is one Grant, and its endpoints are data the runtime judges on any thread.
 - `crates/kobako-runtime/src/net/http.rs`
 - `crates/kobako-runtime/src/net/lookup.rs`
 - `crates/kobako-runtime/src/net/tls.rs`
+- `crates/kobako-runtime/src/net/transport.rs`
 - `crates/kobako-runtime/src/net/udp.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/socket.rs`
