@@ -948,7 +948,7 @@ mod tests {
         Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()))
     }
 
-    fn get_request(authority: &str) -> OutgoingRequest {
+    fn greeting_request(authority: &str) -> OutgoingRequest {
         let mut request = OutgoingRequest::new("GET", Scheme::Http, authority);
         request.path_with_query = "/greeting?lang=en".to_string();
         request
@@ -1045,17 +1045,19 @@ mod tests {
         .expect("the endpoints compile");
         let cred = prepare_creds_within(&[], None);
         let first = namespace
-            .send(&cred, get_request("api.example.com"))
+            .send(&cred, greeting_request("api.example.com"))
             .expect("the first request has a place");
         resolving
             .recv_timeout(Duration::from_secs(5))
             .expect("the request's lookup starts");
         first.release();
-        let while_resolving = namespace.send(&cred, get_request("api.example.com")).err();
+        let while_resolving = namespace
+            .send(&cred, greeting_request("api.example.com"))
+            .err();
         release.send(()).unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let once_returned = loop {
-            match namespace.send(&cred, get_request("api.example.com")) {
+            match namespace.send(&cred, greeting_request("api.example.com")) {
                 Ok(_) => break true,
                 Err(_) if std::time::Instant::now() < deadline => {
                     thread::sleep(Duration::from_millis(1))
@@ -1081,7 +1083,7 @@ mod tests {
             .with_addresses(vec![crate::network::Addresses::Local])]);
         let cred = prepare_creds_within(&[], None);
         let exchange = namespace
-            .send(&cred, get_request(&format!("LocalHost:{port}")))
+            .send(&cred, greeting_request(&format!("LocalHost:{port}")))
             .expect("the endpoint names the authority");
         let (head, body) = read_response(&exchange).expect("the server answers");
         let seen = server.join().unwrap();
@@ -1126,7 +1128,7 @@ mod tests {
             Namespace::for_network(&network, family.clone(), Arc::new(HyperOutbound::new()));
         let cred = prepare_creds_within(&[], None);
         let exchange = namespace
-            .send(&cred, get_request(&format!("127.0.0.1:{port}")))
+            .send(&cred, greeting_request(&format!("127.0.0.1:{port}")))
             .expect("the endpoint names the authority");
         read_response(&exchange).expect("the server answers");
         server.join().unwrap();
@@ -1163,7 +1165,7 @@ mod tests {
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds_within(&[], None);
         let exchange = namespace
-            .send(&cred, get_request(&format!("127.0.0.1:{port}")))
+            .send(&cred, greeting_request(&format!("127.0.0.1:{port}")))
             .expect("an endpoint names the authority");
         let mut held = 0;
         let mut body = Vec::new();
@@ -1203,7 +1205,7 @@ mod tests {
             format!("elsewhere.example:{port}"),
             format!("198.18.0.0:{port}"),
         ]
-        .map(|authority| namespace.send(&cred, get_request(&authority)).err());
+        .map(|authority| namespace.send(&cred, greeting_request(&authority)).err());
         thread::sleep(Duration::from_millis(20));
         assert!(
             answers
@@ -1224,7 +1226,7 @@ mod tests {
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds_within(&[], None);
         let answers = ["Host", "content-length", "bad name"].map(|name| {
-            let mut request = get_request(&format!("127.0.0.1:{port}"));
+            let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.headers.push((name.to_string(), b"x".to_vec()));
             namespace.send(&cred, request).err()
         });
@@ -1262,7 +1264,7 @@ mod tests {
         });
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds_within(&[], None);
-        let mut request = get_request(&format!("127.0.0.1:{port}"));
+        let mut request = greeting_request(&format!("127.0.0.1:{port}"));
         request.scheme = Scheme::Https;
         let exchange = namespace
             .send(&cred, request)
@@ -1303,7 +1305,7 @@ mod tests {
         let network = Network::new("web", Arc::new(entry)).unwrap();
         let namespace =
             Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()));
-        let mut request = get_request(&format!("127.0.0.1:{port}"));
+        let mut request = greeting_request(&format!("127.0.0.1:{port}"));
         request
             .headers
             .push(("x-probe".to_string(), b"secret".to_vec()));

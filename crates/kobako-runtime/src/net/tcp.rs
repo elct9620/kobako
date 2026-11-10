@@ -149,7 +149,7 @@ impl TcpSock {
     }
 
     /// Connect to the first of `addrs` that answers, in turn, the guest having
-    /// named `named`; the connect goes on without blocking, so this returns at
+    /// named `peer`; the connect goes on without blocking, so this returns at
     /// once and a poll finds the socket writable once it settles. A socket
     /// connecting answers `EALREADY` and one connected `EISCONN`, as
     /// `__inet_stream_connect` does. The socket counts against
@@ -158,7 +158,7 @@ impl TcpSock {
     pub(crate) fn connect(
         &self,
         addrs: Vec<SocketAddr>,
-        named: SocketAddr,
+        peer: SocketAddr,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<(), FilesystemError> {
         {
@@ -183,7 +183,7 @@ impl TcpSock {
         let mut state = self.state();
         state.inet.place = Some(place);
         state.untried = addrs.into();
-        state.inet.peer = Some(named);
+        state.inet.peer = Some(peer);
         state.phase = Phase::Connecting;
         self.dial_next(&mut state, FilesystemError::InvalidInput);
         Ok(())

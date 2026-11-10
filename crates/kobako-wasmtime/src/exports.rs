@@ -125,7 +125,7 @@ mod tests {
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(
-            load_engine().expect("shared engine"),
+            load_engine().expect("shared engine must be constructible"),
             Invocation::new(None, wasi),
         );
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);

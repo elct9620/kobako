@@ -665,7 +665,10 @@ mod tests {
     }
 
     /// A GET for `/greeting` at `authority` over HTTP.
-    fn get_request(guest: &mut Invocation, authority: &str) -> wasmtime::Result<OutgoingRequest> {
+    fn greeting_request(
+        guest: &mut Invocation,
+        authority: &str,
+    ) -> wasmtime::Result<OutgoingRequest> {
         let headers = guest.types_fields_new()?;
         let request = guest.types_outgoing_request_new(headers)?;
         guest
@@ -684,7 +687,7 @@ mod tests {
     #[test]
     fn without_the_network_a_request_answers_http_request_denied() {
         let mut guest = guest(None);
-        let request = get_request(&mut guest, "example.com").unwrap();
+        let request = greeting_request(&mut guest, "example.com").unwrap();
         assert!(
             matches!(
                 guest.outgoing_handler_handle(request, None).into_answer(),
@@ -717,7 +720,7 @@ mod tests {
         let mut guest = guest(Some(vec![endpoint]));
         let started = Instant::now();
         let (status, kind, body, nothing) = run_task(Some(started + Wait::from_secs(10)), || {
-            let request = get_request(&mut guest, &format!("127.0.0.1:{port}"))?;
+            let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
             let future = guest
                 .outgoing_handler_handle(request, None)
                 .into_answer()?
@@ -799,7 +802,7 @@ mod tests {
             let started = Instant::now();
             let body = run_task(Some(started + Wait::from_secs(10)), || {
                 let guest = guest.as_mut().unwrap();
-                let request = get_request(guest, &format!("127.0.0.1:{port}"))?;
+                let request = greeting_request(guest, &format!("127.0.0.1:{port}"))?;
                 let future = guest
                     .outgoing_handler_handle(request, None)
                     .into_answer()?
@@ -1008,7 +1011,7 @@ mod tests {
             .unwrap()
             .with_rules(vec![network::HttpRule::deny(None, "/admin")]);
         let mut guest = guest(Some(vec![endpoint]));
-        let request = get_request(&mut guest, "example.com").unwrap();
+        let request = greeting_request(&mut guest, "example.com").unwrap();
         guest
             .types_outgoing_request_set_path_with_query(request, Some("/admin#x".to_string()))
             .unwrap()
@@ -1050,7 +1053,7 @@ mod tests {
     #[test]
     fn a_body_dropped_or_finished_while_its_stream_lives_traps() {
         let mut guest = guest(None);
-        let request = get_request(&mut guest, "example.com").unwrap();
+        let request = greeting_request(&mut guest, "example.com").unwrap();
         let body = guest
             .types_outgoing_request_body(request)
             .unwrap()
@@ -1096,7 +1099,7 @@ mod tests {
         let mut guest = guest(Some(vec![endpoint]));
         let started = Instant::now();
         let (dropped, kind) = run_task(Some(started + Wait::from_secs(10)), || {
-            let request = get_request(&mut guest, &format!("127.0.0.1:{port}"))?;
+            let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
             let future = guest
                 .outgoing_handler_handle(request, None)
                 .into_answer()?
@@ -1181,7 +1184,7 @@ mod tests {
         let mut guest = guest(Some(vec![
             network::Endpoint::new("example.com", 80).unwrap()
         ]));
-        let request = get_request(&mut guest, "example.com").unwrap();
+        let request = greeting_request(&mut guest, "example.com").unwrap();
         let body = guest
             .types_outgoing_request_body(request)
             .unwrap()

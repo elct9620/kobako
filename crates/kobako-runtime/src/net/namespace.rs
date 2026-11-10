@@ -727,7 +727,7 @@ mod tests {
         assert_eq!(
             (orphaned, held.strong_count() > 0),
             (true, false),
-            "a socket released with bytes its peer never read must hold itself while it sends, \
+            "a socket released with bytes still queued to send must hold itself while it sends, \
              and the Invocation's namespace dropping must let it go"
         );
     }

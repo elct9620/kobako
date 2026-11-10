@@ -41,7 +41,7 @@ struct State {
     /// peer it came from as the guest named it, as `sk_receive_queue` keeps
     /// each skb's source, and the bytes they hold.
     receive_queue: VecDeque<(Vec<u8>, SocketAddr)>,
-    received_bytes: usize,
+    rmem_alloc: usize,
     /// The peer before the last connect, its real address beside the one the
     /// guest named, so a datagram it sent before the connect still reads as
     /// its own.
@@ -73,7 +73,7 @@ impl UdpSock {
             state: Mutex::new(State {
                 host: None,
                 receive_queue: VecDeque::new(),
-                received_bytes: 0,
+                rmem_alloc: 0,
                 former_peer: None,
                 writable: true,
                 inet: InetSock::new(memory),
@@ -83,7 +83,7 @@ impl UdpSock {
         }))
     }
 
-    /// Connect to `addr` through `family`, the guest having named `named`,
+    /// Connect to `addr` through `family`, the guest having named `peer`,
     /// the host socket watched by the reactor; it counts against
     /// `open_connections` and the process until released, and a full count
     /// answers `EAGAIN`. Connecting again moves the peer and keeps the place,
@@ -93,7 +93,7 @@ impl UdpSock {
         &self,
         family: &Arc<dyn ProtocolFamily>,
         addr: SocketAddr,
-        named: SocketAddr,
+        peer: SocketAddr,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<(), FilesystemError> {
         {
@@ -110,7 +110,7 @@ impl UdpSock {
                     socket.connect(addr).map_err(|err| to_error(&err))?;
                     state.former_peer = former;
                 }
-                state.inet.peer = Some(named);
+                state.inet.peer = Some(peer);
                 state.writable = true;
                 return Ok(());
             }
@@ -136,7 +136,7 @@ impl UdpSock {
             registration.deregister(&mut earlier);
         }
         state.host = Some((socket, registration));
-        state.inet.peer = Some(named);
+        state.inet.peer = Some(peer);
         state.writable = true;
         if let Some(place) = place {
             state.inet.place = Some(place);
@@ -155,7 +155,7 @@ impl UdpSock {
         let Some((datagram, from)) = state.receive_queue.pop_front() else {
             return Err(FilesystemError::WouldBlock);
         };
-        state.received_bytes -= truesize_of(datagram.len());
+        state.rmem_alloc -= truesize_of(datagram.len());
         let n = buf.len().min(datagram.len());
         buf[..n].copy_from_slice(&datagram[..n]);
         Ok((n, from))
@@ -191,11 +191,11 @@ impl UdpSock {
                 Ok((n, from)) => {
                     let named = peers.iter().flatten().find(|(real, _)| *real == from);
                     let Some((_, named)) = named else { continue };
-                    if state.received_bytes + truesize_of(n) <= state.inet.buffers.rcvbuf {
+                    if state.rmem_alloc + truesize_of(n) <= state.inet.buffers.rcvbuf {
                         state
                             .receive_queue
                             .push_back((datagram[..n].to_vec(), *named));
-                        state.received_bytes += truesize_of(n);
+                        state.rmem_alloc += truesize_of(n);
                     }
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
@@ -346,7 +346,7 @@ impl ProtoOps for UdpSock {
         let mut state = self.state();
         state.inet.release();
         state.receive_queue.clear();
-        state.received_bytes = 0;
+        state.rmem_alloc = 0;
         if let Some((mut socket, registration)) = state.host.take() {
             registration.deregister(&mut socket);
         }

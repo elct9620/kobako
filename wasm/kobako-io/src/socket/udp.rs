@@ -39,7 +39,7 @@ struct Streams {
     peer: (Ipv4Addr, u16),
     /// The host `connect` was handed, as the resolver reads a name, so a send
     /// naming it again reaches the same peer without another lookup.
-    host: String,
+    lookup_name: String,
 }
 
 /// `host` as the resolver reads a name: lowercase, with no trailing dot.
@@ -52,7 +52,7 @@ impl Streams {
     /// or the address it streams with.
     fn names(&self, host: &str, port: u16) -> bool {
         port == self.peer.1
-            && (to_lookup_name(host) == self.host || host.parse() == Ok(self.peer.0))
+            && (to_lookup_name(host) == self.lookup_name || host.parse() == Ok(self.peer.0))
     }
 }
 
@@ -296,7 +296,7 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
             incoming,
             outgoing,
             peer: (ip, port),
-            host: lookup_name,
+            lookup_name,
         });
         Ok(())
     })?;
@@ -321,10 +321,10 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     };
     let data = mesg_bytes_of(mrb, mesg)?;
     // Whether the address a send names is the peer, `None` when it names none.
-    let (to_peer, call) = match to {
+    let (names_peer, call) = match to {
         Some((host, port)) => {
             let (spelled, number, call) = peer_spelling_of(mrb, host, port, "sendto(2)")?;
-            let to_peer = Datagrams::of(mrb, self_)?.with(mrb, |open| {
+            let names_peer = Datagrams::of(mrb, self_)?.with(mrb, |open| {
                 Ok(open
                     .streams
                     .as_ref()
@@ -332,10 +332,10 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
             })?;
             // Another destination is looked up first, so a name no endpoint
             // allows, or IPv6, raises what a connect to it would.
-            if !to_peer {
+            if !names_peer {
                 peer_of(mrb, host, port, None, UDP, "sendto(2)")?;
             }
-            (Some(to_peer), call)
+            (Some(names_peer), call)
         }
         None => (None, "send(2)".to_string()),
     };
@@ -344,9 +344,9 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         if open.send_shut {
             return Err(errno::error_by_name(mrb, c"EPIPE", &call));
         }
-        let peer = open.streams.as_ref().filter(|_| to_peer != Some(false));
-        let Some(streams) = peer else {
-            let name = match to_peer {
+        let streams = open.streams.as_ref().filter(|_| names_peer != Some(false));
+        let Some(streams) = streams else {
+            let name = match names_peer {
                 Some(_) => c"EACCES",
                 None => c"EDESTADDRREQ",
             };

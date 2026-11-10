@@ -252,10 +252,10 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     for name in [
         c"seek", c"rewind", c"pos", c"pos=", c"tell", c"pread", c"pwrite",
     ] {
-        basic.define_method(mrb, name, beni::method!(socket_unseekable, -1))?;
+        basic.define_method(mrb, name, beni::method!(refuse_position, -1))?;
     }
-    basic.define_method(mrb, c"fsync", beni::method!(socket_unsyncable, 0))?;
-    basic.define_method(mrb, c"fdatasync", beni::method!(socket_unsyncable, 0))?;
+    basic.define_method(mrb, c"fsync", beni::method!(refuse_sync, 0))?;
+    basic.define_method(mrb, c"fdatasync", beni::method!(refuse_sync, 0))?;
     basic.define_method(mrb, c"advise", beni::method!(socket_advise, -1))?;
     basic.define_method(mrb, c"sync", beni::method!(socket_sync, 0))?;
     basic.define_method(mrb, c"sync=", beni::method!(socket_sync_set, 1))?;
@@ -479,14 +479,14 @@ fn socket_recv_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value
 /// A call a socket has no position for raises `Errno::ESPIPE`, as Linux's
 /// `lseek`, `pread`, and `pwrite` answer one; a closed socket raises
 /// `IOError` first, as CRuby checks the stream before the call.
-fn socket_unseekable(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
+fn refuse_position(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
     open_socket_of(mrb, self_)?;
     Err(errno::error_alone(mrb, c"ESPIPE"))
 }
 
 /// A socket keeps nothing to sync, so `fsync` raises `Errno::EINVAL`, as
 /// Linux's answers it; a closed socket raises `IOError` first.
-fn socket_unsyncable(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+fn refuse_sync(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     open_socket_of(mrb, self_)?;
     Err(errno::error_alone(mrb, c"EINVAL"))
 }

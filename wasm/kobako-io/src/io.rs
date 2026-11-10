@@ -268,7 +268,7 @@ const F_GETFL: core::ffi::c_int = 3;
 
 /// Whether `fd` was opened to write, which CRuby asks before a call that
 /// changes a file.
-pub(crate) fn opened_to_write(fd: i32) -> bool {
+pub(crate) fn is_opened_to_write(fd: i32) -> bool {
     // SAFETY: F_GETFL only reads the descriptor, and a bad one only fails.
     let held = unsafe { fcntl(fd, F_GETFL) };
     held >= 0 && crate::file::mode::writes(held)
@@ -276,7 +276,7 @@ pub(crate) fn opened_to_write(fd: i32) -> bool {
 
 /// Whether `fd` was opened to read, which CRuby asks before a call that
 /// waits to read.
-pub(crate) fn opened_to_read(fd: i32) -> bool {
+pub(crate) fn is_opened_to_read(fd: i32) -> bool {
     // SAFETY: F_GETFL only reads the descriptor, and a bad one only fails.
     let held = unsafe { fcntl(fd, F_GETFL) };
     held >= 0 && crate::file::mode::reads(held)

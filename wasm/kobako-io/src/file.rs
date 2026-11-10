@@ -154,7 +154,7 @@ fn file_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 fn file_truncate(mrb: &Mrb, self_: Value, length: i64) -> Result<Value, Error> {
     let fd = crate::io::checked_fd(mrb, self_, REACH_REFUSAL)?;
-    if !crate::io::opened_to_write(fd) {
+    if !crate::io::is_opened_to_write(fd) {
         return Err(errno::io_error(mrb, "not opened for writing"));
     }
     // SAFETY: `fd` is a file this guest opened; the call takes no buffer.

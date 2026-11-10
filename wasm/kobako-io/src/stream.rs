@@ -116,12 +116,6 @@ fn read_error(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
     errno::from_transfer(mrb, err, &path, "reading")
 }
 
-/// The descriptor a call about the position reaches: any this guest holds,
-/// a captured stream answering `ESPIPE` as the pipe it is on Linux.
-fn positioned_fd(mrb: &Mrb, self_: Value) -> Result<i32, Error> {
-    checked_fd(mrb, self_, REACH_REFUSAL)
-}
-
 /// The error a failed seek or position raises. WASI keeps no position for
 /// a directory, where Linux's would seek, so a directory raises `EISDIR`;
 /// any other failure its own name.
@@ -245,7 +239,7 @@ fn io_set_pos(mrb: &Mrb, self_: Value, offset: i64) -> Result<Value, Error> {
 /// A position before the start, or a `whence` no constant names, is
 /// `EINVAL`, as `lseek(2)` answers it.
 fn seek(mrb: &Mrb, self_: Value, offset: i64, whence: i64) -> Result<(), Error> {
-    let fd = positioned_fd(mrb, self_)?;
+    let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
     let invalid = || errno::error_by_name(mrb, c"EINVAL", &label(mrb, self_));
     let to = match whence {
         0 => SeekFrom::Start(u64::try_from(offset).map_err(|_| invalid())?),
@@ -258,13 +252,13 @@ fn seek(mrb: &Mrb, self_: Value, offset: i64, whence: i64) -> Result<(), Error> 
 }
 
 fn io_rewind(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = positioned_fd(mrb, self_)?;
+    let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
     with_file(fd, |file| file.rewind()).map_err(|err| position_error(mrb, self_, &err))?;
     Ok(0.into_value(mrb))
 }
 
 fn io_pos(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = positioned_fd(mrb, self_)?;
+    let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
     let pos = with_file(fd, |file| file.stream_position())
         .map_err(|err| position_error(mrb, self_, &err))?;
     Ok(i64::try_from(pos).unwrap_or(i64::MAX).into_value(mrb))

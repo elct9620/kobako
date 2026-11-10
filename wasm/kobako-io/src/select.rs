@@ -168,11 +168,11 @@ fn waitable_of(mrb: &Mrb, io: Value, events: c_short) -> Result<Waitable, Error>
     let fd = crate::io::checked_fd(mrb, io, crate::stream::REACH_REFUSAL)?;
     let (opened, refusal) = match events {
         POLLRDNORM => (
-            !descriptors::is_channel(fd) && crate::io::opened_to_read(fd),
+            !descriptors::is_channel(fd) && crate::io::is_opened_to_read(fd),
             "not opened for reading",
         ),
         _ => (
-            descriptors::is_channel(fd) || crate::io::opened_to_write(fd),
+            descriptors::is_channel(fd) || crate::io::is_opened_to_write(fd),
             "not opened for writing",
         ),
     };
