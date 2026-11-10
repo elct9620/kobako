@@ -478,7 +478,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         fd: types::Fd,
         _flags: types::Fdflags,
     ) -> Answer<types::Fd> {
-        self.answer(memory, |_, inv| sock::sockfd_lookup(table(inv), fd.into()))
+        self.answer(memory, |_, inv| {
+            sock::refuse_socket_call(table(inv), fd.into())
+        })
     }
 
     fn sock_recv(
@@ -488,7 +490,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         _ri_data: types::IovecArray,
         _ri_flags: types::Riflags,
     ) -> Answer<(types::Size, types::Roflags)> {
-        self.answer(memory, |_, inv| sock::sockfd_lookup(table(inv), fd.into()))
+        self.answer(memory, |_, inv| {
+            sock::refuse_socket_call(table(inv), fd.into())
+        })
     }
 
     fn sock_send(
@@ -498,7 +502,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         _si_data: types::CiovecArray,
         _si_flags: types::Siflags,
     ) -> Answer<types::Size> {
-        self.answer(memory, |_, inv| sock::sockfd_lookup(table(inv), fd.into()))
+        self.answer(memory, |_, inv| {
+            sock::refuse_socket_call(table(inv), fd.into())
+        })
     }
 
     fn sock_shutdown(
@@ -507,6 +513,8 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         fd: types::Fd,
         _how: types::Sdflags,
     ) -> Answer {
-        self.answer(memory, |_, inv| sock::sockfd_lookup(table(inv), fd.into()))
+        self.answer(memory, |_, inv| {
+            sock::refuse_socket_call(table(inv), fd.into())
+        })
     }
 }

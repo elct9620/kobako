@@ -8,8 +8,8 @@ use super::errno::{Answer, Errno};
 use super::fd::file;
 use crate::descriptors::Descriptors;
 
-/// What a socket call on `fd` answers: the socket it never finds.
-pub(crate) fn sockfd_lookup<T>(table: &Descriptors, fd: u32) -> Answer<T> {
+/// Refuse a socket call on `fd`, which never names a socket.
+pub(crate) fn refuse_socket_call<T>(table: &Descriptors, fd: u32) -> Answer<T> {
     file(table, fd)?;
     Err(Errno::Notsock.into())
 }

@@ -207,6 +207,11 @@ mod tests {
             (i32.store (i32.const 16) (i32.const 1))
             (i64.store (i32.const 24) (i64.const 10000000000))
             (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96)))
+          (func (export "wait_the_largest_duration") (result i32)
+            (i32.store8 (i32.const 8) (i32.const 0))
+            (i32.store (i32.const 16) (i32.const 1))
+            (i64.store (i32.const 24) (i64.const -1))
+            (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96)))
           (func (export "wait_until_a_fifth_past_now") (result i32)
             (drop (call $clock (i32.const 0) (i64.const 1) (i32.const 128)))
             (i32.store8 (i32.const 8) (i32.const 0))
@@ -292,6 +297,23 @@ mod tests {
     }
 
     const ERRNO_INTR: i32 = 27;
+
+    // @behavior RT-382
+    #[test]
+    fn a_wait_on_the_largest_duration_lasts_until_the_deadline() {
+        let (ended, spent) = call_wait(
+            "wait_the_largest_duration",
+            Profile::Permissive,
+            Some(Duration::from_millis(100)),
+            None,
+        );
+        assert!(
+            ended.is_err() && spent >= Duration::from_millis(100),
+            "a poll_oneoff on a clock of the largest duration through a permissive guest must \
+             wait until the deadline ends it; got {:?} after {spent:?}",
+            ended.map_err(|trap| trap.to_string())
+        );
+    }
 
     // @behavior RT-073
     #[test]

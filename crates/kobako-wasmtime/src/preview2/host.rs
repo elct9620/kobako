@@ -1002,12 +1002,16 @@ impl IoHost for Invocation {
         if !contents.is_empty() {
             output.permit = 0;
         }
-        // A socket whose send buffer shrank since check-write takes less than
-        // it permitted; holding the rest would pass the memory the socket
-        // reserved, so the write fails rather than drop it unseen.
-        if output.stream.clone().write(&contents)? < contents.len() {
+        // A socket whose send buffer shrank since check-write has less room
+        // than it permitted; holding the rest would pass the memory the
+        // socket reserved, so the write fails whole, before any byte leaves,
+        // rather than send the peer a stream with a gap. Room only grows
+        // until the write, as the reactor only drains.
+        let stream = output.stream.clone();
+        if stream.room() < contents.len() {
             return Err(FilesystemError::NoBufferSpace.into());
         }
+        stream.write(&contents)?;
         Ok(())
     }
 
@@ -2561,10 +2565,16 @@ mod tests {
             Ok::<_, wasmtime::Error>(written.is_ok())
         })
         .expect("the calls answer");
-        assert!(
-            !written,
+        let (mut peer, _) = listener.accept().expect("the listener accepts");
+        peer.set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        let heard = std::io::Read::read(&mut peer, &mut [0; 16]).ok();
+        assert_eq!(
+            (written, heard),
+            (false, None),
             "output-stream.write of the whole check-write permit after the guest shrank the \
-             socket's send buffer must fail rather than drop the bytes the socket no longer takes"
+             socket's send buffer must fail before any byte leaves, rather than send the peer \
+             part of it"
         );
     }
 
@@ -2824,6 +2834,23 @@ mod tests {
             "poll of a silent socket beside fifty milliseconds of subscribe-duration at the \
              hermetic posture must answer the clock once they pass, got {answer:?} after \
              {spent:?}"
+        );
+    }
+
+    // @behavior RT-382
+    #[test]
+    fn a_clock_past_what_the_host_counts_waits_until_the_deadline() {
+        let (mut store, _) = guest(Profile::Permissive, None);
+        let guest = store.data_mut();
+        let started = Instant::now();
+        let waited = run_task(Some(started + Duration::from_millis(100)), || {
+            let clock = guest.monotonic_clock_subscribe_duration(u64::MAX)?;
+            guest.poll_pollable_block(clock)
+        });
+        assert!(
+            waited.is_err() && started.elapsed() >= Duration::from_millis(100),
+            "subscribe-duration of the largest duration through a permissive guest must hand out \
+             a clock that only the deadline ends"
         );
     }
 

@@ -44,9 +44,6 @@ pub struct Kiocb {
     /// Whether everything a write changed is durable before it answers, as
     /// `IOCB_SYNC` asks along with `IOCB_DSYNC`.
     pub sync: bool,
-    /// Whether the file asked not to wait, as `O_NONBLOCK` in the `f_flags`
-    /// of `ki_filp`, which a socket's read and write consult.
-    pub nonblock: bool,
 }
 
 impl Kiocb {
@@ -57,7 +54,6 @@ impl Kiocb {
             append: false,
             dsync: false,
             sync: false,
-            nonblock: false,
         }
     }
 
@@ -337,9 +333,8 @@ pub struct File {
     mode: FMode,
     /// Whether each write lands at the end, as `O_APPEND` in `f_flags`.
     append: bool,
-    /// Whether it asked not to wait, as `O_NONBLOCK` in `f_flags`. A file
-    /// whose call can wait, as a socket's, honours it; a regular file never
-    /// waits, so for one it only reports back.
+    /// Whether it asked not to wait, as `O_NONBLOCK` in `f_flags`. No file
+    /// here waits, so it only reports back.
     nonblock: bool,
     /// Whether what each write needs read back is durable before it answers, as
     /// `O_DSYNC` in `f_flags`.
@@ -592,7 +587,6 @@ impl File {
         let iocb = Kiocb {
             dsync: self.dsync,
             sync: self.sync,
-            nonblock: self.nonblock,
             ..Kiocb::at(pos)
         };
         match self.append {

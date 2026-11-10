@@ -4223,3 +4223,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a Wasm Driver reads it |
 | Then | the read answers EAGAIN at once. WASI's sockets never block, so no encoding needs a socket's file to wait |
 
+## `RT-382` A clock past what the host counts waits until the deadline
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-073` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest on the permissive posture, under a deadline |
+| When | it subscribes to a clock of the largest duration, through preview2 or preview1, and waits on it |
+| Then | the wait lasts until the deadline ends it, as a wait on nothing that can become ready does |
+
