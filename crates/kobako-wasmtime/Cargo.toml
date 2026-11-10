@@ -42,8 +42,9 @@ kobako-transport = { version = "0.20.0", path = "../kobako-transport" }
 # `cache` / `parallel-compilation` / `pooling` are intentionally off —
 # kobako runs short-lived synchronous sandboxes. `component-model` and
 # `async` still arrive through wasmtime-wasi's `p1`, which builds on `p2`;
-# kobako loads only core Modules, so none of that code is reached.
-wasmtime = { version = "50.0.0", default-features = false, features = [
+# kobako loads only core Modules, so none of that code is reached. The floor
+# is the first 50 release carrying the engine's security fixes.
+wasmtime = { version = "50.0.1", default-features = false, features = [
     "cranelift",
     "runtime",
     "gc",
@@ -56,11 +57,11 @@ wasmtime = { version = "50.0.0", default-features = false, features = [
 # (args, environ, clocks, random); kobako answers every call that reads
 # its own descriptor table. `p1` is the only feature kobako asks for; it
 # enables `p2` itself, while `p0` and `p3` stay off.
-wasmtime-wasi = { version = "50.0.0", default-features = false, features = ["p1"] }
+wasmtime-wasi = { version = "50.0.1", default-features = false, features = ["p1"] }
 # wiggle generates the preview1 calls kobako answers from `witx/`, as it
 # generates wasmtime-wasi's, so each takes its arguments and writes its answer
 # as wasmtime-wasi does. It rides wasmtime's release train.
-wiggle = { version = "50.0.0", default-features = false, features = ["wasmtime"] }
+wiggle = { version = "50.0.1", default-features = false, features = ["wasmtime"] }
 # sha2 keys the on-disk compiled-module cache by Guest Binary content
 # (see cache.rs); a collision would load the wrong artifact, so the
 # hash must be cryptographic.
