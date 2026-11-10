@@ -921,15 +921,10 @@ impl Bindgen for FunctionBody<'_> {
                     operands[0]
                 );
             }
-            Instruction::I64FromU64 | Instruction::I64FromS64 => {
-                results.push(format!("({} as i64)", operands[0]))
+            Instruction::I64FromU64 => results.push(format!("({} as i64)", operands[0])),
+            Instruction::I32FromU32 | Instruction::I32FromU16 | Instruction::I32FromU8 => {
+                results.push(format!("({} as i32)", operands[0]))
             }
-            Instruction::I32FromU32
-            | Instruction::I32FromS32
-            | Instruction::I32FromU16
-            | Instruction::I32FromS16
-            | Instruction::I32FromU8
-            | Instruction::I32FromS8 => results.push(format!("({} as i32)", operands[0])),
             Instruction::U8FromI32 => results.push(format!("({} as u8)", operands[0])),
             Instruction::U16FromI32 => results.push(format!("({} as u16)", operands[0])),
             Instruction::U32FromI32 => results.push(format!("({} as u32)", operands[0])),
@@ -1123,22 +1118,6 @@ impl Bindgen for FunctionBody<'_> {
                 let blocks = self.blocks(2);
                 let arms = format!("None => {}, Some(e) => {},", blocks[0], blocks[1]);
                 self.lower_match(&operands[0], &arms, types.len(), results);
-            }
-            Instruction::ResultLift { result, .. } => {
-                let blocks = self.blocks(2);
-                let ok = match result.ok {
-                    Some(_) => format!("Ok({})", blocks[0]),
-                    None => format!("{{ {}; Ok(()) }}", blocks[0]),
-                };
-                let err = match result.err {
-                    Some(_) => format!("Err({})", blocks[1]),
-                    None => format!("{{ {}; Err(()) }}", blocks[1]),
-                };
-                let e = format!(
-                    "match {} {{ 0 => {ok}, 1 => {err}, _ => return Err({abi}::invalid(\"result discriminant\")) }}",
-                    operands[0]
-                );
-                results.push(self.bind(e));
             }
             Instruction::ResultLower { results: types, .. } => {
                 let blocks = self.blocks(2);
