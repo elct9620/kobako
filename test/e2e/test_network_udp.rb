@@ -82,7 +82,7 @@ class TestE2ENetworkUdp < Minitest::Test
       value = udp_sandbox(port).eval(format(UDP_IO, port: port)).value
 
       assert_equal [[[true, true, true, true], true, "Destination address required", 4], "abcd"],
-                   [value, first_datagram(peer)],
+                   [value, receive_first_datagram(peer)],
                    "UDPSocket must be an IPSocket, a BasicSocket, and an IO with an Integer fileno; IO.select must " \
                    "answer a new one writable; #write before #connect must raise Errno::EDESTADDRREQ as CRuby's " \
                    "IO#write does; and #write of two strings after #connect must reach the peer as one datagram"
@@ -101,7 +101,7 @@ class TestE2ENetworkUdp < Minitest::Test
   # The first datagram +peer+ receives within a few seconds, or nil when none
   # came: a sent datagram may still be on its way once the run returns, since
   # loopback delivers it apart from the send.
-  def first_datagram(peer)
+  def receive_first_datagram(peer)
     peer.recv(16) if peer.wait_readable(5)
   end
 

@@ -33,9 +33,9 @@ class TestE2ENetworkSocketNonblock < Minitest::Test
   READ_ANSWERS = [
     [NonblockOutcome.would_block("read would block"), :wait_readable,
      NonblockOutcome.would_block("recvfrom(2) would block"), :wait_readable],
-    ["ab\n", NonblockOutcome.raised("IOError", "recvfrom for buffered IO"), "c", "c"],
+    ["ab\n", NonblockOutcome.plain_raise("IOError", "recvfrom for buffered IO"), "c", "c"],
     "d",
-    [NonblockOutcome.raised("EOFError", "end of file reached"), nil, nil]
+    [NonblockOutcome.plain_raise("EOFError", "end of file reached"), nil, nil]
   ].freeze
 
   # @behavior NW-129
@@ -78,9 +78,9 @@ class TestE2ENetworkSocketNonblock < Minitest::Test
   WRITE_ANSWERS = [
     [2, 0],
     [:wait_writable, NonblockOutcome.would_block("write would block", direction: :write)],
-    NonblockOutcome.raised("IOError", "not opened for writing"),
+    NonblockOutcome.plain_raise("IOError", "not opened for writing"),
     1,
-    NonblockOutcome.raised("Errno::EDESTADDRREQ", "Destination address required")
+    NonblockOutcome.plain_raise("Errno::EDESTADDRREQ", "Destination address required")
   ].freeze
 
   # @behavior NW-130

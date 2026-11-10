@@ -18,7 +18,7 @@ class TestParityNetwork < Parity::Case
     end
   RUBY
 
-  NAME_UNRESOLVABLE = <<~RUBY
+  UNRESOLVABLE_NAME = <<~RUBY
     begin
       TCPSocket.new("unnamed.example", 9)
     rescue Socket::ResolutionError => e
@@ -48,7 +48,7 @@ class TestParityNetwork < Parity::Case
 
   # @behavior NW-034
   def test_a_name_no_endpoint_names_is_unresolvable_alike
-    assert_network_parity("network-name-unresolvable", NAME_UNRESOLVABLE)
+    assert_network_parity("network-name-unresolvable", UNRESOLVABLE_NAME)
   end
 
   # @behavior NW-057

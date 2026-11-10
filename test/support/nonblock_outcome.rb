@@ -23,7 +23,7 @@ module NonblockOutcome
   end
 
   # What SCRIPT describes a raise that is no wait as.
-  def self.raised(class_name, message)
+  def self.plain_raise(class_name, message)
     [class_name, message, false, false, false]
   end
 end

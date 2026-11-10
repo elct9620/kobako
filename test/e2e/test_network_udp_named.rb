@@ -27,7 +27,7 @@ class TestE2ENetworkUdpNamed < Minitest::Test
     port = peers.first.addr[1]
     value = localhost_udp_sandbox(port).eval(format(ADDRESSED, port: port)).value
 
-    assert_equal [[7, "Errno::EACCES"], "by name"], [value, first_datagram_of(peers)],
+    assert_equal [[7, "Errno::EACCES"], "by name"], [value, receive_first_datagram_of(peers)],
                  "UDPSocket#send naming the host and port #connect named must reach that peer, and #send " \
                  "naming another address must raise Errno::EACCES"
   ensure
@@ -54,7 +54,7 @@ class TestE2ENetworkUdpNamed < Minitest::Test
   end
 
   # The first datagram any of +peers+ receives within a few seconds.
-  def first_datagram_of(peers)
+  def receive_first_datagram_of(peers)
     readable, = IO.select(peers, nil, nil, 5)
     readable&.first&.recv(16)
   end
