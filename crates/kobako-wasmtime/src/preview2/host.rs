@@ -240,6 +240,9 @@ impl SocketsHost for Invocation {
         let Some(namespace) = self.wasi().table().network() else {
             return Ok(Err(ErrorCode::PermanentResolverFailure));
         };
+        if self.wasi().table().is_full() {
+            return Ok(Err(ErrorCode::NewSocketLimit));
+        }
         match namespace.resolve(&name) {
             Ok(lookup) => self
                 .table()
@@ -2199,6 +2202,44 @@ mod tests {
             ),
             "create-tcp-socket and create-udp-socket with the open file limit filled by the \
              standard streams must answer new-socket-limit, not trap"
+        );
+    }
+
+    // @behavior NW-146
+    #[test]
+    fn a_lookup_or_a_request_past_the_open_file_limit_answers_an_error() {
+        use super::super::bindings::wasi_http_types_0_2_12::{ErrorCode as HttpErrorCode, Scheme};
+        use super::super::bindings::HttpHost;
+        let endpoint = network::Endpoint::new("example.com", 80).unwrap();
+        let mut guest = within_network_holding([endpoint], Some(3));
+        let network = guest.instance_network_instance_network().unwrap();
+        let lookup = guest
+            .ip_name_lookup_resolve_addresses(network, "example.com".to_string())
+            .ok()
+            .and_then(|answer| answer.err());
+        let headers = guest.types_fields_new().unwrap();
+        let request = guest.types_outgoing_request_new(headers).unwrap();
+        guest
+            .types_outgoing_request_set_scheme(request, Some(Scheme::HTTP))
+            .unwrap()
+            .unwrap();
+        guest
+            .types_outgoing_request_set_authority(request, Some("example.com".to_string()))
+            .unwrap()
+            .unwrap();
+        let sent = guest
+            .outgoing_handler_handle(request, None)
+            .ok()
+            .and_then(|answer| answer.err());
+        assert_eq!(
+            (lookup, sent),
+            (
+                Some(ErrorCode::NewSocketLimit),
+                Some(HttpErrorCode::ConnectionLimitReached)
+            ),
+            "resolve-addresses and outgoing-handler.handle with the open file limit filled by \
+             the standard streams must answer new-socket-limit and connection-limit-reached, \
+             not trap"
         );
     }
 

@@ -543,6 +543,9 @@ impl HttpHost for Invocation {
         if self.wasi().table().network().is_none() {
             return Ok(Err(ErrorCode::HTTPRequestDenied));
         }
+        if self.wasi().table().is_full() {
+            return Ok(Err(ErrorCode::ConnectionLimitReached));
+        }
         let future = match request.link.is_complete() {
             true => self.send(request),
             false => Future::Waiting(request),
