@@ -1810,3 +1810,15 @@ endpoint "api.example.com", port: 443
 | Given | a network entry, and a guest holding as many files as its open file limit allows |
 | When | it resolves a name, and sends an HTTP request |
 | Then | the lookup answers `new-socket-limit` and the request `connection-limit-reached`. Neither starts a query or a connection, as Linux's `anon_inode_getfd` answers EMFILE. Nothing traps |
+
+## `NW-147` A producer dropped while its pollable lives traps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-113` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket's datagram streams, a lookup, and a request's response future, each with a pollable still held |
+| When | the guest drops each, then drops its pollable and drops it again |
+| Then | the first drop traps, as wasmtime-wasi makes every pollable a child of what it watches. Once the pollable is gone, each drops |

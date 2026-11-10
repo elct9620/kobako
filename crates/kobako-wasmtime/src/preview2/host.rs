@@ -197,9 +197,10 @@ impl Invocation {
         &mut self,
         datagrams: SocketFile<UdpSock>,
         mask: PollMask,
+        stream: impl table::Handle,
     ) -> wasmtime::Result<Pollable> {
         self.table()
-            .push(table::Pollable::File(datagrams.get_file(), mask))
+            .push_child(table::Pollable::File(datagrams.get_file(), mask), stream)
     }
 
     /// A stream's failure as WASI hands it out: the end as `closed`, anything
@@ -265,13 +266,16 @@ impl SocketsHost for Invocation {
             return Ok(Err(ErrorCode::NewSocketLimit));
         }
         match namespace.resolve(&name) {
-            Ok(lookup) => self
-                .table()
-                .push_file(table::ResolveAddressStream {
-                    lookup,
-                    handed: false,
-                })
-                .map(Ok),
+            Ok(lookup) => {
+                let file = lookup.alloc_file(self.wasi().descriptors().cred());
+                self.table()
+                    .push_file(table::ResolveAddressStream {
+                        lookup,
+                        file: Arc::new(Mutex::new(file)),
+                        handed: false,
+                    })
+                    .map(Ok)
+            }
             Err(err) => Ok(Err(to_lookup_error_code(err, true))),
         }
     }
@@ -306,11 +310,9 @@ impl SocketsHost for Invocation {
         &mut self,
         this: ResolveAddressStream,
     ) -> wasmtime::Result<Pollable> {
-        let lookup = self.table().get(this)?.lookup.clone();
-        let file = Arc::new(Mutex::new(
-            lookup.alloc_file(self.wasi().descriptors().cred()),
-        ));
-        self.table().push(table::Pollable::File(file, PollMask::IN))
+        let file = self.table().get(this)?.file.clone();
+        self.table()
+            .push_child(table::Pollable::File(file, PollMask::IN), this)
     }
 
     fn ip_name_lookup_resolve_address_stream_drop(
@@ -880,7 +882,7 @@ impl SocketsHost for Invocation {
         this: IncomingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
         let datagrams = self.table().get(this)?.0.clone();
-        self.subscribe_datagrams(datagrams, PollMask::IN)
+        self.subscribe_datagrams(datagrams, PollMask::IN, this)
     }
 
     fn udp_incoming_datagram_stream_drop(
@@ -944,7 +946,7 @@ impl SocketsHost for Invocation {
         this: OutgoingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
         let datagrams = self.table().get(this)?.socket.clone();
-        self.subscribe_datagrams(datagrams, PollMask::OUT)
+        self.subscribe_datagrams(datagrams, PollMask::OUT, this)
     }
 
     fn udp_outgoing_datagram_stream_drop(
@@ -1587,6 +1589,104 @@ mod tests {
             "a tcp-socket or udp-socket dropped while its streams or pollable live, and a second \
              udp stream while the first lives, must trap as wasmtime-wasi traps them, and each \
              must succeed once the children are dropped"
+        );
+    }
+
+    // @behavior NW-147
+    #[test]
+    fn a_producer_dropped_while_its_pollable_lives_traps() {
+        use super::super::bindings::wasi_http_types_0_2_12::Scheme;
+        use super::super::bindings::HttpHost;
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let udp_port = peer.local_addr().unwrap().port();
+        let mut guest = within_network_holding(
+            [
+                network::Endpoint::new("127.0.0.1", udp_port)
+                    .unwrap()
+                    .with_protocol(network::Protocol::Udp),
+                network::Endpoint::new("localhost", 80)
+                    .unwrap()
+                    .with_addresses(vec![network::Addresses::Local]),
+            ],
+            None,
+        );
+        let answers = (|| {
+            let network = guest.instance_network_instance_network()?;
+            let udp = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            let any = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port: 0,
+                address: (0, 0, 0, 0),
+            });
+            guest
+                .udp_udp_socket_start_bind(udp, network, any)?
+                .expect("an ephemeral bind is the implicit one");
+            guest
+                .udp_udp_socket_finish_bind(udp)?
+                .expect("the bind settles");
+            let peer_at = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port: udp_port,
+                address: (127, 0, 0, 1),
+            });
+            let (incoming, outgoing) = guest
+                .udp_udp_socket_stream(udp, Some(peer_at))?
+                .expect("the udp endpoint names the peer");
+            let readable = guest.udp_incoming_datagram_stream_subscribe(incoming)?;
+            let writable = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
+            let datagrams_held = guest.udp_incoming_datagram_stream_drop(incoming).is_err()
+                && guest.udp_outgoing_datagram_stream_drop(outgoing).is_err();
+            guest.poll_pollable_drop(readable)?;
+            guest.poll_pollable_drop(writable)?;
+            let datagrams_late = guest.udp_incoming_datagram_stream_drop(incoming).is_ok()
+                && guest.udp_outgoing_datagram_stream_drop(outgoing).is_ok();
+
+            let lookup = guest
+                .ip_name_lookup_resolve_addresses(network, "localhost".to_string())?
+                .expect("an endpoint names localhost");
+            let resolved = guest.ip_name_lookup_resolve_address_stream_subscribe(lookup)?;
+            let lookup_held = guest
+                .ip_name_lookup_resolve_address_stream_drop(lookup)
+                .is_err();
+            guest.poll_pollable_drop(resolved)?;
+            let lookup_late = guest
+                .ip_name_lookup_resolve_address_stream_drop(lookup)
+                .is_ok();
+
+            let headers = guest.types_fields_new()?;
+            let request = guest.types_outgoing_request_new(headers)?;
+            guest
+                .types_outgoing_request_set_scheme(request, Some(Scheme::HTTP))?
+                .expect("http is a scheme");
+            guest
+                .types_outgoing_request_set_authority(request, Some("other.test".to_string()))?
+                .expect("an authority");
+            let body = guest
+                .types_outgoing_request_body(request)?
+                .expect("a request hands out its body once");
+            let future = guest
+                .outgoing_handler_handle(request, None)?
+                .expect("a request whose body is unfinished waits in its future");
+            guest.types_outgoing_body_drop(body)?;
+            let arrived = guest.types_future_incoming_response_subscribe(future)?;
+            let future_held = guest.types_future_incoming_response_drop(future).is_err();
+            guest.poll_pollable_drop(arrived)?;
+            let future_late = guest.types_future_incoming_response_drop(future).is_ok();
+            Ok::<_, wasmtime::Error>([
+                datagrams_held,
+                datagrams_late,
+                lookup_held,
+                lookup_late,
+                future_held,
+                future_late,
+            ])
+        })()
+        .expect("the producers are made");
+        assert_eq!(
+            answers, [true; 6],
+            "a datagram stream, a resolve-address-stream, or a future-incoming-response dropped \
+             while its pollable lives must trap, as wasmtime-wasi makes every pollable a child, \
+             and each must drop once its pollable is gone"
         );
     }
 

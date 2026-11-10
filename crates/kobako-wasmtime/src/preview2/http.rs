@@ -18,6 +18,7 @@ use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::table::{self, Stream};
+use crate::descriptors::SharedFile;
 use crate::invocation::Invocation;
 
 /// A request's body and whether the guest ended it, shared between the request
@@ -57,7 +58,8 @@ pub(crate) struct Request {
 pub(crate) enum Future {
     /// Handed over before its body ended, so it leaves once it does.
     Waiting(Request),
-    Sent(Arc<Exchange>),
+    /// Sent, with the file its response's arrival wakes, made as it leaves.
+    Sent(Arc<Exchange>, SharedFile),
     Refused(ErrorCode),
     /// Its response was taken.
     Taken,
@@ -186,7 +188,10 @@ impl Invocation {
         };
         let cred = self.wasi().descriptors().cred();
         match namespace.send(cred, outgoing) {
-            Ok(exchange) => Future::Sent(exchange),
+            Ok(exchange) => {
+                let file = Arc::new(Mutex::new(exchange.alloc_response_file(cred)));
+                Future::Sent(exchange, file)
+            }
             Err(err) => Future::Refused(to_error_code(err)),
         }
     }
@@ -390,15 +395,11 @@ impl HttpHost for Invocation {
         this: FutureIncomingResponse,
     ) -> wasmtime::Result<Pollable> {
         self.advance(this)?;
-        let cred = self.wasi().descriptors().cred().clone();
         let pollable = match self.future(this)? {
-            Future::Sent(exchange) => {
-                let file = Arc::new(Mutex::new(exchange.alloc_response_file(&cred)));
-                table::Pollable::File(file, PollMask::IN)
-            }
+            Future::Sent(_, file) => table::Pollable::File(file.clone(), PollMask::IN),
             _ => table::Pollable::Ready,
         };
-        self.table().push(pollable)
+        self.table().push_child(pollable, this)
     }
 
     /// The response once its head arrives, handed out once.
@@ -413,7 +414,7 @@ impl HttpHost for Invocation {
             Future::Waiting(_) => return Ok(None),
             Future::Taken => return Ok(Some(Err(()))),
             Future::Refused(code) => Err(code.clone()),
-            Future::Sent(exchange) => match exchange.response() {
+            Future::Sent(exchange, _) => match exchange.response() {
                 None => return Ok(None),
                 Some(Ok(head)) => Ok((head, exchange.clone())),
                 Some(Err(err)) => Err(to_error_code(err)),
@@ -437,7 +438,7 @@ impl HttpHost for Invocation {
         &mut self,
         handle: FutureIncomingResponse,
     ) -> wasmtime::Result<()> {
-        if let Future::Sent(exchange) = self.table().delete(handle)?.0 {
+        if let Future::Sent(exchange, _) = self.table().delete(handle)?.0 {
             exchange.release();
         }
         Ok(())
