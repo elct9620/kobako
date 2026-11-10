@@ -55,6 +55,18 @@ fn write<T>(caller: &mut Caller<'_, T>, at: usize, bytes: &[u8]) -> wasmtime::Re
         .map_err(|_| wasmtime::Error::msg("an answer's place lies outside the guest's memory"))
 }
 
+/// The return area the guest names at `at`, which must sit on its answer's
+/// `align`, as the Canonical ABI traps on a misaligned one before an answer
+/// is written.
+pub(crate) fn ensure_aligned(at: i32, align: usize) -> wasmtime::Result<()> {
+    match address(at, 0).is_multiple_of(align) {
+        true => Ok(()),
+        false => Err(wasmtime::Error::msg(
+            "the return area the guest named is not aligned",
+        )),
+    }
+}
+
 pub(crate) fn load<S: Scalar>(
     caller: &mut Caller<'_, impl Sized>,
     at: i32,

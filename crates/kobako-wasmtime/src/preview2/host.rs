@@ -1230,7 +1230,9 @@ mod tests {
             (i32.store (i32.const 64) (local.get 0))
             (call $poll (i32.const 64) (local.get 1) (i32.const 32)))
           (func (export "resolve") (param i32 i32)
-            (call $resolve (local.get 0) (i32.const 128) (local.get 1) (i32.const 32))))
+            (call $resolve (local.get 0) (i32.const 128) (local.get 1) (i32.const 32)))
+          (func (export "resolve_into") (param i32 i32)
+            (call $resolve (local.get 0) (i32.const 128) (i32.const 0) (local.get 1))))
     "#;
 
     /// A guest at `profile`, holding at most `open_file_limit` files.
@@ -1360,6 +1362,21 @@ mod tests {
                  name, each past one page of memory, must trap rather than panic or answer"
             );
         }
+    }
+
+    // @behavior RT-373
+    #[test]
+    fn an_answer_into_a_misaligned_return_area_traps() {
+        let (mut store, instance) = guest(Profile::Hermetic, None);
+        let network = call::<(), i32>(&mut store, &instance, "network", ()).expect("a handle");
+        let misaligned =
+            call::<(i32, i32), ()>(&mut store, &instance, "resolve_into", (network, 33));
+        let aligned = call::<(i32, i32), ()>(&mut store, &instance, "resolve_into", (network, 32));
+        assert!(
+            misaligned.is_err() && aligned.is_ok(),
+            "resolve-addresses answering into a return area off its 4-byte alignment must trap, \
+             as the Canonical ABI does, and answer into an aligned one"
+        );
     }
 
     // @behavior RT-338

@@ -4197,3 +4197,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest whose preview2 socket connected to a peer |
 | When | it sends, receives, peeks, and shuts the writing side down, then neither side, through `sock_*` on its number |
 | Then | the peer reads what was sent and the guest receives the reply. A peek answers ENOTSUP, as WASI carries no receive flag. The shutdown ends the peer's read, and one naming neither side answers EINVAL, as Linux's `inet_shutdown` |
+
+## `RT-373` A preview2 answer into a misaligned return area traps
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-353` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest calling a preview2 import that answers through a return area |
+| When | it names the area off the answer's alignment, then on it |
+| Then | the misaligned call traps before any answer is written, as the Canonical ABI traps, and the aligned one answers |

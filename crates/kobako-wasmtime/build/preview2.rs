@@ -640,10 +640,20 @@ fn write_linker(
                 &mut body,
                 false,
             );
+            // The answer lands in the return area the guest's last argument
+            // names, which the Canonical ABI requires aligned to the answer.
+            let aligned = match (&func.result, sig.retptr) {
+                (Some(answer), true) => format!(
+                    "crate::preview2::abi::ensure_aligned(arg{}, {})?;\n",
+                    sig.params.len() - 1,
+                    sizes.align(answer).align_wasm32()
+                ),
+                _ => String::new(),
+            };
             let _ = writeln!(
                 out,
                 "linker.func_wrap({module:?}, {:?}, |mut caller: wasmtime::Caller<'_, T>{params}| \
-                 -> wasmtime::Result<{result}> {{\n{}}})?;",
+                 -> wasmtime::Result<{result}> {{\n{aligned}{}}})?;",
                 func.name, body.src
             );
         }
