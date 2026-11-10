@@ -2010,7 +2010,7 @@ endpoint "api.example.com", port: 443
 | When | it sets an unparseable scheme, then the schemes `ftp` and `http` written as other schemes, and sends each |
 | Then | only the unparseable scheme answers an error as it is set. `ftp` answers `HTTP-protocol-error`, and `http` is judged as HTTP and denied |
 
-## `NW-163` A request's options are ignored
+## `NW-163` A handle the guest does not hold traps as it is lifted
 
 | Attribute | Value |
 | --- | --- |
@@ -2020,4 +2020,4 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a guest naming request options it was never handed |
 | When | it sends a request with them |
-| Then | the request is judged as one sent without options, as wasmtime ignores options it cannot read |
+| Then | the call traps before the host judges the request, as wasmtime traps an unknown handle as it lifts one |

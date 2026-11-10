@@ -1093,6 +1093,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::super::bindings::wasi_sockets_network_0_2_12::Ipv4SocketAddress;
+    use super::super::bindings::HttpHost;
     use super::super::error::IntoAnswer;
     use super::*;
     use crate::wasi::{sandbox_connections, Wasi};
@@ -1118,6 +1119,8 @@ mod tests {
             (func $resolve (param i32 i32 i32 i32)))
           (import "wasi:sockets/udp@0.2.12" "[method]outgoing-datagram-stream.send"
             (func $send (param i32 i32 i32 i32)))
+          (import "wasi:http/outgoing-handler@0.2.12" "handle"
+            (func $handle (param i32 i32 i32 i32)))
           (memory (export "memory") 1)
           (global $bump (mut i32) (i32.const 4096))
           (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
@@ -1136,19 +1139,26 @@ mod tests {
           (func (export "resolve_into") (param i32 i32)
             (call $resolve (local.get 0) (i32.const 128) (i32.const 0) (local.get 1)))
           (func (export "send") (param i32 i32 i32)
-            (call $send (local.get 0) (local.get 1) (local.get 2) (i32.const 32))))
+            (call $send (local.get 0) (local.get 1) (local.get 2) (i32.const 32)))
+          (func (export "handle") (param i32 i32 i32)
+            (call $handle (local.get 0) (local.get 1) (local.get 2) (i32.const 32))))
     "#;
 
     /// A guest at `profile`, holding at most `open_file_limit` files.
     fn guest(profile: Profile, open_file_limit: Option<usize>) -> (Store<Invocation>, Instance) {
-        let engine = load_engine().expect("shared engine must be constructible");
         let config = Config {
             open_file_limit,
             ..Config::for_profile(profile)
         };
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
-        let mut store = Store::new(engine, Invocation::new(None, wasi));
+        instantiate(Invocation::new(None, wasi))
+    }
+
+    /// The guest module, instantiated over `invocation`.
+    fn instantiate(invocation: Invocation) -> (Store<Invocation>, Instance) {
+        let engine = load_engine().expect("shared engine must be constructible");
+        let mut store = Store::new(engine, invocation);
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let module = Module::new(engine, GUEST_WAT).expect("the guest module must compile");
         let instance = imports::linker()
@@ -1260,10 +1270,66 @@ mod tests {
         }
     }
 
+    // @behavior NW-163
+    #[test]
+    fn a_handle_the_guest_does_not_hold_traps_as_it_is_lifted() {
+        let (mut store, instance) = guest(Profile::Hermetic, None);
+        let mut request = || {
+            let guest = store.data_mut();
+            let headers = guest.types_fields_new()?;
+            guest
+                .types_outgoing_request_new(headers)
+                .map(|r| r.0 as i32)
+        };
+        let (named, unnamed) = (request().unwrap(), request().unwrap());
+        let with_options =
+            call::<(i32, i32, i32), ()>(&mut store, &instance, "handle", (named, 1, 7))
+                .map_err(|trap| trap.root_cause().to_string());
+        let without = call::<(i32, i32, i32), ()>(&mut store, &instance, "handle", (unnamed, 0, 0))
+            .map_err(|trap| trap.root_cause().to_string());
+        assert_eq!(
+            (with_options, without),
+            (
+                Err("the guest named a handle it does not hold".to_string()),
+                Ok(())
+            ),
+            "outgoing-handler.handle naming request-options the guest was never handed must trap \
+             as the handle is lifted, as wasmtime's, and a request with no options must be answered"
+        );
+    }
+
     // @behavior RT-374
     #[test]
     fn lists_past_the_calls_hostcall_fuel_trap_before_the_host_answers() {
-        let (mut store, instance) = guest(Profile::Hermetic, None);
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = peer.local_addr().unwrap().port();
+        let (mut store, instance) = instantiate(network_guest(
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Udp),
+        ));
+        let outgoing = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            let guest = store.data_mut();
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .udp_udp_socket_start_bind(socket, network, ipv4((0, 0, 0, 0), 0))
+                .into_answer()?
+                .expect("an ephemeral bind is the implicit one");
+            guest
+                .udp_udp_socket_finish_bind(socket)
+                .into_answer()?
+                .expect("the bind settles");
+            let (_, outgoing) = guest
+                .udp_udp_socket_stream(socket, Some(ipv4((127, 0, 0, 1), port)))
+                .into_answer()?
+                .expect("the udp endpoint names the peer");
+            Ok::<_, wasmtime::Error>(outgoing)
+        })
+        .expect("the stream is made");
         let memory = instance.get_memory(&mut store, "memory").expect("memory");
         memory.grow(&mut store, 3).expect("four pages");
         // Each datagram's data names the same 60000 bytes at 0, so 2400 of
@@ -1274,9 +1340,10 @@ mod tests {
             memory.data_mut(&mut store)[record + 4..record + 8]
                 .copy_from_slice(&60_000u32.to_le_bytes());
         }
-        // No stream was made, so a call the lift lets through traps there.
+        // No send was permitted, so a call the lift lets through traps there.
+        let stream = outgoing.0 as i32;
         let answer = |store: &mut Store<Invocation>, count: i32| {
-            call::<(i32, i32, i32), ()>(store, &instance, "send", (99, RECORDS as i32, count))
+            call::<(i32, i32, i32), ()>(store, &instance, "send", (stream, RECORDS as i32, count))
                 .map_err(|trap| trap.root_cause().to_string())
         };
         let past = answer(&mut store, 2400);
@@ -1286,7 +1353,7 @@ mod tests {
                 .is_err_and(|trap| trap.contains("hostcall fuel"))
                 && within
                     .as_ref()
-                    .is_err_and(|trap| trap.contains("a handle it does not hold")),
+                    .is_err_and(|trap| trap.contains("more datagrams than check-send permitted")),
             "outgoing-datagram-stream.send of 2400 datagrams naming one 60000-byte region must \
              trap on its hostcall fuel before the host answers, and of two must reach the host; \
              got {past:?} and {within:?}"

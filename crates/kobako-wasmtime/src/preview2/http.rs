@@ -106,6 +106,10 @@ pub(crate) mod resource {
 
     pub(crate) struct FutureIncomingResponse(pub(crate) Future);
 
+    /// Options kobako never hands out, so any the guest names is one it does
+    /// not hold.
+    pub(crate) enum RequestOptions {}
+
     /// A response whose head its exchange holds once, against the
     /// Invocation's memory.
     pub(crate) struct IncomingResponse {
@@ -590,8 +594,8 @@ impl HttpHost for Invocation {
 
     /// Send `request`, which it takes. Without a network Grant it answers
     /// `HTTP-request-denied` at once, doing nothing first; a request whose body
-    /// has not ended leaves once it does. Options are ignored, as wasmtime
-    /// ignores those it cannot read; kobako hands none out.
+    /// has not ended leaves once it does. kobako hands out no options, so
+    /// the lift traps on any the guest names.
     fn outgoing_handler_handle(
         &mut self,
         request: OutgoingRequest,
@@ -1116,11 +1120,10 @@ mod tests {
     }
 
     /// What sending a GET for `/` to `unnamed.example` answers, with `scheme`
-    /// set and `options` named; `None` when setting the scheme fails.
+    /// set; `None` when setting the scheme fails.
     fn send_unnamed(
         guest: &mut Invocation,
         scheme: Scheme,
-        options: Option<RequestOptions>,
     ) -> wasmtime::Result<Option<Result<(), ErrorCode>>> {
         let headers = guest.types_fields_new()?;
         let request = guest.types_outgoing_request_new(headers)?;
@@ -1133,9 +1136,7 @@ mod tests {
         guest
             .types_outgoing_request_set_authority(request, Some("unnamed.example".to_string()))?
             .expect("an authority");
-        let sent = guest
-            .outgoing_handler_handle(request, options)
-            .into_answer()?;
+        let sent = guest.outgoing_handler_handle(request, None).into_answer()?;
         Ok(Some(sent.map(drop)))
     }
 
@@ -1147,9 +1148,9 @@ mod tests {
         ]));
         let other = |name: &str| Scheme::Other(name.to_string());
         let answers = [
-            send_unnamed(&mut guest, other("not a scheme"), None),
-            send_unnamed(&mut guest, other("ftp"), None),
-            send_unnamed(&mut guest, other("http"), None),
+            send_unnamed(&mut guest, other("not a scheme")),
+            send_unnamed(&mut guest, other("ftp")),
+            send_unnamed(&mut guest, other("http")),
         ]
         .map(|answer| answer.expect("the guest's calls must not trap"));
         assert_eq!(
@@ -1161,26 +1162,6 @@ mod tests {
             ],
             "outgoing-request.set-scheme must refuse only a scheme that does not parse; handle \
              must answer HTTP-protocol-error for ftp and judge http as HTTP, as wasmtime does"
-        );
-    }
-
-    // @behavior NW-163
-    #[test]
-    fn a_requests_options_are_ignored() {
-        let mut guest = guest(Some(vec![
-            network::Endpoint::new("example.com", 80).unwrap()
-        ]));
-        let with = send_unnamed(&mut guest, Scheme::HTTP, Some(RequestOptions(7)))
-            .expect("handle must not trap on options");
-        let without = send_unnamed(&mut guest, Scheme::HTTP, None).expect("handle answers");
-        assert_eq!(
-            (with, without),
-            (
-                Some(Err(ErrorCode::HTTPRequestDenied)),
-                Some(Err(ErrorCode::HTTPRequestDenied))
-            ),
-            "outgoing-handler.handle with request-options the guest was never handed must judge \
-             the request as one without options, as wasmtime ignores options it cannot read"
         );
     }
 

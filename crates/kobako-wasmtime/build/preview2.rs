@@ -228,6 +228,11 @@ const WITH: &[(&str, &str, &str)] = &[
         "future-trailers",
         "http::resource::FutureTrailers",
     ),
+    (
+        "wasi:http/types@0.2.12",
+        "request-options",
+        "http::resource::RequestOptions",
+    ),
 ];
 
 /// The host type each WIT error stands for, as `bindgen!` takes
@@ -626,7 +631,10 @@ fn write_host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: 
         "pub trait Host: {} {{\n\
          /// The trap a call ends the run with once it answered, if its host gave the\n\
          /// invocation up meanwhile, as each preview1 call does.\n\
-         fn abandonment(&self) -> Option<wasmtime::Error>;\n}}\n",
+         fn abandonment(&self) -> Option<wasmtime::Error>;\n\
+         /// `handle`, once the guest holds it as its kind; any other traps as it\n\
+         /// is lifted, before the host is asked, as wasmtime lifts a resource.\n\
+         fn lift_handle<H: {HOSTS}::table::Handle>(&mut self, handle: H) -> wasmtime::Result<H>;\n}}\n",
         traits.join(" + ")
     );
 }
@@ -1039,7 +1047,11 @@ impl Bindgen for FunctionBody<'_> {
             Instruction::HandleLift { handle, .. } => {
                 let (Handle::Own(r) | Handle::Borrow(r)) = handle;
                 let path = type_path_of(resolve, definition_of(resolve, *r));
-                results.push(format!("{path}({} as u32)", operands[0]))
+                let lifted = self.bind(format!(
+                    "caller.data_mut().lift_handle({path}({} as u32))?",
+                    operands[0]
+                ));
+                results.push(lifted)
             }
             Instruction::HandleLower { .. } => results.push(format!("({}.0 as i32)", operands[0])),
             Instruction::EnumLift { enum_, ty, .. } => {
