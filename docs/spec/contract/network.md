@@ -528,18 +528,6 @@ impl Namespace {
 }
 ```
 
-## `Namespace::local_address`
-
-The address the Guest reads as its own end of a socket, given its virtual port.
-It is the Guest's own virtual address and that port, or the unspecified
-address before a connect. No lookup hands that address out.
-
-```rust
-impl Namespace {
-    pub fn local_address(&self, virtual_port: Option<u16>) -> SocketAddr {}
-}
-```
-
 ## `NameLookup`
 
 One lookup in flight on a thread of its own, then its answer.
@@ -844,14 +832,39 @@ pub trait ProtoOps {
 }
 ```
 
-## `ProtoOps::virtual_port`
+## `ProtoOps::getsockname`
 
-The port the Guest reads for the socket's own end, once its namespace gave one.
-The host's own port stays inside the socket.
+The socket's own end as the Guest reads it. It is the Guest's own virtual
+address and the port its namespace gave, or the unspecified address before a
+connect. The host's own end stays inside the socket, and no lookup hands that
+address out.
 
 ```rust
 pub trait ProtoOps {
-    fn virtual_port(&self) -> Option<u16>;
+    fn getsockname(&self) -> SocketAddr;
+}
+```
+
+## `ProtoOps::hold_virtual_port`
+
+Hold a port as the socket's own, unless one is held, so a socket connected
+again keeps its port.
+
+```rust
+pub trait ProtoOps {
+    fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16);
+}
+```
+
+## `ProtoOps::accept`
+
+A connection the socket accepts, as Linux's `proto_ops.accept`. No socket of
+the Guest's listens, so a stream refuses as `InvalidInput` and a datagram one
+as `Unsupported`.
+
+```rust
+pub trait ProtoOps {
+    fn accept(&self) -> Result<Arc<dyn ProtoOps>, FilesystemError>;
 }
 ```
 

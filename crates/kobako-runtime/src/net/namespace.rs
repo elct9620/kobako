@@ -14,7 +14,7 @@ use super::http::{
 };
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::transport::{split_authority, Connector};
-use super::{OpenConnections, ProtocolFamily, TcpSock, UdpSock};
+use super::{OpenConnections, ProtoOps, ProtocolFamily, TcpSock, UdpSock};
 use crate::grant::Policy;
 use crate::network::{Connection, EntryError, Name, Network, Protocol, Request, Ruleset};
 use crate::vfs::{Cred, FilesystemError};
@@ -26,14 +26,8 @@ const VIRTUAL_BASE: u32 = u32::from_be_bytes([198, 18, 0, 0]);
 /// How many virtual addresses the range holds.
 const VIRTUAL_SIZE: u32 = 1 << 17;
 
-/// The guest's own end of every socket it connects, kept out of what a lookup
-/// hands out, as a container in its own network namespace reads its veth's
-/// address while the host translates. It sits below the range's last
-/// address, the one a broadcast would take.
-const LOCAL_ADDRESS: Ipv4Addr = Ipv4Addr::new(198, 19, 255, 254);
-
-/// How many virtual addresses a lookup may take: all but the guest's own and
-/// the broadcast one above it.
+/// How many virtual addresses a lookup may take: all but the guest's own,
+/// `LOCAL_ADDRESS`, and the broadcast one above it.
 const NAMED_SIZE: u32 = VIRTUAL_SIZE - 2;
 
 /// The ports a connect gives the guest for its own end, Linux's default
@@ -233,17 +227,6 @@ impl Namespace {
         Ok(made)
     }
 
-    /// The address the guest reads as its own end of a socket holding
-    /// `virtual_port`, as cgroup `getsockname4` rewrites it: the guest's own
-    /// virtual address and that port, or the unspecified address before a
-    /// connect, as Linux answers an unbound socket.
-    pub fn local_address(&self, virtual_port: Option<u16>) -> SocketAddr {
-        match virtual_port {
-            Some(port) => SocketAddr::from((LOCAL_ADDRESS, port)),
-            None => SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
-        }
-    }
-
     /// The next virtual port, as Linux's `inet_hash_connect` picks a source
     /// port as a connect begins.
     fn alloc_virtual_port(&self) -> u16 {
@@ -316,11 +299,28 @@ impl Namespace {
         sock: &TcpSock,
         addr: SocketAddr,
     ) -> Result<(), FilesystemError> {
-        let real = self.admit(cred, addr, Protocol::Tcp)?;
+        self.connect_through(cred, sock, addr, Protocol::Tcp, |real, open| {
+            sock.connect(real, addr, open)
+        })
+    }
+
+    /// The steps every protocol's connect takes, as `inet_stream_connect`
+    /// and `udp_pre_connect` share `connect4`: judge and translate `addr`,
+    /// let `connect` dial the real addresses within the connection caps, then
+    /// hold the port the guest reads for its own end.
+    fn connect_through(
+        &self,
+        cred: &Cred,
+        sock: &dyn ProtoOps,
+        addr: SocketAddr,
+        protocol: Protocol,
+        connect: impl FnOnce(Vec<SocketAddr>, &Arc<OpenConnections>) -> Result<(), FilesystemError>,
+    ) -> Result<(), FilesystemError> {
+        let real = self.admit(cred, addr, protocol)?;
         self.within_connection_limit(FilesystemError::WouldBlock, || {
-            sock.connect(real, addr, &self.open_connections)
+            connect(real, &self.open_connections)
         })?;
-        sock.hold_virtual_port(|| self.alloc_virtual_port());
+        sock.hold_virtual_port(&mut || self.alloc_virtual_port());
         Ok(())
     }
 
@@ -362,12 +362,9 @@ impl Namespace {
         addr: Option<SocketAddr>,
     ) -> Result<(), FilesystemError> {
         let addr = addr.ok_or(FilesystemError::PermissionDenied)?;
-        let real = self.admit(cred, addr, Protocol::Udp)?;
-        self.within_connection_limit(FilesystemError::WouldBlock, || {
-            sock.connect(&self.family, real[0], addr, &self.open_connections)
-        })?;
-        sock.hold_virtual_port(|| self.alloc_virtual_port());
-        Ok(())
+        self.connect_through(cred, sock, addr, Protocol::Udp, |real, open| {
+            sock.connect(&self.family, real[0], addr, open)
+        })
     }
 
     /// Judge `connection`, what the guest named, through the socket hooks:

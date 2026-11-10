@@ -3,7 +3,7 @@
 //! as `socket_file_ops` hands them to `proto_ops`.
 
 use std::io;
-use std::net::{Shutdown, SocketAddr};
+use std::net::{Ipv4Addr, Shutdown, SocketAddr};
 use std::sync::{Arc, LazyLock};
 
 use crate::vfs::{
@@ -34,9 +34,18 @@ pub trait ProtoOps: Send + Sync {
     /// The peer as the guest named it, once connected, as `->getname` maps
     /// the real peer back through cgroup `getpeername4`.
     fn getpeername(&self) -> Option<SocketAddr>;
-    /// The port the guest reads for its own end, once its namespace gave one
-    /// as the connect began.
-    fn virtual_port(&self) -> Option<u16>;
+    /// The guest's own end, as `->getname` answers `getsockname` through
+    /// cgroup `getsockname4`: the guest's own virtual address and the port its
+    /// namespace gave as the connect began, or the unspecified address
+    /// before then, as Linux answers an unbound socket.
+    fn getsockname(&self) -> SocketAddr;
+    /// Hold the port `alloc` gives as the guest's own, unless one is held, so
+    /// a socket connected again keeps its port.
+    fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16);
+    /// A connection the socket accepts, as `->accept`; no socket of the
+    /// guest's listens, so a stream answers `EINVAL`, as `inet_accept` on one
+    /// not listening, and a datagram one `EOPNOTSUPP`, as `sock_no_accept`.
+    fn accept(&self) -> Result<Arc<dyn ProtoOps>, FilesystemError>;
     /// The value `opt` holds on this socket, never the host's; one the
     /// protocol has not answers `ProtocolNotAvailable`.
     fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError>;
@@ -67,6 +76,12 @@ pub enum SockOpt {
     /// `TCP_KEEPCNT`.
     KeepCnt,
 }
+
+/// The guest's own end of every socket it connects, kept out of what a lookup
+/// hands out, as a container in its own network namespace reads its veth's
+/// address while the host translates. It sits below the virtual range's last
+/// address, the one a broadcast would take.
+pub(crate) const LOCAL_ADDRESS: Ipv4Addr = Ipv4Addr::new(198, 19, 255, 254);
 
 /// What every inet socket holds beside its protocol's own state, as Linux's
 /// `inet_sock` sits beneath `tcp_sock` and `udp_sock`.
@@ -111,6 +126,19 @@ impl InetSock {
             place: None,
             memory: Some(memory),
         }
+    }
+
+    /// The guest's own end, at its own virtual address once a port is held.
+    pub(crate) fn getsockname(&self) -> SocketAddr {
+        match self.virtual_port {
+            Some(port) => SocketAddr::from((LOCAL_ADDRESS, port)),
+            None => SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
+        }
+    }
+
+    /// Hold the port `alloc` gives, unless one is held.
+    pub(crate) fn hold_virtual_port(&mut self, alloc: &mut dyn FnMut() -> u16) {
+        self.virtual_port.get_or_insert_with(alloc);
     }
 
     /// Mark the sides `how` names shut, as `inet_shutdown` sets

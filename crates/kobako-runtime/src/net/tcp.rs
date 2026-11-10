@@ -375,11 +375,6 @@ impl TcpSock {
         })
     }
 
-    /// Hold the port `alloc` gives as the guest's own, unless one is held.
-    pub(crate) fn hold_virtual_port(&self, alloc: impl FnOnce() -> u16) {
-        self.state().inet.virtual_port.get_or_insert_with(alloc);
-    }
-
     /// Let go of the host socket once every view is gone, as `sock_close`
     /// runs on the last `fput`.
     fn release(&self) {
@@ -516,8 +511,17 @@ impl ProtoOps for TcpSock {
         }
     }
 
-    fn virtual_port(&self) -> Option<u16> {
-        self.state().inet.virtual_port
+    fn getsockname(&self) -> SocketAddr {
+        self.state().inet.getsockname()
+    }
+
+    fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16) {
+        self.state().inet.hold_virtual_port(alloc);
+    }
+
+    /// A stream socket that never listens accepts nothing.
+    fn accept(&self) -> Result<Arc<dyn ProtoOps>, FilesystemError> {
+        Err(FilesystemError::InvalidInput)
     }
 
     /// Its own keepalive flag and probes, never the host's, beside the

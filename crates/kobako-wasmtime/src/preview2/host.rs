@@ -491,15 +491,12 @@ impl SocketsHost for Invocation {
     ) -> Result<IpSocketAddress, SocketError> {
         let socket = self.tcp(this)?;
         match socket.state {
-            TcpState::Connected => {}
-            TcpState::Binding | TcpState::Bound => {
-                return Ok(from_socket_addr(self.network().local_address(None)))
+            TcpState::Connected | TcpState::Binding | TcpState::Bound => {
+                Ok(from_socket_addr(socket.socket.sock.getsockname()))
             }
-            TcpState::Closed(code) => return Err(code.into()),
-            TcpState::Unbound | TcpState::Connecting => return Err(ErrorCode::InvalidState.into()),
+            TcpState::Closed(code) => Err(code.into()),
+            TcpState::Unbound | TcpState::Connecting => Err(ErrorCode::InvalidState.into()),
         }
-        let port = socket.socket.sock.virtual_port();
-        Ok(from_socket_addr(self.network().local_address(port)))
     }
 
     /// The peer as the guest named it.
@@ -676,8 +673,7 @@ impl SocketsHost for Invocation {
         if !socket.state.is_bound() {
             return Err(ErrorCode::InvalidState.into());
         }
-        let port = socket.socket.sock.virtual_port();
-        Ok(from_socket_addr(self.network().local_address(port)))
+        Ok(from_socket_addr(socket.socket.sock.getsockname()))
     }
 
     /// The hop limit, from the socket's own setting; a UDP socket takes an

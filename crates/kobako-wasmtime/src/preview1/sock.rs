@@ -13,7 +13,7 @@ use super::errno::{Answer, Errno};
 use super::fd::file;
 use super::memory::GuestMemory;
 use super::types;
-use crate::descriptors::{Descriptors, SocketType};
+use crate::descriptors::Descriptors;
 
 /// The protocol behind the socket `fd` stands for.
 fn sockfd_lookup(table: &Descriptors, fd: u32) -> Answer<Arc<dyn ProtoOps>> {
@@ -24,15 +24,12 @@ fn sockfd_lookup(table: &Descriptors, fd: u32) -> Answer<Arc<dyn ProtoOps>> {
     Err(Errno::Notsock.into())
 }
 
-/// No socket of the guest's listens, so a stream answers `INVAL`, as
-/// `inet_accept` does on a socket not listening, and a datagram one `NOTSUP`,
-/// as `sock_no_accept` does.
+/// What the socket's protocol answers an accept; no socket of the guest's
+/// listens, so each refuses, and a connection one handed out could not be
+/// numbered here, so it answers `NOTSUP`.
 pub(crate) fn accept<T>(table: &Descriptors, fd: u32) -> Answer<T> {
-    sockfd_lookup(table, fd)?;
-    match table.socket_of(fd).map(|(_, kind)| kind) {
-        Some(SocketType::Stream) => Err(Errno::Inval.into()),
-        _ => Err(Errno::Notsup.into()),
-    }
+    sockfd_lookup(table, fd)?.accept()?;
+    Err(Errno::Notsup.into())
 }
 
 /// What the socket holds, into the first buffer with room, as `fd_read`

@@ -166,12 +166,6 @@ impl UdpSock {
         drop(state);
         self.wait.wake_up();
     }
-
-    /// Hold the port `alloc` gives as the guest's own, unless one is held, so
-    /// a socket connected again keeps its port.
-    pub(crate) fn hold_virtual_port(&self, alloc: impl FnOnce() -> u16) {
-        self.state().inet.virtual_port.get_or_insert_with(alloc);
-    }
 }
 
 impl Ready for UdpSock {
@@ -288,8 +282,17 @@ impl ProtoOps for UdpSock {
         self.state().inet.named
     }
 
-    fn virtual_port(&self) -> Option<u16> {
-        self.state().inet.virtual_port
+    fn getsockname(&self) -> SocketAddr {
+        self.state().inet.getsockname()
+    }
+
+    fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16) {
+        self.state().inet.hold_virtual_port(alloc);
+    }
+
+    /// A datagram socket accepts nothing, as `sock_no_accept` answers.
+    fn accept(&self) -> Result<Arc<dyn ProtoOps>, FilesystemError> {
+        Err(FilesystemError::Unsupported)
     }
 
     /// The buffers and the hop limit; UDP has no TCP option.
