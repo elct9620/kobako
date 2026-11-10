@@ -39,7 +39,7 @@ struct Streams {
     peer: (Ipv4Addr, u16),
 }
 
-struct Open {
+struct OpenSocket {
     streams: Option<Streams>,
     socket: UdpSocket,
     bound: bool,
@@ -52,7 +52,7 @@ struct Open {
 /// variables cannot rewrite it; `None` once closed.
 #[beni::wrap(class = "UDPSocket", name = "Kobako::UDPSocket")]
 struct Datagrams {
-    open: RefCell<Option<Open>>,
+    open: RefCell<Option<OpenSocket>>,
     io: IoState,
 }
 
@@ -150,7 +150,7 @@ impl Datagrams {
     fn with<T>(
         &self,
         mrb: &Mrb,
-        call: impl FnOnce(&mut Open) -> Result<T, Error>,
+        call: impl FnOnce(&mut OpenSocket) -> Result<T, Error>,
     ) -> Result<T, Error> {
         match self.open.borrow_mut().as_mut() {
             Some(open) => call(open),
@@ -204,7 +204,7 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
     let socket = create_udp_socket(IpAddressFamily::Ipv4)
         .map_err(|code| to_error(mrb, code, UDP, "socket(2) - udp"))?;
     let datagrams = Datagrams {
-        open: RefCell::new(Some(Open {
+        open: RefCell::new(Some(OpenSocket {
             streams: None,
             socket,
             bound: false,
@@ -216,7 +216,7 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
 }
 
 /// Bind to `end` as the host lets a bind take it.
-fn bind_to(open: &mut Open, end: (Ipv4Addr, u16)) -> Result<(), ErrorCode> {
+fn bind_to(open: &mut OpenSocket, end: (Ipv4Addr, u16)) -> Result<(), ErrorCode> {
     if open.bound {
         return Err(ErrorCode::InvalidState);
     }
@@ -341,7 +341,7 @@ fn send_datagram(
 /// arrive, so `call` raises `Errno::EACCES`.
 fn receive_from(
     mrb: &Mrb,
-    open: &mut Open,
+    open: &mut OpenSocket,
     maxlen: usize,
     call: &str,
     wait: Wait,

@@ -91,7 +91,7 @@ pub(crate) fn with_file<R>(
     body(&mut file)
 }
 
-fn readable(mrb: &Mrb, self_: Value) -> Result<i32, Error> {
+fn readable_fd(mrb: &Mrb, self_: Value) -> Result<i32, Error> {
     let fd = checked_fd(mrb, self_, READ_REFUSAL)?;
     if descriptors::is_channel(fd) {
         return Err(errno::io_error(mrb, "not opened for reading"));
@@ -101,7 +101,7 @@ fn readable(mrb: &Mrb, self_: Value) -> Result<i32, Error> {
 
 /// A directory opened as a `File` has nothing to read, which CRuby's
 /// `read(2)` names `EISDIR` rather than a stream not opened for reading.
-fn fail(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
+fn read_error(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
     let path = label(mrb, self_);
     let directory = checked_fd(mrb, self_, READ_REFUSAL)
         .is_ok_and(|fd| with_file(fd, |file| file.metadata()).is_ok_and(|meta| meta.is_dir()));
@@ -114,7 +114,7 @@ fn fail(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
 /// `read` with no length reads to the end, "" at the end; with one, up
 /// to that many bytes, `nil` at the end.
 fn io_read(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
-    let fd = readable(mrb, self_)?;
+    let fd = readable_fd(mrb, self_)?;
     let (length,) = scan_args::<(), (Option<Value>,), (), (), (), ()>(mrb)?.optional;
     let length = match length.filter(|v| !v.is_nil()) {
         None => None,
@@ -140,7 +140,7 @@ fn io_read(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
             Ok(some)
         }
     })
-    .map_err(|err| fail(mrb, self_, &err))?;
+    .map_err(|err| read_error(mrb, self_, &err))?;
     if bytes.is_empty() && length.is_some_and(|len| len > 0) {
         return Ok(qnil().as_value());
     }
@@ -169,8 +169,8 @@ fn read_line(fd: i32) -> io::Result<Option<Vec<u8>>> {
 }
 
 fn io_gets(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = readable(mrb, self_)?;
-    let line = read_line(fd).map_err(|err| fail(mrb, self_, &err))?;
+    let fd = readable_fd(mrb, self_)?;
+    let line = read_line(fd).map_err(|err| read_error(mrb, self_, &err))?;
     Ok(line.map_or(qnil().as_value(), |line| mrb.str_new(&line).as_value()))
 }
 
@@ -178,8 +178,8 @@ fn io_each_line(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error
     let block = scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?
         .block
         .ok_or_else(|| argument_error(mrb, "each_line needs a block"))?;
-    let fd = readable(mrb, self_)?;
-    while let Some(line) = read_line(fd).map_err(|err| fail(mrb, self_, &err))? {
+    let fd = readable_fd(mrb, self_)?;
+    while let Some(line) = read_line(fd).map_err(|err| read_error(mrb, self_, &err))? {
         let _scope = mrb.arena_scope();
         block.call::<_, Value>(mrb, [mrb.str_new(&line).as_value()])?;
     }
@@ -187,20 +187,20 @@ fn io_each_line(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error
 }
 
 fn io_readlines(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = readable(mrb, self_)?;
+    let fd = readable_fd(mrb, self_)?;
     let lines = mrb.ary_new();
-    while let Some(line) = read_line(fd).map_err(|err| fail(mrb, self_, &err))? {
+    while let Some(line) = read_line(fd).map_err(|err| read_error(mrb, self_, &err))? {
         lines.push(mrb, mrb.str_new(&line).as_value())?;
     }
     Ok(lines.as_value())
 }
 
 fn io_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
-    let fd = readable(mrb, self_)?;
+    let fd = readable_fd(mrb, self_)?;
     with_file(fd, |file| {
         Ok(file.stream_position()? >= file.metadata()?.len())
     })
-    .map_err(|err| fail(mrb, self_, &err))
+    .map_err(|err| read_error(mrb, self_, &err))
 }
 
 fn io_seek(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
@@ -219,7 +219,7 @@ fn io_set_pos(mrb: &Mrb, self_: Value, offset: i64) -> Result<Value, Error> {
 /// A position before the start, or a `whence` no constant names, is
 /// `EINVAL`, as `lseek(2)` answers it.
 fn seek(mrb: &Mrb, self_: Value, offset: i64, whence: i64) -> Result<(), Error> {
-    let fd = readable(mrb, self_)?;
+    let fd = readable_fd(mrb, self_)?;
     let invalid = || errno::error_by_name(mrb, c"EINVAL", &label(mrb, self_));
     let to = match whence {
         0 => SeekFrom::Start(u64::try_from(offset).map_err(|_| invalid())?),
@@ -227,19 +227,20 @@ fn seek(mrb: &Mrb, self_: Value, offset: i64, whence: i64) -> Result<(), Error> 
         2 => SeekFrom::End(offset),
         _ => return Err(invalid()),
     };
-    with_file(fd, |file| file.seek(to)).map_err(|err| fail(mrb, self_, &err))?;
+    with_file(fd, |file| file.seek(to)).map_err(|err| read_error(mrb, self_, &err))?;
     Ok(())
 }
 
 fn io_rewind(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = readable(mrb, self_)?;
-    with_file(fd, |file| file.rewind()).map_err(|err| fail(mrb, self_, &err))?;
+    let fd = readable_fd(mrb, self_)?;
+    with_file(fd, |file| file.rewind()).map_err(|err| read_error(mrb, self_, &err))?;
     Ok(0.into_value(mrb))
 }
 
 fn io_pos(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = readable(mrb, self_)?;
-    let pos = with_file(fd, |file| file.stream_position()).map_err(|err| fail(mrb, self_, &err))?;
+    let fd = readable_fd(mrb, self_)?;
+    let pos =
+        with_file(fd, |file| file.stream_position()).map_err(|err| read_error(mrb, self_, &err))?;
     Ok(i64::try_from(pos).unwrap_or(i64::MAX).into_value(mrb))
 }
 
@@ -292,7 +293,7 @@ fn io_pread(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
         }
         None => None,
     };
-    let fd = readable(mrb, self_)?;
+    let fd = readable_fd(mrb, self_)?;
     let length = usize::try_from(length)
         .map_err(|_| argument_error(mrb, "negative string size (or size too big)"))?;
     let mut bytes = Vec::with_capacity(length.min(CHUNK));
@@ -303,7 +304,7 @@ fn io_pread(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
         // SAFETY: `chunk` holds `want` writable bytes for the call.
         let read = unsafe { raw::pread(fd, chunk.as_mut_ptr().cast(), want, at) };
         if read < 0 {
-            return Err(fail(mrb, self_, &io::Error::last_os_error()));
+            return Err(read_error(mrb, self_, &io::Error::last_os_error()));
         }
         if read == 0 {
             break;
@@ -426,7 +427,7 @@ fn io_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let refusal = failed.then(io::Error::last_os_error);
     release(mrb, self_);
     match refusal {
-        Some(err) => Err(fail(mrb, self_, &err)),
+        Some(err) => Err(read_error(mrb, self_, &err)),
         None => Ok(qnil().as_value()),
     }
 }

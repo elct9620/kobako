@@ -30,7 +30,7 @@ use crate::wasi::{wait_within, write_within};
 const READ_CHUNK: u64 = 64 * 1024;
 
 /// How much of a streamed body passes between collections.
-const COLLECT_EVERY: usize = 1 << 20;
+const BYTES_PER_COLLECTION: usize = 1 << 20;
 
 /// A response's head as `wasi:http` answers it, and its body still to read.
 struct Answer {
@@ -126,7 +126,7 @@ thread_local! {
 }
 
 /// One request the guest sends: where, how, and what.
-struct Outgoing<'a> {
+struct RequestParts<'a> {
     ssl: bool,
     host: &'a str,
     port: u16,
@@ -806,7 +806,7 @@ fn send_from(
     given: Option<BlockArgument>,
 ) -> Result<Value, Error> {
     let host = to_text(mrb, ivar_get(mrb, self_, c"@address")?)?;
-    let outgoing = Outgoing {
+    let outgoing = RequestParts {
         ssl: uses_ssl(mrb, self_)?,
         host: &host,
         port: port_of(mrb, self_)?,
@@ -888,7 +888,7 @@ fn method_of(method: &str) -> Method {
 /// Send `outgoing` and answer its response's head, its body left to read. A
 /// header WASI refuses raises `ArgumentError`, among them one the host frames
 /// itself, such as `host` or `content-length`.
-fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
+fn send(mrb: &Mrb, outgoing: &RequestParts<'_>) -> Result<Answer, Error> {
     let fields = Fields::new();
     for (name, value) in &outgoing.headers {
         fields
@@ -985,7 +985,7 @@ fn header_error(mrb: &Mrb, name: &str, refused: HeaderError) -> Error {
 
 /// What CRuby raises for a request that found no response, wrapped as its
 /// `Net::HTTP#connect` wraps a failed open.
-fn to_error(mrb: &Mrb, outgoing: &Outgoing<'_>, code: ErrorCode) -> Error {
+fn to_error(mrb: &Mrb, outgoing: &RequestParts<'_>, code: ErrorCode) -> Error {
     let (host, port) = (outgoing.host, outgoing.port);
     let opening =
         |detail: &str| format!("Failed to open TCP connection to {host}:{port} ({detail})");
@@ -1261,7 +1261,7 @@ fn read_body_into(mrb: &Mrb, response: Value, block: Option<Proc>) -> Result<Val
         let _scope = mrb.arena_scope();
         since_collected += chunk.len();
         block.call::<_, Value>(mrb, [mrb.str_new(&chunk).as_value()])?;
-        if since_collected >= COLLECT_EVERY {
+        if since_collected >= BYTES_PER_COLLECTION {
             mrb.gc_start();
             since_collected = 0;
         }

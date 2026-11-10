@@ -343,7 +343,7 @@ fn socket_readbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// The block a call that yields to the end needs, as `each_line` asks for
 /// one.
-fn block_for(mrb: &Mrb, name: &str) -> Result<Proc, Error> {
+fn required_block(mrb: &Mrb, name: &str) -> Result<Proc, Error> {
     scan_args::<(), (), (), (), (), Option<Proc>>(mrb)?
         .block
         .ok_or_else(|| argument_error(mrb, &format!("{name} needs a block")))
@@ -351,7 +351,7 @@ fn block_for(mrb: &Mrb, name: &str) -> Result<Proc, Error> {
 
 /// `each_char { |char| }` yields each character to the end.
 fn socket_each_char(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let block = block_for(mrb, "each_char")?;
+    let block = required_block(mrb, "each_char")?;
     let source = reader_of(mrb, self_)?;
     while let Some(char) = next_char(mrb, source)? {
         let _scope = mrb.arena_scope();
@@ -362,7 +362,7 @@ fn socket_each_char(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// `each_byte { |byte| }` yields each byte as an Integer to the end.
 fn socket_each_byte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let block = block_for(mrb, "each_byte")?;
+    let block = required_block(mrb, "each_byte")?;
     let source = reader_of(mrb, self_)?;
     while let Some(byte) = next_byte(mrb, source)? {
         block.call::<_, Value>(mrb, [i64::from(byte).into_value(mrb)])?;

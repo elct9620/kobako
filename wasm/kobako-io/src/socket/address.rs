@@ -18,7 +18,7 @@ use crate::wasi::wasi::sockets::network::{
 };
 
 /// The words CRuby's `Errno` carries for a call on `host` and `port`.
-fn for_peer(call: &str, host: &str, port: impl std::fmt::Display) -> String {
+fn peer_message(call: &str, host: &str, port: impl std::fmt::Display) -> String {
     format!("{call} for \"{host}\" port {port}")
 }
 
@@ -74,7 +74,7 @@ pub(super) fn peer_of(
 ) -> Result<(Ipv4Addr, u16, String), Error> {
     let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
     let (port, port_text) = port_of(mrb, port)?;
-    let call = for_peer(call, &host_text, port_text);
+    let call = peer_message(call, &host_text, port_text);
     let ip = match host_text.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(ip)) => ip,
         Ok(std::net::IpAddr::V6(_)) => {
@@ -106,7 +106,7 @@ pub(super) fn local_of(
         _ => return peer_of(mrb, host, port, None, class, "bind(2)"),
     };
     let (port, port_text) = port_of(mrb, port)?;
-    Ok((ip, port, for_peer("bind(2)", &text, port_text)))
+    Ok((ip, port, peer_message("bind(2)", &text, port_text)))
 }
 
 /// The port `port` names, and its text, as Linux's `getaddrinfo` reads what

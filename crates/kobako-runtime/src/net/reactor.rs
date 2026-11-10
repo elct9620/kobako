@@ -25,7 +25,7 @@ pub(crate) trait Ready: Send + Sync {
 }
 
 /// The token that wakes the reactor to run the tasks queued for it.
-const RUN_TASKS: Token = Token(0);
+const WAKE_TOKEN: Token = Token(0);
 
 pub(crate) struct Reactor {
     registry: Registry,
@@ -67,7 +67,7 @@ impl Reactor {
         let mut poll = mio::Poll::new()?;
         let reactor = Arc::new(Self {
             registry: poll.registry().try_clone()?,
-            waker: mio::Waker::new(poll.registry(), RUN_TASKS)?,
+            waker: mio::Waker::new(poll.registry(), WAKE_TOKEN)?,
             next: AtomicUsize::new(1),
             sockets: Mutex::default(),
             queued: Mutex::default(),
@@ -96,7 +96,7 @@ impl Reactor {
                 events
                     .iter()
                     .filter_map(|event| {
-                        if event.token() == RUN_TASKS {
+                        if event.token() == WAKE_TOKEN {
                             run_tasks = true;
                             return None;
                         }

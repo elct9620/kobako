@@ -271,7 +271,7 @@ pub fn generate(wit: &Path) -> anyhow::Result<String> {
                 return Err(anyhow::anyhow!("{name} lacks a function IMPORTS names"));
             }
             match resources_of(&resolve, id, functions)
-                .find(|(r, _)| host_by_resource_of(name, r).is_none())
+                .find(|(r, _)| host_by_resource(name, r).is_none())
             {
                 Some((r, _)) => Err(anyhow::anyhow!("WITH names no host type for {name} {r}")),
                 None => Ok((id, *functions)),
@@ -290,7 +290,7 @@ pub fn generate(wit: &Path) -> anyhow::Result<String> {
 }
 
 /// The host type `WITH` names for `interface`'s `resource`.
-fn host_by_resource_of(interface: &str, resource: &str) -> Option<&'static str> {
+fn host_by_resource(interface: &str, resource: &str) -> Option<&'static str> {
     WITH.iter()
         .find(|(i, r, _)| *i == interface && *r == resource)
         .map(|(_, _, host)| *host)
@@ -463,7 +463,7 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
                     "/// A handle the guest holds, its index in the resource table.\n\
                      #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub struct {name}(pub u32);"
                 );
-                if let Some(host) = host_by_resource_of(&wit_name, wit) {
+                if let Some(host) = host_by_resource(&wit_name, wit) {
                     let _ = writeln!(
                         out,
                         "impl {HOSTS}::table::Handle for {name} {{\n\
@@ -822,7 +822,7 @@ impl<'a> FunctionBody<'a> {
         name
     }
 
-    fn blocks(&mut self, count: usize) -> Vec<String> {
+    fn take_blocks(&mut self, count: usize) -> Vec<String> {
         self.blocks.drain(self.blocks.len() - count..).collect()
     }
 
@@ -970,7 +970,7 @@ impl Bindgen for FunctionBody<'_> {
                 results.push(len);
             }
             Instruction::ListLift { element, .. } => {
-                let block = self.blocks(1).remove(0);
+                let block = self.take_blocks(1).remove(0);
                 let (size, align) = (self.size_of(element), self.align_of(element));
                 let (list, len) = (self.tmp(), self.tmp());
                 let _ = writeln!(
@@ -985,7 +985,7 @@ impl Bindgen for FunctionBody<'_> {
                 results.push(list);
             }
             Instruction::ListLower { element, .. } => {
-                let block = self.blocks(1).remove(0);
+                let block = self.take_blocks(1).remove(0);
                 let (size, align) = (self.size_of(element), self.align_of(element));
                 let (ptr, len) = (self.tmp(), self.tmp());
                 let _ = writeln!(
@@ -1069,7 +1069,7 @@ impl Bindgen for FunctionBody<'_> {
             }
             Instruction::VariantPayloadName => results.push("e".into()),
             Instruction::VariantLift { variant, ty, .. } => {
-                let blocks = self.blocks(variant.cases.len());
+                let blocks = self.take_blocks(variant.cases.len());
                 let name = self.rust_type_of(*ty);
                 let arms = variant
                     .cases
@@ -1093,7 +1093,7 @@ impl Bindgen for FunctionBody<'_> {
                 results: types,
                 ..
             } => {
-                let blocks = self.blocks(variant.cases.len());
+                let blocks = self.take_blocks(variant.cases.len());
                 let name = self.rust_type_of(*ty);
                 let arms = variant
                     .cases
@@ -1107,7 +1107,7 @@ impl Bindgen for FunctionBody<'_> {
                 self.lower_match(&operands[0], &arms, types.len(), results);
             }
             Instruction::OptionLift { .. } => {
-                let blocks = self.blocks(2);
+                let blocks = self.take_blocks(2);
                 let e = format!(
                     "match {} {{ 0 => {{ {}; None }}, 1 => Some({}), _ => return Err({abi}::invalid(\"option discriminant\")) }}",
                     operands[0], blocks[0], blocks[1]
@@ -1115,12 +1115,12 @@ impl Bindgen for FunctionBody<'_> {
                 results.push(self.bind(e));
             }
             Instruction::OptionLower { results: types, .. } => {
-                let blocks = self.blocks(2);
+                let blocks = self.take_blocks(2);
                 let arms = format!("None => {}, Some(e) => {},", blocks[0], blocks[1]);
                 self.lower_match(&operands[0], &arms, types.len(), results);
             }
             Instruction::ResultLower { results: types, .. } => {
-                let blocks = self.blocks(2);
+                let blocks = self.take_blocks(2);
                 let arms = format!("Ok(e) => {}, Err(e) => {},", blocks[0], blocks[1]);
                 self.lower_match(&operands[0], &arms, types.len(), results);
             }

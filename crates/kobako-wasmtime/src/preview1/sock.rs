@@ -16,7 +16,7 @@ use super::types;
 use crate::descriptors::{Descriptors, SocketType};
 
 /// The protocol behind the socket `fd` stands for.
-fn socket(table: &Descriptors, fd: u32) -> Answer<Arc<dyn ProtoOps>> {
+fn sockfd_lookup(table: &Descriptors, fd: u32) -> Answer<Arc<dyn ProtoOps>> {
     if let Some(ops) = table.proto_ops(fd) {
         return Ok(ops);
     }
@@ -28,7 +28,7 @@ fn socket(table: &Descriptors, fd: u32) -> Answer<Arc<dyn ProtoOps>> {
 /// `inet_accept` does on a socket not listening, and a datagram one `NOTSUP`,
 /// as `sock_no_accept` does.
 pub(crate) fn accept<T>(table: &Descriptors, fd: u32) -> Answer<T> {
-    socket(table, fd)?;
+    sockfd_lookup(table, fd)?;
     match table.socket_of(fd).map(|(_, kind)| kind) {
         Some(SocketType::Stream) => Err(Errno::Inval.into()),
         _ => Err(Errno::Notsup.into()),
@@ -47,7 +47,7 @@ pub(crate) fn recv(
     ri_data: types::IovecArray,
     ri_flags: types::Riflags,
 ) -> Answer<(types::Size, types::Roflags)> {
-    let ops = socket(table, fd)?;
+    let ops = sockfd_lookup(table, fd)?;
     if !ri_flags.is_empty() {
         return Err(Errno::Notsup.into());
     }
@@ -63,7 +63,7 @@ pub(crate) fn send(
     fd: u32,
     si_data: types::CiovecArray,
 ) -> Answer<types::Size> {
-    let ops = socket(table, fd)?;
+    let ops = sockfd_lookup(table, fd)?;
     let buf = mem.first_non_empty_ciovec(si_data)?;
     Ok(ops.sendmsg(mem.bytes(buf)?)? as u32)
 }
@@ -71,7 +71,7 @@ pub(crate) fn send(
 /// Shut the sides `how` names down, as `shutdown(2)`; naming neither
 /// answers `INVAL`, as `inet_shutdown` refuses an out-of-range `how`.
 pub(crate) fn shutdown(table: &Descriptors, fd: u32, how: types::Sdflags) -> Answer {
-    let ops = socket(table, fd)?;
+    let ops = sockfd_lookup(table, fd)?;
     let how = match (
         how.contains(types::Sdflags::RD),
         how.contains(types::Sdflags::WR),

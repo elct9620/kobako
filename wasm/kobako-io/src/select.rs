@@ -121,7 +121,7 @@ fn waitable_fd(mrb: &Mrb, io: Value, events: c_short) -> Result<c_int, Error> {
 
 /// One object a select names, the IO it stands for, and which of its sets it
 /// stands in.
-struct Watched {
+struct WatchedIo {
     given: Value,
     io: Value,
     events: c_short,
@@ -180,7 +180,7 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
         let set = RArray::try_convert(set, mrb)?;
         for i in 0..set.len() {
             let given = set.entry(mrb, i as isize)?;
-            watched.push(Watched {
+            watched.push(WatchedIo {
                 given,
                 io: to_io(mrb, given)?,
                 events,

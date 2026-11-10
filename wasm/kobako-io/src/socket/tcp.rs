@@ -33,7 +33,7 @@ const WRITE_CHUNK: usize = 4096;
 
 /// One connection, its streams dropped before the socket, as WASI asks of a
 /// child resource.
-struct Open {
+struct OpenSocket {
     input: InputStream,
     output: OutputStream,
     socket: TcpSocket,
@@ -44,7 +44,7 @@ struct Open {
 /// variables cannot rewrite it; `None` once closed.
 #[beni::wrap(class = "TCPSocket", name = "Kobako::TCPSocket")]
 pub(super) struct Connection {
-    open: RefCell<Option<Open>>,
+    open: RefCell<Option<OpenSocket>>,
     io: IoState,
 }
 
@@ -172,7 +172,11 @@ impl Connection {
         <&Connection>::try_convert(value, mrb)
     }
 
-    fn with<T>(&self, mrb: &Mrb, call: impl FnOnce(&Open) -> Result<T, Error>) -> Result<T, Error> {
+    fn with<T>(
+        &self,
+        mrb: &Mrb,
+        call: impl FnOnce(&OpenSocket) -> Result<T, Error>,
+    ) -> Result<T, Error> {
         match self.open.borrow().as_ref() {
             Some(open) => call(open),
             None => Err(errno::io_error(mrb, "closed stream")),
@@ -292,7 +296,7 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
         }
     };
     Ok(Connection {
-        open: RefCell::new(Some(Open {
+        open: RefCell::new(Some(OpenSocket {
             input,
             output,
             socket,
