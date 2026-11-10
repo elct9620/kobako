@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
-use kobako_runtime::net::{NameLookup, Namespace, TcpSock, UdpSock, MAX_SOCKET_BUFFER};
+use kobako_runtime::net::{NameLookup, Namespace, ProtoOps, TcpSock, UdpSock, MAX_SOCKET_BUFFER};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
@@ -397,9 +397,15 @@ impl Table {
 
     /// Have the socket's `handle` stand for its file, so a preview1 call on
     /// the number reaches the socket, as one fdtable holds both.
-    pub(crate) fn install<S>(&self, handle: impl Handle, socket: &SocketFile<S>, kind: SocketType) {
+    pub(crate) fn install<S: ProtoOps + 'static>(
+        &self,
+        handle: impl Handle,
+        socket: &SocketFile<S>,
+        kind: SocketType,
+    ) {
+        let ops: Arc<dyn ProtoOps> = socket.sock.clone();
         self.numbers
-            .install(handle.index(), socket.file.clone(), kind);
+            .install(handle.index(), socket.file.clone(), ops, kind);
     }
 
     /// Take `handle` out of the table. A handle of another kind, or one whose

@@ -3,6 +3,7 @@
 //! as `socket_file_ops` hands them to `proto_ops`.
 
 use std::io;
+use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, LazyLock};
 
 use crate::vfs::{
@@ -14,8 +15,9 @@ use crate::wait::PollTable;
 use super::MAX_SOCKET_BUFFER;
 
 /// What one protocol answers for its socket, as Linux's `struct proto_ops`:
-/// the file's reads and writes, what a poll finds, and the release once every
-/// view is gone.
+/// the file's reads and writes, what a poll finds, its shutdown, names, and
+/// options, and the release once every view is gone. A Wasm Driver reaches
+/// every socket through it, whichever protocol stands behind.
 pub trait ProtoOps: Send + Sync {
     /// Read what the socket holds; `WouldBlock` while it holds nothing yet.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError>;
@@ -24,8 +26,95 @@ pub trait ProtoOps: Send + Sync {
     /// What a call would find ready, the socket's wait queue registered on
     /// `table`, as a protocol's `->poll` calls `sock_poll_wait`.
     fn poll(&self, table: Option<&mut PollTable>) -> PollMask;
+    /// Shut the reading side, the writing side, or both down, as
+    /// `inet_shutdown` marks `sk_shutdown`; a socket connected to nothing
+    /// answers `ENOTCONN`.
+    fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError>;
+    /// The peer as the guest named it, once connected, as `->getname` maps
+    /// the real peer back through cgroup `getpeername4`.
+    fn getpeername(&self) -> Option<SocketAddr>;
+    /// The port the guest reads for its own end, once its namespace gave one
+    /// as the connect began.
+    fn virtual_port(&self) -> Option<u16>;
+    /// The value `opt` holds on this socket, never the host's, as
+    /// `getsockopt` reads it; one the protocol has not answers `ENOPROTOOPT`.
+    fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError>;
+    /// Set `opt` to `value`, as `setsockopt` does, refusing what Linux
+    /// refuses; a host socket already dialed takes it at once.
+    fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), FilesystemError>;
     /// Let go of the host socket, as `sock_close` runs on the last `fput`.
     fn release(&self);
+}
+
+/// A socket option a protocol may answer, as `setsockopt`'s level and name
+/// pick one. Sizes are bytes, times are seconds, and a flag is 0 or 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SockOpt {
+    /// `SO_RCVBUF`, which reads twice what was set.
+    RcvBuf,
+    /// `SO_SNDBUF`, which reads twice what was set.
+    SndBuf,
+    /// `IP_TTL`.
+    Ttl,
+    /// `SO_KEEPALIVE`.
+    KeepAlive,
+    /// `TCP_KEEPIDLE`.
+    KeepIdle,
+    /// `TCP_KEEPINTVL`.
+    KeepIntvl,
+    /// `TCP_KEEPCNT`.
+    KeepCnt,
+}
+
+/// What every inet socket holds beside its protocol's own state, as Linux's
+/// `inet_sock` sits beneath `tcp_sock` and `udp_sock`.
+pub(crate) struct InetSock {
+    /// The port the guest reads for its own end, which its namespace gave as
+    /// the connect began, as a NAT's tuple pairs it with the host's.
+    pub(crate) virtual_port: Option<u16>,
+    /// The peer as the guest named it, a virtual address standing for its
+    /// name, as cgroup `getpeername4` maps a real peer back.
+    pub(crate) named: Option<SocketAddr>,
+    /// How much each queue holds, as `sk_rcvbuf` and `sk_sndbuf`.
+    pub(crate) buffers: Buffers,
+    /// The hop limit sent with, as `inet_sock` keeps `uc_ttl`.
+    pub(crate) ttl: u8,
+}
+
+impl InetSock {
+    pub(crate) fn new() -> Self {
+        Self {
+            virtual_port: None,
+            named: None,
+            buffers: Buffers::default(),
+            ttl: IPDEFTTL,
+        }
+    }
+
+    /// What `opt` reads at the socket and IP levels, as `sk_getsockopt` and
+    /// `do_ip_getsockopt` answer; a TCP option answers `ENOPROTOOPT`.
+    pub(crate) fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError> {
+        let value = match opt {
+            SockOpt::RcvBuf => self.buffers.rcvbuf,
+            SockOpt::SndBuf => self.buffers.sndbuf,
+            SockOpt::Ttl => usize::from(self.ttl),
+            _ => return Err(FilesystemError::ProtocolNotAvailable),
+        };
+        Ok(u32::try_from(value).unwrap_or(u32::MAX))
+    }
+
+    /// Set a buffer `opt` to twice `value`, as `sock_setsockopt` does; the
+    /// hop limit and TCP's options are the protocol's to set.
+    pub(crate) fn set_buffer(&mut self, opt: SockOpt, value: u32) -> Result<(), FilesystemError> {
+        let bytes = usize::try_from(value).unwrap_or(usize::MAX);
+        match opt {
+            SockOpt::RcvBuf => self.buffers.set_rcvbuf(bytes),
+            SockOpt::SndBuf => self.buffers.set_sndbuf(bytes),
+            _ => return Err(FilesystemError::ProtocolNotAvailable),
+        }
+        Ok(())
+    }
 }
 
 /// The least `SO_RCVBUF` and `SO_SNDBUF` leave a queue, Linux's
@@ -70,11 +159,12 @@ impl Buffers {
 /// `IPDEFTTL`; the host's own default never reaches the guest.
 pub(crate) const IPDEFTTL: u8 = 64;
 
-/// A hop limit Linux takes, which is any but zero.
-pub(crate) fn ensure_ttl(ttl: u8) -> Result<(), FilesystemError> {
-    match ttl {
-        0 => Err(FilesystemError::InvalidInput),
-        _ => Ok(()),
+/// `ttl` as a hop limit Linux takes, 1 to 255, refusing the rest with EINVAL
+/// as `do_ip_setsockopt` does.
+pub(crate) fn to_ttl(ttl: u32) -> Result<u8, FilesystemError> {
+    match u8::try_from(ttl) {
+        Ok(0) | Err(_) => Err(FilesystemError::InvalidInput),
+        Ok(ttl) => Ok(ttl),
     }
 }
 

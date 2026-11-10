@@ -478,35 +478,39 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         fd: types::Fd,
         _flags: types::Fdflags,
     ) -> Answer<types::Fd> {
-        self.answer(memory, |_, inv| sock::refuse(table(inv), fd.into()))
+        self.answer(memory, |_, inv| sock::accept(table(inv), fd.into()))
     }
 
     fn sock_recv(
         &mut self,
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
-        _ri_data: types::IovecArray,
-        _ri_flags: types::Riflags,
+        ri_data: types::IovecArray,
+        ri_flags: types::Riflags,
     ) -> Answer<(types::Size, types::Roflags)> {
-        self.answer(memory, |_, inv| sock::refuse(table(inv), fd.into()))
+        self.answer(memory, |mem, inv| {
+            sock::recv(table(inv), mem, fd.into(), ri_data, ri_flags)
+        })
     }
 
     fn sock_send(
         &mut self,
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
-        _si_data: types::CiovecArray,
+        si_data: types::CiovecArray,
         _si_flags: types::Siflags,
     ) -> Answer<types::Size> {
-        self.answer(memory, |_, inv| sock::refuse(table(inv), fd.into()))
+        self.answer(memory, |mem, inv| {
+            sock::send(table(inv), mem, fd.into(), si_data)
+        })
     }
 
     fn sock_shutdown(
         &mut self,
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
-        _how: types::Sdflags,
+        how: types::Sdflags,
     ) -> Answer {
-        self.answer(memory, |_, inv| sock::refuse(table(inv), fd.into()))
+        self.answer(memory, |_, inv| sock::shutdown(table(inv), fd.into(), how))
     }
 }

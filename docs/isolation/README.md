@@ -177,6 +177,7 @@ Where both encodings answer the same call, preview1 adapts to preview2, as `wasm
 |---|---|---|
 | waiting | `poll_oneoff` | preview2's poll |
 | a socket's read, write | `fd_read`, `fd_write` | the socket's Open File |
+| a socket's own call | `sock_recv`, `sock_send`, `sock_shutdown` | the protocol behind the socket's file |
 | a file's call | `path_*`, `fd_*` | the Open File, preview1 only |
 
 ## Trigger Conditions

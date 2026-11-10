@@ -750,187 +750,6 @@ impl TcpSock {
 }
 ```
 
-## `TcpSock::shutdown`
-
-Shut the writing side down once what is queued is sent, or stop reading.
-
-```rust
-impl TcpSock {
-    pub fn shutdown(&self, how: Shutdown) {}
-}
-```
-
-## `TcpSock::virtual_port`
-
-The port the Guest reads for the socket's own end, once a connect began. The
-host's own port stays inside the socket.
-
-```rust
-impl TcpSock {
-    pub fn virtual_port(&self) -> Option<u16> {}
-}
-```
-
-## `TcpSock::peer_addr`
-
-The peer as the Guest named it, once connected, as cgroup `getpeername4` maps
-the real peer back.
-
-```rust
-impl TcpSock {
-    pub fn peer_addr(&self) -> Option<SocketAddr> {}
-}
-```
-
-## `TcpSock::keepalive`
-
-Whether the socket sends keepalive probes, as the socket itself holds it, never
-the host socket's own setting.
-
-```rust
-impl TcpSock {
-    pub fn keepalive(&self) -> bool {}
-}
-```
-
-## `TcpSock::set_keepalive`
-
-Send keepalive probes or stop. The socket holds the setting for each host
-socket it dials. One dialed already takes it at once.
-
-```rust
-impl TcpSock {
-    pub fn set_keepalive(&self, on: bool) -> Result<(), FilesystemError> {}
-}
-```
-
-## `TcpSock::keepidle`
-
-Seconds a connection idles before the first keepalive probe.
-
-```rust
-impl TcpSock {
-    pub fn keepidle(&self) -> u32 {}
-}
-```
-
-## `TcpSock::set_keepidle`
-
-Idle that many seconds before the first probe. A value outside 1 to 32767
-answers EINVAL, as Linux bounds it.
-
-```rust
-impl TcpSock {
-    pub fn set_keepidle(&self, secs: u32) -> Result<(), FilesystemError> {}
-}
-```
-
-## `TcpSock::keepintvl`
-
-Seconds between keepalive probes.
-
-```rust
-impl TcpSock {
-    pub fn keepintvl(&self) -> u32 {}
-}
-```
-
-## `TcpSock::set_keepintvl`
-
-Wait that many seconds between probes. A value outside 1 to 32767 answers
-EINVAL.
-
-```rust
-impl TcpSock {
-    pub fn set_keepintvl(&self, secs: u32) -> Result<(), FilesystemError> {}
-}
-```
-
-## `TcpSock::keepcnt`
-
-Keepalive probes left unanswered before the connection drops.
-
-```rust
-impl TcpSock {
-    pub fn keepcnt(&self) -> u32 {}
-}
-```
-
-## `TcpSock::set_keepcnt`
-
-Drop the connection after that many unanswered probes. A value outside 1 to
-127 answers EINVAL.
-
-```rust
-impl TcpSock {
-    pub fn set_keepcnt(&self, count: u32) -> Result<(), FilesystemError> {}
-}
-```
-
-## `TcpSock::rcvbuf`
-
-The most the receive queue holds, as `SO_RCVBUF` reads it.
-
-```rust
-impl TcpSock {
-    pub fn rcvbuf(&self) -> usize {}
-}
-```
-
-## `TcpSock::set_rcvbuf`
-
-Hold twice the size in the receive queue, as Linux doubles it. The result
-never passes the buffer the socket reserved.
-
-```rust
-impl TcpSock {
-    pub fn set_rcvbuf(&self, bytes: usize) {}
-}
-```
-
-## `TcpSock::sndbuf`
-
-The most the send queue holds, as `SO_SNDBUF` reads it.
-
-```rust
-impl TcpSock {
-    pub fn sndbuf(&self) -> usize {}
-}
-```
-
-## `TcpSock::set_sndbuf`
-
-Hold twice the size in the send queue. The result never passes the buffer
-the socket reserved.
-
-```rust
-impl TcpSock {
-    pub fn set_sndbuf(&self, bytes: usize) {}
-}
-```
-
-## `TcpSock::ttl`
-
-The hop limit the socket sends with. It starts at Linux's 64, never the
-host's own default.
-
-```rust
-impl TcpSock {
-    pub fn ttl(&self) -> u8 {}
-}
-```
-
-## `TcpSock::set_ttl`
-
-Send with the hop limit given, on each host socket dialed. Zero answers
-EINVAL.
-
-```rust
-impl TcpSock {
-    pub fn set_ttl(&self, ttl: u8) -> Result<(), FilesystemError> {}
-}
-```
-
 ## `sock_alloc_file`
 
 The socket file of a socket, opened for reading and writing, as Linux's
@@ -979,6 +798,61 @@ pub trait ProtoOps {
 }
 ```
 
+## `ProtoOps::shutdown`
+
+Shut the reading side, the writing side, or both down. A socket connected to
+nothing marks them and answers `NotConnected`.
+
+```rust
+pub trait ProtoOps {
+    fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError>;
+}
+```
+
+## `ProtoOps::getpeername`
+
+The peer as the Guest named it, once connected. The real peer stays inside the
+socket.
+
+```rust
+pub trait ProtoOps {
+    fn getpeername(&self) -> Option<SocketAddr>;
+}
+```
+
+## `ProtoOps::virtual_port`
+
+The port the Guest reads for the socket's own end, once its namespace gave one.
+The host's own port stays inside the socket.
+
+```rust
+pub trait ProtoOps {
+    fn virtual_port(&self) -> Option<u16>;
+}
+```
+
+## `ProtoOps::getsockopt`
+
+The value an option holds on the socket, never the host's. An option its
+protocol has not answers `ProtocolNotAvailable`.
+
+```rust
+pub trait ProtoOps {
+    fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError>;
+}
+```
+
+## `ProtoOps::setsockopt`
+
+Set an option, refusing what Linux refuses. A host socket already dialed takes
+it at once.
+
+```rust
+pub trait ProtoOps {
+    fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), FilesystemError>;
+}
+```
+
 ## `ProtoOps::release`
 
 Let go of the host socket once every view is gone.
@@ -986,6 +860,24 @@ Let go of the host socket once every view is gone.
 ```rust
 pub trait ProtoOps {
     fn release(&self);
+}
+```
+
+## `SockOpt`
+
+A socket option a protocol may answer. A buffer reads twice what was set.
+Sizes are bytes, times are seconds, and a flag is 0 or 1.
+
+```rust
+#[non_exhaustive]
+pub enum SockOpt {
+    RcvBuf,
+    SndBuf,
+    Ttl,
+    KeepAlive,
+    KeepIdle,
+    KeepIntvl,
+    KeepCnt,
 }
 ```
 
@@ -1546,91 +1438,6 @@ its host socket once it connects to one peer. A read takes one datagram.
 
 ```rust
 pub struct UdpSock {}
-```
-
-## `UdpSock::peer_addr`
-
-The peer as the Guest named it, once connected, as cgroup `getpeername4` maps
-the real peer back.
-
-```rust
-impl UdpSock {
-    pub fn peer_addr(&self) -> Option<SocketAddr> {}
-}
-```
-
-## `UdpSock::rcvbuf`
-
-The most the receive queue holds, as `SO_RCVBUF` reads it.
-
-```rust
-impl UdpSock {
-    pub fn rcvbuf(&self) -> usize {}
-}
-```
-
-## `UdpSock::set_rcvbuf`
-
-Hold twice the size in the receive queue, as Linux doubles it. A datagram past
-it is dropped.
-
-```rust
-impl UdpSock {
-    pub fn set_rcvbuf(&self, bytes: usize) {}
-}
-```
-
-## `UdpSock::sndbuf`
-
-What `SO_SNDBUF` reads. A send reaches the host at once, so no queue of the
-socket's own holds it.
-
-```rust
-impl UdpSock {
-    pub fn sndbuf(&self) -> usize {}
-}
-```
-
-## `UdpSock::set_sndbuf`
-
-Read back twice the size as `SO_SNDBUF`.
-
-```rust
-impl UdpSock {
-    pub fn set_sndbuf(&self, bytes: usize) {}
-}
-```
-
-## `UdpSock::ttl`
-
-The hop limit the socket sends with. It starts at Linux's 64, never the
-host's own default.
-
-```rust
-impl UdpSock {
-    pub fn ttl(&self) -> u8 {}
-}
-```
-
-## `UdpSock::set_ttl`
-
-Send with the hop limit given. Zero answers EINVAL.
-
-```rust
-impl UdpSock {
-    pub fn set_ttl(&self, ttl: u8) -> Result<(), FilesystemError> {}
-}
-```
-
-## `UdpSock::virtual_port`
-
-The port the Guest reads for the socket's own end, once it connected. The
-host's own port stays inside the socket.
-
-```rust
-impl UdpSock {
-    pub fn virtual_port(&self) -> Option<u16> {}
-}
 ```
 
 ## `Namespace::create_udp_socket`

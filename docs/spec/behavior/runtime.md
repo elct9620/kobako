@@ -3943,7 +3943,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a guest whose preview2 socket connected to a peer |
 | When | it writes and then reads through preview1 on the socket's number, and asks its `fdstat` |
-| Then | the peer reads what was written and the guest reads the peer's reply. The `fdstat` reports a non-blocking socket stream, as one fdtable holds a socket's file. A `sock_*` call on the number answers ENOTSUP, since the rest of a socket's calls go through preview2 |
+| Then | the peer reads what was written and the guest reads the peer's reply. The `fdstat` reports a non-blocking socket stream, as one fdtable holds a socket's file |
 
 ## `RT-350` A preview1 poll of a socket's number waits for its peer
 
@@ -4185,3 +4185,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest running at the strongest profile |
 | When | it waits on a one-second and a two-second clock together, through preview1 and through preview2 |
 | Then | each wait reports both clocks at once, since the frozen clocks never reach either |
+
+## `RT-372` A preview1 socket call reaches the socket behind its number
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-349` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest whose preview2 socket connected to a peer |
+| When | it sends, receives, peeks, and shuts the writing side down, then neither side, through `sock_*` on its number |
+| Then | the peer reads what was sent and the guest receives the reply. A peek answers ENOTSUP, as WASI carries no receive flag. The shutdown ends the peer's read, and one naming neither side answers EINVAL, as Linux's `inet_shutdown` |

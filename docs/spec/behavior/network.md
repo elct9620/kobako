@@ -1872,3 +1872,16 @@ endpoint "api.example.com", port: 443
 | Given | an entry's connect policy that records each attempt |
 | When | the guest connects to an IPv6 address and to an unmapped virtual one, and binds an IPv6 address |
 | Then | the policy sees both connects. They answer `EAFNOSUPPORT` and `EACCES`, and the bind `EAFNOSUPPORT`, as Linux's `security_socket_connect` runs before the protocol's `connect` |
+
+## `NW-152` A UDP socket's shutdown ends its reads and refuses its sends
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-053` |
+| relates | `RT-372` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket connected to a peer, and one connected to none |
+| When | a Wasm Driver shuts the reading side down, then the writing side, then shuts the unconnected socket down |
+| Then | a read answers zero and polls readable, a send answers EPIPE, and both shut poll hung up. The unconnected socket answers ENOTCONN, as Linux's `inet_shutdown` |

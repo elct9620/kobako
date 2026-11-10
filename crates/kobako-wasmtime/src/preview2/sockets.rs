@@ -26,14 +26,20 @@ pub(crate) fn to_keepalive_secs(nanos: u64, max: u32) -> Option<u32> {
 
 /// The size a guest asked for, as a socket's queue holds twice it; wasmtime
 /// halves Linux's answer the same way.
-pub(crate) fn to_asked_size(held: usize) -> u64 {
-    u64::try_from(held / 2).unwrap_or(u64::MAX)
+pub(crate) fn to_asked_size(held: u32) -> u64 {
+    u64::from(held / 2)
+}
+
+/// The hop limit an `IP_TTL` read answers, which the runtime keeps within a
+/// byte.
+pub(crate) fn to_hop_limit(ttl: u32) -> u8 {
+    u8::try_from(ttl).unwrap_or(u8::MAX)
 }
 
 /// A buffer size a set takes; zero has none, as WIT answers it
 /// `invalid-argument`.
-pub(crate) fn to_buffer_size(value: u64) -> Option<usize> {
-    (value != 0).then(|| usize::try_from(value).unwrap_or(usize::MAX))
+pub(crate) fn to_buffer_size(value: u64) -> Option<u32> {
+    (value != 0).then(|| u32::try_from(value).unwrap_or(u32::MAX))
 }
 
 /// The IPv4 address the guest named; an IPv6 one has no answer, since the

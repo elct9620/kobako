@@ -84,6 +84,8 @@ pub enum FilesystemError {
     /// A connect asked again while one is under way.
     AlreadyInProgress,
     AddressFamilyNotSupported,
+    /// A socket option its protocol does not have.
+    ProtocolNotAvailable,
     /// Any other failure, with what the Filesystem knows of it.
     Other(String),
 }
@@ -91,7 +93,7 @@ pub enum FilesystemError {
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, FilesystemError); 45] = [
+const POSIX_NAMES: [(&str, FilesystemError); 46] = [
     ("EAGAIN", FilesystemError::WouldBlock),
     ("ENOENT", FilesystemError::NotFound),
     ("EEXIST", FilesystemError::AlreadyExists),
@@ -137,6 +139,7 @@ const POSIX_NAMES: [(&str, FilesystemError); 45] = [
     ("EINPROGRESS", FilesystemError::InProgress),
     ("EALREADY", FilesystemError::AlreadyInProgress),
     ("EAFNOSUPPORT", FilesystemError::AddressFamilyNotSupported),
+    ("ENOPROTOOPT", FilesystemError::ProtocolNotAvailable),
 ];
 
 impl From<DownError> for FilesystemError {

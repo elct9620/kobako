@@ -7,13 +7,13 @@
 
 use std::collections::VecDeque;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{ensure_ttl, to_error, Buffers, ProtoOps, SocketMemory, IPDEFTTL};
+use super::socket::{to_error, to_ttl, InetSock, ProtoOps, SockOpt, SocketMemory};
 use super::MAX_SOCKET_BUFFER;
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -41,22 +41,20 @@ struct State {
     /// Whether the host socket took the last send, until the reactor next
     /// sees it change, as `sock_writeable` reads its room.
     writable: bool,
-    /// The port the guest reads for its own end, which its namespace gave as
-    /// it first connected, as a NAT's tuple pairs it with the host's.
-    virtual_port: Option<u16>,
-    /// The peer as the guest named it, a virtual address standing for its
-    /// name, as cgroup `getpeername4` maps a real peer back.
-    named: Option<SocketAddr>,
+    /// Its own end's port, its peer, its buffers, and its hop limit. A send
+    /// goes to the host at once, so `SO_SNDBUF` only reads back.
+    inet: InetSock,
+    /// The guest shut its reading side down, as `RCV_SHUTDOWN`; once the
+    /// queue empties a read answers zero.
+    rcv_shut: bool,
+    /// The guest shut its writing side down, as `SEND_SHUTDOWN`; a send
+    /// answers `EPIPE`.
+    send_shut: bool,
     /// The socket's place against its Sandbox's cap and the process's.
     place: Option<Place>,
     /// What the receive queue may hold, reserved against the Invocation's
     /// memory until the socket is released.
     memory: Option<SocketMemory>,
-    /// How much the receive queue holds, as `sk_rcvbuf`, and what `SO_SNDBUF`
-    /// reads.
-    buffers: Buffers,
-    /// The hop limit sent with, as `inet_sock` keeps `uc_ttl`.
-    ttl: u8,
 }
 
 /// One UDP socket, shared by the socket file and the reactor.
@@ -79,12 +77,11 @@ impl UdpSock {
                 received: VecDeque::new(),
                 received_bytes: 0,
                 writable: true,
-                virtual_port: None,
-                named: None,
+                inet: InetSock::new(),
+                rcv_shut: false,
+                send_shut: false,
                 place: None,
                 memory: Some(memory),
-                buffers: Buffers::default(),
-                ttl: IPDEFTTL,
             }),
             wait: Arc::default(),
             this: this.clone(),
@@ -115,7 +112,7 @@ impl UdpSock {
                 if let Some((socket, _)) = state.host.as_ref() {
                     socket.connect(addr).map_err(|err| to_error(&err))?;
                 }
-                state.named = Some(named);
+                state.inet.named = Some(named);
                 state.writable = true;
                 return Ok(());
             }
@@ -127,7 +124,11 @@ impl UdpSock {
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         let host = family
             .connect_datagram(addr)
-            .and_then(|socket| socket.set_ttl(self.state().ttl.into()).map(|()| socket))
+            .and_then(|socket| {
+                socket
+                    .set_ttl(self.state().inet.ttl.into())
+                    .map(|()| socket)
+            })
             .map_err(|err| to_error(&err))?;
         let mut socket = mio::net::UdpSocket::from_std(host);
         let ready: Weak<dyn Ready> = self.this.clone();
@@ -139,7 +140,7 @@ impl UdpSock {
             registration.deregister(&mut earlier);
         }
         state.host = Some((socket, registration));
-        state.named = Some(named);
+        state.inet.named = Some(named);
         state.writable = true;
         if let Some(place) = place {
             state.place = Some(place);
@@ -163,7 +164,7 @@ impl UdpSock {
         loop {
             match socket.recv(&mut datagram) {
                 Ok(n) => {
-                    if state.received_bytes + truesize(n) <= state.buffers.rcvbuf {
+                    if state.received_bytes + truesize(n) <= state.inet.buffers.rcvbuf {
                         state.received.push_back(datagram[..n].to_vec());
                         state.received_bytes += truesize(n);
                     }
@@ -181,60 +182,10 @@ impl UdpSock {
         self.wait.wake_up();
     }
 
-    /// The port the guest reads for its own end, once it connected.
-    pub fn virtual_port(&self) -> Option<u16> {
-        self.state().virtual_port
-    }
-
     /// Hold the port `alloc` gives as the guest's own, unless one is held, so
     /// a socket connected again keeps its port.
     pub(crate) fn hold_virtual_port(&self, alloc: impl FnOnce() -> u16) {
-        self.state().virtual_port.get_or_insert_with(alloc);
-    }
-
-    /// The peer as the guest named it, once connected, as cgroup
-    /// `getpeername4` maps the real peer back.
-    pub fn peer_addr(&self) -> Option<SocketAddr> {
-        self.state().named
-    }
-
-    /// What the receive queue holds at most, as `SO_RCVBUF` reads `sk_rcvbuf`.
-    pub fn rcvbuf(&self) -> usize {
-        self.state().buffers.rcvbuf
-    }
-
-    /// Hold at most twice `bytes` in the receive queue; past it a datagram is
-    /// dropped, as a full `sk_rcvbuf` drops one.
-    pub fn set_rcvbuf(&self, bytes: usize) {
-        self.state().buffers.set_rcvbuf(bytes);
-    }
-
-    /// What `SO_SNDBUF` reads. A send goes to the host at once, so no queue of
-    /// the socket's own holds it.
-    pub fn sndbuf(&self) -> usize {
-        self.state().buffers.sndbuf
-    }
-
-    /// Read back twice `bytes` as `SO_SNDBUF`.
-    pub fn set_sndbuf(&self, bytes: usize) {
-        self.state().buffers.set_sndbuf(bytes);
-    }
-
-    /// The hop limit the socket sends with, as `IP_TTL` reads it.
-    pub fn ttl(&self) -> u8 {
-        self.state().ttl
-    }
-
-    /// Send with hop limit `ttl`, refusing zero with EINVAL, as
-    /// `do_ip_setsockopt` does; a host socket already there takes it at once.
-    pub fn set_ttl(&self, ttl: u8) -> Result<(), FilesystemError> {
-        ensure_ttl(ttl)?;
-        let mut state = self.state();
-        if let Some((socket, _)) = &state.host {
-            socket.set_ttl(ttl.into()).map_err(|err| to_error(&err))?;
-        }
-        state.ttl = ttl;
-        Ok(())
+        self.state().inet.virtual_port.get_or_insert_with(alloc);
     }
 }
 
@@ -254,14 +205,18 @@ impl ProtoOps for UdpSock {
     /// One datagram, cut to `buf`, as a datagram socket's read takes one. A
     /// pending failure is answered first, once, and then cleared, as
     /// `__skb_recv_udp` asks `sock_error` before it dequeues, so the socket
-    /// reads on.
+    /// reads on. Once its reading side is shut and the queue empty, a read
+    /// answers zero, as `__skb_wait_for_more_packets` ends on `RCV_SHUTDOWN`.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
         if let Some(err) = state.error.take() {
             return Err(err);
         }
         let Some(datagram) = state.received.pop_front() else {
-            return Err(FilesystemError::WouldBlock);
+            return match state.rcv_shut {
+                true => Ok(0),
+                false => Err(FilesystemError::WouldBlock),
+            };
         };
         state.received_bytes -= truesize(datagram.len());
         let n = buf.len().min(datagram.len());
@@ -271,9 +226,11 @@ impl ProtoOps for UdpSock {
 
     /// One datagram, sent whole and at once, as `udp_sendmsg` sends: one past
     /// what UDP carries answers EMSGSIZE, one with no peer to go to
-    /// EDESTADDRREQ, and a pending failure is answered once first. A host
-    /// socket with no room answers `WouldBlock` and sends nothing, so no
-    /// datagram is taken that a release could lose.
+    /// EDESTADDRREQ, and a pending failure is answered once first. Once its
+    /// writing side is shut a send answers EPIPE, as `sock_alloc_send_pskb`
+    /// refuses on `SEND_SHUTDOWN`. A host socket with no room answers
+    /// `WouldBlock` and sends nothing, so no datagram is taken that a release
+    /// could lose.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
         if buf.len() > MAX_DATAGRAM {
             return Err(FilesystemError::MessageTooLong);
@@ -282,8 +239,11 @@ impl ProtoOps for UdpSock {
         if let Some(err) = state.error.take() {
             return Err(err);
         }
-        if state.named.is_none() {
+        if state.inet.named.is_none() {
             return Err(FilesystemError::DestinationAddressRequired);
+        }
+        if state.send_shut {
+            return Err(FilesystemError::BrokenPipe);
         }
         let Some((socket, _)) = state.host.as_ref() else {
             return Err(FilesystemError::WouldBlock);
@@ -304,23 +264,71 @@ impl ProtoOps for UdpSock {
         }
     }
 
-    /// As `datagram_poll` answers: readable once a datagram waits, writable
-    /// while the host socket takes a send, and failed while a failure is
+    /// As `datagram_poll` answers: readable once a datagram waits or its
+    /// reading side is shut, writable while the host socket takes a send,
+    /// hung up once both sides are shut, and failed while a failure is
     /// pending.
     fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
         poll_wait(&self.wait, table);
         let state = self.state();
         let mut mask = PollMask::default();
-        if !state.received.is_empty() {
+        if !state.received.is_empty() || state.rcv_shut {
             mask = mask | PollMask::IN;
         }
-        if (state.host.is_some() && state.writable) || state.named.is_none() {
+        if (state.host.is_some() && state.writable) || state.inet.named.is_none() {
             mask = mask | PollMask::OUT;
+        }
+        if state.rcv_shut && state.send_shut {
+            mask = mask | PollMask::HUP;
         }
         if state.error.is_some() {
             mask = mask | PollMask::ERR;
         }
         mask
+    }
+
+    /// Mark the sides `how` names shut, as `inet_shutdown` does; a socket
+    /// connected to no peer marks them and answers `ENOTCONN`.
+    fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
+        let mut state = self.state();
+        state.rcv_shut |= matches!(how, Shutdown::Read | Shutdown::Both);
+        state.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
+        let connected = state.inet.named.is_some();
+        drop(state);
+        self.wait.wake_up();
+        match connected {
+            true => Ok(()),
+            false => Err(FilesystemError::NotConnected),
+        }
+    }
+
+    fn getpeername(&self) -> Option<SocketAddr> {
+        self.state().inet.named
+    }
+
+    fn virtual_port(&self) -> Option<u16> {
+        self.state().inet.virtual_port
+    }
+
+    /// The buffers and the hop limit; UDP has no TCP option.
+    fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError> {
+        self.state().inet.getsockopt(opt)
+    }
+
+    /// A buffer past it drops a datagram, as a full `sk_rcvbuf` does; a send
+    /// goes to the host at once, so `SO_SNDBUF` only reads back. A hop limit
+    /// reaches a host socket already there at once.
+    fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), FilesystemError> {
+        let mut state = self.state();
+        if opt != SockOpt::Ttl {
+            return state.inet.set_buffer(opt, value);
+        }
+        let ttl = to_ttl(value)?;
+        if let Some((socket, _)) = &state.host {
+            socket.set_ttl(ttl.into()).map_err(|err| to_error(&err))?;
+        }
+        state.inet.ttl = ttl;
+        Ok(())
     }
 
     /// Let the host socket go, deregistered from the reactor.
@@ -402,11 +410,17 @@ mod tests {
         let addr = peer.local_addr().unwrap();
         let sock =
             UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
-        let defaults = (sock.ttl(), sock.rcvbuf(), sock.sndbuf());
-        let zero = sock.set_ttl(0);
-        sock.set_ttl(9).expect("a hop limit Linux takes");
-        sock.set_rcvbuf(1000);
-        sock.set_sndbuf(1000);
+        let get = |opt| sock.getsockopt(opt).unwrap() as usize;
+        let defaults = (
+            get(SockOpt::Ttl),
+            get(SockOpt::RcvBuf),
+            get(SockOpt::SndBuf),
+        );
+        let zero = sock.setsockopt(SockOpt::Ttl, 0);
+        sock.setsockopt(SockOpt::Ttl, 9)
+            .expect("a hop limit Linux takes");
+        sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
+        sock.setsockopt(SockOpt::SndBuf, 1000).unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.connect(&family, addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
@@ -430,7 +444,14 @@ mod tests {
         sock.on_event();
         let held = sock.state().received.len();
         assert_eq!(
-            (defaults, zero, host_ttl, sock.rcvbuf(), sock.sndbuf(), held),
+            (
+                defaults,
+                zero,
+                host_ttl,
+                get(SockOpt::RcvBuf),
+                get(SockOpt::SndBuf),
+                held
+            ),
             (
                 (64, MAX_SOCKET_BUFFER, MAX_SOCKET_BUFFER),
                 Err(FilesystemError::InvalidInput),
@@ -452,7 +473,7 @@ mod tests {
         let addr = peer.local_addr().unwrap();
         let sock =
             UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
-        sock.set_rcvbuf(1000);
+        sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.connect(&family, addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
@@ -477,6 +498,44 @@ mod tests {
             96,
             "a UDP socket whose receive buffer reads 2304 must queue no more than 96 of 200 \
              empty datagrams, as each spends its queue entry's 24 bytes, as Linux's truesize does"
+        );
+    }
+
+    // @behavior NW-152
+    #[test]
+    fn a_udp_shutdown_ends_reads_and_refuses_sends_as_linux() {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let sock = connected(peer.local_addr().unwrap());
+        let unconnected =
+            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+        let before = sock.recvmsg(&mut [0; 4]);
+        sock.shutdown(Shutdown::Read)
+            .expect("a connected socket shuts down");
+        let read = (
+            sock.recvmsg(&mut [0; 4]),
+            sock.poll(None).contains(PollMask::IN),
+        );
+        sock.shutdown(Shutdown::Write)
+            .expect("a connected socket shuts down");
+        let sent = sock.sendmsg(b"late");
+        assert_eq!(
+            (
+                before,
+                read,
+                sent,
+                sock.poll(None).contains(PollMask::HUP),
+                unconnected.shutdown(Shutdown::Both)
+            ),
+            (
+                Err(FilesystemError::WouldBlock),
+                (Ok(0), true),
+                Err(FilesystemError::BrokenPipe),
+                true,
+                Err(FilesystemError::NotConnected)
+            ),
+            "a UDP socket must read zero and poll readable once its reading side is shut, answer \
+             EPIPE to a send once its writing side is, poll hung up once both are, and answer \
+             ENOTCONN to a shutdown with no peer, as Linux's inet_shutdown"
         );
     }
 

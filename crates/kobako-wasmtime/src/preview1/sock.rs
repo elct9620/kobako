@@ -1,19 +1,85 @@
-//! The 4 `sock_*` calls. A file's descriptor answers `NOTSOCK`, as
-//! wasmtime-wasi's preview1 does, and one standing only for its path `BADF`,
-//! as Linux's socket calls take theirs through `fdget`. A socket's number
-//! answers `NOTSUP`: its reads and writes go through `fd_read` and
-//! `fd_write`, and the rest of a socket's calls through preview2.
+//! The 4 `sock_*` calls. A socket's number answers through the protocol
+//! behind its file, as Linux's `sock_from_file` reaches a file's
+//! `proto_ops`; a file's descriptor answers `NOTSOCK`, as wasmtime-wasi's
+//! preview1 does, and one standing only for its path `BADF`, as Linux's
+//! socket calls take theirs through `fdget`.
+
+use std::net::Shutdown;
+use std::sync::Arc;
+
+use kobako_runtime::net::ProtoOps;
 
 use super::errno::{Answer, Errno};
 use super::fd::file;
-use crate::descriptors::Descriptors;
+use super::memory::GuestMemory;
+use super::types;
+use crate::descriptors::{Descriptors, SocketType};
 
-pub(crate) fn refuse<T>(table: &Descriptors, fd: u32) -> Answer<T> {
-    if table.socket(fd).is_some() {
-        return Err(Errno::Notsup.into());
+/// The protocol behind the socket `fd` stands for.
+fn socket(table: &Descriptors, fd: u32) -> Answer<Arc<dyn ProtoOps>> {
+    if let Some(ops) = table.proto_ops(fd) {
+        return Ok(ops);
     }
     file(table, fd)?;
     Err(Errno::Notsock.into())
+}
+
+/// No socket of the guest's listens, so a stream answers `INVAL`, as
+/// `inet_accept` does on a socket not listening, and a datagram one `NOTSUP`,
+/// as `sock_no_accept` does.
+pub(crate) fn accept<T>(table: &Descriptors, fd: u32) -> Answer<T> {
+    socket(table, fd)?;
+    match table.socket_of(fd).map(|(_, kind)| kind) {
+        Some(SocketType::Stream) => Err(Errno::Inval.into()),
+        _ => Err(Errno::Notsup.into()),
+    }
+}
+
+/// What the socket holds, into the first buffer with room, as `recvmsg`
+/// with no flags. A flag WASI names, peeking or waiting for all, answers
+/// `NOTSUP`, as the guest's own receive answers a flag it cannot carry.
+pub(crate) fn recv(
+    table: &Descriptors,
+    mem: &mut GuestMemory<'_, '_>,
+    fd: u32,
+    ri_data: types::IovecArray,
+    ri_flags: types::Riflags,
+) -> Answer<(types::Size, types::Roflags)> {
+    let ops = socket(table, fd)?;
+    if !ri_flags.is_empty() {
+        return Err(Errno::Notsup.into());
+    }
+    let buf = mem.first_non_empty_iovec(ri_data)?;
+    let read = ops.recvmsg(mem.bytes_mut(buf)?)?;
+    Ok((read as u32, types::Roflags::empty()))
+}
+
+/// The first buffer with bytes, sent as `sendmsg` with no flags.
+pub(crate) fn send(
+    table: &Descriptors,
+    mem: &mut GuestMemory<'_, '_>,
+    fd: u32,
+    si_data: types::CiovecArray,
+) -> Answer<types::Size> {
+    let ops = socket(table, fd)?;
+    let buf = mem.first_non_empty_ciovec(si_data)?;
+    Ok(ops.sendmsg(mem.bytes(buf)?)? as u32)
+}
+
+/// Shut the sides `how` names down, as `shutdown(2)`; naming neither
+/// answers `INVAL`, as `inet_shutdown` refuses an out-of-range `how`.
+pub(crate) fn shutdown(table: &Descriptors, fd: u32, how: types::Sdflags) -> Answer {
+    let ops = socket(table, fd)?;
+    let how = match (
+        how.contains(types::Sdflags::RD),
+        how.contains(types::Sdflags::WR),
+    ) {
+        (true, true) => Shutdown::Both,
+        (true, false) => Shutdown::Read,
+        (false, true) => Shutdown::Write,
+        (false, false) => return Err(Errno::Inval.into()),
+    };
+    Ok(ops.shutdown(how)?)
 }
 
 #[cfg(test)]
@@ -32,7 +98,7 @@ mod tests {
     use kobako_runtime::sched::run_task;
     use wiggle::GuestPtr;
 
-    use super::super::types::{Advice, Errno, Fdflags, Filetype, Sdflags, Whence};
+    use super::super::types::{Advice, Errno, Fdflags, Filetype, Riflags, Sdflags, Whence};
     use super::super::wasi_snapshot_preview1::WasiSnapshotPreview1;
     use crate::config::Config;
     use crate::invocation::Invocation;
@@ -297,26 +363,97 @@ mod tests {
             .fd_fdstat_get(&mut wiggle::GuestMemory::Unshared(&mut []), fd.into())
             .ok()
             .map(|stat| (stat.fs_filetype, stat.fs_flags.contains(Fdflags::NONBLOCK)));
-        let shutdown = guest
+        assert_eq!(
+            (written, &heard, read, stat),
+            (
+                Some(5),
+                b"hello",
+                b"world".to_vec(),
+                Some((Filetype::SocketStream, true))
+            ),
+            "fd_write and fd_read through preview1 on a connected preview2 socket's number must \
+             reach its peer, and fd_fdstat_get must report a non-blocking socket stream"
+        );
+    }
+
+    // @behavior RT-372
+    #[test]
+    fn a_preview1_socket_call_reaches_the_socket_behind_its_number() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (mut guest, fd, mut peer) = connected(&listener);
+        let errno = |answer: Result<_, super::super::types::Error>| {
+            answer.err().and_then(|err| err.downcast().ok())
+        };
+        let mut memory = vec![0u8; 64];
+        iovec(&mut memory, 4);
+        memory[16..20].copy_from_slice(b"ping");
+        let sent = guest
+            .sock_send(
+                &mut wiggle::GuestMemory::Unshared(&mut memory),
+                fd.into(),
+                GuestPtr::new((0, 1)),
+                0,
+            )
+            .ok();
+        let mut heard = [0u8; 4];
+        let _ = peer.read_exact(&mut heard);
+        peer.write_all(b"pong").unwrap();
+        let peeked = errno(
+            guest
+                .sock_recv(
+                    &mut wiggle::GuestMemory::Unshared(&mut memory),
+                    fd.into(),
+                    GuestPtr::new((0, 1)),
+                    Riflags::RECV_PEEK,
+                )
+                .map(drop),
+        );
+        let started = Instant::now();
+        let received = loop {
+            let mut memory = vec![0u8; 64];
+            iovec(&mut memory, 4);
+            let answer = guest.sock_recv(
+                &mut wiggle::GuestMemory::Unshared(&mut memory),
+                fd.into(),
+                GuestPtr::new((0, 1)),
+                Riflags::empty(),
+            );
+            if let Ok((n, _)) = answer {
+                break memory[16..16 + n as usize].to_vec();
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "sock_recv on a connected socket's number must read the peer's reply"
+            );
+            thread::sleep(Duration::from_millis(1));
+        };
+        let shut = guest
             .sock_shutdown(
                 &mut wiggle::GuestMemory::Unshared(&mut []),
                 fd.into(),
                 Sdflags::WR,
             )
-            .err()
-            .and_then(|err| err.downcast().ok());
+            .is_ok();
+        let ended = peer.read_to_end(&mut Vec::new()).ok();
+        let neither = errno(guest.sock_shutdown(
+            &mut wiggle::GuestMemory::Unshared(&mut []),
+            fd.into(),
+            Sdflags::empty(),
+        ));
         assert_eq!(
-            (written, &heard, read, stat, shutdown),
+            (sent, &heard, peeked, received, shut, ended, neither),
             (
-                Some(5),
-                b"hello",
-                b"world".to_vec(),
-                Some((Filetype::SocketStream, true)),
-                Some(Errno::Notsup)
+                Some(4),
+                b"ping",
+                Some(Errno::Notsup),
+                b"pong".to_vec(),
+                true,
+                Some(0),
+                Some(Errno::Inval)
             ),
-            "fd_write and fd_read through preview1 on a connected preview2 socket's number must \
-             reach its peer, fd_fdstat_get must report a non-blocking socket stream, and \
-             sock_shutdown must answer ENOTSUP"
+            "sock_send and sock_recv on a connected preview2 socket's number must reach its peer, \
+             a peek must answer ENOTSUP, sock_shutdown of the writing side must end the peer's \
+             read, and a shutdown naming neither side must answer EINVAL"
         );
     }
 

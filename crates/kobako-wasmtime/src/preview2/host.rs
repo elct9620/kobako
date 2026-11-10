@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
-    sock_alloc_file, Namespace, ProtoOps, TcpSock, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
+    sock_alloc_file, Namespace, ProtoOps, SockOpt, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
     MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
@@ -30,7 +30,7 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::sockets::{
     from_socket_addr, is_valid_remote_address, is_valid_unicast_address, to_asked_size,
-    to_buffer_size, to_error_code, to_keepalive_secs, to_lookup_error_code, to_nanos,
+    to_buffer_size, to_error_code, to_hop_limit, to_keepalive_secs, to_lookup_error_code, to_nanos,
     to_socket_addr,
 };
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
@@ -62,32 +62,63 @@ impl Invocation {
         self.wasi_mut().table_mut()
     }
 
-    /// What `read` answers of the TCP socket `this`, in a state that takes
-    /// an option.
-    fn tcp_option<T>(
+    /// What `opt` reads of the TCP socket `this`, in a state that takes an
+    /// option.
+    fn tcp_option(
         &mut self,
         this: TcpSocket,
-        read: impl FnOnce(&TcpSock) -> T,
-    ) -> wasmtime::Result<Result<T, ErrorCode>> {
+        opt: SockOpt,
+    ) -> wasmtime::Result<Result<u32, ErrorCode>> {
         let socket = self.tcp(this)?;
-        Ok(socket
-            .state
-            .ensure_takes_options()
-            .map(|()| read(&socket.socket.sock)))
+        Ok(socket.state.ensure_takes_options().and_then(|()| {
+            socket
+                .socket
+                .sock
+                .getsockopt(opt)
+                .map_err(|err| to_error_code(&err))
+        }))
     }
 
-    /// Set an option of the TCP socket `this` through `set`, in a state that
-    /// takes one.
+    /// Set `opt` of the TCP socket `this` to `value`, in a state that takes
+    /// an option.
     fn set_tcp_option(
         &mut self,
         this: TcpSocket,
-        set: impl FnOnce(&TcpSock) -> Result<(), FilesystemError>,
+        opt: SockOpt,
+        value: u32,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         let socket = self.tcp(this)?;
-        Ok(socket
-            .state
-            .ensure_takes_options()
-            .and_then(|()| set(&socket.socket.sock).map_err(|err| to_error_code(&err))))
+        Ok(socket.state.ensure_takes_options().and_then(|()| {
+            socket
+                .socket
+                .sock
+                .setsockopt(opt, value)
+                .map_err(|err| to_error_code(&err))
+        }))
+    }
+
+    /// What `opt` reads of the UDP socket `this`, which takes an option in
+    /// any state, as wasmtime's does.
+    fn udp_option(
+        &mut self,
+        this: UdpSocket,
+        opt: SockOpt,
+    ) -> wasmtime::Result<Result<u32, ErrorCode>> {
+        let sock = &self.udp(this)?.socket.sock;
+        Ok(sock.getsockopt(opt).map_err(|err| to_error_code(&err)))
+    }
+
+    /// Set `opt` of the UDP socket `this` to `value`.
+    fn set_udp_option(
+        &mut self,
+        this: UdpSocket,
+        opt: SockOpt,
+        value: u32,
+    ) -> wasmtime::Result<Result<(), ErrorCode>> {
+        let sock = &self.udp(this)?.socket.sock;
+        Ok(sock
+            .setsockopt(opt, value)
+            .map_err(|err| to_error_code(&err)))
     }
 
     /// The indices of `pollables` ready, once one is, as WASI's `poll` finds
@@ -475,12 +506,16 @@ impl SocketsHost for Invocation {
         if socket.state != TcpState::Connected {
             return Ok(Err(ErrorCode::InvalidState));
         }
-        socket.socket.sock.shutdown(match shutdown_type {
+        let how = match shutdown_type {
             ShutdownType::Receive => Shutdown::Read,
             ShutdownType::Send => Shutdown::Write,
             ShutdownType::Both => Shutdown::Both,
-        });
-        Ok(Ok(()))
+        };
+        Ok(socket
+            .socket
+            .sock
+            .shutdown(how)
+            .map_err(|err| to_error_code(&err)))
     }
 
     /// The guest's own end once connected, at the virtual port the namespace
@@ -510,7 +545,7 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
     ) -> wasmtime::Result<Result<IpSocketAddress, ErrorCode>> {
         let socket = self.tcp(this)?;
-        match (socket.state, socket.socket.sock.peer_addr()) {
+        match (socket.state, socket.socket.sock.getpeername()) {
             (TcpState::Connected, Some(peer)) => Ok(Ok(from_socket_addr(peer))),
             _ => Ok(Err(ErrorCode::InvalidState)),
         }
@@ -522,7 +557,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<bool, ErrorCode>> {
-        self.tcp_option(this, TcpSock::keepalive)
+        Ok(self.tcp_option(this, SockOpt::KeepAlive)?.map(|on| on != 0))
     }
 
     fn tcp_tcp_socket_set_keep_alive_enabled(
@@ -530,14 +565,14 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
         value: bool,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        self.set_tcp_option(this, |sock| sock.set_keepalive(value))
+        self.set_tcp_option(this, SockOpt::KeepAlive, u32::from(value))
     }
 
     fn tcp_tcp_socket_keep_alive_idle_time(
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        self.tcp_option(this, |sock| to_nanos(sock.keepidle()))
+        Ok(self.tcp_option(this, SockOpt::KeepIdle)?.map(to_nanos))
     }
 
     /// As wasmtime's, zero answers `invalid-argument` and any other time is
@@ -548,7 +583,7 @@ impl SocketsHost for Invocation {
         value: u64,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         match to_keepalive_secs(value, MAX_TCP_KEEPIDLE) {
-            Some(secs) => self.set_tcp_option(this, |sock| sock.set_keepidle(secs)),
+            Some(secs) => self.set_tcp_option(this, SockOpt::KeepIdle, secs),
             None => Ok(Err(ErrorCode::InvalidArgument)),
         }
     }
@@ -557,7 +592,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        self.tcp_option(this, |sock| to_nanos(sock.keepintvl()))
+        Ok(self.tcp_option(this, SockOpt::KeepIntvl)?.map(to_nanos))
     }
 
     fn tcp_tcp_socket_set_keep_alive_interval(
@@ -566,7 +601,7 @@ impl SocketsHost for Invocation {
         value: u64,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         match to_keepalive_secs(value, MAX_TCP_KEEPINTVL) {
-            Some(secs) => self.set_tcp_option(this, |sock| sock.set_keepintvl(secs)),
+            Some(secs) => self.set_tcp_option(this, SockOpt::KeepIntvl, secs),
             None => Ok(Err(ErrorCode::InvalidArgument)),
         }
     }
@@ -575,7 +610,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<u32, ErrorCode>> {
-        self.tcp_option(this, TcpSock::keepcnt)
+        self.tcp_option(this, SockOpt::KeepCnt)
     }
 
     /// As wasmtime's, zero answers `invalid-argument` and any other count is
@@ -588,7 +623,7 @@ impl SocketsHost for Invocation {
         if value == 0 {
             return Ok(Err(ErrorCode::InvalidArgument));
         }
-        self.set_tcp_option(this, |sock| sock.set_keepcnt(value.min(MAX_TCP_KEEPCNT)))
+        self.set_tcp_option(this, SockOpt::KeepCnt, value.min(MAX_TCP_KEEPCNT))
     }
 
     /// Half what the receive queue holds, as wasmtime answers it on Linux,
@@ -597,7 +632,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        self.tcp_option(this, |sock| to_asked_size(sock.rcvbuf()))
+        Ok(self.tcp_option(this, SockOpt::RcvBuf)?.map(to_asked_size))
     }
 
     fn tcp_tcp_socket_set_receive_buffer_size(
@@ -606,10 +641,7 @@ impl SocketsHost for Invocation {
         value: u64,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         match to_buffer_size(value) {
-            Some(bytes) => self.set_tcp_option(this, |sock| {
-                sock.set_rcvbuf(bytes);
-                Ok(())
-            }),
+            Some(bytes) => self.set_tcp_option(this, SockOpt::RcvBuf, bytes),
             None => Ok(Err(ErrorCode::InvalidArgument)),
         }
     }
@@ -618,7 +650,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        self.tcp_option(this, |sock| to_asked_size(sock.sndbuf()))
+        Ok(self.tcp_option(this, SockOpt::SndBuf)?.map(to_asked_size))
     }
 
     fn tcp_tcp_socket_set_send_buffer_size(
@@ -627,10 +659,7 @@ impl SocketsHost for Invocation {
         value: u64,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
         match to_buffer_size(value) {
-            Some(bytes) => self.set_tcp_option(this, |sock| {
-                sock.set_sndbuf(bytes);
-                Ok(())
-            }),
+            Some(bytes) => self.set_tcp_option(this, SockOpt::SndBuf, bytes),
             None => Ok(Err(ErrorCode::InvalidArgument)),
         }
     }
@@ -639,7 +668,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: TcpSocket,
     ) -> wasmtime::Result<Result<u8, ErrorCode>> {
-        self.tcp_option(this, TcpSock::ttl)
+        Ok(self.tcp_option(this, SockOpt::Ttl)?.map(to_hop_limit))
     }
 
     /// Zero answers `invalid-argument`, as the runtime refuses it.
@@ -648,7 +677,7 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
         value: u8,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        self.set_tcp_option(this, |sock| sock.set_ttl(value))
+        self.set_tcp_option(this, SockOpt::Ttl, u32::from(value))
     }
 
     fn tcp_tcp_socket_drop(&mut self, handle: TcpSocket) -> wasmtime::Result<()> {
@@ -738,7 +767,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: UdpSocket,
     ) -> wasmtime::Result<Result<u8, ErrorCode>> {
-        Ok(Ok(self.udp(this)?.socket.sock.ttl()))
+        Ok(self.udp_option(this, SockOpt::Ttl)?.map(to_hop_limit))
     }
 
     fn udp_udp_socket_set_unicast_hop_limit(
@@ -746,19 +775,14 @@ impl SocketsHost for Invocation {
         this: UdpSocket,
         value: u8,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        let socket = self.udp(this)?;
-        Ok(socket
-            .socket
-            .sock
-            .set_ttl(value)
-            .map_err(|err| to_error_code(&err)))
+        self.set_udp_option(this, SockOpt::Ttl, u32::from(value))
     }
 
     fn udp_udp_socket_receive_buffer_size(
         &mut self,
         this: UdpSocket,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        Ok(Ok(to_asked_size(self.udp(this)?.socket.sock.rcvbuf())))
+        Ok(self.udp_option(this, SockOpt::RcvBuf)?.map(to_asked_size))
     }
 
     fn udp_udp_socket_set_receive_buffer_size(
@@ -766,18 +790,17 @@ impl SocketsHost for Invocation {
         this: UdpSocket,
         value: u64,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        let Some(bytes) = to_buffer_size(value) else {
-            return Ok(Err(ErrorCode::InvalidArgument));
-        };
-        self.udp(this)?.socket.sock.set_rcvbuf(bytes);
-        Ok(Ok(()))
+        match to_buffer_size(value) {
+            Some(bytes) => self.set_udp_option(this, SockOpt::RcvBuf, bytes),
+            None => Ok(Err(ErrorCode::InvalidArgument)),
+        }
     }
 
     fn udp_udp_socket_send_buffer_size(
         &mut self,
         this: UdpSocket,
     ) -> wasmtime::Result<Result<u64, ErrorCode>> {
-        Ok(Ok(to_asked_size(self.udp(this)?.socket.sock.sndbuf())))
+        Ok(self.udp_option(this, SockOpt::SndBuf)?.map(to_asked_size))
     }
 
     fn udp_udp_socket_set_send_buffer_size(
@@ -785,11 +808,10 @@ impl SocketsHost for Invocation {
         this: UdpSocket,
         value: u64,
     ) -> wasmtime::Result<Result<(), ErrorCode>> {
-        let Some(bytes) = to_buffer_size(value) else {
-            return Ok(Err(ErrorCode::InvalidArgument));
-        };
-        self.udp(this)?.socket.sock.set_sndbuf(bytes);
-        Ok(Ok(()))
+        match to_buffer_size(value) {
+            Some(bytes) => self.set_udp_option(this, SockOpt::SndBuf, bytes),
+            None => Ok(Err(ErrorCode::InvalidArgument)),
+        }
     }
 
     /// The streams to the one peer the guest names, which passes the
@@ -854,7 +876,7 @@ impl SocketsHost for Invocation {
         let datagrams = self.table().get(this)?.0.clone();
         let peer = datagrams
             .sock
-            .peer_addr()
+            .getpeername()
             .expect("a datagram stream is only handed out once its socket connects");
         let max_results =
             usize::try_from(max_results).map_or(MAX_DATAGRAMS, |max| max.min(MAX_DATAGRAMS));
@@ -924,7 +946,7 @@ impl SocketsHost for Invocation {
         let mut sent = 0;
         for datagram in datagrams {
             let addressed = datagram.remote_address.as_ref().map(to_socket_addr);
-            let refused = if addressed.is_some_and(|addr| addr != stream.sock.peer_addr()) {
+            let refused = if addressed.is_some_and(|addr| addr != stream.sock.getpeername()) {
                 Some(ErrorCode::InvalidArgument)
             } else {
                 match stream.file().write(&datagram.data) {

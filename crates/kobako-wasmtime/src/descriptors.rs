@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
+use kobako_runtime::net::ProtoOps;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::{restrict_self, WalkGuard};
 use kobako_runtime::vfs::{Cred, File, OpenFiles};
@@ -64,9 +65,17 @@ struct Space {
     next: u32,
 }
 
+/// A socket a number holds: its file, the protocol behind it, and its kind.
+#[derive(Clone)]
+struct InstalledSocket {
+    file: SharedFile,
+    ops: Arc<dyn ProtoOps>,
+    kind: SocketType,
+}
+
 /// What one taken number holds.
 struct Slot {
-    socket: Option<(SharedFile, SocketType)>,
+    socket: Option<InstalledSocket>,
     /// Whether it counts against the open files.
     is_file: bool,
 }
@@ -90,21 +99,38 @@ impl Numbers {
         self.space.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Have `n`, a socket's number, stand for its `file`, as `fd_install`
-    /// fills an fd with a `struct file`.
-    pub(crate) fn install(&self, n: u32, file: SharedFile, kind: SocketType) {
+    /// Have `n`, a socket's number, stand for its `file` and the protocol
+    /// behind it, as `fd_install` fills an fd with a `struct file` whose
+    /// `struct socket` carries its `proto_ops`.
+    pub(crate) fn install(
+        &self,
+        n: u32,
+        file: SharedFile,
+        ops: Arc<dyn ProtoOps>,
+        kind: SocketType,
+    ) {
         if let Some(slot) = self.space().taken.get_mut(&n) {
-            slot.socket = Some((file, kind));
+            slot.socket = Some(InstalledSocket { file, ops, kind });
         }
     }
 
     /// The socket file `n` stands for, if a socket's number holds one.
     pub(crate) fn socket_file(&self, n: u32) -> Option<SharedFile> {
-        self.socket_of(n).map(|(file, _)| file)
+        self.installed(n).map(|socket| socket.file)
     }
 
     /// The socket `n` holds and its kind, if a socket's number holds one.
     pub(crate) fn socket_of(&self, n: u32) -> Option<(SharedFile, SocketType)> {
+        self.installed(n).map(|socket| (socket.file, socket.kind))
+    }
+
+    /// The protocol's operations the socket `n` holds answers through, as
+    /// `sock_from_file` reaches a file's socket.
+    pub(crate) fn proto_ops(&self, n: u32) -> Option<Arc<dyn ProtoOps>> {
+        self.installed(n).map(|socket| socket.ops)
+    }
+
+    fn installed(&self, n: u32) -> Option<InstalledSocket> {
         self.space()
             .taken
             .get(&n)
@@ -266,6 +292,12 @@ impl Descriptors {
     /// The socket a preview2 socket installed at `fd`, and its kind.
     pub(crate) fn socket_of(&self, fd: u32) -> Option<(SharedFile, SocketType)> {
         self.numbers.socket_of(fd)
+    }
+
+    /// The protocol's operations of the socket a preview2 socket installed at
+    /// `fd`.
+    pub(crate) fn proto_ops(&self, fd: u32) -> Option<Arc<dyn ProtoOps>> {
+        self.numbers.proto_ops(fd)
     }
 
     /// Take `fd` out of the table, freeing its number for reuse.
