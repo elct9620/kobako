@@ -56,23 +56,16 @@ impl SocketIo for Connection {
     /// Asking for no bytes waits until the stream is readable, then answers
     /// as the end, as a stream's `recv(2)` returning 0 reads to CRuby.
     fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error> {
+        let limit = wait.limit();
         if max == 0 {
             return self.with(mrb, |open| {
                 let readable = open.input.subscribe();
-                let limit = match wait {
-                    Wait::Block => None,
-                    Wait::DontWait => Some(Duration::ZERO),
-                };
                 Ok(match wait_within(&readable, limit) {
                     true => Poll::Ready(None),
                     false => Poll::Pending,
                 })
             });
         }
-        let limit = match wait {
-            Wait::Block => None,
-            Wait::DontWait => Some(Duration::ZERO),
-        };
         self.with(mrb, |open| {
             match read_within(&open.input, max as u64, limit) {
                 Ok(Some(bytes)) => Ok(Poll::Ready(Some(bytes))),

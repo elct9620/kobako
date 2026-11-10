@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
-    sock_alloc_file, Namespace, ProtoOps, SockOpt, SockType, UdpSock, MAX_DATAGRAM,
-    MAX_SOCKET_BUFFER, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
+    sock_alloc_file, Namespace, ProtoOps, SockOpt, SockType, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
+    MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
 use kobako_runtime::vfs::{Cred, FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
@@ -36,6 +36,7 @@ use super::sockets::{
     to_socket_addr,
 };
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
+use crate::descriptors::SharedFile;
 use crate::invocation::Invocation;
 use crate::trap::{Interrupted, TimeoutTrap};
 
@@ -205,14 +206,16 @@ impl Invocation {
         Ok(handle)
     }
 
-    fn subscribe_socket(
+    /// A pollable ready once `file`'s poll finds `mask`, a child `parent` must
+    /// outlive, as every pollable on a resource is.
+    pub(super) fn subscribe_file(
         &mut self,
-        stream: Stream,
+        file: SharedFile,
         mask: PollMask,
-        socket: TcpSocket,
+        parent: impl table::Handle,
     ) -> wasmtime::Result<Pollable> {
         self.table()
-            .push_child(table::Pollable::File(stream.file(), mask), socket)
+            .push_child(table::Pollable::File(file, mask), parent)
     }
 
     /// Pass a bind to `local_address` through the socket hooks, once WASI
@@ -236,16 +239,6 @@ impl Invocation {
     /// The permit an outgoing datagram stream's last `check-send` gave.
     fn permit(&mut self, stream: OutgoingDatagramStream) -> wasmtime::Result<&mut u64> {
         Ok(&mut self.table().get_mut(stream)?.permit)
-    }
-
-    fn subscribe_datagrams(
-        &mut self,
-        datagrams: SocketFile<UdpSock>,
-        mask: PollMask,
-        stream: impl table::Handle,
-    ) -> wasmtime::Result<Pollable> {
-        self.table()
-            .push_child(table::Pollable::File(datagrams.get_file(), mask), stream)
     }
 
     /// Wait until `stream`'s poll finds `mask`, or an error or a hang-up.
@@ -325,8 +318,7 @@ impl SocketsHost for Invocation {
         this: ResolveAddressStream,
     ) -> wasmtime::Result<Pollable> {
         let file = self.table().get(this)?.file.clone();
-        self.table()
-            .push_child(table::Pollable::File(file, PollMask::IN), this)
+        self.subscribe_file(file, PollMask::IN, this)
     }
 
     fn ip_name_lookup_resolve_address_stream_drop(
@@ -459,8 +451,8 @@ impl SocketsHost for Invocation {
         if socket.state != TcpState::Connecting {
             return self.table().push_child(table::Pollable::Ready, this);
         }
-        let socket = socket.socket.clone();
-        self.subscribe_socket(Stream::Socket(socket), PollMask::OUT, this)
+        let file = socket.socket.get_file();
+        self.subscribe_file(file, PollMask::OUT, this)
     }
 
     fn tcp_tcp_socket_shutdown(
@@ -801,8 +793,8 @@ impl SocketsHost for Invocation {
         &mut self,
         this: IncomingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
-        let datagrams = self.table().get(this)?.0.clone();
-        self.subscribe_datagrams(datagrams, PollMask::IN, this)
+        let file = self.table().get(this)?.0.get_file();
+        self.subscribe_file(file, PollMask::IN, this)
     }
 
     fn udp_incoming_datagram_stream_drop(
@@ -874,8 +866,8 @@ impl SocketsHost for Invocation {
         &mut self,
         this: OutgoingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
-        let datagrams = self.table().get(this)?.socket.clone();
-        self.subscribe_datagrams(datagrams, PollMask::OUT, this)
+        let file = self.table().get(this)?.socket.get_file();
+        self.subscribe_file(file, PollMask::OUT, this)
     }
 
     fn udp_outgoing_datagram_stream_drop(
@@ -931,9 +923,8 @@ impl IoHost for Invocation {
 
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
-        let stream = self.table().get(this)?.stream.clone();
-        self.table()
-            .push_child(table::Pollable::File(stream.file(), PollMask::IN), this)
+        let file = self.table().get(this)?.stream.file();
+        self.subscribe_file(file, PollMask::IN, this)
     }
 
     fn streams_input_stream_drop(&mut self, handle: InputStream) -> wasmtime::Result<()> {

@@ -26,6 +26,16 @@ pub(super) enum Wait {
     DontWait,
 }
 
+impl Wait {
+    /// How long a wait under it may last: unbounded, or not at all.
+    pub(super) fn limit(self) -> Option<std::time::Duration> {
+        match self {
+            Wait::Block => None,
+            Wait::DontWait => Some(std::time::Duration::ZERO),
+        }
+    }
+}
+
 /// What CRuby's `rb_io_t` keeps beside a socket: the read buffer, whose
 /// bytes come first, whether writes are sent at once, and which sides
 /// `close_read` and `close_write` closed.
