@@ -38,7 +38,8 @@ class TestE2ENetworkSocketIo < Minitest::Test
     end
     stream = TCPSocket.new("127.0.0.1", %<port>d)
     stream.write("\\r\\n")
-    [stream, UDPSocket.new].map do |socket|
+    sockets = [stream, UDPSocket.new]
+    open = sockets.map do |socket|
       [
         outcome.call { socket.seek(0) }, outcome.call { socket.pos }, outcome.call { socket.rewind },
         outcome.call { socket.fsync }, outcome.call { socket.fdatasync }, outcome.call { socket.advise(:normal) },
@@ -46,18 +47,28 @@ class TestE2ENetworkSocketIo < Minitest::Test
         outcome.call { socket.dup }, outcome.call { socket.clone }
       ]
     end
+    closed = sockets.each(&:close).map do |socket|
+      [
+        outcome.call { socket.seek(0) }, outcome.call { socket.pos }, outcome.call { socket.rewind },
+        outcome.call { socket.fsync }, outcome.call { socket.fdatasync }, outcome.call { socket.advise(:normal) }
+      ]
+    end
+    open + closed
   RUBY
 
   # @behavior NW-096
+  # @behavior NW-169
   def test_a_socket_has_no_position_sync_or_copy
     with_answering_server("") do |port|
       value = loopback_sandbox(port).eval(format(NO_POSITION, port: port)).value
 
       answers = (["Errno::ESPIPE"] * 3) + (["Errno::EINVAL"] * 2) + [nil, true, false, false] + (["NoMethodError"] * 2)
-      assert_equal [answers, answers], value,
+      closed = ["IOError"] * 6
+      assert_equal [answers, answers, closed, closed], value,
                    "TCPSocket and UDPSocket #seek, #pos, and #rewind must raise Errno::ESPIPE, #fsync and " \
                    "#fdatasync Errno::EINVAL, #advise answer nil, #sync start true and read back what #sync= " \
-                   "set, and #dup and #clone raise NoMethodError"
+                   "set, and #dup and #clone raise NoMethodError; once closed, each position, sync, and advice " \
+                   "call must raise IOError, as CRuby's do"
     end
   end
 

@@ -460,23 +460,28 @@ fn socket_recv_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value
 }
 
 /// A call a socket has no position for raises `Errno::ESPIPE`, as Linux's
-/// `lseek`, `pread`, and `pwrite` answer one.
-fn socket_unseekable(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
+/// `lseek`, `pread`, and `pwrite` answer one; a closed socket raises
+/// `IOError` first, as CRuby checks the stream before the call.
+fn socket_unseekable(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
+    open_socket_of(mrb, self_)?;
     Err(errno::error_alone(mrb, c"ESPIPE"))
 }
 
 /// A socket keeps nothing to sync, so `fsync` raises `Errno::EINVAL`, as
-/// Linux's answers it.
-fn socket_unsyncable(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
+/// Linux's answers it; a closed socket raises `IOError` first.
+fn socket_unsyncable(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    open_socket_of(mrb, self_)?;
     Err(errno::error_alone(mrb, c"EINVAL"))
 }
 
 /// `advise(advice, offset = 0, len = 0)` checks the advice as a file's does,
-/// then is taken and ignored, as Linux's `fadvise` takes advice on a socket.
-fn socket_advise(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
+/// then is taken and ignored, as Linux's `fadvise` takes advice on a socket;
+/// a closed socket raises `IOError` first.
+fn socket_advise(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let Some(advice) = args.first().filter(|_| args.len() <= 3) else {
         return Err(Error::argnum(mrb, args.len(), 1, 3));
     };
+    open_socket_of(mrb, self_)?;
     crate::stream::advice_of(mrb, *advice)?;
     Ok(qnil().as_value())
 }

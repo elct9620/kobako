@@ -2083,3 +2083,15 @@ endpoint "api.example.com", port: 443
 | Given | a script's `UDPSocket` connected to an endpoint's name |
 | When | it sends naming that name and port, then naming another address |
 | Then | the first reaches the peer the socket streams with, without another lookup. The second raises `Errno::EACCES` |
+
+## `NW-169` A closed socket refuses a position, sync, or advice call
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-096` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script's `TCPSocket` and `UDPSocket`, each closed |
+| When | it seeks, reads the position, rewinds, syncs, or gives advice |
+| Then | each call raises `IOError`, as CRuby checks the stream before the call |

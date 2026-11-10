@@ -18,6 +18,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 - `test/e2e/test_io_kernel.rb`
 - `test/e2e/test_io_state.rb`
 - `test/e2e/test_io_wait.rb`
+- `test/e2e/test_io_position.rb`
 
 ## `IO-001` Only the captured descriptors and the guest's own files may be opened
 
@@ -411,3 +412,27 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox whose script opened a file to read and another only to write |
 | When | the script calls `wait_readable` and `wait_writable` on each file, on `$stdout`, and on a closed file |
 | Then | a wait its stream is opened for answers the IO at once, as a file is always ready. A wait it is not opened for raises `IOError`, as `$stdout` does to read. The closed file raises `IOError` |
+
+## `IO-045` A captured stream has no position
+
+| Attribute | Value |
+| --- | --- |
+| relates | `IO-012` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script writing to the standard output or error stream |
+| When | it seeks, rewinds, reads the stream's position, or sets it |
+| Then | each raises `Errno::ESPIPE`, as CRuby's does on a pipe |
+
+## `IO-046` A copy whose original closed closes quietly
+
+| Attribute | Value |
+| --- | --- |
+| relates | `IO-003` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a copy of a file whose original it closed |
+| When | it closes the copy |
+| Then | the close answers `nil` and the copy is closed, as CRuby's close does |

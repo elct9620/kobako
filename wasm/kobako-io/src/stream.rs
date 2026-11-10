@@ -99,16 +99,38 @@ fn readable_fd(mrb: &Mrb, self_: Value) -> Result<i32, Error> {
     Ok(fd)
 }
 
-/// A directory opened as a `File` has nothing to read, which CRuby's
-/// `read(2)` names `EISDIR` rather than a stream not opened for reading.
+/// Whether the stream stands for a directory opened as a `File`.
+fn is_directory(mrb: &Mrb, self_: Value) -> bool {
+    checked_fd(mrb, self_, REACH_REFUSAL)
+        .is_ok_and(|fd| with_file(fd, |file| file.metadata()).is_ok_and(|meta| meta.is_dir()))
+}
+
+/// The error a failed read raises: a stream not opened for reading names
+/// that, and a directory, which has nothing to read, `EISDIR`, as CRuby's
+/// `read(2)` does.
 fn read_error(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
     let path = label(mrb, self_);
-    let directory = checked_fd(mrb, self_, READ_REFUSAL)
-        .is_ok_and(|fd| with_file(fd, |file| file.metadata()).is_ok_and(|meta| meta.is_dir()));
-    if directory {
+    if is_directory(mrb, self_) {
         return errno::error_by_name(mrb, c"EISDIR", &path);
     }
     errno::from_transfer(mrb, err, &path, "reading")
+}
+
+/// The descriptor a call about the position reaches: any this guest holds,
+/// a captured stream answering `ESPIPE` as the pipe it is on Linux.
+fn positioned_fd(mrb: &Mrb, self_: Value) -> Result<i32, Error> {
+    checked_fd(mrb, self_, REACH_REFUSAL)
+}
+
+/// The error a failed seek or position raises. WASI keeps no position for
+/// a directory, where Linux's would seek, so a directory raises `EISDIR`;
+/// any other failure its own name.
+fn position_error(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
+    let path = label(mrb, self_);
+    if is_directory(mrb, self_) {
+        return errno::error_by_name(mrb, c"EISDIR", &path);
+    }
+    errno::from_io(mrb, err, &path)
 }
 
 /// `read` with no length reads to the end, "" at the end; with one, up
@@ -195,9 +217,12 @@ fn io_readlines(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     Ok(lines.as_value())
 }
 
+/// Whether the position stands at the end; a stream not opened for reading
+/// raises, as CRuby's `eof?` reads before it answers.
 fn io_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
     let fd = readable_fd(mrb, self_)?;
     with_file(fd, |file| {
+        file.read(&mut [])?;
         Ok(file.stream_position()? >= file.metadata()?.len())
     })
     .map_err(|err| read_error(mrb, self_, &err))
@@ -219,7 +244,7 @@ fn io_set_pos(mrb: &Mrb, self_: Value, offset: i64) -> Result<Value, Error> {
 /// A position before the start, or a `whence` no constant names, is
 /// `EINVAL`, as `lseek(2)` answers it.
 fn seek(mrb: &Mrb, self_: Value, offset: i64, whence: i64) -> Result<(), Error> {
-    let fd = readable_fd(mrb, self_)?;
+    let fd = positioned_fd(mrb, self_)?;
     let invalid = || errno::error_by_name(mrb, c"EINVAL", &label(mrb, self_));
     let to = match whence {
         0 => SeekFrom::Start(u64::try_from(offset).map_err(|_| invalid())?),
@@ -227,20 +252,20 @@ fn seek(mrb: &Mrb, self_: Value, offset: i64, whence: i64) -> Result<(), Error> 
         2 => SeekFrom::End(offset),
         _ => return Err(invalid()),
     };
-    with_file(fd, |file| file.seek(to)).map_err(|err| read_error(mrb, self_, &err))?;
+    with_file(fd, |file| file.seek(to)).map_err(|err| position_error(mrb, self_, &err))?;
     Ok(())
 }
 
 fn io_rewind(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = readable_fd(mrb, self_)?;
-    with_file(fd, |file| file.rewind()).map_err(|err| read_error(mrb, self_, &err))?;
+    let fd = positioned_fd(mrb, self_)?;
+    with_file(fd, |file| file.rewind()).map_err(|err| position_error(mrb, self_, &err))?;
     Ok(0.into_value(mrb))
 }
 
 fn io_pos(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = readable_fd(mrb, self_)?;
-    let pos =
-        with_file(fd, |file| file.stream_position()).map_err(|err| read_error(mrb, self_, &err))?;
+    let fd = positioned_fd(mrb, self_)?;
+    let pos = with_file(fd, |file| file.stream_position())
+        .map_err(|err| position_error(mrb, self_, &err))?;
     Ok(i64::try_from(pos).unwrap_or(i64::MAX).into_value(mrb))
 }
 
@@ -409,12 +434,17 @@ unsafe extern "C" {
 
 /// Closing a file this guest opened releases its descriptor, raising what
 /// the Filesystem reported if releasing it failed; closing one already
-/// closed does nothing. A captured stream is the host's and stays open.
+/// closed, or a copy whose descriptor another closed, only marks it
+/// closed, as CRuby's close answers `nil`. A captured stream is the host's
+/// and stays open.
 fn io_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     if is_closed(mrb, self_) {
         return Ok(qnil().as_value());
     }
-    let fd = checked_fd(mrb, self_, READ_REFUSAL)?;
+    let Ok(fd) = checked_fd(mrb, self_, REACH_REFUSAL) else {
+        release(mrb, self_);
+        return Ok(qnil().as_value());
+    };
     if descriptors::is_channel(fd) {
         return Err(errno::io_error(
             mrb,
@@ -427,7 +457,7 @@ fn io_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let refusal = failed.then(io::Error::last_os_error);
     release(mrb, self_);
     match refusal {
-        Some(err) => Err(read_error(mrb, self_, &err)),
+        Some(err) => Err(errno::from_io(mrb, &err, &label(mrb, self_))),
         None => Ok(qnil().as_value()),
     }
 }

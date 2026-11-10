@@ -740,6 +740,20 @@ impl FileOperations for RefusesClose {
     }
 }
 
+/// An open file whose Filesystem refuses to release it as one it does not
+/// hold.
+struct RefusesCloseAsUnheld(Box<dyn FileOperations>);
+
+impl FileOperations for RefusesCloseAsUnheld {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+        self.0.read_iter(iocb, buf)
+    }
+
+    fn flush(&mut self) -> Result<(), FilesystemError> {
+        Err(FilesystemError::BadDescriptor)
+    }
+}
+
 /// An open file whose every read fails in a way no error code names.
 struct FailsReads(Box<dyn FileOperations>);
 
@@ -786,6 +800,19 @@ fn a_close_the_filesystem_refuses_fails_the_scripts_close() {
         answer,
         Ok("refusedtrue".to_string()),
         "File#close of a file whose Filesystem refuses its close through the bundled guest must raise Errno::EACCES and leave the file closed"
+    );
+    let filesystem = WrapsFiles::over_note("hello", RefusesCloseAsUnheld);
+    let Some(answer) = run(
+        r#"f = File.open("/data/note.txt"); begin; f.close; rescue Errno::EBADF; print "unheld"; end; nil"#,
+        &[mount(filesystem, Access::Read)],
+        Vec::new(),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("unheld".to_string()),
+        "File#close refused as EBADF must raise Errno::EBADF, the Filesystem's own name, not a read's IOError"
     );
 }
 

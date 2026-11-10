@@ -35,6 +35,7 @@ disable_file flag -> no File constant
 - `test/e2e/test_file_sync.rb`
 - `test/e2e/test_file_truncate.rb`
 - `test/e2e/test_io_positioned.rb`
+- `test/e2e/test_file_position.rb`
 
 ## `FL-001` A script reads a file beneath a mounted path
 
@@ -144,9 +145,9 @@ disable_file flag -> no File constant
 
 | Step | Statement |
 | --- | --- |
-| Given | a script holding a file whose Filesystem refuses its close as permission denied |
+| Given | a script holding a file whose Filesystem refuses its close as denied, or as a file it does not hold |
 | When | the script closes that file |
-| Then | the close raises `Errno::EACCES` and the file is closed |
+| Then | the close raises `Errno::EACCES` or `Errno::EBADF`, the name the Filesystem gave, and the file is closed |
 
 ## `FL-011` A failure no error code names raises EIO
 
@@ -811,3 +812,27 @@ disable_file flag -> no File constant
 | Given | a script holding a file open to read |
 | When | it gives an advice with `nil` as its offset, and another with `nil` as its length |
 | Then | each answers `nil` |
+
+## `FL-077` A directory opened as a file has no position
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-035` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a directory opened as a `File` |
+| When | it seeks, rewinds, reads its position, or sets it |
+| Then | each raises `Errno::EISDIR`. WASI keeps no position for a directory, where CRuby's answers one |
+
+## `FL-078` A file opened only to write refuses an end check
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-045` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script holding a file opened only to write |
+| When | it asks `eof?` |
+| Then | it raises `IOError` "not opened for reading", as CRuby's does |
