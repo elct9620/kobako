@@ -21,12 +21,12 @@ use super::ip::local_end_of;
 use super::{bind, seconds_of, stream_error, to_error};
 use crate::errno;
 use crate::io::argument_error;
-use crate::wasi::wait_within;
 use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
 use crate::wasi::wasi::sockets::tcp::{ShutdownType, TcpSocket};
 use crate::wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
+use crate::wasi::{read_within, wait_within};
 
 /// The most `blocking-write-and-flush` takes in one call, as WASI bounds it.
 const WRITE_CHUNK: usize = 4096;
@@ -69,19 +69,16 @@ impl SocketIo for Connection {
                 })
             });
         }
-        self.with(mrb, |open| loop {
-            let read = match wait {
-                Wait::Block => open.input.blocking_read(max as u64),
-                Wait::DontWait => open.input.read(max as u64),
-            };
-            match read {
-                Ok(bytes) if bytes.is_empty() && wait == Wait::DontWait => {
-                    return Ok(Poll::Pending)
-                }
-                Ok(bytes) if bytes.is_empty() => continue,
-                Ok(bytes) => return Ok(Poll::Ready(Some(bytes))),
-                Err(StreamError::Closed) => return Ok(Poll::Ready(None)),
-                Err(err) => return Err(stream_error(mrb, err)),
+        let limit = match wait {
+            Wait::Block => None,
+            Wait::DontWait => Some(Duration::ZERO),
+        };
+        self.with(mrb, |open| {
+            match read_within(&open.input, max as u64, limit) {
+                Ok(Some(bytes)) => Ok(Poll::Ready(Some(bytes))),
+                Ok(None) => Ok(Poll::Pending),
+                Err(StreamError::Closed) => Ok(Poll::Ready(None)),
+                Err(err) => Err(stream_error(mrb, err)),
             }
         })
     }

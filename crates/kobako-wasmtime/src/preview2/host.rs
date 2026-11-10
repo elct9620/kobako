@@ -901,16 +901,6 @@ impl IoHost for Invocation {
         }
     }
 
-    fn streams_input_stream_blocking_read(
-        &mut self,
-        this: InputStream,
-        len: u64,
-    ) -> Result<Vec<u8>, StreamError> {
-        let stream = self.table().get(this)?.0.clone();
-        self.wait_on(&stream, PollMask::IN)?;
-        Self::read_now(&stream, len)
-    }
-
     /// What the stream holds now, none while it holds nothing yet.
     fn streams_input_stream_read(
         &mut self,

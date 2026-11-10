@@ -40,6 +40,25 @@ pub(crate) fn wait_within(
     wasi::io::poll::poll(&[pollable, &clock]).contains(&0)
 }
 
+/// What `stream` holds, up to `max` bytes, each wait for more at most
+/// `limit`; `Ok(None)` once a wait passes its limit, as `write_within` stops
+/// once one does. A zero limit reads what is there without waiting.
+pub(crate) fn read_within(
+    stream: &wasi::io::streams::InputStream,
+    max: u64,
+    limit: Option<std::time::Duration>,
+) -> Result<Option<Vec<u8>>, wasi::io::streams::StreamError> {
+    loop {
+        let bytes = stream.read(max)?;
+        if !bytes.is_empty() {
+            return Ok(Some(bytes));
+        }
+        if !wait_within(&stream.subscribe(), limit) {
+            return Ok(None);
+        }
+    }
+}
+
 /// Write every byte of `bytes`, each write waiting at most `limit` for room;
 /// `Ok(false)` once a wait passes its limit.
 pub(crate) fn write_within(

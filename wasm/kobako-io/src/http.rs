@@ -24,7 +24,7 @@ use crate::wasi::wasi::http::types::{
     ErrorCode, Fields, HeaderError, IncomingBody, Method, OutgoingBody, OutgoingRequest, Scheme,
 };
 use crate::wasi::wasi::io::streams::{InputStream, StreamError};
-use crate::wasi::{wait_within, write_within};
+use crate::wasi::{read_within, wait_within, write_within};
 
 /// The most one read of a response's body asks, the host's buffer.
 const READ_CHUNK: u64 = 64 * 1024;
@@ -61,18 +61,9 @@ impl UnreadBody {
         let Some(stream) = &self.stream else {
             return Ok(None);
         };
-        let read = loop {
-            match stream.read(READ_CHUNK) {
-                Ok(bytes) if bytes.is_empty() => {
-                    if !wait_within(&stream.subscribe(), self.read) {
-                        return Err(net_error(mrb, c"ReadTimeout", "Net::ReadTimeout"));
-                    }
-                }
-                read => break read,
-            }
-        };
-        match read {
-            Ok(bytes) => Ok(Some(bytes)),
+        match read_within(stream, READ_CHUNK, self.read) {
+            Ok(Some(bytes)) => Ok(Some(bytes)),
+            Ok(None) => Err(net_error(mrb, c"ReadTimeout", "Net::ReadTimeout")),
             Err(StreamError::Closed) => {
                 self.finish();
                 Ok(None)

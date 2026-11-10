@@ -727,10 +727,12 @@ mod tests {
                 .expect("consumed once");
             let stream = guest.types_incoming_body_stream(body)?.expect("one stream");
             let mut read = Vec::new();
-            while let Ok(bytes) = guest
-                .streams_input_stream_blocking_read(stream, 64)
-                .into_answer()?
-            {
+            while let Ok(bytes) = guest.streams_input_stream_read(stream, 64).into_answer()? {
+                if bytes.is_empty() {
+                    let readable = guest.streams_input_stream_subscribe(stream)?;
+                    guest.poll_pollable_block(readable)?;
+                    guest.poll_pollable_drop(readable)?;
+                }
                 read.extend(bytes);
             }
             Ok::<_, wasmtime::Error>((status, kind, read))

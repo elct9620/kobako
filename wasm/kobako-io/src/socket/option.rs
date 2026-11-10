@@ -319,14 +319,99 @@ fn to_doubled(size: u64) -> i32 {
     i32::try_from(size.saturating_mul(2)).unwrap_or(i32::MAX)
 }
 
+/// The socket- and IP-level options every inet socket takes, as Linux's
+/// `sk_setsockopt` and `ip_setsockopt` answer them beneath each protocol.
+trait InetOptions {
+    fn receive_buffer_size(&self) -> Result<u64, ErrorCode>;
+    fn set_receive_buffer_size(&self, size: u64) -> Result<(), ErrorCode>;
+    fn send_buffer_size(&self) -> Result<u64, ErrorCode>;
+    fn set_send_buffer_size(&self, size: u64) -> Result<(), ErrorCode>;
+    fn hop_limit(&self) -> Result<u8, ErrorCode>;
+    fn set_hop_limit(&self, limit: u8) -> Result<(), ErrorCode>;
+}
+
+impl InetOptions for TcpSocket {
+    fn receive_buffer_size(&self) -> Result<u64, ErrorCode> {
+        TcpSocket::receive_buffer_size(self)
+    }
+    fn set_receive_buffer_size(&self, size: u64) -> Result<(), ErrorCode> {
+        TcpSocket::set_receive_buffer_size(self, size)
+    }
+    fn send_buffer_size(&self) -> Result<u64, ErrorCode> {
+        TcpSocket::send_buffer_size(self)
+    }
+    fn set_send_buffer_size(&self, size: u64) -> Result<(), ErrorCode> {
+        TcpSocket::set_send_buffer_size(self, size)
+    }
+    fn hop_limit(&self) -> Result<u8, ErrorCode> {
+        TcpSocket::hop_limit(self)
+    }
+    fn set_hop_limit(&self, limit: u8) -> Result<(), ErrorCode> {
+        TcpSocket::set_hop_limit(self, limit)
+    }
+}
+
+impl InetOptions for UdpSocket {
+    fn receive_buffer_size(&self) -> Result<u64, ErrorCode> {
+        UdpSocket::receive_buffer_size(self)
+    }
+    fn set_receive_buffer_size(&self, size: u64) -> Result<(), ErrorCode> {
+        UdpSocket::set_receive_buffer_size(self, size)
+    }
+    fn send_buffer_size(&self) -> Result<u64, ErrorCode> {
+        UdpSocket::send_buffer_size(self)
+    }
+    fn set_send_buffer_size(&self, size: u64) -> Result<(), ErrorCode> {
+        UdpSocket::set_send_buffer_size(self, size)
+    }
+    fn hop_limit(&self) -> Result<u8, ErrorCode> {
+        self.unicast_hop_limit()
+    }
+    fn set_hop_limit(&self, limit: u8) -> Result<(), ErrorCode> {
+        self.set_unicast_hop_limit(limit)
+    }
+}
+
+/// Set a socket- or IP-level option of `socket` to `int`; `None` for one
+/// its protocol answers itself.
+fn set_inet_option(
+    socket: &impl InetOptions,
+    option: (i32, i32),
+    int: i32,
+) -> Option<Result<(), Refusal>> {
+    let set = match option {
+        (SOL_SOCKET, SO_RCVBUF) => socket.set_receive_buffer_size(to_buffer_size(int)),
+        (SOL_SOCKET, SO_SNDBUF) => socket.set_send_buffer_size(to_buffer_size(int)),
+        (IPPROTO_IP, IP_TTL) => match to_hop_limit(int) {
+            Ok(limit) => socket.set_hop_limit(limit),
+            Err(refused) => return Some(Err(refused)),
+        },
+        _ => return None,
+    };
+    Some(set.map_err(Refusal::from))
+}
+
+/// What a socket- or IP-level option of `socket` reads; `None` for one its
+/// protocol answers itself.
+fn inet_option(socket: &impl InetOptions, option: (i32, i32)) -> Option<Result<i32, Refusal>> {
+    let read = match option {
+        // WASI reads back the size asked for; Linux reads the doubled one.
+        (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(to_doubled),
+        (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(to_doubled),
+        (IPPROTO_IP, IP_TTL) => socket.hop_limit().map(i32::from),
+        _ => return None,
+    };
+    Some(read.map_err(Refusal::from))
+}
+
 /// Set the option `(level, optname)` of a TCP socket to `int`, as Linux's
 /// `setsockopt(2)` reads it.
 fn set_tcp_option(socket: &TcpSocket, option: (i32, i32), int: i32) -> Result<(), Refusal> {
+    if let Some(set) = set_inet_option(socket, option, int) {
+        return set;
+    }
     let set = match option {
         (SOL_SOCKET, SO_KEEPALIVE) => socket.set_keep_alive_enabled(int != 0),
-        (SOL_SOCKET, SO_RCVBUF) => socket.set_receive_buffer_size(to_buffer_size(int)),
-        (SOL_SOCKET, SO_SNDBUF) => socket.set_send_buffer_size(to_buffer_size(int)),
-        (IPPROTO_IP, IP_TTL) => socket.set_hop_limit(to_hop_limit(int)?),
         (IPPROTO_TCP, TCP_KEEPIDLE) => {
             socket.set_keep_alive_idle_time(to_nanos(int, MAX_TCP_KEEPIDLE)?)
         }
@@ -354,13 +439,12 @@ fn to_nanos(secs: i32, max: u32) -> Result<u64, Refusal> {
 /// What the option `(level, optname)` of a TCP socket reads, as Linux's
 /// `getsockopt(2)` answers it.
 fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
+    if let Some(read) = inet_option(socket, option) {
+        return read;
+    }
     let secs = |nanos: u64| i32::try_from(nanos / NANOS_PER_SEC).unwrap_or(i32::MAX);
     let read = match option {
         (SOL_SOCKET, SO_KEEPALIVE) => socket.keep_alive_enabled().map(i32::from),
-        // WASI reads back the size asked for; Linux reads the doubled one.
-        (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(to_doubled),
-        (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(to_doubled),
-        (IPPROTO_IP, IP_TTL) => socket.hop_limit().map(i32::from),
         (IPPROTO_TCP, TCP_KEEPIDLE) => socket.keep_alive_idle_time().map(secs),
         (IPPROTO_TCP, TCP_KEEPINTVL) => socket.keep_alive_interval().map(secs),
         (IPPROTO_TCP, TCP_KEEPCNT) => socket
@@ -374,26 +458,17 @@ fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
 /// Set the option `(level, optname)` of a UDP socket to `int`. A TCP option
 /// raises ENOPROTOOPT, as `udp_setsockopt` hands it to `ip_setsockopt`.
 fn set_udp_option(socket: &UdpSocket, option: (i32, i32), int: i32) -> Result<(), Refusal> {
-    let set = match option {
-        (SOL_SOCKET, SO_RCVBUF) => socket.set_receive_buffer_size(to_buffer_size(int)),
-        (SOL_SOCKET, SO_SNDBUF) => socket.set_send_buffer_size(to_buffer_size(int)),
-        (IPPROTO_IP, IP_TTL) => socket.set_unicast_hop_limit(to_hop_limit(int)?),
-        _ => return Err(Refusal::Unknown),
-    };
-    Ok(set?)
+    set_inet_option(socket, option, int).unwrap_or(Err(Refusal::Unknown))
 }
 
 /// What the option `(level, optname)` of a UDP socket reads. A TCP option
 /// raises ENOTSUP, as Linux answers `getsockopt` at a level UDP does not take.
 fn udp_option(socket: &UdpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
-    let read = match option {
-        (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(to_doubled),
-        (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(to_doubled),
-        (IPPROTO_IP, IP_TTL) => socket.unicast_hop_limit().map(i32::from),
-        (IPPROTO_TCP, _) => return Err(Refusal::Unsupported),
-        _ => return Err(Refusal::Unknown),
-    };
-    Ok(read?)
+    match (inet_option(socket, option), option) {
+        (Some(read), _) => read,
+        (None, (IPPROTO_TCP, _)) => Err(Refusal::Unsupported),
+        (None, _) => Err(Refusal::Unknown),
+    }
 }
 
 /// `getsockopt(level, optname)`, answering a `Socket::Option` holding the

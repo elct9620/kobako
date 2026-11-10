@@ -42,7 +42,6 @@ const IMPORTS: &[(&str, &[&str])] = &[
     (
         "wasi:io/streams@0.2.12",
         &[
-            "[method]input-stream.blocking-read",
             "[method]input-stream.read",
             "[method]input-stream.subscribe",
             "[method]output-stream.blocking-write-and-flush",
