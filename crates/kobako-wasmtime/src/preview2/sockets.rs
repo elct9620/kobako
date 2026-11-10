@@ -105,9 +105,9 @@ pub(crate) fn to_error_code(err: &FilesystemError) -> ErrorCode {
         FilesystemError::PermissionDenied | FilesystemError::NotPermitted => {
             ErrorCode::AccessDenied
         }
-        FilesystemError::Unsupported | FilesystemError::AddressFamilyNotSupported => {
-            ErrorCode::NotSupported
-        }
+        FilesystemError::Unsupported
+        | FilesystemError::AddressFamilyNotSupported
+        | FilesystemError::ProtocolNotAvailable => ErrorCode::NotSupported,
         FilesystemError::InvalidInput => ErrorCode::InvalidArgument,
         FilesystemError::OutOfMemory | FilesystemError::NoBufferSpace => ErrorCode::OutOfMemory,
         FilesystemError::TimedOut => ErrorCode::Timeout,
@@ -121,9 +121,9 @@ pub(crate) fn to_error_code(err: &FilesystemError) -> ErrorCode {
         FilesystemError::ConnectionRefused => ErrorCode::ConnectionRefused,
         FilesystemError::ConnectionReset => ErrorCode::ConnectionReset,
         FilesystemError::ConnectionAborted => ErrorCode::ConnectionAborted,
-        FilesystemError::NotConnected | FilesystemError::AlreadyConnected => {
-            ErrorCode::InvalidState
-        }
+        FilesystemError::NotConnected
+        | FilesystemError::AlreadyConnected
+        | FilesystemError::DestinationAddressRequired => ErrorCode::InvalidState,
         FilesystemError::MessageTooLong => ErrorCode::DatagramTooLarge,
         // WASI 0.2 names no broken pipe, so EPIPE answers `unknown`, as
         // wasmtime-wasi's preview2 does.
@@ -145,6 +145,8 @@ mod tests {
                 FilesystemError::ConnectionReset,
                 FilesystemError::NetworkDown,
                 FilesystemError::NoBufferSpace,
+                FilesystemError::DestinationAddressRequired,
+                FilesystemError::ProtocolNotAvailable,
             ]
             .map(|err| to_error_code(&err)),
             [
@@ -153,10 +155,12 @@ mod tests {
                 ErrorCode::ConnectionReset,
                 ErrorCode::RemoteUnreachable,
                 ErrorCode::OutOfMemory,
+                ErrorCode::InvalidState,
+                ErrorCode::NotSupported,
             ],
-            "EPIPE, EADDRINUSE, ECONNRESET, ENETDOWN, and ENOBUFS must answer unknown, \
-             address-in-use, connection-reset, remote-unreachable, and out-of-memory, as \
-             wasmtime-wasi's preview2 maps them"
+            "EPIPE, EADDRINUSE, ECONNRESET, ENETDOWN, ENOBUFS, EDESTADDRREQ, and ENOPROTOOPT \
+             must answer unknown, address-in-use, connection-reset, remote-unreachable, \
+             out-of-memory, invalid-state, and not-supported, as wasmtime-wasi maps them"
         );
     }
 }

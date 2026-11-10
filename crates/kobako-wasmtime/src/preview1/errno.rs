@@ -10,57 +10,12 @@ pub(crate) use super::types::Errno;
 pub(crate) type Answer<T = ()> = Result<T, types::Error>;
 
 /// The code a POSIX error name a Filesystem's failure carries stands for:
-/// the witx case, `E` prefixed and upper-cased.
+/// the witx case, `E` prefixed and upper-cased, so a name the runtime adds
+/// reaches its own code without a second table to keep.
 fn from_posix_name(name: &str) -> Option<Errno> {
-    Some(match name {
-        "EAGAIN" => Errno::Again,
-        "ENOENT" => Errno::Noent,
-        "EEXIST" => Errno::Exist,
-        "ENOTDIR" => Errno::Notdir,
-        "EISDIR" => Errno::Isdir,
-        "ENOTEMPTY" => Errno::Notempty,
-        "EACCES" => Errno::Acces,
-        "EROFS" => Errno::Rofs,
-        "EINVAL" => Errno::Inval,
-        "ENOTSUP" => Errno::Notsup,
-        "ENOSPC" => Errno::Nospc,
-        "EFBIG" => Errno::Fbig,
-        "EXDEV" => Errno::Xdev,
-        "EDEADLK" => Errno::Deadlk,
-        "ELOOP" => Errno::Loop,
-        "EPERM" => Errno::Perm,
-        "EBADF" => Errno::Badf,
-        "EBUSY" => Errno::Busy,
-        "EILSEQ" => Errno::Ilseq,
-        "EINTR" => Errno::Intr,
-        "EMFILE" => Errno::Mfile,
-        "ENAMETOOLONG" => Errno::Nametoolong,
-        "ENOMEM" => Errno::Nomem,
-        "ENOTSOCK" => Errno::Notsock,
-        "EOVERFLOW" => Errno::Overflow,
-        "ESPIPE" => Errno::Spipe,
-        "ENODEV" => Errno::Nodev,
-        "ESTALE" => Errno::Stale,
-        "ECONNREFUSED" => Errno::Connrefused,
-        "ECONNRESET" => Errno::Connreset,
-        "ECONNABORTED" => Errno::Connaborted,
-        "ETIMEDOUT" => Errno::Timedout,
-        "EHOSTUNREACH" => Errno::Hostunreach,
-        "ENETUNREACH" => Errno::Netunreach,
-        "ENETDOWN" => Errno::Netdown,
-        "ENOBUFS" => Errno::Nobufs,
-        "EADDRNOTAVAIL" => Errno::Addrnotavail,
-        "EADDRINUSE" => Errno::Addrinuse,
-        "EPIPE" => Errno::Pipe,
-        "ENOTCONN" => Errno::Notconn,
-        "EDESTADDRREQ" => Errno::Destaddrreq,
-        "EMSGSIZE" => Errno::Msgsize,
-        "EISCONN" => Errno::Isconn,
-        "EINPROGRESS" => Errno::Inprogress,
-        "EALREADY" => Errno::Already,
-        "EAFNOSUPPORT" => Errno::Afnosupport,
-        _ => return None,
-    })
+    (0..=u16::from(Errno::Notcapable))
+        .filter_map(|code| Errno::try_from(code).ok())
+        .find(|errno| format!("E{errno:?}").eq_ignore_ascii_case(name))
 }
 
 /// A pointer outside the memory or misaligned traps, as the witx
@@ -138,6 +93,10 @@ mod tests {
             (FilesystemError::StaleNetworkFileHandle, 72),
             (FilesystemError::MessageTooLong, 35),
             (FilesystemError::AlreadyInProgress, 7),
+            (FilesystemError::ConnectionRefused, 14),
+            (FilesystemError::NoBufferSpace, 42),
+            (FilesystemError::ProtocolNotAvailable, 50),
+            (FilesystemError::AddressFamilyNotSupported, 5),
             (FilesystemError::Other("x".into()), 29),
         ];
         for (error, code) in cases {
