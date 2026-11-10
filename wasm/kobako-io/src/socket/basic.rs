@@ -39,9 +39,11 @@ impl Wait {
 
 /// When a wait on a socket ends.
 pub(crate) enum Readiness {
-    Now,
-    On(Pollable),
-    Never,
+    Ready,
+    /// Ready once the pollable is.
+    Pending(Pollable),
+    /// Never ready, as a socket with no peer never reads.
+    Inert,
 }
 
 /// How far above its preview2 handle a socket's `fileno` sits. A guest built

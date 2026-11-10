@@ -53,6 +53,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_udp_cruby.rb`
 - `test/e2e/test_network_udp_named.rb`
 - `test/e2e/test_network_udp_nonblock.rb`
+- `test/e2e/test_network_udp_wait.rb`
 - `test/parity/test_network.rb`
 - `test/unit/catalog/test_network.rb`
 - `crates/kobako/tests/integration/network.rs`
@@ -1685,7 +1686,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server that answers a line and reads to its end |
 | When | the script calls `shutdown` by each name and number CRuby takes. It calls `close_read`, `close_write`, and `close` while a `gets` holds bytes back |
-| Then | each `shutdown` answers 0, and a name or number CRuby refuses raises as CRuby's does. A write after the writing side shuts raises `Errno::EPIPE`, and what arrived still reads after the reading side shuts. After `close_read` a read raises `IOError`, and the socket closes once both sides are. A closed socket raises `IOError` on every read, held bytes or not |
+| Then | each `shutdown` answers 0, and a name or number CRuby refuses raises as CRuby's does. A write after the writing side shuts raises `Errno::EPIPE`, and what arrived still reads after the reading side shuts. A wait on the shut reading side answers at once, as `tcp_poll` reports `RCV_SHUTDOWN`. After `close_read` a read raises `IOError`, and the socket closes once both sides are. A closed socket raises `IOError` on every read, held bytes or not |
 
 ## `NW-137` A script shuts a UDPSocket's sending side
 
@@ -1697,8 +1698,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a UDP peer that answers datagrams |
-| When | the script calls `shutdown` before `connect`, then `shutdown(:WR)` after it, then sends |
-| Then | the first raises `Errno::ENOTCONN`, the second answers 0, and the send raises `Errno::EPIPE`, as Linux's datagram socket does |
+| When | the script calls `shutdown` before `connect`, then `shutdown(:WR)` after it, then sends. Another socket shuts its sending side before `connect`, then sends after it |
+| Then | the first raises `Errno::ENOTCONN`, the second answers 0, and the send raises `Errno::EPIPE`, as Linux's datagram socket does. The other's shutdown raises `Errno::ENOTCONN` yet keeps the side shut, so its send raises `Errno::EPIPE`, as `inet_shutdown` marks it first |
 
 ## `NW-138` A script packs and unpacks a socket address, as CRuby's
 
@@ -1883,7 +1884,7 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a UDP socket connected to a peer, and one connected to none |
-| When | a Wasm Driver shuts the reading side down, then the writing side, then shuts the unconnected socket down |
+| When | its protocol shuts the reading side down, then the writing side, then shuts the unconnected socket down |
 | Then | the socket polls readable, yet a read of its empty queue answers EAGAIN, as a non-blocking Linux socket does. A send answers EPIPE, and both shut poll hung up. The unconnected socket answers ENOTCONN, as Linux's `inet_shutdown` |
 
 ## `NW-153` A UDP socket answers its bind and an empty send as wasmtime-wasi's
@@ -2119,7 +2120,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a connected socket's output stream, whose `check-write` permitted some bytes |
 | When | the guest shrinks the socket's send buffer, then writes every permitted byte |
-| Then | the write fails, rather than drop the bytes the socket no longer takes. Holding them would pass the memory the socket reserved |
+| Then | the write fails before any byte leaves, so the peer never reads a stream with a gap. Holding the bytes would pass the memory the socket reserved |
 
 ## `NW-172` A datagram reads with the peer that sent it
 
@@ -2131,4 +2132,17 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a UDP socket holding a datagram its first peer sent |
 | When | it connects to a second peer, which sends one too, and the socket reads both |
-| Then | each datagram reads with the peer that sent it, as `udp_recvmsg` names each one's source. Neither takes the peer the socket streams with now |
+| Then | each datagram reads with the peer that sent it, as `udp_recvmsg` names each one's source. The peer the socket holds at the read never relabels it |
+
+## `NW-173` A wait to read a UDPSocket with no peer lasts until the deadline
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-079` |
+| relates | `RT-382` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script's `UDPSocket` connected to no peer, run under a timeout |
+| When | it selects the socket to read with no timeout of its own |
+| Then | on the permissive profile the run ends at its deadline, as Linux's `select` waits without end. On the hermetic profile the select answers `nil` at once, as a wait on no host-side producer ends there |

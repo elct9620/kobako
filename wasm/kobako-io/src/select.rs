@@ -43,8 +43,8 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     Ok(())
 }
 
-/// Wait on `fds` at most `timeout` milliseconds, `-1` without end, as
-/// `select(2)` and every one-descriptor wait CRuby makes share one `poll`.
+/// Ask files through preview1's `poll` at most `timeout` milliseconds, `-1`
+/// without end.
 fn poll_fds(mrb: &Mrb, fds: &mut [PollFd], timeout: c_int) -> Result<(), Error> {
     // SAFETY: `fds` holds `fds.len()` initialised entries poll writes back.
     if unsafe { poll(fds.as_mut_ptr(), fds.len(), timeout) } < 0 {
@@ -71,10 +71,10 @@ enum Waitable {
 
 /// Wait at most `timeout` milliseconds, `-1` without end, until any of
 /// `waitables` is ready, answering which are. A file never waits on the host,
-/// so files are asked through preview1's `poll` at once, and sockets through
-/// preview2's `poll`, which waits only while nothing is ready, as an older
-/// WASI adapts to a newer one. With nothing that can become ready, it waits
-/// on nothing.
+/// so files alone are asked through preview1's `poll`; beside a socket they
+/// are asked at once and the wait goes through preview2's `poll`, as an older
+/// WASI adapts to a newer one. A socket that can never become ready waits as
+/// a clock with no end, so only the deadline ends it, as Linux's blocks.
 fn wait_any(
     mrb: &Mrb,
     waitables: &[(Waitable, c_short)],
@@ -83,7 +83,9 @@ fn wait_any(
     let mut ready = vec![false; waitables.len()];
     let mut fds = Vec::new();
     let mut pollables = Vec::new();
+    let mut has_socket = false;
     for (i, (waitable, events)) in waitables.iter().enumerate() {
+        has_socket |= matches!(waitable, Waitable::Socket(_));
         match waitable {
             Waitable::File(fd) => fds.push((
                 i,
@@ -93,28 +95,29 @@ fn wait_any(
                     revents: 0,
                 },
             )),
-            Waitable::Socket(Readiness::Now) => ready[i] = true,
-            Waitable::Socket(Readiness::On(pollable)) => pollables.push((i, pollable)),
-            Waitable::Socket(Readiness::Never) => {}
+            Waitable::Socket(Readiness::Ready) => ready[i] = true,
+            Waitable::Socket(Readiness::Pending(pollable)) => pollables.push((i, pollable)),
+            Waitable::Socket(Readiness::Inert) => {}
         }
     }
-    let waits_on_files = pollables.is_empty() && !ready.contains(&true);
-    if !fds.is_empty() || waits_on_files {
+    if !fds.is_empty() || !has_socket {
         let mut asked: Vec<PollFd> = fds.iter().map(|(_, fd)| *fd).collect();
-        poll_fds(mrb, &mut asked, if waits_on_files { timeout } else { 0 })?;
+        poll_fds(mrb, &mut asked, if has_socket { 0 } else { timeout })?;
         for ((i, _), fd) in fds.iter().zip(&asked) {
             ready[*i] |= is_ready(fd);
         }
     }
-    if pollables.is_empty() {
+    let any_ready = ready.contains(&true);
+    if !has_socket || (any_ready && pollables.is_empty()) {
         return Ok(ready);
     }
-    let wait = match ready.contains(&true) {
-        true => 0,
-        false => timeout,
-    };
-    let clock =
-        (wait >= 0).then(|| subscribe_duration(u64::try_from(wait).unwrap_or(0) * 1_000_000));
+    let clock = match (any_ready, timeout) {
+        (true, _) => Some(0),
+        (false, -1) if pollables.is_empty() => Some(u64::MAX),
+        (false, -1) => None,
+        (false, millis) => Some(u64::try_from(millis).unwrap_or(0) * 1_000_000),
+    }
+    .map(subscribe_duration);
     let mut list: Vec<&Pollable> = pollables.iter().map(|(_, pollable)| *pollable).collect();
     list.extend(clock.as_ref());
     for fired in io_poll::poll(&list) {

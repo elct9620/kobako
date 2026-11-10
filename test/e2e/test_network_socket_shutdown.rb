@@ -33,6 +33,7 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
     sides = open.call
     sides.shutdown(Socket::SHUT_RD)
     arrived = sides.read
+    arrived = [arrived, IO.select([sides], nil, nil, 0)&.first == [sides], sides.wait_readable(0) == sides]
     sides.shutdown(Socket::SHUT_WR)
     broken = outcome.call { sides.write("x") }
     halves = open.call
@@ -50,7 +51,7 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
   TCP_ANSWERS = [
     [0, 0, 0, 0, 0, ["SocketError", "unknown shutdown argument: FOO"],
      ["ArgumentError", "`how' should be either :SHUT_RD, :SHUT_WR, :SHUT_RDWR"]],
-    "a\nb",
+    ["a\nb", true, true],
     ["Errno::EPIPE", "Broken pipe"],
     "a\n",
     [["IOError", "not opened for reading"], false],
@@ -65,9 +66,10 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
 
       assert_equal TCP_ANSWERS, value,
                    "TCPSocket#shutdown must answer 0 for each name and number CRuby takes and raise as CRuby's for " \
-                   "the rest; a write after SHUT_WR must raise Errno::EPIPE and what arrived still read after " \
-                   "SHUT_RD; #close_read must refuse reads and close the socket with #close_write; and a closed " \
-                   "socket must raise IOError on every read though a #gets held bytes back"
+                   "the rest; a write after SHUT_WR must raise Errno::EPIPE, and after SHUT_RD what arrived must " \
+                   "still read and IO.select and #wait_readable answer at once; #close_read must refuse reads " \
+                   "and close the socket with #close_write; and a closed socket must raise IOError on every read " \
+                   "though a #gets held bytes back"
     end
   end
 
@@ -76,7 +78,11 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
     socket = UDPSocket.new
     unconnected = outcome.call { socket.shutdown }
     socket.connect("127.0.0.1", %<udp>d)
-    [unconnected, socket.shutdown(:WR), outcome.call { socket.send("x", 0) }, outcome.call { socket.write("x") }]
+    early = UDPSocket.new
+    marked = outcome.call { early.shutdown(:WR) }
+    early.connect("127.0.0.1", %<udp>d)
+    [unconnected, socket.shutdown(:WR), outcome.call { socket.send("x", 0) }, outcome.call { socket.write("x") },
+     marked, outcome.call { early.send("x", 0) }]
   RUBY
 
   # @behavior NW-137
@@ -84,9 +90,11 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
     with_quiet_udp_peer do |udp|
       value = udp_sandbox(udp).eval(format(UDP_SIDES, tcp: 0, udp: udp)).value
 
-      assert_equal [["Errno::ENOTCONN", "Transport endpoint is not connected - shutdown(2)"], 0,
-                    ["Errno::EPIPE", "Broken pipe - send(2)"], ["Errno::EPIPE", "Broken pipe"]], value,
-                   "UDPSocket#shutdown before #connect must raise Errno::ENOTCONN, and after it #shutdown(:WR) must " \
+      enotconn = ["Errno::ENOTCONN", "Transport endpoint is not connected - shutdown(2)"]
+      assert_equal [enotconn, 0, ["Errno::EPIPE", "Broken pipe - send(2)"], ["Errno::EPIPE", "Broken pipe"],
+                    enotconn, ["Errno::EPIPE", "Broken pipe - send(2)"]], value,
+                   "UDPSocket#shutdown before #connect must raise Errno::ENOTCONN yet keep the side it names shut, " \
+                   "so a send after a later #connect raises Errno::EPIPE; after #connect #shutdown(:WR) must " \
                    "answer 0 and a later #send or #write raise Errno::EPIPE, as Linux's datagram socket does"
     end
   end

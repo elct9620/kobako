@@ -101,17 +101,18 @@ impl SocketIo for Datagrams {
         Ok(sent.map(|()| bytes.len()))
     }
 
-    /// Mark the sides `how` names shut, as Linux's `inet_shutdown` does; one
-    /// with no peer raises `Errno::ENOTCONN`. Shutting the sending side
-    /// refuses later sends; what arrives still reads.
+    /// Mark the sides `how` names shut, as Linux's `inet_shutdown` does, and
+    /// then raise `Errno::ENOTCONN` for one with no peer, which keeps the
+    /// marks. Shutting the sending side refuses later sends; what arrives
+    /// still reads.
     fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
         self.with(mrb, |open| {
-            if open.streams.is_none() {
-                return Err(errno::error_by_name(mrb, c"ENOTCONN", "shutdown(2)"));
-            }
             open.rcv_shut |= how != Shutdown::Write;
             open.send_shut |= how != Shutdown::Read;
-            Ok(())
+            match open.streams {
+                Some(_) => Ok(()),
+                None => Err(errno::error_by_name(mrb, c"ENOTCONN", "shutdown(2)")),
+            }
         })
     }
 
@@ -142,13 +143,15 @@ impl SocketIo for Datagrams {
     fn readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error> {
         self.with(mrb, |open| {
             Ok(match (direction, &open.streams) {
-                (Direction::Read, _) if open.rcv_shut => Readiness::Now,
-                (Direction::Read, Some(streams)) => Readiness::On(streams.incoming.subscribe()),
-                (Direction::Read, None) => Readiness::Never,
-                (Direction::Write, Some(streams)) if !open.send_shut => {
-                    Readiness::On(streams.outgoing.subscribe())
+                (Direction::Read, _) if open.rcv_shut => Readiness::Ready,
+                (Direction::Read, Some(streams)) => {
+                    Readiness::Pending(streams.incoming.subscribe())
                 }
-                (Direction::Write, _) => Readiness::Now,
+                (Direction::Read, None) => Readiness::Inert,
+                (Direction::Write, Some(streams)) if !open.send_shut => {
+                    Readiness::Pending(streams.outgoing.subscribe())
+                }
+                (Direction::Write, _) => Readiness::Ready,
             })
         })
     }

@@ -66,14 +66,14 @@ impl SocketIo for Connection {
         if self.with(mrb, |open| Ok(open.rcv_shut.get()))? {
             let received = match max {
                 0 => Poll::Pending,
-                _ => self.receive_open(mrb, max, Wait::DontWait)?,
+                _ => self.receive_from_stream(mrb, max, Wait::DontWait)?,
             };
             return Ok(match received {
                 Poll::Pending => Poll::Ready(None),
                 ready => ready,
             });
         }
-        self.receive_open(mrb, max, wait)
+        self.receive_from_stream(mrb, max, wait)
     }
 
     /// The bytes, as CRuby's `IO#write` sends all it is given and
@@ -139,9 +139,9 @@ impl SocketIo for Connection {
     fn readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error> {
         self.with(mrb, |open| {
             Ok(match direction {
-                Direction::Read if open.rcv_shut.get() => Readiness::Now,
-                Direction::Read => Readiness::On(open.input.subscribe()),
-                Direction::Write => Readiness::On(open.output.subscribe()),
+                Direction::Read if open.rcv_shut.get() => Readiness::Ready,
+                Direction::Read => Readiness::Pending(open.input.subscribe()),
+                Direction::Write => Readiness::Pending(open.output.subscribe()),
             })
         })
     }
@@ -184,8 +184,8 @@ impl Connection {
         }
     }
 
-    /// Up to `max` bytes from a reading side still open, `None` at the end.
-    fn receive_open(
+    /// Up to `max` bytes from the input stream, `None` at its end.
+    fn receive_from_stream(
         &self,
         mrb: &Mrb,
         max: usize,

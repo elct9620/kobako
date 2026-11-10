@@ -534,8 +534,8 @@ producer: socket | lookup | response -> one descriptor -> its views share it
 
 ### Socket File
 
-The Open File a socket stands behind, as Linux's `sock_alloc_file` makes one. A preview1 call on a socket's number reaches it. So a socket is an IO the guest reads, writes, and waits on.
+The Open File a socket stands behind, as Linux's `sock_alloc_file` makes one. It never waits, and only preview2 reaches it. The guest adapts it into an IO it reads, writes, and waits on.
 
 ```
-socket -> socket file -> preview1 read, write, poll
+socket -> socket file -> preview2 streams, pollables -> guest IO
 ```
