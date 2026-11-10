@@ -64,30 +64,30 @@ fn is_ready(fd: &PollFd) -> bool {
 
 /// What a wait on one IO watches: a file's descriptor, or a socket's
 /// readiness.
-enum Waitable {
+enum WaitTarget {
     File(c_int),
     Socket(Readiness),
 }
 
 /// Wait at most `timeout` milliseconds, `-1` without end, until any of
-/// `waitables` is ready, answering which are. A file never waits on the host,
+/// `targets` is ready, answering which are. A file never waits on the host,
 /// so files alone are asked through preview1's `poll`; beside a socket they
 /// are asked at once and the wait goes through preview2's `poll`, as an older
 /// WASI adapts to a newer one. A socket that can never become ready waits as
 /// a clock with no end, so only the deadline ends it, as Linux's blocks.
 fn wait_any(
     mrb: &Mrb,
-    waitables: &[(Waitable, c_short)],
+    targets: &[(WaitTarget, c_short)],
     timeout: c_int,
 ) -> Result<Vec<bool>, Error> {
-    let mut ready = vec![false; waitables.len()];
+    let mut ready = vec![false; targets.len()];
     let mut fds = Vec::new();
     let mut pollables = Vec::new();
     let mut has_socket = false;
-    for (i, (waitable, events)) in waitables.iter().enumerate() {
-        has_socket |= matches!(waitable, Waitable::Socket(_));
-        match waitable {
-            Waitable::File(fd) => fds.push((
+    for (i, (target, events)) in targets.iter().enumerate() {
+        has_socket |= matches!(target, WaitTarget::Socket(_));
+        match target {
+            WaitTarget::File(fd) => fds.push((
                 i,
                 PollFd {
                     fd: *fd,
@@ -95,9 +95,9 @@ fn wait_any(
                     revents: 0,
                 },
             )),
-            Waitable::Socket(Readiness::Ready) => ready[i] = true,
-            Waitable::Socket(Readiness::Pending(pollable)) => pollables.push((i, pollable)),
-            Waitable::Socket(Readiness::Inert) => {}
+            WaitTarget::Socket(Readiness::Ready) => ready[i] = true,
+            WaitTarget::Socket(Readiness::Pending(pollable)) => pollables.push((i, pollable)),
+            WaitTarget::Socket(Readiness::Inert) => {}
         }
     }
     if !fds.is_empty() || !has_socket {
@@ -147,11 +147,11 @@ fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], events: c_short) -> Result<
         [timeout] => Some(*timeout),
         _ => return Err(Error::argnum(mrb, args.len(), 0, 1)),
     };
-    let waitable = waitable_of(mrb, self_, events)?;
+    let target = wait_target_of(mrb, self_, events)?;
     if events == POLLRDNORM && socket::holds_buffered(mrb, self_) {
         return Ok(true.into_value(mrb));
     }
-    let ready = wait_any(mrb, &[(waitable, events)], to_millis(mrb, timeout)?)?;
+    let ready = wait_any(mrb, &[(target, events)], to_millis(mrb, timeout)?)?;
     Ok(match ready[0] {
         true => self_,
         false => qnil().as_value(),
@@ -160,13 +160,13 @@ fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], events: c_short) -> Result<
 
 /// What a wait on `io` watches, refusing a stream not opened for the way it
 /// waits, as CRuby's `IOError` does: a captured stream only writes.
-fn waitable_of(mrb: &Mrb, io: Value, events: c_short) -> Result<Waitable, Error> {
+fn wait_target_of(mrb: &Mrb, io: Value, events: c_short) -> Result<WaitTarget, Error> {
     let direction = match events {
         POLLRDNORM => Direction::Read,
         _ => Direction::Write,
     };
     if let Some(readiness) = socket::readiness_of(mrb, io, direction)? {
-        return Ok(Waitable::Socket(readiness));
+        return Ok(WaitTarget::Socket(readiness));
     }
     let fd = crate::io::checked_fd(mrb, io, crate::stream::REACH_REFUSAL)?;
     let (opened, refusal) = match events {
@@ -180,7 +180,7 @@ fn waitable_of(mrb: &Mrb, io: Value, events: c_short) -> Result<Waitable, Error>
         ),
     };
     match opened {
-        true => Ok(Waitable::File(fd)),
+        true => Ok(WaitTarget::File(fd)),
         false => Err(errno::io_error(mrb, refusal)),
     }
 }
@@ -260,7 +260,7 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
         true => 0,
         false => to_millis(mrb, timeout)?,
     };
-    let waitables = watched
+    let targets = watched
         .iter()
         .map(|w| {
             let direction = match w.events {
@@ -268,14 +268,14 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
                 _ => Direction::Write,
             };
             if let Some(readiness) = socket::select_readiness_of(mrb, w.io, direction)? {
-                return Ok((Waitable::Socket(readiness), w.events));
+                return Ok((WaitTarget::Socket(readiness), w.events));
             }
             let fd = w.io.funcall::<_, _, Value>(mrb, c"fileno", ())?;
             let fd = Integer::try_convert(fd, mrb)?.to_i64(mrb)? as c_int;
-            Ok((Waitable::File(fd), w.events))
+            Ok((WaitTarget::File(fd), w.events))
         })
         .collect::<Result<Vec<_>, Error>>()?;
-    let ready = wait_any(mrb, &waitables, timeout)?;
+    let ready = wait_any(mrb, &targets, timeout)?;
     let (readable, writable) = (mrb.ary_new(), mrb.ary_new());
     let mut any = false;
     for (w, is_ready) in watched.iter().zip(ready) {

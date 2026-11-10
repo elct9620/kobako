@@ -321,16 +321,16 @@ struct Entry {
     children: usize,
     /// Whether it counts against the open files, as a host-side producer
     /// does and a view does not.
-    is_file: bool,
+    counted: bool,
 }
 
 impl Entry {
-    fn new(resource: Box<dyn Any + Send>, parent: Option<u32>, is_file: bool) -> Self {
+    fn new(resource: Box<dyn Any + Send>, parent: Option<u32>, counted: bool) -> Self {
         Self {
             resource,
             parent,
             children: 0,
-            is_file,
+            counted,
         }
     }
 }
@@ -418,7 +418,7 @@ impl Table {
         &mut self,
         resource: Box<dyn Any + Send>,
         parent: Option<u32>,
-        is_file: bool,
+        counted: bool,
     ) -> wasmtime::Result<u32> {
         if self.entries.len() >= MAX_NUMBERS {
             return Err(wasmtime::Error::msg(
@@ -430,7 +430,7 @@ impl Table {
             self.next - 1
         });
         self.entries
-            .insert(handle, Entry::new(resource, parent, is_file));
+            .insert(handle, Entry::new(resource, parent, counted));
         Ok(handle)
     }
 
@@ -488,7 +488,7 @@ impl Table {
             .remove(&index)
             .expect("the entry was just found");
         self.free.push(index);
-        if entry.is_file {
+        if entry.counted {
             self.open_files.close();
         }
         if let Some(parent) = entry
