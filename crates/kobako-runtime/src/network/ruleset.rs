@@ -166,18 +166,16 @@ enum Host {
 
 fn parse_host(host: &str) -> Result<Host, EntryError> {
     if let Ok(ip) = host.parse::<IpAddr>() {
-        let prefix = if ip.is_ipv4() { 32 } else { 128 };
-        return Ok(Host::Cidr(ip, prefix));
+        return Ok(Host::Cidr(ip, full_prefix(ip)));
     }
     if let Some((ip, prefix)) = host.split_once('/') {
         let ip = ip
             .parse::<IpAddr>()
             .map_err(|_| EntryError(format!("an endpoint's prefix is no address: {host}")))?;
-        let longest = if ip.is_ipv4() { 32 } else { 128 };
         let prefix = prefix
             .parse::<u8>()
             .ok()
-            .filter(|p| *p <= longest)
+            .filter(|p| *p <= full_prefix(ip))
             .ok_or_else(|| EntryError(format!("an endpoint's prefix is out of range: {host}")))?;
         return Ok(Host::Cidr(ip, prefix));
     }
@@ -193,6 +191,30 @@ fn parse_host(host: &str) -> Result<Host, EntryError> {
     match name.strip_prefix("*.") {
         Some(suffix) if !suffix.is_empty() => Ok(Host::Wildcard(a_label(suffix)?)),
         _ => Ok(Host::Name(a_label(name)?)),
+    }
+}
+
+/// The address an endpoint judges `ip` as, the IPv4 one an IPv6 address
+/// carries in its place; `None` for an address in a fixed set, which no
+/// endpoint opens.
+fn screened(ip: IpAddr) -> Option<IpAddr> {
+    if matches!(
+        address_set_of(ip),
+        AddressSet::Metadata | AddressSet::Reserved
+    ) {
+        return None;
+    }
+    Some(match ip {
+        IpAddr::V6(v6) => to_v4(v6).map_or(ip, IpAddr::V4),
+        v4 => v4,
+    })
+}
+
+/// The longest prefix an address of `ip`'s family takes.
+fn full_prefix(ip: IpAddr) -> u8 {
+    match ip {
+        IpAddr::V4(_) => 32,
+        IpAddr::V6(_) => 128,
     }
 }
 
@@ -315,7 +337,7 @@ impl Ruleset {
                     )));
                 }
                 if endpoint.addresses.iter().any(|a| match a {
-                    Addresses::Cidr(ip, prefix) => *prefix > if ip.is_ipv4() { 32 } else { 128 },
+                    Addresses::Cidr(ip, prefix) => *prefix > full_prefix(*ip),
                     _ => false,
                 }) {
                     return Err(EntryError(format!(
@@ -394,15 +416,8 @@ impl Ruleset {
         protocol: Protocol,
         local: &[IpAddr],
     ) -> bool {
-        if matches!(
-            address_set_of(addr.ip()),
-            AddressSet::Metadata | AddressSet::Reserved
-        ) {
+        let Some(ip) = screened(addr.ip()) else {
             return false;
-        }
-        let ip = match addr.ip() {
-            IpAddr::V6(v6) => to_v4(v6).map_or(addr.ip(), IpAddr::V4),
-            v4 => v4,
         };
         self.rules.iter().any(|rule| {
             rule.port == addr.port()
@@ -422,16 +437,7 @@ impl Ruleset {
         addr: SocketAddr,
         protocol: Protocol,
     ) -> Result<(), FilesystemError> {
-        if matches!(
-            address_set_of(addr.ip()),
-            AddressSet::Metadata | AddressSet::Reserved
-        ) {
-            return Err(FilesystemError::PermissionDenied);
-        }
-        let ip = match addr.ip() {
-            IpAddr::V6(v6) => to_v4(v6).map_or(addr.ip(), IpAddr::V4),
-            v4 => v4,
-        };
+        let ip = screened(addr.ip()).ok_or(FilesystemError::PermissionDenied)?;
         let matched = self.rules.iter().any(|rule| {
             rule.port == addr.port()
                 && rule.protocol == protocol
