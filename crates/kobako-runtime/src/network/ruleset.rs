@@ -212,15 +212,31 @@ struct Rule {
     rules: Vec<HttpRule>,
 }
 
-/// Whether `path` reads as one path to every server: a segment of `..`, an
-/// encoded dot or slash, a backslash, or a `;` lets servers split it
-/// differently, so a rule matching one spelling would pass another.
+/// Whether `path` reads as one path to every server: a `.` or `..` segment,
+/// an empty one inside the path, an encoded slash or backslash, an encoded
+/// unreserved character, a backslash, or a `;` lets servers normalize or split
+/// it differently (RFC 3986 § 5.2.4, § 6.2.2.2), so a rule matching one
+/// spelling would pass another.
 fn is_unambiguous(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
-    !(path.split('/').any(|segment| segment == "..")
-        || ["%2e", "%2f", "%5c", "\\", ";"]
+    !(path
+        .split('/')
+        .any(|segment| segment == "." || segment == "..")
+        || path.contains("//")
+        || ["%2f", "%5c", "\\", ";"]
             .iter()
-            .any(|sign| lower.contains(sign)))
+            .any(|sign| lower.contains(sign))
+        || lower
+            .split('%')
+            .skip(1)
+            .any(|escape| escape.get(..2).is_some_and(encodes_unreserved)))
+}
+
+/// Whether the two hex digits `hex` encode a character RFC 3986 calls
+/// unreserved, which a server may decode before it matches.
+fn encodes_unreserved(hex: &str) -> bool {
+    u8::from_str_radix(hex, 16)
+        .is_ok_and(|byte| byte.is_ascii_alphanumeric() || b"-._~".contains(&byte))
 }
 
 impl Rule {
@@ -608,12 +624,17 @@ mod tests {
                 admit("api.example.com", "GET", "/repos/a/secrets"),
                 admit("api.example.com", "GET", "/repos/../admin"),
                 admit("api.example.com", "GET", "/repos/a%2fb"),
+                admit("api.example.com", "GET", "/repos/a/./secrets"),
+                admit("api.example.com", "GET", "/repos/a//secrets"),
+                admit("api.example.com", "GET", "/repos/a/%73ecrets"),
+                admit("api.example.com", "GET", "/repos/a/b%20c/"),
                 admit("open.example.com", "PUT", "/anything/at/all"),
             ],
-            [true, false, true, false, false, false, true],
+            [true, false, true, false, false, false, false, false, false, true, true],
             "Ruleset::admits_request must pass only what an http endpoint's rules allow and none \
-             denies, refuse a path servers may split differently, and pass any request to an \
-             endpoint with no rules"
+             denies, refuse a path servers may split or normalize differently (a . segment, an \
+             empty one, an encoded unreserved character) while passing an encoded space and a \
+             trailing slash, and pass any request to an endpoint with no rules"
         );
     }
 }

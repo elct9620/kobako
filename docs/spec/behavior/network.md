@@ -564,7 +564,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an `http` endpoint allowing GET on `/repos/**` and denying `/repos/*/secrets`, and one with no rules |
 | When | the guest sends requests by several methods and paths |
-| Then | only an allowed method and path that no rule denies passes. A path servers may split differently is refused, and an endpoint with no rules passes any request |
+| Then | only an allowed method and path that no rule denies passes. A path servers may split or normalize differently is refused, and an endpoint with no rules passes any request |
 
 ## `NW-045` A request policy sees the request and refuses it unsent
 
