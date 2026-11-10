@@ -154,7 +154,8 @@ pub(crate) struct OutputStream {
     /// Whether a flush is under way, as `io.wit` has `check-write` answer zero
     /// until it completes; the stream's pollables read it too.
     pub(crate) flushing: Arc<AtomicBool>,
-    /// What the last `check-write` permitted, which each write spends.
+    /// What the last `check-write` permitted, which each write carrying bytes
+    /// spends.
     pub(crate) permit: usize,
 }
 

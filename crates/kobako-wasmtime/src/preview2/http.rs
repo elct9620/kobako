@@ -1164,11 +1164,15 @@ mod tests {
         let mut guest = guest(Some(vec![
             network::Endpoint::new("example.com", 80).unwrap()
         ]));
-        let answer = send_unnamed(&mut guest, Scheme::HTTP, Some(RequestOptions(7)))
+        let with = send_unnamed(&mut guest, Scheme::HTTP, Some(RequestOptions(7)))
             .expect("handle must not trap on options");
+        let without = send_unnamed(&mut guest, Scheme::HTTP, None).expect("handle answers");
         assert_eq!(
-            answer,
-            Some(Err(ErrorCode::HTTPRequestDenied)),
+            (with, without),
+            (
+                Some(Err(ErrorCode::HTTPRequestDenied)),
+                Some(Err(ErrorCode::HTTPRequestDenied))
+            ),
             "outgoing-handler.handle with request-options the guest was never handed must judge \
              the request as one without options, as wasmtime ignores options it cannot read"
         );

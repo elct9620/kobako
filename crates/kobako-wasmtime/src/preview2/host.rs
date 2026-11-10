@@ -86,6 +86,21 @@ impl Invocation {
         Ok(socket.socket.sock.setsockopt(opt, value)?)
     }
 
+    /// Set the buffer size `opt` of the TCP socket `this` to `value`; a
+    /// socket that takes no option answers before zero does, as wasmtime
+    /// reads the socket before the size.
+    fn set_tcp_buffer_size(
+        &mut self,
+        this: TcpSocket,
+        opt: SockOpt,
+        value: u64,
+    ) -> Result<(), SocketError> {
+        let socket = self.tcp(this)?;
+        socket.state.ensure_takes_options()?;
+        let bytes = to_buffer_size(value).ok_or(ErrorCode::InvalidArgument)?;
+        Ok(socket.socket.sock.setsockopt(opt, bytes)?)
+    }
+
     /// What `opt` reads of the UDP socket `this`, which takes an option in
     /// any state, as wasmtime's does.
     fn udp_option(&mut self, this: UdpSocket, opt: SockOpt) -> Result<u32, SocketError> {
@@ -237,21 +252,6 @@ impl Invocation {
     ) -> wasmtime::Result<Pollable> {
         self.table()
             .push_child(table::Pollable::File(datagrams.get_file(), mask), stream)
-    }
-
-    /// Read what the stream holds, up to `len`, without waiting: nothing yet
-    /// reads as an empty list, and the end as `closed`.
-    fn read_now(stream: &Stream, len: u64) -> Result<Vec<u8>, StreamError> {
-        let mut buf = vec![0; len.min(MAX_SOCKET_BUFFER as u64) as usize];
-        match stream.read(&mut buf) {
-            Ok(0) if !buf.is_empty() => Err(StreamError::Closed),
-            Ok(n) => {
-                buf.truncate(n);
-                Ok(buf)
-            }
-            Err(FilesystemError::WouldBlock) => Ok(Vec::new()),
-            Err(err) => Err(err.into()),
-        }
     }
 
     /// Wait until `stream`'s poll finds `mask`, or an error or a hang-up.
@@ -576,32 +576,24 @@ impl SocketsHost for Invocation {
         Ok(to_asked_size(self.tcp_option(this, SockOpt::RcvBuf)?))
     }
 
-    /// A socket that takes no option answers before zero does, as wasmtime
-    /// reads the socket before the size.
     fn tcp_tcp_socket_set_receive_buffer_size(
         &mut self,
         this: TcpSocket,
         value: u64,
     ) -> Result<(), SocketError> {
-        self.tcp(this)?.state.ensure_takes_options()?;
-        let bytes = to_buffer_size(value).ok_or(ErrorCode::InvalidArgument)?;
-        self.set_tcp_option(this, SockOpt::RcvBuf, bytes)
+        self.set_tcp_buffer_size(this, SockOpt::RcvBuf, value)
     }
 
     fn tcp_tcp_socket_send_buffer_size(&mut self, this: TcpSocket) -> Result<u64, SocketError> {
         Ok(to_asked_size(self.tcp_option(this, SockOpt::SndBuf)?))
     }
 
-    /// A socket that takes no option answers before zero does, as wasmtime
-    /// reads the socket before the size.
     fn tcp_tcp_socket_set_send_buffer_size(
         &mut self,
         this: TcpSocket,
         value: u64,
     ) -> Result<(), SocketError> {
-        self.tcp(this)?.state.ensure_takes_options()?;
-        let bytes = to_buffer_size(value).ok_or(ErrorCode::InvalidArgument)?;
-        self.set_tcp_option(this, SockOpt::SndBuf, bytes)
+        self.set_tcp_buffer_size(this, SockOpt::SndBuf, value)
     }
 
     fn tcp_tcp_socket_hop_limit(&mut self, this: TcpSocket) -> Result<u8, SocketError> {
@@ -911,14 +903,24 @@ impl IoHost for Invocation {
         }
     }
 
-    /// What the stream holds now, none while it holds nothing yet.
+    /// What the stream holds now, up to `len`, without waiting: nothing yet
+    /// reads as an empty list, and the end as `closed`.
     fn streams_input_stream_read(
         &mut self,
         this: InputStream,
         len: u64,
     ) -> Result<Vec<u8>, StreamError> {
         let stream = self.table().get(this)?.0.clone();
-        Self::read_now(&stream, len)
+        let mut buf = vec![0; len.min(MAX_SOCKET_BUFFER as u64) as usize];
+        match stream.read(&mut buf) {
+            Ok(0) if !buf.is_empty() => Err(StreamError::Closed),
+            Ok(n) => {
+                buf.truncate(n);
+                Ok(buf)
+            }
+            Err(FilesystemError::WouldBlock) => Ok(Vec::new()),
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
@@ -1284,7 +1286,7 @@ mod tests {
                 .is_err_and(|trap| trap.contains("hostcall fuel"))
                 && within
                     .as_ref()
-                    .is_err_and(|trap| !trap.contains("hostcall fuel")),
+                    .is_err_and(|trap| trap.contains("a handle it does not hold")),
             "outgoing-datagram-stream.send of 2400 datagrams naming one 60000-byte region must \
              trap on its hostcall fuel before the host answers, and of two must reach the host; \
              got {past:?} and {within:?}"
