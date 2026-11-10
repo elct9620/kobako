@@ -314,6 +314,15 @@ impl Ruleset {
                         endpoint.host
                     )));
                 }
+                if endpoint.addresses.iter().any(|a| match a {
+                    Addresses::Cidr(ip, prefix) => *prefix > if ip.is_ipv4() { 32 } else { 128 },
+                    _ => false,
+                }) {
+                    return Err(EntryError(format!(
+                        "an endpoint's addresses hold a prefix out of range: {}",
+                        endpoint.host
+                    )));
+                }
                 Ok(Rule {
                     host,
                     port: endpoint.port,
@@ -598,6 +607,28 @@ mod tests {
             [false, false, true],
             "Ruleset::new must refuse a wildcard endpoint leading to private or local addresses, \
              and keep one leading to public addresses or a CIDR"
+        );
+    }
+
+    // @behavior NW-150
+    #[test]
+    fn an_address_prefix_out_of_range_is_refused() {
+        let leading_to = |ip: &str, prefix| {
+            Ruleset::new([Endpoint::new("api.example.com", 443)
+                .unwrap()
+                .with_addresses(vec![Addresses::Cidr(ip.parse().unwrap(), prefix)])])
+            .is_ok()
+        };
+        assert_eq!(
+            [
+                leading_to("10.0.0.0", 32),
+                leading_to("10.0.0.0", 40),
+                leading_to("fd00::", 128),
+                leading_to("fd00::", 129),
+            ],
+            [true, false, true, false],
+            "Ruleset::new must refuse an endpoint whose addresses hold a CIDR prefix longer than \
+             its family's address, and keep one at the full length"
         );
     }
 

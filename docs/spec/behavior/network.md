@@ -1847,3 +1847,28 @@ endpoint "api.example.com", port: 443
 | Given | a lookup that resolved, and an Invocation whose `memory_limit` holds nothing more |
 | When | a Wasm Driver hands out the name's virtual address, then hands it out with room |
 | Then | the full memory answers `temporary-failure`. With room, the name takes the bottom of the range, and its entry stays until the Invocation ends |
+
+## `NW-150` An endpoint's address prefix past its family is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an endpoint whose `addresses` hold a CIDR |
+| When | the ruleset compiles with a prefix at its family's full length, then one past it |
+| Then | the full length stands, and the longer prefix is refused, as no address holds it |
+
+## `NW-151` The socket hooks judge what the guest named before its family and translation
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-018` |
+| relates | `NW-066` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry's connect policy that records each attempt |
+| When | the guest connects to an IPv6 address and to an unmapped virtual one, and binds an IPv6 address |
+| Then | the policy sees both connects. They answer `EAFNOSUPPORT` and `EACCES`, and the bind `EAFNOSUPPORT`, as Linux's `security_socket_connect` runs before the protocol's `connect` |

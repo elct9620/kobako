@@ -141,11 +141,7 @@ impl Namespace {
             None => normalize(&host).map_err(|_| HttpError::Denied)?,
         };
         let connection = Connection::new(&host, port, Protocol::Http);
-        let hooked = cred.security_socket_connect(&connection).is_ok()
-            && self.connect.iter().all(|policy| policy.allows(&connection));
-        // A socket hook's refusal ends the judging, so no later policy sees an
-        // attempt already denied.
-        if !hooked {
+        if self.judge(cred, &connection).is_err() {
             return Err(HttpError::Denied);
         }
         let reachable = match literal {
@@ -378,7 +374,11 @@ impl Namespace {
     /// own address as it connects, so a bind the hooks pass leaves nothing
     /// to do here.
     pub fn bind(&self, cred: &Cred, addr: SocketAddr) -> Result<(), FilesystemError> {
-        cred.security_socket_bind(addr)
+        cred.security_socket_bind(addr)?;
+        match addr.is_ipv6() {
+            true => Err(FilesystemError::AddressFamilyNotSupported),
+            false => Ok(()),
+        }
     }
 
     /// Connect a UDP socket to `addr`, the one peer the guest named, as
@@ -401,8 +401,24 @@ impl Namespace {
         Ok(())
     }
 
+    /// Judge `connection`, what the guest named, through the socket hooks:
+    /// the modules `cred` holds, then each entry's connect policy, the first
+    /// refusal ending the judging, as Linux's `security_socket_connect` runs
+    /// before the protocol's `connect`.
+    fn judge(&self, cred: &Cred, connection: &Connection<'_>) -> Result<(), FilesystemError> {
+        cred.security_socket_connect(connection)?;
+        match self.connect.iter().all(|policy| policy.allows(connection)) {
+            true => Ok(()),
+            false => Err(FilesystemError::PermissionDenied),
+        }
+    }
+
     /// The real addresses a `protocol` connection to `addr` may dial, once the
-    /// socket hooks and the ruleset pass it.
+    /// socket hooks and the ruleset pass it. The hooks judge what the guest
+    /// named first; only then does the address meet the guest's family, as
+    /// `inet_stream_connect` refuses an IPv6 address after
+    /// `security_socket_connect`, and the virtual range's translation, as
+    /// cgroup `connect4` runs inside the protocol's `connect`.
     fn admit(
         &self,
         cred: &Cred,
@@ -410,27 +426,26 @@ impl Namespace {
         protocol: Protocol,
     ) -> Result<Vec<SocketAddr>, FilesystemError> {
         let translated = match addr.ip() {
-            IpAddr::V4(ip) if u32::from(ip) & !(VIRTUAL_SIZE - 1) == VIRTUAL_BASE => Some(
-                self.translate(ip)
-                    .ok_or(FilesystemError::PermissionDenied)?,
-            ),
+            IpAddr::V4(ip) if u32::from(ip) & !(VIRTUAL_SIZE - 1) == VIRTUAL_BASE => {
+                Some(self.translate(ip))
+            }
             _ => None,
         };
         let host = match &translated {
-            Some((name, _)) => name.clone(),
-            None => addr.ip().to_string(),
+            Some(Some((name, _))) => name.clone(),
+            _ => addr.ip().to_string(),
         };
-        let connection = Connection::new(&host, addr.port(), protocol);
-        cred.security_socket_connect(&connection)?;
-        if !self.connect.iter().all(|policy| policy.allows(&connection)) {
-            return Err(FilesystemError::PermissionDenied);
+        self.judge(cred, &Connection::new(&host, addr.port(), protocol))?;
+        if addr.is_ipv6() {
+            return Err(FilesystemError::AddressFamilyNotSupported);
         }
         match translated {
             None => {
                 self.ruleset.admit_literal(addr, protocol)?;
                 Ok(vec![addr])
             }
-            Some((name, real)) => {
+            Some(None) => Err(FilesystemError::PermissionDenied),
+            Some(Some((name, real))) => {
                 let local = self.family.local_addresses();
                 let admitted =
                     self.ruleset
@@ -705,6 +720,41 @@ mod tests {
             family.0.load(Ordering::SeqCst),
             1,
             "Namespace::connect every connect policy allows must dial the address once"
+        );
+    }
+
+    // @behavior NW-151
+    #[test]
+    fn the_hooks_judge_what_the_guest_named_before_its_family_and_translation() {
+        let (namespace, family, seen) = namespace(&[true]);
+        let cred = prepare_creds_within(&[], None);
+        let ipv6 = dial(&namespace, &cred, "[::1]:4567".parse().unwrap()).err();
+        let unmapped = dial(&namespace, &cred, "198.18.5.5:4567".parse().unwrap()).err();
+        let bound = namespace.bind(&cred, "[::]:0".parse().unwrap()).err();
+        let judged = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(host, _, _)| host.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            (
+                ipv6,
+                unmapped,
+                bound,
+                judged,
+                family.0.load(Ordering::SeqCst)
+            ),
+            (
+                Some(FilesystemError::AddressFamilyNotSupported),
+                Some(FilesystemError::PermissionDenied),
+                Some(FilesystemError::AddressFamilyNotSupported),
+                vec!["::1".to_string(), "198.18.5.5".to_string()],
+                0
+            ),
+            "Namespace::connect must show the connect policy an IPv6 address and an unmapped \
+             virtual one before answering EAFNOSUPPORT and EACCES, Namespace::bind must answer \
+             EAFNOSUPPORT for an IPv6 address, and none may dial"
         );
     }
 
