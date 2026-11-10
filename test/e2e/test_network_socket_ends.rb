@@ -39,13 +39,9 @@ class TestE2ENetworkSocketEnds < Minitest::Test
 
   # @behavior NW-138
   def test_a_script_packs_and_unpacks_a_socket_address_as_crubys
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:local) do |net|
-      net.endpoint "localhost", port: 9, protocol: :tcp, addresses: [:local]
-    end
-
     assert_equal [PACKED_ADDRESSES, [8080, "1.2.3.4"], [1, "fe80::1"], [9, "198.18.0.0"],
                   ["not an AF_INET/AF_INET6 sockaddr", "too short sockaddr"]],
-                 sandbox.eval(PACKS).value,
+                 localhost_sandbox(9).eval(PACKS).value,
                  "Socket.sockaddr_in must pack each host and port as Linux's sockaddr_in or sockaddr_in6, nil as " \
                  "127.0.0.1 and a name as its virtual address; Socket.unpack_sockaddr_in must answer [port, ip] " \
                  "and raise ArgumentError for a String no family lays out"

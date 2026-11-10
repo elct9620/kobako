@@ -34,9 +34,7 @@ class TestE2ENetworkHttps < Minitest::Test
   # @behavior NW-049
   def test_tls_to_a_server_speaking_clear_raises_ssl_error
     with_clear_server do |port|
-      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:web) { |net| net.endpoint "127.0.0.1", port: port }
-
-      assert_equal ["OpenSSL::SSL::SSLError", true], sandbox.eval(format(TLS_REQUEST, port: port)).value,
+      assert_equal ["OpenSSL::SSL::SSLError", true], http_sandbox(port).eval(format(TLS_REQUEST, port: port)).value,
                    "Net::HTTP with use_ssl to a server speaking clear must raise OpenSSL::SSL::SSLError"
     end
   end

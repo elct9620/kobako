@@ -23,11 +23,7 @@ class TestE2ENetworkUdpCruby < Minitest::Test
   # @behavior NW-117
   def test_a_socket_binds_the_local_end_the_host_allows
     with_upcase_server do |tcp|
-      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:local) do |net|
-        net.endpoint "127.0.0.1", port: tcp, protocol: :tcp, addresses: [:local]
-      end
-
-      assert_equal ["PING", 0, :refused], sandbox.eval(format(BOUND_SOCKETS, tcp: tcp)).value,
+      assert_equal ["PING", 0, :refused], loopback_sandbox(tcp).eval(format(BOUND_SOCKETS, tcp: tcp)).value,
                    "TCPSocket.new with local end \"0.0.0.0\" port 0 must connect and UDPSocket#bind to " \
                    "\"<any>\" port \"0\" pass, as CRuby reads each with AI_PASSIVE, while a bind to " \
                    "127.0.0.1 raises Errno::EACCES"
