@@ -900,7 +900,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an outgoing datagram stream with its peer |
 | When | the guest sends before any `check-send`, then after one, then again |
-| Then | the first and the last trap, as `udp.wit` says a send past the permit must, and the middle one sends |
+| Then | the first and the last trap, as `udp.wit` says a send past the permit must, and the middle one sends. `check-send` permits sixteen while the queue has room, as wasmtime-wasi's does |
 
 ## `NW-073` A blocking write past 4096 bytes traps
 
@@ -1959,3 +1959,65 @@ endpoint "api.example.com", port: 443
 | Given | a script's `UDPSocket` connected to a peer, and one connected to none |
 | When | the script shuts the connected socket's reading side, waits on it with `IO.select`, then shuts the other one |
 | Then | `IO.select` finds the shut socket readable, as Linux's `datagram_poll` answers. The unconnected socket raises `Errno::ENOTCONN` |
+
+## `NW-159` An empty write leaves the permit check-write gave
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-092` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket's output stream, whose `check-write` permitted some bytes |
+| When | the guest writes no bytes, then one byte without asking `check-write` again |
+| Then | both writes succeed. Only a write that carries bytes spends the permit, as wasmtime's does |
+
+## `NW-160` A TCP socket answers its state before a zero buffer size
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+| relates | `NW-114` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP socket whose connect is under way |
+| When | the guest sets its receive and send buffer sizes to zero |
+| Then | each answers `invalid-state`, not `invalid-argument`, as wasmtime reads the socket before the size |
+
+## `NW-161` A response's headers outlive the response
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-040` |
+| relates | `NW-064` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a response and the headers it read from it |
+| When | it drops the response, then reads the headers |
+| Then | the drop does not trap, and the headers still read back. They are a copy, as wasmtime's are |
+
+## `NW-162` A request's scheme is judged where wasmtime judges it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-093` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest building requests through `wasi:http` to a name no endpoint names |
+| When | it sets an unparseable scheme, then the schemes `ftp` and `http` written as other schemes, and sends each |
+| Then | only the unparseable scheme answers an error as it is set. `ftp` answers `HTTP-protocol-error`, and `http` is judged as HTTP and denied |
+
+## `NW-163` A request's options are ignored
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-040` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest naming request options it was never handed |
+| When | it sends a request with them |
+| Then | the request is judged as one sent without options, as wasmtime ignores options it cannot read |

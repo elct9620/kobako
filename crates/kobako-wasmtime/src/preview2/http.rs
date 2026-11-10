@@ -204,10 +204,14 @@ impl Invocation {
         let Some(method) = to_method_name(&request.method) else {
             return Future::Refused(ErrorCode::HTTPRequestMethodInvalid);
         };
-        let scheme = match request.scheme {
+        let scheme = match request.scheme.as_ref() {
             Some(Scheme::HTTP) => net::Scheme::Http,
             Some(Scheme::HTTPS) | None => net::Scheme::Https,
-            Some(Scheme::Other(_)) => return Future::Refused(ErrorCode::HTTPProtocolError),
+            Some(Scheme::Other(other)) => match other.as_str() {
+                "http" => net::Scheme::Http,
+                "https" => net::Scheme::Https,
+                _ => return Future::Refused(ErrorCode::HTTPProtocolError),
+            },
         };
         let Some(authority) = request.authority else {
             return Future::Refused(ErrorCode::HTTPRequestURIInvalid);
@@ -368,13 +372,17 @@ impl HttpHost for Invocation {
         Ok(Ok(()))
     }
 
+    /// Any scheme hyper parses, as wasmtime's; one that is neither HTTP nor
+    /// HTTPS answers `HTTP-protocol-error` once the request is sent.
     fn types_outgoing_request_set_scheme(
         &mut self,
         this: OutgoingRequest,
         scheme: Option<Scheme>,
     ) -> wasmtime::Result<Result<(), ()>> {
-        if matches!(scheme, Some(Scheme::Other(_))) {
-            return Ok(Err(()));
+        if let Some(Scheme::Other(other)) = &scheme {
+            if !net::is_scheme(other) {
+                return Ok(Err(()));
+            }
         }
         self.request(this)?.scheme = scheme;
         Ok(Ok(()))
@@ -497,7 +505,8 @@ impl HttpHost for Invocation {
         Ok(self.table().get(this)?.head.status)
     }
 
-    /// The response's headers, which the guest cannot change.
+    /// The response's headers, which the guest cannot change; a copy that
+    /// outlives the response, as wasmtime's.
     fn types_incoming_response_headers(
         &mut self,
         this: IncomingResponse,
@@ -505,13 +514,10 @@ impl HttpHost for Invocation {
         let headers = self.table().get(this)?.head.headers.clone();
         let cred = self.wasi().descriptors().cred().clone();
         let entries = net::Fields::with_entries(cred, headers).map_err(to_field_trap)?;
-        self.table().push_child(
-            resource::Fields {
-                entries,
-                mutable: false,
-            },
-            this,
-        )
+        self.table().push(resource::Fields {
+            entries,
+            mutable: false,
+        })
     }
 
     /// The body, handed out once.
@@ -578,19 +584,14 @@ impl HttpHost for Invocation {
 
     /// Send `request`, which it takes. Without a network Grant it answers
     /// `HTTP-request-denied` at once, doing nothing first; a request whose body
-    /// has not ended leaves once it does.
+    /// has not ended leaves once it does. Options are ignored, as wasmtime
+    /// ignores those it cannot read; kobako hands none out.
     fn outgoing_handler_handle(
         &mut self,
         request: OutgoingRequest,
-        options: Option<RequestOptions>,
+        _options: Option<RequestOptions>,
     ) -> Result<FutureIncomingResponse, error::HttpError> {
         let request = self.table().delete(request)?.0;
-        if options.is_some() {
-            return Err(wasmtime::Error::msg(
-                "the guest named request-options, which kobako never hands out",
-            )
-            .into());
-        }
         if self.wasi().table().network().is_none() {
             return Err(ErrorCode::HTTPRequestDenied.into());
         }
@@ -1053,6 +1054,123 @@ mod tests {
             (true, true, Ok(())),
             "outgoing-body.drop and finish must trap while the body's output-stream lives, \
              and finish once the stream is dropped"
+        );
+    }
+
+    // @behavior NW-161
+    #[test]
+    fn a_responses_headers_outlive_the_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            (&stream)
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nx-kind: test\r\n\r\n")
+                .unwrap();
+        });
+        let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
+        let mut guest = guest(Some(vec![endpoint]));
+        let started = Instant::now();
+        let (dropped, kind) = run_task(Some(started + Wait::from_secs(10)), || {
+            let request = get_request(&mut guest, &format!("127.0.0.1:{port}"))?;
+            let future = guest
+                .outgoing_handler_handle(request, None)
+                .into_answer()?
+                .expect("an endpoint names the authority");
+            let ready = guest.types_future_incoming_response_subscribe(future)?;
+            guest.poll_pollable_block(ready)?;
+            guest.poll_pollable_drop(ready)?;
+            let response = guest
+                .types_future_incoming_response_get(future)?
+                .expect("the head arrived")
+                .expect("handed out once")
+                .expect("the server answered");
+            let headers = guest.types_incoming_response_headers(response)?;
+            let dropped = guest.types_incoming_response_drop(response).is_ok();
+            let kind = guest
+                .types_fields_entries(headers)?
+                .into_iter()
+                .filter(|(name, _)| name == "x-kind")
+                .map(|(_, value)| value)
+                .collect::<Vec<_>>();
+            Ok::<_, wasmtime::Error>((dropped, kind))
+        })
+        .expect("the request answers");
+        server.join().unwrap();
+        assert_eq!(
+            (dropped, kind),
+            (true, vec![b"test".to_vec()]),
+            "incoming-response.drop while its headers live must not trap, and the headers must \
+             still read back, as wasmtime hands out a copy"
+        );
+    }
+
+    /// What sending a GET for `/` to `unnamed.example` answers, with `scheme`
+    /// set and `options` named; `None` when setting the scheme fails.
+    fn send_unnamed(
+        guest: &mut Invocation,
+        scheme: Scheme,
+        options: Option<RequestOptions>,
+    ) -> wasmtime::Result<Option<Result<(), ErrorCode>>> {
+        let headers = guest.types_fields_new()?;
+        let request = guest.types_outgoing_request_new(headers)?;
+        if guest
+            .types_outgoing_request_set_scheme(request, Some(scheme))?
+            .is_err()
+        {
+            return Ok(None);
+        }
+        guest
+            .types_outgoing_request_set_authority(request, Some("unnamed.example".to_string()))?
+            .expect("an authority");
+        let sent = guest
+            .outgoing_handler_handle(request, options)
+            .into_answer()?;
+        Ok(Some(sent.map(drop)))
+    }
+
+    // @behavior NW-162
+    #[test]
+    fn a_requests_scheme_is_judged_where_wasmtime_judges_it() {
+        let mut guest = guest(Some(vec![
+            network::Endpoint::new("example.com", 80).unwrap()
+        ]));
+        let other = |name: &str| Scheme::Other(name.to_string());
+        let answers = [
+            send_unnamed(&mut guest, other("not a scheme"), None),
+            send_unnamed(&mut guest, other("ftp"), None),
+            send_unnamed(&mut guest, other("http"), None),
+        ]
+        .map(|answer| answer.expect("the guest's calls must not trap"));
+        assert_eq!(
+            answers,
+            [
+                None,
+                Some(Err(ErrorCode::HTTPProtocolError)),
+                Some(Err(ErrorCode::HTTPRequestDenied))
+            ],
+            "outgoing-request.set-scheme must refuse only a scheme that does not parse; handle \
+             must answer HTTP-protocol-error for ftp and judge http as HTTP, as wasmtime does"
+        );
+    }
+
+    // @behavior NW-163
+    #[test]
+    fn a_requests_options_are_ignored() {
+        let mut guest = guest(Some(vec![
+            network::Endpoint::new("example.com", 80).unwrap()
+        ]));
+        let answer = send_unnamed(&mut guest, Scheme::HTTP, Some(RequestOptions(7)))
+            .expect("handle must not trap on options");
+        assert_eq!(
+            answer,
+            Some(Err(ErrorCode::HTTPRequestDenied)),
+            "outgoing-handler.handle with request-options the guest was never handed must judge \
+             the request as one without options, as wasmtime ignores options it cannot read"
         );
     }
 

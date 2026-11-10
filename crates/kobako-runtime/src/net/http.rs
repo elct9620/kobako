@@ -166,6 +166,11 @@ pub fn is_token(text: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c))
 }
 
+/// Whether `text` is a URI scheme, as hyper's `Scheme` parses one.
+pub fn is_scheme(text: &str) -> bool {
+    text.parse::<hyper::http::uri::Scheme>().is_ok()
+}
+
 /// The header name a guest may set, lowercase: a token, and none the seam
 /// writes itself.
 pub fn to_field_name(name: &str) -> Result<String, FieldError> {

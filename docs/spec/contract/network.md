@@ -1047,6 +1047,14 @@ Whether a text is an HTTP token, as a method or a header name must be.
 pub fn is_token(text: &str) -> bool {}
 ```
 
+## `is_scheme`
+
+Whether a text is a URI scheme, as hyper parses one.
+
+```rust
+pub fn is_scheme(text: &str) -> bool {}
+```
+
 ## `is_authority`
 
 Whether an authority names a host alone, with no path or user part. A port it

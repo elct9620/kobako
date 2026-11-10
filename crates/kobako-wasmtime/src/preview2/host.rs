@@ -44,7 +44,8 @@ use crate::trap::{Interrupted, TimeoutTrap};
 /// call traps.
 const MAX_BLOCKING_WRITE: usize = 4096;
 
-/// The most datagrams one `receive` answers, as wasmtime-wasi's.
+/// The most datagrams one `receive` answers and one `check-send` permits, as
+/// wasmtime-wasi's.
 const MAX_DATAGRAMS: usize = 16;
 
 /// About the most bytes one `receive` answers, each datagram counting one more
@@ -451,8 +452,6 @@ impl SocketsHost for Invocation {
         }
     }
 
-    /// Ready once a connect settles, as the socket file polls writable; one
-    /// connected to nothing polls hung up, so it is ready at once.
     /// Waits on a connect under way, and is ready at once otherwise, as
     /// wasmtime's socket pollable waits only on an operation in progress.
     fn tcp_tcp_socket_subscribe(&mut self, this: TcpSocket) -> wasmtime::Result<Pollable> {
@@ -577,11 +576,14 @@ impl SocketsHost for Invocation {
         Ok(to_asked_size(self.tcp_option(this, SockOpt::RcvBuf)?))
     }
 
+    /// A socket that takes no option answers before zero does, as wasmtime
+    /// reads the socket before the size.
     fn tcp_tcp_socket_set_receive_buffer_size(
         &mut self,
         this: TcpSocket,
         value: u64,
     ) -> Result<(), SocketError> {
+        self.tcp(this)?.state.ensure_takes_options()?;
         let bytes = to_buffer_size(value).ok_or(ErrorCode::InvalidArgument)?;
         self.set_tcp_option(this, SockOpt::RcvBuf, bytes)
     }
@@ -590,11 +592,14 @@ impl SocketsHost for Invocation {
         Ok(to_asked_size(self.tcp_option(this, SockOpt::SndBuf)?))
     }
 
+    /// A socket that takes no option answers before zero does, as wasmtime
+    /// reads the socket before the size.
     fn tcp_tcp_socket_set_send_buffer_size(
         &mut self,
         this: TcpSocket,
         value: u64,
     ) -> Result<(), SocketError> {
+        self.tcp(this)?.state.ensure_takes_options()?;
         let bytes = to_buffer_size(value).ok_or(ErrorCode::InvalidArgument)?;
         self.set_tcp_option(this, SockOpt::SndBuf, bytes)
     }
@@ -816,14 +821,19 @@ impl SocketsHost for Invocation {
         self.table().delete(handle).map(drop)
     }
 
-    /// One datagram while the send queue has room, none while it is full.
+    /// `MAX_DATAGRAMS` while the send queue has room, none while it is full,
+    /// as wasmtime-wasi's; a `send` stops where the queue fills.
     fn udp_outgoing_datagram_stream_check_send(
         &mut self,
         this: OutgoingDatagramStream,
     ) -> Result<u64, SocketError> {
         let datagrams = self.table().get(this)?.socket.clone();
         let found = datagrams.file().poll(None);
-        let permitted = u64::from(found.contains(PollMask::OUT));
+        let permitted = if found.contains(PollMask::OUT) {
+            MAX_DATAGRAMS as u64
+        } else {
+            0
+        };
         *self.permit(this)? = permitted;
         Ok(permitted)
     }
@@ -975,7 +985,8 @@ impl IoHost for Invocation {
 
     /// Write what `check-write` permitted; more than it permits traps, as
     /// `io.wit` says a write past the permit must. The permit is for the next
-    /// write only, so a write spends all of it, as wasmtime's does.
+    /// write only, so a write spends all of it; an empty one leaves it, as
+    /// wasmtime's does.
     fn streams_output_stream_write(
         &mut self,
         this: OutputStream,
@@ -987,7 +998,9 @@ impl IoHost for Invocation {
                 wasmtime::Error::msg("the guest wrote past what check-write permitted").into(),
             );
         }
-        output.permit = 0;
+        if !contents.is_empty() {
+            output.permit = 0;
+        }
         output.stream.clone().write(&contents)?;
         Ok(())
     }
@@ -2259,6 +2272,83 @@ mod tests {
         );
     }
 
+    // @behavior NW-159
+    #[test]
+    fn an_empty_write_leaves_the_check_write_permit() {
+        let (mut guest, listener) = guest_and_listener();
+        let port = listener.local_addr().unwrap().port();
+        let started = Instant::now();
+        let (empty, byte) = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (_, output) = guest
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
+                .expect("the listener accepts");
+            guest
+                .streams_output_stream_check_write(output)
+                .into_answer()?
+                .expect("a connected stream permits");
+            let empty = guest
+                .streams_output_stream_write(output, Vec::new())
+                .into_answer();
+            let byte = guest
+                .streams_output_stream_write(output, vec![b'x'])
+                .into_answer();
+            Ok::<_, wasmtime::Error>((empty.is_ok(), byte.is_ok()))
+        })
+        .expect("the connect answers");
+        assert_eq!(
+            (empty, byte),
+            (true, true),
+            "output-stream.write of no bytes must succeed and leave the check-write permit, so \
+             one byte after it still writes, as wasmtime's write does"
+        );
+    }
+
+    // @behavior NW-160
+    #[test]
+    fn a_connecting_socket_answers_its_state_before_a_zero_buffer_size() {
+        let (mut guest, listener) = guest_and_listener();
+        let port = listener.local_addr().unwrap().port();
+        let answers = (|| {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
+                .expect("the endpoint names the listener");
+            Ok::<_, wasmtime::Error>((
+                guest
+                    .tcp_tcp_socket_set_receive_buffer_size(socket, 0)
+                    .into_answer()?,
+                guest
+                    .tcp_tcp_socket_set_send_buffer_size(socket, 0)
+                    .into_answer()?,
+            ))
+        })()
+        .expect("the connect starts");
+        assert_eq!(
+            answers,
+            (Err(ErrorCode::InvalidState), Err(ErrorCode::InvalidState)),
+            "tcp-socket set-receive-buffer-size and set-send-buffer-size of zero on a socket \
+             still connecting must answer invalid-state, as wasmtime reads the socket before \
+             the size"
+        );
+    }
+
     // @behavior NW-084
     #[test]
     fn a_datagram_past_what_udp_carries_answers_datagram_too_large() {
@@ -2391,9 +2481,9 @@ mod tests {
         .expect("the socket streams with its peer");
         assert_eq!(
             (unpermitted, permit, sent, spent),
-            (true, Ok(1), Ok(1), true),
+            (true, Ok(16), Ok(1), true),
             "outgoing-datagram-stream.send must trap before any check-send and once its permit \
-             is spent, and send what check-send permitted"
+             is spent, and send what check-send permitted, sixteen while the queue has room"
         );
     }
 
