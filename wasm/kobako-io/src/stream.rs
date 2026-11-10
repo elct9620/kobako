@@ -222,7 +222,8 @@ fn io_readlines(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn io_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
     let fd = readable_fd(mrb, self_)?;
     with_file(fd, |file| {
-        file.read(&mut [])?;
+        // A read of nothing asks the host only whether the file reads at all.
+        let _read_nothing = file.read(&mut [])?;
         Ok(file.stream_position()? >= file.metadata()?.len())
     })
     .map_err(|err| read_error(mrb, self_, &err))
