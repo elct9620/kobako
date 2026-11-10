@@ -87,7 +87,7 @@ pub(crate) enum Future {
 pub(crate) mod resource {
     use std::sync::Arc;
 
-    use kobako_runtime::net::{self, Exchange, ResponseHead};
+    use kobako_runtime::net::{self, Exchange};
 
     use super::{BodyLink, Future, Request};
 
@@ -106,8 +106,10 @@ pub(crate) mod resource {
 
     pub(crate) struct FutureIncomingResponse(pub(crate) Future);
 
+    /// A response whose head its exchange holds once, against the
+    /// Invocation's memory.
     pub(crate) struct IncomingResponse {
-        pub(crate) head: ResponseHead,
+        pub(crate) status: u16,
         pub(crate) exchange: Arc<Exchange>,
         /// Whether its body was handed out.
         pub(crate) consumed: bool,
@@ -474,16 +476,16 @@ impl HttpHost for Invocation {
             Future::Refused(code) => Err(code.clone()),
             Future::Sent(exchange, _) => match exchange.response() {
                 None => return Ok(None),
-                Some(Ok(head)) => Ok((head, exchange.clone())),
+                Some(Ok(head)) => Ok((head.status, exchange.clone())),
                 Some(Err(err)) => Err(to_error_code(err)),
             },
         };
         *state = Future::Taken;
         match answer {
-            Ok((head, exchange)) => self
+            Ok((status, exchange)) => self
                 .table()
                 .push(resource::IncomingResponse {
-                    head,
+                    status,
                     exchange,
                     consumed: false,
                 })
@@ -503,7 +505,7 @@ impl HttpHost for Invocation {
     }
 
     fn types_incoming_response_status(&mut self, this: IncomingResponse) -> wasmtime::Result<u16> {
-        Ok(self.table().get(this)?.head.status)
+        Ok(self.table().get(this)?.status)
     }
 
     /// The response's headers, which the guest cannot change; a copy that
@@ -512,7 +514,10 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingResponse,
     ) -> wasmtime::Result<Fields> {
-        let headers = self.table().get(this)?.head.headers.clone();
+        let headers = match self.table().get(this)?.exchange.response() {
+            Some(Ok(head)) => head.headers,
+            _ => unreachable!("a response is handed out only once its head arrived"),
+        };
         let cred = self.wasi().descriptors().cred().clone();
         let entries = net::Fields::with_entries(cred, headers).map_err(to_field_trap)?;
         self.table().push(resource::Fields {

@@ -260,6 +260,19 @@ impl OutgoingRequest {
             swaps: Vec::new(),
         }
     }
+
+    /// The bytes its method, authority, path, and headers hold, as a header
+    /// list counts its entries.
+    fn room(&self) -> usize {
+        self.method.len()
+            + self.authority.len()
+            + self.path_with_query.len()
+            + self
+                .headers
+                .iter()
+                .map(|(name, value)| room_of(name, value))
+                .sum::<usize>()
+    }
 }
 
 /// The body a guest writes for a request, its bytes held on the guest's behalf
@@ -422,7 +435,7 @@ pub struct Exchange {
     task: Mutex<Option<Arc<Task>>>,
     /// The request's place against its Sandbox's cap and the process's.
     place: Mutex<Option<Arc<Place>>>,
-    /// What the request's body and the response's buffer hold, reserved
+    /// What the request and the response's buffer hold, reserved
     /// against the Invocation's memory until the exchange is released.
     memory: Mutex<Option<MemoryCharge>>,
 }
@@ -430,8 +443,8 @@ pub struct Exchange {
 impl Exchange {
     /// Send `request` through `seam` on the reactor, dialing through
     /// `connector`; it counts against `open_connections` and the process until
-    /// released, and a full count answers `ConnectionLimitReached`. Its body
-    /// and the response's buffer count against `cred`'s memory until then.
+    /// released, and a full count answers `ConnectionLimitReached`. The
+    /// request and the response's buffer count against `cred`'s memory until then.
     pub(crate) fn start(
         seam: Arc<dyn Outbound>,
         request: OutgoingRequest,
@@ -439,8 +452,8 @@ impl Exchange {
         open_connections: &Arc<OpenConnections>,
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, HttpError> {
-        let memory = MemoryCharge::new(cred, request.body.len() + MAX_SOCKET_BUFFER)
-            .map_err(|_| HttpError::Internal)?;
+        let held = request.room() + request.body.len() + MAX_SOCKET_BUFFER;
+        let memory = MemoryCharge::new(cred, held).map_err(|_| HttpError::Internal)?;
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
         connector.place = Some(place.clone());
         let place = Some(place);
@@ -1555,6 +1568,46 @@ mod tests {
             (Ok(200), Err(HttpError::Internal)),
             "a response whose head fits the Invocation's memory beside its buffer must be \
              answered, and one whose 64 KiB head does not must fail as internal"
+        );
+    }
+
+    /// A seam that never answers, holding each request it is handed.
+    struct NeverAnswers;
+
+    impl Outbound for NeverAnswers {
+        fn send_request(&self, request: OutgoingRequest, _: Connector) -> ResponseFuture {
+            Box::pin(async move {
+                let _held = request;
+                std::future::pending().await
+            })
+        }
+    }
+
+    // @behavior NW-156
+    #[test]
+    fn a_request_in_flight_holds_its_parts_against_the_invocations_memory() {
+        let mut entry = Builder::default();
+        entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
+        let network = Network::new("api", Arc::new(entry)).unwrap();
+        let namespace = Namespace::for_network(
+            &network,
+            Arc::new(ResolvesToLoopback),
+            Arc::new(NeverAnswers),
+        );
+        let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 40 * 1024));
+        let mut request = OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80");
+        request.path_with_query = format!("/{}", "p".repeat(30 * 1024));
+        let exchange = namespace
+            .send(&cred, request)
+            .expect("an endpoint names the authority");
+        let while_sent = MemoryCharge::new(&cred, 20 * 1024).is_ok();
+        exchange.release();
+        let after = MemoryCharge::new(&cred, 20 * 1024).is_ok();
+        assert_eq!(
+            (while_sent, after),
+            (false, true),
+            "a request whose 30 KiB path is under way must hold it against a memory_limit of \
+             its buffer and 40 KiB, so 20 KiB more is refused, and give it back once released"
         );
     }
 

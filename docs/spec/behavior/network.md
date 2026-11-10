@@ -1934,7 +1934,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a guest under a `memory_limit` |
 | When | the paths its requests hold, or a response's head, run past that memory |
-| Then | setting the path traps, as a header list does. The response answers `internal-error`. A dropped request gives its room back |
+| Then | setting the path traps, as a header list does. The response answers `internal-error`. A request keeps its room while it is sent, and gives it back once dropped or released |
 
 ## `NW-157` A path rule judges a long path in bounded work
 
