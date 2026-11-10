@@ -230,7 +230,7 @@ struct Hints {
     socktype: i64,
     protocol: i64,
     flags: i64,
-    limit: Option<Duration>,
+    timeout: Option<Duration>,
 }
 
 /// The `Addrinfo`s `node` and `service` lead to, as glibc's `getaddrinfo`
@@ -252,7 +252,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     }
     let ip = match node.is_nil() && hints.flags & AI_PASSIVE != 0 {
         true => Ipv4Addr::UNSPECIFIED.into(),
-        false => pack_host(mrb, node, hints.limit)?,
+        false => pack_host(mrb, node, hints.timeout)?,
     };
     if hints.family.is_some_and(|family| family != afamily_of(ip)) {
         return Err(resolution_error(mrb, EAI_ADDRFAMILY));
@@ -292,7 +292,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
 }
 
 /// The hints `getaddrinfo`'s arguments after `node` and `service` give.
-fn hints_of(mrb: &Mrb, args: &[Value], limit: Option<Duration>) -> Result<Hints, Error> {
+fn hints_of(mrb: &Mrb, args: &[Value], timeout: Option<Duration>) -> Result<Hints, Error> {
     let at = |i: usize| args.get(i).copied();
     let flags = match at(3).filter(|flags| !flags.is_nil()) {
         Some(flags) => i64::try_convert(flags, mrb)?,
@@ -307,7 +307,7 @@ fn hints_of(mrb: &Mrb, args: &[Value], limit: Option<Duration>) -> Result<Hints,
         socktype: socktype_of(mrb, at(1))?,
         protocol,
         flags,
-        limit,
+        timeout,
     })
 }
 
@@ -316,7 +316,7 @@ fn hints_of(mrb: &Mrb, args: &[Value], limit: Option<Duration>) -> Result<Hints,
 /// name and service lead to.
 fn addrinfo_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
     let mut args = args.to_vec();
-    let mut limit = None;
+    let mut timeout = None;
     if let Some(options) = args.last().copied().and_then(RHash::from_value) {
         args.pop();
         let keys: RArray = options.funcall(mrb, c"keys", ())?;
@@ -327,7 +327,7 @@ fn addrinfo_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Val
                 .transpose()?
                 .as_deref()
             {
-                Some("timeout") => limit = seconds_of(mrb, options.aref(mrb, key)?)?,
+                Some("timeout") => timeout = seconds_of(mrb, options.aref(mrb, key)?)?,
                 _ => {
                     let message = format!("unknown keyword: {}", key.inspect(mrb));
                     return Err(argument_error(mrb, &message));
@@ -339,7 +339,7 @@ fn addrinfo_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Val
         [node, service, rest @ ..] if rest.len() <= 4 => (*node, *service, rest),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 6)),
     };
-    let found = lookup(mrb, node, service, &hints_of(mrb, rest, limit)?)?;
+    let found = lookup(mrb, node, service, &hints_of(mrb, rest, timeout)?)?;
     let answer = mrb.ary_new();
     for info in found {
         answer.push(mrb, info.wrap(mrb)?)?;
@@ -360,7 +360,7 @@ fn first_of(
         socktype,
         protocol,
         flags: 0,
-        limit: None,
+        timeout: None,
     };
     let mut found = lookup(mrb, host, port, &hints)?;
     found.remove(0).wrap(mrb)
@@ -384,7 +384,7 @@ fn addrinfo_s_ip(mrb: &Mrb, _self: Value, host: Value) -> Result<Value, Error> {
         socktype: 0,
         protocol: 0,
         flags: 0,
-        limit: None,
+        timeout: None,
     };
     let mut info = lookup(mrb, host, qnil().as_value(), &hints)?.remove(0);
     (info.socktype, info.protocol) = (0, 0);
@@ -623,7 +623,7 @@ fn addrinfo_family_addrinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<V
         socktype: info.socktype,
         protocol: info.protocol,
         flags: 0,
-        limit: None,
+        timeout: None,
     };
     lookup(mrb, host, port, &hints)?.remove(0).wrap(mrb)
 }

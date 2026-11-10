@@ -491,8 +491,11 @@ impl Namespace {
 Start connecting a socket to the address the Guest named, once the socket
 hooks and the ruleset pass it. A virtual address dials its name's real
 addresses in turn. An unmapped one, and any refusal, answer `PermissionDenied`
-and dial nothing. Past a connection limit it answers `WouldBlock`, and a socket
-already connecting or connected `AlreadyInProgress` or `AlreadyConnected`.
+and dial nothing.
+
+Once the hooks saw it, an IPv6 address answers `AddressFamilyNotSupported`.
+Past a connection limit it answers `WouldBlock`, and a socket already
+connecting or connected `AlreadyInProgress` or `AlreadyConnected`.
 
 ```rust
 impl Namespace {
@@ -1458,7 +1461,7 @@ impl Namespace {
 
 Connect a UDP socket to the one peer the Guest named. The socket hooks and the
 ruleset pass it first, as they pass a TCP connect. A stream naming no peer
-answers `PermissionDenied`.
+answers `PermissionDenied`, and an IPv6 peer `AddressFamilyNotSupported`.
 
 ```rust
 impl Namespace {
@@ -1471,7 +1474,8 @@ impl Namespace {
 Bind a socket to an address as a Cred, once the socket hooks pass it, as
 Linux's `bind` asks `security_socket_bind`. The Guest only reaches out, so
 kobako's own module passes only the unspecified address at port 0. Any other
-answers `PermissionDenied`.
+answers `PermissionDenied`, and an IPv6 address the hooks pass answers
+`AddressFamilyNotSupported`.
 
 ```rust
 impl Namespace {

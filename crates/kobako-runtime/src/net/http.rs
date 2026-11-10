@@ -23,7 +23,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::{open, OpenConnections, Place};
 use super::lookup::NameLookup;
 use super::reactor::{Reactor, Ready, Registration, Task};
-use super::socket::{connect_outcome, to_error, SocketMemory};
+use super::socket::{take_connect_outcome, to_error, SocketMemory};
 use super::{new_platform_tls, ProtocolFamily, MAX_SOCKET_BUFFER};
 use crate::filesystem::anon_inode_getfile;
 use crate::network::{Protocol, Ruleset, Secret};
@@ -38,7 +38,7 @@ pub enum Scheme {
     Https,
 }
 
-/// The headers no guest sets: wasmtime's `DEFAULT_FORBIDDEN_HEADERS_HEADERS`, and
+/// The headers no guest sets: wasmtime's `DEFAULT_FORBIDDEN_HEADERS`, and
 /// `content-length` and `te`, since the seam frames the body and its encoding
 /// itself.
 const FORBIDDEN_HEADERS: [&str; 11] = [
@@ -607,7 +607,7 @@ impl Transport {
     async fn wait_for_connect(&self) -> io::Result<()> {
         poll_fn(|cx| {
             self.attempt(cx, false, || {
-                connect_outcome(&self.stream).unwrap_or(Err(io::ErrorKind::WouldBlock.into()))
+                take_connect_outcome(&self.stream).unwrap_or(Err(io::ErrorKind::WouldBlock.into()))
             })
         })
         .await

@@ -2026,6 +2026,70 @@ mod tests {
         (within_network(endpoint), listener)
     }
 
+    // @behavior NW-155
+    #[test]
+    fn a_flushing_streams_pollable_waits_until_what_it_flushes_has_left() {
+        let (mut guest, listener) = reaching_loopback();
+        let port = listener.local_addr().unwrap().port();
+        let started = Instant::now();
+        let answers = run_task(Some(started + Duration::from_secs(30)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_set_send_buffer_size(socket, 4096)?
+                .expect("a socket takes a send buffer");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (_, output) = guest
+                .tcp_tcp_socket_finish_connect(socket)?
+                .expect("the listener accepts");
+            let (mut peer, _) = listener.accept().unwrap();
+            // Fill the host's buffers and the socket's own, the peer reading
+            // nothing, so what a flush holds cannot leave.
+            let mut quiet = 0;
+            while quiet < 20 {
+                match guest.streams_output_stream_check_write(output)? {
+                    Ok(0) => {
+                        quiet += 1;
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Ok(room) => {
+                        quiet = 0;
+                        let chunk = vec![b'x'; room.min(4096) as usize];
+                        let _ = guest.streams_output_stream_write(output, chunk)?;
+                    }
+                    Err(_) => break,
+                }
+            }
+            guest
+                .streams_output_stream_flush(output)?
+                .expect("a connected stream flushes");
+            let writable = guest.streams_output_stream_subscribe(output)?;
+            let now = guest.monotonic_clock_subscribe_duration(0)?;
+            let while_held = guest.poll_poll(vec![writable, now])?;
+            let reader = std::thread::spawn(move || {
+                let mut sink = [0u8; 65536];
+                while std::io::Read::read(&mut peer, &mut sink).is_ok_and(|n| n > 0) {}
+            });
+            guest.poll_pollable_block(writable)?;
+            let after = guest.streams_output_stream_check_write(output)?.ok();
+            Ok::<_, wasmtime::Error>((while_held, after, reader))
+        })
+        .expect("the stream fills and drains");
+        let (while_held, after, _reader) = answers;
+        assert!(
+            while_held == [1] && after.is_some_and(|room| room > 0),
+            "output-stream.subscribe after a flush the peer has not taken must not be ready, \
+             only the zero-length clock beside it, and once the peer reads, it must be ready \
+             with check-write offering bytes; polled {while_held:?}, then offered {after:?}"
+        );
+    }
+
     // @behavior NW-089
     #[test]
     fn an_address_wasi_calls_invalid_answers_invalid_argument() {

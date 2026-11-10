@@ -138,7 +138,7 @@ output-stream ---+         |
 socket's number -+         +--> wait queue <-- reactor
 ```
 
-The file is made with the socket, as Linux's `socket()` installs one before any connect. Both encodings number into one space, as Linux's one fdtable holds a file and a socket alike. A preview1 read, write, or poll on a socket's number reaches the same file. The guest's `TCPSocket` and `UDPSocket` are therefore each an `IO` that `IO.select` waits on. The last view dropped releases the host socket.
+The file is made with the socket, as Linux's `socket()` installs one before any connect. Both encodings number into one space, as Linux's one fdtable holds a file and a socket alike. A preview1 read, write, poll, or `sock_*` call on a socket's number reaches the same socket. The guest's `TCPSocket` and `UDPSocket` are therefore each an `IO` that `IO.select` waits on. The last view dropped releases the host socket.
 
 ## Socket Options
 

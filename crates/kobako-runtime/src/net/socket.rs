@@ -36,8 +36,8 @@ pub trait ProtoOps: Send + Sync {
     /// The port the guest reads for its own end, once its namespace gave one
     /// as the connect began.
     fn virtual_port(&self) -> Option<u16>;
-    /// The value `opt` holds on this socket, never the host's, as
-    /// `getsockopt` reads it; one the protocol has not answers `ENOPROTOOPT`.
+    /// The value `opt` holds on this socket, never the host's; one the
+    /// protocol has not answers `ProtocolNotAvailable`.
     fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError>;
     /// Set `opt` to `value`, as `setsockopt` does, refusing what Linux
     /// refuses; a host socket already dialed takes it at once.
@@ -93,7 +93,7 @@ impl InetSock {
     }
 
     /// What `opt` reads at the socket and IP levels, as `sk_getsockopt` and
-    /// `do_ip_getsockopt` answer; a TCP option answers `ENOPROTOOPT`.
+    /// `do_ip_getsockopt` answer; a TCP option answers `ProtocolNotAvailable`.
     pub(crate) fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError> {
         let value = match opt {
             SockOpt::RcvBuf => self.buffers.rcvbuf,
@@ -201,10 +201,11 @@ impl Drop for SocketMemory {
     }
 }
 
-/// How a non-blocking connect on `stream` stands, as `SO_ERROR` and then the
-/// peer's name tell: `None` while it is under way, and its outcome once it
-/// settled. Every dialer of a host stream reads it the same way.
-pub(crate) fn connect_outcome(stream: &mio::net::TcpStream) -> Option<io::Result<()>> {
+/// Take how a non-blocking connect on `stream` stands, as reading `SO_ERROR`
+/// clears it and then the peer's name tells: `None` while it is under way, and
+/// its outcome once it settled. Every dialer of a host stream reads it the same
+/// way.
+pub(crate) fn take_connect_outcome(stream: &mio::net::TcpStream) -> Option<io::Result<()>> {
     match (stream.take_error(), stream.peer_addr()) {
         (Ok(Some(err)), _) | (Err(err), _) => Some(Err(err)),
         (Ok(None), Ok(_)) => Some(Ok(())),

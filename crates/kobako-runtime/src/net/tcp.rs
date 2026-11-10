@@ -17,7 +17,8 @@ use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
-    connect_outcome, ensure_within, to_error, to_ttl, InetSock, ProtoOps, SockOpt, SocketMemory,
+    ensure_within, take_connect_outcome, to_error, to_ttl, InetSock, ProtoOps, SockOpt,
+    SocketMemory,
 };
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -322,7 +323,7 @@ impl TcpSock {
         let Some((stream, _)) = state.host.as_ref() else {
             return;
         };
-        let failure = match connect_outcome(stream) {
+        let failure = match take_connect_outcome(stream) {
             None => return,
             Some(Ok(())) => {
                 state.phase = Phase::Connected;
@@ -505,7 +506,9 @@ impl ProtoOps for TcpSock {
     /// Shut the writing side down once what is queued is sent, or the reading
     /// side, which still reads what arrived, as `inet_shutdown` sets
     /// `SEND_SHUTDOWN` and `RCV_SHUTDOWN`; a socket not connected marks them
-    /// and answers `ENOTCONN`.
+    /// and answers `ENOTCONN`. One still connecting answers the same, where
+    /// Linux's disconnects it; only preview1's `sock_shutdown` reaches that,
+    /// since preview2 refuses a shutdown before the connect settles.
     fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
         let mut state = self.state();
         state.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
@@ -962,8 +965,8 @@ mod tests {
         assert_eq!(
             (first, file.read(&mut buf)),
             (Ok(b"queued".to_vec()), Ok(0)),
-            "File::read after TcpSock::shutdown(Read) must still read the bytes that arrived, \
-             then zero"
+            "a socket's read after shutting its reading side down must still read the bytes \
+             that arrived, then zero"
         );
     }
 

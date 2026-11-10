@@ -4195,8 +4195,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a guest whose preview2 socket connected to a peer |
-| When | it sends, receives, peeks, and shuts the writing side down, then neither side, through `sock_*` on its number |
-| Then | the peer reads what was sent and the guest receives the reply. A peek answers ENOTSUP, as WASI carries no receive flag. The shutdown ends the peer's read, and one naming neither side answers EINVAL, as Linux's `inet_shutdown` |
+| When | it sends, receives, peeks, accepts, and shuts the writing side down, then neither side, through `sock_*` on its number |
+| Then | the peer reads what was sent and the guest receives the reply. A peek answers ENOTSUP, since the socket answers through preview2's stream, which carries no receive flag. An accept answers EINVAL, as Linux's on a socket not listening. The shutdown ends the peer's read, and one naming neither side answers EINVAL |
 
 ## `RT-373` A preview2 answer into a misaligned return area traps
 

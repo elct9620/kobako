@@ -27,7 +27,7 @@ pub const MAX_DATAGRAM: usize = 65_507;
 const DATAGRAM_OVERHEAD: usize = std::mem::size_of::<Vec<u8>>();
 
 /// What a queued datagram of `len` bytes spends of `rcvbuf`.
-fn truesize(len: usize) -> usize {
+fn truesize_of(len: usize) -> usize {
     len + DATAGRAM_OVERHEAD
 }
 
@@ -164,9 +164,9 @@ impl UdpSock {
         loop {
             match socket.recv(&mut datagram) {
                 Ok(n) => {
-                    if state.received_bytes + truesize(n) <= state.inet.buffers.rcvbuf {
+                    if state.received_bytes + truesize_of(n) <= state.inet.buffers.rcvbuf {
                         state.received.push_back(datagram[..n].to_vec());
-                        state.received_bytes += truesize(n);
+                        state.received_bytes += truesize_of(n);
                     }
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
@@ -205,20 +205,18 @@ impl ProtoOps for UdpSock {
     /// One datagram, cut to `buf`, as a datagram socket's read takes one. A
     /// pending failure is answered first, once, and then cleared, as
     /// `__skb_recv_udp` asks `sock_error` before it dequeues, so the socket
-    /// reads on. Once its reading side is shut and the queue empty, a read
-    /// answers zero, as `__skb_wait_for_more_packets` ends on `RCV_SHUTDOWN`.
+    /// reads on. An empty queue answers `WouldBlock` even once its reading
+    /// side is shut, as a non-blocking `__skb_recv_udp` answers EAGAIN and
+    /// only a blocking wait ends on `RCV_SHUTDOWN`.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
         if let Some(err) = state.error.take() {
             return Err(err);
         }
         let Some(datagram) = state.received.pop_front() else {
-            return match state.rcv_shut {
-                true => Ok(0),
-                false => Err(FilesystemError::WouldBlock),
-            };
+            return Err(FilesystemError::WouldBlock);
         };
-        state.received_bytes -= truesize(datagram.len());
+        state.received_bytes -= truesize_of(datagram.len());
         let n = buf.len().min(datagram.len());
         buf[..n].copy_from_slice(&datagram[..n]);
         Ok(n)
@@ -497,7 +495,7 @@ mod tests {
             sock.state().received.len(),
             96,
             "a UDP socket whose receive buffer reads 2304 must queue no more than 96 of 200 \
-             empty datagrams, as each spends its queue entry's 24 bytes, as Linux's truesize does"
+             empty datagrams, as each spends room beside its bytes, as Linux's truesize counts"
         );
     }
 
@@ -528,14 +526,15 @@ mod tests {
             ),
             (
                 Err(FilesystemError::WouldBlock),
-                (Ok(0), true),
+                (Err(FilesystemError::WouldBlock), true),
                 Err(FilesystemError::BrokenPipe),
                 true,
                 Err(FilesystemError::NotConnected)
             ),
-            "a UDP socket must read zero and poll readable once its reading side is shut, answer \
-             EPIPE to a send once its writing side is, poll hung up once both are, and answer \
-             ENOTCONN to a shutdown with no peer, as Linux's inet_shutdown"
+            "a non-blocking UDP socket whose reading side is shut must poll readable yet still \
+             answer EAGAIN on an empty queue, answer EPIPE to a send once its writing side is \
+             shut, poll hung up once both are, and answer ENOTCONN to a shutdown with no peer, \
+             as Linux's inet_shutdown and __skb_recv_udp"
         );
     }
 

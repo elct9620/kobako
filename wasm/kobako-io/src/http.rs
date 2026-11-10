@@ -56,7 +56,7 @@ struct UnreadBody {
 
 impl UnreadBody {
     /// The next chunk the body holds, `None` at its end; one slower than the
-    /// read limit raises `Net::ReadTimeout`.
+    /// read timeout raises `Net::ReadTimeout`.
     fn read_chunk(&mut self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
         let Some(stream) = &self.stream else {
             return Ok(None);
@@ -406,7 +406,7 @@ fn http_set_write_timeout(mrb: &Mrb, self_: Value, sec: Value) -> Result<Value, 
     Ok(sec)
 }
 
-/// The limit a timeout `ivar` sets, `None` for `nil`, which waits on.
+/// The timeout an `ivar` sets, `None` for `nil`, which waits on.
 fn timeout_of(mrb: &Mrb, self_: Value, name: &core::ffi::CStr) -> Result<Option<Duration>, Error> {
     let sec = ivar_get(mrb, self_, name)?;
     if sec.is_nil() {

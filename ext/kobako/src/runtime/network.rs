@@ -20,7 +20,7 @@ use kobako_runtime::network::{
 use super::pinned_value::PinnedValue;
 use super::{escape, gvl};
 
-/// What one entry answered for this invocation: its endpoints, its own
+/// A Ruby entry as one invocation reads it: its endpoints, its own
 /// `resolve?`, `connect?`, and `request?` for each it plays, and its
 /// credentials.
 struct RubyEntry {
@@ -250,14 +250,14 @@ pub(super) fn to_grants(
             pins.push(PinnedValue::new(ruby, entry));
         }
         let credentials = to_credentials(ruby, entry, &mut pins)?;
-        let answered = RubyEntry {
+        let ruby_entry = RubyEntry {
             endpoints,
             resolve,
             connect,
             request,
             credentials,
         };
-        let network = Network::new(name, Arc::new(answered))
+        let network = Network::new(name, Arc::new(ruby_entry))
             .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))?;
         grants.push(Grant::Network(network));
     }

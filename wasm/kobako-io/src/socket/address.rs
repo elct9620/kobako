@@ -24,12 +24,12 @@ fn for_peer(call: &str, host: &str, port: impl std::fmt::Display) -> String {
 
 /// The IPv4 address `name` leads to, as kobako's resolver hands out a virtual
 /// one; a name with no address raises `Socket::ResolutionError`, as an
-/// unallowed one does, and a lookup slower than `limit` raises
+/// unallowed one does, and a lookup slower than `timeout` raises
 /// `Errno::ETIMEDOUT`, as CRuby's `resolv_timeout` does.
 fn resolve(
     mrb: &Mrb,
     name: &str,
-    limit: Option<Duration>,
+    timeout: Option<Duration>,
     class: &str,
     call: &str,
 ) -> Result<Ipv4Addr, Error> {
@@ -49,7 +49,7 @@ fn resolve(
             Ok(Some(IpAddress::Ipv6(_))) => {}
             Ok(None) => return Err(resolution_error(mrb, EAI_NONAME)),
             Err(ErrorCode::WouldBlock) => {
-                if !wait_within(&pollable, limit) {
+                if !wait_within(&pollable, timeout) {
                     return Err(errno::error_by_name(
                         mrb,
                         c"ETIMEDOUT",
@@ -63,12 +63,12 @@ fn resolve(
 }
 
 /// The peer `host` and `port` name for `call` on a `class`: the IPv4 address
-/// `host` spells, or the one its name leads to within `resolv_limit`.
+/// `host` spells, or the one its name leads to within `resolv_timeout`.
 pub(super) fn peer_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
-    resolv_limit: Option<Duration>,
+    resolv_timeout: Option<Duration>,
     class: &str,
     call: &str,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
@@ -80,7 +80,7 @@ pub(super) fn peer_of(
         Ok(std::net::IpAddr::V6(_)) => {
             return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call))
         }
-        Err(_) => resolve(mrb, &host_text, resolv_limit, class, &call)?,
+        Err(_) => resolve(mrb, &host_text, resolv_timeout, class, &call)?,
     };
     Ok((ip, port, call))
 }
@@ -151,9 +151,13 @@ pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
 /// The address `host` names to pack, as CRuby's `rsock_addrinfo` reads it:
 /// `nil` is the loopback, an Integer the IPv4 address it numbers, `""` and
 /// `"<any>"` any address, and `"<broadcast>"` the broadcast one. A literal is
-/// itself, and a name the address it leads to within `limit`. The guest has
+/// itself, and a name the address it leads to within `timeout`. The guest has
 /// no IPv6, so `nil` is IPv4's loopback.
-pub(super) fn pack_host(mrb: &Mrb, host: Value, limit: Option<Duration>) -> Result<IpAddr, Error> {
+pub(super) fn pack_host(
+    mrb: &Mrb,
+    host: Value,
+    timeout: Option<Duration>,
+) -> Result<IpAddr, Error> {
     if host.is_nil() {
         return Ok(Ipv4Addr::LOCALHOST.into());
     }
@@ -166,7 +170,7 @@ pub(super) fn pack_host(mrb: &Mrb, host: Value, limit: Option<Duration>) -> Resu
         "<broadcast>" => Ipv4Addr::BROADCAST.into(),
         _ => match text.parse::<IpAddr>() {
             Ok(ip) => ip,
-            Err(_) => resolve(mrb, &text, limit, "Socket", "getaddrinfo(3)")?.into(),
+            Err(_) => resolve(mrb, &text, timeout, "Socket", "getaddrinfo(3)")?.into(),
         },
     })
 }

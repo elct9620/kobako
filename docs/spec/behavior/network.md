@@ -1809,7 +1809,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a network entry, and a guest holding as many files as its open file limit allows |
 | When | it resolves a name, and sends an HTTP request |
-| Then | the lookup answers `new-socket-limit` and the request `connection-limit-reached`. Neither starts a query or a connection, as Linux's `anon_inode_getfd` answers EMFILE. Nothing traps |
+| Then | the lookup answers `new-socket-limit` and the request `connection-limit-reached`, as Linux's `anon_inode_getfd` answers EMFILE. Nothing traps |
 
 ## `NW-147` A producer dropped while its pollable lives traps
 
@@ -1846,7 +1846,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a lookup that resolved, and an Invocation whose `memory_limit` holds nothing more |
 | When | a Wasm Driver hands out the name's virtual address, then hands it out with room |
-| Then | the full memory answers `temporary-failure`. With room, the name takes the bottom of the range, and its entry stays until the Invocation ends |
+| Then | the full memory answers `temporary-failure`. With room, the name takes the bottom of the range |
 
 ## `NW-150` An endpoint's address prefix past its family is refused
 
@@ -1870,7 +1870,7 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | an entry's connect policy that records each attempt |
-| When | the guest connects to an IPv6 address and to an unmapped virtual one, and binds an IPv6 address |
+| When | a Wasm Driver connects to an IPv6 address and an unmapped virtual one, then binds an IPv6 address |
 | Then | the policy sees both connects. They answer `EAFNOSUPPORT` and `EACCES`, and the bind `EAFNOSUPPORT`, as Linux's `security_socket_connect` runs before the protocol's `connect` |
 
 ## `NW-152` A UDP socket's shutdown ends its reads and refuses its sends
@@ -1884,7 +1884,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a UDP socket connected to a peer, and one connected to none |
 | When | a Wasm Driver shuts the reading side down, then the writing side, then shuts the unconnected socket down |
-| Then | a read answers zero and polls readable, a send answers EPIPE, and both shut poll hung up. The unconnected socket answers ENOTCONN, as Linux's `inet_shutdown` |
+| Then | the socket polls readable, yet a read of its empty queue answers EAGAIN, as a non-blocking Linux socket does. A send answers EPIPE, and both shut poll hung up. The unconnected socket answers ENOTCONN, as Linux's `inet_shutdown` |
 
 ## `NW-153` A UDP socket answers its bind and an empty send as wasmtime-wasi's
 
@@ -1910,3 +1910,15 @@ endpoint "api.example.com", port: 443
 | Given | a Protocol Family that cannot read the host's own addresses, and an endpoint naming a name |
 | When | the guest connects to the name's virtual address |
 | Then | the connect answers `EACCES` and dials nothing, rather than judging the name's addresses as if the host had none |
+
+## `NW-155` A flushing stream's pollable waits until what it flushes has left
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-092` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket whose peer reads nothing, its buffers full |
+| When | the guest flushes the output stream and polls its pollable beside a zero-length clock, then the peer reads |
+| Then | only the clock is ready while the flush is held. Once the peer reads, the pollable is ready and `check-write` offers bytes, as `io.wit` says |

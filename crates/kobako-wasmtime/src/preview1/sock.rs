@@ -35,9 +35,11 @@ pub(crate) fn accept<T>(table: &Descriptors, fd: u32) -> Answer<T> {
     }
 }
 
-/// What the socket holds, into the first buffer with room, as `recvmsg`
-/// with no flags. A flag WASI names, peeking or waiting for all, answers
-/// `NOTSUP`, as the guest's own receive answers a flag it cannot carry.
+/// What the socket holds, into the first buffer with room, as `fd_read`
+/// reads one. Unlike Linux's `recvmsg`, it scatters nothing across the other
+/// buffers and reports no cut datagram, since the socket answers through the
+/// one read its file takes. A flag WASI names, peeking or waiting for all,
+/// answers `NOTSUP`, as the guest's own receive answers a flag it cannot carry.
 pub(crate) fn recv(
     table: &Descriptors,
     mem: &mut GuestMemory<'_, '_>,
@@ -435,13 +437,22 @@ mod tests {
             )
             .is_ok();
         let ended = peer.read_to_end(&mut Vec::new()).ok();
+        let accepted = errno(
+            guest
+                .sock_accept(
+                    &mut wiggle::GuestMemory::Unshared(&mut []),
+                    fd.into(),
+                    Fdflags::empty(),
+                )
+                .map(drop),
+        );
         let neither = errno(guest.sock_shutdown(
             &mut wiggle::GuestMemory::Unshared(&mut []),
             fd.into(),
             Sdflags::empty(),
         ));
         assert_eq!(
-            (sent, &heard, peeked, received, shut, ended, neither),
+            (sent, &heard, peeked, received, shut, ended, accepted, neither),
             (
                 Some(4),
                 b"ping",
@@ -449,11 +460,13 @@ mod tests {
                 b"pong".to_vec(),
                 true,
                 Some(0),
+                Some(Errno::Inval),
                 Some(Errno::Inval)
             ),
             "sock_send and sock_recv on a connected preview2 socket's number must reach its peer, \
-             a peek must answer ENOTSUP, sock_shutdown of the writing side must end the peer's \
-             read, and a shutdown naming neither side must answer EINVAL"
+             a peek must answer ENOTSUP, sock_accept on a stream not listening must answer \
+             EINVAL, sock_shutdown of the writing side must end the peer's read, and a shutdown \
+             naming neither side must answer EINVAL"
         );
     }
 
