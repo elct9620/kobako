@@ -452,7 +452,7 @@ impl Namespace {
                     .map_err(|_| FilesystemError::PermissionDenied)?;
                 let admitted =
                     self.ruleset
-                        .admitted_of(&name, &real, addr.port(), protocol, &local);
+                        .admitted_addresses_of(&name, &real, addr.port(), protocol, &local);
                 if admitted.is_empty() {
                     return Err(FilesystemError::PermissionDenied);
                 }

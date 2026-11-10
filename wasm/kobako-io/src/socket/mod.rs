@@ -149,7 +149,7 @@ enum Family {
 
 /// The name a Symbol or a String spells, `None` for any other value, as
 /// CRuby's `ext/socket` reads a family, a level, or an option by name.
-fn spelled(mrb: &Mrb, value: Value) -> Result<Option<String>, Error> {
+fn name_of(mrb: &Mrb, value: Value) -> Result<Option<String>, Error> {
     if let Some(symbol) = Symbol::from_value(value) {
         return symbol.name(mrb).map(Some);
     }
@@ -174,7 +174,7 @@ fn socket_error(mrb: &Mrb, message: &str) -> Error {
 /// The family `value` names, as CRuby's `rsock_family_arg` reads a Symbol, a
 /// String, or an Integer; a name no family has raises `SocketError`.
 fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
-    let Some(name) = spelled(mrb, value)? else {
+    let Some(name) = name_of(mrb, value)? else {
         return Ok(Family::Number(i64::try_convert(value, mrb)?));
     };
     let bare = name
@@ -246,7 +246,7 @@ const EAI_SERVICE: (i32, &str) = (-8, "Servname not supported for ai_socktype");
 
 /// Whether the Sandbox gives the guest the network: without it, no socket is
 /// made, which answers at once and does nothing first.
-pub(crate) fn network_given() -> bool {
+pub(crate) fn has_network() -> bool {
     create_tcp_socket(IpAddressFamily::Ipv4).is_ok()
 }
 

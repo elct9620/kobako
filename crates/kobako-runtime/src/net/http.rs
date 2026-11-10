@@ -77,12 +77,12 @@ pub const MAX_FIELD_SIZE: usize = 128 * 1024;
 /// past what the guest was allotted.
 pub struct Fields {
     cred: Arc<Cred>,
-    held: Mutex<Held>,
+    held: Mutex<HeldEntries>,
 }
 
 /// A list's entries and the room they take.
 #[derive(Default)]
-struct Held {
+struct HeldEntries {
     entries: Vec<(String, Vec<u8>)>,
     room: usize,
 }
@@ -97,7 +97,7 @@ impl Fields {
     pub fn new(cred: Arc<Cred>) -> Arc<Self> {
         Arc::new(Self {
             cred,
-            held: Mutex::new(Held::default()),
+            held: Mutex::new(HeldEntries::default()),
         })
     }
 
@@ -116,11 +116,11 @@ impl Fields {
             .map_err(|_| FieldError::OutOfMemory)?;
         Ok(Arc::new(Self {
             cred,
-            held: Mutex::new(Held { entries, room }),
+            held: Mutex::new(HeldEntries { entries, room }),
         }))
     }
 
-    fn held(&self) -> MutexGuard<'_, Held> {
+    fn held(&self) -> MutexGuard<'_, HeldEntries> {
         self.held.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -516,8 +516,13 @@ impl Connector {
                     .family
                     .local_addresses()
                     .map_err(|_| HttpError::Denied)?;
-                self.ruleset
-                    .admitted_of(&self.host, &real, self.port, Protocol::Http, &local)
+                self.ruleset.admitted_addresses_of(
+                    &self.host,
+                    &real,
+                    self.port,
+                    Protocol::Http,
+                    &local,
+                )
             }
         };
         if addrs.is_empty() {

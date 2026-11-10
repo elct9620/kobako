@@ -41,10 +41,10 @@ pub(crate) struct Reactor {
 }
 
 /// A reactor, and the process it was started in.
-type Started = (u32, Arc<Reactor>);
+type StartedReactor = (u32, Arc<Reactor>);
 
 /// The process's reactor.
-static CURRENT: LazyLock<Mutex<Option<Started>>> = LazyLock::new(Mutex::default);
+static CURRENT: LazyLock<Mutex<Option<StartedReactor>>> = LazyLock::new(Mutex::default);
 
 impl Reactor {
     /// The process's reactor, started at the first socket; a forked child

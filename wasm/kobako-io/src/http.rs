@@ -36,12 +36,12 @@ const COLLECT_EVERY: usize = 1 << 20;
 struct Answer {
     status: u16,
     headers: Vec<(String, Vec<u8>)>,
-    body: Unread,
+    body: UnreadBody,
 }
 
 /// A response's body the guest has not read yet, its stream dropped before
 /// the body it belongs to, as WASI asks of a child resource.
-struct Unread {
+struct UnreadBody {
     stream: Option<InputStream>,
     body: Option<IncomingBody>,
     /// How long one chunk may take, as `read_timeout` bounds each read.
@@ -54,7 +54,7 @@ struct Unread {
     sized: bool,
 }
 
-impl Unread {
+impl UnreadBody {
     /// The next chunk the body holds, `None` at its end; one slower than the
     /// read limit raises `Net::ReadTimeout`.
     fn read_chunk(&mut self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
@@ -113,7 +113,7 @@ impl Unread {
     }
 }
 
-impl Drop for Unread {
+impl Drop for UnreadBody {
     fn drop(&mut self) {
         self.finish();
     }
@@ -122,7 +122,7 @@ impl Drop for Unread {
 thread_local! {
     /// The bodies a request's block may still stream, each beside the object
     /// id of the response it belongs to, innermost last.
-    static STREAMING: RefCell<Vec<(i64, Unread)>> = const { RefCell::new(Vec::new()) };
+    static STREAMING_BODIES: RefCell<Vec<(i64, UnreadBody)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// One request the guest sends: where, how, and what.
@@ -574,7 +574,7 @@ fn http_s_get(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> 
 /// `Net::HTTP.get_response(host, path, port = nil) { |response| }`: the
 /// response to a GET, handed to a block before its body is read.
 fn http_s_get_response(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
-    let given = Given::current(mrb, Given::Response)?;
+    let given = BlockArgument::current(mrb, BlockArgument::Response)?;
     get_response(mrb, class, args, given)
 }
 
@@ -582,7 +582,7 @@ fn get_response(
     mrb: &Mrb,
     class: RClass,
     args: &[Value],
-    given: Option<Given>,
+    given: Option<BlockArgument>,
 ) -> Result<Value, Error> {
     let (host, path, port) = match args {
         [host, path] => (*host, *path, qnil().as_value()),
@@ -669,7 +669,7 @@ fn send_bodyless(
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
     let request = new_request(mrb, class, path, header)?;
-    let given = Given::current(mrb, Given::Chunks)?;
+    let given = BlockArgument::current(mrb, BlockArgument::Chunks)?;
     send_request(mrb, self_, request, None, given)
 }
 
@@ -688,7 +688,7 @@ fn send_with_body(
         _ => return Err(Error::argnum(mrb, args.len(), 2, 3)),
     };
     let request = new_request(mrb, class, path, header)?;
-    let given = Given::current(mrb, Given::Chunks)?;
+    let given = BlockArgument::current(mrb, BlockArgument::Chunks)?;
     send_request(mrb, self_, request, Some(data), given)
 }
 
@@ -712,7 +712,7 @@ fn http_request(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error>
         [request, body] => (*request, Some(*body).filter(|body| !body.is_nil())),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
-    let given = Given::current(mrb, Given::Response)?;
+    let given = BlockArgument::current(mrb, BlockArgument::Response)?;
     send_request(mrb, self_, request, body, given)
 }
 
@@ -726,7 +726,7 @@ fn send_request(
     http: Value,
     request: Value,
     body: Option<Value>,
-    given: Option<Given>,
+    given: Option<BlockArgument>,
 ) -> Result<Value, Error> {
     let held = Some(ivar_get(mrb, request, c"@body")?).filter(|held| !held.is_nil());
     let body = match (body, held) {
@@ -784,14 +784,14 @@ fn headers_of(mrb: &Mrb, header: Value) -> Result<Vec<(String, Vec<u8>)>, Error>
 
 /// What a request's block is handed: the response, as `request` yields it, or
 /// each chunk of its body, as `get` and its kin yield them.
-enum Given {
+enum BlockArgument {
     Response(Proc),
     Chunks(Proc),
 }
 
-impl Given {
+impl BlockArgument {
     /// The block the method running now was handed, as `kind` takes it.
-    fn current(mrb: &Mrb, kind: fn(Proc) -> Given) -> Result<Option<Given>, Error> {
+    fn current(mrb: &Mrb, kind: fn(Proc) -> BlockArgument) -> Result<Option<BlockArgument>, Error> {
         Ok(current_block(mrb)?.map(kind))
     }
 }
@@ -803,7 +803,7 @@ fn send_from(
     path: &str,
     headers: Vec<(String, Vec<u8>)>,
     body: Option<Vec<u8>>,
-    given: Option<Given>,
+    given: Option<BlockArgument>,
 ) -> Result<Value, Error> {
     let host = to_text(mrb, ivar_get(mrb, self_, c"@address")?)?;
     let outgoing = Outgoing {
@@ -826,10 +826,10 @@ fn send_from(
         return to_response(mrb, status, headers, body.as_deref());
     };
     let response = to_response(mrb, status, headers, None)?;
-    let streaming = Streaming::new(response.object_id(), unread);
+    let streaming = StreamingBody::new(response.object_id(), unread);
     match given {
-        Given::Response(block) => block.call::<_, Value>(mrb, [response])?,
-        Given::Chunks(block) => read_body_into(mrb, response, Some(block))?,
+        BlockArgument::Response(block) => block.call::<_, Value>(mrb, [response])?,
+        BlockArgument::Chunks(block) => read_body_into(mrb, response, Some(block))?,
     };
     // What the block left unread is read once it returns, so `body` answers
     // after it, as CRuby reads the rest.
@@ -842,29 +842,29 @@ fn send_from(
 
 /// A response's body open to its request's block, taken back as the block
 /// returns or fails.
-struct Streaming(i64);
+struct StreamingBody(i64);
 
-impl Streaming {
-    fn new(id: i64, unread: Unread) -> Self {
-        STREAMING.with_borrow_mut(|open| open.push((id, unread)));
+impl StreamingBody {
+    fn new(id: i64, unread: UnreadBody) -> Self {
+        STREAMING_BODIES.with_borrow_mut(|open| open.push((id, unread)));
         Self(id)
     }
 
     /// The body, unless `read_body` took it.
-    fn end(self) -> Option<Unread> {
-        take_streaming(self.0)
+    fn end(self) -> Option<UnreadBody> {
+        take_streaming_body(self.0)
     }
 }
 
-impl Drop for Streaming {
+impl Drop for StreamingBody {
     fn drop(&mut self) {
-        drop(take_streaming(self.0));
+        drop(take_streaming_body(self.0));
     }
 }
 
 /// The unread body of the response `id` names, if a block still streams it.
-fn take_streaming(id: i64) -> Option<Unread> {
-    STREAMING.with_borrow_mut(|open| {
+fn take_streaming_body(id: i64) -> Option<UnreadBody> {
+    STREAMING_BODIES.with_borrow_mut(|open| {
         let at = open.iter().position(|(held, _)| *held == id)?;
         Some(open.remove(at).1)
     })
@@ -956,7 +956,7 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
     Ok(Answer {
         status,
         headers,
-        body: Unread {
+        body: UnreadBody {
             stream: Some(stream),
             body: Some(incoming),
             read: outgoing.timeouts.read,
@@ -994,7 +994,7 @@ fn to_error(mrb: &Mrb, outgoing: &Outgoing<'_>, code: ErrorCode) -> Error {
         errno::error_with_message(mrb, name, &opening(&detail))
     };
     match code {
-        ErrorCode::HttpRequestDenied if !socket::network_given() => errno::not_implemented(
+        ErrorCode::HttpRequestDenied if !socket::has_network() => errno::not_implemented(
             mrb,
             "Net::HTTP is unimplemented: this Sandbox gives the guest no network",
         ),
@@ -1240,7 +1240,7 @@ fn response_read_body(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// The body of `response`, or each chunk of it handed to `block`. Once the
 /// body is read, a block raises `IOError`, as CRuby's second `read_body` does.
 fn read_body_into(mrb: &Mrb, response: Value, block: Option<Proc>) -> Result<Value, Error> {
-    let Some(mut unread) = take_streaming(response.object_id()) else {
+    let Some(mut unread) = take_streaming_body(response.object_id()) else {
         if block.is_some() {
             let class: Value = response.funcall(mrb, c"class", ())?;
             let message = format!("{}#read_body called twice", to_text(mrb, class)?);
@@ -1325,7 +1325,7 @@ fn response_inspect(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let code = to_text(mrb, ivar_get(mrb, self_, c"@code")?)?;
     let message = to_text(mrb, ivar_get(mrb, self_, c"@message")?)?;
     let id = self_.object_id();
-    let read = !STREAMING.with_borrow(|open| open.iter().any(|(held, _)| *held == id));
+    let read = !STREAMING_BODIES.with_borrow(|open| open.iter().any(|(held, _)| *held == id));
     Ok(format!("#<{class} {code} {message} readbody={read}>").into_value(mrb))
 }
 

@@ -373,7 +373,7 @@ impl Ruleset {
     /// refuse whatever an endpoint says; otherwise an endpoint naming the name
     /// at that port and protocol must lead to the address, so another allowed
     /// name answering the same address never borrows it.
-    pub fn admitted_of(
+    pub fn admitted_addresses_of(
         &self,
         name: &str,
         real: &[IpAddr],

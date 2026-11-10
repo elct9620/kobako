@@ -319,7 +319,7 @@ fn shutdown_of(mrb: &Mrb, how: Option<Value>) -> Result<Shutdown, Error> {
     let Some(how) = how.filter(|how| !how.is_nil()) else {
         return Ok(Shutdown::Both);
     };
-    if let Some(name) = super::spelled(mrb, how)? {
+    if let Some(name) = super::name_of(mrb, how)? {
         return match name.strip_prefix("SHUT_").unwrap_or(&name) {
             "RD" => Ok(Shutdown::Read),
             "WR" => Ok(Shutdown::Write),

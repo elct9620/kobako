@@ -142,16 +142,16 @@ impl Default for Buffers {
 impl Buffers {
     /// Twice `bytes`, within the cap, as `sock_setsockopt` doubles a value to
     /// leave room for its bookkeeping.
-    fn doubled(bytes: usize, least: usize) -> usize {
+    fn to_doubled(bytes: usize, least: usize) -> usize {
         (bytes.min(MAX_SOCKET_BUFFER / 2) * 2).max(least)
     }
 
     pub(crate) fn set_rcvbuf(&mut self, bytes: usize) {
-        self.rcvbuf = Self::doubled(bytes, SOCK_MIN_RCVBUF);
+        self.rcvbuf = Self::to_doubled(bytes, SOCK_MIN_RCVBUF);
     }
 
     pub(crate) fn set_sndbuf(&mut self, bytes: usize) {
-        self.sndbuf = Self::doubled(bytes, SOCK_MIN_SNDBUF);
+        self.sndbuf = Self::to_doubled(bytes, SOCK_MIN_SNDBUF);
     }
 }
 

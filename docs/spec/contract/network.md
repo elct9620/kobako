@@ -439,7 +439,7 @@ impl Ruleset {
 }
 ```
 
-## `Ruleset::admitted_of`
+## `Ruleset::admitted_addresses_of`
 
 The real addresses a looked-up name resolved to that the Guest may connect to,
 in their order. An endpoint naming the name must lead to each, and the host's
@@ -447,7 +447,7 @@ own addresses are local.
 
 ```rust
 impl Ruleset {
-    pub fn admitted_of(&self, name: &str, real: &[IpAddr], port: u16, protocol: Protocol, local: &[IpAddr]) -> Vec<SocketAddr> {}
+    pub fn admitted_addresses_of(&self, name: &str, real: &[IpAddr], port: u16, protocol: Protocol, local: &[IpAddr]) -> Vec<SocketAddr> {}
 }
 ```
 

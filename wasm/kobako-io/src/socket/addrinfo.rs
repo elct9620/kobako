@@ -16,7 +16,7 @@ use beni::{
 use super::address::{end_of, pack_host, port_of, sockaddr_of};
 use super::basic::open_socket_of;
 use super::{
-    family_of, resolution_error, seconds_of, socket_error, spelled, Family, AF_INET, AF_INET6,
+    family_of, name_of, resolution_error, seconds_of, socket_error, Family, AF_INET, AF_INET6,
     EAI_NONAME,
 };
 use crate::io::argument_error;
@@ -192,7 +192,7 @@ fn socktype_of(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
     let Some(value) = value.filter(|value| !value.is_nil()) else {
         return Ok(0);
     };
-    let Some(name) = spelled(mrb, value)? else {
+    let Some(name) = name_of(mrb, value)? else {
         return i64::try_convert(value, mrb);
     };
     match name.strip_prefix("SOCK_").unwrap_or(&name) {
@@ -573,7 +573,7 @@ fn addrinfo_ipv6_to_ipv4(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     };
     let carried = ip
         .to_ipv4_mapped()
-        .or_else(|| v4_compat(&ip).then(|| ip.to_ipv4()).flatten());
+        .or_else(|| is_v4_compat(&ip).then(|| ip.to_ipv4()).flatten());
     // CRuby's carries the kind and the names over, and no port.
     let Some(v4) = carried else {
         return Ok(qnil().as_value());
@@ -674,14 +674,14 @@ fn socket_remote_address(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// Whether an IPv6 address is IPv4-compatible: the IPv4 address in its last
 /// four bytes, zeros before, past `::` and `::1`, as `IN6_IS_ADDR_V4COMPAT`.
-fn v4_compat(ip: &std::net::Ipv6Addr) -> bool {
+fn is_v4_compat(ip: &std::net::Ipv6Addr) -> bool {
     let octets = ip.octets();
     octets[..12].iter().all(|byte| *byte == 0)
         && u32::from_be_bytes(octets[12..].try_into().unwrap_or_default()) > 1
 }
 
 /// Whether an IPv6 address is multicast of `scope`, as `IN6_IS_ADDR_MC_*`.
-fn multicast_scope(ip: &IpAddr, scope: u8) -> bool {
+fn is_multicast_of_scope(ip: &IpAddr, scope: u8) -> bool {
     matches!(ip, IpAddr::V6(ip) if ip.octets()[0] == 0xff && ip.octets()[1] & 0x0f == scope)
 }
 
@@ -717,10 +717,10 @@ predicates! {
         |ip| matches!(ip, IpAddr::V6(ip) if ip.segments()[0] & 0xfe00 == 0xfc00),
     c"ipv6_multicast?" => ipv6_multicast_p => |ip| matches!(ip, IpAddr::V6(ip) if ip.is_multicast()),
     c"ipv6_v4mapped?" => ipv6_v4mapped_p => |ip| matches!(ip, IpAddr::V6(ip) if ip.to_ipv4_mapped().is_some()),
-    c"ipv6_v4compat?" => ipv6_v4compat_p => |ip| matches!(ip, IpAddr::V6(ip) if v4_compat(ip)),
-    c"ipv6_mc_nodelocal?" => ipv6_mc_nodelocal_p => |ip| multicast_scope(ip, 0x1),
-    c"ipv6_mc_linklocal?" => ipv6_mc_linklocal_p => |ip| multicast_scope(ip, 0x2),
-    c"ipv6_mc_sitelocal?" => ipv6_mc_sitelocal_p => |ip| multicast_scope(ip, 0x5),
-    c"ipv6_mc_orglocal?" => ipv6_mc_orglocal_p => |ip| multicast_scope(ip, 0x8),
-    c"ipv6_mc_global?" => ipv6_mc_global_p => |ip| multicast_scope(ip, 0xe),
+    c"ipv6_v4compat?" => ipv6_v4compat_p => |ip| matches!(ip, IpAddr::V6(ip) if is_v4_compat(ip)),
+    c"ipv6_mc_nodelocal?" => ipv6_mc_nodelocal_p => |ip| is_multicast_of_scope(ip, 0x1),
+    c"ipv6_mc_linklocal?" => ipv6_mc_linklocal_p => |ip| is_multicast_of_scope(ip, 0x2),
+    c"ipv6_mc_sitelocal?" => ipv6_mc_sitelocal_p => |ip| is_multicast_of_scope(ip, 0x5),
+    c"ipv6_mc_orglocal?" => ipv6_mc_orglocal_p => |ip| is_multicast_of_scope(ip, 0x8),
+    c"ipv6_mc_global?" => ipv6_mc_global_p => |ip| is_multicast_of_scope(ip, 0xe),
 }

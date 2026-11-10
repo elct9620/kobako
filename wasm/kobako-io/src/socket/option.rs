@@ -10,7 +10,7 @@ use beni::{
 
 use super::tcp::with_tcp_socket;
 use super::udp::with_udp_socket;
-use super::{family_of, socket_error, spelled, to_error, Family, AF_INET, AF_INET6};
+use super::{family_of, name_of, socket_error, to_error, Family, AF_INET, AF_INET6};
 use crate::errno;
 use crate::wasi::wasi::sockets::network::ErrorCode;
 use crate::wasi::wasi::sockets::tcp::TcpSocket;
@@ -168,7 +168,7 @@ pub(super) fn init(mrb: &Mrb, socket: RClass, basic: RClass) -> Result<(), Error
 /// The level `value` names, as CRuby's `rsock_level_arg` reads a Symbol, a
 /// String, or an Integer.
 fn level_of(mrb: &Mrb, value: Value) -> Result<i32, Error> {
-    let Some(name) = spelled(mrb, value)? else {
+    let Some(name) = name_of(mrb, value)? else {
         return i32::try_convert(value, mrb);
     };
     LEVELS
@@ -182,7 +182,7 @@ fn level_of(mrb: &Mrb, value: Value) -> Result<i32, Error> {
 /// a name only at a level it knows.
 fn optname_of(mrb: &Mrb, level: i32, value: Value) -> Result<i32, Error> {
     let known = LEVELS.iter().find(|known| known.number == level);
-    let (Some(level), Some(name)) = (known, spelled(mrb, value)?) else {
+    let (Some(level), Some(name)) = (known, name_of(mrb, value)?) else {
         return i32::try_convert(value, mrb);
     };
     let bare = name.strip_prefix(level.option_prefix).unwrap_or(&name);
@@ -265,7 +265,7 @@ fn socket_setsockopt(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, E
     let set = match with_tcp_socket(mrb, self_, |socket| Ok(set_tcp_option(socket, option, int)))? {
         Some(set) => set,
         None => with_udp_socket(mrb, self_, |socket| Ok(set_udp_option(socket, option, int)))?
-            .unwrap_or(Err(Refused::Unknown)),
+            .unwrap_or(Err(Refusal::Unknown)),
     };
     set.map(|()| 0.into_value(mrb))
         .map_err(|refused| refused.into_error(mrb, level, "setsockopt(2)"))
@@ -273,19 +273,19 @@ fn socket_setsockopt(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, E
 
 /// Why a socket answered no option: WASI's error, an option WASI has no call
 /// for, or a level the socket's protocol does not take.
-enum Refused {
+enum Refusal {
     Wasi(ErrorCode),
     Unknown,
     Unsupported,
 }
 
-impl From<ErrorCode> for Refused {
+impl From<ErrorCode> for Refusal {
     fn from(code: ErrorCode) -> Self {
         Self::Wasi(code)
     }
 }
 
-impl Refused {
+impl Refusal {
     /// The `Errno` Linux answers: an unknown option at a level it knows
     /// raises ENOPROTOOPT, and a level it does not ENOTSUP.
     fn into_error(self, mrb: &Mrb, level: i32, call: &str) -> Error {
@@ -306,7 +306,7 @@ fn to_buffer_size(int: i32) -> u64 {
 
 /// A hop limit as `do_ip_setsockopt` takes `IP_TTL`: -1 for Linux's default,
 /// or 1 to 255.
-fn to_hop_limit(int: i32) -> Result<u8, Refused> {
+fn to_hop_limit(int: i32) -> Result<u8, Refusal> {
     match int {
         -1 => Ok(64),
         1..=255 => Ok(u8::try_from(int).expect("within u8")),
@@ -321,7 +321,7 @@ fn to_doubled(size: u64) -> i32 {
 
 /// Set the option `(level, optname)` of a TCP socket to `int`, as Linux's
 /// `setsockopt(2)` reads it.
-fn set_tcp_option(socket: &TcpSocket, option: (i32, i32), int: i32) -> Result<(), Refused> {
+fn set_tcp_option(socket: &TcpSocket, option: (i32, i32), int: i32) -> Result<(), Refusal> {
     let set = match option {
         (SOL_SOCKET, SO_KEEPALIVE) => socket.set_keep_alive_enabled(int != 0),
         (SOL_SOCKET, SO_RCVBUF) => socket.set_receive_buffer_size(to_buffer_size(int)),
@@ -337,14 +337,14 @@ fn set_tcp_option(socket: &TcpSocket, option: (i32, i32), int: i32) -> Result<()
             Ok(count @ 1..=MAX_TCP_KEEPCNT) => socket.set_keep_alive_count(count),
             _ => Err(ErrorCode::InvalidArgument),
         },
-        _ => return Err(Refused::Unknown),
+        _ => return Err(Refusal::Unknown),
     };
     Ok(set?)
 }
 
 /// `secs` as WASI's nanoseconds, within 1 to `max` as Linux takes a TCP
 /// keepalive time, else `invalid-argument`, which reads EINVAL.
-fn to_nanos(secs: i32, max: u32) -> Result<u64, Refused> {
+fn to_nanos(secs: i32, max: u32) -> Result<u64, Refusal> {
     match u32::try_from(secs) {
         Ok(secs @ 1..) if secs <= max => Ok(u64::from(secs) * NANOS_PER_SEC),
         _ => Err(ErrorCode::InvalidArgument.into()),
@@ -353,7 +353,7 @@ fn to_nanos(secs: i32, max: u32) -> Result<u64, Refused> {
 
 /// What the option `(level, optname)` of a TCP socket reads, as Linux's
 /// `getsockopt(2)` answers it.
-fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Refused> {
+fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
     let secs = |nanos: u64| i32::try_from(nanos / NANOS_PER_SEC).unwrap_or(i32::MAX);
     let read = match option {
         (SOL_SOCKET, SO_KEEPALIVE) => socket.keep_alive_enabled().map(i32::from),
@@ -366,32 +366,32 @@ fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Refused> {
         (IPPROTO_TCP, TCP_KEEPCNT) => socket
             .keep_alive_count()
             .map(|count| i32::try_from(count).unwrap_or(i32::MAX)),
-        _ => return Err(Refused::Unknown),
+        _ => return Err(Refusal::Unknown),
     };
     Ok(read?)
 }
 
 /// Set the option `(level, optname)` of a UDP socket to `int`. A TCP option
 /// raises ENOPROTOOPT, as `udp_setsockopt` hands it to `ip_setsockopt`.
-fn set_udp_option(socket: &UdpSocket, option: (i32, i32), int: i32) -> Result<(), Refused> {
+fn set_udp_option(socket: &UdpSocket, option: (i32, i32), int: i32) -> Result<(), Refusal> {
     let set = match option {
         (SOL_SOCKET, SO_RCVBUF) => socket.set_receive_buffer_size(to_buffer_size(int)),
         (SOL_SOCKET, SO_SNDBUF) => socket.set_send_buffer_size(to_buffer_size(int)),
         (IPPROTO_IP, IP_TTL) => socket.set_unicast_hop_limit(to_hop_limit(int)?),
-        _ => return Err(Refused::Unknown),
+        _ => return Err(Refusal::Unknown),
     };
     Ok(set?)
 }
 
 /// What the option `(level, optname)` of a UDP socket reads. A TCP option
 /// raises ENOTSUP, as Linux answers `getsockopt` at a level UDP does not take.
-fn udp_option(socket: &UdpSocket, option: (i32, i32)) -> Result<i32, Refused> {
+fn udp_option(socket: &UdpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
     let read = match option {
         (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(to_doubled),
         (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(to_doubled),
         (IPPROTO_IP, IP_TTL) => socket.unicast_hop_limit().map(i32::from),
-        (IPPROTO_TCP, _) => return Err(Refused::Unsupported),
-        _ => return Err(Refused::Unknown),
+        (IPPROTO_TCP, _) => return Err(Refusal::Unsupported),
+        _ => return Err(Refusal::Unknown),
     };
     Ok(read?)
 }
@@ -410,7 +410,7 @@ fn socket_getsockopt(
     let read = match with_tcp_socket(mrb, self_, |socket| Ok(tcp_option(socket, option)))? {
         Some(read) => read,
         None => with_udp_socket(mrb, self_, |socket| Ok(udp_option(socket, option)))?
-            .unwrap_or(Err(Refused::Unknown)),
+            .unwrap_or(Err(Refusal::Unknown)),
     };
     let value = read.map_err(|refused| refused.into_error(mrb, level, "getsockopt(2)"))?;
     let option = SockOption {
