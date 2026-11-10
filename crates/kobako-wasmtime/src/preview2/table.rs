@@ -4,6 +4,7 @@
 
 use std::any::Any;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
@@ -143,8 +144,8 @@ pub(crate) struct InputStream(pub(crate) Stream);
 pub(crate) struct OutputStream {
     pub(crate) stream: Stream,
     /// Whether a flush is under way, as `io.wit` has `check-write` answer zero
-    /// until it completes.
-    pub(crate) flushing: bool,
+    /// until it completes; the stream's pollables read it too.
+    pub(crate) flushing: Arc<AtomicBool>,
     /// What the last `check-write` permitted, which each write spends.
     pub(crate) permit: usize,
 }
@@ -153,9 +154,14 @@ impl OutputStream {
     pub(crate) fn new(stream: Stream) -> Self {
         Self {
             stream,
-            flushing: false,
+            flushing: Arc::default(),
             permit: 0,
         }
+    }
+
+    /// Whether a flush is under way and what it flushes has not all left.
+    pub(crate) fn is_flushing(stream: &Stream, flushing: &AtomicBool) -> bool {
+        flushing.load(Ordering::Acquire) && !stream.is_drained()
     }
 }
 
@@ -222,6 +228,10 @@ pub(crate) enum Pollable {
     /// `PollMask`, or an error or a hang-up, as Linux's `poll` reports both
     /// whatever was asked.
     File(SharedFile, PollMask),
+    /// An output stream, ready once `check-write` would offer a byte: the
+    /// stream takes a write and no flush is still under way, or it failed,
+    /// as `io.wit` has its pollable ready.
+    Output(Stream, Arc<AtomicBool>),
     /// Something that is always ready, as a bind that settles as it starts
     /// is.
     Ready,
@@ -244,6 +254,13 @@ impl Pollable {
         match self {
             Pollable::Clock { at } => Instant::now() >= *at,
             Pollable::File(file, mask) => lock(file).poll(table).is_ready_for(*mask),
+            Pollable::Output(stream, flushing) => {
+                let found = stream.poll(table);
+                found.contains(PollMask::ERR)
+                    || found.contains(PollMask::HUP)
+                    || (found.contains(PollMask::OUT)
+                        && !OutputStream::is_flushing(stream, flushing))
+            }
             Pollable::Ready => true,
         }
     }
@@ -259,7 +276,7 @@ impl Pollable {
     /// Whether a host-side producer makes this ready, as a socket's peer, a
     /// resolver, or a server does.
     pub(crate) fn is_producer(&self) -> bool {
-        matches!(self, Pollable::File(..))
+        matches!(self, Pollable::File(..) | Pollable::Output(..))
     }
 }
 

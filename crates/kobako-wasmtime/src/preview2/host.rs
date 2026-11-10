@@ -5,6 +5,7 @@
 //! on the runtime's wait primitive.
 
 use std::net::Shutdown;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -1066,11 +1067,11 @@ impl IoHost for Invocation {
             return self.push_stream_error(err).map(Err);
         }
         let output = self.table().get_mut(this)?;
-        if output.flushing && !stream.is_drained() {
+        if table::OutputStream::is_flushing(&stream, &output.flushing) {
             output.permit = 0;
             return Ok(Ok(0));
         }
-        output.flushing = false;
+        output.flushing.store(false, Ordering::Release);
         output.permit = stream.room();
         Ok(Ok(output.permit as u64))
     }
@@ -1107,19 +1108,23 @@ impl IoHost for Invocation {
         if let Err(err) = stream.write(&[]) {
             return self.push_stream_error(err).map(Err);
         }
-        self.table().get_mut(this)?.flushing = true;
+        self.table()
+            .get(this)?
+            .flushing
+            .store(true, Ordering::Release);
         Ok(Ok(()))
     }
 
-    /// A pollable ready once the stream takes a write, the stream its parent,
-    /// as `io.wit` makes it a child.
+    /// A pollable ready once `check-write` would offer a byte, the stream its
+    /// parent, as `io.wit` makes it a child: the stream takes a write and no
+    /// flush is still under way.
     fn streams_output_stream_subscribe(
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Pollable> {
-        let stream = self.table().get(this)?.stream.clone();
-        self.table()
-            .push_child(table::Pollable::File(stream.file(), PollMask::OUT), this)
+        let output = self.table().get(this)?;
+        let pollable = table::Pollable::Output(output.stream.clone(), output.flushing.clone());
+        self.table().push_child(pollable, this)
     }
 
     fn streams_output_stream_drop(&mut self, handle: OutputStream) -> wasmtime::Result<()> {
