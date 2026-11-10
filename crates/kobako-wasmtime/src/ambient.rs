@@ -16,8 +16,9 @@
 //! wasmtime epoch interruption against a host `Instant`, never the guest's
 //! frozen `wasi:clocks/monotonic-clock`.
 
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
+use wasmtime_wasi::clocks::WallClock;
 use wasmtime_wasi::random::Deterministic;
 use wasmtime_wasi::{HostMonotonicClock, HostWallClock};
 
@@ -79,28 +80,45 @@ impl HostMonotonicClock for LiveMonotonicClock {
     }
 }
 
+/// The host's wall clock, read as wasmtime-wasi's own. The guest's
+/// `clock_time_get` and a wait it subscribes to share it, so both agree on
+/// what a time means.
+#[derive(Clone, Copy)]
+pub(crate) struct LiveWallClock;
+
+impl HostWallClock for LiveWallClock {
+    fn resolution(&self) -> Duration {
+        WallClock.resolution()
+    }
+
+    fn now(&self) -> Duration {
+        WallClock.now()
+    }
+}
+
 /// The clocks the guest observes, which a clock subscription reads its
 /// absolute time against.
 #[derive(Clone, Copy)]
 pub(crate) enum Clocks {
     Frozen,
-    Live(LiveMonotonicClock),
+    Live {
+        monotonic: LiveMonotonicClock,
+        wall: LiveWallClock,
+    },
 }
 
 impl Clocks {
     pub(crate) fn monotonic_now(&self) -> u64 {
         match self {
             Self::Frozen => FrozenMonotonicClock.now(),
-            Self::Live(clock) => clock.now(),
+            Self::Live { monotonic, .. } => monotonic.now(),
         }
     }
 
     pub(crate) fn wall_now(&self) -> u64 {
         let since_epoch = match self {
             Self::Frozen => FrozenWallClock.now(),
-            Self::Live(_) => SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or(Duration::ZERO),
+            Self::Live { wall, .. } => wall.now(),
         };
         u64::try_from(since_epoch.as_nanos()).unwrap_or(u64::MAX)
     }

@@ -134,7 +134,8 @@ impl Wasi {
         let mut builder = WasiCtxBuilder::new();
         // The profile decides the ambient authority granted: the
         // hermetic rung denies the preview1 time and entropy imports (see
-        // `ambient`), the permissive rung leaves the live WASI sources.
+        // `ambient`), the permissive rung wires the live clocks that the
+        // guest's waits read too, and leaves the live entropy.
         // Ambient filesystem, environment, and network stay absent on both rungs —
         // the builder grants none unless asked. The exhaustive match makes
         // a future ladder rung a compile error here, not authority granted
@@ -148,8 +149,10 @@ impl Wasi {
             }
             Profile::Permissive => {
                 let monotonic = ambient::LiveMonotonicClock::new();
+                let wall = ambient::LiveWallClock;
                 builder.monotonic_clock(monotonic);
-                Clocks::Live(monotonic)
+                builder.wall_clock(wall);
+                Clocks::Live { monotonic, wall }
             }
         };
 

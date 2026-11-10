@@ -273,17 +273,28 @@ mod tests {
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::{run_task, Task};
 
-    /// One relative monotonic-clock subscription of ten seconds at 0,
-    /// its event written at 64 and the event count at 96.
+    /// One clock subscription at 0, its event written at 64 and the event
+    /// count at 96: a relative monotonic one of ten seconds, or an absolute
+    /// realtime one a fifth of a second past the realtime clock it reads.
     const WAIT_WAT: &str = r#"
         (module
           (import "wasi_snapshot_preview1" "poll_oneoff"
             (func $poll (param i32 i32 i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "clock_time_get"
+            (func $clock (param i32 i64 i32) (result i32)))
           (memory (export "memory") 1)
           (func (export "wait_ten_seconds") (result i32)
             (i32.store8 (i32.const 8) (i32.const 0))
             (i32.store (i32.const 16) (i32.const 1))
             (i64.store (i32.const 24) (i64.const 10000000000))
+            (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96)))
+          (func (export "wait_until_a_fifth_past_now") (result i32)
+            (drop (call $clock (i32.const 0) (i64.const 1) (i32.const 128)))
+            (i32.store8 (i32.const 8) (i32.const 0))
+            (i32.store (i32.const 16) (i32.const 0))
+            (i64.store (i32.const 24)
+              (i64.add (i64.load (i32.const 128)) (i64.const 200000000)))
+            (i32.store16 (i32.const 40) (i32.const 1))
             (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96))))
     "#;
 
@@ -291,6 +302,16 @@ mod tests {
     /// running thread's Task to `interrupted` first, answering how it ended
     /// and how long the host spent on it.
     fn wait_ten_seconds(
+        profile: Profile,
+        deadline: Option<Duration>,
+        interrupted: Option<fn(Task)>,
+    ) -> (wasmtime::Result<i32>, Duration) {
+        call_wait("wait_ten_seconds", profile, deadline, interrupted)
+    }
+
+    /// Run the wait `export` as `wait_ten_seconds` runs its own.
+    fn call_wait(
+        export: &str,
         profile: Profile,
         deadline: Option<Duration>,
         interrupted: Option<fn(Task)>,
@@ -318,7 +339,7 @@ mod tests {
             .instantiate(&mut store, &module)
             .expect("wait module must instantiate");
         let wait = instance
-            .get_typed_func::<(), i32>(&mut store, "wait_ten_seconds")
+            .get_typed_func::<(), i32>(&mut store, export)
             .expect("wait export must resolve");
         let started = Instant::now();
         let deadline = deadline.map(|left| started + left);
@@ -476,6 +497,22 @@ mod tests {
             [ERRNO_BADF, 0],
             "poll_oneoff on standard output must answer EBADF waiting to read and be ready to \
              write"
+        );
+    }
+
+    // @behavior RT-370
+    #[test]
+    fn a_wait_until_a_wall_time_reads_the_clock_the_guest_reads() {
+        let (ended, spent) = call_wait(
+            "wait_until_a_fifth_past_now",
+            Profile::Permissive,
+            Some(Duration::from_secs(5)),
+            None,
+        );
+        assert!(
+            matches!(ended, Ok(0)) && spent >= Duration::from_millis(150),
+            "an absolute realtime wait a fifth of a second past clock_time_get's realtime must \
+             end about then, not as {ended:?} after {spent:?}"
         );
     }
 

@@ -4161,3 +4161,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a new TCP socket |
 | When | a Wasm Driver reads its hop limit, sets zero, then sets a limit before and after it connects |
 | Then | it reads Linux's 64 rather than the host's own default. Zero answers EINVAL. The host stream it dials takes each limit set |
+
+## `RT-370` A wait until a wall time reads the clock the guest reads
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-049` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a permissive guest under a deadline |
+| When | it reads the realtime clock, then waits until a fifth of a second past that time |
+| Then | the wait ends about a fifth of a second later, since both read one wall clock |

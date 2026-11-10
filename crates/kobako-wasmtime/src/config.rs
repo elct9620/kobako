@@ -50,10 +50,10 @@ pub struct Config {
     /// one, as a budget of subrequests is counted; one past it answers
     /// `EAGAIN`.
     pub connection_limit: Option<usize>,
-    /// Isolation posture the frontend requested. `Hermetic` freezes
-    /// ambient time and entropy, `Permissive` leaves the live WASI
-    /// sources, and `Driver::profile` declares it back as the built
-    /// posture.
+    /// Isolation profile the frontend requested. `Hermetic` freezes
+    /// ambient time and entropy, `Permissive` gives the live host clocks
+    /// and entropy, and `Driver::profile` declares it back as the built
+    /// profile.
     pub profile: Profile,
     /// Security modules every invocation is judged by, each asked in order
     /// after kobako's own rules and before any Mount's Policy, as Linux
