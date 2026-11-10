@@ -87,7 +87,7 @@ class TestE2ENetworkSocketOptions < Minitest::Test
   # @behavior NW-124
   def test_a_script_tunes_keepalive_probes_and_buffers_as_linux_takes_them
     with_upcase_server do |port|
-      value = sandbox_reaching(port).eval(format(PROBES_AND_BUFFERS, port: port)).value
+      value = loopback_sandbox(port).eval(format(PROBES_AND_BUFFERS, port: port)).value
 
       assert_equal [[7200, 75, 9, 65_536, 65_536], %i[einval einval einval einval einval],
                     # mruby's String#inspect spells hex lowercase, where CRuby's is uppercase.
@@ -102,7 +102,7 @@ class TestE2ENetworkSocketOptions < Minitest::Test
   # @behavior NW-123
   def test_a_script_sets_and_reads_keepalive_as_cruby_does
     with_upcase_server do |port|
-      value = sandbox_reaching(port).eval(format(KEEPALIVE, port: port)).value
+      value = loopback_sandbox(port).eval(format(KEEPALIVE, port: port)).value
 
       assert_equal KEEPALIVE_ANSWERS, value,
                    "TCPSocket#setsockopt and #getsockopt of SO_KEEPALIVE must answer as CRuby's on Linux: 0 from " \

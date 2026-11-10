@@ -32,7 +32,7 @@ class TestE2ENetworkSocketIoEdges < Minitest::Test
   # @behavior NW-118
   def test_a_tcp_socket_answers_ios_edge_calls_as_crubys
     with_answering_server("a\n\n\nb\nhello") do |port|
-      assert_equal EDGES_IN_CRUBY, sandbox_reaching(port).eval(format(EDGES, port: port)).value,
+      assert_equal EDGES_IN_CRUBY, loopback_sandbox(port).eval(format(EDGES, port: port)).value,
                    "TCPSocket#readpartial(0) and #gets(0) must answer \"\", #gets(\"\") read paragraphs, " \
                    "#readlines(0) and #each_line(sep, 0) raise ArgumentError, #advise of a bad advice raise " \
                    "NotImplementedError or TypeError, and #write after #close_write raise IOError, as CRuby's IO does"

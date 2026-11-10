@@ -26,7 +26,7 @@ class TestE2ENetworkTcpCruby < Minitest::Test
     ]
   RUBY
 
-  WRAP_IN_TLS = <<~RUBY
+  TLS_WRAP = <<~RUBY
     begin
       OpenSSL::SSL::SSLSocket
       :wrapped
@@ -37,7 +37,7 @@ class TestE2ENetworkTcpCruby < Minitest::Test
 
   # @behavior NW-080
   def test_a_tcp_socket_carries_no_tls_of_its_own
-    value = sandbox_reaching(9).eval(WRAP_IN_TLS).value
+    value = loopback_sandbox(9).eval(TLS_WRAP).value
 
     assert_equal "uninitialized constant OpenSSL::SSL::SSLSocket", value,
                  "a script with a network naming OpenSSL::SSL::SSLSocket to wrap a TCPSocket must raise NameError, " \
@@ -47,7 +47,7 @@ class TestE2ENetworkTcpCruby < Minitest::Test
   # @behavior NW-065
   def test_a_tcp_socket_is_an_io_that_select_waits_on
     with_upcase_server do |port|
-      value = sandbox_reaching(port).eval(format(SELECT, port: port)).value
+      value = loopback_sandbox(port).eval(format(SELECT, port: port)).value
 
       assert_equal [true, true, true, true, true, "PING"], value,
                    "TCPSocket must descend from IPSocket, BasicSocket, and IO with an Integer fileno, and IO.select " \
@@ -66,7 +66,7 @@ class TestE2ENetworkTcpCruby < Minitest::Test
   # @behavior NW-066
   def test_an_ipv6_family_or_literal_raises_eafnosupport
     with_upcase_server do |port|
-      value = sandbox_reaching(port).eval(format(IPV6, port: port)).value
+      value = loopback_sandbox(port).eval(format(IPV6, port: port)).value
       TCPSocket.new("127.0.0.1", port).close
 
       assert_equal %i[refused refused], value,
@@ -89,7 +89,7 @@ class TestE2ENetworkTcpCruby < Minitest::Test
   # @behavior NW-067
   def test_a_tcp_socket_takes_crubys_call_shapes
     with_upcase_server do |port|
-      value = sandbox_reaching(port).eval(format(SHAPES, port: port)).value
+      value = loopback_sandbox(port).eval(format(SHAPES, port: port)).value
 
       assert_equal [5, "A|", "B|", "C", :refused, :refused], value,
                    "TCPSocket.new with connect_timeout:, write of several strings, gets with a separator, and " \

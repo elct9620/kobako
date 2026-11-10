@@ -77,13 +77,13 @@ module Kobako
     end
 
     # An object refusing a connect to one host.
-    Refusing = Struct.new(:refused) do
+    RefusesHost = Struct.new(:refused) do
       def connect?(connection) = connection.host != refused
     end
 
     # @behavior NW-021
     def test_a_block_policy_and_the_given_objects_connect_both_judge
-      builder = Catalog::Network.new(name: :guard, entry: Refusing.new("10.0.0.9")) do |net|
+      builder = Catalog::Network.new(name: :guard, entry: RefusesHost.new("10.0.0.9")) do |net|
         net.policy(:connect) { |c| c.port != 22 }
       end.entry
       answers = [["10.0.0.1", 80], ["10.0.0.1", 22], ["10.0.0.9", 80]].map do |host, port|
@@ -95,13 +95,13 @@ module Kobako
     end
 
     # An object refusing a lookup of one name.
-    Unnaming = Struct.new(:refused) do
+    RefusesName = Struct.new(:refused) do
       def resolve?(name) = name != refused
     end
 
     # @behavior NW-036
     def test_a_block_policy_and_the_given_objects_resolve_both_judge
-      builder = Catalog::Network.new(name: :guard, entry: Unnaming.new("a.example.com")) do |net|
+      builder = Catalog::Network.new(name: :guard, entry: RefusesName.new("a.example.com")) do |net|
         net.policy(:resolve) { |name| !name.end_with?(".internal") }
       end.entry
 

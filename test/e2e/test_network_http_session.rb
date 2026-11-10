@@ -10,10 +10,6 @@ class TestE2ENetworkHttpSession < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
 
-  def sandbox_reaching(port)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:web) { |net| net.endpoint "127.0.0.1", port: port }
-  end
-
   BODYLESS = <<~RUBY
     http = Net::HTTP.new("127.0.0.1", %<port>d)
     chunks = []
@@ -24,7 +20,7 @@ class TestE2ENetworkHttpSession < Minitest::Test
   # @behavior NW-103
   def test_a_response_that_carries_no_body_answers_nil
     with_serving_server do |port, _seen|
-      value = sandbox_reaching(port).eval(format(BODYLESS, port: port)).value
+      value = http_sandbox(port).eval(format(BODYLESS, port: port)).value
 
       assert_equal [nil, nil, nil, [], nil], value,
                    "the body of a HEAD response and of a 204 or 304 response must answer nil, and read_body " \
@@ -47,7 +43,7 @@ class TestE2ENetworkHttpSession < Minitest::Test
   # @behavior NW-107
   def test_a_session_and_a_request_refuse_what_crubys_refuse
     with_serving_server do |port, _seen|
-      value = sandbox_reaching(port).eval(format(REFUSALS, port: port)).value
+      value = http_sandbox(port).eval(format(REFUSALS, port: port)).value
 
       assert_equal ["HTTP session already opened", "HTTP session not yet started",
                     "both of body argument and HTTPRequest#body set",
@@ -70,7 +66,7 @@ class TestE2ENetworkHttpSession < Minitest::Test
   # @behavior NW-108
   def test_net_http_objects_read_as_crubys
     with_serving_server do |port, _seen|
-      value = sandbox_reaching(port).eval(format(OBJECTS, port: port)).value
+      value = http_sandbox(port).eval(format(OBJECTS, port: port)).value
 
       assert_equal [80, [443, "#<Net::HTTP 127.0.0.1:443 open=true>"], "#<Net::HTTP 127.0.0.1:#{port} open=false>",
                     "#<Net::HTTP::Get GET>", "#<Net::HTTPOK 200 OK readbody=false>",
@@ -89,7 +85,7 @@ class TestE2ENetworkHttpSession < Minitest::Test
   # @behavior NW-062
   def test_a_response_takes_the_class_crubys_net_http_gives_its_status
     with_serving_server do |port, _seen|
-      value = sandbox_reaching(port).eval(format(CLASSES, port: port)).value
+      value = http_sandbox(port).eval(format(CLASSES, port: port)).value
 
       assert_equal ["Net::HTTPNonAuthoritativeInformation", "Net::HTTPUnavailableForLegalReasons",
                     "Net::HTTPNotImplemented", "Net::HTTPClientError", true, "Net::HTTPServerError"], value,
@@ -109,7 +105,7 @@ class TestE2ENetworkHttpSession < Minitest::Test
   # @behavior NW-109
   def test_net_http_is_a_subset_without_uri_or_enumerator
     with_serving_server do |port, _seen|
-      value = sandbox_reaching(port).eval(format(SUBSET, port: port)).value
+      value = http_sandbox(port).eval(format(SUBSET, port: port)).value
 
       assert_equal [:no_uri, :no_enumerator, "invalid path", "No Content", "Non-Authoritative Information",
                     "Unavailable For Legal Reasons", "HTTP Version Not Supported"], value,

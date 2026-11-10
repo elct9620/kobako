@@ -26,7 +26,7 @@ class TestE2ENetworkSocketWait < Minitest::Test
   # @behavior NW-132
   def test_a_script_waits_on_a_socket_as_crubys
     with_answering_server("a\nb") do |port|
-      value = sandbox_reaching(port).eval(format(WAITS, port: port)).value
+      value = loopback_sandbox(port).eval(format(WAITS, port: port)).value
 
       assert_equal [[nil, true], [true, "a\n", true], "closed stream"], value,
                    "TCPSocket#wait_readable(0) before bytes come must answer nil and #wait_writable(0) the " \

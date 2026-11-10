@@ -22,7 +22,7 @@ class TestE2ENetworkSocketIo < Minitest::Test
   # @behavior NW-095
   def test_a_tcp_socket_reads_through_what_it_holds_as_crubys_io_does
     with_answering_server("l1\nl2\nl3\nl4\nl5\n") do |port|
-      value = sandbox_reaching(port).eval(format(READS, port: port)).value
+      value = loopback_sandbox(port).eval(format(READS, port: port)).value
 
       assert_equal [false, "l1", "l2\n", "l2\n", "l3\n", %W[l4\n l5\n], [], true], value,
                    "TCPSocket#eof?, #gets(chomp: true), #read(n, buf), #gets, #each_line, and #readlines must " \
@@ -51,7 +51,7 @@ class TestE2ENetworkSocketIo < Minitest::Test
   # @behavior NW-096
   def test_a_socket_has_no_position_sync_or_copy
     with_answering_server("") do |port|
-      value = sandbox_reaching(port).eval(format(NO_POSITION, port: port)).value
+      value = loopback_sandbox(port).eval(format(NO_POSITION, port: port)).value
 
       answers = (["Errno::ESPIPE"] * 3) + (["Errno::EINVAL"] * 2) + [nil, true, false, false] + (["NoMethodError"] * 2)
       assert_equal [answers, answers], value,
@@ -61,7 +61,7 @@ class TestE2ENetworkSocketIo < Minitest::Test
     end
   end
 
-  RESET = <<~RUBY
+  RESET_READ = <<~RUBY
     socket = TCPSocket.new("127.0.0.1", %<port>d)
     socket.write("\\r\\n")
     begin
@@ -74,14 +74,14 @@ class TestE2ENetworkSocketIo < Minitest::Test
   # @behavior NW-097
   def test_a_reset_stream_read_raises_econnreset
     with_resetting_server do |port|
-      value = sandbox_reaching(port).eval(format(RESET, port: port)).value
+      value = loopback_sandbox(port).eval(format(RESET_READ, port: port)).value
 
       assert_equal "Errno::ECONNRESET", value,
                    "TCPSocket#read from a server that resets the connection must raise Errno::ECONNRESET"
     end
   end
 
-  CONVERTED = <<~RUBY
+  CONVERTED_IO = <<~RUBY
     wrapper = Class.new do
       def initialize(io) = @io = io
       def to_io = @io
@@ -98,7 +98,7 @@ class TestE2ENetworkSocketIo < Minitest::Test
   # @behavior NW-110
   def test_io_select_takes_what_converts_to_an_io
     with_listening_server do |port|
-      value = sandbox_reaching(port).eval(format(CONVERTED, port: port)).value
+      value = loopback_sandbox(port).eval(format(CONVERTED_IO, port: port)).value
 
       assert_equal [true, "TypeError", "TypeError", "Errno::ENOTSUP"], value,
                    "IO.select must answer an object whose to_io is a TCPSocket ready as it was given, raise " \

@@ -25,7 +25,7 @@ class TestE2ENetworkUdpNonblock < Minitest::Test
     [before, cut, socket.read_nonblock(10)]
   RUBY
 
-  BEFORE = [
+  EARLY_READS = [
     NonblockOutcome.would_block("recvfrom(2) would block"), :wait_readable,
     NonblockOutcome.would_block("recvfrom(2) would block"), NonblockOutcome.would_block("read would block")
   ].freeze
@@ -33,9 +33,9 @@ class TestE2ENetworkUdpNonblock < Minitest::Test
   # @behavior NW-131
   def test_a_udp_socket_receives_without_waiting_as_crubys
     with_hello_peer do |port|
-      value = sandbox_sending_to(port).eval(format(DATAGRAMS, port: port)).value
+      value = udp_sandbox(port).eval(format(DATAGRAMS, port: port)).value
 
-      assert_equal [BEFORE, ["hel", ["AF_INET", port, "127.0.0.1", "127.0.0.1"]], "hello"], value,
+      assert_equal [EARLY_READS, ["hel", ["AF_INET", port, "127.0.0.1", "127.0.0.1"]], "hello"], value,
                    "UDPSocket#recvfrom_nonblock, #recv_nonblock, and #read_nonblock before a datagram comes must " \
                    "raise IO::EAGAINWaitReadable or answer :wait_readable with exception: false; after one comes " \
                    "#recvfrom_nonblock(3) must answer it cut with its sender and #read_nonblock it whole"

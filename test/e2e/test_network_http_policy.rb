@@ -8,7 +8,7 @@ class TestE2ENetworkHttpPolicy < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
 
-  SEND = <<~RUBY
+  POLICED_REQUEST = <<~RUBY
     begin
       Net::HTTP.start("127.0.0.1", %<port>d) { |http| http.%<call>s }.code
     rescue Errno::EACCES
@@ -16,7 +16,7 @@ class TestE2ENetworkHttpPolicy < Minitest::Test
     end
   RUBY
 
-  def script(port, call) = format(SEND, port: port, call: call)
+  def script(port, call) = format(POLICED_REQUEST, port: port, call: call)
 
   # Send `call` through a Sandbox whose endpoint the block builds, then reach
   # the server once from the host so its accept returns whatever the guest did.
@@ -57,7 +57,7 @@ class TestE2ENetworkHttpPolicy < Minitest::Test
   RUBY
 
   # A Sandbox reaching `port`, binding a bearer credential the block answers.
-  def bearing(port, &value)
+  def bearer_sandbox(port, &value)
     Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:api) do |net|
       net.endpoint "127.0.0.1", port: port
       net.credential(:bearer, placeholder: "kobako-token", &value)
@@ -68,7 +68,7 @@ class TestE2ENetworkHttpPolicy < Minitest::Test
   def test_a_credential_is_never_swapped_into_a_request_in_clear
     asked = 0
     with_http_server do |port, seen|
-      bearing(port) { (asked += 1) && "s3cret" }.eval(format(BEARER, port: port))
+      bearer_sandbox(port) { (asked += 1) && "s3cret" }.eval(format(BEARER, port: port))
       sent = seen.pop.first.grep(/\Aauthorization:/i).first&.split(": ", 2)&.last
 
       assert_equal ["Bearer kobako-token", 0], [sent, asked],

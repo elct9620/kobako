@@ -37,7 +37,7 @@ class TestE2ENetworkTcp < Minitest::Test
   # @behavior NW-016
   def test_a_tcp_socket_reaches_a_loopback_server_an_endpoint_names
     with_upcase_server do |port|
-      value = sandbox_reaching(port).eval(format(PING, port: port)).value
+      value = loopback_sandbox(port).eval(format(PING, port: port)).value
 
       assert_equal "PING", value,
                    "TCPSocket to a loopback server an endpoint names must send and read back its bytes"
@@ -47,7 +47,7 @@ class TestE2ENetworkTcp < Minitest::Test
   # @behavior NW-017
   def test_a_tcp_socket_to_an_address_no_endpoint_names_raises_eacces
     with_upcase_server do |port|
-      assert_equal :refused, connect_from(sandbox_reaching(port_besides(port)), port),
+      assert_equal :refused, connect_from(loopback_sandbox(other_port(port)), port),
                    "TCPSocket to a port no endpoint names must raise Errno::EACCES"
     end
   end
@@ -65,7 +65,7 @@ class TestE2ENetworkTcp < Minitest::Test
   # @behavior NW-059
   def test_a_connection_past_the_runs_connection_limit_raises_eagain
     with_upcase_server do |port|
-      value = sandbox_reaching(port, connection_limit: 1).eval(format(SECOND, port: port)).value
+      value = loopback_sandbox(port, connection_limit: 1).eval(format(SECOND, port: port)).value
 
       assert_equal :refused, value,
                    "a second TCPSocket in a run under connection_limit: 1 must raise Errno::EAGAIN, even once the " \
@@ -74,7 +74,7 @@ class TestE2ENetworkTcp < Minitest::Test
   end
 
   # An entry playing only a policy, recording each Connection it is handed.
-  class Recorder
+  class RecordsConnections
     attr_reader :seen
 
     def initialize
@@ -90,7 +90,7 @@ class TestE2ENetworkTcp < Minitest::Test
   # @behavior NW-021
   def test_a_connect_policy_block_refuses_a_tcp_socket_the_endpoints_allow
     with_upcase_server do |port|
-      sandbox = sandbox_reaching(port).network(:guard) { |net| net.policy(:connect) { |c| c.port != port } }
+      sandbox = loopback_sandbox(port).network(:guard) { |net| net.policy(:connect) { |c| c.port != port } }
 
       assert_equal :refused, connect_from(sandbox, port),
                    "TCPSocket a net.policy(:connect) block refuses must raise Errno::EACCES"
@@ -130,9 +130,9 @@ class TestE2ENetworkTcp < Minitest::Test
 
   # @behavior NW-021
   def test_an_entry_connect_policy_is_handed_the_connection_the_guest_named
-    recorder = Recorder.new
+    recorder = RecordsConnections.new
     with_upcase_server do |port|
-      sandbox_reaching(port).network(:audit, recorder).eval(format(PING, port: port))
+      loopback_sandbox(port).network(:audit, recorder).eval(format(PING, port: port))
 
       assert_equal [Kobako::Network::Connection.new(host: "127.0.0.1", port: port, protocol: :tcp)],
                    recorder.seen,

@@ -24,7 +24,7 @@ class TestE2ENetworkTcpArguments < Minitest::Test
   # @behavior NW-099
   def test_a_port_is_read_as_linux_reads_a_service
     with_listening_server do |port|
-      value = sandbox_reaching(port).eval(format(PORTS, port: port)).value
+      value = loopback_sandbox(port).eval(format(PORTS, port: port)).value
 
       assert_equal [port, port, [-8, "getaddrinfo: Servname not supported for ai_socktype"]], value,
                    "TCPSocket.new must reach the port a String of digits names and the low 16 bits of an " \
@@ -44,7 +44,7 @@ class TestE2ENetworkTcpArguments < Minitest::Test
   # @behavior NW-100
   def test_a_tcp_socket_bounds_its_name_lookup_by_resolv_timeout
     with_listening_server do |port|
-      value = sandbox_naming_localhost(port).eval(format(LOOKUP, port: port)).value
+      value = localhost_sandbox(port).eval(format(LOOKUP, port: port)).value
 
       assert_equal ["Connection timed out - user specified timeout", port], value,
                    "TCPSocket.new with a resolv_timeout: shorter than the lookup must raise Errno::ETIMEDOUT, " \
@@ -69,19 +69,13 @@ class TestE2ENetworkTcpArguments < Minitest::Test
   # @behavior NW-101
   def test_peeraddr_takes_crubys_reverse_lookup_flags
     with_listening_server do |port|
-      value = sandbox_reaching(port).eval(format(FLAGS, port: port)).value
+      value = loopback_sandbox(port).eval(format(FLAGS, port: port)).value
 
       assert_equal [%w[127.0.0.1 127.0.0.1 127.0.0.1],
                     ["ArgumentError", "invalid reverse_lookup flag: :bogus"],
                     ["TypeError", "wrong argument type Integer (expected Symbol)"]], value,
                    "TCPSocket#peeraddr must answer the address for true, :hostname, and :numeric, raise " \
                    "ArgumentError for an unknown Symbol, and TypeError for an Integer"
-    end
-  end
-
-  def sandbox_naming_localhost(port)
-    Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM).network(:local) do |net|
-      net.endpoint "localhost", port: port, protocol: :tcp, addresses: [:local]
     end
   end
 end

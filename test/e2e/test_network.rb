@@ -8,13 +8,13 @@ class TestE2ENetwork < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
 
-  def sandbox_with_api
+  def api_sandbox
     Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:api) { |net| net.endpoint "api.example.com", port: 443 }
   end
 
   # @behavior NW-001
   def test_an_entry_after_the_first_invocation_is_refused
-    sandbox = sandbox_with_api
+    sandbox = api_sandbox
     sandbox.eval("nil")
 
     assert_raises(ArgumentError, "Sandbox#network after the first invocation must be refused") do
@@ -25,7 +25,7 @@ class TestE2ENetwork < Minitest::Test
   # @behavior NW-005
   def test_a_context_cannot_replace_a_name_never_declared
     error = assert_raises(ArgumentError, "ctx.network of a name the Sandbox never gave must be refused") do
-      sandbox_with_api.eval("nil") { |ctx| ctx.network(:other) { |net| net.endpoint "x.example.com", port: 443 } }
+      api_sandbox.eval("nil") { |ctx| ctx.network(:other) { |net| net.endpoint "x.example.com", port: 443 } }
     end
     assert_includes error.message, "undeclared network entry",
                     "ctx.network of a name the Sandbox never gave must say the name is undeclared"
@@ -51,7 +51,7 @@ class TestE2ENetwork < Minitest::Test
     assert_equal 2, value, "Sandbox#network with an object answering no endpoints must let the invocation run"
   end
 
-  REACHED = <<~RUBY
+  REACHED_PORTS = <<~RUBY
     [%<first>d, %<second>d].map do |port|
       TCPSocket.new("127.0.0.1", port).close
       :reached
@@ -60,17 +60,13 @@ class TestE2ENetwork < Minitest::Test
     end
   RUBY
 
-  def tcp_to(net, port)
-    net.endpoint "127.0.0.1", port: port, protocol: :tcp, addresses: [:local]
-  end
-
   # @behavior NW-006
   def test_a_context_replaces_an_entry_for_its_invocation_only
     with_listening_server do |own|
       with_listening_server do |replaced|
-        sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:api) { |net| tcp_to(net, own) }
-        script = format(REACHED, first: own, second: replaced)
-        during = sandbox.eval(script) { |ctx| ctx.network(:api) { |net| tcp_to(net, replaced) } }.value
+        sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:api) { |net| add_loopback_tcp(net, own) }
+        script = format(REACHED_PORTS, first: own, second: replaced)
+        during = sandbox.eval(script) { |ctx| ctx.network(:api) { |net| add_loopback_tcp(net, replaced) } }.value
 
         assert_equal [%i[refused reached], %i[reached refused]], [during, sandbox.eval(script).value],
                      "ctx.network(:api) must give that invocation the replacing entry's endpoints, and the next " \
@@ -82,9 +78,9 @@ class TestE2ENetwork < Minitest::Test
   # An entry answering only endpoints, each any object with the fields read.
   DuckEntry = Struct.new(:endpoints)
   HostAndPort = Struct.new(:host, :port)
-  WithAddresses = Struct.new(:host, :port, :addresses)
+  AddressedEndpoint = Struct.new(:host, :port, :addresses)
 
-  REACH = <<~RUBY
+  LOCALHOST_GETS = <<~RUBY
     public_only = begin; Net::HTTP.new("localhost", %<public>d).get("/"); rescue Errno::EACCES; :refused; end
     [public_only, Net::HTTP.new("localhost", %<port>d).get("/").code]
   RUBY
@@ -92,12 +88,12 @@ class TestE2ENetwork < Minitest::Test
   # @behavior NW-078
   def test_a_duck_typed_endpoint_takes_the_defaults_and_an_ipaddr
     with_http_server do |port, _seen|
-      public_port = port_besides(port)
+      public_port = other_port(port)
       entry = DuckEntry.new([HostAndPort.new("localhost", public_port),
-                             WithAddresses.new("localhost", port, [IPAddr.new("127.0.0.0/8")])])
+                             AddressedEndpoint.new("localhost", port, [IPAddr.new("127.0.0.0/8")])])
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:duck, entry)
 
-      assert_equal [:refused, "201"], sandbox.eval(format(REACH, public: public_port, port: port)).value,
+      assert_equal [:refused, "201"], sandbox.eval(format(LOCALHOST_GETS, public: public_port, port: port)).value,
                    "an endpoint object answering only host and port must lead only to public addresses, and one " \
                    "naming an IPAddr must speak :http and lead where the IPAddr's prefix covers"
     end

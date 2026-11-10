@@ -7,6 +7,8 @@ require "test_helper"
 # and a virtual port, never the host's.
 class TestE2ENetworkOwnEnd < Minitest::Test
   include E2eGuestHelper
+  include NetworkLoopback
+  include UdpLoopback
 
   OWN_END = <<~RUBY
     stream = TCPSocket.new("127.0.0.1", %<tcp>d)
@@ -27,7 +29,7 @@ class TestE2ENetworkOwnEnd < Minitest::Test
   def test_a_socket_reads_its_own_end_at_the_guests_virtual_address
     with_peers do |server, peer|
       tcp, udp = [server, peer].map { |socket| socket.addr[1] }
-      value = sandbox_reaching(tcp, udp).eval(format(OWN_END, tcp: tcp, udp: udp)).value
+      value = tcp_and_udp_sandbox(tcp, udp).eval(format(OWN_END, tcp: tcp, udp: udp)).value
 
       assert_equal [["AF_INET", 32_768, "198.19.255.254", "198.19.255.254"], ["AF_INET", 0, "0.0.0.0", "0.0.0.0"],
                     ["AF_INET", 32_769, "198.19.255.254", "198.19.255.254"], true, :refused], value,
@@ -46,12 +48,5 @@ class TestE2ENetworkOwnEnd < Minitest::Test
   ensure
     server&.close
     peer&.close
-  end
-
-  def sandbox_reaching(tcp, udp)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:local) do |net|
-      net.endpoint "127.0.0.1", port: tcp, protocol: :tcp, addresses: [:local]
-      net.endpoint "127.0.0.1", port: udp, protocol: :udp, addresses: [:local]
-    end
   end
 end

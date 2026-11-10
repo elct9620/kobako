@@ -48,8 +48,8 @@ class TestE2ENetworkSocketEdgesCruby < Minitest::Test
     with_answering_server("ab\n\n\n\ncd") do |tcp|
       with_answering_server("hello") do |late|
         with_two_datagram_peer do |udp|
-          value = sandbox_reaching_both(tcp, udp).network(:late) { |net| reach(net, late) }
-                                                 .eval(format(EDGES, tcp: tcp, late: late, udp: udp)).value
+          value = tcp_and_udp_sandbox(tcp, udp).network(:late) { |net| add_loopback_tcp(net, late) }
+                                               .eval(format(EDGES, tcp: tcp, late: late, udp: udp)).value
 
           assert_equal ANSWERS, value, EDGES_PROMISE
         end
@@ -61,10 +61,6 @@ class TestE2ENetworkSocketEdgesCruby < Minitest::Test
                   "newlines after it; at the end #readpartial must empty its outbuf and #recv keep it; " \
                   "#recv_nonblock(0) before bytes come must raise IO::EAGAINWaitReadable; after #close_read #recv " \
                   "must read what came and #wait_readable raise IOError; a send after #close_write EPIPE"
-
-  def reach(net, port)
-    net.endpoint "127.0.0.1", port: port, protocol: :tcp, addresses: [:local]
-  end
 
   # Yield the port of a loopback peer answering a datagram with "one", then
   # "two".

@@ -40,15 +40,15 @@ module UdpLoopback
   end
 
   # A Sandbox whose one UDP endpoint reaches loopback +port+.
-  def sandbox_sending_to(port)
+  def udp_sandbox(port)
     Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM).network(:local) do |net|
       net.endpoint "127.0.0.1", port: port, protocol: :udp, addresses: [:local]
     end
   end
 
   # A Sandbox whose TCP endpoint reaches loopback +tcp+ and UDP endpoint +udp+.
-  def sandbox_reaching_both(tcp, udp)
-    sandbox_reaching(tcp).network(:peer) do |net|
+  def tcp_and_udp_sandbox(tcp, udp)
+    loopback_sandbox(tcp).network(:peer) do |net|
       net.endpoint "127.0.0.1", port: udp, protocol: :udp, addresses: [:local]
     end
   end

@@ -25,7 +25,7 @@ class TestE2ENetworkSocketEnds < Minitest::Test
     [packed, unpack.call(8080, "1.2.3.4"), unpack.call(1, "fe80::1"), unpack.call(9, "localhost"), refused]
   RUBY
 
-  PACKED = [
+  PACKED_ADDRESSES = [
     [2, 0, 0, 80, 127, 0, 0, 1] + ([0] * 8),
     16,
     [2, 0, 0, 0, 0, 0, 0, 0] + ([0] * 8),
@@ -43,7 +43,7 @@ class TestE2ENetworkSocketEnds < Minitest::Test
       net.endpoint "localhost", port: 9, protocol: :tcp, addresses: [:local]
     end
 
-    assert_equal [PACKED, [8080, "1.2.3.4"], [1, "fe80::1"], [9, "198.18.0.0"],
+    assert_equal [PACKED_ADDRESSES, [8080, "1.2.3.4"], [1, "fe80::1"], [9, "198.18.0.0"],
                   ["not an AF_INET/AF_INET6 sockaddr", "too short sockaddr"]],
                  sandbox.eval(PACKS).value,
                  "Socket.sockaddr_in must pack each host and port as Linux's sockaddr_in or sockaddr_in6, nil as " \
@@ -72,9 +72,9 @@ class TestE2ENetworkSocketEnds < Minitest::Test
   def test_a_script_reads_a_sockets_ends_as_crubys
     with_listening_server do |tcp|
       with_quiet_udp_peer do |udp|
-        value = sandbox_reaching_both(tcp, udp).eval(format(ENDS, tcp: tcp, udp: udp)).value
+        value = tcp_and_udp_sandbox(tcp, udp).eval(format(ENDS, tcp: tcp, udp: udp)).value
 
-        assert_equal ends_answered(tcp, udp, value.dig(0, 1, 1)), value,
+        assert_equal answered_ends(tcp, udp, value.dig(0, 1, 1)), value,
                      "#getsockname and #getpeername must unpack to what #addr and #peeraddr answer, the virtual " \
                      "own end included; a UDPSocket with no peer must raise Errno::ENOTCONN for its peer, and a " \
                      "closed socket IOError"
@@ -84,7 +84,7 @@ class TestE2ENetworkSocketEnds < Minitest::Test
 
   # What ENDS answers for the loopback ports, its own end on the virtual
   # address at +local_port+.
-  def ends_answered(tcp, udp, local_port)
+  def answered_ends(tcp, udp, local_port)
     own = "198.19.255.254"
     unconnected = ["Errno::ENOTCONN", "Transport endpoint is not connected - getpeername(2)"]
     [

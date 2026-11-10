@@ -10,7 +10,7 @@ class TestParityNetwork < Parity::Case
     { name: "local", endpoints: [{ host: "127.0.0.1", port: 9, protocol: "tcp", addresses: ["local"] }] }
   ].freeze
 
-  LITERAL_REFUSED = <<~RUBY
+  REFUSED_LITERAL = <<~RUBY
     begin
       TCPSocket.new("127.0.0.1", 10)
     rescue SystemCallError => e
@@ -43,7 +43,7 @@ class TestParityNetwork < Parity::Case
 
   # @behavior NW-017
   def test_a_tcp_socket_no_endpoint_admits_is_refused_alike
-    assert_network_parity("network-literal-refused", LITERAL_REFUSED)
+    assert_network_parity("network-literal-refused", REFUSED_LITERAL)
   end
 
   # @behavior NW-034

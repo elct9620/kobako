@@ -9,11 +9,7 @@ class TestE2ENetworkHttpCruby < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
 
-  def sandbox_reaching(port)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:web) { |net| net.endpoint "127.0.0.1", port: port }
-  end
-
-  STREAMED = <<~RUBY
+  STREAMED_BODY = <<~RUBY
     http = Net::HTTP.new("127.0.0.1", %<port>d)
     chunks = []
     response = http.request(Net::HTTP::Get.new("/")) do |res|
@@ -30,7 +26,7 @@ class TestE2ENetworkHttpCruby < Minitest::Test
   # @behavior NW-061
   def test_read_body_streams_the_body_within_a_requests_block
     with_http_server do |port, _seen|
-      value = sandbox_reaching(port).eval(format(STREAMED, port: port)).value
+      value = http_sandbox(port).eval(format(STREAMED_BODY, port: port)).value
 
       assert_equal ["ok", "Net::HTTPCreated#read_body called twice", "201", nil], value,
                    "read_body with a block inside Net::HTTP#request's block must hand over the body, a second " \
@@ -38,7 +34,7 @@ class TestE2ENetworkHttpCruby < Minitest::Test
     end
   end
 
-  LARGE = <<~RUBY
+  LARGE_BODY = <<~RUBY
     total = 0
     Net::HTTP.new("127.0.0.1", %<port>d).get("/") { |chunk| total += chunk.bytesize }
     total
@@ -51,7 +47,7 @@ class TestE2ENetworkHttpCruby < Minitest::Test
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 4 << 20)
                                .network(:web) { |net| net.endpoint "127.0.0.1", port: port }
 
-      assert_equal size, sandbox.eval(format(LARGE, port: port)).value,
+      assert_equal size, sandbox.eval(format(LARGE_BODY, port: port)).value,
                    "Net::HTTP#get with a block must stream a body twice the guest's memory_limit chunk by chunk"
     end
   end
@@ -69,7 +65,7 @@ class TestE2ENetworkHttpCruby < Minitest::Test
   # @behavior NW-062
   def test_request_and_response_helpers_answer_as_cruby
     with_http_server do |port, seen|
-      value = sandbox_reaching(port).eval(format(HELPERS, port: port)).value
+      value = http_sandbox(port).eval(format(HELPERS, port: port)).value
       head, body = seen.pop
 
       assert_equal ["application/x-www-form-urlencoded", "Basic dTpw", "a=1+2&b=%26", true, nil,
@@ -81,7 +77,7 @@ class TestE2ENetworkHttpCruby < Minitest::Test
     end
   end
 
-  FAILED = <<~RUBY
+  FAILED_RESPONSE = <<~RUBY
     begin
       Net::HTTP.new("127.0.0.1", %<port>d).get("/").value
     rescue Net::HTTPExceptions => e
@@ -93,7 +89,7 @@ class TestE2ENetworkHttpCruby < Minitest::Test
   def test_value_raises_the_error_cruby_raises_for_the_family
     with_answering_server("HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n") do |port|
       assert_equal ["Net::HTTPClientException", "404 \"Not Found\"", "404", true, true],
-                   sandbox_reaching(port).eval(format(FAILED, port: port)).value,
+                   http_sandbox(port).eval(format(FAILED_RESPONSE, port: port)).value,
                    "Net::HTTPResponse#value of a 404 must raise Net::HTTPClientException carrying the response"
     end
   end

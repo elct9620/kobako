@@ -8,7 +8,7 @@ class TestE2ENetworkHttps < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
 
-  OVER_TLS = <<~RUBY
+  TLS_REQUEST = <<~RUBY
     begin
       Net::HTTP.start("127.0.0.1", %<port>d, use_ssl: true) { |http| http.get("/") }
     rescue OpenSSL::SSL::SSLError => e
@@ -36,7 +36,7 @@ class TestE2ENetworkHttps < Minitest::Test
     with_clear_server do |port|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:web) { |net| net.endpoint "127.0.0.1", port: port }
 
-      assert_equal ["OpenSSL::SSL::SSLError", true], sandbox.eval(format(OVER_TLS, port: port)).value,
+      assert_equal ["OpenSSL::SSL::SSLError", true], sandbox.eval(format(TLS_REQUEST, port: port)).value,
                    "Net::HTTP with use_ssl to a server speaking clear must raise OpenSSL::SSL::SSLError"
     end
   end

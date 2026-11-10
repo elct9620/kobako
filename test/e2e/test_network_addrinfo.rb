@@ -7,8 +7,9 @@ require "test_helper"
 # Linux, with a name standing for its virtual address.
 class TestE2ENetworkAddrinfo < Minitest::Test
   include E2eGuestHelper
+  include NetworkSandboxes
 
-  BUILT = <<~RUBY
+  BUILT_ADDRINFOS = <<~RUBY
     infos = [Addrinfo.tcp("127.0.0.1", 80), Addrinfo.udp("10.0.0.1", "53"), Addrinfo.ip("::1"),
              Addrinfo.tcp("::1", 443), Addrinfo.new(Socket.sockaddr_in(80, "1.2.3.4")),
              Addrinfo.new(["AF_INET", 80, "x", "1.2.3.4"], nil, :DGRAM), Addrinfo.tcp("", 80)]
@@ -48,18 +49,18 @@ class TestE2ENetworkAddrinfo < Minitest::Test
     %i[ipv6_unique_local?], %i[ipv6_multicast? ipv6_mc_global?]
   ].freeze
 
-  NAMED = ["#<Addrinfo: 1.2.3.4>", nil, "#<Addrinfo: 198.18.0.0:80 TCP (localhost)>", ["198.18.0.0", "80"],
-           "#<Addrinfo: 1.1.1.1:99 TCP>", "not an AF_INET/AF_INET6 sockaddr", [false, false, false]].freeze
+  NAMED_ANSWERS = ["#<Addrinfo: 1.2.3.4>", nil, "#<Addrinfo: 198.18.0.0:80 TCP (localhost)>", ["198.18.0.0", "80"],
+                   "#<Addrinfo: 1.1.1.1:99 TCP>", "not an AF_INET/AF_INET6 sockaddr", [false, false, false]].freeze
 
   # @behavior NW-140
   def test_a_script_builds_and_reads_an_addrinfo_as_crubys
-    assert_equal [PARTS, PREDICATES, *NAMED], naming_localhost.eval(BUILT).value,
+    assert_equal [PARTS, PREDICATES, *NAMED_ANSWERS], localhost_sandbox(80).eval(BUILT_ADDRINFOS).value,
                  "Addrinfo.tcp, .udp, .ip, and .new must answer each part and #inspect as CRuby's on Linux, a name " \
                  "its virtual address, #getnameinfo the address, a packed address of no IP family ArgumentError " \
                  "where CRuby's answers one of unknown family, and no #connect, #bind, or #listen"
   end
 
-  LOOKED_UP = <<~RUBY
+  LOOKUP_CALLS = <<~RUBY
     refusal = lambda do |&call|
       call.call
     rescue SocketError => e
@@ -86,15 +87,9 @@ class TestE2ENetworkAddrinfo < Minitest::Test
 
   # @behavior NW-141
   def test_a_script_looks_up_a_names_addrinfos_as_crubys
-    assert_equal LOOKUPS, naming_localhost.eval(LOOKED_UP).value,
+    assert_equal LOOKUPS, localhost_sandbox(80).eval(LOOKUP_CALLS).value,
                  "Addrinfo.getaddrinfo and Socket.getaddrinfo must answer one entry per kind CRuby's does, a name's " \
                  "virtual address, the canonical name on the first entry, and Socket::ResolutionError for a family " \
                  "the address lacks and a name no entry names"
-  end
-
-  def naming_localhost
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:local) do |net|
-      net.endpoint "localhost", port: 80, protocol: :tcp, addresses: [:local]
-    end
   end
 end

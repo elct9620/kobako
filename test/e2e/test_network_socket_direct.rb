@@ -40,7 +40,7 @@ class TestE2ENetworkSocketDirect < Minitest::Test
   def test_a_script_reads_past_a_sockets_buffer_as_crubys
     with_answering_server("abcdef\nxyz") do |tcp|
       with_hello_peer do |udp|
-        value = sandbox_reaching_both(tcp, udp).eval(format(DIRECT, tcp: tcp, udp: udp)).value
+        value = tcp_and_udp_sandbox(tcp, udp).eval(format(DIRECT, tcp: tcp, udp: udp)).value
 
         assert_equal DIRECT_ANSWERS, value,
                      "TCPSocket#recv and #sysread must answer up to their length past the buffer and #syswrite its " \
@@ -66,7 +66,7 @@ class TestE2ENetworkSocketDirect < Minitest::Test
   # @behavior NW-135
   def test_a_receive_flag_wasi_cannot_carry_raises
     with_answering_server("abcd") do |port|
-      value = sandbox_reaching(port).eval(format(FLAGS, port: port)).value
+      value = loopback_sandbox(port).eval(format(FLAGS, port: port)).value
 
       refused = ["Errno::ENOTSUP", "Operation not supported - recvfrom(2)"]
       assert_equal [%w[ab cd], [refused, refused]], value,

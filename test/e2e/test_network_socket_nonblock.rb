@@ -41,7 +41,7 @@ class TestE2ENetworkSocketNonblock < Minitest::Test
   # @behavior NW-129
   def test_a_tcp_socket_reads_without_waiting_as_crubys
     with_answering_server("ab\ncd") do |port|
-      value = sandbox_reaching(port).eval(format(READS, port: port)).value
+      value = loopback_sandbox(port).eval(format(READS, port: port)).value
 
       assert_equal READ_ANSWERS, value,
                    "TCPSocket#read_nonblock and #recv_nonblock before bytes come must raise IO::EAGAINWaitReadable " \
@@ -81,7 +81,7 @@ class TestE2ENetworkSocketNonblock < Minitest::Test
   def test_a_socket_writes_without_waiting_as_crubys
     with_listening_server do |tcp|
       with_quiet_udp_peer do |udp|
-        value = sandbox_reaching_both(tcp, udp).eval(format(WRITES, tcp: tcp, udp: udp)).value
+        value = tcp_and_udp_sandbox(tcp, udp).eval(format(WRITES, tcp: tcp, udp: udp)).value
 
         assert_equal WRITE_ANSWERS, value,
                      "#write_nonblock must answer the bytes it sent until a full TCPSocket raises " \

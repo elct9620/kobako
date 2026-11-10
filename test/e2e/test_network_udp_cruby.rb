@@ -10,7 +10,7 @@ class TestE2ENetworkUdpCruby < Minitest::Test
   include NetworkLoopback
   include UdpLoopback
 
-  BOUND = <<~RUBY
+  BOUND_SOCKETS = <<~RUBY
     tcp = TCPSocket.new("127.0.0.1", %<tcp>d, "0.0.0.0", 0)
     tcp.write("ping")
     tcp.close_write
@@ -27,7 +27,7 @@ class TestE2ENetworkUdpCruby < Minitest::Test
         net.endpoint "127.0.0.1", port: tcp, protocol: :tcp, addresses: [:local]
       end
 
-      assert_equal ["PING", 0, :refused], sandbox.eval(format(BOUND, tcp: tcp)).value,
+      assert_equal ["PING", 0, :refused], sandbox.eval(format(BOUND_SOCKETS, tcp: tcp)).value,
                    "TCPSocket.new with local end \"0.0.0.0\" port 0 must connect and UDPSocket#bind to " \
                    "\"<any>\" port \"0\" pass, as CRuby reads each with AI_PASSIVE, while a bind to " \
                    "127.0.0.1 raises Errno::EACCES"
@@ -44,7 +44,7 @@ class TestE2ENetworkUdpCruby < Minitest::Test
   # @behavior NW-095
   def test_a_udp_socket_reads_one_whole_datagram_through_what_it_holds
     with_upcase_peer do |port|
-      value = sandbox_sending_to(port).eval(format(READ, port: port)).value
+      value = udp_sandbox(port).eval(format(READ, port: port)).value
 
       assert_equal %w[PI NG], value,
                    "UDPSocket#read(2) must take the peer's whole datagram, answering its first two bytes and " \
@@ -52,7 +52,7 @@ class TestE2ENetworkUdpCruby < Minitest::Test
     end
   end
 
-  REFUSES = <<~RUBY
+  REFUSAL_PROBES = <<~RUBY
     refused = lambda do |&call|
       call.call
       :passed
@@ -73,15 +73,15 @@ class TestE2ENetworkUdpCruby < Minitest::Test
     ]
   RUBY
 
-  CRUBY_REFUSES = ["Errno::EAFNOSUPPORT", "Errno::EAFNOSUPPORT", :passed,
-                   ["SocketError", "unknown socket domain: FOO"], "TypeError",
-                   "wrong number of arguments (given 2, expected 0..1)",
-                   "wrong number of arguments (given 1, expected 2..4)",
-                   "wrong number of arguments (given 0, expected 1..3)", "NoMethodError"].freeze
+  CRUBY_REFUSALS = ["Errno::EAFNOSUPPORT", "Errno::EAFNOSUPPORT", :passed,
+                    ["SocketError", "unknown socket domain: FOO"], "TypeError",
+                    "wrong number of arguments (given 2, expected 0..1)",
+                    "wrong number of arguments (given 1, expected 2..4)",
+                    "wrong number of arguments (given 0, expected 1..3)", "NoMethodError"].freeze
 
   # @behavior NW-098
   def test_a_udp_socket_refuses_what_crubys_refuses
-    assert_equal CRUBY_REFUSES, sandbox_sending_to(9).eval(REFUSES).value,
+    assert_equal CRUBY_REFUSALS, udp_sandbox(9).eval(REFUSAL_PROBES).value,
                  "UDPSocket.new of a family other than AF_INET by number or name must raise " \
                  "Errno::EAFNOSUPPORT, PF_INET must open, an unknown name raise SocketError and nil TypeError, " \
                  "as rsock_family_arg reads each; UDPSocket.new, " \
@@ -89,7 +89,7 @@ class TestE2ENetworkUdpCruby < Minitest::Test
                  "and Socket.new must raise NoMethodError"
   end
 
-  PAST_THE_LIMIT = <<~RUBY
+  EXCESS_SOCKETS = <<~RUBY
     held = []
     begin
       20.times { held << UDPSocket.new }
@@ -105,7 +105,7 @@ class TestE2ENetworkUdpCruby < Minitest::Test
       net.endpoint "127.0.0.1", port: 9, protocol: :udp, addresses: [:local]
     end
 
-    assert_equal ["Errno::EMFILE", "Too many open files - socket(2) - udp"], sandbox.eval(PAST_THE_LIMIT).value,
+    assert_equal ["Errno::EMFILE", "Too many open files - socket(2) - udp"], sandbox.eval(EXCESS_SOCKETS).value,
                  "UDPSocket.new past a Sandbox's open_file_limit must raise Errno::EMFILE, as CRuby's socket(2) does"
   end
 end

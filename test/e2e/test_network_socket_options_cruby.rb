@@ -40,7 +40,7 @@ class TestE2ENetworkSocketOptionsCruby < Minitest::Test
   # @behavior NW-126
   def test_a_script_sets_hop_limits_and_udp_options_as_cruby_does
     with_upcase_server do |port|
-      value = sandbox_reaching(port).eval(format(HOP_LIMITS, port: port)).value
+      value = loopback_sandbox(port).eval(format(HOP_LIMITS, port: port)).value
 
       assert_equal [[64, "Errno::EINVAL", "Errno::EINVAL", 1, 64],
                     [64, 9, 2304, 4608, "Errno::ENOTSUP", "Errno::ENOPROTOOPT"]], value,
@@ -50,7 +50,7 @@ class TestE2ENetworkSocketOptionsCruby < Minitest::Test
     end
   end
 
-  UNANSWERED = <<~RUBY
+  UNANSWERED_OPTIONS = <<~RUBY
     answer = lambda do |&call|
       call.call
     rescue StandardError, NotImplementedError => e
@@ -83,7 +83,7 @@ class TestE2ENetworkSocketOptionsCruby < Minitest::Test
   # @behavior NW-127
   def test_an_option_wasi_has_no_call_for_raises_where_cruby_sets_it
     with_upcase_server do |port|
-      value = sandbox_reaching(port).eval(format(UNANSWERED, port: port)).value
+      value = loopback_sandbox(port).eval(format(UNANSWERED_OPTIONS, port: port)).value
 
       assert_equal UNANSWERED_ANSWERS, value,
                    "TCP_NODELAY and a UDPSocket's SO_KEEPALIVE must raise Errno::ENOPROTOOPT, a name the guest " \

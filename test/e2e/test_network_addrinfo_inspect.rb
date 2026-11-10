@@ -8,7 +8,7 @@ require "test_helper"
 class TestE2ENetworkAddrinfoInspect < Minitest::Test
   include E2eGuestHelper
 
-  SHOWN = <<~RUBY
+  INSPECTIONS = <<~RUBY
     refusal = lambda do |&call|
       call.call
     rescue StandardError => e
@@ -36,7 +36,7 @@ class TestE2ENetworkAddrinfoInspect < Minitest::Test
 
   # @behavior NW-140
   def test_an_addrinfo_shows_and_converts_as_crubys
-    assert_equal ANSWERS, Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(SHOWN).value,
+    assert_equal ANSWERS, Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(INSPECTIONS).value,
                  "Addrinfo#inspect must name a kind only for an IP family, unknown kinds by number, each IP " \
                  "protocol by name, and a service spelled apart from its port; #ipv6_to_ipv4 must drop the port; " \
                  "#family_addrinfo must keep the lookup's kind and refuse anything but a host and a port"

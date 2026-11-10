@@ -61,7 +61,7 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
   # @behavior NW-136
   def test_a_script_shuts_a_tcp_sockets_sides_as_crubys
     with_lingering_server do |tcp|
-      value = sandbox_reaching(tcp).eval(format(TCP_SIDES, tcp: tcp)).value
+      value = loopback_sandbox(tcp).eval(format(TCP_SIDES, tcp: tcp)).value
 
       assert_equal TCP_ANSWERS, value,
                    "TCPSocket#shutdown must answer 0 for each name and number CRuby takes and raise as CRuby's for " \
@@ -82,7 +82,7 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
   # @behavior NW-137
   def test_a_script_shuts_a_udp_sockets_sending_side
     with_quiet_udp_peer do |udp|
-      value = sandbox_sending_to(udp).eval(format(UDP_SIDES, tcp: 0, udp: udp)).value
+      value = udp_sandbox(udp).eval(format(UDP_SIDES, tcp: 0, udp: udp)).value
 
       assert_equal [["Errno::ENOTCONN", "Transport endpoint is not connected - shutdown(2)"], 0,
                     ["Errno::EPIPE", "Broken pipe - send(2)"], ["Errno::EPIPE", "Broken pipe"]], value,

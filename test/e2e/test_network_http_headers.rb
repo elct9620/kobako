@@ -10,10 +10,6 @@ class TestE2ENetworkHttpHeaders < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
 
-  def sandbox_reaching(port)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:web) { |net| net.endpoint "127.0.0.1", port: port }
-  end
-
   DEFAULTS = <<~RUBY
     http = Net::HTTP.new("127.0.0.1", %<port>d)
     [http.get("/").code, http.post("/", "a=1").code]
@@ -22,7 +18,7 @@ class TestE2ENetworkHttpHeaders < Minitest::Test
   # @behavior NW-102
   def test_a_request_carries_crubys_default_headers
     with_serving_server do |port, seen|
-      sandbox_reaching(port).eval(format(DEFAULTS, port: port))
+      http_sandbox(port).eval(format(DEFAULTS, port: port))
       get, post = [seen.pop, seen.pop].map { |head| fields_of(head) }
 
       assert_equal [["*/*", "ruby", nil], ["*/*", "ruby", "application/x-www-form-urlencoded"], [nil, nil]],
@@ -52,14 +48,14 @@ class TestE2ENetworkHttpHeaders < Minitest::Test
 
   # @behavior NW-104
   def test_a_requests_headers_are_taken_as_cruby_takes_them
-    value = sandbox_reaching(9).eval(FIELDS).value
+    value = http_sandbox(9).eval(FIELDS).value
 
     assert_equal ["a", false, "2", "p, q", "header x has field value \"a\\nb\", this cannot include CR/LF"], value,
                  "Net::HTTP::Get.new must strip a header value, skip a nil one, keep the last of a name in another " \
                  "case, join an Array set by []= with ', ', and raise ArgumentError for CR or LF"
   end
 
-  REFUSED = <<~RUBY
+  REFUSED_HEADERS = <<~RUBY
     http = Net::HTTP.new("127.0.0.1", %<port>d)
     [{ "Host" => "elsewhere" }, { "Connection" => "keep-alive" }, { "a b" => "c" }].map do |header|
       http.get("/", header)
@@ -71,7 +67,7 @@ class TestE2ENetworkHttpHeaders < Minitest::Test
   # @behavior NW-105
   def test_a_header_the_host_writes_or_wasi_refuses_raises_argument_error
     with_serving_server do |port, seen|
-      value = sandbox_reaching(port).eval(format(REFUSED, port: port)).value
+      value = http_sandbox(port).eval(format(REFUSED_HEADERS, port: port)).value
 
       assert_equal [["header host cannot be set, as the host writes it",
                      "header connection cannot be set, as the host writes it",
@@ -89,7 +85,7 @@ class TestE2ENetworkHttpHeaders < Minitest::Test
 
   # @behavior NW-106
   def test_form_data_is_encoded_as_cruby_encodes_it
-    value = sandbox_reaching(9).eval(FORM).value
+    value = http_sandbox(9).eval(FORM).value
 
     assert_equal %w[application/x-www-form-urlencoded a=1;a=2;b;c=x+y application/x-www-form-urlencoded], value,
                  "set_form_data must encode an Array value as one pair each, a nil value as its name, and a Symbol " \

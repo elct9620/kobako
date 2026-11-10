@@ -7,7 +7,7 @@ require "test_helper"
 class TestE2ENetworkHttpTimeout < Minitest::Test
   include E2eGuestHelper
 
-  SILENT = <<~RUBY
+  SILENT_SERVER = <<~RUBY
     http = Net::HTTP.new("127.0.0.1", %<port>d)
     defaults = [http.open_timeout, http.read_timeout, http.write_timeout]
     http.read_timeout = 0.1
@@ -24,7 +24,7 @@ class TestE2ENetworkHttpTimeout < Minitest::Test
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 10)
                                .network(:web) { |net| net.endpoint "127.0.0.1", port: port }
 
-      assert_equal [[60, 60, 60], true, true], sandbox.eval(format(SILENT, port: port)).value,
+      assert_equal [[60, 60, 60], true, true], sandbox.eval(format(SILENT_SERVER, port: port)).value,
                    "Net::HTTP#get with read_timeout 0.1 against a server that never answers must raise " \
                    "Net::ReadTimeout, a Timeout::Error and a RuntimeError, and each timeout must start at 60"
     end

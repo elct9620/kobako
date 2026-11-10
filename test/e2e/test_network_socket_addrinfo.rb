@@ -29,7 +29,7 @@ class TestE2ENetworkSocketAddrinfo < Minitest::Test
   def test_a_script_reads_a_sockets_ends_as_addrinfos
     with_listening_server do |tcp|
       with_quiet_udp_peer do |udp|
-        value = sandbox_reaching_both(tcp, udp).eval(format(ENDS, tcp: tcp, udp: udp)).value
+        value = tcp_and_udp_sandbox(tcp, udp).eval(format(ENDS, tcp: tcp, udp: udp)).value
 
         assert_equal ["#<Addrinfo: 198.19.255.254:#{value[1]} TCP>", value[1], "#<Addrinfo: 127.0.0.1:#{tcp} TCP>",
                       "#<Addrinfo: 0.0.0.0 UDP>", "Errno::ENOTCONN", "#<Addrinfo: 127.0.0.1:#{udp} UDP>",

@@ -8,10 +8,6 @@ class TestE2ENetworkHttp < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
 
-  def sandbox_reaching(port)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:web) { |net| net.endpoint "127.0.0.1", port: port }
-  end
-
   GET = <<~RUBY
     response = Net::HTTP.new("127.0.0.1", %<port>d).get("/greeting?lang=en", { "X-Probe" => "yes" })
     [response.code, response.message, response.body, response["X-Kind"],
@@ -22,7 +18,7 @@ class TestE2ENetworkHttp < Minitest::Test
     Net::HTTP.start("127.0.0.1", %<port>d) { |http| http.post("/items", "hello") }.body
   RUBY
 
-  REFUSED = <<~RUBY
+  REFUSED_GET = <<~RUBY
     begin
       Net::HTTP.get("127.0.0.1", "/", %<port>d)
     rescue SystemCallError, NotImplementedError => e
@@ -33,7 +29,7 @@ class TestE2ENetworkHttp < Minitest::Test
   # @behavior NW-042
   def test_a_get_reaches_a_server_an_http_endpoint_names
     with_http_server do |port, seen|
-      value = sandbox_reaching(port).eval(format(GET, port: port)).value
+      value = http_sandbox(port).eval(format(GET, port: port)).value
       head, = seen.pop
 
       assert_equal [["201", "Created", "ok", "test", "Net::HTTPCreated", true], "GET /greeting?lang=en HTTP/1.1",
@@ -47,7 +43,7 @@ class TestE2ENetworkHttp < Minitest::Test
   # @behavior NW-042
   def test_a_post_sends_its_body
     with_http_server do |port, seen|
-      value = sandbox_reaching(port).eval(format(POST, port: port)).value
+      value = http_sandbox(port).eval(format(POST, port: port)).value
 
       assert_equal %w[okhello hello], [value, seen.pop.last],
                    "Net::HTTP#post must send its body and read back the response's"
@@ -56,7 +52,7 @@ class TestE2ENetworkHttp < Minitest::Test
 
   # @behavior NW-043
   def test_a_request_no_http_endpoint_names_raises_eacces
-    value = sandbox_reaching(1).eval(format(REFUSED, port: 2)).value
+    value = http_sandbox(1).eval(format(REFUSED_GET, port: 2)).value
 
     assert_equal ["Errno::EACCES",
                   "Failed to open TCP connection to 127.0.0.1:2 " \
@@ -66,7 +62,7 @@ class TestE2ENetworkHttp < Minitest::Test
 
   # @behavior NW-043
   def test_without_the_network_net_http_raises_not_implemented_error
-    value = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(format(REFUSED, port: 80)).value
+    value = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(format(REFUSED_GET, port: 80)).value
 
     assert_equal "NotImplementedError", value&.first,
                  "Net::HTTP in a Sandbox with no network entry must raise NotImplementedError"

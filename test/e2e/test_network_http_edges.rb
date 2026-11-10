@@ -10,10 +10,6 @@ class TestE2ENetworkHttpEdges < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
 
-  def sandbox_reaching(port)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:web) { |net| net.endpoint "127.0.0.1", port: port }
-  end
-
   # A loopback server answering every request with `response`, handing back
   # the request line and headers each one carried.
   def with_repeating_server(response)
@@ -32,7 +28,7 @@ class TestE2ENetworkHttpEdges < Minitest::Test
     client.close
   end
 
-  CUT = <<~RUBY
+  CUT_BODY = <<~RUBY
     http = Net::HTTP.new("127.0.0.1", %<port>d)
     begin
       http.get("/").body
@@ -45,7 +41,7 @@ class TestE2ENetworkHttpEdges < Minitest::Test
   def test_a_response_body_cut_short_reads_as_crubys
     answers = ["content-length: 10\r\n\r\nabc", "transfer-encoding: chunked\r\n\r\n3\r\nabc\r\n"].map do |rest|
       with_answering_server("HTTP/1.1 200 OK\r\n#{rest}") do |port|
-        sandbox_reaching(port).eval(format(CUT, port: port)).value
+        http_sandbox(port).eval(format(CUT_BODY, port: port)).value
       end
     end
 
@@ -77,7 +73,7 @@ class TestE2ENetworkHttpEdges < Minitest::Test
   def test_net_http_verbs_and_setters_answer_as_crubys
     head = "HTTP/1.1 200 OK\r\ncontent-length: 5, 5\r\ncontent-type: text / html\r\n\r\nhello"
     with_repeating_server(head) do |port, seen|
-      value = sandbox_reaching(port).eval(format(VERBS, port: port)).value
+      value = http_sandbox(port).eval(format(VERBS, port: port)).value
 
       depth = seen.pop.find { |line| line.downcase.start_with?("depth:") }&.split(": ", 2)&.last
 
@@ -87,7 +83,7 @@ class TestE2ENetworkHttpEdges < Minitest::Test
     end
   end
 
-  UNCONNECTED = <<~RUBY
+  UNCONNECTED_SESSION = <<~RUBY
     http = Net::HTTP.new("127.0.0.1", %<port>d)
     started = http.start.started?
     sent = begin; http.get("/"); :sent; rescue SystemCallError => e; e.class.to_s; end
@@ -101,7 +97,7 @@ class TestE2ENetworkHttpEdges < Minitest::Test
     port = closed.addr[1]
     closed.close
 
-    value = sandbox_reaching(port).eval(format(UNCONNECTED, port: port)).value
+    value = http_sandbox(port).eval(format(UNCONNECTED_SESSION, port: port)).value
 
     assert_equal [true, "Errno::ECONNREFUSED", :refused], value,
                  "Net::HTTP#start on a port nothing listens on must pass and the first request raise, and a " \

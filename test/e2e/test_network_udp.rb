@@ -34,7 +34,7 @@ class TestE2ENetworkUdp < Minitest::Test
     ]
   RUBY
 
-  AS_IO = <<~RUBY
+  UDP_IO = <<~RUBY
     socket = UDPSocket.new
     shape = [IPSocket, BasicSocket, IO].map { |ancestor| socket.is_a?(ancestor) } << socket.fileno.is_a?(Integer)
     selected = IO.select(nil, [socket], nil, 0)&.dig(1) == [socket]
@@ -53,7 +53,7 @@ class TestE2ENetworkUdp < Minitest::Test
   # @behavior NW-079
   def test_a_udp_socket_is_an_io_that_io_select_waits_on
     with_quiet_peer do |peer, port|
-      value = sandbox_sending_to(port).eval(format(AS_IO, port: port)).value
+      value = udp_sandbox(port).eval(format(UDP_IO, port: port)).value
 
       assert_equal [[[true, true, true, true], true, "Destination address required", 4], "abcd"],
                    [value, first_datagram(peer)],
@@ -82,7 +82,7 @@ class TestE2ENetworkUdp < Minitest::Test
   # @behavior NW-056
   def test_a_udp_socket_carries_a_datagram_both_ways_with_the_peer_it_connects_to
     with_upcase_peer do |port|
-      value = sandbox_sending_to(port).eval(format(PING, port: port)).value
+      value = udp_sandbox(port).eval(format(PING, port: port)).value
 
       assert_equal ["PING", ["AF_INET", port, "127.0.0.1", "127.0.0.1"]], value,
                    "UDPSocket#recvfrom after a send to the peer #connect names must answer the " \
@@ -92,7 +92,7 @@ class TestE2ENetworkUdp < Minitest::Test
 
   # @behavior NW-057
   def test_a_udp_socket_with_no_named_peer_raises_what_linux_would
-    value = sandbox_sending_to(9).eval(format(REFUSALS, port: 9)).value
+    value = udp_sandbox(9).eval(format(REFUSALS, port: 9)).value
 
     assert_equal ["Errno::EACCES", "Errno::EDESTADDRREQ", "Errno::EACCES", :passed], value,
                  "UDPSocket#bind to a chosen port must raise Errno::EACCES, #send with no peer " \

@@ -44,7 +44,7 @@ class TestE2ENetworkSocketChars < Minitest::Test
   # @behavior NW-134
   def test_a_script_reads_a_socket_by_byte_and_by_character_as_crubys
     with_answering_server("héllo\n\xFFwor\nz".b) do |port|
-      value = sandbox_reaching(port).eval(format(CHARS, port: port)).value
+      value = loopback_sandbox(port).eval(format(CHARS, port: port)).value
 
       assert_equal ANSWERS, value,
                    "TCPSocket#getc and #readchar must take a whole UTF-8 sequence and #getbyte and #readbyte one " \
