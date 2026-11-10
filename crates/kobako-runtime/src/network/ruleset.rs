@@ -166,7 +166,7 @@ enum Host {
 
 fn parse_host(host: &str) -> Result<Host, EntryError> {
     if let Ok(ip) = host.parse::<IpAddr>() {
-        return Ok(Host::Cidr(ip, full_prefix(ip)));
+        return Ok(Host::Cidr(ip, full_prefix_of(ip)));
     }
     if let Some((ip, prefix)) = host.split_once('/') {
         let ip = ip
@@ -175,7 +175,7 @@ fn parse_host(host: &str) -> Result<Host, EntryError> {
         let prefix = prefix
             .parse::<u8>()
             .ok()
-            .filter(|p| *p <= full_prefix(ip))
+            .filter(|p| *p <= full_prefix_of(ip))
             .ok_or_else(|| EntryError(format!("an endpoint's prefix is out of range: {host}")))?;
         return Ok(Host::Cidr(ip, prefix));
     }
@@ -197,7 +197,7 @@ fn parse_host(host: &str) -> Result<Host, EntryError> {
 /// The address an endpoint judges `ip` as, the IPv4 one an IPv6 address
 /// carries in its place; `None` for an address in a fixed set, which no
 /// endpoint opens.
-fn screened(ip: IpAddr) -> Option<IpAddr> {
+fn to_screened(ip: IpAddr) -> Option<IpAddr> {
     if matches!(
         address_set_of(ip),
         AddressSet::Metadata | AddressSet::Reserved
@@ -211,7 +211,7 @@ fn screened(ip: IpAddr) -> Option<IpAddr> {
 }
 
 /// The longest prefix an address of `ip`'s family takes.
-fn full_prefix(ip: IpAddr) -> u8 {
+fn full_prefix_of(ip: IpAddr) -> u8 {
     match ip {
         IpAddr::V4(_) => 32,
         IpAddr::V6(_) => 128,
@@ -337,7 +337,7 @@ impl Ruleset {
                     )));
                 }
                 if endpoint.addresses.iter().any(|a| match a {
-                    Addresses::Cidr(ip, prefix) => *prefix > full_prefix(*ip),
+                    Addresses::Cidr(ip, prefix) => *prefix > full_prefix_of(*ip),
                     _ => false,
                 }) {
                     return Err(EntryError(format!(
@@ -416,7 +416,7 @@ impl Ruleset {
         protocol: Protocol,
         local: &[IpAddr],
     ) -> bool {
-        let Some(ip) = screened(addr.ip()) else {
+        let Some(ip) = to_screened(addr.ip()) else {
             return false;
         };
         self.rules.iter().any(|rule| {
@@ -437,7 +437,7 @@ impl Ruleset {
         addr: SocketAddr,
         protocol: Protocol,
     ) -> Result<(), FilesystemError> {
-        let ip = screened(addr.ip()).ok_or(FilesystemError::PermissionDenied)?;
+        let ip = to_screened(addr.ip()).ok_or(FilesystemError::PermissionDenied)?;
         let matched = self.rules.iter().any(|rule| {
             rule.port == addr.port()
                 && rule.protocol == protocol

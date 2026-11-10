@@ -280,11 +280,11 @@ impl OutgoingRequest {
 /// guest cannot grow the host past what it was allotted.
 pub struct RequestBody {
     cred: Arc<Cred>,
-    written: Mutex<Written>,
+    written: Mutex<WrittenBody>,
 }
 
 /// What a body holds and the room it takes.
-struct Written {
+struct WrittenBody {
     bytes: Vec<u8>,
     room: MemoryCharge,
 }
@@ -295,14 +295,14 @@ impl RequestBody {
         let room = MemoryCharge::empty(&cred);
         Arc::new(Self {
             cred,
-            written: Mutex::new(Written {
+            written: Mutex::new(WrittenBody {
                 bytes: Vec::new(),
                 room,
             }),
         })
     }
 
-    fn written(&self) -> MutexGuard<'_, Written> {
+    fn written(&self) -> MutexGuard<'_, WrittenBody> {
         self.written.lock().unwrap_or_else(PoisonError::into_inner)
     }
 

@@ -812,7 +812,7 @@ fn a_close_the_filesystem_refuses_fails_the_scripts_close() {
     assert_eq!(
         answer,
         Ok("unheld".to_string()),
-        "File#close refused as EBADF must raise Errno::EBADF, the Filesystem's own name, not a read's IOError"
+        "File#close of a file whose Filesystem refuses its close as one it does not hold must raise Errno::EBADF"
     );
 }
 
