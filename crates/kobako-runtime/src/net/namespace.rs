@@ -10,11 +10,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 use super::egress::EgressProxy;
 use super::family::admitted_addresses_of;
 use super::http::{
-    to_field_name, to_field_value, Exchange, HttpError, Outbound, OutgoingRequest, Scheme,
+    split_authority, to_field_name, to_field_value, Exchange, HttpError, Outbound, OutgoingRequest,
+    Scheme,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
-use super::transport::{split_authority, Connector};
-use super::{OpenConnections, ProtoOps, ProtocolFamily, TcpSock, UdpSock};
+use super::transport::Connector;
+use super::{OpenConnections, ProtocolFamily, TcpSock, UdpSock};
 use crate::grant::Policy;
 use crate::network::{Connection, EntryError, Name, Network, Protocol, Request, Ruleset};
 use crate::vfs::{Cred, FilesystemError};
@@ -299,19 +300,19 @@ impl Namespace {
         sock: &TcpSock,
         addr: SocketAddr,
     ) -> Result<(), FilesystemError> {
-        self.connect_through(cred, sock, addr, Protocol::Tcp, |real, open| {
+        self.connect_through(cred, addr, Protocol::Tcp, |real, open| {
             sock.connect(real, addr, open)
-        })
+        })?;
+        sock.hold_virtual_port(&mut || self.alloc_virtual_port());
+        Ok(())
     }
 
     /// The steps every protocol's connect takes, as `inet_stream_connect`
     /// and `udp_pre_connect` share `connect4`: judge and translate `addr`,
-    /// let `connect` dial the real addresses within the connection caps, then
-    /// hold the port the guest reads for its own end.
+    /// then let `connect` dial the real addresses within the connection caps.
     fn connect_through(
         &self,
         cred: &Cred,
-        sock: &dyn ProtoOps,
         addr: SocketAddr,
         protocol: Protocol,
         connect: impl FnOnce(Vec<SocketAddr>, &Arc<OpenConnections>) -> Result<(), FilesystemError>,
@@ -319,9 +320,7 @@ impl Namespace {
         let real = self.admit(cred, addr, protocol)?;
         self.within_connection_limit(FilesystemError::WouldBlock, || {
             connect(real, &self.open_connections)
-        })?;
-        sock.hold_virtual_port(&mut || self.alloc_virtual_port());
-        Ok(())
+        })
     }
 
     /// Create a TCP socket connected to nothing for `cred`, which connects
@@ -362,9 +361,11 @@ impl Namespace {
         addr: Option<SocketAddr>,
     ) -> Result<(), FilesystemError> {
         let addr = addr.ok_or(FilesystemError::PermissionDenied)?;
-        self.connect_through(cred, sock, addr, Protocol::Udp, |real, open| {
+        self.connect_through(cred, addr, Protocol::Udp, |real, open| {
             sock.connect(&self.family, real[0], addr, open)
-        })
+        })?;
+        sock.hold_virtual_port(&mut || self.alloc_virtual_port());
+        Ok(())
     }
 
     /// Judge `connection`, what the guest named, through the socket hooks:

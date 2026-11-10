@@ -208,6 +208,27 @@ pub fn is_authority(authority: &str) -> bool {
         .is_ok_and(|parsed| !has_port || parsed.port_u16().is_some())
 }
 
+/// The host and port an authority names, the port defaulting by `scheme`;
+/// `None` for one `is_authority` refuses. One parser reads every authority,
+/// so the authority a request is judged by is the one it reaches.
+pub(crate) fn split_authority(authority: &str, scheme: Scheme) -> Option<(String, u16)> {
+    let default = match scheme {
+        Scheme::Http => 80,
+        Scheme::Https => 443,
+    };
+    if !is_authority(authority) {
+        return None;
+    }
+    let parsed = hyper::http::uri::Authority::try_from(authority).ok()?;
+    let host = parsed.host().trim_start_matches('[').trim_end_matches(']');
+    (!host.is_empty()).then(|| {
+        (
+            host.to_ascii_lowercase(),
+            parsed.port_u16().unwrap_or(default),
+        )
+    })
+}
+
 /// `path` as the request target sent in origin form, as wasmtime takes one:
 /// `""` is `/` and a query alone sits on `/`; anything else not starting with
 /// `/`, or no URI path holds, is none. A fragment is cut, as the target sent

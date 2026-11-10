@@ -14,7 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::Place;
 use super::family::admitted_addresses_of;
-use super::http::{is_authority, to_http_error, HttpError, Scheme};
+use super::http::{to_http_error, HttpError};
 use super::lookup::NameLookup;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::take_connect_outcome;
@@ -235,25 +235,4 @@ impl Drop for Transport {
     fn drop(&mut self) {
         self.registration.deregister(&mut self.stream);
     }
-}
-
-/// The host and port an authority names, the port defaulting by `scheme`;
-/// `None` for one `is_authority` refuses. One parser reads every authority,
-/// so the authority a request is judged by is the one it reaches.
-pub(crate) fn split_authority(authority: &str, scheme: Scheme) -> Option<(String, u16)> {
-    let default = match scheme {
-        Scheme::Http => 80,
-        Scheme::Https => 443,
-    };
-    if !is_authority(authority) {
-        return None;
-    }
-    let parsed = hyper::http::uri::Authority::try_from(authority).ok()?;
-    let host = parsed.host().trim_start_matches('[').trim_end_matches(']');
-    (!host.is_empty()).then(|| {
-        (
-            host.to_ascii_lowercase(),
-            parsed.port_u16().unwrap_or(default),
-        )
-    })
 }

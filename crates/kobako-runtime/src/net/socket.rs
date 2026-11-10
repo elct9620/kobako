@@ -39,9 +39,6 @@ pub trait ProtoOps: Send + Sync {
     /// namespace gave as the connect began, or the unspecified address
     /// before then, as Linux answers an unbound socket.
     fn getsockname(&self) -> SocketAddr;
-    /// Hold the port `alloc` gives as the guest's own, unless one is held, so
-    /// a socket connected again keeps its port.
-    fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16);
     /// A connection the socket accepts, as `->accept`; no socket of the
     /// guest's listens, so a stream answers `EINVAL`, as `inet_accept` on one
     /// not listening, and a datagram one `EOPNOTSUPP`, as `sock_no_accept`.

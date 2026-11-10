@@ -88,9 +88,8 @@ struct State {
     sending: VecDeque<u8>,
     /// The FIN left, once the writing side was shut and the buffer drained.
     fin_sent: bool,
-    /// Its own end's port, its peer, its buffers, its hop limit, its pending
-    /// failure, which sides are shut, and its place and memory. What arrived
-    /// still reads once the reading side is shut.
+    /// What every inet socket holds. What arrived still reads once the
+    /// reading side is shut.
     inet: InetSock,
     /// The keepalive probes the guest asked for; the host socket takes them
     /// as it is dialed.
@@ -181,6 +180,13 @@ impl TcpSock {
         state.phase = Phase::Connecting;
         self.dial_next(&mut state, FilesystemError::InvalidInput);
         Ok(())
+    }
+
+    /// Hold the port `alloc` gives as the guest's own, unless one is held,
+    /// as a cgroup hook keeps what `getsockname4` answers in the socket's
+    /// own storage.
+    pub(crate) fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16) {
+        self.state().inet.hold_virtual_port(alloc);
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -513,10 +519,6 @@ impl ProtoOps for TcpSock {
 
     fn getsockname(&self) -> SocketAddr {
         self.state().inet.getsockname()
-    }
-
-    fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16) {
-        self.state().inet.hold_virtual_port(alloc);
     }
 
     /// A stream socket that never listens accepts nothing.

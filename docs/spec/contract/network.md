@@ -845,17 +845,6 @@ pub trait ProtoOps {
 }
 ```
 
-## `ProtoOps::hold_virtual_port`
-
-Hold a port as the socket's own, unless one is held, so a socket connected
-again keeps its port.
-
-```rust
-pub trait ProtoOps {
-    fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16);
-}
-```
-
 ## `ProtoOps::accept`
 
 A connection the socket accepts, as Linux's `proto_ops.accept`. No socket of

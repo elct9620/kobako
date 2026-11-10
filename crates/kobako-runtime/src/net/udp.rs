@@ -39,8 +39,7 @@ struct State {
     /// Whether the host socket took the last send, until the reactor next
     /// sees it change, as `sock_writeable` reads its room.
     writable: bool,
-    /// Its own end's port, its peer, its buffers, its hop limit, its pending
-    /// failure, which sides are shut, and its place and memory. A send goes
+    /// What every inet socket holds. A send goes
     /// to the host at once, so `SO_SNDBUF` only reads back; once the reading
     /// side is shut and the queue empties, a read answers zero, and once the
     /// writing side is, a send answers `EPIPE`.
@@ -131,6 +130,13 @@ impl UdpSock {
             state.inet.place = Some(place);
         }
         Ok(())
+    }
+
+    /// Hold the port `alloc` gives as the guest's own, unless one is held,
+    /// as a cgroup hook keeps what `getsockname4` answers in the socket's
+    /// own storage.
+    pub(crate) fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16) {
+        self.state().inet.hold_virtual_port(alloc);
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -284,10 +290,6 @@ impl ProtoOps for UdpSock {
 
     fn getsockname(&self) -> SocketAddr {
         self.state().inet.getsockname()
-    }
-
-    fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16) {
-        self.state().inet.hold_virtual_port(alloc);
     }
 
     /// A datagram socket accepts nothing, as `sock_no_accept` answers.
