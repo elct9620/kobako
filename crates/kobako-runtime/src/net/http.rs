@@ -207,7 +207,8 @@ pub fn is_authority(authority: &str) -> bool {
 
 /// `path` as the request target sent in origin form, as wasmtime takes one:
 /// `""` is `/` and a query alone sits on `/`; anything else not starting with
-/// `/`, or no URI path holds, is none.
+/// `/`, or no URI path holds, is none. A fragment is cut, as the target sent
+/// carries none, so every rule judges what the server reads.
 pub fn to_origin_form(path: &str) -> Option<String> {
     let target = match path.chars().next() {
         None => "/".to_string(),
@@ -215,8 +216,9 @@ pub fn to_origin_form(path: &str) -> Option<String> {
         Some('/') => path.to_string(),
         Some(_) => return None,
     };
-    hyper::http::uri::PathAndQuery::try_from(target.as_str()).ok()?;
-    Some(target)
+    hyper::http::uri::PathAndQuery::try_from(target)
+        .ok()
+        .map(|target| target.as_str().to_string())
 }
 
 /// One request the guest sends: its method, scheme, authority, path with its

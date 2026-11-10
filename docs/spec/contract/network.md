@@ -1130,7 +1130,7 @@ pub fn is_authority(authority: &str) -> bool {}
 
 A request target in origin form, as one from the Guest is sent. An empty one is
 `/`, and a query alone sits on `/`. One that starts otherwise, or that no URI
-path holds, is none.
+path holds, is none. A fragment is cut, as the target sent carries none.
 
 ```rust
 pub fn to_origin_form(path: &str) -> Option<String> {}

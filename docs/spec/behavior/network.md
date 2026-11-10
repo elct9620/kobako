@@ -1784,3 +1784,16 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server that answers paragraphs and closes, and a UDP peer |
 | When | the script calls `recv(0)` on each socket, and `recv_nonblock(0)` before bytes come. It calls `recv` and `wait_readable` after `close_read`, reads paragraphs, fills an `outbuf` at the end, and sends after `close_write` |
 | Then | a TCP `recv(0)` answers `nil` once bytes come, and a UDP one drops a datagram. Before bytes come `recv_nonblock(0)` raises `IO::EAGAINWaitReadable`. After `close_read`, `recv` reads what came and `wait_readable` raises `IOError`. A paragraph takes the newlines after it. At the end `readpartial` empties its `outbuf` and `recv` keeps it. The UDP send raises `Errno::EPIPE` |
+
+## `NW-145` An HTTP endpoint's rules judge the target the request sends
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-044` |
+| relates | `NW-093` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint denying `/admin` |
+| When | the guest sets the path `/admin#x` on a request and sends it |
+| Then | the path reads back as `/admin`, since a request target carries no fragment, and the request answers `HTTP-request-denied` |

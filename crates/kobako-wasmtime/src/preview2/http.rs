@@ -891,6 +891,28 @@ mod tests {
         );
     }
 
+    // @behavior NW-145
+    #[test]
+    fn a_rule_judges_the_target_sent_with_no_fragment() {
+        let endpoint = network::Endpoint::new("example.com", 80)
+            .unwrap()
+            .with_rules(vec![network::HttpRule::deny(None, "/admin")]);
+        let mut guest = guest(Some(vec![endpoint]));
+        let request = get(&mut guest, "example.com").unwrap();
+        guest
+            .types_outgoing_request_set_path_with_query(request, Some("/admin#x".to_string()))
+            .unwrap()
+            .expect("a path with a fragment");
+        let target = guest.request(request).unwrap().path_with_query.clone();
+        let answer = guest.outgoing_handler_handle(request, None);
+        assert!(
+            target.as_deref() == Some("/admin")
+                && matches!(answer, Ok(Err(ErrorCode::HTTPRequestDenied))),
+            "set-path-with-query must take /admin#x as /admin, the target a request sends, \
+             and a rule denying /admin must refuse it; read back {target:?}"
+        );
+    }
+
     // @behavior NW-094
     #[test]
     fn an_immutable_list_reads_a_header_before_refusing_the_change() {
