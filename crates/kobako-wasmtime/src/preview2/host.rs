@@ -52,6 +52,15 @@ const MAX_DATAGRAMS: usize = 16;
 /// for its record, as wasmtime-wasi's read allocation limit.
 const MAX_RECEIVE_BYTES: usize = 64 * 1024;
 
+/// Where a socket stands for a bind, as each protocol reads its own state.
+enum BindStanding {
+    Unbound,
+    /// A bind or a connect is under way.
+    Busy,
+    /// Bound, connected, or closed.
+    Settled,
+}
+
 impl Invocation {
     /// A pollable on the guest's own clocks, `nanos` of host time from now;
     /// the wait holding it decides when it is due.
@@ -214,9 +223,22 @@ impl Invocation {
             .push_child(table::Pollable::File(file, mask), parent)
     }
 
-    /// Pass a bind to `local_address` through the socket hooks, once WASI
-    /// takes it as a unicast address, as both sockets' `start-bind` ask.
-    fn bind_local(&mut self, local_address: &IpSocketAddress) -> Result<(), SocketError> {
+    /// Start a bind of a socket standing at `standing` to `local_address`, as
+    /// both sockets' `start-bind` do in wasmtime's order: the network first,
+    /// then a bind or connect under way, then any other state, then the
+    /// address as WASI takes it, through the socket hooks.
+    fn start_bind(
+        &mut self,
+        network: Network,
+        local_address: &IpSocketAddress,
+        standing: BindStanding,
+    ) -> Result<(), SocketError> {
+        self.ensure_network(network)?;
+        match standing {
+            BindStanding::Unbound => {}
+            BindStanding::Busy => return Err(ErrorCode::ConcurrencyConflict.into()),
+            BindStanding::Settled => return Err(ErrorCode::InvalidState.into()),
+        }
         let addr = to_socket_addr(local_address)
             .filter(|addr| is_valid_unicast_address(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
@@ -348,15 +370,12 @@ impl SocketsHost for Invocation {
         network: Network,
         local_address: IpSocketAddress,
     ) -> Result<(), SocketError> {
-        self.ensure_network(network)?;
-        match self.tcp(this)?.state {
-            TcpState::Unbound => {}
-            state if state == TcpState::Binding || state.is_connecting() => {
-                return Err(ErrorCode::ConcurrencyConflict.into())
-            }
-            _ => return Err(ErrorCode::InvalidState.into()),
-        }
-        self.bind_local(&local_address)?;
+        let standing = match self.tcp(this)?.state {
+            TcpState::Unbound => BindStanding::Unbound,
+            state if state == TcpState::Binding || state.is_connecting() => BindStanding::Busy,
+            _ => BindStanding::Settled,
+        };
+        self.start_bind(network, &local_address, standing)?;
         self.tcp(this)?.state = TcpState::Binding;
         Ok(())
     }
@@ -633,13 +652,12 @@ impl SocketsHost for Invocation {
         network: Network,
         local_address: IpSocketAddress,
     ) -> Result<(), SocketError> {
-        self.ensure_network(network)?;
-        match self.udp(this)?.state {
-            UdpState::Unbound => {}
-            UdpState::Binding => return Err(ErrorCode::ConcurrencyConflict.into()),
-            _ => return Err(ErrorCode::InvalidState.into()),
-        }
-        self.bind_local(&local_address)?;
+        let standing = match self.udp(this)?.state {
+            UdpState::Unbound => BindStanding::Unbound,
+            UdpState::Binding => BindStanding::Busy,
+            _ => BindStanding::Settled,
+        };
+        self.start_bind(network, &local_address, standing)?;
         self.udp(this)?.state = UdpState::Binding;
         Ok(())
     }
