@@ -60,7 +60,7 @@ kobako meets WASI at one layer and follows its versions by adding encodings. Why
 |---|---|
 | where kobako replaces WASI | the core-module imports, for the calls that read the descriptor table |
 | where kobako takes WASI 0.2 | `wasi:sockets` and `wasi:http`, imported by a core module, since preview1 has no connect |
-| how a new WASI version joins | as its own encoding and table beside preview1's, both drawing numbers from one space |
+| how a new WASI version joins | as its own encoding and numbered table; older ones adapt to it |
 | what every version shares | the one `kobako-runtime`, which holds the Open File |
 
 ## Code Map

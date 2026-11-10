@@ -135,14 +135,14 @@ A guest socket is one file with many views, as handles on one `struct file` shar
 tcp-socket ------+
 input-stream ----+--> socket file --> proto ops --> host socket
 output-stream ---+         |
-socket's number -+         +--> wait queue <-- reactor
+pollable --------+         +--> wait queue <-- reactor
 ```
 
-The file is made with the socket, as Linux's `socket()` installs one before any connect. Both encodings number into one space, as Linux's one fdtable holds a file and a socket alike. A preview1 read, write, poll, or `sock_*` call on a socket's number reaches the same socket. The guest's `TCPSocket` and `UDPSocket` are therefore each an `IO` that `IO.select` waits on.
+The file is made with the socket, as Linux's `socket()` installs one before any connect. It never waits, since WASI's sockets never block. Only preview2 reaches it: an older encoding adapts to a newer one, so preview1 numbers its files alone. The guest adapts its sockets itself, as wasi-libc's descriptor table does. Its `TCPSocket` and `UDPSocket` are each an `IO` that `IO.select` waits on, and each keeps its shut sides.
 
 | When | The socket file |
 |---|---|
-| its non-blocking flag is cleared | waits, as `sock_read_iter` and `sock_write_iter` do |
+| a read or write would wait | answers EAGAIN, whatever its flag |
 | its last view drops with bytes queued | sends them, then its FIN, as `__tcp_close` does |
 | its last view drops with bytes unread | resets the connection |
 | the Invocation ends | lets go of whatever it still holds |

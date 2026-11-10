@@ -161,7 +161,7 @@ Each ABI version gets its own syscall table, and every table asks the same `koba
           +-----------------------+
 ```
 
-Each ABI's encoding keeps its own table: preview1's fd table and preview2's resource table. Both take numbers from one space, as Linux's one fdtable numbers a file and a socket alike. Both count against one `OpenFiles`, as `RLIMIT_NOFILE` counts every descriptor a process holds. Every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
+Each ABI's encoding keeps its own table and numbers its own: preview1's fd table holds files, and preview2's resource table everything preview2 hands out. Both count against one `OpenFiles`, as `RLIMIT_NOFILE` counts every descriptor a process holds. Every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
 
 | Precedent | Shape |
 |---|---|
@@ -171,13 +171,12 @@ Each ABI's encoding keeps its own table: preview1's fd table and preview2's reso
 
 ### Shared Calls
 
-Where both encodings answer the same call, preview1 adapts to preview2, as `wasmtime-wasi`'s preview1 does. Waiting is that call today. `poll_oneoff` turns each subscription into a preview2 pollable and waits through preview2's poll, so one rule decides when a clock is due. A socket read or write through preview1 still reaches the socket's Open File, since its POSIX error names have no preview2 code.
+An older encoding adapts to a newer one, never the reverse, as `wasmtime-wasi`'s preview1 adapts to preview2; preview2 takes no shape for preview1. Waiting is the call both answer today. `poll_oneoff` turns each subscription into a preview2 pollable and waits through preview2's poll, so one rule decides when a clock is due. preview1 reaches no socket, so its `sock_*` calls answer `NOTSOCK`, as `wasmtime-wasi`'s do.
 
 | Call | preview1 | Answered by |
 |---|---|---|
 | waiting | `poll_oneoff` | preview2's poll |
-| a socket's read, write | `fd_read`, `fd_write` | the socket's Open File |
-| a socket's own call | `sock_recv`, `sock_send`, `sock_shutdown` | the protocol behind the socket's file |
+| a socket's own call | `sock_recv`, `sock_send`, `sock_shutdown` | `NOTSOCK` |
 | a file's call | `path_*`, `fd_*` | the Open File, preview1 only |
 
 ## Trigger Conditions
