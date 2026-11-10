@@ -5,7 +5,7 @@
 //! `connect4` rewrites a destination, so no name is ever resolved twice.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use super::egress::EgressProxy;
 use super::family::admitted_addresses_of;
@@ -56,6 +56,24 @@ pub struct Namespace {
     virtuals: Mutex<Vec<(String, Vec<IpAddr>)>>,
     /// The virtual port this Invocation's next connect takes.
     next_port: Mutex<u16>,
+    /// Every TCP socket made here, so an orphan still sending ends with the
+    /// Invocation.
+    tcp_sockets: Mutex<Vec<Weak<TcpSock>>>,
+}
+
+/// The Invocation's end lets go of every orphan still sending, so nothing it
+/// made outlives it.
+impl Drop for Namespace {
+    fn drop(&mut self) {
+        let sockets = std::mem::take(
+            self.tcp_sockets
+                .get_mut()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        for sock in sockets.iter().filter_map(Weak::upgrade) {
+            sock.abandon();
+        }
+    }
 }
 
 impl Namespace {
@@ -104,6 +122,7 @@ impl Namespace {
             connections_left: Mutex::new(connection_limit),
             virtuals: Mutex::new(Vec::new()),
             next_port: Mutex::new(*VIRTUAL_PORTS.start()),
+            tcp_sockets: Mutex::new(Vec::new()),
         })
     }
 
@@ -328,7 +347,14 @@ impl Namespace {
     /// buffers count against `cred`'s memory, as a socket's do against its
     /// creator's memory cgroup.
     pub fn create_tcp_socket(&self, cred: &Arc<Cred>) -> Result<Arc<TcpSock>, FilesystemError> {
-        TcpSock::new(self.family.clone(), cred)
+        let sock = TcpSock::new(self.family.clone(), cred)?;
+        let mut sockets = self
+            .tcp_sockets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        sockets.retain(|sock| sock.strong_count() > 0);
+        sockets.push(Arc::downgrade(&sock));
+        Ok(sock)
     }
 
     /// Create a UDP socket connected to nothing for `cred`, as `sock_create`
@@ -638,6 +664,59 @@ mod tests {
             matches!(third, Err(FilesystemError::WouldBlock)),
             "Namespace::connect past the Invocation's connection limit must answer EAGAIN even \
              once the earlier connections closed"
+        );
+    }
+
+    // @behavior NW-164
+    #[test]
+    fn the_invocations_end_lets_go_of_a_socket_still_sending() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut entry = crate::network::Builder::default();
+        entry.endpoint(
+            Endpoint::new("127.0.0.1", listener.local_addr().unwrap().port())
+                .unwrap()
+                .with_protocol(Protocol::Tcp),
+        );
+        let network = Network::new("db", Arc::new(entry)).unwrap();
+        let namespace = Namespace::new(
+            [&network],
+            Arc::new(crate::net::HostInet),
+            Arc::new(crate::net::HyperOutbound::new()),
+            OpenConnections::new(None),
+            None,
+        )
+        .unwrap();
+        let cred = prepare_creds_within(&[], None);
+        let mut peers = Vec::new();
+        // The host may still take what was queued before the release, under
+        // load; each try releases a socket filled again until one holds bytes.
+        let held = (0..5)
+            .map(|_| {
+                let sock = dial(&namespace, &cred, listener.local_addr().unwrap()).unwrap();
+                peers.push(listener.accept().unwrap().0);
+                settle(&sock);
+                let mut file =
+                    crate::net::sock_alloc_file(sock.clone(), crate::net::SockType::Stream, &cred);
+                while file.write(&[7; 16 * 1024]).is_ok() {}
+                let held = Arc::downgrade(&sock);
+                drop((sock, file));
+                held
+            })
+            .find(|held| held.upgrade().is_some());
+        let orphaned = held.is_some();
+        drop(namespace);
+        let held = held.unwrap_or_default();
+        // The reactor may hold the socket a moment longer for an event
+        // already under way.
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while held.strong_count() > 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(
+            (orphaned, held.strong_count() > 0),
+            (true, false),
+            "a socket released with bytes its peer never read must hold itself while it sends, \
+             and the Invocation's namespace dropping must let it go"
         );
     }
 

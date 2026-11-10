@@ -4234,3 +4234,51 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | the bundled Guest Binary |
 | When | the host asks its `cabi_realloc` for room for an empty list twice, then for more room than it has |
 | Then | both empty lists answer the alignment and take no room, as wit-bindgen's runtime does, since the bindings never free one. The last call traps, so the host never writes at 0 |
+
+## `RT-376` A socket its peer ended reads the end before a later failure
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-357` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket whose peer sent its FIN, then reset it |
+| When | the guest reads, then writes |
+| Then | the read answers zero, as `SOCK_DONE` stops `tcp_recvmsg` before `sk_err`, and the write answers the failure |
+
+## `RT-377` A socket shut down while it connects disconnects
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-372` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a socket whose connect is under way |
+| When | a Wasm Driver shuts it down |
+| Then | the shutdown answers success, as `inet_shutdown` disconnects a socket in `TCP_SYN_SENT`. The socket stands unconnected with neither side marked, so finishing the connect answers ENOTCONN |
+
+## `RT-378` A released socket sends what it queued, then its FIN
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-346` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket holding bytes it took but has not sent |
+| When | its last view is dropped |
+| Then | the socket sends every byte and then its FIN, as `__tcp_close` sends what is queued. It holds itself and its place until then |
+
+## `RT-379` A socket released with bytes unread resets its connection
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-346` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket holding bytes it received but the guest never read |
+| When | its last view is dropped |
+| Then | the peer reads a reset, as `__tcp_close` resets a connection whose unread data it throws away |

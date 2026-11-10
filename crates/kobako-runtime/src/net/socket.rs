@@ -14,7 +14,12 @@ use crate::vfs::{
 use crate::wait::PollTable;
 
 use super::connections::Place;
-use super::MAX_SOCKET_BUFFER;
+
+/// How much a socket holds each way before it stops reading and refuses
+/// more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket and net core's
+/// `rmem_max` and `wmem_max` bound what either may be set to, so a full
+/// buffer pushes back on the peer.
+pub const MAX_SOCKET_BUFFER: usize = 64 * 1024;
 
 /// What one protocol answers for its socket, as Linux's `struct proto_ops`:
 /// the file's reads and writes, what a poll finds, its shutdown, names, and

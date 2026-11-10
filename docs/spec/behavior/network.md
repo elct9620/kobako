@@ -2021,3 +2021,16 @@ endpoint "api.example.com", port: 443
 | Given | a guest naming request options it was never handed |
 | When | it sends a request with them |
 | Then | the call traps before the host judges the request, as wasmtime traps an unknown handle as it lifts one |
+
+## `NW-164` An Invocation's end lets go of a socket still sending
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+| relates | `RT-378` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest's TCP socket released with bytes its peer never read |
+| When | the Invocation ends |
+| Then | the socket lets go of what it still holds, so nothing the Invocation made outlives it |

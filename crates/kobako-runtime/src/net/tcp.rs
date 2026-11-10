@@ -18,15 +18,10 @@ use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
     ensure_within, take_connect_outcome, to_error, to_ttl, InetSock, MemoryCharge, ProtoOps,
-    SockOpt,
+    SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
-
-/// How much a socket holds each way before it stops reading and refuses
-/// more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket, so a full buffer
-/// pushes back through the TCP window.
-pub const MAX_SOCKET_BUFFER: usize = 64 * 1024;
 
 /// How much one host read moves at once.
 const CHUNK: usize = 16 * 1024;
@@ -68,16 +63,23 @@ enum Phase {
     Unconnected,
     Connecting,
     Connected,
-    /// Closed by a failed connect or a reset, as `tcp_done` leaves a socket
-    /// in `TCP_CLOSE` with both sides shut down.
-    Closed,
+    /// Closed by a failed connect, as `tcp_done` leaves a socket in
+    /// `TCP_CLOSE` with both sides shut down; it may connect afresh.
+    Failed,
+    /// Closed by a reset once connected, as `tcp_done` leaves it beside
+    /// `SS_CONNECTED`, so it never connects again.
+    Reset,
+}
+
+impl Phase {
+    /// Whether a failed connect or a reset closed it.
+    fn is_closed(&self) -> bool {
+        matches!(self, Phase::Failed | Phase::Reset)
+    }
 }
 
 struct State {
     phase: Phase,
-    /// The socket once connected, as `SS_CONNECTED`, which a later reset
-    /// leaves standing, so it never connects again.
-    connected: bool,
     /// The host socket, and its place in the reactor.
     host: Option<(mio::net::TcpStream, Registration)>,
     /// The addresses still to try, should the one connecting fail.
@@ -94,6 +96,9 @@ struct State {
     /// The keepalive probes the guest asked for; the host socket takes them
     /// as it is dialed.
     keepalive: KeepAlive,
+    /// The socket itself once released with bytes still to send, held until
+    /// they and the FIN leave, as Linux keeps an orphan in `FIN_WAIT1`.
+    orphan: Option<Arc<TcpSock>>,
 }
 
 /// One TCP socket, shared by the socket file and the reactor.
@@ -119,7 +124,6 @@ impl TcpSock {
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 phase: Phase::Unconnected,
-                connected: false,
                 host: None,
                 untried: VecDeque::new(),
                 received: VecDeque::new(),
@@ -133,6 +137,7 @@ impl TcpSock {
                     interval: TCP_KEEPALIVE_INTVL,
                     count: TCP_KEEPALIVE_PROBES,
                 },
+                orphan: None,
             }),
             wait: Arc::default(),
             family,
@@ -159,8 +164,8 @@ impl TcpSock {
             match state.phase {
                 Phase::Connecting => return Err(FilesystemError::AlreadyInProgress),
                 Phase::Connected => return Err(FilesystemError::AlreadyConnected),
-                Phase::Closed if state.connected => return Err(FilesystemError::AlreadyConnected),
-                Phase::Closed => {
+                Phase::Reset => return Err(FilesystemError::AlreadyConnected),
+                Phase::Failed => {
                     let err = state
                         .inet
                         .error
@@ -229,7 +234,10 @@ impl TcpSock {
     /// or a reset: `TCP_CLOSE`, both sides shut down, the failure pending.
     fn close(state: &mut State, err: FilesystemError) {
         Self::close_host(state);
-        state.phase = Phase::Closed;
+        state.phase = match state.phase {
+            Phase::Connected => Phase::Reset,
+            _ => Phase::Failed,
+        };
         state.inet.error = Some(err);
     }
 
@@ -314,7 +322,6 @@ impl TcpSock {
             None => return,
             Some(Ok(())) => {
                 state.phase = Phase::Connected;
-                state.connected = true;
                 return;
             }
             Some(Err(err)) => err,
@@ -324,11 +331,32 @@ impl TcpSock {
     }
 
     /// Move what can move, then wake every poller, since what a poll finds
-    /// may have changed.
+    /// may have changed. An orphan whose bytes and FIN left, or whose
+    /// connection ended, lets go of itself.
     fn pump_and_wake(&self, mut state: MutexGuard<'_, State>) {
         self.pump(&mut state);
+        let settled = state.orphan.is_some()
+            && (state.phase != Phase::Connected || (state.sending.is_empty() && state.fin_sent));
+        let orphan = settled.then(|| Self::let_go(&mut state)).flatten();
         drop(state);
         self.wait.wake_up();
+        drop(orphan);
+    }
+
+    /// Give back the socket's place and memory and close the host socket,
+    /// answering the hold an orphan kept on itself.
+    fn let_go(state: &mut State) -> Option<Arc<TcpSock>> {
+        state.sending.clear();
+        state.inet.release();
+        Self::close_host(state);
+        state.orphan.take()
+    }
+
+    /// Let go of an orphan still sending, as the Invocation's end does with
+    /// whatever its sockets still hold.
+    pub(crate) fn abandon(&self) {
+        let orphan = Self::let_go(&mut self.state());
+        drop(orphan);
     }
 
     /// How the connect ended: still under way answers EAGAIN, as a
@@ -340,7 +368,7 @@ impl TcpSock {
             Phase::Unconnected => Err(FilesystemError::NotConnected),
             Phase::Connecting => Err(FilesystemError::WouldBlock),
             Phase::Connected => Ok(()),
-            Phase::Closed => Err(state
+            Phase::Failed | Phase::Reset => Err(state
                 .inet
                 .error
                 .take()
@@ -380,19 +408,6 @@ impl TcpSock {
             to_error(&err)
         })
     }
-
-    /// Let go of the host socket once every view is gone, as `sock_close`
-    /// runs on the last `fput`.
-    fn release(&self) {
-        let mut state = self.state();
-        state.untried.clear();
-        state.received.clear();
-        state.sending.clear();
-        state.inet.release();
-        Self::close_host(&mut state);
-        drop(state);
-        self.wait.wake_up();
-    }
 }
 
 impl Ready for TcpSock {
@@ -407,8 +422,9 @@ impl Ready for TcpSock {
 impl ProtoOps for TcpSock {
     /// What the receive buffer holds, up to `buf`'s length, as
     /// `tcp_recvmsg_locked` copies what is queued first. A drained buffer then
-    /// answers a pending failure once, and the end as zero; it answers EAGAIN
-    /// until either comes, and ENOTCONN on a socket that never connected.
+    /// answers the peer's end as zero, ahead of any failure as `SOCK_DONE`
+    /// is, then a pending failure once; it answers EAGAIN until either comes,
+    /// and ENOTCONN on a socket that never connected.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
         if !state.received.is_empty() {
@@ -419,12 +435,15 @@ impl ProtoOps for TcpSock {
             self.pump_and_wake(state);
             return Ok(take);
         }
+        if state.received_end {
+            return Ok(0);
+        }
         if let Some(err) = state.inet.error.take() {
             return Err(err);
         }
         match state.phase {
-            _ if state.received_end || state.inet.rcv_shut => Ok(0),
-            Phase::Closed => Ok(0),
+            _ if state.inet.rcv_shut => Ok(0),
+            Phase::Failed | Phase::Reset => Ok(0),
             Phase::Unconnected => Err(FilesystemError::NotConnected),
             Phase::Connecting | Phase::Connected => Err(FilesystemError::WouldBlock),
         }
@@ -470,10 +489,9 @@ impl ProtoOps for TcpSock {
     fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
         poll_wait(&self.wait, table);
         let state = self.state();
-        let closed = matches!(state.phase, Phase::Unconnected | Phase::Closed);
-        let rcv_shutdown =
-            state.received_end || state.inet.rcv_shut || state.phase == Phase::Closed;
-        let send_shutdown = state.inet.send_shut || state.phase == Phase::Closed;
+        let closed = state.phase == Phase::Unconnected || state.phase.is_closed();
+        let rcv_shutdown = state.received_end || state.inet.rcv_shut || state.phase.is_closed();
+        let send_shutdown = state.inet.send_shut || state.phase.is_closed();
         let mut mask = PollMask::default();
         if closed || (rcv_shutdown && send_shutdown) {
             mask = mask | PollMask::HUP;
@@ -495,11 +513,19 @@ impl ProtoOps for TcpSock {
     /// Shut the writing side down once what is queued is sent, or the reading
     /// side, which still reads what arrived, as `inet_shutdown` sets
     /// `SEND_SHUTDOWN` and `RCV_SHUTDOWN`; a socket not connected marks them
-    /// and answers `ENOTCONN`. One still connecting answers the same, where
-    /// Linux's disconnects it; only preview1's `sock_shutdown` reaches that,
-    /// since preview2 refuses a shutdown before the connect settles.
+    /// and answers `ENOTCONN`. One still connecting is disconnected instead,
+    /// back to unconnected with nothing marked, as `inet_shutdown` disconnects
+    /// one in `TCP_SYN_SENT`.
     fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
         let mut state = self.state();
+        if state.phase == Phase::Connecting {
+            Self::close_host(&mut state);
+            Self::disconnect(&mut state);
+            state.inet.place = None;
+            drop(state);
+            self.wait.wake_up();
+            return Ok(());
+        }
         state.inet.mark_shutdown(how);
         let connected = state.phase == Phase::Connected;
         self.pump_and_wake(state);
@@ -565,8 +591,30 @@ impl ProtoOps for TcpSock {
         }
     }
 
+    /// Let go of the socket once every view is gone, as `sock_close` runs on
+    /// the last `fput` and `__tcp_close` closes it: bytes still queued leave
+    /// before the FIN, the socket holding itself and its place until then,
+    /// and bytes that arrived unread reset the connection instead.
     fn release(&self) {
-        TcpSock::release(self)
+        let mut state = self.state();
+        state.untried.clear();
+        let unread = !std::mem::take(&mut state.received).is_empty();
+        if unread {
+            // Closed with a zero linger and no FIN, the host socket resets.
+            if let Some((mut stream, registration)) = state.host.take() {
+                registration.deregister(&mut stream);
+                let _ = SockRef::from(&stream).set_linger(Some(Duration::ZERO));
+            }
+        } else if state.phase == Phase::Connected && !state.sending.is_empty() {
+            state.inet.mark_shutdown(Shutdown::Write);
+            state.orphan = self.this.upgrade();
+            self.pump_and_wake(state);
+            return;
+        }
+        let orphan = Self::let_go(&mut state);
+        drop(state);
+        self.wait.wake_up();
+        drop(orphan);
     }
 }
 
@@ -912,6 +960,100 @@ mod tests {
             ),
             "File::read of a reset socket must answer ECONNRESET once and then zero, and \
              File::write then EPIPE, as sock_error clears sk_err"
+        );
+    }
+
+    // @behavior RT-376
+    #[test]
+    fn a_socket_its_peer_ended_reads_the_end_before_a_later_failure() {
+        let (_sock, mut file, peer) = connected_socket();
+        file.write(b"unread").unwrap();
+        peer.shutdown(Shutdown::Write).unwrap();
+        wait_for(|table| file.poll(table), PollMask::IN);
+        std::thread::sleep(Duration::from_millis(20));
+        drop(peer);
+        std::thread::sleep(Duration::from_millis(20));
+        let _ = file.write(b"after the reset");
+        wait_for(|table| file.poll(table), PollMask::ERR);
+        let mut buf = [0; 8];
+        let (read, write) = (file.read(&mut buf), file.write(b"x"));
+        assert!(
+            read == Ok(0) && write.is_err(),
+            "File::read of a socket whose peer sent its FIN, then reset it, must answer zero \
+             ahead of the failure, as SOCK_DONE stops tcp_recvmsg before sk_err, and \
+             File::write the failure; got {read:?} and {write:?}"
+        );
+    }
+
+    // @behavior RT-377
+    #[test]
+    fn a_socket_shut_down_while_it_connects_disconnects() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let sock = dial(listener.local_addr().unwrap());
+        // Hold it connecting whatever the reactor settled meanwhile, so the
+        // shutdown meets a connect under way.
+        sock.state().phase = Phase::Connecting;
+        let shut = sock.shutdown(Shutdown::Both);
+        let (finished, marked) = {
+            let finished = sock.finish_connect();
+            let state = sock.state();
+            (finished, (state.inet.rcv_shut, state.inet.send_shut))
+        };
+        assert_eq!(
+            (shut, finished, marked),
+            (Ok(()), Err(FilesystemError::NotConnected), (false, false)),
+            "a shutdown of a socket still connecting must answer success, leave it unconnected \
+             so finishing the connect answers ENOTCONN, and mark neither side, as inet_shutdown \
+             disconnects a socket in TCP_SYN_SENT"
+        );
+    }
+
+    /// Write to `file` until the socket and the host take no more, answering
+    /// how many bytes it took.
+    fn fill(file: &mut File) -> usize {
+        let mut sent = 0;
+        loop {
+            match file.write(&[7; 16 * 1024]) {
+                Ok(n) => sent += n,
+                Err(FilesystemError::WouldBlock) => return sent,
+                Err(err) => panic!("a connected socket takes bytes until full: {err:?}"),
+            }
+        }
+    }
+
+    // @behavior RT-378
+    #[test]
+    fn a_released_socket_sends_what_it_queued_then_its_fin() {
+        let (_sock, mut file, mut peer) = connected_socket();
+        peer.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let sent = fill(&mut file);
+        drop(file);
+        let mut got = Vec::new();
+        let read = peer.read_to_end(&mut got).map(|_| got.len());
+        assert_eq!(
+            read.ok(),
+            Some(sent),
+            "a socket file dropped with bytes still queued must send every one of the {sent} \
+             bytes it took, then its FIN, as __tcp_close sends what is queued"
+        );
+    }
+
+    // @behavior RT-379
+    #[test]
+    fn a_socket_released_with_bytes_unread_resets_its_connection() {
+        let (_sock, file, mut peer) = connected_socket();
+        peer.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        peer.write_all(b"unread").unwrap();
+        wait_for(|table| file.poll(table), PollMask::IN);
+        drop(file);
+        let read = peer.read(&mut [0; 8]).map_err(|err| err.kind());
+        assert_eq!(
+            read,
+            Err(io::ErrorKind::ConnectionReset),
+            "a socket file dropped with bytes it never read must reset its connection, as \
+             __tcp_close sends a reset when unread data is thrown away"
         );
     }
 
