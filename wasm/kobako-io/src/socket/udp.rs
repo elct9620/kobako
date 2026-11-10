@@ -9,7 +9,7 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
-use super::address::{local_of, named_of, peer_of, to_ip_socket_address};
+use super::address::{local_of, peer_of, peer_spelling_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
     direct_args, exception_option, open_socket_of, ready_of, IoState, SocketIo, Wait,
@@ -44,16 +44,22 @@ struct Streams {
     incoming: IncomingDatagramStream,
     outgoing: OutgoingDatagramStream,
     peer: (Ipv4Addr, u16),
-    /// The host as `connect` was handed it, so a send naming it again reaches
-    /// the same peer without another lookup.
-    named: String,
+    /// The host `connect` was handed, as the resolver reads a name, so a send
+    /// naming it again reaches the same peer without another lookup.
+    host: String,
+}
+
+/// `host` as the resolver reads a name: lowercase, with no trailing dot.
+fn to_lookup_name(host: &str) -> String {
+    host.trim_end_matches('.').to_ascii_lowercase()
 }
 
 impl Streams {
-    /// Whether `host` and `port` name the peer: the host as `connect` spelled
-    /// it, or the address it streams with.
+    /// Whether `host` and `port` name the peer: the host `connect` was handed,
+    /// or the address it streams with.
     fn names(&self, host: &str, port: u16) -> bool {
-        port == self.peer.1 && (host == self.named || host.parse() == Ok(self.peer.0))
+        port == self.peer.1
+            && (to_lookup_name(host) == self.host || host.parse() == Ok(self.peer.0))
     }
 }
 
@@ -269,7 +275,7 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
 /// `connect(host, port)` streams with the peer `host` and `port` name, binding
 /// first if no bind came before, as Linux's autobind does.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
-    let named = host.to_r_string(mrb)?.to_string(mrb)?;
+    let lookup_name = to_lookup_name(&host.to_r_string(mrb)?.to_string(mrb)?);
     let (ip, port, call) = peer_of(mrb, host, port, None, UDP, "connect(2)")?;
     let failed = |code| to_error(mrb, code, UDP, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
@@ -285,7 +291,7 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
             incoming,
             outgoing,
             peer: (ip, port),
-            named,
+            host: lookup_name,
         });
         Ok(())
     })?;
@@ -309,10 +315,22 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let data = mesg_bytes_of(mrb, mesg)?;
-    let (named, call) = match to {
+    // Whether the address a send names is the peer, `None` when it names none.
+    let (to_peer, call) = match to {
         Some((host, port)) => {
-            let (host, port, call) = named_of(mrb, host, port, "sendto(2)")?;
-            (Some((host, port)), call)
+            let (spelled, number, call) = peer_spelling_of(mrb, host, port, "sendto(2)")?;
+            let to_peer = Datagrams::of(mrb, self_)?.with(mrb, |open| {
+                Ok(open
+                    .streams
+                    .as_ref()
+                    .is_some_and(|streams| streams.names(&spelled, number)))
+            })?;
+            // Another destination is looked up first, so a name no endpoint
+            // allows, or IPv6, raises what a connect to it would.
+            if !to_peer {
+                peer_of(mrb, host, port, None, UDP, "sendto(2)")?;
+            }
+            (Some(to_peer), call)
         }
         None => (None, "send(2)".to_string()),
     };
@@ -321,13 +339,9 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         if open.send_shut {
             return Err(errno::error_by_name(mrb, c"EPIPE", &call));
         }
-        let peer = open.streams.as_ref().filter(|streams| {
-            named
-                .as_ref()
-                .is_none_or(|(host, port)| streams.names(host, *port))
-        });
+        let peer = open.streams.as_ref().filter(|_| to_peer != Some(false));
         let Some(streams) = peer else {
-            let name = match named {
+            let name = match to_peer {
                 Some(_) => c"EACCES",
                 None => c"EDESTADDRREQ",
             };

@@ -10,15 +10,22 @@ class TestE2ENetworkUdpNamed < Minitest::Test
   include E2eGuestHelper
 
   ADDRESSED = <<~RUBY
-    socket = UDPSocket.new
-    socket.connect("localhost", %<port>d)
-    sent = [socket.send("by name", 0, "localhost", %<port>d)]
-    sent << begin
-      socket.send("elsewhere", 0, "127.0.0.1", %<port>d + 1)
-    rescue SystemCallError => e
+    outcome = lambda do |&call|
+      call.call
+    rescue StandardError => e
       e.class.to_s
     end
-    sent
+    socket = UDPSocket.new
+    socket.connect("localhost", %<port>d)
+    virtual = socket.remote_address.ip_address
+    [
+      outcome.call { socket.send("a", 0, "localhost", %<port>d) },
+      outcome.call { socket.send("b", 0, "LOCALHOST.", %<port>d) },
+      outcome.call { socket.send("c", 0, virtual, %<port>d) },
+      outcome.call { socket.send("x", 0, "localhost", %<port>d + 1) },
+      outcome.call { socket.send("x", 0, "unnamed.example", %<port>d) },
+      outcome.call { socket.send("x", 0, "::1", %<port>d) }
+    ]
   RUBY
 
   # @behavior NW-168
@@ -27,9 +34,11 @@ class TestE2ENetworkUdpNamed < Minitest::Test
     port = peers.first.addr[1]
     value = localhost_udp_sandbox(port).eval(format(ADDRESSED, port: port)).value
 
-    assert_equal [[7, "Errno::EACCES"], "by name"], [value, receive_first_datagram_of(peers)],
-                 "UDPSocket#send naming the host and port #connect named must reach that peer, and #send " \
-                 "naming another address must raise Errno::EACCES"
+    assert_equal [[1, 1, 1, "Errno::EACCES", "Socket::ResolutionError", "Errno::EAFNOSUPPORT"], %w[a b c]],
+                 [value, receive_from_any(peers, 3).sort],
+                 "UDPSocket#send naming the host #connect named in any case, or the peer's address, at its port " \
+                 "must reach that peer; one to another port must raise Errno::EACCES, and one to a name no " \
+                 "endpoint allows or to IPv6 must raise what a connect to it would"
   ensure
     peers&.each(&:close)
   end
@@ -53,9 +62,11 @@ class TestE2ENetworkUdpNamed < Minitest::Test
     [v4, v6].compact
   end
 
-  # The first datagram any of +peers+ receives within a few seconds.
-  def receive_first_datagram_of(peers)
-    readable, = IO.select(peers, nil, nil, 5)
-    readable&.first&.recv(16)
+  # Up to +count+ datagrams any of +peers+ receives, each within a few seconds.
+  def receive_from_any(peers, count)
+    Array.new(count).filter_map do
+      readable, = IO.select(peers, nil, nil, 5)
+      readable&.first&.recv(16)
+    end
   end
 end

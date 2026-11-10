@@ -2094,4 +2094,4 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a script's `TCPSocket` and `UDPSocket`, each closed |
 | When | it seeks, reads the position, rewinds, syncs, or gives advice |
-| Then | each call raises `IOError`, as CRuby checks the stream before the call |
+| Then | each call raises `IOError`, as CRuby checks the stream before the call. An unsupported advice raises `NotImplementedError` first, as CRuby checks the advice ahead of the stream |

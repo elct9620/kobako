@@ -3,8 +3,8 @@
 //! `#eof?`, `#seek`, `#rewind`, `#pos` / `#tell`, `#pos=`, `#pread`,
 //! `#pwrite`, `#fsync`, `#fdatasync`, `#advise`, `#close`, `#closed?`.
 //!
-//! A sync, a positioned write, and an advice reach a captured stream too,
-//! which answers as the pipe it is on Linux.
+//! A sync, a position, a positioned write, and an advice reach a captured
+//! stream too, which answers as the pipe it is on Linux.
 //!
 //! Each reaches the descriptor through `std::fs::File` without taking it
 //! over, so the descriptor stays the `IO`'s until `#close`. The host

@@ -28,7 +28,7 @@ pub(super) enum Wait {
 
 impl Wait {
     /// How long a wait under it may last: unbounded, or not at all.
-    pub(super) fn limit(self) -> Option<std::time::Duration> {
+    pub(super) fn timeout(self) -> Option<std::time::Duration> {
         match self {
             Wait::Block => None,
             Wait::DontWait => Some(std::time::Duration::ZERO),
@@ -476,13 +476,13 @@ fn socket_unsyncable(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// `advise(advice, offset = 0, len = 0)` checks the advice as a file's does,
 /// then is taken and ignored, as Linux's `fadvise` takes advice on a socket;
-/// a closed socket raises `IOError` first.
+/// past the advice, a closed socket raises `IOError`, as CRuby's checks.
 fn socket_advise(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let Some(advice) = args.first().filter(|_| args.len() <= 3) else {
         return Err(Error::argnum(mrb, args.len(), 1, 3));
     };
-    open_socket_of(mrb, self_)?;
     crate::stream::advice_of(mrb, *advice)?;
+    open_socket_of(mrb, self_)?;
     Ok(qnil().as_value())
 }
 

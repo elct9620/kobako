@@ -33,7 +33,7 @@ class TestE2ENetworkSocketIo < Minitest::Test
   NO_POSITION = <<~RUBY
     outcome = lambda do |&call|
       call.call
-    rescue StandardError => e
+    rescue StandardError, NotImplementedError => e
       e.class.to_s
     end
     stream = TCPSocket.new("127.0.0.1", %<port>d)
@@ -50,7 +50,8 @@ class TestE2ENetworkSocketIo < Minitest::Test
     closed = sockets.each(&:close).map do |socket|
       [
         outcome.call { socket.seek(0) }, outcome.call { socket.pos }, outcome.call { socket.rewind },
-        outcome.call { socket.fsync }, outcome.call { socket.fdatasync }, outcome.call { socket.advise(:normal) }
+        outcome.call { socket.fsync }, outcome.call { socket.fdatasync }, outcome.call { socket.advise(:normal) },
+        outcome.call { socket.advise(:bogus) }
       ]
     end
     open + closed
@@ -63,12 +64,12 @@ class TestE2ENetworkSocketIo < Minitest::Test
       value = loopback_sandbox(port).eval(format(NO_POSITION, port: port)).value
 
       answers = (["Errno::ESPIPE"] * 3) + (["Errno::EINVAL"] * 2) + [nil, true, false, false] + (["NoMethodError"] * 2)
-      closed = ["IOError"] * 6
+      closed = (["IOError"] * 6) + ["NotImplementedError"]
       assert_equal [answers, answers, closed, closed], value,
                    "TCPSocket and UDPSocket #seek, #pos, and #rewind must raise Errno::ESPIPE, #fsync and " \
                    "#fdatasync Errno::EINVAL, #advise answer nil, #sync start true and read back what #sync= " \
                    "set, and #dup and #clone raise NoMethodError; once closed, each position, sync, and advice " \
-                   "call must raise IOError, as CRuby's do"
+                   "call must raise IOError, and an unsupported advice NotImplementedError first, as CRuby's do"
     end
   end
 
