@@ -9,7 +9,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{FileType, FilesystemError, Iattr, Kstat, SetTime};
-use kobako_runtime::net::{sock_from_file, SockType};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{self, verify_dirent_name, DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
@@ -18,7 +17,7 @@ use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::path::retry_eagain;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
-use crate::descriptors::{lock, Descriptor, Descriptors};
+use crate::descriptors::{Descriptor, Descriptors};
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
 /// most userlands.
@@ -85,19 +84,6 @@ fn file_mut(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
     }
 }
 
-/// Run `call` on the open file `fd` stands for, a socket's included, as one
-/// fdtable holds a socket's file beside a regular one.
-fn with_open_file<T>(
-    table: &mut Descriptors,
-    fd: u32,
-    call: impl FnOnce(&mut File) -> Answer<T>,
-) -> Answer<T> {
-    match table.socket(fd) {
-        Some(socket) => call(&mut lock(&socket)),
-        None => call(file_mut(table, fd)?),
-    }
-}
-
 /// The open file `fd` stands for, in a call about its position. wasi-testsuite
 /// has a directory refuse one, where Linux would seek it.
 fn seekable_file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
@@ -127,18 +113,6 @@ fn to_filetype(file_type: FileType) -> Filetype {
         FileType::Blkdev => Filetype::BlockDevice,
         FileType::Chrdev => Filetype::CharacterDevice,
         _ => Filetype::Unknown,
-    }
-}
-
-/// A socket `file` as a preview1 `filetype`, which tells a stream from a
-/// datagram socket where `st_mode` does not.
-fn to_socket_filetype(file: &File) -> Filetype {
-    match sock_from_file(file) {
-        Some((_, SockType::Stream)) => Filetype::SocketStream,
-        Some((_, SockType::Dgram)) => Filetype::SocketDgram,
-        // A kind preview1 names no filetype for.
-        Some(_) => Filetype::Unknown,
-        None => unreachable!("a socket's number holds a socket file"),
     }
 }
 
@@ -201,11 +175,11 @@ fn to_iattr(
 }
 
 pub(crate) fn advise(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
-    with_open_file(table, fd, |file| Ok(file.fadvise(offset, len)?))
+    Ok(file_mut(table, fd)?.fadvise(offset, len)?)
 }
 
 pub(crate) fn allocate(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
-    with_open_file(table, fd, |file| Ok(file.fallocate(offset, len)?))
+    Ok(file_mut(table, fd)?.fallocate(offset, len)?)
 }
 
 pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
@@ -213,17 +187,10 @@ pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn sync(table: &mut Descriptors, fd: u32, datasync: bool) -> Answer {
-    with_open_file(table, fd, |file| Ok(file.fsync(datasync)?))
+    Ok(file_mut(table, fd)?.fsync(datasync)?)
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
-    if let Some(socket) = table.socket(fd) {
-        let socket = lock(&socket);
-        return Ok(types::Fdstat {
-            fs_filetype: to_socket_filetype(&socket),
-            ..to_fdstat(&socket, false)
-        });
-    }
     let descriptor = descriptor(table, fd)?;
     Ok(to_fdstat(
         &descriptor.file,
@@ -274,13 +241,11 @@ fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
 }
 
 pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: Fdflags) -> Answer {
-    with_open_file(table, fd, |file| {
-        file.setfl(
-            flags.contains(Fdflags::APPEND),
-            flags.contains(Fdflags::NONBLOCK),
-        );
-        Ok(())
-    })
+    file_mut(table, fd)?.setfl(
+        flags.contains(Fdflags::APPEND),
+        flags.contains(Fdflags::NONBLOCK),
+    );
+    Ok(())
 }
 
 /// Rights only narrow at open, so a later change is unsupported.
@@ -290,14 +255,6 @@ pub(crate) fn fdstat_set_rights(table: &Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filestat> {
-    if let Some(socket) = table.socket(fd) {
-        let socket = lock(&socket);
-        let stat = socket.getattr()?;
-        return Ok(types::Filestat {
-            filetype: to_socket_filetype(&socket),
-            ..to_filestat(table, stat)
-        });
-    }
     Ok(to_filestat(table, descriptor(table, fd)?.file.getattr()?))
 }
 
@@ -307,7 +264,7 @@ pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> 
     if i64::try_from(size).is_err() {
         return Err(Errno::Inval.into());
     }
-    with_open_file(table, fd, |file| Ok(file.truncate(size)?))
+    Ok(file_mut(table, fd)?.truncate(size)?)
 }
 
 pub(crate) fn filestat_set_times(table: &Descriptors, fd: u32, times: &Iattr) -> Answer {
@@ -326,10 +283,9 @@ pub(crate) fn pread(
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
-    with_open_file(table, fd, |file| {
-        file.may_pread(offset)?;
-        Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
-    })
+    let file = file_mut(table, fd)?;
+    file.may_pread(offset)?;
+    Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
 }
 
 pub(crate) fn prestat_get(table: &Descriptors, fd: u32) -> Answer<types::Prestat> {
@@ -368,10 +324,9 @@ pub(crate) fn pwrite(
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
-    with_open_file(table, fd, |file| {
-        file.may_pwrite(offset)?;
-        Ok(file.pwrite(mem.bytes(buf)?, offset)? as u32)
-    })
+    let file = file_mut(table, fd)?;
+    file.may_pwrite(offset)?;
+    Ok(file.pwrite(mem.bytes(buf)?, offset)? as u32)
 }
 
 pub(crate) fn read(
@@ -381,11 +336,10 @@ pub(crate) fn read(
     iovs: types::IovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
-    with_open_file(table, fd, |file| {
-        file.may_read()?;
-        // Bounded before the file is asked, as a trap takes no bytes from a pipe.
-        Ok(file.read(mem.bytes_mut(buf)?)? as u32)
-    })
+    let file = file_mut(table, fd)?;
+    file.may_read()?;
+    // Bounded before the file is asked, as a trap takes no bytes from a pipe.
+    Ok(file.read(mem.bytes_mut(buf)?)? as u32)
 }
 
 /// The `dirent` header ahead of one entry's name, its `d_next` left for the
@@ -452,9 +406,6 @@ pub(crate) fn readdir(
     capacity: u32,
     cookie: u64,
 ) -> Answer<types::Size> {
-    if table.socket(fd).is_some() {
-        return Err(Errno::Notdir.into());
-    }
     let profile = table.profile();
     let dir = file_mut(table, fd)?;
     // preview1 names where a listing goes on by its cookie, as wasi-libc's
@@ -529,9 +480,6 @@ pub(crate) fn seek(
         types::Whence::Cur => Whence::Cur,
         types::Whence::End => Whence::End,
     };
-    if let Some(socket) = table.socket(fd) {
-        return Ok(lock(&socket).llseek(offset, whence)?);
-    }
     Ok(seekable_file(table, fd)?.llseek(offset, whence)?)
 }
 
@@ -546,10 +494,9 @@ pub(crate) fn write(
     ciovs: types::CiovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
-    with_open_file(table, fd, |file| {
-        file.may_write()?;
-        Ok(file.write(mem.bytes(buf)?)? as u32)
-    })
+    let file = file_mut(table, fd)?;
+    file.may_write()?;
+    Ok(file.write(mem.bytes(buf)?)? as u32)
 }
 
 #[cfg(test)]
@@ -626,7 +573,7 @@ mod tests {
             ends(PipeInodeInfo::new(1)).1,
             ends(PipeInodeInfo::new(1)).1,
             mounts,
-            crate::descriptors::Numbers::new(kobako_runtime::vfs::OpenFiles::new(limit)),
+            kobako_runtime::vfs::OpenFiles::new(limit),
             cred.clone(),
             Profile::Hermetic,
         )

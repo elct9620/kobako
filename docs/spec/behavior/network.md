@@ -1879,7 +1879,6 @@ endpoint "api.example.com", port: 443
 | Attribute | Value |
 | --- | --- |
 | refines | `NW-053` |
-| relates | `RT-372` |
 
 | Step | Statement |
 | --- | --- |

@@ -201,9 +201,7 @@ impl Invocation {
         let cred = self.wasi().descriptors().cred().clone();
         let sock = create(self.network(), &cred)?;
         let socket = SocketFile::new(sock.clone(), sock_alloc_file(sock, sock_type, &cred));
-        let handle: H = self.table().push_file(resource(socket.clone()))?;
-        self.wasi().table().install(handle, &socket);
-        Ok(handle)
+        Ok(self.table().push_file(resource(socket))?)
     }
 
     /// A pollable ready once `file`'s poll finds `mask`, a child `parent` must
@@ -2152,41 +2150,6 @@ mod tests {
         (network_guest(endpoint), listener)
     }
 
-    // @behavior RT-380
-    #[test]
-    fn a_preview2_read_never_waits_whatever_the_socket_files_flag() {
-        let (mut guest, listener) = guest_and_listener();
-        let port = listener.local_addr().unwrap().port();
-        let answer = run_task(Some(Instant::now() + Duration::from_secs(5)), || {
-            let network = guest.instance_network_instance_network()?;
-            let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
-                .into_answer()?
-                .expect("a network makes a socket");
-            guest
-                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
-                .into_answer()?
-                .expect("the endpoint names the listener");
-            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
-            guest.poll_pollable_block(connecting)?;
-            let (input, _) = guest
-                .tcp_tcp_socket_finish_connect(socket)
-                .into_answer()?
-                .expect("the listener accepts");
-            let _peer = listener.accept().unwrap();
-            let file = guest.table().get(input)?.stream.file();
-            crate::descriptors::lock(&file).setfl(false, false);
-            guest.streams_input_stream_read(input, 8).into_answer()
-        })
-        .expect("the calls answer");
-        assert!(
-            matches!(answer, Ok(ref bytes) if bytes.is_empty()),
-            "input-stream.read of a socket with nothing yet must answer an empty list at once, \
-             as io.wit makes a read non-blocking, even once preview1 cleared the socket file's \
-             non-blocking flag; got {answer:?}"
-        );
-    }
-
     // @behavior NW-165
     #[test]
     fn a_read_of_nothing_after_a_failed_read_answers_closed() {
@@ -2823,14 +2786,14 @@ mod tests {
         let (mut store, instance) = guest(Profile::Hermetic, Some(3));
         let first = call::<i64, i32>(&mut store, &instance, "subscribe", 0);
         let guest = store.data_mut();
-        let held = (1..crate::descriptors::MAX_NUMBERS - 3)
+        let held = (1..crate::descriptors::MAX_NUMBERS)
             .map(|_| guest.monotonic_clock_subscribe_duration(0))
             .take_while(Result::is_ok)
             .count();
         let past = guest.monotonic_clock_subscribe_duration(0);
         assert_eq!(
             (first.is_ok(), held, past.is_err()),
-            (true, crate::descriptors::MAX_NUMBERS - 4, true),
+            (true, crate::descriptors::MAX_NUMBERS - 1, true),
             "subscribe-duration with the open file limit filled by the standard streams must \
              hand out pollables up to a million handles, then trap"
         );
@@ -3004,7 +2967,7 @@ mod tests {
 
     // @behavior RT-347
     #[test]
-    fn a_handle_and_a_descriptor_are_numbered_from_one_space() {
+    fn a_handle_numbers_apart_from_the_descriptors() {
         let (mut store, _) = guest(Profile::Hermetic, None);
         let guest = store.data_mut();
         let first = guest.instance_network_instance_network().unwrap();
@@ -3013,9 +2976,9 @@ mod tests {
         let again = guest.instance_network_instance_network().unwrap();
         assert_eq!(
             (first.0, next_descriptor, again.0),
-            (3, Some(4), 3),
-            "a guest holding only stdin, stdout, and stderr must take 3 for its first preview2 \
-             handle, find 4 as preview1's next descriptor, and take 3 again once it is freed"
+            (1, Some(3), 1),
+            "a guest holding only stdin, stdout, and stderr must take 1 for its first preview2 \
+             handle, still find 3 as preview1's next descriptor, and take 1 again once it is freed"
         );
     }
 

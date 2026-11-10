@@ -9,7 +9,7 @@ use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::ambient::{self, Clocks};
 use crate::config::Config;
-use crate::descriptors::{Descriptors, Numbers};
+use crate::descriptors::Descriptors;
 use crate::preview2;
 use kobako_runtime::endpoint;
 use kobako_runtime::error::Trap;
@@ -116,16 +116,15 @@ impl Wasi {
         // stdio lives in kobako's descriptor table, which answers every
         // call that reads a descriptor (`crate::preview1`); the builder
         // keeps only what the remaining imports read. preview2's resource
-        // table numbers from the same space and counts against the same open
-        // files.
-        let numbers = Numbers::new(OpenFiles::new(open_file_limit));
-        let table = preview2::Table::new(numbers.clone());
+        // table numbers its own and counts against the same open files.
+        let open_files = OpenFiles::new(open_file_limit);
+        let table = preview2::Table::new(open_files.clone());
         let descriptors = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
             mounts,
-            numbers,
+            open_files,
             opener,
             profile,
         )

@@ -3,13 +3,12 @@
 //!
 //! Each subscription becomes the pollable preview2 waits on, and preview2's
 //! poll answers which are ready, as wasmtime-wasi's preview1 builds its
-//! `poll_oneoff` on preview2's pollables. A file's descriptor is ready at
-//! once; a socket's waits on its socket file until the peer or the host
-//! moves it. A clock is due as the profile has it: at once on the hermetic
-//! profile's frozen clocks, and in host time beside a socket or on the
-//! permissive profile, never past the invocation's deadline. What only
-//! preview1 has stays here: which descriptor answers what, and EINTR for a
-//! wait the frontend interrupts.
+//! `poll_oneoff` on preview2's pollables. Every descriptor preview1 holds is
+//! a file, ready at once. A clock is due as the profile has it: at once on
+//! the hermetic profile's frozen clocks, and in host time on the permissive
+//! profile, never past the invocation's deadline. What only preview1 has
+//! stays here: which descriptor answers what, and EINTR for a wait the
+//! frontend interrupts.
 
 use std::time::{Duration, Instant};
 
@@ -20,41 +19,26 @@ use super::errno::{Answer, Errno};
 use super::fd::file;
 use super::memory::GuestMemory;
 use super::types::{self, Clockid, Eventrwflags, Eventtype, Subclockflags, SubscriptionU};
-use crate::descriptors::{lock, SharedFile};
 use crate::invocation::Invocation;
 use crate::preview2::Pollable;
 use crate::trap::Interrupted;
 
-/// One subscription as the guest wrote it, the error its event reports, and
-/// the socket file it waits on, if its descriptor is a socket's.
+/// One subscription as the guest wrote it, and the error its event reports.
 struct Subscription {
     userdata: u64,
     kind: Kind,
     error: Errno,
-    socket: Option<SharedFile>,
 }
 
 impl Subscription {
     /// The pollable preview2 waits on for this subscription, a clock due
     /// `started` plus what it has left.
     fn to_pollable(&self, started: Instant) -> Pollable {
-        match (&self.kind, &self.socket) {
-            (Kind::Clock(left), _) => Pollable::Clock {
-                at: started + Duration::from_nanos(*left),
+        match self.kind {
+            Kind::Clock(left) => Pollable::Clock {
+                at: started + Duration::from_nanos(left),
             },
-            (Kind::FdRead, Some(socket)) => Pollable::File(socket.clone(), PollMask::IN),
-            (Kind::FdWrite, Some(socket)) => Pollable::File(socket.clone(), PollMask::OUT),
-            (_, None) => Pollable::Ready,
-        }
-    }
-
-    /// The flags its event carries: a socket that hung up says so.
-    fn flags(&self) -> Eventrwflags {
-        match &self.socket {
-            Some(socket) if lock(socket).poll(None).contains(PollMask::HUP) => {
-                Eventrwflags::FD_READWRITE_HANGUP
-            }
-            _ => Eventrwflags::empty(),
+            Kind::FdRead | Kind::FdWrite => Pollable::Ready,
         }
     }
 }
@@ -101,10 +85,7 @@ pub(crate) fn poll_oneoff(
             Kind::Clock(_) => 0,
             Kind::FdRead | Kind::FdWrite => u64::from(sub.error == Errno::Success),
         };
-        mem.write(
-            events.add(written as u32)?,
-            to_event(sub, nbytes, sub.flags()),
-        )?;
+        mem.write(events.add(written as u32)?, to_event(sub, nbytes))?;
     }
     Ok(ready.len() as u32)
 }
@@ -115,30 +96,25 @@ fn read_subscription(
     sub: GuestPtr<types::Subscription>,
 ) -> Answer<Subscription> {
     let sub = mem.read(sub)?;
-    let descriptors = invocation.wasi().descriptors();
     let (kind, subscribed) = match sub.u {
         SubscriptionU::Clock(clock) => {
             return Ok(Subscription {
                 userdata: sub.userdata,
                 kind: read_clock(invocation, &clock)?,
                 error: Errno::Success,
-                socket: None,
             })
         }
         SubscriptionU::FdRead(subscribed) => (Kind::FdRead, subscribed),
         SubscriptionU::FdWrite(subscribed) => (Kind::FdWrite, subscribed),
     };
-    let socket = descriptors.socket(subscribed.file_descriptor.into());
-    let error = match (&socket, &kind) {
-        (Some(_), _) => Errno::Success,
-        (None, Kind::FdRead) => poll_descriptor(invocation, subscribed, PollMask::IN)?,
-        (None, _) => poll_descriptor(invocation, subscribed, PollMask::OUT)?,
+    let mask = match kind {
+        Kind::FdRead => PollMask::IN,
+        _ => PollMask::OUT,
     };
     Ok(Subscription {
         userdata: sub.userdata,
         kind,
-        error,
-        socket,
+        error: poll_descriptor(invocation, subscribed, mask)?,
     })
 }
 
@@ -181,7 +157,7 @@ fn read_clock(invocation: &Invocation, clock: &types::SubscriptionClock) -> Answ
     Ok(Kind::Clock(clock.timeout.saturating_sub(now)))
 }
 
-fn to_event(sub: &Subscription, nbytes: u64, flags: Eventrwflags) -> types::Event {
+fn to_event(sub: &Subscription, nbytes: u64) -> types::Event {
     types::Event {
         userdata: sub.userdata,
         error: sub.error,
@@ -190,7 +166,10 @@ fn to_event(sub: &Subscription, nbytes: u64, flags: Eventrwflags) -> types::Even
             Kind::FdRead => Eventtype::FdRead,
             Kind::FdWrite => Eventtype::FdWrite,
         },
-        fd_readwrite: types::EventFdReadwrite { nbytes, flags },
+        fd_readwrite: types::EventFdReadwrite {
+            nbytes,
+            flags: Eventrwflags::empty(),
+        },
     }
 }
 

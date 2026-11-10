@@ -1,6 +1,7 @@
 //! The resource table preview2 hands the guest its handles from, as
-//! wasmtime's `ResourceTable` is. Each handle takes a number from the
-//! space preview1's descriptors take theirs, since a socket is a file.
+//! wasmtime's `ResourceTable` is: it numbers its own, apart from preview1's
+//! descriptors, and counts each host-side producer against the open files
+//! both share.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -12,11 +13,11 @@ use kobako_runtime::net::{
     sock_recvmsg, sock_sendmsg, NameLookup, Namespace, TcpSock, UdpSock, MAX_SOCKET_BUFFER,
 };
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{File, FilesystemError, PollMask};
+use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
 
 use super::bindings::wasi_sockets_network_0_2_12::ErrorCode;
-use crate::descriptors::{lock, Numbers, SharedFile};
+use crate::descriptors::{lock, SharedFile, MAX_NUMBERS};
 
 /// One socket file every view of a guest socket shares, as handles on one
 /// `struct file` share one `struct socket`: the protocol's half is `S`, and
@@ -320,31 +321,43 @@ struct Entry {
     resource: Box<dyn Any + Send>,
     parent: Option<u32>,
     children: usize,
+    /// Whether it counts against the open files, as a host-side producer
+    /// does and a view does not.
+    is_file: bool,
 }
 
 impl Entry {
-    fn new(resource: Box<dyn Any + Send>, parent: Option<u32>) -> Self {
+    fn new(resource: Box<dyn Any + Send>, parent: Option<u32>, is_file: bool) -> Self {
         Self {
             resource,
             parent,
             children: 0,
+            is_file,
         }
     }
 }
 
 pub(crate) struct Table {
     entries: BTreeMap<u32, Entry>,
-    numbers: Numbers,
+    /// The numbers given back, the latest taken first, as wasmtime's
+    /// `ResourceTable` reuses its free list.
+    free: Vec<u32>,
+    /// The number past every one handed out so far.
+    next: u32,
+    open_files: OpenFiles,
     network: Option<Namespace>,
 }
 
 impl Table {
-    /// A table holding nothing, numbering from the space preview1's
-    /// descriptors share, with no network until one is granted.
-    pub(crate) fn new(numbers: Numbers) -> Self {
+    /// A table holding nothing, counting its files against `open_files`, with
+    /// no network until one is granted. Numbers start at 1, as the Canonical
+    /// ABI keeps 0 for no handle.
+    pub(crate) fn new(open_files: OpenFiles) -> Self {
         Self {
             entries: BTreeMap::new(),
-            numbers,
+            free: Vec::new(),
+            next: 1,
+            open_files,
             network: None,
         }
     }
@@ -361,26 +374,27 @@ impl Table {
     /// Whether the Invocation holds as many files as it may, so a new socket
     /// answers `new-socket-limit`, as Linux's `socket()` answers EMFILE.
     pub(crate) fn is_full(&self) -> bool {
-        self.numbers.lowest_unused().is_none()
+        self.open_files.is_full()
     }
 
     /// Hand out a handle for `resource`, a host-side producer that holds a
     /// file, as a socket, a lookup, or an exchange does; refused past the
     /// Invocation's open file limit.
     pub(crate) fn push_file<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
-        let handle = self.numbers.lowest_unused().ok_or_else(|| {
-            wasmtime::Error::msg("the guest holds as many files as its limit allows")
-        })?;
-        self.numbers.take(handle);
-        self.entries
-            .insert(handle, Entry::new(Box::new(resource), None));
-        Ok(H::new(handle))
+        if self.open_files.open().is_err() {
+            return Err(wasmtime::Error::msg(
+                "the guest holds as many files as its limit allows",
+            ));
+        }
+        self.insert(Box::new(resource), None, true)
+            .inspect_err(|_| self.open_files.close())
+            .map(H::new)
     }
 
     /// Hand out a handle for `resource`, a view that holds no file of its
     /// own; refused past `MAX_NUMBERS`.
     pub(crate) fn push<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
-        self.insert(Box::new(resource), None).map(H::new)
+        self.insert(Box::new(resource), None, false).map(H::new)
     }
 
     /// Hand out a handle for `resource` as a child of `parent`, which cannot
@@ -392,7 +406,7 @@ impl Table {
     ) -> wasmtime::Result<H> {
         let parent = parent.index();
         self.entry(parent)?;
-        let handle = self.insert(Box::new(resource), Some(parent))?;
+        let handle = self.insert(Box::new(resource), Some(parent), false)?;
         self.entries
             .get_mut(&parent)
             .expect("the parent was just found")
@@ -400,16 +414,25 @@ impl Table {
         Ok(H::new(handle))
     }
 
+    /// Number `resource` from the free list, else past every number handed
+    /// out; refused past `MAX_NUMBERS`.
     fn insert(
         &mut self,
         resource: Box<dyn Any + Send>,
         parent: Option<u32>,
+        is_file: bool,
     ) -> wasmtime::Result<u32> {
-        let handle = self.numbers.lowest_free().ok_or_else(|| {
-            wasmtime::Error::msg("the guest holds as many resources as a table may")
-        })?;
-        self.numbers.take_view(handle);
-        self.entries.insert(handle, Entry::new(resource, parent));
+        if self.entries.len() >= MAX_NUMBERS {
+            return Err(wasmtime::Error::msg(
+                "the guest holds as many resources as a table may",
+            ));
+        }
+        let handle = self.free.pop().unwrap_or_else(|| {
+            self.next += 1;
+            self.next - 1
+        });
+        self.entries
+            .insert(handle, Entry::new(resource, parent, is_file));
         Ok(handle)
     }
 
@@ -446,12 +469,6 @@ impl Table {
             .ok_or_else(|| wasmtime::Error::msg("the guest named a handle of another kind"))
     }
 
-    /// Have the socket's `handle` stand for its file, so a preview1 call on
-    /// the number reaches the socket, as one fdtable holds both.
-    pub(crate) fn install<S>(&self, handle: impl Handle, socket: &SocketFile<S>) {
-        self.numbers.install(handle.index(), socket.file.clone());
-    }
-
     /// Take `handle` out of the table. A handle of another kind, or one whose
     /// children still live, traps, as the Canonical ABI traps on a handle of
     /// the wrong type and the WIT on a parent dropped first.
@@ -472,7 +489,10 @@ impl Table {
             .entries
             .remove(&index)
             .expect("the entry was just found");
-        self.numbers.give_back(index);
+        self.free.push(index);
+        if entry.is_file {
+            self.open_files.close();
+        }
         if let Some(parent) = entry
             .parent
             .and_then(|parent| self.entries.get_mut(&parent))

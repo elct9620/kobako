@@ -3909,17 +3909,17 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the last view of its socket file is dropped |
 | Then | the peer reads the end, as `sock_close` shuts the socket down |
 
-## `RT-347` A preview2 handle and a preview1 descriptor never share a number
+## `RT-347` A preview2 handle numbers apart from preview1's descriptors
 
 | Attribute | Value |
 | --- | --- |
-| refines | `RT-189` |
+| relates | `RT-189` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a guest holding its three standard streams |
 | When | it takes a preview2 handle, then frees it, then takes another |
-| Then | the first takes 3, the lowest number neither encoding holds. The next takes 3 again, as Linux's one fdtable numbers every file |
+| Then | the first takes 1, as the Canonical ABI keeps 0 for no handle, and preview1's next descriptor is still 3. The next handle takes 1 again, as wasmtime's resource table reuses a freed one |
 
 ## `RT-348` A preview2 drop of a handle as another kind traps
 
@@ -3933,30 +3933,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it drops the handle through another kind's drop, or hands it where another kind is taken |
 | Then | the call traps and the handle stays, as the Canonical ABI traps on a handle of the wrong type |
 
-## `RT-349` A preview1 read or write of a socket's number reaches its socket file
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-347` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest whose preview2 socket connected to a peer |
-| When | it writes and then reads through preview1 on the socket's number, and asks its `fdstat` |
-| Then | the peer reads what was written and the guest reads the peer's reply. The `fdstat` reports a non-blocking socket stream, as one fdtable holds a socket's file |
-
-## `RT-350` A preview1 poll of a socket's number waits for its peer
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-349` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest whose preview2 socket connected to a peer that has sent nothing |
-| When | it polls the socket's number to read, and the peer then writes |
-| Then | the poll answers the subscription once the bytes arrive, not before |
-
 ## `RT-351` A reset reads as an error the socket's poll reports
 
 | Attribute | Value |
@@ -3968,18 +3944,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a connected socket whose peer closes with bytes it never read |
 | When | the peer's reset arrives |
 | Then | the socket file's poll finds ERR, as `tcp_poll` reads `sk_err`, and its read answers ECONNRESET |
-
-## `RT-352` A socket's number answers preview1 before it connects
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-349` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest holding a new preview2 TCP socket and a new UDP socket |
-| When | it polls, reads, and writes each socket's number through preview1 before any connect |
-| Then | the TCP socket polls writable and hung up. Its read answers ENOTCONN and its write EPIPE, as a fresh `tcp_sock` does. The UDP socket polls writable. Its read answers EAGAIN and its write EDESTADDRREQ, as `udp_sendmsg` answers with no peer |
 
 ## `RT-353` A preview2 list or string past the guest's memory traps
 
@@ -4004,18 +3968,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation whose host gave it up while a callback ran |
 | When | the guest makes any preview2 call |
 | Then | the call traps once it answered, as each preview1 call does, so the guest cannot go on as if answered |
-
-## `RT-355` A socket whose connect failed polls ready to read
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-350` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest whose preview2 socket's connect was refused |
-| When | it polls the socket's number to read |
-| Then | the poll answers the subscription at once, as Linux's `poll` reports an error whatever was asked |
 
 ## `RT-356` A connected socket asked to connect again answers EISCONN
 
@@ -4069,25 +4021,13 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Attribute | Value |
 | --- | --- |
-| refines | `RT-349` |
+| refines | `RT-343` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a connected TCP socket with nothing to read |
 | When | the guest reads zero bytes from the socket's file |
 | Then | the read answers zero, as `sock_read_iter` does, not EAGAIN |
-
-## `RT-363` A socket's number answers a file's calls as Linux answers them on a socket
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-349` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest holding a new preview2 TCP socket and a new UDP socket |
-| When | it seeks, tells, reads or writes at an offset, syncs, sizes, advises, and lists each number through preview1. It then asks each fdstat and filestat |
-| Then | a position or an offset answers ESPIPE, a sync or a size EINVAL, and a listing ENOTDIR. Advice succeeds, as Linux answers each on a socket. Both stats report a TCP socket as a stream and a UDP socket as datagrams |
 
 ## `RT-364` A socket whose connect failed answers the failure, then connects afresh
 
@@ -4186,18 +4126,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it waits on a one-second and a two-second clock together, through preview1 and through preview2 |
 | Then | each wait reports both clocks at once, since the frozen clocks never reach either |
 
-## `RT-372` A preview1 socket call reaches the socket behind its number
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-349` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest whose preview2 socket connected to a peer |
-| When | it sends, receives, peeks, accepts, and shuts the writing side down, then neither side, through `sock_*` on its number |
-| Then | the peer reads what was sent and the guest receives the reply. A peek answers ENOTSUP, since the socket answers through preview2's stream, which carries no receive flag. An accept answers EINVAL, as Linux's on a socket not listening. The shutdown ends the peer's read, and one naming neither side answers EINVAL |
-
 ## `RT-373` A preview2 answer into a misaligned return area traps
 
 | Attribute | Value |
@@ -4251,7 +4179,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Attribute | Value |
 | --- | --- |
-| refines | `RT-372` |
+| refines | `RT-342` |
 
 | Step | Statement |
 | --- | --- |
@@ -4283,15 +4211,3 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | its last view is dropped, or the bytes arrive |
 | Then | the peer reads a reset, as Linux resets a connection whose data it throws away. A released socket lets go of itself |
 
-## `RT-380` A socket file whose non-blocking flag was cleared waits
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-372` |
-| relates | `RT-166` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a connected socket's file, its non-blocking flag cleared |
-| When | the guest reads before its peer sends, or writes while the socket is full |
-| Then | the read waits for the peer's bytes and the write for room, as `sock_read_iter` and `sock_write_iter` wait without `O_NONBLOCK`. The wait goes through the registered Blocking and ends with the deadline |
