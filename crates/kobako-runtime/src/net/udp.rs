@@ -587,7 +587,7 @@ mod tests {
         };
         // An event the reactor took before the deregister may still run.
         std::thread::sleep(Duration::from_millis(100));
-        let arrived = || {
+        let wait_until_queued = || {
             let started = Instant::now();
             while started.elapsed() < Duration::from_secs(5) {
                 let state = sock.state();
@@ -600,12 +600,12 @@ mod tests {
             }
         };
         first.send_to(b"one", local).unwrap();
-        arrived();
+        wait_until_queued();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.connect(&family, at_second, at_second, &OpenConnections::new(None))
             .expect("an uncapped socket connects again");
         second.send_to(b"two", local).unwrap();
-        arrived();
+        wait_until_queued();
         UdpSock::pump(&mut sock.state());
         let mut buf = [0; 8];
         let mut read = || {
