@@ -33,7 +33,7 @@ fn resolve(
     class: &str,
     call: &str,
 ) -> Result<Ipv4Addr, Error> {
-    let to_error = |code| match code {
+    let to_lookup_error = |code| match code {
         ErrorCode::PermanentResolverFailure => no_network(mrb, class),
         ErrorCode::TemporaryResolverFailure => resolution_error(mrb, EAI_AGAIN),
         ErrorCode::NameUnresolvable | ErrorCode::InvalidArgument => {
@@ -41,7 +41,7 @@ fn resolve(
         }
         code => to_error(mrb, code, class, call),
     };
-    let stream = resolve_addresses(&instance_network(), name).map_err(to_error)?;
+    let stream = resolve_addresses(&instance_network(), name).map_err(to_lookup_error)?;
     let pollable = stream.subscribe();
     loop {
         match stream.resolve_next_address() {
@@ -57,7 +57,7 @@ fn resolve(
                     ));
                 }
             }
-            Err(code) => return Err(to_error(code)),
+            Err(code) => return Err(to_lookup_error(code)),
         }
     }
 }

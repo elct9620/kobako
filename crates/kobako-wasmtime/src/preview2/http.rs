@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use kobako_runtime::net::{self, Exchange, FieldError, HttpError, MemoryCharge, RequestBody};
+use kobako_runtime::net::{self, Exchange, FieldError, MemoryCharge, RequestBody};
 use kobako_runtime::vfs::PollMask;
 
 use super::bindings::wasi_http_types_0_2_12::{
@@ -72,7 +72,7 @@ impl Request {
 }
 
 /// Where a `future-incoming-response` stands.
-pub(crate) enum Future {
+pub(crate) enum FutureState {
     /// Handed over before its body ended, so it leaves once it does.
     Waiting(Request),
     /// Sent, with the file its response's arrival wakes, made as it leaves.
@@ -89,7 +89,7 @@ pub(crate) mod resource {
 
     use kobako_runtime::net::{self, Exchange};
 
-    use super::{BodyLink, Future, Request};
+    use super::{BodyLink, FutureState, Request};
 
     pub(crate) struct Fields {
         pub(crate) entries: Arc<net::Fields>,
@@ -104,7 +104,7 @@ pub(crate) mod resource {
         pub(crate) stream_handed: bool,
     }
 
-    pub(crate) struct FutureIncomingResponse(pub(crate) Future);
+    pub(crate) struct FutureIncomingResponse(pub(crate) FutureState);
 
     /// Options kobako never hands out, so any the guest names is one it does
     /// not hold.
@@ -146,17 +146,17 @@ fn to_field_trap(err: FieldError) -> wasmtime::Error {
 }
 
 /// The error code a request's failure answers, carrying no host text.
-fn to_error_code(err: HttpError) -> ErrorCode {
+fn to_error_code(err: net::HttpError) -> ErrorCode {
     match err {
-        HttpError::Denied => ErrorCode::HTTPRequestDenied,
-        HttpError::DestinationNotFound => ErrorCode::DestinationNotFound,
-        HttpError::ConnectionRefused => ErrorCode::ConnectionRefused,
-        HttpError::ConnectionTimeout => ErrorCode::ConnectionTimeout,
-        HttpError::ConnectionTerminated => ErrorCode::ConnectionTerminated,
-        HttpError::ProtocolError => ErrorCode::HTTPProtocolError,
-        HttpError::ConnectionLimitReached => ErrorCode::ConnectionLimitReached,
-        HttpError::TlsCertificate => ErrorCode::TLSCertificateError,
-        HttpError::TlsProtocol => ErrorCode::TLSProtocolError,
+        net::HttpError::Denied => ErrorCode::HTTPRequestDenied,
+        net::HttpError::DestinationNotFound => ErrorCode::DestinationNotFound,
+        net::HttpError::ConnectionRefused => ErrorCode::ConnectionRefused,
+        net::HttpError::ConnectionTimeout => ErrorCode::ConnectionTimeout,
+        net::HttpError::ConnectionTerminated => ErrorCode::ConnectionTerminated,
+        net::HttpError::ProtocolError => ErrorCode::HTTPProtocolError,
+        net::HttpError::ConnectionLimitReached => ErrorCode::ConnectionLimitReached,
+        net::HttpError::TlsCertificate => ErrorCode::TLSCertificateError,
+        net::HttpError::TlsProtocol => ErrorCode::TLSProtocolError,
         _ => ErrorCode::InternalError(None),
     }
 }
@@ -199,15 +199,15 @@ impl Invocation {
             .map_err(|_| wasmtime::Error::msg("the guest's request outgrows its memory"))
     }
 
-    fn future(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<&mut Future> {
+    fn future(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<&mut FutureState> {
         self.table().get_mut(future).map(|future| &mut future.0)
     }
 
     /// Hand `request` to the namespace, which judges it here on the guest
     /// thread before the reactor sends it.
-    fn send(&mut self, request: Request) -> Future {
+    fn send(&mut self, request: Request) -> FutureState {
         let Some(method) = to_method_name(&request.method) else {
-            return Future::Refused(ErrorCode::HTTPRequestMethodInvalid);
+            return FutureState::Refused(ErrorCode::HTTPRequestMethodInvalid);
         };
         let scheme = match request.scheme.as_ref() {
             Some(Scheme::HTTP) => net::Scheme::Http,
@@ -215,11 +215,11 @@ impl Invocation {
             Some(Scheme::Other(other)) => match other.as_str() {
                 "http" => net::Scheme::Http,
                 "https" => net::Scheme::Https,
-                _ => return Future::Refused(ErrorCode::HTTPProtocolError),
+                _ => return FutureState::Refused(ErrorCode::HTTPProtocolError),
             },
         };
         let Some(authority) = request.authority else {
-            return Future::Refused(ErrorCode::HTTPRequestURIInvalid);
+            return FutureState::Refused(ErrorCode::HTTPRequestURIInvalid);
         };
         let mut outgoing = net::OutgoingRequest::new(method, scheme, authority);
         if let Some(path) = request.path_with_query {
@@ -228,15 +228,15 @@ impl Invocation {
         outgoing.headers = request.headers.entries();
         outgoing.body = request.link.body.take();
         let Some(namespace) = self.wasi().table().network() else {
-            return Future::Refused(ErrorCode::HTTPRequestDenied);
+            return FutureState::Refused(ErrorCode::HTTPRequestDenied);
         };
         let cred = self.wasi().descriptors().cred();
         match namespace.send(cred, outgoing) {
             Ok(exchange) => {
                 let file = Arc::new(Mutex::new(exchange.alloc_response_file(cred)));
-                Future::Sent(exchange, file)
+                FutureState::Sent(exchange, file)
             }
-            Err(err) => Future::Refused(to_error_code(err)),
+            Err(err) => FutureState::Refused(to_error_code(err)),
         }
     }
 
@@ -244,14 +244,14 @@ impl Invocation {
     /// was dropped unfinished.
     fn advance(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<()> {
         let state = self.future(future)?;
-        if matches!(state, Future::Waiting(request) if request.link.is_aborted()) {
-            *state = Future::Refused(ErrorCode::HTTPProtocolError);
+        if matches!(state, FutureState::Waiting(request) if request.link.is_aborted()) {
+            *state = FutureState::Refused(ErrorCode::HTTPProtocolError);
             return Ok(());
         }
-        if !matches!(state, Future::Waiting(request) if request.link.is_complete()) {
+        if !matches!(state, FutureState::Waiting(request) if request.link.is_complete()) {
             return Ok(());
         }
-        let Future::Waiting(request) = std::mem::replace(state, Future::Taken) else {
+        let FutureState::Waiting(request) = std::mem::replace(state, FutureState::Taken) else {
             unreachable!("matched as waiting above");
         };
         let sent = self.send(request);
@@ -460,7 +460,7 @@ impl HttpHost for Invocation {
     ) -> wasmtime::Result<Pollable> {
         self.advance(this)?;
         let pollable = match self.future(this)? {
-            Future::Sent(_, file) => table::Pollable::File(file.clone(), PollMask::IN),
+            FutureState::Sent(_, file) => table::Pollable::File(file.clone(), PollMask::IN),
             _ => table::Pollable::Ready,
         };
         self.table().push_child(pollable, this)
@@ -475,16 +475,16 @@ impl HttpHost for Invocation {
         self.advance(this)?;
         let state = self.future(this)?;
         let answer = match state {
-            Future::Waiting(_) => return Ok(None),
-            Future::Taken => return Ok(Some(Err(()))),
-            Future::Refused(code) => Err(code.clone()),
-            Future::Sent(exchange, _) => match exchange.response() {
+            FutureState::Waiting(_) => return Ok(None),
+            FutureState::Taken => return Ok(Some(Err(()))),
+            FutureState::Refused(code) => Err(code.clone()),
+            FutureState::Sent(exchange, _) => match exchange.response() {
                 None => return Ok(None),
                 Some(Ok(head)) => Ok((head.status, exchange.clone())),
                 Some(Err(err)) => Err(to_error_code(err)),
             },
         };
-        *state = Future::Taken;
+        *state = FutureState::Taken;
         match answer {
             Ok((status, exchange)) => self
                 .table()
@@ -502,7 +502,7 @@ impl HttpHost for Invocation {
         &mut self,
         handle: FutureIncomingResponse,
     ) -> wasmtime::Result<()> {
-        if let Future::Sent(exchange, _) = self.table().delete(handle)?.0 {
+        if let FutureState::Sent(exchange, _) = self.table().delete(handle)?.0 {
             exchange.release();
         }
         Ok(())
@@ -610,9 +610,9 @@ impl HttpHost for Invocation {
         }
         let future = match request.link.is_complete() {
             true => self.send(request),
-            false => Future::Waiting(request),
+            false => FutureState::Waiting(request),
         };
-        if let Future::Refused(code) = future {
+        if let FutureState::Refused(code) = future {
             return Err(code.into());
         }
         Ok(self

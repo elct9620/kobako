@@ -84,10 +84,12 @@ struct State {
     host: Option<(mio::net::TcpStream, Registration)>,
     /// The addresses still to try, should the one connecting fail.
     untried: VecDeque<SocketAddr>,
-    received: VecDeque<u8>,
+    /// What arrived and the guest has not read, as `sk_receive_queue`.
+    receive_queue: VecDeque<u8>,
     /// The peer ended its side, as a read of zero answers.
     received_end: bool,
-    sending: VecDeque<u8>,
+    /// What the guest wrote and the host has not taken, as `sk_write_queue`.
+    write_queue: VecDeque<u8>,
     /// The FIN left, once the writing side was shut and the buffer drained.
     fin_sent: bool,
     /// What every inet socket holds. What arrived still reads once the
@@ -126,9 +128,9 @@ impl TcpSock {
                 phase: Phase::Unconnected,
                 host: None,
                 untried: VecDeque::new(),
-                received: VecDeque::new(),
+                receive_queue: VecDeque::new(),
                 received_end: false,
-                sending: VecDeque::new(),
+                write_queue: VecDeque::new(),
                 fin_sent: false,
                 inet: InetSock::new(memory),
                 keepalive: KeepAlive {
@@ -181,7 +183,7 @@ impl TcpSock {
         let mut state = self.state();
         state.inet.place = Some(place);
         state.untried = addrs.into();
-        state.inet.named = Some(named);
+        state.inet.peer = Some(named);
         state.phase = Phase::Connecting;
         self.dial_next(&mut state, FilesystemError::InvalidInput);
         Ok(())
@@ -223,7 +225,7 @@ impl TcpSock {
         Self::close(state, last);
     }
 
-    /// Give the host socket `stream` the options the guest set.
+    /// Give the host socket `socket` the options the guest set.
     fn set_options(socket: SockRef<'_>, state: &State) -> io::Result<()> {
         socket.set_tcp_keepalive(&state.keepalive.to_params())?;
         socket.set_keepalive(state.keepalive.on)?;
@@ -246,14 +248,14 @@ impl TcpSock {
     fn disconnect(state: &mut State) {
         state.phase = Phase::Unconnected;
         state.untried.clear();
-        state.received.clear();
+        state.receive_queue.clear();
         state.received_end = false;
         state.inet.rcv_shut = false;
-        state.sending.clear();
+        state.write_queue.clear();
         state.inet.send_shut = false;
         state.fin_sent = false;
         state.inet.error = None;
-        state.inet.named = None;
+        state.inet.peer = None;
     }
 
     /// Let the host socket go, deregistered from the reactor.
@@ -285,35 +287,35 @@ impl TcpSock {
         };
         let mut chunk = [0; CHUNK];
         let rcvbuf = state.inet.buffers.rcvbuf;
-        while state.received.len() < rcvbuf && !state.received_end {
-            let room = (rcvbuf - state.received.len()).min(CHUNK);
+        while state.receive_queue.len() < rcvbuf && !state.received_end {
+            let room = (rcvbuf - state.receive_queue.len()).min(CHUNK);
             match stream.read(&mut chunk[..room]) {
                 Ok(0) => state.received_end = true,
-                Ok(n) => state.received.extend(&chunk[..n]),
+                Ok(n) => state.receive_queue.extend(&chunk[..n]),
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
                 Err(err) => return Err(to_error(&err)),
             }
         }
-        while !state.sending.is_empty() {
-            match stream.write(state.sending.as_slices().0) {
+        while !state.write_queue.is_empty() {
+            match stream.write(state.write_queue.as_slices().0) {
                 Ok(n) => {
-                    state.sending.drain(..n);
+                    state.write_queue.drain(..n);
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
                 Err(err) => return Err(to_error(&err)),
             }
         }
-        if state.inet.send_shut && state.sending.is_empty() && !state.fin_sent {
+        if state.inet.send_shut && state.write_queue.is_empty() && !state.fin_sent {
             let _ = stream.shutdown(Shutdown::Write);
             state.fin_sent = true;
         }
         Ok(())
     }
 
-    /// Whether the connect under way finished, as `SO_ERROR` settles a
-    /// non-blocking `connect`; a failed one moves on to the next address.
+    /// Settle the connect under way once it finished, as `SO_ERROR` settles a
+    /// non-blocking `connect`: connected, or on to the next address.
     fn settle_connect(&self, state: &mut State) {
         let Some((stream, _)) = state.host.as_ref() else {
             return;
@@ -336,7 +338,8 @@ impl TcpSock {
     fn pump_and_wake(&self, mut state: MutexGuard<'_, State>) {
         self.pump(&mut state);
         let settled = state.orphan.is_some()
-            && (state.phase != Phase::Connected || (state.sending.is_empty() && state.fin_sent));
+            && (state.phase != Phase::Connected
+                || (state.write_queue.is_empty() && state.fin_sent));
         let orphan = settled.then(|| Self::let_go(&mut state)).flatten();
         drop(state);
         self.wait.wake_up();
@@ -346,7 +349,7 @@ impl TcpSock {
     /// Give back the socket's place and memory and close the host socket,
     /// answering the hold an orphan kept on itself.
     fn let_go(state: &mut State) -> Option<Arc<TcpSock>> {
-        state.sending.clear();
+        state.write_queue.clear();
         state.inet.release();
         Self::close_host(state);
         state.orphan.take()
@@ -383,13 +386,13 @@ impl TcpSock {
             .inet
             .buffers
             .sndbuf
-            .saturating_sub(state.sending.len())
+            .saturating_sub(state.write_queue.len())
     }
 
     /// Whether everything sent has left for the host, as Linux's `SIOCOUTQ`
     /// reads zero.
     pub fn is_drained(&self) -> bool {
-        self.state().sending.is_empty()
+        self.state().write_queue.is_empty()
     }
 
     /// Change what the host socket takes; a socket dialed already passes the
@@ -427,9 +430,9 @@ impl ProtoOps for TcpSock {
     /// and ENOTCONN on a socket that never connected.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
-        if !state.received.is_empty() {
-            let take = state.received.len().min(buf.len());
-            for (slot, byte) in buf.iter_mut().zip(state.received.drain(..take)) {
+        if !state.receive_queue.is_empty() {
+            let take = state.receive_queue.len().min(buf.len());
+            for (slot, byte) in buf.iter_mut().zip(state.receive_queue.drain(..take)) {
                 *slot = byte;
             }
             self.pump_and_wake(state);
@@ -473,12 +476,12 @@ impl ProtoOps for TcpSock {
                 .inet
                 .buffers
                 .sndbuf
-                .saturating_sub(state.sending.len()),
+                .saturating_sub(state.write_queue.len()),
         );
         if take == 0 && !buf.is_empty() {
             return Err(FilesystemError::WouldBlock);
         }
-        state.sending.extend(&buf[..take]);
+        state.write_queue.extend(&buf[..take]);
         self.pump_and_wake(state);
         Ok(take)
     }
@@ -496,11 +499,11 @@ impl ProtoOps for TcpSock {
         if closed || (rcv_shutdown && send_shutdown) {
             mask = mask | PollMask::HUP;
         }
-        if !state.received.is_empty() || rcv_shutdown {
+        if !state.receive_queue.is_empty() || rcv_shutdown {
             mask = mask | PollMask::IN;
         }
         if state.phase != Phase::Connecting
-            && (send_shutdown || state.sending.len() < state.inet.buffers.sndbuf)
+            && (send_shutdown || state.write_queue.len() < state.inet.buffers.sndbuf)
         {
             mask = mask | PollMask::OUT;
         }
@@ -538,7 +541,7 @@ impl ProtoOps for TcpSock {
     fn getpeername(&self) -> Option<SocketAddr> {
         let state = self.state();
         match state.phase {
-            Phase::Connected => state.inet.named,
+            Phase::Connected => state.inet.peer,
             _ => None,
         }
     }
@@ -598,14 +601,14 @@ impl ProtoOps for TcpSock {
     fn release(&self) {
         let mut state = self.state();
         state.untried.clear();
-        let unread = !std::mem::take(&mut state.received).is_empty();
+        let unread = !std::mem::take(&mut state.receive_queue).is_empty();
         if unread {
             // Closed with a zero linger and no FIN, the host socket resets.
             if let Some((mut stream, registration)) = state.host.take() {
                 registration.deregister(&mut stream);
                 let _ = SockRef::from(&stream).set_linger(Some(Duration::ZERO));
             }
-        } else if state.phase == Phase::Connected && !state.sending.is_empty() {
+        } else if state.phase == Phase::Connected && !state.write_queue.is_empty() {
             state.inet.mark_shutdown(Shutdown::Write);
             state.orphan = self.this.upgrade();
             self.pump_and_wake(state);
@@ -812,7 +815,7 @@ mod tests {
         let set = (get(SockOpt::RcvBuf), get(SockOpt::SndBuf), sock.send_room());
         peer.write_all(&[7; 10_000]).expect("the peer writes");
         wait_for(|table| file.poll(table), PollMask::IN);
-        let held = sock.state().received.len();
+        let held = sock.state().receive_queue.len();
         assert_eq!(
             (defaults, capped, set, held <= 2304),
             (
@@ -902,17 +905,17 @@ mod tests {
         let before = file.read(&mut buf);
         peer.write_all(b"hello").unwrap();
         drop(peer);
-        let mut received = Vec::new();
+        let mut receive_queue = Vec::new();
         loop {
             wait_for(|table| file.poll(table), PollMask::IN);
             match file.read(&mut buf) {
                 Ok(0) => break,
-                Ok(n) => received.extend_from_slice(&buf[..n]),
+                Ok(n) => receive_queue.extend_from_slice(&buf[..n]),
                 Err(err) => panic!("a read the poll found ready answered {err:?}"),
             }
         }
         assert_eq!(
-            (before, received),
+            (before, receive_queue),
             (Err(FilesystemError::WouldBlock), b"hello".to_vec()),
             "File::read of a socket file must answer EAGAIN before anything arrived, then the \
              peer's bytes, then zero once it closed"
@@ -1140,11 +1143,11 @@ mod tests {
             .expect("a connected socket shuts down");
         peer.set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        let mut received = Vec::new();
-        peer.read_to_end(&mut received)
+        let mut receive_queue = Vec::new();
+        peer.read_to_end(&mut receive_queue)
             .expect("the peer reads until the end");
         assert_eq!(
-            received,
+            receive_queue,
             b"ping".to_vec(),
             "a peer of a socket written then shut down for writing must read the bytes, then \
              the end"

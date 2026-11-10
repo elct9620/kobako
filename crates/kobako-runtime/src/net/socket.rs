@@ -96,7 +96,7 @@ pub(crate) struct InetSock {
     pub(crate) virtual_port: Option<u16>,
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
-    pub(crate) named: Option<SocketAddr>,
+    pub(crate) peer: Option<SocketAddr>,
     /// How much each queue holds, as `sk_rcvbuf` and `sk_sndbuf`.
     pub(crate) buffers: Buffers,
     /// The hop limit sent with, as `inet_sock` keeps `uc_ttl`.
@@ -122,7 +122,7 @@ impl InetSock {
     pub(crate) fn new(memory: MemoryCharge) -> Self {
         Self {
             virtual_port: None,
-            named: None,
+            peer: None,
             buffers: Buffers::default(),
             ttl: IPDEFTTL,
             error: None,
@@ -210,16 +210,16 @@ impl Default for Buffers {
 impl Buffers {
     /// Twice `bytes`, within the cap, as `sock_setsockopt` doubles a value to
     /// leave room for its bookkeeping.
-    fn to_doubled(bytes: usize, least: usize) -> usize {
+    fn to_buffer_room(bytes: usize, least: usize) -> usize {
         (bytes.min(MAX_SOCKET_BUFFER / 2) * 2).max(least)
     }
 
     pub(crate) fn set_rcvbuf(&mut self, bytes: usize) {
-        self.rcvbuf = Self::to_doubled(bytes, SOCK_MIN_RCVBUF);
+        self.rcvbuf = Self::to_buffer_room(bytes, SOCK_MIN_RCVBUF);
     }
 
     pub(crate) fn set_sndbuf(&mut self, bytes: usize) {
-        self.sndbuf = Self::to_doubled(bytes, SOCK_MIN_SNDBUF);
+        self.sndbuf = Self::to_buffer_room(bytes, SOCK_MIN_SNDBUF);
     }
 }
 

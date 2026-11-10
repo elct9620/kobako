@@ -1331,17 +1331,22 @@ mod tests {
         memory.grow(&mut store, 3).expect("four pages");
         // Each datagram's data names the same 60000 bytes at 0, so 2400 of
         // them name 144 MB while the guest holds 256 KiB.
-        const RECORDS: usize = 65536;
+        const RECORDS_AT: usize = 65536;
         for i in 0..2400 {
-            let record = RECORDS + i * 44;
+            let record = RECORDS_AT + i * 44;
             memory.data_mut(&mut store)[record + 4..record + 8]
                 .copy_from_slice(&60_000u32.to_le_bytes());
         }
         // No send was permitted, so a call the lift lets through traps there.
         let stream = outgoing.0 as i32;
         let answer = |store: &mut Store<Invocation>, count: i32| {
-            call::<(i32, i32, i32), ()>(store, &instance, "send", (stream, RECORDS as i32, count))
-                .map_err(|trap| trap.root_cause().to_string())
+            call::<(i32, i32, i32), ()>(
+                store,
+                &instance,
+                "send",
+                (stream, RECORDS_AT as i32, count),
+            )
+            .map_err(|trap| trap.root_cause().to_string())
         };
         let past = answer(&mut store, 2400);
         let within = answer(&mut store, 2);

@@ -14,7 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::Place;
 use super::family::admitted_addresses_of;
-use super::http::{to_http_error, HttpError};
+use super::http::HttpError;
 use super::lookup::NameLookup;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::take_connect_outcome;
@@ -81,11 +81,11 @@ impl Connector {
                 .family
                 .connect(addr)
                 .and_then(Transport::new)
-                .map_err(|err| to_http_error(&err));
+                .map_err(|err| HttpError::from_io(&err));
             match opened {
                 Ok(connection) => match connection.wait_for_connect().await {
                     Ok(()) => return Ok(connection),
-                    Err(err) => last = to_http_error(&err),
+                    Err(err) => last = HttpError::from_io(&err),
                 },
                 Err(err) => last = err,
             }

@@ -41,7 +41,7 @@ impl Wait {
 /// `close_read` and `close_write` closed.
 pub(super) struct IoState {
     /// What a read took past what it answered.
-    pub(super) held: RefCell<Vec<u8>>,
+    pub(super) rbuf: RefCell<Vec<u8>>,
     /// Whether a write is sent at once, as `IO#sync` reads; a socket's is.
     pub(super) sync: Cell<bool>,
     /// `close_read` closed the reading side, as CRuby's IO clears
@@ -55,7 +55,7 @@ pub(super) struct IoState {
 impl IoState {
     pub(super) fn new() -> IoState {
         IoState {
-            held: RefCell::new(Vec::new()),
+            rbuf: RefCell::new(Vec::new()),
             sync: Cell::new(true),
             read_closed: Cell::new(false),
             write_closed: Cell::new(false),
@@ -317,7 +317,7 @@ pub(super) fn direct_args(
             return Err(errno::error_by_name(mrb, c"ENOTSUP", "recvfrom(2)"));
         }
     }
-    if !source.io().held.borrow().is_empty() {
+    if !source.io().rbuf.borrow().is_empty() {
         return Err(errno::io_error(mrb, refusal));
     }
     Ok((maxlen, outbuf))

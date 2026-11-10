@@ -142,8 +142,8 @@ fn read_subscription(
     })
 }
 
-/// Hold a subscription to what its descriptor would find ready, answering the
-/// error its event reports. A number no descriptor holds, or one standing only
+/// The error a subscription's event reports for what its descriptor would
+/// find ready. A number no descriptor holds, or one standing only
 /// for its path, is reported in its event, as Linux's `do_pollfd` marks it
 /// `POLLNVAL` when `fdget` refuses it and the wait goes on. A
 /// pipe's end is never ready for what the other end does, and nothing here

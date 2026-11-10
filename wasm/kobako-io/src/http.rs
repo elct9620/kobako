@@ -797,7 +797,7 @@ fn send_from(
     given: Option<BlockArgument>,
 ) -> Result<Value, Error> {
     let host = to_text(mrb, ivar_get(mrb, self_, c"@address")?)?;
-    let outgoing = RequestParts {
+    let parts = RequestParts {
         ssl: uses_ssl(mrb, self_)?,
         host: &host,
         port: port_of(mrb, self_)?,
@@ -811,7 +811,7 @@ fn send_from(
         status,
         headers,
         body: mut unread,
-    } = send(mrb, &outgoing)?;
+    } = send(mrb, &parts)?;
     let Some(given) = given else {
         let body = unread.read_body(mrb)?;
         return to_response(mrb, status, headers, body.as_deref());
@@ -876,12 +876,12 @@ fn method_of(method: &str) -> Method {
     }
 }
 
-/// Send `outgoing` and answer its response's head, its body left to read. A
+/// Send `parts` and answer its response's head, its body left to read. A
 /// header WASI refuses raises `ArgumentError`, among them one the host frames
 /// itself, such as `host` or `content-length`.
-fn send(mrb: &Mrb, outgoing: &RequestParts<'_>) -> Result<Answer, Error> {
+fn send(mrb: &Mrb, parts: &RequestParts<'_>) -> Result<Answer, Error> {
     let fields = Fields::new();
-    for (name, value) in &outgoing.headers {
+    for (name, value) in &parts.headers {
         fields
             .append(name, value)
             .map_err(|refused| header_error(mrb, name, refused))?;
@@ -889,9 +889,9 @@ fn send(mrb: &Mrb, outgoing: &RequestParts<'_>) -> Result<Answer, Error> {
     let request = OutgoingRequest::new(fields);
     let failed = |what: &str| errno::io_error(mrb, what);
     request
-        .set_method(&method_of(outgoing.method))
+        .set_method(&method_of(parts.method))
         .map_err(|()| argument_error(mrb, "invalid HTTP method"))?;
-    let scheme = if outgoing.ssl {
+    let scheme = if parts.ssl {
         Scheme::Https
     } else {
         Scheme::Http
@@ -900,27 +900,27 @@ fn send(mrb: &Mrb, outgoing: &RequestParts<'_>) -> Result<Answer, Error> {
         .set_scheme(Some(&scheme))
         .map_err(|()| failed("invalid scheme"))?;
     request
-        .set_authority(Some(&format!("{}:{}", outgoing.host, outgoing.port)))
+        .set_authority(Some(&format!("{}:{}", parts.host, parts.port)))
         .map_err(|()| argument_error(mrb, "invalid host"))?;
     request
-        .set_path_with_query(Some(outgoing.path))
+        .set_path_with_query(Some(parts.path))
         .map_err(|()| argument_error(mrb, "invalid path"))?;
     let out = request.body().map_err(|()| failed("request body taken"))?;
-    if let Some(body) = &outgoing.body {
+    if let Some(body) = &parts.body {
         let stream = out.write().map_err(|()| failed("request body taken"))?;
-        let written = write_within(&stream, body, outgoing.timeouts.write)
+        let written = write_within(&stream, body, parts.timeouts.write)
             .map_err(|err| socket::stream_error(mrb, err))?;
         if !written {
             return Err(net_error(mrb, c"WriteTimeout", "Net::WriteTimeout"));
         }
     }
-    OutgoingBody::finish(out, None).map_err(|code| to_error(mrb, outgoing, code))?;
-    let future = handle(request, None).map_err(|code| to_error(mrb, outgoing, code))?;
+    OutgoingBody::finish(out, None).map_err(|code| to_error(mrb, parts, code))?;
+    let future = handle(request, None).map_err(|code| to_error(mrb, parts, code))?;
     let response = loop {
         match future.get() {
             Some(answer) => break answer,
             None => {
-                if !wait_within(&future.subscribe(), outgoing.timeouts.read) {
+                if !wait_within(&future.subscribe(), parts.timeouts.read) {
                     return Err(net_error(mrb, c"ReadTimeout", "Net::ReadTimeout"));
                 }
             }
@@ -928,9 +928,9 @@ fn send(mrb: &Mrb, outgoing: &RequestParts<'_>) -> Result<Answer, Error> {
     };
     let response = response
         .map_err(|()| failed("response taken"))?
-        .map_err(|code| to_error(mrb, outgoing, code))?;
+        .map_err(|code| to_error(mrb, parts, code))?;
     let status = response.status();
-    let carried = outgoing.method != "HEAD" && carries_body(status);
+    let carried = parts.method != "HEAD" && carries_body(status);
     let headers = response.headers().entries();
     let named = |name: &str| {
         headers
@@ -950,7 +950,7 @@ fn send(mrb: &Mrb, outgoing: &RequestParts<'_>) -> Result<Answer, Error> {
         body: UnreadBody {
             stream: Some(stream),
             body: Some(incoming),
-            read: outgoing.timeouts.read,
+            read: parts.timeouts.read,
             carried,
             sized,
         },
@@ -976,8 +976,8 @@ fn header_error(mrb: &Mrb, name: &str, refused: HeaderError) -> Error {
 
 /// What CRuby raises for a request that found no response, wrapped as its
 /// `Net::HTTP#connect` wraps a failed open.
-fn to_error(mrb: &Mrb, outgoing: &RequestParts<'_>, code: ErrorCode) -> Error {
-    let (host, port) = (outgoing.host, outgoing.port);
+fn to_error(mrb: &Mrb, parts: &RequestParts<'_>, code: ErrorCode) -> Error {
+    let (host, port) = (parts.host, parts.port);
     let opening =
         |detail: &str| format!("Failed to open TCP connection to {host}:{port} ({detail})");
     let connect = |name: &core::ffi::CStr| {

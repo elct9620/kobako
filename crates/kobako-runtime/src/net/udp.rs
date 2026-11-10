@@ -37,15 +37,17 @@ fn truesize_of(len: usize) -> usize {
 struct State {
     /// The host socket, and its place in the reactor, until released.
     host: Option<(mio::net::UdpSocket, Registration)>,
-    received: VecDeque<Vec<u8>>,
+    /// The datagrams that arrived and the guest has not read, as
+    /// `sk_receive_queue`, and the bytes they hold.
+    receive_queue: VecDeque<Vec<u8>>,
     received_bytes: usize,
     /// Whether the host socket took the last send, until the reactor next
     /// sees it change, as `sock_writeable` reads its room.
     writable: bool,
     /// What every inet socket holds. A send goes
     /// to the host at once, so `SO_SNDBUF` only reads back; once the reading
-    /// side is shut and the queue empties, a read answers zero, and once the
-    /// writing side is, a send answers `EPIPE`.
+    /// side is shut, an empty queue still answers EAGAIN, as `__skb_recv_udp`
+    /// does, and once the writing side is, a send answers `EPIPE`.
     inet: InetSock,
 }
 
@@ -65,7 +67,7 @@ impl UdpSock {
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 host: None,
-                received: VecDeque::new(),
+                receive_queue: VecDeque::new(),
                 received_bytes: 0,
                 writable: true,
                 inet: InetSock::new(memory),
@@ -99,7 +101,7 @@ impl UdpSock {
                 if let Some((socket, _)) = state.host.as_ref() {
                     socket.connect(addr).map_err(|err| to_error(&err))?;
                 }
-                state.inet.named = Some(named);
+                state.inet.peer = Some(named);
                 state.writable = true;
                 return Ok(());
             }
@@ -125,7 +127,7 @@ impl UdpSock {
             registration.deregister(&mut earlier);
         }
         state.host = Some((socket, registration));
-        state.inet.named = Some(named);
+        state.inet.peer = Some(named);
         state.writable = true;
         if let Some(place) = place {
             state.inet.place = Some(place);
@@ -157,7 +159,7 @@ impl UdpSock {
             match socket.recv(&mut datagram) {
                 Ok(n) => {
                     if state.received_bytes + truesize_of(n) <= state.inet.buffers.rcvbuf {
-                        state.received.push_back(datagram[..n].to_vec());
+                        state.receive_queue.push_back(datagram[..n].to_vec());
                         state.received_bytes += truesize_of(n);
                     }
                 }
@@ -199,7 +201,7 @@ impl ProtoOps for UdpSock {
         if let Some(err) = state.inet.error.take() {
             return Err(err);
         }
-        let Some(datagram) = state.received.pop_front() else {
+        let Some(datagram) = state.receive_queue.pop_front() else {
             return Err(FilesystemError::WouldBlock);
         };
         state.received_bytes -= truesize_of(datagram.len());
@@ -223,7 +225,7 @@ impl ProtoOps for UdpSock {
         if let Some(err) = state.inet.error.take() {
             return Err(err);
         }
-        if state.inet.named.is_none() {
+        if state.inet.peer.is_none() {
             return Err(FilesystemError::DestinationAddressRequired);
         }
         if state.inet.send_shut {
@@ -256,10 +258,10 @@ impl ProtoOps for UdpSock {
         poll_wait(&self.wait, table);
         let state = self.state();
         let mut mask = PollMask::default();
-        if !state.received.is_empty() || state.inet.rcv_shut {
+        if !state.receive_queue.is_empty() || state.inet.rcv_shut {
             mask = mask | PollMask::IN;
         }
-        if (state.host.is_some() && state.writable) || state.inet.named.is_none() {
+        if (state.host.is_some() && state.writable) || state.inet.peer.is_none() {
             mask = mask | PollMask::OUT;
         }
         if state.inet.rcv_shut && state.inet.send_shut {
@@ -276,7 +278,7 @@ impl ProtoOps for UdpSock {
     fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
         let mut state = self.state();
         state.inet.mark_shutdown(how);
-        let connected = state.inet.named.is_some();
+        let connected = state.inet.peer.is_some();
         drop(state);
         self.wait.wake_up();
         match connected {
@@ -286,7 +288,7 @@ impl ProtoOps for UdpSock {
     }
 
     fn getpeername(&self) -> Option<SocketAddr> {
-        self.state().inet.named
+        self.state().inet.peer
     }
 
     fn getsockname(&self) -> SocketAddr {
@@ -323,7 +325,7 @@ impl ProtoOps for UdpSock {
     fn release(&self) {
         let mut state = self.state();
         state.inet.release();
-        state.received.clear();
+        state.receive_queue.clear();
         state.received_bytes = 0;
         if let Some((mut socket, registration)) = state.host.take() {
             registration.deregister(&mut socket);
@@ -412,13 +414,13 @@ mod tests {
         // Loopback hands datagrams over a moment apart, so wait for the two
         // the buffer fits, then give the rest time to arrive and be dropped.
         let started = Instant::now();
-        while sock.state().received.len() < 2 && started.elapsed() < Duration::from_secs(5) {
+        while sock.state().receive_queue.len() < 2 && started.elapsed() < Duration::from_secs(5) {
             sock.on_event();
             thread::sleep(Duration::from_millis(1));
         }
         thread::sleep(Duration::from_millis(50));
         sock.on_event();
-        let held = sock.state().received.len();
+        let held = sock.state().receive_queue.len();
         assert_eq!(
             (
                 defaults,
@@ -463,14 +465,14 @@ mod tests {
             peer.send_to(&[], local).unwrap();
         }
         let started = Instant::now();
-        while sock.state().received.len() < 96 && started.elapsed() < Duration::from_secs(5) {
+        while sock.state().receive_queue.len() < 96 && started.elapsed() < Duration::from_secs(5) {
             sock.on_event();
             thread::sleep(Duration::from_millis(1));
         }
         thread::sleep(Duration::from_millis(50));
         sock.on_event();
         assert_eq!(
-            sock.state().received.len(),
+            sock.state().receive_queue.len(),
             96,
             "a UDP socket whose receive buffer reads 2304 must queue no more than 96 of 200 \
              empty datagrams, as each spends room beside its bytes, as Linux's truesize counts"
@@ -479,7 +481,7 @@ mod tests {
 
     // @behavior NW-152
     #[test]
-    fn a_udp_shutdown_ends_reads_and_refuses_sends_as_linux() {
+    fn a_udp_shutdown_keeps_reads_nonblocking_and_refuses_sends_as_linux() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let sock = connected_socket(peer.local_addr().unwrap());
         let unconnected =

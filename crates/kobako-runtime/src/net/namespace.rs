@@ -53,7 +53,7 @@ pub struct Namespace {
     connections_left: Mutex<Option<usize>>,
     /// Each name looked up and its real addresses, at its virtual address's
     /// offset from the bottom of the range.
-    virtuals: Mutex<Vec<(String, Vec<IpAddr>)>>,
+    translations: Mutex<Vec<(String, Vec<IpAddr>)>>,
     /// The virtual port this Invocation's next connect takes.
     next_port: Mutex<u16>,
     /// Every TCP socket made here, so an orphan still sending ends with the
@@ -120,7 +120,7 @@ impl Namespace {
             outbound,
             open_connections,
             connections_left: Mutex::new(connection_limit),
-            virtuals: Mutex::new(Vec::new()),
+            translations: Mutex::new(Vec::new()),
             next_port: Mutex::new(*VIRTUAL_PORTS.start()),
             tcp_sockets: Mutex::new(Vec::new()),
         })
@@ -274,8 +274,11 @@ impl Namespace {
             Ok(real) => real,
             Err(err) => return Some(Err(err)),
         };
-        let mut virtuals = self.virtuals.lock().unwrap_or_else(PoisonError::into_inner);
-        let Some(offset) = u32::try_from(virtuals.len())
+        let mut translations = self
+            .translations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(offset) = u32::try_from(translations.len())
             .ok()
             .filter(|o| *o < NAMED_SIZE)
         else {
@@ -288,14 +291,14 @@ impl Namespace {
         if cred.security_vm_enough_memory(held).is_err() {
             return Some(Err(LookupError::TemporaryFailure));
         }
-        virtuals.push(entry);
+        translations.push(entry);
         Some(Ok(Ipv4Addr::from(VIRTUAL_BASE + offset)))
     }
 
     /// The name a virtual address stands for and its real addresses.
     fn translate(&self, ip: Ipv4Addr) -> Option<(String, Vec<IpAddr>)> {
         let offset = u32::from(ip).checked_sub(VIRTUAL_BASE)?;
-        self.virtuals
+        self.translations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(usize::try_from(offset).ok()?)
@@ -850,14 +853,14 @@ mod tests {
     struct ResolvesNames {
         answers: Mutex<Vec<IpAddr>>,
         lookups: AtomicUsize,
-        dialed: Mutex<Vec<SocketAddr>>,
+        dials: Mutex<Vec<SocketAddr>>,
         local: Vec<IpAddr>,
         local_unreadable: bool,
     }
 
     impl ProtocolFamily for ResolvesNames {
         fn connect(&self, addr: SocketAddr) -> io::Result<std::net::TcpStream> {
-            self.dialed.lock().unwrap().push(addr);
+            self.dials.lock().unwrap().push(addr);
             Err(io::ErrorKind::ConnectionRefused.into())
         }
 
@@ -953,7 +956,7 @@ mod tests {
         at.set_port(443);
         let answer = dial(&namespace, &cred, at).err();
         assert_eq!(
-            (answer, family.dialed.lock().unwrap().len()),
+            (answer, family.dials.lock().unwrap().len()),
             (Some(FilesystemError::PermissionDenied), 0),
             "Namespace::connect must refuse with EACCES, dialing nothing, when the Protocol \
              Family cannot read the host's own addresses, rather than judge the name's \
@@ -1030,7 +1033,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(1));
         };
         assert_eq!(
-            (answer, family.dialed.lock().unwrap().len()),
+            (answer, family.dials.lock().unwrap().len()),
             (Some(HttpError::Denied), 0),
             "an HTTP request must answer Denied, dialing nothing, when the Protocol Family \
              cannot read the host's own addresses"
@@ -1082,7 +1085,7 @@ mod tests {
         let public_only = resolve_virtual_address(&namespace, "api.internal");
         assert!(
             at.ip().to_string() == "198.18.0.0"
-                && *family.dialed.lock().unwrap() == vec!["127.0.0.1:6379".parse().unwrap()]
+                && *family.dials.lock().unwrap() == vec!["127.0.0.1:6379".parse().unwrap()]
                 && matches!(
                     dial(&namespace, &cred, public_only),
                     Err(FilesystemError::PermissionDenied)
@@ -1126,7 +1129,7 @@ mod tests {
         assert_eq!(
             (
                 family.lookups.load(Ordering::SeqCst),
-                family.dialed.lock().unwrap().clone()
+                family.dials.lock().unwrap().clone()
             ),
             (1, vec!["10.0.0.1:6379".parse().unwrap()]),
             "a connect to a virtual address must dial the address its lookup answered, never \
@@ -1150,7 +1153,7 @@ mod tests {
             matches!(
                 dial(&namespace, &cred, at),
                 Err(FilesystemError::PermissionDenied)
-            ) && family.dialed.lock().unwrap().is_empty(),
+            ) && family.dials.lock().unwrap().is_empty(),
             "a name resolving to the host's own public address must be refused by an endpoint \
              leading only to public addresses, since the host's addresses are local"
         );
@@ -1172,7 +1175,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(1));
         }
         assert_eq!(
-            *family.dialed.lock().unwrap(),
+            *family.dials.lock().unwrap(),
             vec![
                 "[::1]:6379".parse::<SocketAddr>().unwrap(),
                 "127.0.0.1:6379".parse().unwrap()

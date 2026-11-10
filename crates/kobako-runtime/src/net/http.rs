@@ -74,11 +74,11 @@ pub const MAX_FIELD_SIZE: usize = 128 * 1024;
 /// Invocation's memory, as a request's body is, so no list grows the host
 /// past what the guest was allotted.
 pub struct Fields {
-    held: Mutex<HeldEntries>,
+    list: Mutex<List>,
 }
 
 /// A list's entries and the room they take.
-struct HeldEntries {
+struct List {
     entries: Vec<(String, Vec<u8>)>,
     room: MemoryCharge,
 }
@@ -92,7 +92,7 @@ impl Fields {
     /// An empty list, charged to `cred` as it grows.
     pub fn new(cred: Arc<Cred>) -> Arc<Self> {
         Arc::new(Self {
-            held: Mutex::new(HeldEntries {
+            list: Mutex::new(List {
                 entries: Vec::new(),
                 room: MemoryCharge::empty(&cred),
             }),
@@ -112,12 +112,12 @@ impl Fields {
             .sum();
         let room = MemoryCharge::new(&cred, room).map_err(|_| FieldError::OutOfMemory)?;
         Ok(Arc::new(Self {
-            held: Mutex::new(HeldEntries { entries, room }),
+            list: Mutex::new(List { entries, room }),
         }))
     }
 
-    fn held(&self) -> MutexGuard<'_, HeldEntries> {
-        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    fn list(&self) -> MutexGuard<'_, List> {
+        self.list.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Append the header `name` with `value`, once `to_field_name` and
@@ -127,21 +127,21 @@ impl Fields {
         let name = to_field_name(name)?;
         let value = to_field_value(value)?;
         let room = room_of(&name, &value);
-        let mut held = self.held();
-        let grown = held.room.bytes() + room;
+        let mut list = self.list();
+        let grown = list.room.bytes() + room;
         if grown > MAX_FIELD_SIZE {
             return Err(FieldError::TooLarge);
         }
-        held.room
+        list.room
             .resize(grown)
             .map_err(|_| FieldError::OutOfMemory)?;
-        held.entries.push((name, value));
+        list.entries.push((name, value));
         Ok(())
     }
 
     /// Every entry, in the order appended.
     pub fn entries(&self) -> Vec<(String, Vec<u8>)> {
-        self.held().entries.clone()
+        self.list().entries.clone()
     }
 }
 
@@ -280,11 +280,11 @@ impl OutgoingRequest {
 /// guest cannot grow the host past what it was allotted.
 pub struct RequestBody {
     cred: Arc<Cred>,
-    held: Mutex<HeldBody>,
+    written: Mutex<Written>,
 }
 
-/// A body's bytes and the room they take.
-struct HeldBody {
+/// What a body holds and the room it takes.
+struct Written {
     bytes: Vec<u8>,
     room: MemoryCharge,
 }
@@ -295,15 +295,15 @@ impl RequestBody {
         let room = MemoryCharge::empty(&cred);
         Arc::new(Self {
             cred,
-            held: Mutex::new(HeldBody {
+            written: Mutex::new(Written {
                 bytes: Vec::new(),
                 room,
             }),
         })
     }
 
-    fn held(&self) -> MutexGuard<'_, HeldBody> {
-        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    fn written(&self) -> MutexGuard<'_, Written> {
+        self.written.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Allocate the file the guest writes the body through, as
@@ -319,19 +319,19 @@ impl RequestBody {
 
     /// Append `buf`, refused past the Invocation's memory as `ENOMEM`.
     fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
-        let mut held = self.held();
-        let grown = held.bytes.len() + buf.len();
-        held.room.resize(grown)?;
-        held.bytes.extend_from_slice(buf);
+        let mut written = self.written();
+        let grown = written.bytes.len() + buf.len();
+        written.room.resize(grown)?;
+        written.bytes.extend_from_slice(buf);
         Ok(buf.len())
     }
 
     /// Take what was written, given back to the Invocation's memory, as the
     /// exchange that sends it reserves it again.
     pub fn take(&self) -> Vec<u8> {
-        let mut held = self.held();
-        let bytes = std::mem::take(&mut held.bytes);
-        held.room = MemoryCharge::empty(&self.cred);
+        let mut written = self.written();
+        let bytes = std::mem::take(&mut written.bytes);
+        written.room = MemoryCharge::empty(&self.cred);
         bytes
     }
 }
@@ -452,8 +452,8 @@ impl Exchange {
         open_connections: &Arc<OpenConnections>,
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, HttpError> {
-        let held = request.room() + request.body.len() + MAX_SOCKET_BUFFER;
-        let memory = MemoryCharge::new(cred, held).map_err(|_| HttpError::Internal)?;
+        let room = request.room() + request.body.len() + MAX_SOCKET_BUFFER;
+        let memory = MemoryCharge::new(cred, room).map_err(|_| HttpError::Internal)?;
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
         connector.place = Some(place.clone());
         let place = Some(place);
@@ -492,9 +492,9 @@ impl Exchange {
                         return;
                     };
                     {
-                        let mut held = lock(&state);
-                        held.head_memory = Some(head_memory);
-                        held.phase = Phase::Answered(response.head);
+                        let mut answered = lock(&state);
+                        answered.head_memory = Some(head_memory);
+                        answered.phase = Phase::Answered(response.head);
                     }
                     wait.wake_up();
                     fill_body(&state, &wait, response.body).await;
@@ -717,7 +717,7 @@ impl Outbound for HyperOutbound {
                     let session = tokio_rustls::TlsConnector::from(config)
                         .connect(name, connection)
                         .await
-                        .map_err(|err| to_http_error(&err))?;
+                        .map_err(|err| HttpError::from_io(&err))?;
                     send_over(Wire(session), http).await
                 }
             }
@@ -756,7 +756,7 @@ where
 {
     let (mut sender, connection) = hyper::client::conn::http1::handshake(wire)
         .await
-        .map_err(|err| to_hyper_error(&err))?;
+        .map_err(|err| HttpError::from_hyper(&err))?;
     let mut connection: ConnectionTask = Some(Box::pin(async move {
         let _ = connection.await;
     }));
@@ -766,7 +766,7 @@ where
         sending.as_mut().poll(cx)
     })
     .await
-    .map_err(|err| to_hyper_error(&err))?;
+    .map_err(|err| HttpError::from_hyper(&err))?;
     let head = ResponseHead {
         status: response.status().as_u16(),
         headers: response
@@ -859,40 +859,42 @@ impl<T: AsyncWrite + Unpin> hyper::rt::Write for Wire<T> {
     }
 }
 
-/// The code a failed dial or TLS handshake answers, from the rustls error it
-/// carries, if any.
-pub(crate) fn to_http_error(err: &io::Error) -> HttpError {
-    match err
-        .get_ref()
-        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
-    {
-        Some(rustls::Error::InvalidCertificate(_)) => return HttpError::TlsCertificate,
-        Some(_) => return HttpError::TlsProtocol,
-        None => {}
+impl HttpError {
+    /// The code a failed dial or TLS handshake answers, from the rustls error
+    /// it carries, if any.
+    pub(crate) fn from_io(err: &io::Error) -> Self {
+        match err
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<rustls::Error>())
+        {
+            Some(rustls::Error::InvalidCertificate(_)) => return Self::TlsCertificate,
+            Some(_) => return Self::TlsProtocol,
+            None => {}
+        }
+        match err.kind() {
+            io::ErrorKind::TimedOut => Self::ConnectionTimeout,
+            io::ErrorKind::ConnectionRefused => Self::ConnectionRefused,
+            io::ErrorKind::InvalidData => Self::TlsProtocol,
+            _ => match to_error(err) {
+                FilesystemError::ConnectionReset | FilesystemError::ConnectionAborted => {
+                    Self::ConnectionTerminated
+                }
+                _ => Self::ConnectionRefused,
+            },
+        }
     }
-    match err.kind() {
-        io::ErrorKind::TimedOut => HttpError::ConnectionTimeout,
-        io::ErrorKind::ConnectionRefused => HttpError::ConnectionRefused,
-        io::ErrorKind::InvalidData => HttpError::TlsProtocol,
-        _ => match to_error(err) {
-            FilesystemError::ConnectionReset | FilesystemError::ConnectionAborted => {
-                HttpError::ConnectionTerminated
-            }
-            _ => HttpError::ConnectionRefused,
-        },
-    }
-}
 
-/// The code a failed exchange answers.
-fn to_hyper_error(err: &hyper::Error) -> HttpError {
-    if err.is_parse() || err.is_parse_status() {
-        HttpError::ProtocolError
-    } else if err.is_timeout() {
-        HttpError::ConnectionTimeout
-    } else if err.is_incomplete_message() || err.is_closed() || err.is_canceled() {
-        HttpError::ConnectionTerminated
-    } else {
-        HttpError::Internal
+    /// The code a failed exchange answers.
+    fn from_hyper(err: &hyper::Error) -> Self {
+        if err.is_parse() || err.is_parse_status() {
+            Self::ProtocolError
+        } else if err.is_timeout() {
+            Self::ConnectionTimeout
+        } else if err.is_incomplete_message() || err.is_closed() || err.is_canceled() {
+            Self::ConnectionTerminated
+        } else {
+            Self::Internal
+        }
     }
 }
 
@@ -975,8 +977,8 @@ mod tests {
 
     /// A host whose resolver says it started, then answers only once released.
     struct StallsLookups {
-        started: Mutex<std::sync::mpsc::Sender<()>>,
-        released: Mutex<std::sync::mpsc::Receiver<()>>,
+        starts: Mutex<std::sync::mpsc::Sender<()>>,
+        releases: Mutex<std::sync::mpsc::Receiver<()>>,
     }
 
     impl ProtocolFamily for StallsLookups {
@@ -985,8 +987,8 @@ mod tests {
         }
 
         fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
-            let _ = self.started.lock().unwrap().send(());
-            let _ = self.released.lock().unwrap().recv();
+            let _ = self.starts.lock().unwrap().send(());
+            let _ = self.releases.lock().unwrap().recv();
             Ok(Vec::new())
         }
     }
@@ -1031,8 +1033,8 @@ mod tests {
         entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
         let network = Network::new("web", Arc::new(entry)).unwrap();
         let family = StallsLookups {
-            started: Mutex::new(started),
-            released: Mutex::new(released),
+            starts: Mutex::new(started),
+            releases: Mutex::new(released),
         };
         let namespace = Namespace::new(
             [&network],
@@ -1367,7 +1369,7 @@ mod tests {
             ));
         let network = Network::new("api", Arc::new(entry)).unwrap();
         let seam = Arc::new(RecordsSwaps::default());
-        let family = Arc::new(ResolvesToLoopback);
+        let family = Arc::new(RefusesDials);
         let namespace = Namespace::for_network(&network, family, seam.clone());
         let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));
         request.path_with_query = path.to_string();
@@ -1380,10 +1382,10 @@ mod tests {
         recorded
     }
 
-    /// A family resolving every name to loopback and dialing nothing.
-    struct ResolvesToLoopback;
+    /// A family refusing every dial, for a seam that never dials through it.
+    struct RefusesDials;
 
-    impl ProtocolFamily for ResolvesToLoopback {
+    impl ProtocolFamily for RefusesDials {
         fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
             Err(io::ErrorKind::ConnectionRefused.into())
         }
@@ -1492,7 +1494,7 @@ mod tests {
         let network = Network::new("api", Arc::new(entry)).unwrap();
         let namespace = Namespace::for_network(
             &network,
-            Arc::new(ResolvesToLoopback),
+            Arc::new(RefusesDials),
             Arc::new(RecordsSwaps::default()),
         );
         let cred = prepare_creds_within(&[], Some(2 * MAX_SOCKET_BUFFER));
@@ -1551,7 +1553,7 @@ mod tests {
             let network = Network::new("api", Arc::new(entry)).unwrap();
             let namespace = Namespace::for_network(
                 &network,
-                Arc::new(ResolvesToLoopback),
+                Arc::new(RefusesDials),
                 Arc::new(AnswersHeader(size)),
             );
             let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 16 * 1024));
@@ -1589,11 +1591,8 @@ mod tests {
         let mut entry = Builder::default();
         entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
         let network = Network::new("api", Arc::new(entry)).unwrap();
-        let namespace = Namespace::for_network(
-            &network,
-            Arc::new(ResolvesToLoopback),
-            Arc::new(NeverAnswers),
-        );
+        let namespace =
+            Namespace::for_network(&network, Arc::new(RefusesDials), Arc::new(NeverAnswers));
         let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 40 * 1024));
         let mut request = OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80");
         request.path_with_query = format!("/{}", "p".repeat(30 * 1024));
@@ -1663,7 +1662,7 @@ mod tests {
             let network = Network::new("api", Arc::new(entry)).unwrap();
             let namespace = Namespace::for_network(
                 &network,
-                Arc::new(ResolvesToLoopback),
+                Arc::new(RefusesDials),
                 Arc::new(StreamsEndlessly),
             );
             let cred = prepare_creds_within(&[], None);

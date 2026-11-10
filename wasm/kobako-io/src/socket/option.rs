@@ -315,7 +315,7 @@ fn to_hop_limit(int: i32) -> Result<u8, Refusal> {
 }
 
 /// A buffer size as Linux reads it back, twice what WASI answers.
-fn to_doubled(size: u64) -> i32 {
+fn to_read_back_size(size: u64) -> i32 {
     i32::try_from(size.saturating_mul(2)).unwrap_or(i32::MAX)
 }
 
@@ -396,8 +396,8 @@ fn set_inet_option(
 fn inet_option(socket: &impl InetOptions, option: (i32, i32)) -> Option<Result<i32, Refusal>> {
     let read = match option {
         // WASI reads back the size asked for; Linux reads the doubled one.
-        (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(to_doubled),
-        (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(to_doubled),
+        (SOL_SOCKET, SO_RCVBUF) => socket.receive_buffer_size().map(to_read_back_size),
+        (SOL_SOCKET, SO_SNDBUF) => socket.send_buffer_size().map(to_read_back_size),
         (IPPROTO_IP, IP_TTL) => socket.hop_limit().map(i32::from),
         _ => return None,
     };

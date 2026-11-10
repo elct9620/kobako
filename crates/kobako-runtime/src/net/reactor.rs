@@ -34,7 +34,8 @@ pub(crate) struct Reactor {
     /// The socket each token belongs to, held weakly so the reactor keeps no
     /// socket alive past its release.
     sockets: Mutex<HashMap<Token, Weak<dyn Ready>>>,
-    queued: Mutex<VecDeque<Arc<Task>>>,
+    /// The tasks woken and waiting their turn, as a scheduler's run queue.
+    run_queue: Mutex<VecDeque<Arc<Task>>>,
     /// Whether the thread stopped, its poll having failed, so the next socket
     /// starts another reactor rather than register on one nobody waits on.
     stopped: AtomicBool,
@@ -70,7 +71,7 @@ impl Reactor {
             waker: mio::Waker::new(poll.registry(), WAKE_TOKEN)?,
             next: AtomicUsize::new(1),
             sockets: Mutex::default(),
-            queued: Mutex::default(),
+            run_queue: Mutex::default(),
             stopped: AtomicBool::new(false),
         });
         let running = reactor.clone();
@@ -160,7 +161,7 @@ impl Reactor {
     fn run_tasks(&self) {
         loop {
             let Some(task) = self
-                .queued
+                .run_queue
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .pop_front()
@@ -232,7 +233,7 @@ impl Wake for Task {
             return;
         }
         reactor
-            .queued
+            .run_queue
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push_back(self);

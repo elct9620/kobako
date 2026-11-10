@@ -347,8 +347,8 @@ fn addrinfo_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Val
     Ok(answer.as_value())
 }
 
-/// The first `Addrinfo` `host` and `port` lead to for a socket of `kind`, as
-/// `Addrinfo.tcp` and `Addrinfo.udp` answer.
+/// The first `Addrinfo` `host` and `port` lead to for a socket of `socktype`
+/// and `protocol`, as `Addrinfo.tcp` and `Addrinfo.udp` answer.
 fn first_of(
     mrb: &Mrb,
     host: Value,

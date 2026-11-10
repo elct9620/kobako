@@ -297,8 +297,8 @@ impl Rule {
         }
     }
 
-    /// Whether `ip`, a real address `name` resolved to, falls where this
-    /// rule's `addresses` let the name lead. `local` holds the host's own
+    /// Whether `ip`, a real address the endpoint's host resolved to, falls
+    /// where this rule's `addresses` let it lead. `local` holds the host's own
     /// addresses, which are local whatever registry classes them.
     fn leads_to(&self, ip: IpAddr, local: &[IpAddr]) -> bool {
         let own = local.contains(&ip);
