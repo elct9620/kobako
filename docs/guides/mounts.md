@@ -107,6 +107,7 @@ directory. Where they differ, they only refuse more.
 | a mode names an encoding, such as `"r:utf-8"` | `ArgumentError` |
 | `IO.new` wraps stdout or stderr in a mode other than `"w"` | `ArgumentError` |
 | `IO#advise` names a negative offset | `Errno::EINVAL`, where CRuby answers `nil` |
+| a directory opened as a `File` seeks or asks its position | `Errno::EISDIR`, as WASI keeps no directory position |
 | the critical flag `disable_file` is set | no `File` or `Dir` constant |
 
 ### File Reports
