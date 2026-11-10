@@ -60,7 +60,13 @@ class TestE2ENetworkSocketNonblock < Minitest::Test
       full = socket.write_nonblock("x" * 65536, exception: false)
       break unless full.is_a?(Integer)
     end
-    full = [full, outcome.call { socket.write_nonblock("x") }]
+    # The host may take a little more meanwhile, so a raise is awaited.
+    raised = nil
+    4096.times do
+      raised = outcome.call { socket.write_nonblock("x" * 65536) }
+      break unless raised.is_a?(Integer)
+    end
+    full = [full, raised]
     socket.close_write
     closed = outcome.call { socket.write_nonblock("x") }
     udp = UDPSocket.new
