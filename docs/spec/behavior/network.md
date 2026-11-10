@@ -1935,3 +1935,15 @@ endpoint "api.example.com", port: 443
 | Given | a guest under a `memory_limit` |
 | When | the paths its requests hold, or a response's head, run past that memory |
 | Then | setting the path traps, as a header list does. The response answers `internal-error`. A dropped request gives its room back |
+
+## `NW-157` A path rule judges a long path in bounded work
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-044` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint whose rule holds several `**` |
+| When | the guest sends a path of tens of thousands of segments that the rule does not fit |
+| Then | the rule refuses it at once. Its work grows at most with the path's segments times the rule's |

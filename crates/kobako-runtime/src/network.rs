@@ -330,22 +330,38 @@ impl HttpRule {
     }
 }
 
-/// Whether `path` fits `pattern`, segment by segment, as a path glob does.
+/// Whether `path` fits `pattern`, segment by segment, as a path glob does:
+/// `**` takes any number of segments and `*` one. It walks both once, going
+/// back only to the last `**`, as wildcard matching does, so a path the
+/// guest names costs at most its segments times the pattern's.
 fn glob_matches(pattern: &str, path: &str) -> bool {
-    fn fits(pattern: &[&str], path: &[&str]) -> bool {
-        match (pattern.first(), path.first()) {
-            (None, None) => true,
-            (Some(&"**"), _) => {
-                fits(&pattern[1..], path) || (!path.is_empty() && fits(pattern, &path[1..]))
-            }
-            (Some(&"*"), Some(_)) => fits(&pattern[1..], &path[1..]),
-            (Some(own), Some(segment)) if own == segment => fits(&pattern[1..], &path[1..]),
-            _ => false,
-        }
-    }
     let pattern = pattern.split('/').collect::<Vec<_>>();
     let path = path.split('/').collect::<Vec<_>>();
-    fits(&pattern, &path)
+    let (mut at, mut segment) = (0, 0);
+    // Where the pattern resumes past its last `**`, and the path segment
+    // that `**` takes up to.
+    let mut last_any: Option<(usize, usize)> = None;
+    while segment < path.len() {
+        match pattern.get(at) {
+            Some(&"**") => {
+                last_any = Some((at + 1, segment));
+                at += 1;
+            }
+            Some(&own) if own == "*" || own == path[segment] => {
+                at += 1;
+                segment += 1;
+            }
+            _ => match last_any {
+                Some((resume, taken)) => {
+                    last_any = Some((resume, taken + 1));
+                    at = resume;
+                    segment = taken + 1;
+                }
+                None => return false,
+            },
+        }
+    }
+    pattern[at..].iter().all(|own| *own == "**")
 }
 
 impl Endpoint {
@@ -436,6 +452,21 @@ mod tests {
             (endpoint.protocol, endpoint.addresses),
             (Protocol::Http, vec![Addresses::Public]),
             "Endpoint::new with only a host and a port must speak HTTP and lead to the public set"
+        );
+    }
+
+    // @behavior NW-157
+    #[test]
+    fn a_rule_of_several_wildcards_judges_a_long_path_at_once() {
+        let rule = HttpRule::allow(None, "/**/**/**/x");
+        let path = "/a".repeat(32_767);
+        let started = std::time::Instant::now();
+        let fits = rule.matches("GET", &path);
+        assert!(
+            !fits && started.elapsed() < std::time::Duration::from_secs(1),
+            "a rule /**/**/**/x must refuse a 32767-segment path that ends elsewhere within a \
+             second, not after {:?}",
+            started.elapsed()
         );
     }
 
