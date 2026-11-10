@@ -55,7 +55,7 @@ pub(crate) struct Request {
     link: Arc<BodyLink>,
     /// What the method, authority, and path the guest set hold, reserved
     /// against the Invocation's memory, as its headers' room is.
-    memory: Option<MemoryCharge>,
+    memory: MemoryCharge,
 }
 
 impl Request {
@@ -184,14 +184,13 @@ impl Invocation {
         request: OutgoingRequest,
         change: impl FnOnce(&mut Request),
     ) -> wasmtime::Result<()> {
-        let cred = self.wasi().descriptors().cred().clone();
         let request = self.request(request)?;
         change(request);
-        request.memory = None;
-        let memory = MemoryCharge::new(&cred, request.room())
-            .map_err(|_| wasmtime::Error::msg("the guest's request outgrows its memory"))?;
-        request.memory = Some(memory);
-        Ok(())
+        let room = request.room();
+        request
+            .memory
+            .resize(room)
+            .map_err(|_| wasmtime::Error::msg("the guest's request outgrows its memory"))
     }
 
     fn future(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<&mut Future> {
@@ -313,8 +312,10 @@ impl HttpHost for Invocation {
     /// A GET with `headers`, which it takes, and a body the guest may ask for.
     fn types_outgoing_request_new(&mut self, headers: Fields) -> wasmtime::Result<OutgoingRequest> {
         let entries = self.table().delete(headers)?.entries;
+        let cred = self.wasi().descriptors().cred().clone();
+        let memory = MemoryCharge::empty(&cred);
         let link = Arc::new(BodyLink {
-            body: RequestBody::new(self.wasi().descriptors().cred().clone()),
+            body: RequestBody::new(cred),
             handed: AtomicBool::new(false),
             finished: AtomicBool::new(false),
             aborted: AtomicBool::new(false),
@@ -326,7 +327,7 @@ impl HttpHost for Invocation {
             path_with_query: None,
             headers: entries,
             link,
-            memory: None,
+            memory,
         }))
     }
 

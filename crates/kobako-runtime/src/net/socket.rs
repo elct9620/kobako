@@ -254,6 +254,31 @@ impl MemoryCharge {
             bytes,
         })
     }
+
+    /// A charge for `cred` that reserves nothing yet.
+    pub fn empty(cred: &Arc<Cred>) -> Self {
+        Self {
+            cred: cred.clone(),
+            bytes: 0,
+        }
+    }
+
+    /// The bytes it reserves.
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    /// Reserve `bytes` in place of what it held, taking only the growth and
+    /// giving back the rest; refused past its memory as `ENOMEM`, keeping what
+    /// it held.
+    pub fn resize(&mut self, bytes: usize) -> Result<(), FilesystemError> {
+        match bytes.checked_sub(self.bytes) {
+            Some(growth) => self.cred.security_vm_enough_memory(growth)?,
+            None => self.cred.vm_unacct_memory(self.bytes - bytes),
+        }
+        self.bytes = bytes;
+        Ok(())
+    }
 }
 
 impl Drop for MemoryCharge {

@@ -74,15 +74,13 @@ pub const MAX_FIELD_SIZE: usize = 128 * 1024;
 /// Invocation's memory, as a request's body is, so no list grows the host
 /// past what the guest was allotted.
 pub struct Fields {
-    cred: Arc<Cred>,
     held: Mutex<HeldEntries>,
 }
 
 /// A list's entries and the room they take.
-#[derive(Default)]
 struct HeldEntries {
     entries: Vec<(String, Vec<u8>)>,
-    room: usize,
+    room: MemoryCharge,
 }
 
 /// The room `name` and `value` take in a list.
@@ -94,8 +92,10 @@ impl Fields {
     /// An empty list, charged to `cred` as it grows.
     pub fn new(cred: Arc<Cred>) -> Arc<Self> {
         Arc::new(Self {
-            cred,
-            held: Mutex::new(HeldEntries::default()),
+            held: Mutex::new(HeldEntries {
+                entries: Vec::new(),
+                room: MemoryCharge::empty(&cred),
+            }),
         })
     }
 
@@ -110,10 +110,8 @@ impl Fields {
             .iter()
             .map(|(name, value)| room_of(name, value))
             .sum();
-        cred.security_vm_enough_memory(room)
-            .map_err(|_| FieldError::OutOfMemory)?;
+        let room = MemoryCharge::new(&cred, room).map_err(|_| FieldError::OutOfMemory)?;
         Ok(Arc::new(Self {
-            cred,
             held: Mutex::new(HeldEntries { entries, room }),
         }))
     }
@@ -130,31 +128,20 @@ impl Fields {
         let value = to_field_value(value)?;
         let room = room_of(&name, &value);
         let mut held = self.held();
-        if held.room + room > MAX_FIELD_SIZE {
+        let grown = held.room.bytes() + room;
+        if grown > MAX_FIELD_SIZE {
             return Err(FieldError::TooLarge);
         }
-        self.cred
-            .security_vm_enough_memory(room)
+        held.room
+            .resize(grown)
             .map_err(|_| FieldError::OutOfMemory)?;
         held.entries.push((name, value));
-        held.room += room;
         Ok(())
     }
 
     /// Every entry, in the order appended.
     pub fn entries(&self) -> Vec<(String, Vec<u8>)> {
         self.held().entries.clone()
-    }
-}
-
-impl Drop for Fields {
-    fn drop(&mut self) {
-        let room = self
-            .held
-            .get_mut()
-            .unwrap_or_else(PoisonError::into_inner)
-            .room;
-        self.cred.vm_unacct_memory(room);
     }
 }
 
@@ -280,16 +267,30 @@ impl OutgoingRequest {
 /// guest cannot grow the host past what it was allotted.
 pub struct RequestBody {
     cred: Arc<Cred>,
-    bytes: Mutex<Vec<u8>>,
+    held: Mutex<HeldBody>,
+}
+
+/// A body's bytes and the room they take.
+struct HeldBody {
+    bytes: Vec<u8>,
+    room: MemoryCharge,
 }
 
 impl RequestBody {
     /// An empty body, its bytes charged to `cred`.
     pub fn new(cred: Arc<Cred>) -> Arc<Self> {
+        let room = MemoryCharge::empty(&cred);
         Arc::new(Self {
             cred,
-            bytes: Mutex::new(Vec::new()),
+            held: Mutex::new(HeldBody {
+                bytes: Vec::new(),
+                room,
+            }),
         })
+    }
+
+    fn held(&self) -> MutexGuard<'_, HeldBody> {
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Allocate the file the guest writes the body through, as
@@ -305,19 +306,19 @@ impl RequestBody {
 
     /// Append `buf`, refused past the Invocation's memory as `ENOMEM`.
     fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
-        self.cred.security_vm_enough_memory(buf.len())?;
-        self.bytes
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .extend_from_slice(buf);
+        let mut held = self.held();
+        let grown = held.bytes.len() + buf.len();
+        held.room.resize(grown)?;
+        held.bytes.extend_from_slice(buf);
         Ok(buf.len())
     }
 
     /// Take what was written, given back to the Invocation's memory, as the
     /// exchange that sends it reserves it again.
     pub fn take(&self) -> Vec<u8> {
-        let bytes = std::mem::take(&mut *self.bytes.lock().unwrap_or_else(PoisonError::into_inner));
-        self.cred.vm_unacct_memory(bytes.len());
+        let mut held = self.held();
+        let bytes = std::mem::take(&mut held.bytes);
+        held.room = MemoryCharge::empty(&self.cred);
         bytes
     }
 }
@@ -336,17 +337,6 @@ impl FileOperations for RequestBodyFile {
 
     fn is_stream(&self) -> bool {
         true
-    }
-}
-
-impl Drop for RequestBody {
-    fn drop(&mut self) {
-        let held = self
-            .bytes
-            .get_mut()
-            .unwrap_or_else(PoisonError::into_inner)
-            .len();
-        self.cred.vm_unacct_memory(held);
     }
 }
 
