@@ -64,11 +64,14 @@ module Kobako
     # +protocol+. The host is never a real address a name resolved to.
     class Connection < Data.define(:host, :port, :protocol); end
 
-    # One rule an +:http+ endpoint judges a request by: whether it +allow+s or
+    # One rule an +:http+ endpoint judges a request by: whether it allows or
     # denies, its +method+ uppercase or +nil+ for any, and a +path+ pattern,
     # where <tt>*</tt> stands for one segment and <tt>**</tt> for any number.
     class HttpRule
-      attr_reader :allow, :method, :path
+      attr_reader :method, :path
+
+      # Whether the rule allows what it matches, or denies it.
+      def allow? = @allow
 
       def initialize(allow:, method:, path:)
         @allow = allow ? true : false

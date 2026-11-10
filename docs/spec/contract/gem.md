@@ -132,7 +132,22 @@ method or `nil` for any, and its path pattern.
 module Kobako
   module Network
     class HttpRule
-      attr_reader :allow, :method, :path
+      attr_reader :method, :path
+    end
+  end
+end
+```
+
+## `Kobako::Network::HttpRule#allow?`
+
+Whether the rule allows what it matches, or denies it. An object a Host App
+hands as a rule answers it too.
+
+```ruby
+module Kobako
+  module Network
+    class HttpRule
+      def allow?; end
     end
   end
 end

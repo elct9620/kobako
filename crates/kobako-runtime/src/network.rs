@@ -296,7 +296,8 @@ pub struct Endpoint {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct HttpRule {
-    pub allow: bool,
+    /// Whether the rule allows what it matches, or denies it.
+    pub allows: bool,
     /// Uppercase, or `None` for any method.
     pub method: Option<String>,
     pub path: String,
@@ -306,7 +307,7 @@ impl HttpRule {
     /// A rule allowing `method`, or any, on paths `path` matches.
     pub fn allow(method: Option<&str>, path: impl Into<String>) -> Self {
         Self {
-            allow: true,
+            allows: true,
             method: method.map(str::to_ascii_uppercase),
             path: path.into(),
         }
@@ -315,7 +316,7 @@ impl HttpRule {
     /// A rule denying `method`, or any, on paths `path` matches.
     pub fn deny(method: Option<&str>, path: impl Into<String>) -> Self {
         Self {
-            allow: false,
+            allows: false,
             ..Self::allow(method, path)
         }
     }

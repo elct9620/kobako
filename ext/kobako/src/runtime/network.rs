@@ -307,14 +307,14 @@ fn to_endpoint(ruby: &Ruby, endpoint: Value) -> Result<Endpoint, MagnusError> {
     Ok(answered)
 }
 
-/// The rule a Ruby object answering `allow`, `method`, and `path` stands for.
+/// The rule a Ruby object answering `allow?`, `method`, and `path` stands for.
 fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
-    let allow: bool = rule.funcall::<_, _, Value>("allow", ())?.to_bool();
+    let allows: bool = rule.funcall::<_, _, Value>("allow?", ())?.to_bool();
     let method: Option<String> = rule.funcall("method", ())?;
     let path: String = rule
         .funcall::<_, _, Value>("path", ())?
         .funcall("to_s", ())?;
-    Ok(match allow {
+    Ok(match allows {
         true => HttpRule::allow(method.as_deref(), path),
         false => HttpRule::deny(method.as_deref(), path),
     })

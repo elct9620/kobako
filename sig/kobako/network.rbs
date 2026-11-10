@@ -32,7 +32,9 @@ module Kobako
     end
 
     class HttpRule
-      attr_reader allow: bool
+      @allow: bool
+
+      def allow?: () -> bool
       attr_reader method: String?
       attr_reader path: String
 

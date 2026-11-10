@@ -256,11 +256,11 @@ impl Rule {
                 && self
                     .rules
                     .iter()
-                    .any(|rule| rule.allow && rule.matches(method, path))
+                    .any(|rule| rule.allows && rule.matches(method, path))
                 && !self
                     .rules
                     .iter()
-                    .any(|rule| !rule.allow && rule.matches(method, path)))
+                    .any(|rule| !rule.allows && rule.matches(method, path)))
     }
 
     /// Whether this rule's host names `name`, exactly or beneath its wildcard

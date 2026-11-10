@@ -300,7 +300,7 @@ pattern. `*` stands for one segment, and `**` for any number.
 
 ```rust
 pub struct HttpRule {
-    pub allow: bool,
+    pub allows: bool,
     pub method: Option<String>,
     pub path: String,
 }
