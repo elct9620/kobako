@@ -1207,7 +1207,7 @@ mod tests {
 
     /// A loopback server answering one request with `hello`, handing back the
     /// request line and headers it read.
-    fn answering_once() -> (u16, thread::JoinHandle<Vec<String>>) {
+    fn serve_once() -> (u16, thread::JoinHandle<Vec<String>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = thread::spawn(move || {
@@ -1240,14 +1240,14 @@ mod tests {
         Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()))
     }
 
-    fn get(authority: &str) -> OutgoingRequest {
+    fn get_request(authority: &str) -> OutgoingRequest {
         let mut request = OutgoingRequest::new("GET", Scheme::Http, authority);
         request.path_with_query = "/greeting?lang=en".to_string();
         request
     }
 
     /// The exchange's head, then its whole body.
-    fn settled(exchange: &Exchange) -> Result<(ResponseHead, Vec<u8>), HttpError> {
+    fn read_response(exchange: &Exchange) -> Result<(ResponseHead, Vec<u8>), HttpError> {
         let head = loop {
             match exchange.response() {
                 Some(answer) => break answer?,
@@ -1267,12 +1267,12 @@ mod tests {
     }
 
     /// A host whose resolver says it started, then answers only once released.
-    struct Stalled {
+    struct StallsLookups {
         started: Mutex<std::sync::mpsc::Sender<()>>,
         released: Mutex<std::sync::mpsc::Receiver<()>>,
     }
 
-    impl ProtocolFamily for Stalled {
+    impl ProtocolFamily for StallsLookups {
         fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
             Err(io::ErrorKind::ConnectionRefused.into())
         }
@@ -1323,7 +1323,7 @@ mod tests {
         let mut entry = Builder::default();
         entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
         let network = Network::new("web", Arc::new(entry)).unwrap();
-        let family = Stalled {
+        let family = StallsLookups {
             started: Mutex::new(started),
             released: Mutex::new(released),
         };
@@ -1337,17 +1337,17 @@ mod tests {
         .expect("the endpoints compile");
         let cred = prepare_creds_within(&[], None);
         let first = namespace
-            .send(&cred, get("api.example.com"))
+            .send(&cred, get_request("api.example.com"))
             .expect("the first request has a place");
         resolving
             .recv_timeout(Duration::from_secs(5))
             .expect("the request's lookup starts");
         first.release();
-        let while_resolving = namespace.send(&cred, get("api.example.com")).err();
+        let while_resolving = namespace.send(&cred, get_request("api.example.com")).err();
         release.send(()).unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let once_returned = loop {
-            match namespace.send(&cred, get("api.example.com")) {
+            match namespace.send(&cred, get_request("api.example.com")) {
                 Ok(_) => break true,
                 Err(_) if std::time::Instant::now() < deadline => {
                     thread::sleep(Duration::from_millis(1))
@@ -1367,15 +1367,15 @@ mod tests {
     // @behavior NW-037
     #[test]
     fn a_request_to_an_http_endpoint_reads_back_the_response() {
-        let (port, server) = answering_once();
+        let (port, server) = serve_once();
         let namespace = namespace(vec![Endpoint::new("localhost", port)
             .unwrap()
             .with_addresses(vec![crate::network::Addresses::Local])]);
         let cred = prepare_creds_within(&[], None);
         let exchange = namespace
-            .send(&cred, get(&format!("LocalHost:{port}")))
+            .send(&cred, get_request(&format!("LocalHost:{port}")))
             .expect("the endpoint names the authority");
-        let (head, body) = settled(&exchange).expect("the server answers");
+        let (head, body) = read_response(&exchange).expect("the server answers");
         let seen = server.join().unwrap();
         assert!(
             head.status == 200
@@ -1394,8 +1394,8 @@ mod tests {
     fn an_http_connection_sends_without_nagles_delay() {
         /// The host's network, keeping a handle on each stream it dials.
         #[derive(Default)]
-        struct Keeping(Mutex<Vec<std::net::TcpStream>>);
-        impl ProtocolFamily for Keeping {
+        struct KeepsStreams(Mutex<Vec<std::net::TcpStream>>);
+        impl ProtocolFamily for KeepsStreams {
             fn connect(&self, addr: SocketAddr) -> io::Result<std::net::TcpStream> {
                 let stream = HostInet.connect(addr)?;
                 self.0.lock().unwrap().push(stream.try_clone()?);
@@ -1405,7 +1405,7 @@ mod tests {
                 HostInet.resolve(name)
             }
         }
-        let (port, server) = answering_once();
+        let (port, server) = serve_once();
         let mut entry = Builder::default();
         entry.endpoint(
             Endpoint::new("127.0.0.1", port)
@@ -1413,14 +1413,14 @@ mod tests {
                 .with_addresses(vec![crate::network::Addresses::Local]),
         );
         let network = Network::new("web", Arc::new(entry)).unwrap();
-        let family = Arc::new(Keeping::default());
+        let family = Arc::new(KeepsStreams::default());
         let namespace =
             Namespace::for_network(&network, family.clone(), Arc::new(HyperOutbound::new()));
         let cred = prepare_creds_within(&[], None);
         let exchange = namespace
-            .send(&cred, get(&format!("127.0.0.1:{port}")))
+            .send(&cred, get_request(&format!("127.0.0.1:{port}")))
             .expect("the endpoint names the authority");
-        settled(&exchange).expect("the server answers");
+        read_response(&exchange).expect("the server answers");
         server.join().unwrap();
         let nodelay = family
             .0
@@ -1455,7 +1455,7 @@ mod tests {
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds_within(&[], None);
         let exchange = namespace
-            .send(&cred, get(&format!("127.0.0.1:{port}")))
+            .send(&cred, get_request(&format!("127.0.0.1:{port}")))
             .expect("an endpoint names the authority");
         let mut held = 0;
         let mut body = Vec::new();
@@ -1495,7 +1495,7 @@ mod tests {
             format!("elsewhere.example:{port}"),
             format!("198.18.0.0:{port}"),
         ]
-        .map(|authority| namespace.send(&cred, get(&authority)).err());
+        .map(|authority| namespace.send(&cred, get_request(&authority)).err());
         thread::sleep(Duration::from_millis(20));
         assert!(
             answers
@@ -1516,7 +1516,7 @@ mod tests {
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds_within(&[], None);
         let answers = ["Host", "content-length", "bad name"].map(|name| {
-            let mut request = get(&format!("127.0.0.1:{port}"));
+            let mut request = get_request(&format!("127.0.0.1:{port}"));
             request.headers.push((name.to_string(), b"x".to_vec()));
             namespace.send(&cred, request).err()
         });
@@ -1554,12 +1554,12 @@ mod tests {
         });
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds_within(&[], None);
-        let mut request = get(&format!("127.0.0.1:{port}"));
+        let mut request = get_request(&format!("127.0.0.1:{port}"));
         request.scheme = Scheme::Https;
         let exchange = namespace
             .send(&cred, request)
             .expect("an endpoint names the authority");
-        let answer = settled(&exchange).map(|(head, _)| head.status);
+        let answer = read_response(&exchange).map(|(head, _)| head.status);
         assert_eq!(
             (server.join().unwrap(), answer),
             (0x16, Err(HttpError::TlsProtocol)),
@@ -1595,7 +1595,7 @@ mod tests {
         let network = Network::new("web", Arc::new(entry)).unwrap();
         let namespace =
             Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()));
-        let mut request = get(&format!("127.0.0.1:{port}"));
+        let mut request = get_request(&format!("127.0.0.1:{port}"));
         request
             .headers
             .push(("x-probe".to_string(), b"secret".to_vec()));
@@ -1627,9 +1627,9 @@ mod tests {
     /// A seam recording the credentials each request it is handed carries, and
     /// answering none.
     #[derive(Default)]
-    struct Recording(Mutex<Vec<Vec<Swap>>>);
+    struct RecordsSwaps(Mutex<Vec<Vec<Swap>>>);
 
-    impl Outbound for Recording {
+    impl Outbound for RecordsSwaps {
         fn send_request(&self, request: OutgoingRequest, _connector: Connector) -> ResponseFuture {
             self.0.lock().unwrap().push(request.swaps);
             Box::pin(async { Err(HttpError::Internal) })
@@ -1639,7 +1639,7 @@ mod tests {
     /// The swaps a request with `header: value` carries once its entry binds a
     /// credential to `exact.example.com` and `*.example.com` on 443, allowing
     /// GET on `/api/**`.
-    fn swaps_for(scheme: Scheme, host: &str, path: &str, header: &str, value: &[u8]) -> Vec<Swap> {
+    fn swaps_of(scheme: Scheme, host: &str, path: &str, header: &str, value: &[u8]) -> Vec<Swap> {
         let mut entry = Builder::default();
         entry
             .endpoint(
@@ -1659,8 +1659,8 @@ mod tests {
                 }),
             ));
         let network = Network::new("api", Arc::new(entry)).unwrap();
-        let seam = Arc::new(Recording::default());
-        let family = Arc::new(Resolving);
+        let seam = Arc::new(RecordsSwaps::default());
+        let family = Arc::new(ResolvesToLoopback);
         let namespace = Namespace::for_network(&network, family, seam.clone());
         let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));
         request.path_with_query = path.to_string();
@@ -1668,15 +1668,15 @@ mod tests {
         let exchange = namespace
             .send(&prepare_creds_within(&[], None), request)
             .expect("an endpoint names the authority");
-        let _ = settled(&exchange);
+        let _ = read_response(&exchange);
         let recorded = seam.0.lock().unwrap().pop().unwrap_or_default();
         recorded
     }
 
     /// A family resolving every name to loopback and dialing nothing.
-    struct Resolving;
+    struct ResolvesToLoopback;
 
-    impl ProtocolFamily for Resolving {
+    impl ProtocolFamily for ResolvesToLoopback {
         fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
             Err(io::ErrorKind::ConnectionRefused.into())
         }
@@ -1686,7 +1686,7 @@ mod tests {
     #[test]
     fn a_credential_binds_only_to_https_its_exact_host_and_an_allowed_path() {
         let bound = |scheme, host, path, header| {
-            !swaps_for(scheme, host, path, header, b"Bearer kobako-token").is_empty()
+            !swaps_of(scheme, host, path, header, b"Bearer kobako-token").is_empty()
         };
         assert_eq!(
             [
@@ -1757,7 +1757,7 @@ mod tests {
     #[test]
     fn a_request_sends_its_secret_inside_a_basic_pair_carrying_the_placeholder() {
         let sent = |value: &[u8]| {
-            swaps_for(
+            swaps_of(
                 Scheme::Https,
                 "exact.example.com",
                 "/api/repos",
@@ -1785,8 +1785,8 @@ mod tests {
         let network = Network::new("api", Arc::new(entry)).unwrap();
         let namespace = Namespace::for_network(
             &network,
-            Arc::new(Resolving),
-            Arc::new(Recording::default()),
+            Arc::new(ResolvesToLoopback),
+            Arc::new(RecordsSwaps::default()),
         );
         let cred = prepare_creds_within(&[], Some(2 * MAX_SOCKET_BUFFER));
         let tcp = namespace.create_tcp_socket(&cred);
@@ -1821,9 +1821,9 @@ mod tests {
         use super::*;
 
         /// A body that never ends, a frame ready at every poll.
-        struct Endless;
+        struct EndlessBody;
 
-        impl Body for Endless {
+        impl Body for EndlessBody {
             type Data = Bytes;
             type Error = HttpError;
 
@@ -1838,9 +1838,9 @@ mod tests {
         }
 
         /// A seam answering each request at once with an endless body.
-        struct Streaming;
+        struct StreamsEndlessly;
 
-        impl Outbound for Streaming {
+        impl Outbound for StreamsEndlessly {
             fn send_request(&self, _: OutgoingRequest, _: Connector) -> ResponseFuture {
                 Box::pin(async {
                     Ok(Response {
@@ -1848,7 +1848,7 @@ mod tests {
                             status: 200,
                             headers: Vec::new(),
                         },
-                        body: Endless.boxed_unsync(),
+                        body: EndlessBody.boxed_unsync(),
                     })
                 })
             }
@@ -1864,8 +1864,11 @@ mod tests {
             let mut entry = Builder::default();
             entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
             let network = Network::new("api", Arc::new(entry)).unwrap();
-            let namespace =
-                Namespace::for_network(&network, Arc::new(Resolving), Arc::new(Streaming));
+            let namespace = Namespace::for_network(
+                &network,
+                Arc::new(ResolvesToLoopback),
+                Arc::new(StreamsEndlessly),
+            );
             let cred = prepare_creds_within(&[], None);
             let send = || {
                 namespace

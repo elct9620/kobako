@@ -1202,9 +1202,9 @@ mod tests {
     }
 
     /// A host that has given every invocation up.
-    struct GivenUp;
+    struct AbandonsCalls;
 
-    impl kobako_runtime::DispatchHandler for GivenUp {
+    impl kobako_runtime::DispatchHandler for AbandonsCalls {
         fn dispatch(
             &self,
             _call: kobako_transport::envelope::Call<'_>,
@@ -1222,7 +1222,7 @@ mod tests {
     #[test]
     fn a_preview2_call_answered_after_the_host_gave_up_traps() {
         let (mut store, instance) = guest(Profile::Hermetic, None);
-        store.data_mut().bind_on_dispatch(Arc::new(GivenUp));
+        store.data_mut().bind_on_dispatch(Arc::new(AbandonsCalls));
         let network = call::<(), i32>(&mut store, &instance, "network", ());
         let created = call::<(), ()>(&mut store, &instance, "create_ipv4", ());
         assert_eq!(
@@ -1367,8 +1367,8 @@ mod tests {
     }
 
     /// A hermetic invocation whose network reaches `port` on loopback over TCP.
-    fn networked(port: u16) -> Invocation {
-        within_network(
+    fn loopback_guest(port: u16) -> Invocation {
+        network_guest(
             network::Endpoint::new("127.0.0.1", port)
                 .unwrap()
                 .with_protocol(network::Protocol::Tcp),
@@ -1376,13 +1376,13 @@ mod tests {
     }
 
     /// A hermetic invocation whose network holds `endpoint`, or none.
-    fn within_network(endpoint: network::Endpoint) -> Invocation {
-        within_network_holding([endpoint], None)
+    fn network_guest(endpoint: network::Endpoint) -> Invocation {
+        limited_network_guest([endpoint], None)
     }
 
     /// A hermetic invocation whose network holds `endpoints`, holding at most
     /// `open_file_limit` files.
-    fn within_network_holding(
+    fn limited_network_guest(
         endpoints: impl IntoIterator<Item = network::Endpoint>,
         open_file_limit: Option<usize>,
     ) -> Invocation {
@@ -1415,7 +1415,7 @@ mod tests {
     fn a_looked_up_name_connects_and_reads_back_its_virtual_address() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        let mut guest = within_network(
+        let mut guest = network_guest(
             network::Endpoint::new("localhost", port)
                 .unwrap()
                 .with_protocol(network::Protocol::Tcp)
@@ -1486,7 +1486,7 @@ mod tests {
             listener.local_addr().unwrap().port(),
             peer.local_addr().unwrap().port(),
         );
-        let mut guest = within_network_holding(
+        let mut guest = limited_network_guest(
             [
                 network::Endpoint::new("127.0.0.1", tcp_port)
                     .unwrap()
@@ -1588,7 +1588,7 @@ mod tests {
     fn a_udp_socket_answers_bound_and_empty_sends_as_wasmtimes() {
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let port = peer.local_addr().unwrap().port();
-        let mut guest = within_network(
+        let mut guest = network_guest(
             network::Endpoint::new("127.0.0.1", port)
                 .unwrap()
                 .with_protocol(network::Protocol::Udp),
@@ -1651,7 +1651,7 @@ mod tests {
         use super::super::bindings::HttpHost;
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let udp_port = peer.local_addr().unwrap().port();
-        let mut guest = within_network_holding(
+        let mut guest = limited_network_guest(
             [
                 network::Endpoint::new("127.0.0.1", udp_port)
                     .unwrap()
@@ -1763,7 +1763,7 @@ mod tests {
                 .unwrap()
                 .with_protocol(network::Protocol::Tcp)
         };
-        let mut guest = within_network_holding([tcp(open), tcp(closed)], None);
+        let mut guest = limited_network_guest([tcp(open), tcp(closed)], None);
         let (during, failure, after) =
             run_task(Some(Instant::now() + Duration::from_secs(10)), || {
                 let network = guest.instance_network_instance_network()?;
@@ -1823,7 +1823,7 @@ mod tests {
     fn one_datagram_receive_answers_at_most_sixteen() {
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let port = peer.local_addr().unwrap().port();
-        let mut guest = within_network(
+        let mut guest = network_guest(
             network::Endpoint::new("127.0.0.1", port)
                 .unwrap()
                 .with_protocol(network::Protocol::Udp),
@@ -1898,7 +1898,7 @@ mod tests {
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let port = peer.local_addr().unwrap().port();
-        let mut guest = within_network(
+        let mut guest = network_guest(
             network::Endpoint::new("127.0.0.1", port)
                 .unwrap()
                 .with_protocol(network::Protocol::Udp),
@@ -1998,20 +1998,20 @@ mod tests {
 
     /// A guest whose network reaches a loopback listener over TCP and UDP,
     /// and the listener's port.
-    fn reaching_loopback() -> (Invocation, std::net::TcpListener) {
+    fn guest_and_listener() -> (Invocation, std::net::TcpListener) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let endpoint = network::Endpoint::new("127.0.0.1", port)
             .unwrap()
             .with_protocol(network::Protocol::Tcp)
             .with_addresses(vec![network::Addresses::Local]);
-        (within_network(endpoint), listener)
+        (network_guest(endpoint), listener)
     }
 
     // @behavior NW-155
     #[test]
     fn a_flushing_streams_pollable_waits_until_what_it_flushes_has_left() {
-        let (mut guest, listener) = reaching_loopback();
+        let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let started = Instant::now();
         let answers = run_task(Some(started + Duration::from_secs(30)), || {
@@ -2088,7 +2088,7 @@ mod tests {
     // @behavior NW-089
     #[test]
     fn an_address_wasi_calls_invalid_answers_invalid_argument() {
-        let (mut guest, _listener) = reaching_loopback();
+        let (mut guest, _listener) = guest_and_listener();
         let network = guest.instance_network_instance_network().unwrap();
         let connect = |guest: &mut Invocation, to| {
             let socket = guest
@@ -2131,7 +2131,7 @@ mod tests {
     // @behavior NW-090
     #[test]
     fn a_second_start_while_one_is_under_way_answers_concurrency_conflict() {
-        let (mut guest, listener) = reaching_loopback();
+        let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let network = guest.instance_network_instance_network().unwrap();
         let socket = guest
@@ -2178,7 +2178,7 @@ mod tests {
     // @behavior NW-091
     #[test]
     fn a_tcp_sockets_pollable_waits_only_on_its_connect() {
-        let (mut guest, listener) = reaching_loopback();
+        let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let started = Instant::now();
         let answered = run_task(Some(started + Duration::from_secs(10)), || {
@@ -2233,7 +2233,7 @@ mod tests {
     // @behavior NW-092
     #[test]
     fn a_write_past_the_last_check_write_permit_traps() {
-        let (mut guest, listener) = reaching_loopback();
+        let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let started = Instant::now();
         let (permitted, within, past) = run_task(Some(started + Duration::from_secs(10)), || {
@@ -2278,7 +2278,7 @@ mod tests {
     fn a_datagram_past_what_udp_carries_answers_datagram_too_large() {
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let port = peer.local_addr().unwrap().port();
-        let mut guest = within_network(
+        let mut guest = network_guest(
             network::Endpoint::new("127.0.0.1", port)
                 .unwrap()
                 .with_protocol(network::Protocol::Udp),
@@ -2339,7 +2339,7 @@ mod tests {
     fn a_datagram_send_past_its_permit_traps() {
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let port = peer.local_addr().unwrap().port();
-        let mut guest = within_network(
+        let mut guest = network_guest(
             network::Endpoint::new("127.0.0.1", port)
                 .unwrap()
                 .with_protocol(network::Protocol::Udp),
@@ -2415,7 +2415,7 @@ mod tests {
     #[test]
     fn a_blocking_write_past_4096_bytes_traps() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let mut guest = networked(listener.local_addr().unwrap().port());
+        let mut guest = loopback_guest(listener.local_addr().unwrap().port());
         let answers = run_task(
             Some(Instant::now() + Duration::from_secs(10)),
             || -> wasmtime::Result<_> {
@@ -2462,7 +2462,7 @@ mod tests {
     #[test]
     fn a_frozen_clock_beside_a_socket_elapses_in_host_time() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let mut guest = networked(listener.local_addr().unwrap().port());
+        let mut guest = loopback_guest(listener.local_addr().unwrap().port());
         let started = Instant::now();
         let answer = run_task(Some(started + Duration::from_secs(10)), || {
             let socket = guest
@@ -2533,7 +2533,7 @@ mod tests {
         let endpoint = network::Endpoint::new("127.0.0.1", 9)
             .unwrap()
             .with_protocol(network::Protocol::Tcp);
-        let mut guest = within_network_holding([endpoint], Some(3));
+        let mut guest = limited_network_guest([endpoint], Some(3));
         assert_eq!(
             (
                 guest
@@ -2562,7 +2562,7 @@ mod tests {
         use super::super::bindings::wasi_http_types_0_2_12::{ErrorCode as HttpErrorCode, Scheme};
         use super::super::bindings::HttpHost;
         let endpoint = network::Endpoint::new("example.com", 80).unwrap();
-        let mut guest = within_network_holding([endpoint], Some(3));
+        let mut guest = limited_network_guest([endpoint], Some(3));
         let network = guest.instance_network_instance_network().unwrap();
         let lookup = guest
             .ip_name_lookup_resolve_addresses(network, "example.com".to_string())
@@ -2605,7 +2605,7 @@ mod tests {
             .unwrap()
             .with_protocol(network::Protocol::Tcp)
             .with_addresses(vec![network::Addresses::Local]);
-        let mut guest = within_network_holding([endpoint], Some(4));
+        let mut guest = limited_network_guest([endpoint], Some(4));
         let started = Instant::now();
         let connected = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
@@ -2639,7 +2639,7 @@ mod tests {
 
     /// The preview2 functions a test answers before a Guest Binary imports
     /// them, each beside the test that holds the answer.
-    const ANSWERED_AHEAD: [(&str, &str, &str); 1] = [(
+    const UNIMPORTED_ANSWERS: [(&str, &str, &str); 1] = [(
         "wasi:sockets/tcp@0.2.12",
         "[method]tcp-socket.remote-address",
         "a_looked_up_name_connects_and_reads_back_its_virtual_address",
@@ -2678,12 +2678,12 @@ mod tests {
             .filter(|(module, _, _)| preview2(module))
             .map(|(module, name, _)| (module.to_string(), name.to_string()))
             .collect::<std::collections::BTreeSet<_>>();
-        let ahead = ANSWERED_AHEAD
+        let unimported = UNIMPORTED_ANSWERS
             .iter()
             .map(|(module, name, _)| (module.to_string(), name.to_string()))
             .collect::<std::collections::BTreeSet<_>>();
         let expected = imported
-            .union(&ahead)
+            .union(&unimported)
             .cloned()
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(

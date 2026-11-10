@@ -584,14 +584,13 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::net::socket::testing::wait_for;
     use crate::net::{sock_alloc_file, HostInet};
-    use crate::sched::testing::within_max_wait;
     use crate::security::prepare_creds_within;
     use crate::vfs::File;
-    use crate::wait::do_poll;
 
     /// A socket connecting to `addr` through the host.
-    fn dialing(addr: SocketAddr) -> Arc<TcpSock> {
+    fn dial(addr: SocketAddr) -> Arc<TcpSock> {
         let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
             .expect("the reactor starts");
         sock.connect(vec![addr], addr, &OpenConnections::new(None))
@@ -601,19 +600,19 @@ mod tests {
 
     /// A socket file connecting to a loopback listener, and the peer the
     /// listener accepted.
-    fn connected() -> (Arc<TcpSock>, File, std::net::TcpStream) {
+    fn connected_socket() -> (Arc<TcpSock>, File, std::net::TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
-        let sock = dialing(listener.local_addr().unwrap());
+        let sock = dial(listener.local_addr().unwrap());
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         let (peer, _) = listener.accept().expect("the listener accepts");
-        wait_for(&file, PollMask::OUT);
+        wait_for(|table| file.poll(table), PollMask::OUT);
         (sock, file, peer)
     }
 
     // @behavior RT-365
     #[test]
     fn a_guest_socket_keeps_nagles_algorithm() {
-        let (sock, _file, _peer) = connected();
+        let (sock, _file, _peer) = connected_socket();
         let nodelay = sock
             .state()
             .host
@@ -762,7 +761,7 @@ mod tests {
     // @behavior RT-368
     #[test]
     fn a_socket_doubles_its_buffer_sizes_and_holds_its_queues_within_them() {
-        let (sock, file, mut peer) = connected();
+        let (sock, file, mut peer) = connected_socket();
         let get = |opt| sock.getsockopt(opt).unwrap() as usize;
         let defaults = (get(SockOpt::RcvBuf), get(SockOpt::SndBuf));
         sock.setsockopt(SockOpt::RcvBuf, 10_000_000).unwrap();
@@ -771,7 +770,7 @@ mod tests {
         sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
         let set = (get(SockOpt::RcvBuf), get(SockOpt::SndBuf), sock.send_room());
         peer.write_all(&[7; 10_000]).expect("the peer writes");
-        wait_for(&file, PollMask::IN);
+        wait_for(|table| file.poll(table), PollMask::IN);
         let held = sock.state().received.len();
         assert_eq!(
             (defaults, capped, set, held <= 2304),
@@ -787,22 +786,10 @@ mod tests {
         );
     }
 
-    /// Wait on `file`'s poll until it holds `mask`.
-    fn wait_for(file: &File, mask: PollMask) {
-        let found = within_max_wait(|| {
-            do_poll(None, |table| file.poll(table).contains(mask).then_some(()))
-        });
-        assert_eq!(
-            found,
-            Ok(Some(())),
-            "the socket file's poll must find {mask:?}"
-        );
-    }
-
     // @behavior RT-342
     #[test]
     fn a_socket_connects_without_blocking_and_its_poll_wakes() {
-        let (sock, _file, _peer) = connected();
+        let (sock, _file, _peer) = connected_socket();
         assert_eq!(
             sock.finish_connect(),
             Ok(()),
@@ -813,10 +800,10 @@ mod tests {
     // @behavior RT-356
     #[test]
     fn a_connected_socket_asked_to_connect_again_answers_eisconn() {
-        let (sock, _file, _peer) = connected();
+        let (sock, _file, _peer) = connected_socket();
         sock.finish_connect().expect("the socket connected");
         let addr = sock.getpeername().expect("a connected socket has a peer");
-        let (was_reset, _reset_file) = reset();
+        let (was_reset, _reset_file) = reset_socket();
         let again = |sock: &TcpSock| sock.connect(vec![addr], addr, &OpenConnections::new(Some(1)));
         assert_eq!(
             [again(&sock), again(&was_reset)],
@@ -835,9 +822,9 @@ mod tests {
         let closed = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let refused_at = closed.local_addr().unwrap();
         drop(closed);
-        let sock = dialing(refused_at);
+        let sock = dial(refused_at);
         let file = sock_alloc_file(sock.clone(), &Arc::default());
-        wait_for(&file, PollMask::ERR);
+        wait_for(|table| file.poll(table), PollMask::ERR);
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let open_at = listener.local_addr().unwrap();
         let connect = || sock.connect(vec![open_at], open_at, &OpenConnections::new(None));
@@ -846,7 +833,7 @@ mod tests {
         listener
             .accept()
             .expect("the listener accepts the fresh connect");
-        wait_for(&file, PollMask::OUT);
+        wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
             (
                 first,
@@ -869,14 +856,14 @@ mod tests {
     // @behavior RT-343
     #[test]
     fn a_socket_reads_what_its_peer_sent_then_the_end() {
-        let (_sock, mut file, mut peer) = connected();
+        let (_sock, mut file, mut peer) = connected_socket();
         let mut buf = [0; 8];
         let before = file.read(&mut buf);
         peer.write_all(b"hello").unwrap();
         drop(peer);
         let mut received = Vec::new();
         loop {
-            wait_for(&file, PollMask::IN);
+            wait_for(|table| file.poll(table), PollMask::IN);
             match file.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => received.extend_from_slice(&buf[..n]),
@@ -894,12 +881,12 @@ mod tests {
     // @behavior RT-351
     #[test]
     fn a_reset_reads_as_an_error_its_poll_reports() {
-        let (_sock, mut file, peer) = connected();
+        let (_sock, mut file, peer) = connected_socket();
         file.write(b"unread").unwrap();
         std::thread::sleep(Duration::from_millis(20));
         // A close with bytes unread sends a reset, as Linux's `tcp_close` does.
         drop(peer);
-        wait_for(&file, PollMask::ERR);
+        wait_for(|table| file.poll(table), PollMask::ERR);
         assert_eq!(
             file.read(&mut [0; 8]),
             Err(FilesystemError::ConnectionReset),
@@ -909,19 +896,19 @@ mod tests {
     }
 
     /// A socket file whose peer reset it, as a close with bytes unread does.
-    fn reset() -> (Arc<TcpSock>, File) {
-        let (sock, mut file, peer) = connected();
+    fn reset_socket() -> (Arc<TcpSock>, File) {
+        let (sock, mut file, peer) = connected_socket();
         file.write(b"unread").unwrap();
         std::thread::sleep(Duration::from_millis(20));
         drop(peer);
-        wait_for(&file, PollMask::ERR);
+        wait_for(|table| file.poll(table), PollMask::ERR);
         (sock, file)
     }
 
     // @behavior RT-357
     #[test]
     fn a_reset_socket_answers_its_error_once_then_as_closed() {
-        let (_sock, mut file) = reset();
+        let (_sock, mut file) = reset_socket();
         let mut buf = [0; 8];
         assert_eq!(
             (file.read(&mut buf), file.read(&mut buf), file.write(b"x")),
@@ -941,11 +928,11 @@ mod tests {
         let closed = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = closed.local_addr().unwrap();
         drop(closed);
-        let refused = sock_alloc_file(dialing(addr), &Arc::default());
-        wait_for(&refused, PollMask::ERR);
+        let refused = sock_alloc_file(dial(addr), &Arc::default());
+        wait_for(|table| refused.poll(table), PollMask::ERR);
         let every = PollMask::IN | PollMask::OUT | PollMask::ERR | PollMask::HUP;
         assert_eq!(
-            (reset().1.poll(None), refused.poll(None)),
+            (reset_socket().1.poll(None), refused.poll(None)),
             (every, every),
             "a socket file whose peer reset it, and one whose connect was refused, must each \
              poll IN, OUT, ERR, and HUP, as tcp_poll answers TCP_CLOSE"
@@ -955,9 +942,9 @@ mod tests {
     // @behavior RT-359
     #[test]
     fn a_shut_down_reading_side_reads_what_arrived() {
-        let (sock, mut file, mut peer) = connected();
+        let (sock, mut file, mut peer) = connected_socket();
         peer.write_all(b"queued").unwrap();
-        wait_for(&file, PollMask::IN);
+        wait_for(|table| file.poll(table), PollMask::IN);
         sock.shutdown(Shutdown::Read)
             .expect("a connected socket shuts down");
         let mut buf = [0; 16];
@@ -973,7 +960,7 @@ mod tests {
     // @behavior RT-360
     #[test]
     fn a_zero_byte_read_of_a_tcp_socket_answers_zero() {
-        let (_sock, mut file, _peer) = connected();
+        let (_sock, mut file, _peer) = connected_socket();
         assert_eq!(
             file.read(&mut []),
             Ok(0),
@@ -985,7 +972,7 @@ mod tests {
     // @behavior RT-344
     #[test]
     fn a_socket_sends_what_it_was_handed_then_its_fin() {
-        let (sock, mut file, mut peer) = connected();
+        let (sock, mut file, mut peer) = connected_socket();
         assert_eq!(
             file.write(b"ping"),
             Ok(4),
@@ -1012,9 +999,9 @@ mod tests {
         let addr = TcpListener::bind("127.0.0.1:0")
             .and_then(|listener| listener.local_addr())
             .unwrap();
-        let sock = dialing(addr);
+        let sock = dial(addr);
         let file = sock_alloc_file(sock.clone(), &Arc::default());
-        wait_for(&file, PollMask::OUT);
+        wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
             sock.finish_connect(),
             Err(FilesystemError::ConnectionRefused),
@@ -1025,7 +1012,7 @@ mod tests {
     // @behavior RT-346
     #[test]
     fn dropping_the_socket_file_releases_the_host_socket() {
-        let (_sock, file, mut peer) = connected();
+        let (_sock, file, mut peer) = connected_socket();
         drop(file);
         peer.set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();

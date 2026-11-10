@@ -14,13 +14,13 @@ use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
 use kobako_transport::envelope::{Outcome, Preamble};
 
 /// Each invocation's network entries, as each name and its endpoints' hosts.
-type Received = Arc<Mutex<Vec<Vec<(String, Vec<String>)>>>>;
+type ReceivedEntries = Arc<Mutex<Vec<Vec<(String, Vec<String>)>>>>;
 
 /// A runtime that presents Mounts and the network, recording each network
 /// entry an invocation receives.
 #[derive(Default)]
 struct RecordsNetwork {
-    received: Received,
+    received: ReceivedEntries,
 }
 
 impl Runtime for RecordsNetwork {
@@ -60,9 +60,9 @@ impl Runtime for RecordsNetwork {
 }
 
 /// A runtime that presents no network.
-struct NoNetwork;
+struct LacksNetwork;
 
-impl Runtime for NoNetwork {
+impl Runtime for LacksNetwork {
     fn invoke(
         &self,
         _entry: runtime::Entry<'_>,
@@ -87,7 +87,7 @@ impl Entry for Reaches {
     }
 }
 
-fn sandbox() -> (Sandbox, Received) {
+fn sandbox() -> (Sandbox, ReceivedEntries) {
     let runtime = RecordsNetwork::default();
     let received = runtime.received.clone();
     let sandbox = Sandbox::with_runtime(runtime, Profile::Hermetic)
@@ -151,7 +151,7 @@ fn a_name_and_a_mount_path_never_meet() {
 // @behavior NW-004
 #[test]
 fn a_runtime_presenting_no_network_refuses_the_entry() {
-    let mut sandbox = Sandbox::with_runtime(NoNetwork, Profile::Hermetic).unwrap();
+    let mut sandbox = Sandbox::with_runtime(LacksNetwork, Profile::Hermetic).unwrap();
     assert!(
         matches!(
             sandbox.network("api", Arc::new(Reaches("api.example.com"))),

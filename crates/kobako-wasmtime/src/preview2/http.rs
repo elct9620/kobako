@@ -593,11 +593,11 @@ mod tests {
 
     /// A hermetic invocation whose network holds `endpoints`, or none at all.
     fn guest(endpoints: Option<Vec<network::Endpoint>>) -> Invocation {
-        guest_within(endpoints, None)
+        limited_guest(endpoints, None)
     }
 
     /// A guest as `guest` makes one, allotted `memory_limit` bytes.
-    fn guest_within(
+    fn limited_guest(
         endpoints: Option<Vec<network::Endpoint>>,
         memory_limit: Option<usize>,
     ) -> Invocation {
@@ -616,7 +616,7 @@ mod tests {
     }
 
     /// A GET for `/greeting` at `authority` over HTTP.
-    fn get(guest: &mut Invocation, authority: &str) -> wasmtime::Result<OutgoingRequest> {
+    fn get_request(guest: &mut Invocation, authority: &str) -> wasmtime::Result<OutgoingRequest> {
         let headers = guest.types_fields_new()?;
         let request = guest.types_outgoing_request_new(headers)?;
         guest
@@ -635,7 +635,7 @@ mod tests {
     #[test]
     fn without_the_network_a_request_answers_http_request_denied() {
         let mut guest = guest(None);
-        let request = get(&mut guest, "example.com").unwrap();
+        let request = get_request(&mut guest, "example.com").unwrap();
         assert!(
             matches!(
                 guest.outgoing_handler_handle(request, None).into_answer(),
@@ -667,7 +667,7 @@ mod tests {
         let mut guest = guest(Some(vec![endpoint]));
         let started = Instant::now();
         let (status, kind, body) = run_task(Some(started + Wait::from_secs(10)), || {
-            let request = get(&mut guest, &format!("127.0.0.1:{port}"))?;
+            let request = get_request(&mut guest, &format!("127.0.0.1:{port}"))?;
             let future = guest
                 .outgoing_handler_handle(request, None)
                 .into_answer()?
@@ -741,7 +741,7 @@ mod tests {
             let started = Instant::now();
             let body = run_task(Some(started + Wait::from_secs(10)), || {
                 let guest = guest.as_mut().unwrap();
-                let request = get(guest, &format!("127.0.0.1:{port}"))?;
+                let request = get_request(guest, &format!("127.0.0.1:{port}"))?;
                 let future = guest
                     .outgoing_handler_handle(request, None)
                     .into_answer()?
@@ -842,7 +842,7 @@ mod tests {
             (taken, "no trap".to_string())
         };
         let (_, roomy) = fill(&mut guest(None));
-        let mut tight = guest_within(None, Some(16 * 1024));
+        let mut tight = limited_guest(None, Some(16 * 1024));
         let (first, short) = fill(&mut tight);
         let (again, _) = fill(&mut tight);
         assert_eq!(
@@ -911,7 +911,7 @@ mod tests {
             .unwrap()
             .with_rules(vec![network::HttpRule::deny(None, "/admin")]);
         let mut guest = guest(Some(vec![endpoint]));
-        let request = get(&mut guest, "example.com").unwrap();
+        let request = get_request(&mut guest, "example.com").unwrap();
         guest
             .types_outgoing_request_set_path_with_query(request, Some("/admin#x".to_string()))
             .unwrap()
@@ -953,7 +953,7 @@ mod tests {
     #[test]
     fn a_body_dropped_or_finished_while_its_stream_lives_traps() {
         let mut guest = guest(None);
-        let request = get(&mut guest, "example.com").unwrap();
+        let request = get_request(&mut guest, "example.com").unwrap();
         let body = guest
             .types_outgoing_request_body(request)
             .unwrap()
@@ -986,7 +986,7 @@ mod tests {
         let mut guest = guest(Some(vec![
             network::Endpoint::new("example.com", 80).unwrap()
         ]));
-        let request = get(&mut guest, "example.com").unwrap();
+        let request = get_request(&mut guest, "example.com").unwrap();
         let body = guest
             .types_outgoing_request_body(request)
             .unwrap()

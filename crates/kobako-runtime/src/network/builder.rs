@@ -130,9 +130,9 @@ mod tests {
     use super::*;
     use crate::network::Protocol;
 
-    struct Given;
+    struct RefusesPort22;
 
-    impl Entry for Given {
+    impl Entry for RefusesPort22 {
         fn endpoints(&self) -> Vec<Endpoint> {
             vec![Endpoint::new("api.example.com", 443).unwrap()]
         }
@@ -147,7 +147,7 @@ mod tests {
     // @behavior NW-020
     #[test]
     fn a_builder_adds_its_endpoints_and_policies_to_the_given_entry() {
-        let mut net = Builder::new(Arc::new(Given));
+        let mut net = Builder::new(Arc::new(RefusesPort22));
         net.endpoint(Endpoint::new("cache.internal", 6379).unwrap())
             .connect_policy(|connection: &Connection<'_>| connection.host != "10.0.0.9");
         let hosts = net

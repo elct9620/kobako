@@ -362,11 +362,12 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
+    use crate::net::socket::testing::wait_for;
     use crate::net::HostInet;
     use crate::security::prepare_creds_within;
 
     /// A socket connected to `addr` through the host.
-    fn connected(addr: SocketAddr) -> Arc<UdpSock> {
+    fn connected_socket(addr: SocketAddr) -> Arc<UdpSock> {
         let sock =
             UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
@@ -375,29 +376,17 @@ mod tests {
         sock
     }
 
-    /// Wait until `sock`'s poll finds `mask`.
-    fn until(sock: &UdpSock, mask: PollMask) {
-        let started = Instant::now();
-        while !sock.poll(None).contains(mask) {
-            assert!(
-                started.elapsed() < Duration::from_secs(5),
-                "the socket never became ready"
-            );
-            thread::sleep(Duration::from_millis(1));
-        }
-    }
-
     /// A socket connected to a peer that has sent it one datagram.
-    fn holding_a_datagram() -> (Arc<UdpSock>, UdpSocket) {
+    fn readable_socket() -> (Arc<UdpSock>, UdpSocket) {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let sock = connected(peer.local_addr().unwrap());
+        let sock = connected_socket(peer.local_addr().unwrap());
         let host = sock
             .state()
             .host
             .as_ref()
             .map(|(socket, _)| socket.local_addr());
         peer.send_to(b"hello", host.unwrap().unwrap()).unwrap();
-        until(&sock, PollMask::IN);
+        wait_for(|table| sock.poll(table), PollMask::IN);
         (sock, peer)
     }
 
@@ -503,7 +492,7 @@ mod tests {
     #[test]
     fn a_udp_shutdown_ends_reads_and_refuses_sends_as_linux() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let sock = connected(peer.local_addr().unwrap());
+        let sock = connected_socket(peer.local_addr().unwrap());
         let unconnected =
             UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
         let before = sock.recvmsg(&mut [0; 4]);
@@ -541,7 +530,7 @@ mod tests {
     // @behavior NW-086
     #[test]
     fn a_zero_byte_read_keeps_the_datagram() {
-        let (sock, _peer) = holding_a_datagram();
+        let (sock, _peer) = readable_socket();
         let mut file = crate::net::sock_alloc_file(sock.clone(), &Arc::default());
         let mut buf = [0; 8];
         let zero = file.read(&mut []);
@@ -557,7 +546,7 @@ mod tests {
     // @behavior NW-087
     #[test]
     fn a_failure_answers_before_the_datagram_it_holds() {
-        let (sock, _peer) = holding_a_datagram();
+        let (sock, _peer) = readable_socket();
         sock.state().error = Some(FilesystemError::ConnectionRefused);
         let polled = sock.poll(None);
         let mut buf = [0; 8];
@@ -586,7 +575,7 @@ mod tests {
             UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
         let at = |peer: &UdpSocket| peer.local_addr().unwrap();
         let heard_by = |peer: &UdpSocket| {
-            until(&sock, PollMask::OUT);
+            wait_for(|table| sock.poll(table), PollMask::OUT);
             sock.sendmsg(b"ping").unwrap();
             peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
             peer.recv_from(&mut [0; 8])
@@ -615,13 +604,13 @@ mod tests {
     #[test]
     fn a_datagram_round_trips_with_one_peer() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let sock = connected(peer.local_addr().unwrap());
-        until(&sock, PollMask::OUT);
+        let sock = connected_socket(peer.local_addr().unwrap());
+        wait_for(|table| sock.poll(table), PollMask::OUT);
         sock.sendmsg(b"ping").unwrap();
         let mut heard = [0; 16];
         let (n, from) = peer.recv_from(&mut heard).unwrap();
         peer.send_to(b"PONG", from).unwrap();
-        until(&sock, PollMask::IN);
+        wait_for(|table| sock.poll(table), PollMask::IN);
         let mut answer = [0; 2];
         let read = sock.recvmsg(&mut answer).unwrap();
         let rest = sock.recvmsg(&mut [0; 2]);
@@ -652,10 +641,10 @@ mod tests {
         let closed = UdpSocket::bind("127.0.0.1:0").unwrap();
         let addr = closed.local_addr().unwrap();
         drop(closed);
-        let sock = connected(addr);
-        until(&sock, PollMask::OUT);
+        let sock = connected_socket(addr);
+        wait_for(|table| sock.poll(table), PollMask::OUT);
         sock.sendmsg(b"ping").unwrap();
-        until(&sock, PollMask::ERR);
+        wait_for(|table| sock.poll(table), PollMask::ERR);
         let first = sock.recvmsg(&mut [0; 4]);
         let again = sock.recvmsg(&mut [0; 4]);
         sock.release();
@@ -673,8 +662,8 @@ mod tests {
     #[test]
     fn a_datagram_past_what_udp_carries_is_refused() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let sock = connected(peer.local_addr().unwrap());
-        until(&sock, PollMask::OUT);
+        let sock = connected_socket(peer.local_addr().unwrap());
+        wait_for(|table| sock.poll(table), PollMask::OUT);
         let answer = sock.sendmsg(&vec![0; MAX_DATAGRAM + 1]);
         sock.release();
         assert_eq!(

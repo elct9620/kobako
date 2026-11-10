@@ -307,3 +307,19 @@ pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, cred: &Arc<Cred>) -> File {
         cred,
     )
 }
+
+/// What the socket tests share.
+#[cfg(test)]
+pub(crate) mod testing {
+    use crate::sched::testing::within_max_wait;
+    use crate::vfs::PollMask;
+    use crate::wait::{do_poll, PollTable};
+
+    /// Wait on `poll`, a socket's or its file's, until it finds `mask`; past
+    /// the longest a test waits, the test fails.
+    pub(crate) fn wait_for(poll: impl Fn(Option<&mut PollTable>) -> PollMask, mask: PollMask) {
+        let found =
+            within_max_wait(|| do_poll(None, |table| poll(table).contains(mask).then_some(())));
+        assert_eq!(found, Ok(Some(())), "the socket's poll must find {mask:?}");
+    }
+}

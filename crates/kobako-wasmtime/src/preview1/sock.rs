@@ -110,7 +110,7 @@ mod tests {
 
     /// A hermetic guest whose one network entry reaches `127.0.0.1:port` over
     /// TCP.
-    fn networked(port: u16) -> Invocation {
+    fn loopback_guest(port: u16) -> Invocation {
         let endpoint = network::Endpoint::new("127.0.0.1", port)
             .unwrap()
             .with_protocol(network::Protocol::Tcp);
@@ -123,9 +123,9 @@ mod tests {
 
     /// A hermetic guest whose socket connected to `listener`, the number its
     /// preview2 handle took, and the peer's end.
-    fn connected(listener: &TcpListener) -> (Invocation, u32, TcpStream) {
+    fn connected_guest(listener: &TcpListener) -> (Invocation, u32, TcpStream) {
         let port = listener.local_addr().unwrap().port();
-        let mut guest = networked(port);
+        let mut guest = loopback_guest(port);
         let socket = run_task(
             Some(Instant::now() + Duration::from_secs(10)),
             || -> wasmtime::Result<_> {
@@ -159,7 +159,10 @@ mod tests {
 
     /// What preview1 answers on `fd`: the flags of a write poll's event, then
     /// the errors a one-byte read and a one-byte write answer.
-    fn answers_on(guest: &mut Invocation, fd: u32) -> (Option<u16>, Option<Errno>, Option<Errno>) {
+    fn probe_stream_calls(
+        guest: &mut Invocation,
+        fd: u32,
+    ) -> (Option<u16>, Option<Errno>, Option<Errno>) {
         // One fd_write subscription at 0, its event written at 64.
         let mut memory = vec![0u8; 128];
         memory[8] = 2;
@@ -176,7 +179,7 @@ mod tests {
         });
         let flags = (polled == Some(1)).then(|| u16::from_le_bytes([memory[88], memory[89]]));
         let mut memory = vec![0u8; 64];
-        iovec(&mut memory, 1);
+        write_iovec(&mut memory, 1);
         let read = guest
             .fd_read(
                 &mut wiggle::GuestMemory::Unshared(&mut memory),
@@ -198,9 +201,9 @@ mod tests {
 
     /// What preview1 answers on `fd` for the calls a file's position, sync,
     /// size, advice, and listing take, then the filetype it reports.
-    fn file_calls_on(guest: &mut Invocation, fd: u32) -> (Vec<Option<Errno>>, Option<Filetype>) {
+    fn probe_file_calls(guest: &mut Invocation, fd: u32) -> (Vec<Option<Errno>>, Option<Filetype>) {
         let mut memory = vec![0u8; 64];
-        iovec(&mut memory, 4);
+        write_iovec(&mut memory, 4);
         let errno = |answer: Result<_, super::super::types::Error>| {
             answer.err().and_then(|err| err.downcast().ok())
         };
@@ -242,7 +245,7 @@ mod tests {
     // @behavior RT-363
     #[test]
     fn a_socket_number_answers_a_files_calls_as_linux_answers_a_socket() {
-        let mut guest = networked(9);
+        let mut guest = loopback_guest(9);
         let tcp = guest
             .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
             .into_answer()
@@ -266,8 +269,8 @@ mod tests {
         ];
         assert_eq!(
             [
-                file_calls_on(&mut guest, tcp.0),
-                file_calls_on(&mut guest, udp.0)
+                probe_file_calls(&mut guest, tcp.0),
+                probe_file_calls(&mut guest, udp.0)
             ],
             [
                 (linux.clone(), Some(Filetype::SocketStream)),
@@ -284,7 +287,7 @@ mod tests {
     // @behavior RT-352
     #[test]
     fn a_socket_number_answers_preview1_as_linux_before_it_connects() {
-        let mut guest = networked(9);
+        let mut guest = loopback_guest(9);
         let tcp = guest
             .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
             .into_answer()
@@ -296,7 +299,10 @@ mod tests {
             .unwrap()
             .expect("a network makes a UDP socket");
         assert_eq!(
-            [answers_on(&mut guest, tcp.0), answers_on(&mut guest, udp.0)],
+            [
+                probe_stream_calls(&mut guest, tcp.0),
+                probe_stream_calls(&mut guest, udp.0)
+            ],
             [
                 (Some(1), Some(Errno::Notconn), Some(Errno::Pipe)),
                 (Some(0), Some(Errno::Again), Some(Errno::Destaddrreq)),
@@ -308,7 +314,7 @@ mod tests {
     }
 
     /// One iovec at 0 naming `len` bytes at 16.
-    fn iovec(memory: &mut [u8], len: u32) {
+    fn write_iovec(memory: &mut [u8], len: u32) {
         memory[0..4].copy_from_slice(&16u32.to_le_bytes());
         memory[4..8].copy_from_slice(&len.to_le_bytes());
     }
@@ -317,9 +323,9 @@ mod tests {
     #[test]
     fn a_preview1_read_and_write_of_a_socket_number_reach_its_socket_file() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let (mut guest, fd, mut peer) = connected(&listener);
+        let (mut guest, fd, mut peer) = connected_guest(&listener);
         let mut memory = vec![0u8; 64];
-        iovec(&mut memory, 5);
+        write_iovec(&mut memory, 5);
         memory[16..21].copy_from_slice(b"hello");
         let written = guest
             .fd_write(
@@ -334,7 +340,7 @@ mod tests {
         let started = Instant::now();
         let read = loop {
             let mut memory = vec![0u8; 64];
-            iovec(&mut memory, 5);
+            write_iovec(&mut memory, 5);
             let answer = guest.fd_read(
                 &mut wiggle::GuestMemory::Unshared(&mut memory),
                 fd.into(),
@@ -370,12 +376,12 @@ mod tests {
     #[test]
     fn a_preview1_socket_call_reaches_the_socket_behind_its_number() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let (mut guest, fd, mut peer) = connected(&listener);
+        let (mut guest, fd, mut peer) = connected_guest(&listener);
         let errno = |answer: Result<_, super::super::types::Error>| {
             answer.err().and_then(|err| err.downcast().ok())
         };
         let mut memory = vec![0u8; 64];
-        iovec(&mut memory, 4);
+        write_iovec(&mut memory, 4);
         memory[16..20].copy_from_slice(b"ping");
         let sent = guest
             .sock_send(
@@ -401,7 +407,7 @@ mod tests {
         let started = Instant::now();
         let received = loop {
             let mut memory = vec![0u8; 64];
-            iovec(&mut memory, 4);
+            write_iovec(&mut memory, 4);
             let answer = guest.sock_recv(
                 &mut wiggle::GuestMemory::Unshared(&mut memory),
                 fd.into(),
@@ -464,7 +470,7 @@ mod tests {
         let closed = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = closed.local_addr().unwrap().port();
         drop(closed);
-        let mut guest = networked(port);
+        let mut guest = loopback_guest(port);
         let fd = run_task(
             Some(Instant::now() + Duration::from_secs(10)),
             || -> wasmtime::Result<_> {
@@ -513,7 +519,7 @@ mod tests {
     #[test]
     fn a_preview1_poll_of_a_socket_number_waits_for_its_peer() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let (mut guest, fd, mut peer) = connected(&listener);
+        let (mut guest, fd, mut peer) = connected_guest(&listener);
         // One fd_read subscription at 0, its event written at 64.
         let mut memory = vec![0u8; 128];
         memory[8] = 1;

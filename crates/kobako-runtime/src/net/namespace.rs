@@ -497,16 +497,16 @@ mod tests {
     use crate::vfs::SecurityOperations;
 
     /// Each connection a policy was asked about.
-    type Seen = Arc<Mutex<Vec<(String, u16, Protocol)>>>;
+    type AskedConnections = Arc<Mutex<Vec<(String, u16, Protocol)>>>;
 
     /// An entry reaching `127.0.0.1:4567` over TCP, its connect policy
     /// recording what it saw and answering `allows`.
-    struct Judged {
+    struct RecordsConnects {
         allows: bool,
-        seen: Seen,
+        seen: AskedConnections,
     }
 
-    impl Entry for Judged {
+    impl Entry for RecordsConnects {
         fn endpoints(&self) -> Vec<Endpoint> {
             vec![Endpoint::new("127.0.0.1", 4567)
                 .unwrap()
@@ -526,23 +526,23 @@ mod tests {
         }
     }
 
-    fn namespace(allows: &[bool]) -> (Namespace, Arc<CountsDials>, Seen) {
-        within(allows, None, None)
+    fn namespace(allows: &[bool]) -> (Namespace, Arc<CountsDials>, AskedConnections) {
+        limited_namespace(allows, None, None)
     }
 
     /// A namespace whose Sandbox holds at most `open` connections at once,
     /// and whose Invocation makes at most `total`.
-    fn within(
+    fn limited_namespace(
         allows: &[bool],
         open: Option<usize>,
         total: Option<usize>,
-    ) -> (Namespace, Arc<CountsDials>, Seen) {
+    ) -> (Namespace, Arc<CountsDials>, AskedConnections) {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let networks = allows
             .iter()
             .enumerate()
             .map(|(index, allows)| {
-                let entry = Judged {
+                let entry = RecordsConnects {
                     allows: *allows,
                     seen: seen.clone(),
                 };
@@ -564,12 +564,12 @@ mod tests {
     /// An http entry for `::1` and `127.0.0.1` with a credential, counting how
     /// often its endpoints are read and its resolve policy is asked; its
     /// connect policy refuses `refused.example`.
-    struct Watched {
+    struct CountsReads {
         reads: AtomicUsize,
         resolved: Arc<AtomicUsize>,
     }
 
-    impl Entry for Watched {
+    impl Entry for CountsReads {
         fn endpoints(&self) -> Vec<Endpoint> {
             self.reads.fetch_add(1, Ordering::SeqCst);
             vec![
@@ -602,7 +602,7 @@ mod tests {
     // @behavior NW-077
     #[test]
     fn a_request_is_judged_once_in_order_and_never_over_ipv6() {
-        let entry = Arc::new(Watched {
+        let entry = Arc::new(CountsReads {
             reads: AtomicUsize::new(0),
             resolved: Arc::default(),
         });
@@ -633,7 +633,7 @@ mod tests {
     // @behavior NW-022
     #[test]
     fn a_connect_past_the_sandboxs_cap_answers_eagain() {
-        let (namespace, family, _) = within(&[true], Some(0), None);
+        let (namespace, family, _) = limited_namespace(&[true], Some(0), None);
         let cred = prepare_creds_within(&[], None);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
@@ -762,9 +762,9 @@ mod tests {
     }
 
     /// A security module refusing every connect.
-    struct NoConnect;
+    struct RefusesConnects;
 
-    impl SecurityOperations for NoConnect {
+    impl SecurityOperations for RefusesConnects {
         fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), FilesystemError> {
             Err(FilesystemError::PermissionDenied)
         }
@@ -774,7 +774,7 @@ mod tests {
     #[test]
     fn a_security_module_refuses_before_any_entry_policy() {
         let (namespace, family, seen) = namespace(&[true]);
-        let cred = prepare_creds_within(&[Arc::new(NoConnect)], None);
+        let cred = prepare_creds_within(&[Arc::new(RefusesConnects)], None);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::PermissionDenied))
@@ -790,7 +790,7 @@ mod tests {
     /// host's own addresses, unless `local_unreadable` says it cannot read
     /// them.
     #[derive(Default)]
-    struct Resolving {
+    struct ResolvesNames {
         answers: Mutex<Vec<IpAddr>>,
         lookups: AtomicUsize,
         dialed: Mutex<Vec<SocketAddr>>,
@@ -798,7 +798,7 @@ mod tests {
         local_unreadable: bool,
     }
 
-    impl ProtocolFamily for Resolving {
+    impl ProtocolFamily for ResolvesNames {
         fn connect(&self, addr: SocketAddr) -> io::Result<std::net::TcpStream> {
             self.dialed.lock().unwrap().push(addr);
             Err(io::ErrorKind::ConnectionRefused.into())
@@ -819,10 +819,10 @@ mod tests {
 
     /// A namespace of `endpoints` over `family`, its one entry refusing to
     /// resolve `refused`.
-    fn resolving(
+    fn resolving_namespace(
         endpoints: Vec<Endpoint>,
         refused: &'static str,
-        family: Arc<Resolving>,
+        family: Arc<ResolvesNames>,
     ) -> Namespace {
         let mut entry = crate::network::Builder::default();
         endpoints.into_iter().for_each(|endpoint| {
@@ -840,7 +840,7 @@ mod tests {
     }
 
     /// The answer `lookup` settles on.
-    fn settled(lookup: &NameLookup) -> Result<Vec<IpAddr>, LookupError> {
+    fn wait_for_answer(lookup: &NameLookup) -> Result<Vec<IpAddr>, LookupError> {
         loop {
             if let Some(answer) = lookup.answer() {
                 return answer;
@@ -850,9 +850,9 @@ mod tests {
     }
 
     /// The virtual address a lookup of `name` hands out.
-    fn looked_up(namespace: &Namespace, name: &str) -> SocketAddr {
+    fn resolve_virtual_address(namespace: &Namespace, name: &str) -> SocketAddr {
         let lookup = namespace.resolve(name).expect("the lookup starts");
-        settled(&lookup).expect("the name resolves");
+        wait_for_answer(&lookup).expect("the name resolves");
         let ip = namespace
             .alloc_virtual_address(&prepare_creds_within(&[], None), &lookup)
             .expect("the lookup settled")
@@ -863,14 +863,14 @@ mod tests {
     // @behavior NW-024
     #[test]
     fn a_name_no_endpoint_names_or_a_policy_refuses_answers_nxdomain_unasked() {
-        let family = Arc::new(Resolving::default());
-        let namespace = resolving(
+        let family = Arc::new(ResolvesNames::default());
+        let namespace = resolving_namespace(
             vec![tcp("cache.internal", 6379), tcp("*.example.com", 443)],
             "blocked.example.com",
             family.clone(),
         );
         let answers = ["other.internal", "blocked.example.com", "example.com"]
-            .map(|name| settled(&namespace.resolve(name).unwrap()));
+            .map(|name| wait_for_answer(&namespace.resolve(name).unwrap()));
         assert!(
             answers
                 .iter()
@@ -885,14 +885,14 @@ mod tests {
     // @behavior NW-154
     #[test]
     fn a_connect_is_refused_when_the_hosts_own_addresses_cannot_be_read() {
-        let family = Arc::new(Resolving {
+        let family = Arc::new(ResolvesNames {
             answers: Mutex::new(vec!["8.8.8.8".parse().unwrap()]),
             local_unreadable: true,
-            ..Resolving::default()
+            ..ResolvesNames::default()
         });
-        let namespace = resolving(vec![tcp("api.example.com", 443)], "", family.clone());
+        let namespace = resolving_namespace(vec![tcp("api.example.com", 443)], "", family.clone());
         let cred = prepare_creds_within(&[], None);
-        let mut at = looked_up(&namespace, "api.example.com");
+        let mut at = resolve_virtual_address(&namespace, "api.example.com");
         at.set_port(443);
         let answer = dial(&namespace, &cred, at).err();
         assert_eq!(
@@ -907,15 +907,15 @@ mod tests {
     // @behavior NW-149
     #[test]
     fn a_virtual_address_is_held_against_the_invocations_memory() {
-        let family = Arc::new(Resolving {
+        let family = Arc::new(ResolvesNames {
             answers: Mutex::new(vec!["127.0.0.1".parse().unwrap()]),
-            ..Resolving::default()
+            ..ResolvesNames::default()
         });
-        let namespace = resolving(vec![tcp("cache.internal", 6379)], "", family);
+        let namespace = resolving_namespace(vec![tcp("cache.internal", 6379)], "", family);
         let lookup = namespace
             .resolve("cache.internal")
             .expect("the lookup starts");
-        settled(&lookup).expect("the name resolves");
+        wait_for_answer(&lookup).expect("the name resolves");
         let full = namespace.alloc_virtual_address(&prepare_creds_within(&[], Some(0)), &lookup);
         let roomy = namespace.alloc_virtual_address(&prepare_creds_within(&[], None), &lookup);
         assert_eq!(
@@ -933,19 +933,20 @@ mod tests {
     // @behavior NW-025
     #[test]
     fn a_name_connects_through_its_virtual_address_to_where_its_endpoint_leads() {
-        let family = Arc::new(Resolving {
+        let family = Arc::new(ResolvesNames {
             answers: Mutex::new(vec!["127.0.0.1".parse().unwrap()]),
-            ..Resolving::default()
+            ..ResolvesNames::default()
         });
         let local = tcp("cache.internal", 6379).with_addresses(vec![Addresses::Local]);
-        let namespace = resolving(vec![local, tcp("api.internal", 6379)], "", family.clone());
+        let namespace =
+            resolving_namespace(vec![local, tcp("api.internal", 6379)], "", family.clone());
         let cred = prepare_creds_within(&[], None);
-        let at = looked_up(&namespace, "Cache.Internal.");
+        let at = resolve_virtual_address(&namespace, "Cache.Internal.");
         let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
         while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
-        let public_only = looked_up(&namespace, "api.internal");
+        let public_only = resolve_virtual_address(&namespace, "api.internal");
         assert!(
             at.ip().to_string() == "198.18.0.0"
                 && *family.dialed.lock().unwrap() == vec!["127.0.0.1:6379".parse().unwrap()]
@@ -962,7 +963,7 @@ mod tests {
     // @behavior NW-026
     #[test]
     fn a_virtual_address_no_lookup_handed_out_is_refused() {
-        let namespace = resolving(vec![tcp("cache.internal", 6379)], "", Arc::default());
+        let namespace = resolving_namespace(vec![tcp("cache.internal", 6379)], "", Arc::default());
         let cred = prepare_creds_within(&[], None);
         assert!(
             matches!(
@@ -976,13 +977,13 @@ mod tests {
     // @behavior NW-027
     #[test]
     fn a_connect_dials_what_the_lookup_answered_never_resolving_again() {
-        let family = Arc::new(Resolving {
+        let family = Arc::new(ResolvesNames {
             answers: Mutex::new(vec!["10.0.0.1".parse().unwrap()]),
-            ..Resolving::default()
+            ..ResolvesNames::default()
         });
         let private = tcp("cache.internal", 6379).with_addresses(vec![Addresses::Private]);
-        let namespace = resolving(vec![private], "", family.clone());
-        let at = looked_up(&namespace, "cache.internal");
+        let namespace = resolving_namespace(vec![private], "", family.clone());
+        let at = resolve_virtual_address(&namespace, "cache.internal");
         *family.answers.lock().unwrap() = vec!["127.0.0.1".parse().unwrap()];
         let cred = prepare_creds_within(&[], None);
         let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
@@ -1004,13 +1005,13 @@ mod tests {
     #[test]
     fn the_hosts_own_address_is_local_whatever_registry_classes_it() {
         let own: IpAddr = "93.184.216.34".parse().unwrap();
-        let family = Arc::new(Resolving {
+        let family = Arc::new(ResolvesNames {
             answers: Mutex::new(vec![own]),
             local: vec![own],
-            ..Resolving::default()
+            ..ResolvesNames::default()
         });
-        let namespace = resolving(vec![tcp("api.example.com", 6379)], "", family.clone());
-        let at = looked_up(&namespace, "api.example.com");
+        let namespace = resolving_namespace(vec![tcp("api.example.com", 6379)], "", family.clone());
+        let at = resolve_virtual_address(&namespace, "api.example.com");
         let cred = prepare_creds_within(&[], None);
         assert!(
             matches!(
@@ -1025,13 +1026,13 @@ mod tests {
     // @behavior NW-032
     #[test]
     fn each_address_a_name_may_lead_to_is_dialed_in_turn() {
-        let family = Arc::new(Resolving {
+        let family = Arc::new(ResolvesNames {
             answers: Mutex::new(vec!["::1".parse().unwrap(), "127.0.0.1".parse().unwrap()]),
-            ..Resolving::default()
+            ..ResolvesNames::default()
         });
         let local = tcp("localhost", 6379).with_addresses(vec![Addresses::Local]);
-        let namespace = resolving(vec![local], "", family.clone());
-        let at = looked_up(&namespace, "localhost");
+        let namespace = resolving_namespace(vec![local], "", family.clone());
+        let at = resolve_virtual_address(&namespace, "localhost");
         let cred = prepare_creds_within(&[], None);
         let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
         while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
