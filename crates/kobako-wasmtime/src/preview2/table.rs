@@ -115,13 +115,13 @@ pub(crate) struct UdpSocket {
 }
 
 /// The steps of a UDP socket only WASI has: its bind starts and finishes
-/// apart, and it streams once bound.
+/// apart. Streaming once bound leaves a bind under way standing, as
+/// wasmtime keeps its in-progress bind apart from its streams.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UdpState {
     Unbound,
     Binding,
     Bound,
-    Streaming,
 }
 
 impl UdpState {
@@ -147,7 +147,21 @@ pub(crate) trait Handle: Copy {
 /// out.
 pub(crate) struct Network;
 
-pub(crate) struct InputStream(pub(crate) Stream);
+pub(crate) struct InputStream {
+    pub(crate) stream: Stream,
+    /// Whether a read answered `closed`, which every later read answers, a
+    /// read of nothing included, as wasmtime remembers a stream's end.
+    pub(crate) closed: bool,
+}
+
+impl InputStream {
+    pub(crate) fn new(stream: Stream) -> Self {
+        Self {
+            stream,
+            closed: false,
+        }
+    }
+}
 
 pub(crate) struct OutputStream {
     pub(crate) stream: Stream,

@@ -408,7 +408,13 @@ impl SocketsHost for Invocation {
             .filter(|addr| is_valid_remote_address(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().descriptors().cred();
-        self.network().connect(cred, &sock, addr)?;
+        // Past the address's own checks the attempt has begun, so its failure
+        // closes the socket, as `sockets.wit` has a socket connect once.
+        if let Err(err) = self.network().connect(cred, &sock, addr) {
+            let code = to_error_code(&err);
+            self.tcp(this)?.state = TcpState::Closed(code);
+            return Err(code.into());
+        }
         self.tcp(this)?.state = TcpState::Connecting;
         Ok(())
     }
@@ -431,7 +437,7 @@ impl SocketsHost for Invocation {
                 let stream = Stream::Socket(socket);
                 let input = self
                     .table()
-                    .push_child(table::InputStream(stream.clone()), this)?;
+                    .push_child(table::InputStream::new(stream.clone()), this)?;
                 let output = self
                     .table()
                     .push_child(table::OutputStream::new(stream), this)?;
@@ -734,7 +740,6 @@ impl SocketsHost for Invocation {
         let cred = self.wasi().descriptors().cred();
         self.network()
             .connect_datagram(cred, &datagrams.sock, peer)?;
-        self.udp(this)?.state = UdpState::Streaming;
         let incoming = self
             .table()
             .push_child(table::IncomingDatagramStream(datagrams.clone()), this)?;
@@ -904,10 +909,17 @@ impl IoHost for Invocation {
         this: InputStream,
         len: u64,
     ) -> Result<Vec<u8>, StreamError> {
-        let stream = self.table().get(this)?.0.clone();
+        let input = self.table().get(this)?;
+        if input.closed {
+            return Err(StreamError::Closed);
+        }
+        let stream = input.stream.clone();
         let mut buf = vec![0; len.min(MAX_SOCKET_BUFFER as u64) as usize];
         match stream.read(&mut buf) {
-            Ok(0) if !buf.is_empty() => Err(StreamError::Closed),
+            Ok(0) if !buf.is_empty() => {
+                self.table().get_mut(this)?.closed = true;
+                Err(StreamError::Closed)
+            }
             Ok(n) => {
                 buf.truncate(n);
                 Ok(buf)
@@ -919,7 +931,7 @@ impl IoHost for Invocation {
 
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
-        let stream = self.table().get(this)?.0.clone();
+        let stream = self.table().get(this)?.stream.clone();
         self.table()
             .push_child(table::Pollable::File(stream.file(), PollMask::IN), this)
     }
@@ -1877,6 +1889,76 @@ mod tests {
             "local-address of a TCP socket still connecting must answer invalid-state, and \
              local-address and remote-address of one whose connect was refused the connect's \
              error, as wasmtime-wasi answers each"
+        );
+    }
+
+    // @behavior NW-167
+    #[test]
+    fn a_tcp_socket_whose_connect_failed_connects_no_more() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut guest = network_guest(network::Endpoint::new("127.0.0.1", port).unwrap());
+        let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            let refused = guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port ^ 1))
+                .into_answer()?;
+            let again = guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?;
+            Ok::<_, wasmtime::Error>((refused, again))
+        })
+        .expect("the calls answer");
+        assert_eq!(
+            answers,
+            (Err(ErrorCode::AccessDenied), Err(ErrorCode::InvalidState)),
+            "a TCP socket whose start-connect no endpoint allows must answer access-denied and \
+             then invalid-state to a connect it would allow, as sockets.wit closes a socket \
+             after a failed connection attempt"
+        );
+    }
+
+    // @behavior NW-166
+    #[test]
+    fn a_udp_stream_leaves_a_bind_under_way_standing() {
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = peer.local_addr().unwrap().port();
+        let mut guest = network_guest(
+            network::Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_protocol(network::Protocol::Udp),
+        );
+        let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .udp_udp_socket_start_bind(socket, network, ipv4((0, 0, 0, 0), 0))
+                .into_answer()?
+                .expect("an ephemeral bind is the implicit one");
+            guest
+                .udp_udp_socket_stream(socket, Some(ipv4((127, 0, 0, 1), port)))
+                .into_answer()?
+                .expect("a socket whose bind began streams");
+            let again = guest
+                .udp_udp_socket_start_bind(socket, network, ipv4((0, 0, 0, 0), 0))
+                .into_answer()?;
+            let finished = guest.udp_udp_socket_finish_bind(socket).into_answer()?;
+            Ok::<_, wasmtime::Error>((again, finished))
+        })
+        .expect("the calls answer");
+        assert_eq!(
+            answers,
+            (Err(ErrorCode::ConcurrencyConflict), Ok(())),
+            "a UDP socket streaming between start-bind and finish-bind must answer another \
+             start-bind concurrency-conflict and let finish-bind settle, as wasmtime keeps its \
+             bind under way apart from its streams"
         );
     }
 

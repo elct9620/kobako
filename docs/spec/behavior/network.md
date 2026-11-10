@@ -2034,3 +2034,39 @@ endpoint "api.example.com", port: 443
 | Given | a guest's TCP socket released with bytes its peer never read |
 | When | the Invocation ends |
 | Then | the socket lets go of what it still holds, so nothing the Invocation made outlives it |
+
+## `NW-165` A stream read of nothing past its end answers closed
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-040` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest that read a response body's stream to its end |
+| When | it reads zero bytes from the stream |
+| Then | the read answers `closed`, as `io.wit` lets a zero-length read succeed only while the stream is open |
+
+## `NW-166` A UDP stream leaves a bind under way standing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-117` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest's UDP socket whose bind started and has not finished |
+| When | it opens its streams, starts another bind, then finishes the first |
+| Then | the second bind answers `concurrency-conflict` and the first finishes, as wasmtime keeps its bind under way apart from its streams |
+
+## `NW-167` A TCP socket whose connect failed connects no more
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest's TCP socket whose connect failed past the address's own checks |
+| When | it connects again through preview2 |
+| Then | the socket answers `invalid-state`, as `sockets.wit` closes a socket after a failed connection attempt |

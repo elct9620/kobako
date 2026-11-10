@@ -571,7 +571,7 @@ impl HttpHost for Invocation {
             exchange.alloc_body_file(self.wasi().descriptors().cred()),
         ));
         self.table()
-            .push_child(table::InputStream(Stream::File(file)), this)
+            .push_child(table::InputStream::new(Stream::File(file)), this)
             .map(Ok)
     }
 
@@ -692,6 +692,7 @@ mod tests {
     }
 
     // @behavior NW-040
+    // @behavior NW-165
     #[test]
     fn a_request_through_wasi_http_reads_back_the_response() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -712,7 +713,7 @@ mod tests {
         let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
         let mut guest = guest(Some(vec![endpoint]));
         let started = Instant::now();
-        let (status, kind, body) = run_task(Some(started + Wait::from_secs(10)), || {
+        let (status, kind, body, nothing) = run_task(Some(started + Wait::from_secs(10)), || {
             let request = get_request(&mut guest, &format!("127.0.0.1:{port}"))?;
             let future = guest
                 .outgoing_handler_handle(request, None)
@@ -746,19 +747,25 @@ mod tests {
                 }
                 read.extend(bytes);
             }
-            Ok::<_, wasmtime::Error>((status, kind, read))
+            let nothing = matches!(
+                guest.streams_input_stream_read(stream, 0).into_answer()?,
+                Err(crate::preview2::error::StreamError::Closed)
+            );
+            Ok::<_, wasmtime::Error>((status, kind, read, nothing))
         })
         .expect("the request answers");
         assert_eq!(
-            (status, kind, body, server.join().unwrap()),
+            (status, kind, body, server.join().unwrap(), nothing),
             (
                 201,
                 vec![b"test".to_vec()],
                 b"hello".to_vec(),
-                "GET /greeting HTTP/1.1\r\n".to_string()
+                "GET /greeting HTTP/1.1\r\n".to_string(),
+                true
             ),
             "a GET built through wasi:http to an http endpoint must reach the server and read \
-             back the status, a header under its lowercase name, and the body to its end"
+             back the status, a header under its lowercase name, and the body to its end; a \
+             read of nothing past the end must answer closed, as io.wit has it"
         );
     }
 
