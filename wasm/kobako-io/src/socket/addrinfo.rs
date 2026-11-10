@@ -13,7 +13,7 @@ use beni::{
     Value,
 };
 
-use super::address::{end_of, packed_host, port_of, sockaddr_of};
+use super::address::{end_of, pack_host, port_of, sockaddr_of};
 use super::basic::open_socket_of;
 use super::{
     family_of, resolution_error, seconds_of, socket_error, spelled, Family, AF_INET, AF_INET6,
@@ -252,7 +252,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     }
     let ip = match node.is_nil() && hints.flags & AI_PASSIVE != 0 {
         true => Ipv4Addr::UNSPECIFIED.into(),
-        false => packed_host(mrb, node, hints.limit)?,
+        false => pack_host(mrb, node, hints.limit)?,
     };
     if hints.family.is_some_and(|family| family != afamily_of(ip)) {
         return Err(resolution_error(mrb, EAI_ADDRFAMILY));

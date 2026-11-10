@@ -31,9 +31,9 @@ const TCP_KEEPCNT: i32 = 6;
 
 /// Linux's ceilings on the keepalive options, `MAX_TCP_KEEPIDLE`,
 /// `MAX_TCP_KEEPINTVL`, and `MAX_TCP_KEEPCNT`, past which it answers EINVAL.
-const MAX_KEEPIDLE: u32 = 32767;
-const MAX_KEEPINTVL: u32 = 32767;
-const MAX_KEEPCNT: u32 = 127;
+const MAX_TCP_KEEPIDLE: u32 = 32767;
+const MAX_TCP_KEEPINTVL: u32 = 32767;
+const MAX_TCP_KEEPCNT: u32 = 127;
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 
@@ -328,13 +328,13 @@ fn set_tcp_option(socket: &TcpSocket, option: (i32, i32), int: i32) -> Result<()
         (SOL_SOCKET, SO_SNDBUF) => socket.set_send_buffer_size(to_buffer_size(int)),
         (IPPROTO_IP, IP_TTL) => socket.set_hop_limit(to_hop_limit(int)?),
         (IPPROTO_TCP, TCP_KEEPIDLE) => {
-            socket.set_keep_alive_idle_time(to_nanos(int, MAX_KEEPIDLE)?)
+            socket.set_keep_alive_idle_time(to_nanos(int, MAX_TCP_KEEPIDLE)?)
         }
         (IPPROTO_TCP, TCP_KEEPINTVL) => {
-            socket.set_keep_alive_interval(to_nanos(int, MAX_KEEPINTVL)?)
+            socket.set_keep_alive_interval(to_nanos(int, MAX_TCP_KEEPINTVL)?)
         }
         (IPPROTO_TCP, TCP_KEEPCNT) => match u32::try_from(int) {
-            Ok(count @ 1..=MAX_KEEPCNT) => socket.set_keep_alive_count(count),
+            Ok(count @ 1..=MAX_TCP_KEEPCNT) => socket.set_keep_alive_count(count),
             _ => Err(ErrorCode::InvalidArgument),
         },
         _ => return Err(Refused::Unknown),

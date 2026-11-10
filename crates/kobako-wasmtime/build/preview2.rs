@@ -554,7 +554,7 @@ fn write_host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: 
             out,
             "#[allow(unused_variables, clippy::too_many_arguments)]\npub trait {name} {{"
         );
-        package_methods(resolve, &package, out);
+        write_package_methods(resolve, &package, out);
         out.push_str("}\n\n");
     }
     let _ = writeln!(
@@ -567,7 +567,7 @@ fn write_host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: 
     );
 }
 
-fn package_methods(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: &mut String) {
+fn write_package_methods(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: &mut String) {
     for (id, names) in imports {
         for func in functions_of(resolve, *id, names) {
             let params = func

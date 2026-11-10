@@ -134,7 +134,7 @@ struct Outgoing<'a> {
     path: &'a str,
     headers: Vec<(String, Vec<u8>)>,
     body: Option<Vec<u8>>,
-    limits: Limits,
+    timeouts: Timeouts,
 }
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
@@ -407,7 +407,7 @@ fn http_set_write_timeout(mrb: &Mrb, self_: Value, sec: Value) -> Result<Value, 
 }
 
 /// The limit a timeout `ivar` sets, `None` for `nil`, which waits on.
-fn limit_of(mrb: &Mrb, self_: Value, name: &core::ffi::CStr) -> Result<Option<Duration>, Error> {
+fn timeout_of(mrb: &Mrb, self_: Value, name: &core::ffi::CStr) -> Result<Option<Duration>, Error> {
     let sec = ivar_get(mrb, self_, name)?;
     if sec.is_nil() {
         return Ok(None);
@@ -422,16 +422,16 @@ fn limit_of(mrb: &Mrb, self_: Value, name: &core::ffi::CStr) -> Result<Option<Du
 /// head takes the connect too, which `wasi:http` shows the guest no apart from
 /// it, so `read_timeout` bounds the whole wait and `open_timeout` none of it.
 #[derive(Clone, Copy)]
-struct Limits {
+struct Timeouts {
     read: Option<Duration>,
     write: Option<Duration>,
 }
 
-impl Limits {
+impl Timeouts {
     fn of(mrb: &Mrb, self_: Value) -> Result<Self, Error> {
         Ok(Self {
-            read: limit_of(mrb, self_, c"@read_timeout")?,
-            write: limit_of(mrb, self_, c"@write_timeout")?,
+            read: timeout_of(mrb, self_, c"@read_timeout")?,
+            write: timeout_of(mrb, self_, c"@write_timeout")?,
         })
     }
 }
@@ -814,7 +814,7 @@ fn send_from(
         path,
         headers,
         body,
-        limits: Limits::of(mrb, self_)?,
+        timeouts: Timeouts::of(mrb, self_)?,
     };
     let Answer {
         status,
@@ -917,7 +917,7 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
     let out = request.body().map_err(|()| failed("request body taken"))?;
     if let Some(body) = &outgoing.body {
         let stream = out.write().map_err(|()| failed("request body taken"))?;
-        let written = write_within(&stream, body, outgoing.limits.write)
+        let written = write_within(&stream, body, outgoing.timeouts.write)
             .map_err(|err| socket::stream_error(mrb, err))?;
         if !written {
             return Err(net_error(mrb, c"WriteTimeout", "Net::WriteTimeout"));
@@ -929,7 +929,7 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
         match future.get() {
             Some(answer) => break answer,
             None => {
-                if !wait_within(&future.subscribe(), outgoing.limits.read) {
+                if !wait_within(&future.subscribe(), outgoing.timeouts.read) {
                     return Err(net_error(mrb, c"ReadTimeout", "Net::ReadTimeout"));
                 }
             }
@@ -959,7 +959,7 @@ fn send(mrb: &Mrb, outgoing: &Outgoing<'_>) -> Result<Answer, Error> {
         body: Unread {
             stream: Some(stream),
             body: Some(incoming),
-            read: outgoing.limits.read,
+            read: outgoing.timeouts.read,
             carried,
             sized,
         },

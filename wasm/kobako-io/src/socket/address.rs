@@ -153,11 +153,7 @@ pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
 /// `"<any>"` any address, and `"<broadcast>"` the broadcast one. A literal is
 /// itself, and a name the address it leads to within `limit`. The guest has
 /// no IPv6, so `nil` is IPv4's loopback.
-pub(super) fn packed_host(
-    mrb: &Mrb,
-    host: Value,
-    limit: Option<Duration>,
-) -> Result<IpAddr, Error> {
+pub(super) fn pack_host(mrb: &Mrb, host: Value, limit: Option<Duration>) -> Result<IpAddr, Error> {
     if host.is_nil() {
         return Ok(Ipv4Addr::LOCALHOST.into());
     }
@@ -225,7 +221,7 @@ pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error>
 /// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name.
 fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
     let (port, _) = port_of(mrb, port)?;
-    let ip = packed_host(mrb, host, None)?;
+    let ip = pack_host(mrb, host, None)?;
     Ok(mrb.str_new(&sockaddr_of(ip, port)).as_value())
 }
 

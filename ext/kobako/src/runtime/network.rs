@@ -23,7 +23,7 @@ use super::{escape, gvl};
 /// What one entry answered for this invocation: its endpoints, its own
 /// `resolve?`, `connect?`, and `request?` for each it plays, and its
 /// credentials.
-struct Answered {
+struct RubyEntry {
     endpoints: Vec<Endpoint>,
     resolve: Option<Arc<RubyPolicy>>,
     connect: Option<Arc<RubyPolicy>>,
@@ -31,7 +31,7 @@ struct Answered {
     credentials: Vec<Credential>,
 }
 
-impl Entry for Answered {
+impl Entry for RubyEntry {
     fn endpoints(&self) -> Vec<Endpoint> {
         self.endpoints.clone()
     }
@@ -194,10 +194,10 @@ fn network_module(ruby: &Ruby) -> Result<RModule, MagnusError> {
         .const_get::<_, RModule>("Network")
 }
 
-/// `request` as the `Kobako::Network::Connection` a Ruby policy reads.
-fn to_connection(ruby: &Ruby, request: &Connection<'_>) -> Result<Value, MagnusError> {
+/// `connection` as the `Kobako::Network::Connection` a Ruby policy reads.
+fn to_connection(ruby: &Ruby, connection: &Connection<'_>) -> Result<Value, MagnusError> {
     let class: RClass = network_module(ruby)?.const_get("Connection")?;
-    let protocol = ruby.to_symbol(match request.protocol {
+    let protocol = ruby.to_symbol(match connection.protocol {
         Protocol::Http => "http",
         Protocol::Tcp => "tcp",
         Protocol::Udp => "udp",
@@ -208,7 +208,10 @@ fn to_connection(ruby: &Ruby, request: &Connection<'_>) -> Result<Value, MagnusE
             ))
         }
     });
-    class.funcall("new", (ruby.str_new(request.host), request.port, protocol))
+    class.funcall(
+        "new",
+        (ruby.str_new(connection.host), connection.port, protocol),
+    )
 }
 
 /// One invocation's network Grants, from the Sandbox's entries as
@@ -247,7 +250,7 @@ pub(super) fn to_grants(
             pins.push(PinnedValue::new(ruby, entry));
         }
         let credentials = to_credentials(ruby, entry, &mut pins)?;
-        let answered = Answered {
+        let answered = RubyEntry {
             endpoints,
             resolve,
             connect,

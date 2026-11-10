@@ -38,10 +38,10 @@ pub enum Scheme {
     Https,
 }
 
-/// The headers no guest sets: wasmtime's `DEFAULT_FORBIDDEN_HEADERS`, and
+/// The headers no guest sets: wasmtime's `DEFAULT_FORBIDDEN_HEADERS_HEADERS`, and
 /// `content-length` and `te`, since the seam frames the body and its encoding
 /// itself.
-const FORBIDDEN: [&str; 11] = [
+const FORBIDDEN_HEADERS: [&str; 11] = [
     "connection",
     "content-length",
     "host",
@@ -175,7 +175,7 @@ pub fn to_field_name(name: &str) -> Result<String, FieldError> {
         return Err(FieldError::InvalidSyntax);
     }
     let name = name.to_ascii_lowercase();
-    match FORBIDDEN.contains(&name.as_str()) {
+    match FORBIDDEN_HEADERS.contains(&name.as_str()) {
         true => Err(FieldError::Forbidden),
         false => Ok(name),
     }
