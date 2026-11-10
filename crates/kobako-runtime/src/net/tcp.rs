@@ -16,7 +16,9 @@ use socket2::{SockRef, TcpKeepalive};
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{ensure_within, to_error, to_ttl, InetSock, ProtoOps, SockOpt, SocketMemory};
+use super::socket::{
+    connect_outcome, ensure_within, to_error, to_ttl, InetSock, ProtoOps, SockOpt, SocketMemory,
+};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -320,15 +322,14 @@ impl TcpSock {
         let Some((stream, _)) = state.host.as_ref() else {
             return;
         };
-        let failure = match (stream.take_error(), stream.peer_addr()) {
-            (Ok(Some(err)), _) | (Err(err), _) => err,
-            (Ok(None), Ok(_)) => {
+        let failure = match connect_outcome(stream) {
+            None => return,
+            Some(Ok(())) => {
                 state.phase = Phase::Connected;
                 state.connected = true;
                 return;
             }
-            (Ok(None), Err(err)) if err.kind() == io::ErrorKind::NotConnected => return,
-            (Ok(None), Err(err)) => err,
+            Some(Err(err)) => err,
         };
         Self::close_host(state);
         self.dial_next(state, to_error(&failure));

@@ -23,7 +23,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::{open, OpenConnections, Place};
 use super::lookup::NameLookup;
 use super::reactor::{Reactor, Ready, Registration, Task};
-use super::socket::{to_error, SocketMemory};
+use super::socket::{connect_outcome, to_error, SocketMemory};
 use super::{new_platform_tls, ProtocolFamily, MAX_SOCKET_BUFFER};
 use crate::filesystem::anon_inode_getfile;
 use crate::network::{Protocol, Ruleset, Secret};
@@ -599,15 +599,7 @@ impl Transport {
     async fn wait_for_connect(&self) -> io::Result<()> {
         poll_fn(|cx| {
             self.attempt(cx, false, || {
-                if let Some(err) = self.stream.take_error()? {
-                    return Err(err);
-                }
-                match self.stream.peer_addr() {
-                    Err(err) if err.kind() == io::ErrorKind::NotConnected => {
-                        Err(io::ErrorKind::WouldBlock.into())
-                    }
-                    other => other.map(drop),
-                }
+                connect_outcome(&self.stream).unwrap_or(Err(io::ErrorKind::WouldBlock.into()))
             })
         })
         .await

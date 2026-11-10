@@ -201,6 +201,18 @@ impl Drop for SocketMemory {
     }
 }
 
+/// How a non-blocking connect on `stream` stands, as `SO_ERROR` and then the
+/// peer's name tell: `None` while it is under way, and its outcome once it
+/// settled. Every dialer of a host stream reads it the same way.
+pub(crate) fn connect_outcome(stream: &mio::net::TcpStream) -> Option<io::Result<()>> {
+    match (stream.take_error(), stream.peer_addr()) {
+        (Ok(Some(err)), _) | (Err(err), _) => Some(Err(err)),
+        (Ok(None), Ok(_)) => Some(Ok(())),
+        (Ok(None), Err(err)) if err.kind() == io::ErrorKind::NotConnected => None,
+        (Ok(None), Err(err)) => Some(Err(err)),
+    }
+}
+
 /// The POSIX name a host socket's failure stands for; one with none carries
 /// only its kind, so no host address reaches the guest.
 pub(crate) fn to_error(err: &io::Error) -> FilesystemError {

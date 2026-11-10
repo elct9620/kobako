@@ -12,7 +12,7 @@ use kobako_runtime::net::{
     sock_alloc_file, Namespace, ProtoOps, SockOpt, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
     MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
-use kobako_runtime::vfs::{File, FilesystemError, PollMask};
+use kobako_runtime::vfs::{Cred, File, FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
 
 use super::bindings::wasi_clocks_monotonic_clock_0_2_12 as monotonic_clock;
@@ -189,6 +189,35 @@ impl Invocation {
         sock_alloc_file(sock, self.wasi().descriptors().cred())
     }
 
+    /// A socket `create` makes in the Invocation's network, with its file
+    /// installed at the number its handle `resource` takes, as `__sys_socket`
+    /// makes one and `fd_install`s it. With no network, or for an IPv6
+    /// `family`, it is `not-supported`, and past the open file limit
+    /// `new-socket-limit`.
+    fn create_socket<S: ProtoOps + 'static, H: table::Handle>(
+        &mut self,
+        family: IpAddressFamily,
+        kind: SocketType,
+        create: impl FnOnce(&Namespace, &Arc<Cred>) -> Result<Arc<S>, FilesystemError>,
+        resource: impl FnOnce(SocketFile<S>) -> H::Host,
+    ) -> wasmtime::Result<Result<H, ErrorCode>> {
+        if self.wasi().table().network().is_none() || family == IpAddressFamily::Ipv6 {
+            return Ok(Err(ErrorCode::NotSupported));
+        }
+        if self.wasi().table().is_full() {
+            return Ok(Err(ErrorCode::NewSocketLimit));
+        }
+        let cred = self.wasi().descriptors().cred().clone();
+        let sock = match create(self.network(), &cred) {
+            Ok(sock) => sock,
+            Err(err) => return Ok(Err(to_error_code(&err))),
+        };
+        let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
+        let handle: H = self.table().push_file(resource(socket.clone()))?;
+        self.wasi().table().install(handle, &socket, kind);
+        Ok(Ok(handle))
+    }
+
     fn subscribe_socket(
         &mut self,
         stream: Stream,
@@ -361,26 +390,15 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> wasmtime::Result<Result<TcpSocket, ErrorCode>> {
-        if self.wasi().table().network().is_none() || address_family == IpAddressFamily::Ipv6 {
-            return Ok(Err(ErrorCode::NotSupported));
-        }
-        if self.wasi().table().is_full() {
-            return Ok(Err(ErrorCode::NewSocketLimit));
-        }
-        let cred = self.wasi().descriptors().cred().clone();
-        let sock = match self.network().create_tcp_socket(&cred) {
-            Ok(sock) => sock,
-            Err(err) => return Ok(Err(to_error_code(&err))),
-        };
-        let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
-        let handle: TcpSocket = self.table().push_file(table::TcpSocket {
-            socket: socket.clone(),
-            state: TcpState::Unbound,
-        })?;
-        self.wasi()
-            .table()
-            .install(handle, &socket, SocketType::Stream);
-        Ok(Ok(handle))
+        self.create_socket(
+            address_family,
+            SocketType::Stream,
+            Namespace::create_tcp_socket,
+            |socket| table::TcpSocket {
+                socket,
+                state: TcpState::Unbound,
+            },
+        )
     }
 
     /// A bind the socket hooks pass, as `tcp-socket.start-bind` asks; the
@@ -690,26 +708,15 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> wasmtime::Result<Result<UdpSocket, ErrorCode>> {
-        if self.wasi().table().network().is_none() || address_family == IpAddressFamily::Ipv6 {
-            return Ok(Err(ErrorCode::NotSupported));
-        }
-        if self.wasi().table().is_full() {
-            return Ok(Err(ErrorCode::NewSocketLimit));
-        }
-        let cred = self.wasi().descriptors().cred().clone();
-        let sock = match self.network().create_udp_socket(&cred) {
-            Ok(sock) => sock,
-            Err(err) => return Ok(Err(to_error_code(&err))),
-        };
-        let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
-        let handle: UdpSocket = self.table().push_file(table::UdpSocket {
-            socket: socket.clone(),
-            state: UdpState::Unbound,
-        })?;
-        self.wasi()
-            .table()
-            .install(handle, &socket, SocketType::Datagram);
-        Ok(Ok(handle))
+        self.create_socket(
+            address_family,
+            SocketType::Datagram,
+            Namespace::create_udp_socket,
+            |socket| table::UdpSocket {
+                socket,
+                state: UdpState::Unbound,
+            },
+        )
     }
 
     /// The guest only sends to a peer it names, so the one bind it makes is
