@@ -297,9 +297,11 @@ impl Namespace {
     /// Allocate the virtual address `lookup`'s answer is handed out at, from
     /// the bottom of the range, never reused for a second name; `None` while
     /// the lookup is under way, its failure once it failed, and
-    /// `TemporaryFailure` once the range is spent.
+    /// `TemporaryFailure` once the range is spent or `cred`'s memory cannot
+    /// hold the entry, which the table keeps until the Invocation ends.
     pub fn alloc_virtual_address(
         &self,
+        cred: &Cred,
         lookup: &NameLookup,
     ) -> Option<Result<Ipv4Addr, LookupError>> {
         let real = match lookup.answer()? {
@@ -313,7 +315,14 @@ impl Namespace {
         else {
             return Some(Err(LookupError::TemporaryFailure));
         };
-        virtuals.push((lookup.name().to_string(), real));
+        let entry = (lookup.name().to_string(), real);
+        let held = std::mem::size_of_val(&entry)
+            + entry.0.len()
+            + entry.1.len() * std::mem::size_of::<IpAddr>();
+        if cred.security_vm_enough_memory(held).is_err() {
+            return Some(Err(LookupError::TemporaryFailure));
+        }
+        virtuals.push(entry);
         Some(Ok(Ipv4Addr::from(VIRTUAL_BASE + offset)))
     }
 
@@ -794,7 +803,7 @@ mod tests {
         let lookup = namespace.resolve(name).expect("the lookup starts");
         settled(&lookup).expect("the name resolves");
         let ip = namespace
-            .alloc_virtual_address(&lookup)
+            .alloc_virtual_address(&prepare_creds_within(&[], None), &lookup)
             .expect("the lookup settled")
             .expect("the range has room");
         SocketAddr::new(IpAddr::V4(ip), 6379)
@@ -819,6 +828,32 @@ mod tests {
             "Namespace::resolve of a name no endpoint names, one a resolve policy refuses, or a \
              wildcard's own apex must answer name-unresolvable without asking the resolver, got \
              {answers:?}"
+        );
+    }
+
+    // @behavior NW-149
+    #[test]
+    fn a_virtual_address_is_held_against_the_invocations_memory() {
+        let family = Arc::new(Resolving {
+            answers: Mutex::new(vec!["127.0.0.1".parse().unwrap()]),
+            ..Resolving::default()
+        });
+        let namespace = resolving(vec![tcp("cache.internal", 6379)], "", family);
+        let lookup = namespace
+            .resolve("cache.internal")
+            .expect("the lookup starts");
+        settled(&lookup).expect("the name resolves");
+        let full = namespace.alloc_virtual_address(&prepare_creds_within(&[], Some(0)), &lookup);
+        let roomy = namespace.alloc_virtual_address(&prepare_creds_within(&[], None), &lookup);
+        assert_eq!(
+            (full, roomy),
+            (
+                Some(Err(LookupError::TemporaryFailure)),
+                Some(Ok("198.18.0.0".parse().unwrap()))
+            ),
+            "Namespace::alloc_virtual_address must answer temporary-failure when the \
+             Invocation's memory cannot hold the name's entry, and hand out the bottom of the \
+             range once it can"
         );
     }
 

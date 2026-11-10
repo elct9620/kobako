@@ -296,7 +296,8 @@ impl SocketsHost for Invocation {
             .table()
             .network()
             .expect("a lookup is only made with a network");
-        let at = match namespace.alloc_virtual_address(&lookup) {
+        let cred = self.wasi().descriptors().cred();
+        let at = match namespace.alloc_virtual_address(cred, &lookup) {
             None => return Ok(Err(ErrorCode::WouldBlock)),
             Some(Err(err)) => return Ok(Err(to_lookup_error_code(err, false))),
             Some(Ok(at)) => at,

@@ -1822,3 +1822,28 @@ endpoint "api.example.com", port: 443
 | Given | a UDP socket's datagram streams, a lookup, and a request's response future, each with a pollable still held |
 | When | the guest drops each, then drops its pollable and drops it again |
 | Then | the first drop traps, as wasmtime-wasi makes every pollable a child of what it watches. Once the pollable is gone, each drops |
+
+## `NW-148` Empty datagrams fill a UDP socket's receive buffer too
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-125` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket with a small receive buffer, connected to a peer |
+| When | the peer sends it many empty datagrams |
+| Then | the socket queues only as many as the buffer holds. Each spends its queue entry, as Linux's `truesize` counts the `sk_buff` |
+
+## `NW-149` A virtual address is held against the Invocation's memory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-116` |
+| relates | `NW-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a lookup that resolved, and an Invocation whose `memory_limit` holds nothing more |
+| When | a Wasm Driver hands out the name's virtual address, then hands it out with room |
+| Then | the full memory answers `temporary-failure`. With room, the name takes the bottom of the range, and its entry stays until the Invocation ends |

@@ -21,6 +21,16 @@ use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 /// The most one IPv4 datagram carries.
 pub const MAX_DATAGRAM: usize = 65_507;
 
+/// What the receive queue spends on a datagram beside its bytes, as Linux's
+/// `skb->truesize` counts the `sk_buff` itself, so even empty datagrams fill
+/// `rcvbuf`.
+const DATAGRAM_OVERHEAD: usize = std::mem::size_of::<Vec<u8>>();
+
+/// What a queued datagram of `len` bytes spends of `rcvbuf`.
+fn truesize(len: usize) -> usize {
+    len + DATAGRAM_OVERHEAD
+}
+
 struct State {
     /// The host socket, and its place in the reactor, until released.
     host: Option<(mio::net::UdpSocket, Registration)>,
@@ -153,9 +163,9 @@ impl UdpSock {
         loop {
             match socket.recv(&mut datagram) {
                 Ok(n) => {
-                    if state.received_bytes + n <= state.buffers.rcvbuf {
+                    if state.received_bytes + truesize(n) <= state.buffers.rcvbuf {
                         state.received.push_back(datagram[..n].to_vec());
-                        state.received_bytes += n;
+                        state.received_bytes += truesize(n);
                     }
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
@@ -253,7 +263,7 @@ impl ProtoOps for UdpSock {
         let Some(datagram) = state.received.pop_front() else {
             return Err(FilesystemError::WouldBlock);
         };
-        state.received_bytes -= datagram.len();
+        state.received_bytes -= truesize(datagram.len());
         let n = buf.len().min(datagram.len());
         buf[..n].copy_from_slice(&datagram[..n]);
         Ok(n)
@@ -432,6 +442,41 @@ mod tests {
             "a UDP socket must read Linux's default hop limit, refuse zero with EINVAL, give the \
              host socket it connects the limit set, and drop datagrams past a receive buffer \
              doubled as Linux doubles it"
+        );
+    }
+
+    // @behavior NW-148
+    #[test]
+    fn empty_datagrams_fill_the_receive_buffer_too() {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = peer.local_addr().unwrap();
+        let sock =
+            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+        sock.set_rcvbuf(1000);
+        let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
+        sock.connect(&family, addr, addr, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
+        let local = sock
+            .state()
+            .host
+            .as_ref()
+            .map(|(socket, _)| socket.local_addr().unwrap())
+            .expect("the socket holds its host socket");
+        for _ in 0..200 {
+            peer.send_to(&[], local).unwrap();
+        }
+        let started = Instant::now();
+        while sock.state().received.len() < 96 && started.elapsed() < Duration::from_secs(5) {
+            sock.on_event();
+            thread::sleep(Duration::from_millis(1));
+        }
+        thread::sleep(Duration::from_millis(50));
+        sock.on_event();
+        assert_eq!(
+            sock.state().received.len(),
+            96,
+            "a UDP socket whose receive buffer reads 2304 must queue no more than 96 of 200 \
+             empty datagrams, as each spends its queue entry's 24 bytes, as Linux's truesize does"
         );
     }
 

@@ -514,12 +514,13 @@ impl Namespace {
 ## `Namespace::alloc_virtual_address`
 
 Allocate the virtual address a lookup's answer is handed out at. It is never
-reused for a second name. `None` answers while the lookup is under way, its
-failure once it failed, and `TemporaryFailure` once the range is spent.
+reused for a second name. `None` answers while the lookup is under way, and
+its failure once it failed. `TemporaryFailure` answers once the range is spent,
+or once `cred`'s memory cannot hold the entry, which stays to the end.
 
 ```rust
 impl Namespace {
-    pub fn alloc_virtual_address(&self, lookup: &NameLookup) -> Option<Result<Ipv4Addr, LookupError>> {}
+    pub fn alloc_virtual_address(&self, cred: &Cred, lookup: &NameLookup) -> Option<Result<Ipv4Addr, LookupError>> {}
 }
 ```
 
