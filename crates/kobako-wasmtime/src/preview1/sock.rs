@@ -7,7 +7,7 @@
 use std::net::Shutdown;
 use std::sync::Arc;
 
-use kobako_runtime::net::{sock_from_file, ProtoOps};
+use kobako_runtime::net::{sock_from_file, sock_recvmsg, sock_sendmsg, ProtoOps};
 
 use super::errno::{Answer, Errno};
 use super::fd::file;
@@ -24,6 +24,14 @@ fn sockfd_lookup(table: &Descriptors, fd: u32) -> Answer<Arc<dyn ProtoOps>> {
     }
     file(table, fd)?;
     Err(Errno::Notsock.into())
+}
+
+/// Whether the socket file `fd` stands for asked not to wait, as
+/// `____sys_recvmsg` passes `MSG_DONTWAIT` for its `O_NONBLOCK`.
+fn is_nonblock(table: &Descriptors, fd: u32) -> bool {
+    table
+        .socket(fd)
+        .is_none_or(|socket| lock(&socket).nonblock())
 }
 
 /// What the socket's protocol answers an accept; no socket of the guest's
@@ -51,7 +59,7 @@ pub(crate) fn recv(
         return Err(Errno::Notsup.into());
     }
     let buf = mem.first_non_empty_iovec(ri_data)?;
-    let read = ops.recvmsg(mem.bytes_mut(buf)?)?;
+    let read = sock_recvmsg(ops.as_ref(), mem.bytes_mut(buf)?, is_nonblock(table, fd))?;
     Ok((read as u32, types::Roflags::empty()))
 }
 
@@ -64,7 +72,7 @@ pub(crate) fn send(
 ) -> Answer<types::Size> {
     let ops = sockfd_lookup(table, fd)?;
     let buf = mem.first_non_empty_ciovec(si_data)?;
-    Ok(ops.sendmsg(mem.bytes(buf)?)? as u32)
+    Ok(sock_sendmsg(ops.as_ref(), mem.bytes(buf)?, is_nonblock(table, fd))? as u32)
 }
 
 /// Shut the sides `how` names down, as `shutdown(2)`; naming neither
@@ -316,6 +324,45 @@ mod tests {
     fn write_iovec(memory: &mut [u8], len: u32) {
         memory[0..4].copy_from_slice(&16u32.to_le_bytes());
         memory[4..8].copy_from_slice(&len.to_le_bytes());
+    }
+
+    // @behavior RT-380
+    #[test]
+    fn a_sock_recv_on_a_socket_whose_nonblock_flag_was_cleared_waits() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (mut guest, fd, mut peer) = connected_guest(&listener);
+        let cleared = guest.fd_fdstat_set_flags(
+            &mut wiggle::GuestMemory::Unshared(&mut []),
+            fd.into(),
+            Fdflags::empty(),
+        );
+        let writer = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            peer.write_all(b"late").unwrap();
+            peer
+        });
+        let mut memory = vec![0u8; 64];
+        write_iovec(&mut memory, 4);
+        let answer = run_task(Some(Instant::now() + Duration::from_secs(5)), || {
+            guest.sock_recv(
+                &mut wiggle::GuestMemory::Unshared(&mut memory),
+                fd.into(),
+                GuestPtr::new((0, 1)),
+                Riflags::empty(),
+            )
+        });
+        drop(writer.join());
+        assert_eq!(
+            (
+                cleared.is_ok(),
+                answer.ok().map(|(n, _)| n),
+                &memory[16..20]
+            ),
+            (true, Some(4), &b"late"[..]),
+            "sock_recv on a socket's number whose non-blocking flag fd_fdstat_set_flags cleared \
+             must wait for the peer's bytes, as ____sys_recvmsg passes MSG_DONTWAIT only for \
+             O_NONBLOCK"
+        );
     }
 
     // @behavior RT-349

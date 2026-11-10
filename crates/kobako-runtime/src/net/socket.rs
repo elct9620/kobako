@@ -57,7 +57,8 @@ pub trait ProtoOps: Send + Sync {
     /// Set `opt` to `value`, as `setsockopt` does, refusing what Linux
     /// refuses; a host socket already dialed takes it at once.
     fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), FilesystemError>;
-    /// Let go of the host socket, as `sock_close` runs on the last `fput`.
+    /// Close the socket once every view is gone, as `sock_close` runs on the
+    /// last `fput`; a protocol may finish sending before its host socket goes.
     fn release(&self);
 }
 
@@ -375,6 +376,7 @@ impl InodeOperations for SockFs {
 
 /// Which kind of socket a file holds, as Linux's `sock->type` names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SockType {
     Stream,
     Dgram,
@@ -390,27 +392,65 @@ struct SocketFile {
     sock_type: SockType,
 }
 
-impl SocketFile {
-    /// What `call` answers, waiting on the socket's queue until a poll finds
-    /// `mask` ready while it answers EAGAIN, unless `iocb` asks not to wait,
-    /// as `sock_recvmsg` passes `MSG_DONTWAIT` for `O_NONBLOCK`; the wait
-    /// ends with the deadline or the interrupt, as `sk_wait_data` ends on a
-    /// signal.
-    fn wait_unless_nonblock(
-        &self,
-        iocb: &Kiocb,
-        mask: PollMask,
-        mut call: impl FnMut() -> Result<usize, FilesystemError>,
-    ) -> Result<usize, FilesystemError> {
-        loop {
-            match call() {
-                Err(FilesystemError::WouldBlock) if !iocb.nonblock => {
-                    do_poll(None, |table| {
-                        self.ops.poll(table).is_ready_for(mask).then_some(())
-                    })?;
+impl SocketFile {}
+
+/// Receive into `buf` from `sock`, as Linux's `sock_recvmsg`: with
+/// `nonblock`, as `MSG_DONTWAIT`, nothing yet answers EAGAIN; without it the
+/// call waits on the socket's queue until something arrives, ending with the
+/// deadline or the interrupt, as `sk_wait_data` ends on a signal. A socket a
+/// poll finds readable that still holds nothing has no more to give, so it
+/// answers the end, as a shut reading side answers zero to a blocking read.
+pub fn sock_recvmsg(
+    sock: &dyn ProtoOps,
+    buf: &mut [u8],
+    nonblock: bool,
+) -> Result<usize, FilesystemError> {
+    loop {
+        match sock.recvmsg(buf) {
+            Err(FilesystemError::WouldBlock) if !nonblock => {
+                if sock.poll(None).is_ready_for(PollMask::IN) {
+                    return Ok(0);
                 }
-                answer => return answer,
+                do_poll(None, |table| {
+                    sock.poll(table).is_ready_for(PollMask::IN).then_some(())
+                })?;
             }
+            answer => return answer,
+        }
+    }
+}
+
+/// Send `buf` through `sock`, as Linux's `sock_sendmsg`: with `nonblock` it
+/// takes what fits, EAGAIN when nothing does; without it the call waits for
+/// room until the whole buffer is taken, as `tcp_sendmsg_locked` waits in
+/// `sk_stream_wait_memory`, answering what it took if a failure or the
+/// deadline comes after some.
+pub fn sock_sendmsg(
+    sock: &dyn ProtoOps,
+    buf: &[u8],
+    nonblock: bool,
+) -> Result<usize, FilesystemError> {
+    let mut sent = 0;
+    loop {
+        let failure = match sock.sendmsg(&buf[sent..]) {
+            Ok(n) => {
+                sent += n;
+                if nonblock || sent == buf.len() {
+                    return Ok(sent);
+                }
+                continue;
+            }
+            Err(FilesystemError::WouldBlock) if !nonblock => do_poll(None, |table| {
+                let mask = sock.poll(table);
+                (mask.contains(PollMask::OUT) || mask.contains(PollMask::ERR)).then_some(())
+            })
+            .err(),
+            Err(err) => Some(err),
+        };
+        match failure {
+            None => {}
+            Some(_) if sent > 0 => return Ok(sent),
+            Some(err) => return Err(err),
         }
     }
 }
@@ -422,13 +462,11 @@ impl FileOperations for SocketFile {
         if buf.is_empty() {
             return Ok(0);
         }
-        let ops = self.ops.clone();
-        self.wait_unless_nonblock(iocb, PollMask::IN, || ops.recvmsg(buf))
+        sock_recvmsg(self.ops.as_ref(), buf, iocb.nonblock)
     }
 
     fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-        let ops = self.ops.clone();
-        self.wait_unless_nonblock(iocb, PollMask::OUT, || ops.sendmsg(buf))
+        sock_sendmsg(self.ops.as_ref(), buf, iocb.nonblock)
     }
 
     fn poll(&self, _mode: FMode, table: Option<&mut PollTable>) -> PollMask {

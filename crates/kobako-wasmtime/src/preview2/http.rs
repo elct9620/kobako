@@ -227,6 +227,9 @@ impl Invocation {
         }
         outgoing.headers = request.headers.entries();
         outgoing.body = request.link.body.take();
+        // The exchange reserves the request's parts itself, so the guest's
+        // copies give theirs back before it does.
+        drop((request.headers, request.memory));
         let Some(namespace) = self.wasi().table().network() else {
             return FutureState::Refused(ErrorCode::HTTPRequestDenied);
         };

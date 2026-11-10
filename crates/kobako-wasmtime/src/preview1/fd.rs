@@ -136,6 +136,8 @@ fn to_socket_filetype(file: &File) -> Filetype {
     match sock_from_file(file) {
         Some((_, SockType::Stream)) => Filetype::SocketStream,
         Some((_, SockType::Dgram)) => Filetype::SocketDgram,
+        // A kind preview1 names no filetype for.
+        Some(_) => Filetype::Unknown,
         None => unreachable!("a socket's number holds a socket file"),
     }
 }

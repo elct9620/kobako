@@ -4279,9 +4279,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a connected socket holding bytes it received but the guest never read |
-| When | its last view is dropped |
-| Then | the peer reads a reset, as `__tcp_close` resets a connection whose unread data it throws away |
+| Given | a connected socket holding bytes it received but the guest never read, or one released that its peer sends to |
+| When | its last view is dropped, or the bytes arrive |
+| Then | the peer reads a reset, as Linux resets a connection whose data it throws away. A released socket lets go of itself |
 
 ## `RT-380` A socket file whose non-blocking flag was cleared waits
 
@@ -4293,5 +4293,5 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a connected socket's file, its non-blocking flag cleared |
-| When | the guest reads before its peer sends |
-| Then | the read waits for the peer's bytes, as `sock_read_iter` waits without `O_NONBLOCK`. The wait goes through the registered Blocking and ends with the deadline |
+| When | the guest reads before its peer sends, or writes while the socket is full |
+| Then | the read waits for the peer's bytes and the write for room, as `sock_read_iter` and `sock_write_iter` wait without `O_NONBLOCK`. The wait goes through the registered Blocking and ends with the deadline |

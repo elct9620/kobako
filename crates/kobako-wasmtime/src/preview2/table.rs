@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
-use kobako_runtime::net::{NameLookup, Namespace, TcpSock, UdpSock, MAX_SOCKET_BUFFER};
+use kobako_runtime::net::{
+    sock_recvmsg, sock_sendmsg, NameLookup, Namespace, TcpSock, UdpSock, MAX_SOCKET_BUFFER,
+};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
@@ -75,14 +77,23 @@ impl Stream {
         }
     }
 
-    /// Read what the stream holds now; `WouldBlock` while it holds nothing yet.
+    /// Read what the stream holds now; `WouldBlock` while it holds nothing
+    /// yet. A socket's stream never waits, whatever its file's flag, as
+    /// `io.wit` makes a read non-blocking.
     pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        lock(&self.file()).read(buf)
+        match self {
+            Stream::Socket(_) if buf.is_empty() => Ok(0),
+            Stream::Socket(socket) => sock_recvmsg(socket.sock.as_ref(), buf, true),
+            Stream::File(file) => lock(file).read(buf),
+        }
     }
 
-    /// Write what the stream takes now.
+    /// Write what the stream takes now, never waiting on a socket.
     pub(crate) fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
-        lock(&self.file()).write(buf)
+        match self {
+            Stream::Socket(socket) => sock_sendmsg(socket.sock.as_ref(), buf, true),
+            Stream::File(file) => lock(file).write(buf),
+        }
     }
 
     /// How many bytes a write takes now.

@@ -917,7 +917,11 @@ impl IoHost for Invocation {
                 Ok(buf)
             }
             Err(FilesystemError::WouldBlock) => Ok(Vec::new()),
-            Err(err) => Err(err.into()),
+            // A failed read ends the stream too, as wasmtime's moves to closed.
+            Err(err) => {
+                self.table().get_mut(this)?.closed = true;
+                Err(err.into())
+            }
         }
     }
 
@@ -2146,6 +2150,94 @@ mod tests {
             .with_protocol(network::Protocol::Tcp)
             .with_addresses(vec![network::Addresses::Local]);
         (network_guest(endpoint), listener)
+    }
+
+    // @behavior RT-380
+    #[test]
+    fn a_preview2_read_never_waits_whatever_the_socket_files_flag() {
+        let (mut guest, listener) = guest_and_listener();
+        let port = listener.local_addr().unwrap().port();
+        let answer = run_task(Some(Instant::now() + Duration::from_secs(5)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (input, _) = guest
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
+                .expect("the listener accepts");
+            let _peer = listener.accept().unwrap();
+            let file = guest.table().get(input)?.stream.file();
+            crate::descriptors::lock(&file).setfl(false, false);
+            guest.streams_input_stream_read(input, 8).into_answer()
+        })
+        .expect("the calls answer");
+        assert!(
+            matches!(answer, Ok(ref bytes) if bytes.is_empty()),
+            "input-stream.read of a socket with nothing yet must answer an empty list at once, \
+             as io.wit makes a read non-blocking, even once preview1 cleared the socket file's \
+             non-blocking flag; got {answer:?}"
+        );
+    }
+
+    // @behavior NW-165
+    #[test]
+    fn a_read_of_nothing_after_a_failed_read_answers_closed() {
+        let (mut guest, listener) = guest_and_listener();
+        let port = listener.local_addr().unwrap().port();
+        let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (input, output) = guest
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
+                .expect("the listener accepts");
+            let (peer, _) = listener.accept().unwrap();
+            // The peer closes with these bytes unread, so it resets.
+            guest
+                .streams_output_stream_blocking_write_and_flush(output, b"unread".to_vec())
+                .into_answer()?
+                .expect("the bytes leave");
+            std::thread::sleep(Duration::from_millis(20));
+            drop(peer);
+            let failed = loop {
+                let readable = guest.streams_input_stream_subscribe(input)?;
+                guest.poll_pollable_block(readable)?;
+                guest.poll_pollable_drop(readable)?;
+                match guest.streams_input_stream_read(input, 8).into_answer()? {
+                    Ok(bytes) if bytes.is_empty() => continue,
+                    answer => break answer.is_err(),
+                }
+            };
+            let nothing = matches!(
+                guest.streams_input_stream_read(input, 0).into_answer()?,
+                Err(crate::preview2::error::StreamError::Closed)
+            );
+            Ok::<_, wasmtime::Error>((failed, nothing))
+        })
+        .expect("the calls answer");
+        assert_eq!(
+            answers,
+            (true, true),
+            "input-stream.read of nothing after a read failed on a reset must answer closed, as \
+             wasmtime's stream closes on a failed read"
+        );
     }
 
     // @behavior NW-155

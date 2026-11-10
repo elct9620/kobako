@@ -142,7 +142,7 @@ The file is made with the socket, as Linux's `socket()` installs one before any 
 
 | When | The socket file |
 |---|---|
-| its non-blocking flag is cleared | waits for a read or write, as `sock_read_iter` does |
+| its non-blocking flag is cleared | waits, as `sock_read_iter` and `sock_write_iter` do |
 | its last view drops with bytes queued | sends them, then its FIN, as `__tcp_close` does |
 | its last view drops with bytes unread | resets the connection |
 | the Invocation ends | lets go of whatever it still holds |

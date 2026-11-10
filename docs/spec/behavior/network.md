@@ -925,7 +925,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a host socket failure with a POSIX name |
 | When | the Wasm Driver answers it as a `wasi:sockets` error code |
-| Then | EPIPE answers `unknown`, EADDRINUSE `address-in-use`, and ECONNRESET `connection-reset`, as wasmtime-wasi's preview2 maps them |
+| Then | EPIPE answers `unknown`, EADDRINUSE `address-in-use`, and ECONNRESET `connection-reset`, as wasmtime-wasi's preview2 maps them. ENETDOWN answers `remote-unreachable` and ENOBUFS `out-of-memory`, each read from the host's errno where no kind names it |
 
 ## `NW-075` An endpoint names an IDN by its A-label
 
@@ -1874,7 +1874,7 @@ endpoint "api.example.com", port: 443
 | When | a Wasm Driver connects to an IPv6 address and an unmapped virtual one, then binds an IPv6 address |
 | Then | the policy sees both connects. They answer `EAFNOSUPPORT` and `EACCES`, and the bind `EAFNOSUPPORT`, as Linux's `security_socket_connect` runs before the protocol's `connect` |
 
-## `NW-152` A UDP socket's shutdown ends its reads and refuses its sends
+## `NW-152` A UDP socket's shutdown keeps its reads non-blocking and refuses its sends
 
 | Attribute | Value |
 | --- | --- |
@@ -1885,7 +1885,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a UDP socket connected to a peer, and one connected to none |
 | When | a Wasm Driver shuts the reading side down, then the writing side, then shuts the unconnected socket down |
-| Then | the socket polls readable, yet a read of its empty queue answers EAGAIN, as a non-blocking Linux socket does. A send answers EPIPE, and both shut poll hung up. The unconnected socket answers ENOTCONN, as Linux's `inet_shutdown` |
+| Then | the socket polls readable, yet a read of its empty queue answers EAGAIN, as a non-blocking Linux socket does. A blocking read answers zero at once. A send answers EPIPE, and both shut poll hung up. The unconnected socket answers ENOTCONN, as Linux's `inet_shutdown` |
 
 ## `NW-153` A UDP socket answers its bind and an empty send as wasmtime-wasi's
 
@@ -2044,7 +2044,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest that read a response body's stream to its end |
+| Given | a guest that read a response body's stream to its end, or whose socket stream read failed |
 | When | it reads zero bytes from the stream |
 | Then | the read answers `closed`, as `io.wit` lets a zero-length read succeed only while the stream is open |
 

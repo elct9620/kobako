@@ -243,8 +243,8 @@ impl TcpSock {
         state.inet.error = Some(err);
     }
 
-    /// Return a socket whose connect failed to one never connected, as
-    /// `tcp_disconnect` clears what the failed connect left.
+    /// Return a socket whose connect failed or was given up to one never
+    /// connected, as `tcp_disconnect` clears what the connect left.
     fn disconnect(state: &mut State) {
         state.phase = Phase::Unconnected;
         state.untried.clear();
@@ -334,16 +334,31 @@ impl TcpSock {
 
     /// Move what can move, then wake every poller, since what a poll finds
     /// may have changed. An orphan whose bytes and FIN left, or whose
-    /// connection ended, lets go of itself.
+    /// connection ended, lets go of itself; one the peer sends to resets the
+    /// connection, as Linux resets data arriving after `__tcp_close`.
     fn pump_and_wake(&self, mut state: MutexGuard<'_, State>) {
         self.pump(&mut state);
+        let arrived = state.orphan.is_some() && !state.receive_queue.is_empty();
+        if arrived {
+            Self::reset_host(&mut state);
+        }
         let settled = state.orphan.is_some()
-            && (state.phase != Phase::Connected
+            && (arrived
+                || state.phase != Phase::Connected
                 || (state.write_queue.is_empty() && state.fin_sent));
         let orphan = settled.then(|| Self::let_go(&mut state)).flatten();
         drop(state);
         self.wait.wake_up();
         drop(orphan);
+    }
+
+    /// Close the host socket with a zero linger and no FIN, so its peer reads
+    /// a reset.
+    fn reset_host(state: &mut State) {
+        if let Some((mut stream, registration)) = state.host.take() {
+            registration.deregister(&mut stream);
+            let _ = SockRef::from(&stream).set_linger(Some(Duration::ZERO));
+        }
     }
 
     /// Give back the socket's place and memory and close the host socket,
@@ -603,13 +618,9 @@ impl ProtoOps for TcpSock {
         state.untried.clear();
         let unread = !std::mem::take(&mut state.receive_queue).is_empty();
         if unread {
-            // Closed with a zero linger and no FIN, the host socket resets.
-            if let Some((mut stream, registration)) = state.host.take() {
-                registration.deregister(&mut stream);
-                let _ = SockRef::from(&stream).set_linger(Some(Duration::ZERO));
-            }
+            Self::reset_host(&mut state);
         } else if state.phase == Phase::Connected && !state.write_queue.is_empty() {
-            state.inet.mark_shutdown(Shutdown::Write);
+            state.inet.mark_shutdown(Shutdown::Both);
             state.orphan = self.this.upgrade();
             self.pump_and_wake(state);
             return;
@@ -905,17 +916,17 @@ mod tests {
         let before = file.read(&mut buf);
         peer.write_all(b"hello").unwrap();
         drop(peer);
-        let mut receive_queue = Vec::new();
+        let mut got = Vec::new();
         loop {
             wait_for(|table| file.poll(table), PollMask::IN);
             match file.read(&mut buf) {
                 Ok(0) => break,
-                Ok(n) => receive_queue.extend_from_slice(&buf[..n]),
+                Ok(n) => got.extend_from_slice(&buf[..n]),
                 Err(err) => panic!("a read the poll found ready answered {err:?}"),
             }
         }
         assert_eq!(
-            (before, receive_queue),
+            (before, got),
             (Err(FilesystemError::WouldBlock), b"hello".to_vec()),
             "File::read of a socket file must answer EAGAIN before anything arrived, then the \
              peer's bytes, then zero once it closed"
@@ -1027,11 +1038,12 @@ mod tests {
     // @behavior RT-378
     #[test]
     fn a_released_socket_sends_what_it_queued_then_its_fin() {
-        let (_sock, mut file, mut peer) = connected_socket();
+        let (sock, mut file, mut peer) = connected_socket();
         peer.set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         let sent = fill(&mut file);
-        drop(file);
+        // Nothing but the socket itself holds it once its file is gone.
+        drop((sock, file));
         let mut got = Vec::new();
         let read = peer.read_to_end(&mut got).map(|_| got.len());
         assert_eq!(
@@ -1039,6 +1051,28 @@ mod tests {
             Some(sent),
             "a socket file dropped with bytes still queued must send every one of the {sent} \
              bytes it took, then its FIN, as __tcp_close sends what is queued"
+        );
+    }
+
+    // @behavior RT-379
+    #[test]
+    fn a_released_socket_the_peer_sends_to_resets_and_lets_go() {
+        let (sock, _file, _peer) = connected_socket();
+        // Released with a byte still queued, as an orphan holds itself, and
+        // the peer's bytes already in: the host would answer them a reset.
+        {
+            let mut state = sock.state();
+            state.orphan = Some(sock.clone());
+            state.write_queue.push_back(7);
+            state.receive_queue.extend(b"after the close");
+        }
+        sock.pump_and_wake(sock.state());
+        let state = sock.state();
+        assert_eq!(
+            (state.orphan.is_some(), state.host.is_some()),
+            (false, false),
+            "a released socket its peer sends to must reset the connection and let go of \
+             itself, bytes still queued or not, as Linux resets data arriving after __tcp_close"
         );
     }
 
@@ -1080,6 +1114,48 @@ mod tests {
             "File::read of a socket opened non-blocking must answer EAGAIN before bytes come, \
              and once its non-blocking flag is cleared must wait for the peer's bytes, as \
              sock_read_iter waits without O_NONBLOCK"
+        );
+    }
+
+    // @behavior RT-380
+    #[test]
+    fn a_full_socket_file_whose_nonblock_flag_was_cleared_waits_for_room() {
+        let (_sock, mut file, mut peer) = connected_socket();
+        fill(&mut file);
+        let before = file.write(b"x");
+        file.setfl(false, false);
+        let whole = vec![7; 4 * MAX_SOCKET_BUFFER];
+        let reader = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            peer.set_read_timeout(Some(Duration::from_millis(500)))
+                .unwrap();
+            let mut chunk = [0; 64 * 1024];
+            while peer.read(&mut chunk).is_ok_and(|n| n > 0) {}
+            peer
+        });
+        let after = crate::sched::testing::within_max_wait(|| file.write(&whole));
+        drop(reader.join());
+        assert_eq!(
+            (before, after),
+            (Err(FilesystemError::WouldBlock), Ok(whole.len())),
+            "File::write of a full socket opened non-blocking must answer EAGAIN, and once its \
+             non-blocking flag is cleared must wait until the peer reads room free and take \
+             every byte it was handed, as tcp_sendmsg_locked waits for memory"
+        );
+    }
+
+    // @behavior RT-380
+    #[test]
+    fn a_blocking_read_ends_with_the_deadline() {
+        let (_sock, mut file, _peer) = connected_socket();
+        file.setfl(false, false);
+        let deadline = std::time::Instant::now() + Duration::from_millis(100);
+        let read = crate::sched::run_task(Some(deadline), || file.read(&mut [0; 8]));
+        assert_eq!(
+            read,
+            Err(FilesystemError::Interrupted),
+            "File::read of a socket whose non-blocking flag was cleared must end its wait with \
+             the deadline, before the peer sends anything"
         );
     }
 
@@ -1143,11 +1219,11 @@ mod tests {
             .expect("a connected socket shuts down");
         peer.set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        let mut receive_queue = Vec::new();
-        peer.read_to_end(&mut receive_queue)
+        let mut got = Vec::new();
+        peer.read_to_end(&mut got)
             .expect("the peer reads until the end");
         assert_eq!(
-            receive_queue,
+            got,
             b"ping".to_vec(),
             "a peer of a socket written then shut down for writing must read the bytes, then \
              the end"
