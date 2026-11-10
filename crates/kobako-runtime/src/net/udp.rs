@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
-use super::socket::{to_error, to_ttl, InetSock, ProtoOps, SockOpt, SocketMemory};
+use super::socket::{to_error, to_ttl, InetSock, MemoryCharge, ProtoOps, SockOpt};
 use super::MAX_SOCKET_BUFFER;
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -54,7 +54,7 @@ struct State {
     place: Option<Place>,
     /// What the receive queue may hold, reserved against the Invocation's
     /// memory until the socket is released.
-    memory: Option<SocketMemory>,
+    memory: Option<MemoryCharge>,
 }
 
 /// One UDP socket, shared by the socket file and the reactor.
@@ -69,7 +69,7 @@ impl UdpSock {
     /// queue is reserved against `cred`'s memory, and past it the socket
     /// answers `ENOMEM`.
     pub(crate) fn new(cred: &Arc<Cred>) -> Result<Arc<Self>, FilesystemError> {
-        let memory = SocketMemory::charge(cred, MAX_SOCKET_BUFFER)?;
+        let memory = MemoryCharge::new(cred, MAX_SOCKET_BUFFER)?;
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 host: None,

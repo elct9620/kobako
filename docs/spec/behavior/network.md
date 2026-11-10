@@ -1922,3 +1922,16 @@ endpoint "api.example.com", port: 443
 | Given | a connected TCP socket whose peer reads nothing, its buffers full |
 | When | the guest flushes the output stream and polls its pollable beside a zero-length clock, then the peer reads |
 | Then | only the clock is ready while the flush is held. Once the peer reads, the pollable is ready and `check-write` offers bytes, as `io.wit` says |
+
+## `NW-156` A request's parts and a response's head hold against the Invocation's memory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-116` |
+| relates | `NW-081` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest under a `memory_limit` |
+| When | the paths its requests hold, or a response's head, run past that memory |
+| Then | setting the path traps, as a header list does. The response answers `internal-error`. A dropped request gives its room back |

@@ -17,8 +17,8 @@ use super::connections::{open, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
-    ensure_within, take_connect_outcome, to_error, to_ttl, InetSock, ProtoOps, SockOpt,
-    SocketMemory,
+    ensure_within, take_connect_outcome, to_error, to_ttl, InetSock, MemoryCharge, ProtoOps,
+    SockOpt,
 };
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -108,7 +108,7 @@ struct State {
     place: Option<Place>,
     /// What both buffers may hold, reserved against the Invocation's memory
     /// until the socket is released.
-    memory: Option<SocketMemory>,
+    memory: Option<MemoryCharge>,
 }
 
 /// One TCP socket, shared by the socket file and the reactor.
@@ -129,7 +129,7 @@ impl TcpSock {
         family: Arc<dyn ProtocolFamily>,
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, FilesystemError> {
-        let memory = SocketMemory::charge(cred, 2 * MAX_SOCKET_BUFFER)?;
+        let memory = MemoryCharge::new(cred, 2 * MAX_SOCKET_BUFFER)?;
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {

@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use kobako_runtime::net::{self, Exchange, FieldError, HttpError, RequestBody};
+use kobako_runtime::net::{self, Exchange, FieldError, HttpError, MemoryCharge, RequestBody};
 use kobako_runtime::vfs::PollMask;
 
 use super::bindings::wasi_http_types_0_2_12::{
@@ -53,6 +53,22 @@ pub(crate) struct Request {
     path_with_query: Option<String>,
     headers: Arc<net::Fields>,
     link: Arc<BodyLink>,
+    /// What the method, authority, and path the guest set hold, reserved
+    /// against the Invocation's memory, as its headers' room is.
+    memory: Option<MemoryCharge>,
+}
+
+impl Request {
+    /// The bytes the guest's own strings hold.
+    fn room(&self) -> usize {
+        let method = match &self.method {
+            Method::Other(other) => other.len(),
+            _ => 0,
+        };
+        method
+            + self.authority.as_ref().map_or(0, String::len)
+            + self.path_with_query.as_ref().map_or(0, String::len)
+    }
 }
 
 /// Where a `future-incoming-response` stands.
@@ -158,6 +174,24 @@ fn to_method_name(method: &Method) -> Option<String> {
 impl Invocation {
     fn request(&mut self, request: OutgoingRequest) -> wasmtime::Result<&mut Request> {
         self.table().get_mut(request).map(|request| &mut request.0)
+    }
+
+    /// Change `request` through `change`, then reserve what its strings now
+    /// hold; past the Invocation's memory the call traps, as a header list's
+    /// does.
+    fn change_request(
+        &mut self,
+        request: OutgoingRequest,
+        change: impl FnOnce(&mut Request),
+    ) -> wasmtime::Result<()> {
+        let cred = self.wasi().descriptors().cred().clone();
+        let request = self.request(request)?;
+        change(request);
+        request.memory = None;
+        let memory = MemoryCharge::new(&cred, request.room())
+            .map_err(|_| wasmtime::Error::msg("the guest's request outgrows its memory"))?;
+        request.memory = Some(memory);
+        Ok(())
     }
 
     fn future(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<&mut Future> {
@@ -288,6 +322,7 @@ impl HttpHost for Invocation {
             path_with_query: None,
             headers: entries,
             link,
+            memory: None,
         }))
     }
 
@@ -316,7 +351,7 @@ impl HttpHost for Invocation {
         if to_method_name(&method).is_none() {
             return Ok(Err(()));
         }
-        self.request(this)?.method = method;
+        self.change_request(this, |request| request.method = method)?;
         Ok(Ok(()))
     }
 
@@ -329,7 +364,7 @@ impl HttpHost for Invocation {
             Some(None) => return Ok(Err(())),
             target => target.flatten(),
         };
-        self.request(this)?.path_with_query = target;
+        self.change_request(this, |request| request.path_with_query = target)?;
         Ok(Ok(()))
     }
 
@@ -356,7 +391,7 @@ impl HttpHost for Invocation {
         {
             return Ok(Err(()));
         }
-        self.request(this)?.authority = authority;
+        self.change_request(this, |request| request.authority = authority)?;
         Ok(Ok(()))
     }
 
@@ -855,6 +890,45 @@ mod tests {
             "fields.append of 1 KiB values must trap once the list passes 128 KiB, and sooner \
              once it passes a 16 KiB memory_limit; a dropped list must give its room back, so \
              a new one takes as many"
+        );
+    }
+
+    // @behavior NW-156
+    #[test]
+    fn the_paths_requests_hold_count_against_the_guests_memory() {
+        // How many requests holding a 1 KiB path a guest builds before the
+        // trap, and the trap; every request it built is dropped after.
+        let fill = |guest: &mut Invocation| {
+            let path = format!("/{}", "p".repeat(1023));
+            let mut held = Vec::new();
+            let trap = loop {
+                if held.len() > 1000 {
+                    break "no trap".to_string();
+                }
+                let headers = guest.types_fields_new().unwrap();
+                let request = guest.types_outgoing_request_new(headers).unwrap();
+                held.push(request);
+                let set =
+                    guest.types_outgoing_request_set_path_with_query(request, Some(path.clone()));
+                if let Err(trap) = set {
+                    break trap.to_string();
+                }
+            };
+            let taken = held.len() - 1;
+            for request in held {
+                guest.types_outgoing_request_drop(request).unwrap();
+            }
+            (taken, trap)
+        };
+        let mut tight = limited_guest(None, Some(16 * 1024));
+        let (first, trap) = fill(&mut tight);
+        let (again, _) = fill(&mut tight);
+        assert_eq!(
+            (trap.as_str(), first > 0 && again == first),
+            ("the guest's request outgrows its memory", true),
+            "outgoing-request.set-path-with-query of 1 KiB paths must trap once the requests \
+             holding them pass a 16 KiB memory_limit, and dropped requests must give their room \
+             back, so as many are taken again; took {first} then {again}"
         );
     }
 

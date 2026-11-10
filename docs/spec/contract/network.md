@@ -763,6 +763,25 @@ The socket file of a socket, opened for reading and writing, as Linux's
 pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, cred: &Arc<Cred>) -> File {}
 ```
 
+## `MemoryCharge`
+
+Memory the host holds for a Guest, reserved against the Invocation's and given
+back as it drops. Linux's `sk_forward_alloc` reserves a socket's memory alike.
+
+```rust
+pub struct MemoryCharge {}
+```
+
+## `MemoryCharge::new`
+
+Reserve some bytes for a Cred, refused past its memory as `OutOfMemory`.
+
+```rust
+impl MemoryCharge {
+    pub fn new(cred: &Arc<Cred>, bytes: usize) -> Result<Self, FilesystemError> {}
+}
+```
+
 ## `ProtoOps`
 
 What one protocol answers for its socket file, as Linux's `struct proto_ops`.

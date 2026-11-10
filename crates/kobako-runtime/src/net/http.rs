@@ -23,7 +23,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::{open, OpenConnections, Place};
 use super::lookup::NameLookup;
 use super::reactor::{Reactor, Ready, Registration, Task};
-use super::socket::{take_connect_outcome, to_error, SocketMemory};
+use super::socket::{take_connect_outcome, to_error, MemoryCharge};
 use super::{new_platform_tls, ProtocolFamily, MAX_SOCKET_BUFFER};
 use crate::filesystem::anon_inode_getfile;
 use crate::network::{Protocol, Ruleset, Secret};
@@ -727,6 +727,9 @@ enum Phase {
 
 struct State {
     phase: Phase,
+    /// What the response's head holds, reserved against the Invocation's
+    /// memory as it arrives.
+    head_memory: Option<MemoryCharge>,
     body: VecDeque<u8>,
     body_end: bool,
     body_error: bool,
@@ -744,7 +747,7 @@ pub struct Exchange {
     place: Mutex<Option<Arc<Place>>>,
     /// What the request's body and the response's buffer hold, reserved
     /// against the Invocation's memory until the exchange is released.
-    memory: Mutex<Option<SocketMemory>>,
+    memory: Mutex<Option<MemoryCharge>>,
 }
 
 impl Exchange {
@@ -759,7 +762,7 @@ impl Exchange {
         open_connections: &Arc<OpenConnections>,
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, HttpError> {
-        let memory = SocketMemory::charge(cred, request.body.len() + MAX_SOCKET_BUFFER)
+        let memory = MemoryCharge::new(cred, request.body.len() + MAX_SOCKET_BUFFER)
             .map_err(|_| HttpError::Internal)?;
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
         connector.place = Some(place.clone());
@@ -768,6 +771,7 @@ impl Exchange {
         let exchange = Arc::new(Self {
             state: Arc::new(Mutex::new(State {
                 phase: Phase::Sending,
+                head_memory: None,
                 body: VecDeque::new(),
                 body_end: false,
                 body_error: false,
@@ -781,11 +785,27 @@ impl Exchange {
         // The task holds what it answers into, never the exchange, so the
         // exchange's last hold, which cancels the task, is never the task's.
         let (state, wait) = (exchange.state.clone(), exchange.wait.clone());
+        let cred = cred.clone();
         let sending = seam.send_request(request, connector);
         let task = reactor.spawn(async move {
             match sending.await {
                 Ok(response) => {
-                    lock(&state).phase = Phase::Answered(response.head);
+                    let room = response
+                        .head
+                        .headers
+                        .iter()
+                        .map(|(name, value)| room_of(name, value))
+                        .sum();
+                    let Ok(head_memory) = MemoryCharge::new(&cred, room) else {
+                        lock(&state).phase = Phase::Failed(HttpError::Internal);
+                        wait.wake_up();
+                        return;
+                    };
+                    {
+                        let mut held = lock(&state);
+                        held.head_memory = Some(head_memory);
+                        held.phase = Phase::Answered(response.head);
+                    }
                     wait.wake_up();
                     fill_body(&state, &wait, response.body).await;
                 }
@@ -868,7 +888,10 @@ impl Exchange {
         if let Some(task) = task {
             task.cancel();
         }
-        lock(&self.state).body.clear();
+        let mut state = lock(&self.state);
+        state.body.clear();
+        state.head_memory = None;
+        drop(state);
         *self.place.lock().unwrap_or_else(PoisonError::into_inner) = None;
         *self.memory.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
@@ -1811,6 +1834,56 @@ mod tests {
             "with a memory_limit holding one TCP socket's buffers, a UDP socket must answer \
              ENOMEM and a request fail before it is sent, and a UDP socket must be made once the \
              TCP socket is gone"
+        );
+    }
+
+    /// A seam answering each request at once with one header of `.0` bytes and
+    /// no body.
+    struct AnswersHeader(usize);
+
+    impl Outbound for AnswersHeader {
+        fn send_request(&self, _: OutgoingRequest, _: Connector) -> ResponseFuture {
+            let size = self.0;
+            Box::pin(async move {
+                Ok(Response {
+                    head: ResponseHead {
+                        status: 200,
+                        headers: vec![("x-large".to_string(), vec![b'v'; size])],
+                    },
+                    body: http_body_util::Empty::<Bytes>::new()
+                        .map_err(|never| match never {})
+                        .boxed_unsync(),
+                })
+            })
+        }
+    }
+
+    // @behavior NW-156
+    #[test]
+    fn a_response_head_past_the_invocations_memory_answers_internal_error() {
+        let status = |size: usize| {
+            let mut entry = Builder::default();
+            entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
+            let network = Network::new("api", Arc::new(entry)).unwrap();
+            let namespace = Namespace::for_network(
+                &network,
+                Arc::new(ResolvesToLoopback),
+                Arc::new(AnswersHeader(size)),
+            );
+            let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 16 * 1024));
+            let exchange = namespace
+                .send(
+                    &cred,
+                    OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+                )
+                .expect("an endpoint names the authority");
+            read_response(&exchange).map(|(head, _)| head.status)
+        };
+        assert_eq!(
+            (status(1024), status(64 * 1024)),
+            (Ok(200), Err(HttpError::Internal)),
+            "a response whose head fits the Invocation's memory beside its buffer must be \
+             answered, and one whose 64 KiB head does not must fail as internal"
         );
     }
 

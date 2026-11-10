@@ -176,17 +176,18 @@ pub(crate) fn ensure_within(value: u32, max: u32) -> Result<(), FilesystemError>
     }
 }
 
-/// The memory a producer's buffers may hold, reserved against the Invocation's
-/// as the producer is made and given back as it is let go, as
-/// `sk_forward_alloc` reserves what the memory cgroup charges a socket.
-pub(crate) struct SocketMemory {
+/// Memory the host holds for a guest, reserved against the Invocation's as it
+/// is taken and given back as it is let go, as `sk_forward_alloc` reserves
+/// what the memory cgroup charges a socket: a producer's buffers, or a part of
+/// a request the guest builds.
+pub struct MemoryCharge {
     cred: Arc<Cred>,
     bytes: usize,
 }
 
-impl SocketMemory {
+impl MemoryCharge {
     /// Reserve `bytes` for `cred`, refused past its memory as `ENOMEM`.
-    pub(crate) fn charge(cred: &Arc<Cred>, bytes: usize) -> Result<Self, FilesystemError> {
+    pub fn new(cred: &Arc<Cred>, bytes: usize) -> Result<Self, FilesystemError> {
         cred.security_vm_enough_memory(bytes)?;
         Ok(Self {
             cred: cred.clone(),
@@ -195,7 +196,7 @@ impl SocketMemory {
     }
 }
 
-impl Drop for SocketMemory {
+impl Drop for MemoryCharge {
     fn drop(&mut self) {
         self.cred.vm_unacct_memory(self.bytes);
     }
