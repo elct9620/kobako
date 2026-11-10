@@ -4282,3 +4282,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a connected socket holding bytes it received but the guest never read |
 | When | its last view is dropped |
 | Then | the peer reads a reset, as `__tcp_close` resets a connection whose unread data it throws away |
+
+## `RT-380` A socket file whose non-blocking flag was cleared waits
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-372` |
+| relates | `RT-166` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket's file, its non-blocking flag cleared |
+| When | the guest reads before its peer sends |
+| Then | the read waits for the peer's bytes, as `sock_read_iter` waits without `O_NONBLOCK`. The wait goes through the registered Blocking and ends with the deadline |

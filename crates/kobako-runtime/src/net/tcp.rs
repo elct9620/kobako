@@ -1057,6 +1057,29 @@ mod tests {
         );
     }
 
+    // @behavior RT-380
+    #[test]
+    fn a_socket_file_whose_nonblock_flag_was_cleared_waits_for_its_peer() {
+        let (_sock, mut file, mut peer) = connected_socket();
+        let mut buf = [0; 8];
+        let before = file.read(&mut buf);
+        file.setfl(false, false);
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            peer.write_all(b"late").unwrap();
+            peer
+        });
+        let after = crate::sched::testing::within_max_wait(|| file.read(&mut buf));
+        drop(writer.join());
+        assert_eq!(
+            (before, after),
+            (Err(FilesystemError::WouldBlock), Ok(4)),
+            "File::read of a socket opened non-blocking must answer EAGAIN before bytes come, \
+             and once its non-blocking flag is cleared must wait for the peer's bytes, as \
+             sock_read_iter waits without O_NONBLOCK"
+        );
+    }
+
     // @behavior RT-358
     #[test]
     fn a_reset_or_refused_socket_polls_hung_up() {

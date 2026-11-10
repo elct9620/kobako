@@ -11,7 +11,7 @@ use crate::vfs::{
     alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
     FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
 };
-use crate::wait::PollTable;
+use crate::wait::{do_poll, PollTable};
 
 use super::connections::Place;
 
@@ -359,24 +359,51 @@ pub enum SockType {
 /// socket: the protocol's operations and the socket's kind, as `struct socket`
 /// holds `ops` and `type`. The file is opened non-blocking, as a WASI 0.2
 /// socket is, so a read or write that would wait answers EAGAIN and the guest
-/// polls.
+/// polls; one whose non-blocking flag was cleared waits instead.
 struct SocketFile {
     ops: Arc<dyn ProtoOps>,
     sock_type: SockType,
 }
 
+impl SocketFile {
+    /// What `call` answers, waiting on the socket's queue until a poll finds
+    /// `mask` ready while it answers EAGAIN, unless `iocb` asks not to wait,
+    /// as `sock_recvmsg` passes `MSG_DONTWAIT` for `O_NONBLOCK`; the wait
+    /// ends with the deadline or the interrupt, as `sk_wait_data` ends on a
+    /// signal.
+    fn wait_unless_nonblock(
+        &self,
+        iocb: &Kiocb,
+        mask: PollMask,
+        mut call: impl FnMut() -> Result<usize, FilesystemError>,
+    ) -> Result<usize, FilesystemError> {
+        loop {
+            match call() {
+                Err(FilesystemError::WouldBlock) if !iocb.nonblock => {
+                    do_poll(None, |table| {
+                        self.ops.poll(table).is_ready_for(mask).then_some(())
+                    })?;
+                }
+                answer => return answer,
+            }
+        }
+    }
+}
+
 impl FileOperations for SocketFile {
     /// A read of nothing answers zero before the socket is asked, as
     /// `sock_read_iter` does, so it takes no datagram.
-    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         if buf.is_empty() {
             return Ok(0);
         }
-        self.ops.recvmsg(buf)
+        let ops = self.ops.clone();
+        self.wait_unless_nonblock(iocb, PollMask::IN, || ops.recvmsg(buf))
     }
 
-    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
-        self.ops.sendmsg(buf)
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        let ops = self.ops.clone();
+        self.wait_unless_nonblock(iocb, PollMask::OUT, || ops.sendmsg(buf))
     }
 
     fn poll(&self, _mode: FMode, table: Option<&mut PollTable>) -> PollMask {
