@@ -492,12 +492,11 @@ pub(crate) mod testing {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
     // @behavior NW-074
-    #[cfg(unix)]
     #[test]
     fn a_host_socket_failure_answers_the_posix_name_its_errno_holds() {
         use rustix::io::Errno;
