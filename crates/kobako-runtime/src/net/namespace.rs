@@ -446,7 +446,10 @@ impl Namespace {
             }
             Some(None) => Err(FilesystemError::PermissionDenied),
             Some(Some((name, real))) => {
-                let local = self.family.local_addresses();
+                let local = self
+                    .family
+                    .local_addresses()
+                    .map_err(|_| FilesystemError::PermissionDenied)?;
                 let admitted =
                     self.ruleset
                         .admitted_of(&name, &real, addr.port(), protocol, &local);
@@ -784,13 +787,15 @@ mod tests {
 
     /// A family resolving every name to what `answers` holds, counting each
     /// lookup, recording each address dialed, and holding `local` as the
-    /// host's own addresses.
+    /// host's own addresses, unless `local_unreadable` says it cannot read
+    /// them.
     #[derive(Default)]
     struct Resolving {
         answers: Mutex<Vec<IpAddr>>,
         lookups: AtomicUsize,
         dialed: Mutex<Vec<SocketAddr>>,
         local: Vec<IpAddr>,
+        local_unreadable: bool,
     }
 
     impl ProtocolFamily for Resolving {
@@ -804,8 +809,11 @@ mod tests {
             Ok(self.answers.lock().unwrap().clone())
         }
 
-        fn local_addresses(&self) -> Vec<IpAddr> {
-            self.local.clone()
+        fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {
+            match self.local_unreadable {
+                true => Err(io::ErrorKind::PermissionDenied.into()),
+                false => Ok(self.local.clone()),
+            }
         }
     }
 
@@ -878,6 +886,28 @@ mod tests {
             "Namespace::resolve of a name no endpoint names, one a resolve policy refuses, or a \
              wildcard's own apex must answer name-unresolvable without asking the resolver, got \
              {answers:?}"
+        );
+    }
+
+    // @behavior NW-154
+    #[test]
+    fn a_connect_is_refused_when_the_hosts_own_addresses_cannot_be_read() {
+        let family = Arc::new(Resolving {
+            answers: Mutex::new(vec!["8.8.8.8".parse().unwrap()]),
+            local_unreadable: true,
+            ..Resolving::default()
+        });
+        let namespace = resolving(vec![tcp("api.example.com", 443)], "", family.clone());
+        let cred = prepare_creds_within(&[], None);
+        let mut at = looked_up(&namespace, "api.example.com");
+        at.set_port(443);
+        let answer = dial(&namespace, &cred, at).err();
+        assert_eq!(
+            (answer, family.dialed.lock().unwrap().len()),
+            (Some(FilesystemError::PermissionDenied), 0),
+            "Namespace::connect must refuse with EACCES, dialing nothing, when the Protocol \
+             Family cannot read the host's own addresses, rather than judge the name's \
+             addresses as if the host had none"
         );
     }
 

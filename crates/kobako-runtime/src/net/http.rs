@@ -512,7 +512,10 @@ impl Connector {
             Ok(ip) => vec![SocketAddr::new(ip, self.port)],
             Err(_) => {
                 let real = self.resolve().await?;
-                let local = self.family.local_addresses();
+                let local = self
+                    .family
+                    .local_addresses()
+                    .map_err(|_| HttpError::Denied)?;
                 self.ruleset
                     .admitted_of(&self.host, &real, self.port, Protocol::Http, &local)
             }

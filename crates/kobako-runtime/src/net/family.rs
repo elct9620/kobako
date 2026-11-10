@@ -20,9 +20,11 @@ pub trait ProtocolFamily: Send + Sync {
     }
 
     /// The host's own addresses, as Linux's `local` routing table holds them,
-    /// read at each connect. A family with none answers an empty list.
-    fn local_addresses(&self) -> Vec<IpAddr> {
-        Vec::new()
+    /// read at each connect. A family with none answers an empty list; one
+    /// that cannot read them answers the failure, and the connect is refused
+    /// rather than judged as if the host had none.
+    fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {
+        Ok(Vec::new())
     }
 
     /// A non-blocking datagram socket bound to an ephemeral port and connected
@@ -67,9 +69,7 @@ impl ProtocolFamily for HostInet {
         Ok(socket)
     }
 
-    fn local_addresses(&self) -> Vec<IpAddr> {
-        if_addrs::get_if_addrs()
-            .map(|interfaces| interfaces.into_iter().map(|i| i.ip()).collect())
-            .unwrap_or_default()
+    fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {
+        if_addrs::get_if_addrs().map(|interfaces| interfaces.into_iter().map(|i| i.ip()).collect())
     }
 }

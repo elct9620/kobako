@@ -621,11 +621,12 @@ pub trait ProtocolFamily {
 
 ## `ProtocolFamily::local_addresses`
 
-The host's own addresses, as Linux's local routing table holds them.
+The host's own addresses, as Linux's local routing table holds them. A family
+that cannot read them answers the failure, and the connect is refused.
 
 ```rust
 pub trait ProtocolFamily {
-    fn local_addresses(&self) -> Vec<IpAddr>;
+    fn local_addresses(&self) -> io::Result<Vec<IpAddr>>;
 }
 ```
 
