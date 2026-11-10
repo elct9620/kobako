@@ -745,11 +745,31 @@ impl TcpSock {
 
 ## `sock_alloc_file`
 
-The socket file of a socket, opened for reading and writing, as Linux's
-`sock_alloc_file` makes one. Dropping it releases the socket.
+The socket file of a socket of one kind, opened for reading and writing, as
+Linux's `sock_alloc_file` makes one. Dropping it releases the socket.
 
 ```rust
-pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, cred: &Arc<Cred>) -> File {}
+pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, sock_type: SockType, cred: &Arc<Cred>) -> File {}
+```
+
+## `sock_from_file`
+
+The socket a socket file holds and its kind, as Linux's `sock_from_file`
+reaches one; any other file holds none.
+
+```rust
+pub fn sock_from_file(file: &File) -> Option<(Arc<dyn ProtoOps>, SockType)> {}
+```
+
+## `SockType`
+
+Which kind of socket a file holds, as Linux's `sock->type` names it.
+
+```rust
+pub enum SockType {
+    Stream,
+    Dgram,
+}
 ```
 
 ## `MemoryCharge`

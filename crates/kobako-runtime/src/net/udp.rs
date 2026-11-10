@@ -519,7 +519,8 @@ mod tests {
     #[test]
     fn a_zero_byte_read_keeps_the_datagram() {
         let (sock, _peer) = readable_socket();
-        let mut file = crate::net::sock_alloc_file(sock.clone(), &Arc::default());
+        let mut file =
+            crate::net::sock_alloc_file(sock.clone(), crate::net::SockType::Dgram, &Arc::default());
         let mut buf = [0; 8];
         let zero = file.read(&mut []);
         let next = file.read(&mut buf).map(|n| buf[..n].to_vec());

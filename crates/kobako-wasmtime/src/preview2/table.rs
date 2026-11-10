@@ -8,13 +8,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
-use kobako_runtime::net::{NameLookup, Namespace, ProtoOps, TcpSock, UdpSock, MAX_SOCKET_BUFFER};
+use kobako_runtime::net::{NameLookup, Namespace, TcpSock, UdpSock, MAX_SOCKET_BUFFER};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, FilesystemError, PollMask};
 use kobako_runtime::wait::PollTable;
 
 use super::bindings::wasi_sockets_network_0_2_12::ErrorCode;
-use crate::descriptors::{lock, Numbers, SharedFile, SocketType};
+use crate::descriptors::{lock, Numbers, SharedFile};
 
 /// One socket file every view of a guest socket shares, as handles on one
 /// `struct file` share one `struct socket`: the protocol's half is `S`, and
@@ -423,15 +423,8 @@ impl Table {
 
     /// Have the socket's `handle` stand for its file, so a preview1 call on
     /// the number reaches the socket, as one fdtable holds both.
-    pub(crate) fn install<S: ProtoOps + 'static>(
-        &self,
-        handle: impl Handle,
-        socket: &SocketFile<S>,
-        kind: SocketType,
-    ) {
-        let ops: Arc<dyn ProtoOps> = socket.sock.clone();
-        self.numbers
-            .install(handle.index(), socket.file.clone(), ops, kind);
+    pub(crate) fn install<S>(&self, handle: impl Handle, socket: &SocketFile<S>) {
+        self.numbers.install(handle.index(), socket.file.clone());
     }
 
     /// Take `handle` out of the table. A handle of another kind, or one whose

@@ -9,6 +9,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{FileType, FilesystemError, Iattr, Kstat, SetTime};
+use kobako_runtime::net::{sock_from_file, SockType};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{self, verify_dirent_name, DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
@@ -17,7 +18,7 @@ use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::path::retry_eagain;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
-use crate::descriptors::{lock, Descriptor, Descriptors, SocketType};
+use crate::descriptors::{lock, Descriptor, Descriptors};
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
 /// most userlands.
@@ -129,12 +130,13 @@ fn to_filetype(file_type: FileType) -> Filetype {
     }
 }
 
-/// A socket of `kind` as a preview1 `filetype`, which tells a stream from a
+/// A socket `file` as a preview1 `filetype`, which tells a stream from a
 /// datagram socket where `st_mode` does not.
-fn to_socket_filetype(kind: SocketType) -> Filetype {
-    match kind {
-        SocketType::Stream => Filetype::SocketStream,
-        SocketType::Datagram => Filetype::SocketDgram,
+fn to_socket_filetype(file: &File) -> Filetype {
+    match sock_from_file(file) {
+        Some((_, SockType::Stream)) => Filetype::SocketStream,
+        Some((_, SockType::Dgram)) => Filetype::SocketDgram,
+        None => unreachable!("a socket's number holds a socket file"),
     }
 }
 
@@ -213,10 +215,11 @@ pub(crate) fn sync(table: &mut Descriptors, fd: u32, datasync: bool) -> Answer {
 }
 
 pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
-    if let Some((socket, kind)) = table.socket_of(fd) {
+    if let Some(socket) = table.socket(fd) {
+        let socket = lock(&socket);
         return Ok(types::Fdstat {
-            fs_filetype: to_socket_filetype(kind),
-            ..to_fdstat(&lock(&socket), false)
+            fs_filetype: to_socket_filetype(&socket),
+            ..to_fdstat(&socket, false)
         });
     }
     let descriptor = descriptor(table, fd)?;
@@ -285,10 +288,11 @@ pub(crate) fn fdstat_set_rights(table: &Descriptors, fd: u32) -> Answer {
 }
 
 pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filestat> {
-    if let Some((socket, kind)) = table.socket_of(fd) {
-        let stat = lock(&socket).getattr()?;
+    if let Some(socket) = table.socket(fd) {
+        let socket = lock(&socket);
+        let stat = socket.getattr()?;
         return Ok(types::Filestat {
-            filetype: to_socket_filetype(kind),
+            filetype: to_socket_filetype(&socket),
             ..to_filestat(table, stat)
         });
     }

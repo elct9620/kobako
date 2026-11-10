@@ -10,10 +10,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
-    sock_alloc_file, Namespace, ProtoOps, SockOpt, UdpSock, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
-    MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
+    sock_alloc_file, Namespace, ProtoOps, SockOpt, SockType, UdpSock, MAX_DATAGRAM,
+    MAX_SOCKET_BUFFER, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
-use kobako_runtime::vfs::{Cred, File, FilesystemError, PollMask};
+use kobako_runtime::vfs::{Cred, FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
 
 use super::bindings::wasi_clocks_monotonic_clock_0_2_12 as monotonic_clock;
@@ -36,7 +36,6 @@ use super::sockets::{
     to_socket_addr,
 };
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
-use crate::descriptors::SocketType;
 use crate::invocation::Invocation;
 use crate::trap::{Interrupted, TimeoutTrap};
 
@@ -180,12 +179,7 @@ impl Invocation {
             .expect("a socket is only made with a network")
     }
 
-    /// The socket file of `sock`, opened as the Invocation's credentials.
-    fn sock_alloc_file(&self, sock: Arc<dyn ProtoOps>) -> File {
-        sock_alloc_file(sock, self.wasi().descriptors().cred())
-    }
-
-    /// A socket `create` makes in the Invocation's network, with its file
+    /// A socket of `sock_type` `create` makes in the Invocation's network, with its file
     /// installed at the number its handle `resource` takes, as `__sys_socket`
     /// makes one and `fd_install`s it. With no network, or for an IPv6
     /// `family`, it is `not-supported`, and past the open file limit
@@ -193,7 +187,7 @@ impl Invocation {
     fn create_socket<S: ProtoOps + 'static, H: table::Handle>(
         &mut self,
         family: IpAddressFamily,
-        kind: SocketType,
+        sock_type: SockType,
         create: impl FnOnce(&Namespace, &Arc<Cred>) -> Result<Arc<S>, FilesystemError>,
         resource: impl FnOnce(SocketFile<S>) -> H::Host,
     ) -> Result<H, SocketError> {
@@ -205,9 +199,9 @@ impl Invocation {
         }
         let cred = self.wasi().descriptors().cred().clone();
         let sock = create(self.network(), &cred)?;
-        let socket = SocketFile::new(sock.clone(), self.sock_alloc_file(sock));
+        let socket = SocketFile::new(sock.clone(), sock_alloc_file(sock, sock_type, &cred));
         let handle: H = self.table().push_file(resource(socket.clone()))?;
-        self.wasi().table().install(handle, &socket, kind);
+        self.wasi().table().install(handle, &socket);
         Ok(handle)
     }
 
@@ -351,7 +345,7 @@ impl SocketsHost for Invocation {
     ) -> Result<TcpSocket, SocketError> {
         self.create_socket(
             address_family,
-            SocketType::Stream,
+            SockType::Stream,
             Namespace::create_tcp_socket,
             |socket| table::TcpSocket {
                 socket,
@@ -621,7 +615,7 @@ impl SocketsHost for Invocation {
     ) -> Result<UdpSocket, SocketError> {
         self.create_socket(
             address_family,
-            SocketType::Datagram,
+            SockType::Dgram,
             Namespace::create_udp_socket,
             |socket| table::UdpSocket {
                 socket,

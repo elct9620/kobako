@@ -7,17 +7,19 @@
 use std::net::Shutdown;
 use std::sync::Arc;
 
-use kobako_runtime::net::ProtoOps;
+use kobako_runtime::net::{sock_from_file, ProtoOps};
 
 use super::errno::{Answer, Errno};
 use super::fd::file;
 use super::memory::GuestMemory;
 use super::types;
-use crate::descriptors::Descriptors;
+use crate::descriptors::{lock, Descriptors};
 
 /// The protocol behind the socket `fd` stands for.
 fn sockfd_lookup(table: &Descriptors, fd: u32) -> Answer<Arc<dyn ProtoOps>> {
-    if let Some(ops) = table.proto_ops(fd) {
+    if let Some(socket) = table.socket(fd) {
+        let (ops, _) =
+            sock_from_file(&lock(&socket)).expect("a socket's number holds a socket file");
         return Ok(ops);
     }
     file(table, fd)?;

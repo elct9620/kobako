@@ -578,7 +578,7 @@ mod tests {
 
     use super::*;
     use crate::net::socket::testing::wait_for;
-    use crate::net::{sock_alloc_file, HostInet};
+    use crate::net::{sock_alloc_file, HostInet, SockType};
     use crate::security::prepare_creds_within;
     use crate::vfs::File;
 
@@ -596,7 +596,7 @@ mod tests {
     fn connected_socket() -> (Arc<TcpSock>, File, std::net::TcpStream) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let sock = dial(listener.local_addr().unwrap());
-        let file = sock_alloc_file(sock.clone(), &Arc::default());
+        let file = sock_alloc_file(sock.clone(), SockType::Stream, &Arc::default());
         let (peer, _) = listener.accept().expect("the listener accepts");
         wait_for(|table| file.poll(table), PollMask::OUT);
         (sock, file, peer)
@@ -816,7 +816,7 @@ mod tests {
         let refused_at = closed.local_addr().unwrap();
         drop(closed);
         let sock = dial(refused_at);
-        let file = sock_alloc_file(sock.clone(), &Arc::default());
+        let file = sock_alloc_file(sock.clone(), SockType::Stream, &Arc::default());
         wait_for(|table| file.poll(table), PollMask::ERR);
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let open_at = listener.local_addr().unwrap();
@@ -921,7 +921,7 @@ mod tests {
         let closed = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = closed.local_addr().unwrap();
         drop(closed);
-        let refused = sock_alloc_file(dial(addr), &Arc::default());
+        let refused = sock_alloc_file(dial(addr), SockType::Stream, &Arc::default());
         wait_for(|table| refused.poll(table), PollMask::ERR);
         let every = PollMask::IN | PollMask::OUT | PollMask::ERR | PollMask::HUP;
         assert_eq!(
@@ -993,7 +993,7 @@ mod tests {
             .and_then(|listener| listener.local_addr())
             .unwrap();
         let sock = dial(addr);
-        let file = sock_alloc_file(sock.clone(), &Arc::default());
+        let file = sock_alloc_file(sock.clone(), SockType::Stream, &Arc::default());
         wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
             sock.finish_connect(),
