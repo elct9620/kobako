@@ -2350,3 +2350,15 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server that answers a word, and two unconnected `UDPSocket`s |
 | When | the script reads into an Integer buffer and closes each side of a socket with no peer. It writes nothing, then reads and asks `sync` on a closed socket |
 | Then | the buffer raises `TypeError` and the word still reads after. Each side closes, so the socket ends closed. An empty `write` answers 0 where `syswrite` sends. A closed socket answers `sysread(0)` with `""`. It refuses `readpartial`, `read_nonblock`, and `sync` with `IOError`, and `recv(-1)` with `ArgumentError`, as CRuby's do |
+
+## `NW-190` A script's host reads as CRuby's host_str
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-099` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script connects naming the host by an Integer, by `nil`, and by a Symbol. It packs a `sockaddr_in` from the Integer |
+| Then | the Integer is the IPv4 address it numbers and `nil` the loopback, as CRuby's `host_str` reads them. The Symbol raises `TypeError` |

@@ -7,6 +7,7 @@ use std::time::Duration;
 use beni::prelude::*;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
+use super::basic::string_value_of;
 use super::{resolution_error, to_error, EAI_AGAIN, EAI_FAIL, EAI_NONAME, EAI_SERVICE};
 use crate::errno;
 use crate::io::argument_error;
@@ -67,6 +68,31 @@ pub(super) fn no_timeout() -> Result<Option<Duration>, Error> {
     Ok(None)
 }
 
+/// The host `host` names, as CRuby's `host_str` reads it for `getaddrinfo`:
+/// an Integer is the IPv4 address it numbers, as `NUM2UINT` reads it; `""`
+/// and `"<any>"` are any address and `"<broadcast>"` the broadcast one; any
+/// other value converts as `StringValueCStr` does, so a Symbol raises
+/// `TypeError`. `nil` names none, which `getaddrinfo` reads as the loopback,
+/// or any address when `passive`.
+pub(super) fn host_of(mrb: &Mrb, host: Value, passive: bool) -> Result<String, Error> {
+    if host.is_nil() {
+        let ip = match passive {
+            true => Ipv4Addr::UNSPECIFIED,
+            false => Ipv4Addr::LOCALHOST,
+        };
+        return Ok(ip.to_string());
+    }
+    if Integer::from_value(host).is_some() {
+        return Ok(Ipv4Addr::from(i64::try_convert(host, mrb)? as u32).to_string());
+    }
+    let text = string_value_of(mrb, host)?.to_string(mrb)?;
+    Ok(match text.as_str() {
+        "" | "<any>" => Ipv4Addr::UNSPECIFIED.to_string(),
+        "<broadcast>" => Ipv4Addr::BROADCAST.to_string(),
+        _ => text,
+    })
+}
+
 /// The peer `host` and `port` name for `call`: the IPv4 address
 /// `host` spells, or the one its name leads to within what `resolv_timeout`
 /// reads, with the words CRuby's `Errno` carries for them. The timeout is
@@ -79,7 +105,17 @@ pub(super) fn peer_of(
     resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
     call: &str,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
-    let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
+    end_of_host(mrb, host_of(mrb, host, false)?, port, resolv_timeout, call)
+}
+
+/// The end the host text `host_text` and `port` name for `call`.
+fn end_of_host(
+    mrb: &Mrb,
+    host_text: String,
+    port: Value,
+    resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
+    call: &str,
+) -> Result<(Ipv4Addr, u16, String), Error> {
     let (port, port_text) = port_of(mrb, port)?;
     let call = peer_message(call, &host_text, port_text);
     let ip = match host_text.parse::<std::net::IpAddr>() {
@@ -93,26 +129,15 @@ pub(super) fn peer_of(
 }
 
 /// The local end `host` and `port` name for a bind, and the text naming it in
-/// an error, as CRuby's `rsock_addrinfo` reads them with `AI_PASSIVE`: `nil`,
-/// `""`, and `"<any>"` stand for any address and `"<broadcast>"` for the
-/// broadcast one; any other host resolves as a peer's does. The host decides
+/// an error, as CRuby's `rsock_addrinfo` reads them with `AI_PASSIVE`: `nil`
+/// is any address, and the rest as `host_of` reads it. The host decides
 /// which end a bind may take.
 pub(super) fn local_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
-    let text = match host.is_nil() {
-        true => String::new(),
-        false => host.to_r_string(mrb)?.to_string(mrb)?,
-    };
-    let ip = match text.as_str() {
-        "" | "<any>" => Ipv4Addr::UNSPECIFIED,
-        "<broadcast>" => Ipv4Addr::BROADCAST,
-        _ => return peer_of(mrb, host, port, &no_timeout, "bind(2)"),
-    };
-    let (port, port_text) = port_of(mrb, port)?;
-    Ok((ip, port, peer_message("bind(2)", &text, port_text)))
+    end_of_host(mrb, host_of(mrb, host, true)?, port, &no_timeout, "bind(2)")
 }
 
 /// The port `port` names, and its text, as Linux's `getaddrinfo` reads what
@@ -154,26 +179,15 @@ pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
     Ok(())
 }
 
-/// The address `host` names to pack, as CRuby's `rsock_addrinfo` reads it:
-/// `nil` is the loopback, an Integer the IPv4 address it numbers, `""` and
-/// `"<any>"` any address, and `"<broadcast>"` the broadcast one. A literal is
-/// itself, and a name the address it leads to. The guest has no IPv6, so
-/// `nil` is IPv4's loopback.
-pub(super) fn pack_host(mrb: &Mrb, host: Value) -> Result<IpAddr, Error> {
-    if host.is_nil() {
-        return Ok(Ipv4Addr::LOCALHOST.into());
-    }
-    if Integer::from_value(host).is_some() {
-        return Ok(Ipv4Addr::from(i64::try_convert(host, mrb)? as u32).into());
-    }
-    let text = host.to_r_string(mrb)?.to_string(mrb)?;
-    Ok(match text.as_str() {
-        "" | "<any>" => Ipv4Addr::UNSPECIFIED.into(),
-        "<broadcast>" => Ipv4Addr::BROADCAST.into(),
-        _ => match text.parse::<IpAddr>() {
-            Ok(ip) => ip,
-            Err(_) => resolve(mrb, &text, None, "getaddrinfo(3)")?.into(),
-        },
+/// The address `host` names to pack, as CRuby's `rsock_addrinfo` reads it
+/// through `host_of`, `passive` when `AI_PASSIVE` asks: a literal is itself,
+/// and a name the address it leads to. The guest has no IPv6, so `nil` is
+/// IPv4's loopback.
+pub(super) fn pack_host(mrb: &Mrb, host: Value, passive: bool) -> Result<IpAddr, Error> {
+    let text = host_of(mrb, host, passive)?;
+    Ok(match text.parse::<IpAddr>() {
+        Ok(ip) => ip,
+        Err(_) => resolve(mrb, &text, None, "getaddrinfo(3)")?.into(),
     })
 }
 
@@ -227,7 +241,7 @@ pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error>
 /// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name.
 fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
     let (port, _) = port_of(mrb, port)?;
-    let ip = pack_host(mrb, host)?;
+    let ip = pack_host(mrb, host, false)?;
     Ok(mrb.str_new(&sockaddr_of(ip, port)).as_value())
 }
 

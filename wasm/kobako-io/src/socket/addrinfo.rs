@@ -13,7 +13,7 @@ use beni::{
 };
 
 use super::address::{end_of, pack_host, port_of, sockaddr_of};
-use super::basic::open_socket_of;
+use super::basic::{open_socket_of, string_value_of};
 use super::{
     family_of, name_of, resolution_error, socket_error, Family, AF_INET, AF_INET6, EAI_NONAME,
 };
@@ -237,9 +237,12 @@ struct Hints {
 /// address with `AI_PASSIVE`.
 fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<Addrinfo>, Error> {
     let (port, service_text) = port_of(mrb, service)?;
+    let passive = hints.flags & AI_PASSIVE != 0;
+    // The node as written, which `inspect` shows, as CRuby's
+    // `make_inspectname` keeps what the script spelled.
     let name = match node.is_nil() || Integer::from_value(node).is_some() {
         true => None,
-        false => Some(node.to_r_string(mrb)?.to_string(mrb)?),
+        false => Some(string_value_of(mrb, node)?.to_string(mrb)?),
     };
     let numeric = name
         .as_deref()
@@ -247,10 +250,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     if hints.flags & AI_NUMERICHOST != 0 && !numeric {
         return Err(resolution_error(mrb, EAI_NONAME));
     }
-    let ip = match node.is_nil() && hints.flags & AI_PASSIVE != 0 {
-        true => Ipv4Addr::UNSPECIFIED.into(),
-        false => pack_host(mrb, node)?,
-    };
+    let ip = pack_host(mrb, node, passive)?;
     if hints.family.is_some_and(|family| family != afamily_of(ip)) {
         return Err(resolution_error(mrb, EAI_ADDRFAMILY));
     }
