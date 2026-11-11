@@ -245,9 +245,17 @@ fn bind_to(open: &mut OpenSocket, end: (Ipv4Addr, u16)) -> Result<(), ErrorCode>
     Ok(())
 }
 
+/// Raise `IOError` for a closed socket before a call looks its host up, as
+/// CRuby's `bind`, `connect`, and `send` check the open file before
+/// `rsock_addrinfo`.
+fn ensure_open(mrb: &Mrb, self_: Value) -> Result<(), Error> {
+    Datagrams::of(mrb, self_)?.with(mrb, |_| Ok(()))
+}
+
 /// `bind(host, port)` binds to the local end they name, as the host lets a
 /// bind take it; a second bind raises `Errno::EINVAL`, as Linux's.
 fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
+    ensure_open(mrb, self_)?;
     let (ip, port, call) = local_of(mrb, host, port, UDP)?;
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         bind_to(open, (ip, port)).map_err(|code| match code {
@@ -261,6 +269,7 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
 /// `connect(host, port)` streams with the peer `host` and `port` name, binding
 /// first if no bind came before, as Linux's autobind does.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
+    ensure_open(mrb, self_)?;
     let (ip, port, call) = peer_of(mrb, host, port, None, UDP, "connect(2)")?;
     let failed = |code| to_error(mrb, code, UDP, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
@@ -302,9 +311,7 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let data = mesg_bytes_of(mrb, mesg)?;
-    // A closed socket raises before any lookup, as CRuby's `GetOpenFile`
-    // comes before `rsock_addrinfo`.
-    Datagrams::of(mrb, self_)?.with(mrb, |_| Ok(()))?;
+    ensure_open(mrb, self_)?;
     // Whether the address a send names is the peer, `None` when it names none.
     let (names_peer, call) = match to {
         Some((host, port)) => {

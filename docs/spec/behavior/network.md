@@ -2082,7 +2082,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a script's `UDPSocket` connected to an endpoint's name |
 | When | it sends naming that name and port, then naming another address |
-| Then | the name is looked up again, as CRuby's `sendto` does. It keeps its virtual address, so the first reaches the peer the socket streams with. The second raises `Errno::EACCES`. A closed socket raises `IOError` before any lookup, as CRuby's checks the stream first |
+| Then | the name is looked up again, as CRuby's `sendto` does. It keeps its virtual address, so the first reaches the peer the socket streams with. The second raises `Errno::EACCES`. A closed socket's send, connect, and bind raise `IOError` before any lookup, as CRuby's check the stream first |
 
 ## `NW-169` A closed socket refuses a position, sync, or advice call
 
