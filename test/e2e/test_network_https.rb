@@ -16,19 +16,27 @@ class TestE2ENetworkHttps < Minitest::Test
     end
   RUBY
 
-  # A loopback server answering in clear the moment it accepts, whatever the
-  # client sends first.
+  # A loopback server answering in clear whatever the client sends first. It
+  # reads what came and closes only once the client has, so no host resets a
+  # connection holding unread bytes before the client reads the answer.
   def with_clear_server
     server = TCPServer.new("127.0.0.1", 0)
-    thread = Thread.new do
-      client = server.accept
-      client.write("HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
-      client.close
-    end
+    thread = Thread.new { answer_in_clear(server.accept) }
     yield server.addr[1]
   ensure
     thread&.join(5)
     server&.close
+  end
+
+  # Read what +client+ sent, answer it in clear, and close once it closes.
+  def answer_in_clear(client)
+    client.readpartial(4096)
+    client.write("HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+    client.read
+  rescue IOError, SystemCallError
+    nil
+  ensure
+    client.close
   end
 
   # @behavior NW-049
