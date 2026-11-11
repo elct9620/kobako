@@ -4271,7 +4271,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a Wasm Driver binds each past the socket hooks, the fresh one twice and once to IPv6 |
 | Then | the first bind takes the socket's own end. A second bind, or one after a connect bound the socket, answers EINVAL, as `__inet_bind` refuses. IPv6 answers EAFNOSUPPORT |
 
-
 ## `RT-386` A failed connect gives back a port its bind did not name
 
 | Attribute | Value |
@@ -4283,3 +4282,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | two TCP sockets, one bound to port 0 and one to a named port |
 | When | each connects to a closed port, and binds again once the connect fails |
 | Then | the first binds again, since `TCP_CLOSE` puts its port back. The second answers EINVAL, as `SOCK_BINDPORT_LOCK` keeps a named port |
+
+
+## `RT-387` A pollable listed twice in one poll waits once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-339` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a near clock and a far clock |
+| When | it polls a list naming each of them twice |
+| Then | the poll answers both indices of the near clock. Each handle waits once, as wasmtime groups the list by handle |

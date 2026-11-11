@@ -4,6 +4,7 @@
 //! its Protocol Family. The clock subscriptions, the streams, and `poll` wait
 //! on the runtime's wait primitive.
 
+use std::collections::BTreeMap;
 use std::net::{Shutdown, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -1124,16 +1125,30 @@ impl IoHost for Invocation {
     }
 
     /// The indices of the pollables ready, once one is, as WASI's `poll`
-    /// answers; an empty list traps, as WASI says it does.
+    /// answers; an empty list traps, as WASI says it does. A handle listed
+    /// more than once waits once and answers at each of its indices, as
+    /// wasmtime groups the list by handle, so a long list of one handle
+    /// costs no more waiters than the handle alone.
     fn poll_poll(&mut self, r#in: Vec<Pollable>) -> wasmtime::Result<Vec<u32>> {
         if r#in.is_empty() {
             return Err(wasmtime::Error::msg("poll was handed no pollable"));
         }
-        let pollables = r#in
-            .into_iter()
-            .map(|handle| self.table().get(handle).cloned())
+        let mut indices_of = BTreeMap::<u32, Vec<u32>>::new();
+        for (index, handle) in (0u32..).zip(&r#in) {
+            indices_of.entry(handle.0).or_default().push(index);
+        }
+        let pollables = indices_of
+            .keys()
+            .map(|handle| self.table().get(Pollable(*handle)).cloned())
             .collect::<wasmtime::Result<Vec<_>>>()?;
-        self.poll_ready(pollables)
+        let ready = self.poll_ready(pollables)?;
+        let lists = indices_of.into_values().collect::<Vec<_>>();
+        let mut answer = ready
+            .into_iter()
+            .flat_map(|at| lists[at as usize].iter().copied())
+            .collect::<Vec<_>>();
+        answer.sort_unstable();
+        Ok(answer)
     }
 
     fn poll_pollable_drop(&mut self, handle: Pollable) -> wasmtime::Result<()> {
@@ -1505,6 +1520,24 @@ mod tests {
             [0, 1],
             "poll on a one- and a two-second subscribe-duration at the hermetic profile must \
              find both ready at once"
+        );
+    }
+
+    // @behavior RT-387
+    #[test]
+    fn a_pollable_listed_twice_answers_at_each_index() {
+        let (mut store, _) = guest(Profile::Permissive, None);
+        let guest = store.data_mut();
+        let far = guest
+            .monotonic_clock_subscribe_duration(60_000_000_000)
+            .unwrap();
+        let near = guest.monotonic_clock_subscribe_duration(1_000_000).unwrap();
+        let ready = guest.poll_poll(vec![far, near, far, near]).unwrap();
+        assert_eq!(
+            ready,
+            [1, 3],
+            "poll on a list naming a far and a near clock twice each must answer both indices of \
+             the near clock"
         );
     }
 
