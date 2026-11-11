@@ -366,6 +366,24 @@ fn to_rust_type(resolve: &Resolve, ty: &Type) -> String {
     }
 }
 
+/// How a parameter of `ty` reaches the host: a handle the guest owns comes
+/// as the resource itself, taken out of the table as it is lifted, as
+/// wasmtime moves an `own` resource into the call; anything else as
+/// `to_rust_type` spells it.
+fn to_param_type(resolve: &Resolve, ty: &Type) -> String {
+    let Type::Id(id) = ty else {
+        return to_rust_type(resolve, ty);
+    };
+    match &resolve.types[definition_of(resolve, *id)].kind {
+        TypeDefKind::Handle(Handle::Own(r)) => format!(
+            "<{} as {HOSTS}::table::Handle>::Host",
+            type_path_of(resolve, definition_of(resolve, *r))
+        ),
+        TypeDefKind::Option(inner) => format!("Option<{}>", to_param_type(resolve, inner)),
+        _ => to_rust_type(resolve, ty),
+    }
+}
+
 /// The type `id` names, through every `use` alias of it.
 fn definition_of(resolve: &Resolve, mut id: TypeId) -> TypeId {
     while let TypeDefKind::Type(Type::Id(aliased)) = resolve.types[id].kind {
@@ -634,7 +652,11 @@ fn write_host_trait(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], out: 
          fn abandonment(&self) -> Option<wasmtime::Error>;\n\
          /// `handle`, once the guest holds it as its kind; any other traps as it\n\
          /// is lifted, before the host is asked, as wasmtime lifts a resource.\n\
-         fn lift_handle<H: {HOSTS}::table::Handle>(&mut self, handle: H) -> wasmtime::Result<H>;\n}}\n",
+         fn lift_handle<H: {HOSTS}::table::Handle>(&mut self, handle: H) -> wasmtime::Result<H>;\n\
+         /// The resource `handle` names, taken out of the table as the guest gives\n\
+         /// it up, as wasmtime moves an `own` resource into the call; one the guest\n\
+         /// does not hold as its kind, or one whose children live, traps.\n\
+         fn take_handle<H: {HOSTS}::table::Handle>(&mut self, handle: H) -> wasmtime::Result<H::Host>;\n}}\n",
         traits.join(" + ")
     );
 }
@@ -645,7 +667,7 @@ fn write_package_methods(resolve: &Resolve, imports: &[(InterfaceId, &[&str])], 
             let params = func
                 .params
                 .iter()
-                .map(|p| format!(", {}: {}", to_snake(&p.name), to_rust_type(resolve, &p.ty)))
+                .map(|p| format!(", {}: {}", to_snake(&p.name), to_param_type(resolve, &p.ty)))
                 .collect::<String>();
             let result = match (Trappable::of(resolve, func), func.result) {
                 (Some(trappable), Some(Type::Id(result))) => {
@@ -1045,10 +1067,13 @@ impl Bindgen for FunctionBody<'_> {
                 results.extend(names);
             }
             Instruction::HandleLift { handle, .. } => {
-                let (Handle::Own(r) | Handle::Borrow(r)) = handle;
+                let (lift, r) = match handle {
+                    Handle::Own(r) => ("take_handle", r),
+                    Handle::Borrow(r) => ("lift_handle", r),
+                };
                 let path = type_path_of(resolve, definition_of(resolve, *r));
                 let lifted = self.bind(format!(
-                    "caller.data_mut().lift_handle({path}({} as u32))?",
+                    "caller.data_mut().{lift}({path}({} as u32))?",
                     operands[0]
                 ));
                 results.push(lifted)

@@ -1164,7 +1164,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::super::bindings::wasi_sockets_network_0_2_12::Ipv4SocketAddress;
-    use super::super::bindings::HttpHost;
+    use super::super::bindings::{Host as _, HttpHost};
     use super::super::error::IntoAnswer;
     use super::*;
     use crate::wasi::{sandbox_connections, Wasi};
@@ -1370,6 +1370,7 @@ mod tests {
         let mut request = || {
             let guest = store.data_mut();
             let headers = guest.types_fields_new()?;
+            let headers = guest.take_handle(headers)?;
             guest
                 .types_outgoing_request_new(headers)
                 .map(|r| r.0 as i32)
@@ -1877,6 +1878,7 @@ mod tests {
                 .is_ok();
 
             let headers = guest.types_fields_new()?;
+            let headers = guest.take_handle(headers)?;
             let request = guest.types_outgoing_request_new(headers)?;
             guest
                 .types_outgoing_request_set_scheme(request, Some(Scheme::HTTP))?
@@ -1887,6 +1889,7 @@ mod tests {
             let body = guest
                 .types_outgoing_request_body(request)?
                 .expect("a request hands out its body once");
+            let request = guest.take_handle(request)?;
             let future = guest
                 .outgoing_handler_handle(request, None)
                 .into_answer()?
@@ -3180,6 +3183,7 @@ mod tests {
             .ok()
             .and_then(|answer| answer.err());
         let headers = guest.types_fields_new().unwrap();
+        let headers = guest.take_handle(headers).unwrap();
         let request = guest.types_outgoing_request_new(headers).unwrap();
         guest
             .types_outgoing_request_set_scheme(request, Some(Scheme::HTTP))
@@ -3189,6 +3193,7 @@ mod tests {
             .types_outgoing_request_set_authority(request, Some("example.com".to_string()))
             .unwrap()
             .unwrap();
+        let request = guest.take_handle(request).unwrap();
         let sent = guest
             .outgoing_handler_handle(request, None)
             .into_answer()

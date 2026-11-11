@@ -28,4 +28,8 @@ impl bindings::Host for crate::invocation::Invocation {
     fn lift_handle<H: table::Handle>(&mut self, handle: H) -> wasmtime::Result<H> {
         self.table().get(handle).map(|_| handle)
     }
+
+    fn take_handle<H: table::Handle>(&mut self, handle: H) -> wasmtime::Result<H::Host> {
+        self.table().delete(handle)
+    }
 }

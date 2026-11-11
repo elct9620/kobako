@@ -12,7 +12,7 @@ use kobako_runtime::vfs::PollMask;
 
 use super::bindings::wasi_http_types_0_2_12::{
     ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError, IncomingBody,
-    IncomingResponse, Method, OutgoingBody, OutgoingRequest, RequestOptions, Scheme,
+    IncomingResponse, Method, OutgoingBody, OutgoingRequest, Scheme,
 };
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
@@ -319,8 +319,11 @@ impl HttpHost for Invocation {
     }
 
     /// A GET with `headers`, which it takes, and a body the guest may ask for.
-    fn types_outgoing_request_new(&mut self, headers: Fields) -> wasmtime::Result<OutgoingRequest> {
-        let entries = self.table().delete(headers)?.entries;
+    fn types_outgoing_request_new(
+        &mut self,
+        headers: resource::Fields,
+    ) -> wasmtime::Result<OutgoingRequest> {
+        let entries = headers.entries;
         let cred = self.wasi().cred().clone();
         let memory = MemoryCharge::empty(&cred);
         let link = Arc::new(BodyLink {
@@ -436,14 +439,10 @@ impl HttpHost for Invocation {
     /// framed body with no trailers, so any given are dropped.
     fn types_outgoing_body_finish(
         &mut self,
-        this: OutgoingBody,
-        trailers: Option<Fields>,
+        this: resource::OutgoingBody,
+        _trailers: Option<resource::Fields>,
     ) -> Result<(), error::HttpError> {
-        let link = self.table().delete(this)?.link;
-        if let Some(trailers) = trailers {
-            self.table().delete(trailers)?;
-        }
-        link.finished.store(true, Ordering::Release);
+        this.link.finished.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -579,9 +578,9 @@ impl HttpHost for Invocation {
     /// The trailers, which the outbound seam never reads, so none arrive.
     fn types_incoming_body_finish(
         &mut self,
-        this: IncomingBody,
+        this: resource::IncomingBody,
     ) -> wasmtime::Result<FutureTrailers> {
-        self.table().delete(this)?.exchange.release();
+        this.exchange.release();
         self.table().push(resource::FutureTrailers)
     }
 
@@ -599,10 +598,10 @@ impl HttpHost for Invocation {
     /// the lift traps on any the guest names.
     fn outgoing_handler_handle(
         &mut self,
-        request: OutgoingRequest,
-        _options: Option<RequestOptions>,
+        request: resource::OutgoingRequest,
+        _options: Option<resource::RequestOptions>,
     ) -> Result<FutureIncomingResponse, error::HttpError> {
-        let request = self.table().delete(request)?.0;
+        let request = request.0;
         if self.wasi().table().network().is_none() {
             return Err(ErrorCode::HTTPRequestDenied.into());
         }
@@ -635,7 +634,7 @@ mod tests {
     use super::super::IntoAnswer;
     use super::*;
     use crate::config::Config;
-    use crate::preview2::bindings::IoHost;
+    use crate::preview2::bindings::{Host as _, IoHost};
     use crate::wasi::{sandbox_connections, Wasi};
 
     /// A hermetic invocation whose network holds `endpoints`, or none at all.
@@ -668,6 +667,7 @@ mod tests {
         authority: &str,
     ) -> wasmtime::Result<OutgoingRequest> {
         let headers = guest.types_fields_new()?;
+        let headers = guest.take_handle(headers)?;
         let request = guest.types_outgoing_request_new(headers)?;
         guest
             .types_outgoing_request_set_scheme(request, Some(Scheme::HTTP))?
@@ -686,6 +686,7 @@ mod tests {
     fn without_the_network_a_request_answers_http_request_denied() {
         let mut guest = guest(None);
         let request = greeting_request(&mut guest, "example.com").unwrap();
+        let request = guest.take_handle(request).unwrap();
         assert!(
             matches!(
                 guest.outgoing_handler_handle(request, None).into_answer(),
@@ -719,6 +720,7 @@ mod tests {
         let started = Instant::now();
         let (status, kind, body, nothing) = run_task(Some(started + Wait::from_secs(10)), || {
             let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
+            let request = guest.take_handle(request)?;
             let future = guest
                 .outgoing_handler_handle(request, None)
                 .into_answer()?
@@ -801,6 +803,7 @@ mod tests {
             let body = run_task(Some(started + Wait::from_secs(10)), || {
                 let guest = guest.as_mut().unwrap();
                 let request = greeting_request(guest, &format!("127.0.0.1:{port}"))?;
+                let request = guest.take_handle(request)?;
                 let future = guest
                     .outgoing_handler_handle(request, None)
                     .into_answer()?
@@ -930,6 +933,7 @@ mod tests {
                     break "no trap".to_string();
                 }
                 let headers = guest.types_fields_new().unwrap();
+                let headers = guest.take_handle(headers).unwrap();
                 let request = guest.types_outgoing_request_new(headers).unwrap();
                 held.push(request);
                 let set =
@@ -965,6 +969,7 @@ mod tests {
             .types_fields_append(fields, "x-ok".to_string(), b"a\x01b".to_vec())
             .into_answer()
             .unwrap();
+        let fields = guest.take_handle(fields).unwrap();
         let request = guest.types_outgoing_request_new(fields).unwrap();
         let mut authority = |value: &str| {
             guest
@@ -1015,6 +1020,7 @@ mod tests {
             .unwrap()
             .expect("a path with a fragment");
         let target = guest.request(request).unwrap().path_with_query.clone();
+        let request = guest.take_handle(request).unwrap();
         let answer = guest.outgoing_handler_handle(request, None).into_answer();
         assert!(
             target.as_deref() == Some("/admin")
@@ -1061,13 +1067,13 @@ mod tests {
             .unwrap()
             .expect("the stream is handed out once");
         let dropped = guest.types_outgoing_body_drop(body).is_err();
-        let finished = guest
-            .types_outgoing_body_finish(body, None)
-            .into_answer()
-            .is_err();
+        // `finish` takes the body as its glue lifts it, so the lift is where
+        // a living child traps.
+        let finished = guest.take_handle(body).is_err();
         guest.streams_output_stream_drop(stream).unwrap();
+        let taken = guest.take_handle(body).unwrap();
         let after = guest
-            .types_outgoing_body_finish(body, None)
+            .types_outgoing_body_finish(taken, None)
             .into_answer()
             .unwrap();
         assert_eq!(
@@ -1098,6 +1104,7 @@ mod tests {
         let started = Instant::now();
         let (dropped, kind) = run_task(Some(started + Wait::from_secs(10)), || {
             let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
+            let request = guest.take_handle(request)?;
             let future = guest
                 .outgoing_handler_handle(request, None)
                 .into_answer()?
@@ -1137,6 +1144,7 @@ mod tests {
         scheme: Scheme,
     ) -> wasmtime::Result<Option<Result<(), ErrorCode>>> {
         let headers = guest.types_fields_new()?;
+        let headers = guest.take_handle(headers)?;
         let request = guest.types_outgoing_request_new(headers)?;
         if guest
             .types_outgoing_request_set_scheme(request, Some(scheme))?
@@ -1147,6 +1155,7 @@ mod tests {
         guest
             .types_outgoing_request_set_authority(request, Some("unnamed.example".to_string()))?
             .expect("an authority");
+        let request = guest.take_handle(request)?;
         let sent = guest.outgoing_handler_handle(request, None).into_answer()?;
         Ok(Some(sent.map(drop)))
     }
@@ -1187,6 +1196,7 @@ mod tests {
             .types_outgoing_request_body(request)
             .unwrap()
             .expect("the body is handed out once");
+        let request = guest.take_handle(request).unwrap();
         let future = guest
             .outgoing_handler_handle(request, None)
             .into_answer()
