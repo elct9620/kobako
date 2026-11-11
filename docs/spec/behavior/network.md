@@ -2146,3 +2146,15 @@ endpoint "api.example.com", port: 443
 | Given | a script's `UDPSocket` connected to no peer, run under a timeout |
 | When | it selects the socket to read with no timeout of its own |
 | Then | on the permissive profile the run ends at its deadline, as Linux's `select` waits without end. On the hermetic profile the select answers `nil` at once, as a wait on no host-side producer ends there |
+
+## `NW-174` A flooded UDP socket takes its datagrams in bounded turns
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-125` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket whose peer sent it more datagrams than one turn takes |
+| When | the socket takes them in from the host, then reads each |
+| Then | one turn takes at most 64, as `NAPI_POLL_WEIGHT` bounds one poll. A flooded socket so holds no thread past its turn. Each read takes in what still waits, so the socket reads every datagram its buffer holds |

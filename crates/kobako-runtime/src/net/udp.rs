@@ -27,7 +27,12 @@ pub const MAX_DATAGRAM: usize = 65_507;
 /// What the receive queue spends on a datagram beside its bytes, as Linux's
 /// `skb->truesize` counts the `sk_buff` itself, so even empty datagrams fill
 /// `rcvbuf`.
-const DATAGRAM_OVERHEAD: usize = std::mem::size_of::<Vec<u8>>();
+const DATAGRAM_OVERHEAD: usize = std::mem::size_of::<(Vec<u8>, SocketAddr)>();
+
+/// The most datagrams one pump takes from the host socket, as
+/// `NAPI_POLL_WEIGHT` bounds one poll, so a flooded socket holds neither the
+/// reactor nor a guest call.
+const MAX_PUMPED_DATAGRAMS: usize = 64;
 
 /// What a queued datagram of `len` bytes spends of `rcvbuf`.
 fn truesize_of(len: usize) -> usize {
@@ -127,6 +132,9 @@ impl UdpSock {
             .register(&mut socket, ready)
             .map_err(|err| to_error(&err))?;
         let mut state = self.state();
+        // What the old peer sent reads as its own, so it is taken in before
+        // the host socket it waits in goes.
+        Self::pump(&mut state);
         if let Some((mut earlier, registration)) = state.host.take() {
             registration.deregister(&mut earlier);
         }
@@ -141,7 +149,8 @@ impl UdpSock {
 
     /// One datagram, cut to `buf`, and the peer it came from as the guest
     /// named it, as `udp_recvmsg` fills `msg_name` with each one's source. A
-    /// pending failure is answered first, as `recvmsg` answers it.
+    /// pending failure is answered first, as `recvmsg` answers it. A read
+    /// takes in what a bounded pump left waiting in the host socket.
     pub fn recvfrom(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), FilesystemError> {
         let mut state = self.state();
         if let Some(err) = state.inet.error.take() {
@@ -151,6 +160,7 @@ impl UdpSock {
             return Err(FilesystemError::WouldBlock);
         };
         state.rmem_alloc -= truesize_of(datagram.len());
+        Self::pump(&mut state);
         let n = buf.len().min(datagram.len());
         buf[..n].copy_from_slice(&datagram[..n]);
         Ok((n, from))
@@ -167,35 +177,40 @@ impl UdpSock {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Read every datagram that arrived, without blocking, each labelled with
-    /// the peer the guest named; one an earlier peer sent as the socket
-    /// repointed is dropped, as a datagram may be lost. A full receive queue
-    /// drops what comes, as a full `sk_rcvbuf` does. A failure the host
-    /// reports is kept pending and the queue reads on behind it, as datagrams
-    /// queue behind `sk_err`.
+    /// Read what arrived, without blocking and at most `MAX_PUMPED_DATAGRAMS`
+    /// at once, each labelled with the peer the guest named; one an earlier
+    /// peer sent as the socket repointed is dropped, as a datagram may be
+    /// lost. A full receive queue drops what comes, as a full `sk_rcvbuf`
+    /// does. A failure the host reports is kept pending and the queue reads
+    /// on behind it, as datagrams queue behind `sk_err`.
     fn pump(state: &mut State) {
         let Some((socket, _)) = state.host.as_ref() else {
             return;
         };
-        let peer = socket.peer_addr().ok();
-        let named = state.inet.peer;
+        let host_peer = socket.peer_addr().ok();
+        let peer = state.inet.peer;
         let mut datagram = vec![0; MAX_DATAGRAM];
-        loop {
+        let mut taken = 0;
+        while taken < MAX_PUMPED_DATAGRAMS {
             match socket.recv_from(&mut datagram) {
                 Ok((n, from)) => {
-                    let Some(named) = named.filter(|_| peer == Some(from)) else {
+                    taken += 1;
+                    let Some(peer) = peer.filter(|_| host_peer == Some(from)) else {
                         continue;
                     };
                     if state.rmem_alloc + truesize_of(n) <= state.inet.buffers.rcvbuf {
                         state
                             .receive_queue
-                            .push_back((datagram[..n].to_vec(), named));
+                            .push_back((datagram[..n].to_vec(), peer));
                         state.rmem_alloc += truesize_of(n);
                     }
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => state.inet.error = Some(to_udp_error(&err)),
+                Err(err) => {
+                    taken += 1;
+                    state.inet.error = Some(to_udp_error(&err));
+                }
             }
         }
     }
@@ -480,7 +495,7 @@ mod tests {
             peer.send_to(&[], local).unwrap();
         }
         let started = Instant::now();
-        while sock.state().receive_queue.len() < 96 && started.elapsed() < Duration::from_secs(5) {
+        while sock.state().receive_queue.len() < 41 && started.elapsed() < Duration::from_secs(5) {
             sock.on_event();
             thread::sleep(Duration::from_millis(1));
         }
@@ -488,9 +503,10 @@ mod tests {
         sock.on_event();
         assert_eq!(
             sock.state().receive_queue.len(),
-            96,
-            "a UDP socket whose receive buffer reads 2304 must queue no more than 96 of 200 \
-             empty datagrams, as each spends room beside its bytes, as Linux's truesize counts"
+            41,
+            "a UDP socket whose receive buffer reads 2304 must queue no more than 41 of 200 \
+             empty datagrams, as each spends the queue entry that holds it and its sender, as \
+             Linux's truesize counts the sk_buff"
         );
     }
 
@@ -570,15 +586,10 @@ mod tests {
         );
     }
 
-    // @behavior NW-172
-    #[test]
-    fn a_datagram_reads_with_the_peer_that_sent_it() {
-        let first = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let second = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let (at_first, at_second) = (first.local_addr().unwrap(), second.local_addr().unwrap());
-        let sock = connected_socket(at_first);
-        // The reactor stops taking datagrams in, so each stays in the host's
-        // queue until the socket itself takes it.
+    /// Stop the reactor taking `sock`'s datagrams in, so each stays in the
+    /// host's queue until the socket itself takes it; the host socket's own
+    /// address.
+    fn stop_reactor_for(sock: &UdpSock) -> SocketAddr {
         let local = {
             let mut state = sock.state();
             let (socket, registration) = state.host.as_mut().expect("a connected socket");
@@ -586,26 +597,67 @@ mod tests {
             socket.local_addr().unwrap()
         };
         // An event the reactor took before the deregister may still run.
-        std::thread::sleep(Duration::from_millis(100));
-        let wait_until_queued = || {
-            let started = Instant::now();
-            while started.elapsed() < Duration::from_secs(5) {
-                let state = sock.state();
-                let (socket, _) = state.host.as_ref().expect("a connected socket");
-                if socket.peek_from(&mut [0; 8]).is_ok() {
-                    return;
-                }
-                drop(state);
-                std::thread::sleep(Duration::from_millis(1));
+        thread::sleep(Duration::from_millis(100));
+        local
+    }
+
+    /// Wait until a datagram waits in `sock`'s host socket.
+    fn wait_until_queued(sock: &UdpSock) {
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(5) {
+            let state = sock.state();
+            let (socket, _) = state.host.as_ref().expect("a connected socket");
+            if socket.peek_from(&mut [0; 8]).is_ok() {
+                return;
             }
-        };
+            drop(state);
+            thread::sleep(Duration::from_millis(1));
+        }
+        panic!("the peer's datagram never reached the host socket's queue within 5 s");
+    }
+
+    // @behavior NW-174
+    #[test]
+    fn a_flooded_udp_socket_takes_its_datagrams_in_bounded_turns() {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let sock = connected_socket(peer.local_addr().unwrap());
+        let local = stop_reactor_for(&sock);
+        for i in 0..100u8 {
+            peer.send_to(&[i], local).unwrap();
+        }
+        wait_until_queued(&sock);
+        thread::sleep(Duration::from_millis(200));
+        UdpSock::pump(&mut sock.state());
+        let one_turn = sock.state().receive_queue.len();
+        let mut read = Vec::new();
+        let mut buf = [0; 1];
+        while let Ok((1, _)) = sock.recvfrom(&mut buf) {
+            read.push(buf[0]);
+        }
+        assert_eq!(
+            (one_turn, read),
+            (64, (0..100u8).collect::<Vec<_>>()),
+            "a UDP socket whose peer sent 100 datagrams must take 64 in one turn, as \
+             NAPI_POLL_WEIGHT bounds one poll, and read all 100 in order as each read takes in \
+             what still waits"
+        );
+    }
+
+    // @behavior NW-172
+    #[test]
+    fn a_datagram_reads_with_the_peer_that_sent_it() {
+        let first = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let second = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (at_first, at_second) = (first.local_addr().unwrap(), second.local_addr().unwrap());
+        let sock = connected_socket(at_first);
+        let local = stop_reactor_for(&sock);
         first.send_to(b"one", local).unwrap();
-        wait_until_queued();
+        wait_until_queued(&sock);
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.connect(&family, at_second, at_second, &OpenConnections::new(None))
             .expect("an uncapped socket connects again");
         second.send_to(b"two", local).unwrap();
-        wait_until_queued();
+        wait_until_queued(&sock);
         UdpSock::pump(&mut sock.state());
         let mut buf = [0; 8];
         let mut read = || {
@@ -621,6 +673,32 @@ mod tests {
             "UdpSock::recvfrom after the socket connects to a second peer must read the first \
              peer's datagram with the first peer and the second's with the second, as \
              udp_recvmsg names each datagram's source"
+        );
+    }
+
+    // @behavior NW-172
+    #[test]
+    fn a_datagram_waiting_as_the_socket_moves_family_reads_with_its_peer() {
+        let first = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let second = UdpSocket::bind("[::1]:0").unwrap();
+        let (at_first, at_second) = (first.local_addr().unwrap(), second.local_addr().unwrap());
+        let sock = connected_socket(at_first);
+        let local = stop_reactor_for(&sock);
+        first.send_to(b"one", local).unwrap();
+        wait_until_queued(&sock);
+        let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
+        sock.connect(&family, at_second, at_second, &OpenConnections::new(None))
+            .expect("an uncapped socket connects to an IPv6 peer");
+        let mut buf = [0; 8];
+        let read = sock
+            .recvfrom(&mut buf)
+            .map(|(n, from)| (buf[..n].to_vec(), from));
+        assert_eq!(
+            read,
+            Ok((b"one".to_vec(), at_first)),
+            "a UDP socket that connects from an IPv4 peer to an IPv6 one must still read the \
+             datagram the first peer sent before, with the first peer, as Linux's repointed \
+             socket keeps its receive queue"
         );
     }
 
