@@ -2184,3 +2184,15 @@ endpoint "api.example.com", port: 443
 | Given | a script's `UDPSocket` connected to a loopback peer |
 | When | it sends with `MSG_DONTWAIT`'s 64, with `MSG_OOB`'s 1, and with `nil` |
 | Then | 64 sends, as CRuby's does. 1 raises `Errno::ENOTSUP`, since WASI carries no send flag. `nil` raises `TypeError`, as CRuby converts the flags with `NUM2INT` |
+
+## `NW-177` A Net::HTTP timeout CRuby would refuse raises before the request leaves
+
+| Attribute | Value |
+| --- | --- |
+| relates | `IO-047` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script's `Net::HTTP` to a loopback server, its `read_timeout` set negative |
+| When | it sends a request |
+| Then | it raises `ArgumentError` before the request reaches the server. CRuby's raises only once a read waits, which turns on timing; the guest reads both timeouts as the request starts |

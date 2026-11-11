@@ -30,6 +30,31 @@ class TestE2ENetworkHttpTimeout < Minitest::Test
     end
   end
 
+  NEGATIVE_READ = <<~RUBY
+    http = Net::HTTP.new("127.0.0.1", %<port>d)
+    http.read_timeout = -1
+    begin
+      http.get("/")
+    rescue ArgumentError => e
+      [e.class.to_s, e.message]
+    end
+  RUBY
+
+  # @behavior NW-177
+  def test_a_timeout_crubys_would_refuse_raises_before_the_request_leaves
+    server = TCPServer.new("127.0.0.1", 0)
+    port = server.addr[1]
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:web) { |net| net.endpoint "127.0.0.1", port: port }
+    value = sandbox.eval(format(NEGATIVE_READ, port: port)).value
+    reached = server.wait_readable(0.2) ? :reached : :untouched
+
+    assert_equal [["ArgumentError", "time interval must not be negative"], :untouched], [value, reached],
+                 "Net::HTTP#get with a negative read_timeout must raise ArgumentError before the request reaches " \
+                 "the server, where CRuby's raises only once a read waits"
+  ensure
+    server&.close
+  end
+
   # A loopback server that accepts one connection and holds it unanswered
   # until the test ends.
   def with_silent_server
