@@ -4247,3 +4247,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it makes each preview1 socket call on a standard stream, and preview1 calls on a number only a handle holds |
 | Then | each socket call answers ENOTSOCK, as wasmtime's preview1 answers a file. A call on the handle's number answers EBADF. An older WASI adapts to a newer one, so preview1 holds files alone |
 
+## `RT-384` A socket polls writable once its room is half what it queued
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-368` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket with a small send buffer |
+| When | its send queue holds two thirds of the buffer, then one byte more |
+| Then | it polls writable at two thirds and not past them. Linux's `__sk_stream_is_writeable` asks the room left to be half what is queued. A waiter so wakes for room worth a write |
+

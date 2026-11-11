@@ -503,7 +503,9 @@ impl ProtoOps for TcpSock {
 
     /// As `tcp_poll` answers: hung up in `TCP_CLOSE` or with both sides shut
     /// down, readable once the reading side is, and writable unless it
-    /// connects, always so once its writing side is shut down.
+    /// connects, always so once its writing side is shut down and otherwise
+    /// once the room left is half what is queued, as
+    /// `__sk_stream_is_writeable` asks.
     fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
         poll_wait(&self.wait, table);
         let state = self.state();
@@ -517,9 +519,9 @@ impl ProtoOps for TcpSock {
         if !state.receive_queue.is_empty() || rcv_shutdown {
             mask = mask | PollMask::IN;
         }
-        if state.phase != Phase::Connecting
-            && (send_shutdown || state.write_queue.len() < state.inet.buffers.sndbuf)
-        {
+        let queued = state.write_queue.len();
+        let writeable = state.inet.buffers.sndbuf.saturating_sub(queued) >= queued / 2;
+        if state.phase != Phase::Connecting && (send_shutdown || writeable) {
             mask = mask | PollMask::OUT;
         }
         if state.inet.error.is_some() {
@@ -848,6 +850,28 @@ mod tests {
             "SO_RCVBUF and SO_SNDBUF must double a size as Linux does, within the socket's \
              reserved buffer and above Linux's least, and the queues must hold no more than they \
              say; the receive queue held {held}"
+        );
+    }
+
+    // @behavior RT-384
+    #[test]
+    fn a_socket_polls_writable_once_its_room_is_half_what_it_queued() {
+        let (sock, file, _peer) = connected_socket();
+        sock.setsockopt(SockOpt::SndBuf, 1000).unwrap();
+        let polled_with = |queued: usize| {
+            let mut state = sock.state();
+            if let Some((stream, registration)) = state.host.as_mut() {
+                registration.deregister(stream);
+            }
+            state.write_queue = std::iter::repeat_n(0, queued).collect();
+            drop(state);
+            file.poll(None).contains(PollMask::OUT)
+        };
+        assert_eq!(
+            (polled_with(3072), polled_with(3073)),
+            (true, false),
+            "a TCP socket whose send buffer reads 4608 must poll writable with 3072 bytes queued, \
+             its room then half of them, and not with 3073, as __sk_stream_is_writeable asks"
         );
     }
 
