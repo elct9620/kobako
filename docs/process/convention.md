@@ -1,12 +1,16 @@
 # Conventions
 
-How code in kobako is named and worded, beside [`architecture.md`](../architecture.md), which says where it goes. Every rule applies to Rust, Ruby, and RBS alike.
+How code in kobako is judged while it is written: which answer a behavior gives, what a contract registers, and how a name is worded. [`architecture.md`](../architecture.md) says where code goes and orders the baselines; this applies them. Every rule applies to Rust, Ruby, and RBS alike.
 
 | Question | Section |
 |---|---|
-| what a name must achieve | Principles |
+| which answer a behavior gives | Behavior Judgment |
+| what a difference from a reference owes | Forced Differences |
+| how an error crosses the layers | Errors |
+| what a contract registers | Contract Registration |
+| what a name must achieve | Naming Principles |
 | what a name or a comment may point at | Self-Contained Wording |
-| how a name is settled | Precedence |
+| how a name is settled | Naming Precedence |
 | which word class names what | Word Classes, Method Names |
 | where `-ed` and `-ing` stand | Participles |
 | how a question, a raise, or a limit reads | Questions, Raising Methods, Limits |
@@ -14,7 +18,54 @@ How code in kobako is named and worded, beside [`architecture.md`](../architectu
 | how files and tests are named | Files and Tests |
 | which names come from elsewhere | Fixed Names |
 
-## Principles
+## Behavior Judgment
+
+An answer is settled by these steps, in the order Baselines in [`architecture.md`](../architecture.md) sets; the first that decides it ends the search.
+
+1. If security refuses the case, refuse it, with the error the reference gives in the nearest case.
+2. If the WASI contract cannot carry the answer, give what it can carry.
+3. Otherwise take the layer's reference: Linux inside `kobako-runtime`, WIT then wasmtime-wasi at the boundary, CRuby for the guest's Ruby.
+4. If step 1 or 2 decided, write the difference into a scenario.
+
+Observe a reference rather than recall it. Run Linux and CRuby in a container, and read wasmtime-wasi at its pinned version.
+
+### Forced Differences
+
+Each departure from a reference names the step that forced it, so a reader can tell a limit from a mistake.
+
+| Forced by | The scenario says | As in |
+|---|---|---|
+| security | kobako refuses where the reference answers | a UDP read with no peer, `NW-181` |
+| the WASI contract | what WASI carries no room for | a send flag, `NW-176` |
+| an answer that turns on timing | the one fixed answer kobako gives | a `Net::HTTP` timeout, `NW-177` |
+
+A departure only refuses more, never succeeds differently. Its scenario is the only record of it, so the scenario says what the reference would answer.
+
+### Errors
+
+An error is decided once and translated at each boundary, so no layer invents its own.
+
+```
+kobako-runtime   Linux decides the errno
+     |
+WASI boundary    WIT maps it to an error code; preview1's must pass wasi-testsuite
+     |
+guest Ruby       the Errno CRuby raises for it, worded as mruby words it
+```
+
+## Contract Registration
+
+A contract that is not `internal` is a promise: changing it breaks someone. It registers only what kobako's own build cannot catch breaking.
+
+| Registers | Leaves out |
+|---|---|
+| a seam a third party implements, with every method | a name only kobako's own crates call |
+| each type a seam's signatures carry | a helper `pub` only to cross a crate |
+| a name an SDK user calls, such as `Sandbox` | a re-export, registered where it is defined |
+
+A name only kobako's own crates call breaks their build when it changes, so it needs no contract. A seam's change compiles cleanly against kobako's own implementation yet breaks a third party's, which only the contract and its grade in [`guides/customization.md`](../guides/customization.md) catch.
+
+## Naming Principles
 
 A name serves two principles, and the first overrides the second.
 
@@ -38,7 +89,7 @@ A name, a comment, a task description, or a message says what it is about where 
 
 A reference to something outside stays, as long as it names that thing: a Linux function, a CRuby method, a POSIX error.
 
-## Precedence
+## Naming Precedence
 
 A name is judged inside its context, as Contexts in [`architecture.md`](../architecture.md) draws them. Across two contexts only the interface that translates between them is compared, so the same word may stand in both.
 
