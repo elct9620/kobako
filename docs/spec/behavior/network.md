@@ -48,6 +48,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_cruby.rb`
+- `test/e2e/test_network_http_dest.rb`
 - `test/e2e/test_network_http_edges.rb`
 - `test/e2e/test_network_http_headers.rb`
 - `test/e2e/test_network_http_session.rb`
@@ -2375,3 +2376,16 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server |
 | When | the script passes socket calls arguments CRuby converts. It gives a side past `int`, negative lengths, and too few position arguments. It gives a String offset, extra `addr` arguments, and a Symbol to `gets` |
 | Then | each raises the class CRuby's raises, its wording mruby's where mruby converts, and `addr` takes its first argument alone |
+
+## `NW-192` A response body goes to a destination, as net-http's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-042` |
+| relates | `NW-121` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a loopback server that answers `hello` |
+| When | the script gets and posts with a `dest`, and reads a body with `read_body(dest)`. It gives a `dest` beside a block, and starts with `use_ssl:` and a proxy |
+| Then | each body is appended to its `dest`, which stands as the body. A `dest` beside a block raises `ArgumentError`. The proxy raises `NotImplementedError`, as no `use_ssl:` drops it |

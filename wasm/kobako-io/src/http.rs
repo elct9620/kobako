@@ -233,8 +233,8 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     let response = net.define_class(mrb, c"HTTPResponse", object)?;
     response.define_method(mrb, c"code", beni::method!(response_code, 0))?;
     response.define_method(mrb, c"message", beni::method!(response_message, 0))?;
-    response.define_method(mrb, c"body", beni::method!(response_read_body, 0))?;
-    response.define_method(mrb, c"read_body", beni::method!(response_read_body, 0))?;
+    response.define_method(mrb, c"body", beni::method!(response_body, 0))?;
+    response.define_method(mrb, c"read_body", beni::method!(response_read_body, -1))?;
     response.define_method(mrb, c"value", beni::method!(response_value, 0))?;
     response.define_method(mrb, c"[]", beni::method!(header_aref, 1))?;
     response.define_method(mrb, c"each_header", beni::method!(header_each, 0))?;
@@ -508,9 +508,13 @@ fn http_s_start(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error
     if let Some(options) = options {
         let use_ssl: Value = options.aref(mrb, Symbol::new(mrb, "use_ssl")?)?;
         let port_given = positional.get(1).is_some_and(|port| !port.is_nil());
+        // Only the port's place changes, so a proxy named after it still
+        // reaches `new`, which refuses it.
         if use_ssl.to_bool() && !port_given {
-            positional.truncate(1);
-            positional.push(HTTPS_PORT.into_value(mrb));
+            match positional.get_mut(1) {
+                Some(port) => *port = HTTPS_PORT.into_value(mrb),
+                None => positional.push(HTTPS_PORT.into_value(mrb)),
+            }
         }
     }
     let http: Value = class.funcall(mrb, c"new", positional.as_slice())?;
@@ -573,7 +577,11 @@ fn http_get(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     send_bodyless(mrb, self_, c"Get", args)
 }
 
+/// `head(path, initheader = nil)`, which takes no `dest`, as net-http's.
 fn http_head(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    if args.len() > 2 {
+        return Err(Error::argnum(mrb, args.len(), 1, 2));
+    }
     send_bodyless(mrb, self_, c"Head", args)
 }
 
@@ -629,9 +637,9 @@ fn http_patch(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     send_with_body(mrb, self_, c"Patch", args)
 }
 
-/// `get(path, initheader = nil) { |chunk| }` and its kin with no body, sent
-/// as a `Net::HTTP::Get` of the same path and headers; a block is handed the
-/// body as it arrives.
+/// `get(path, initheader = nil, dest = nil) { |chunk| }` and its kin with no
+/// body, sent as a `Net::HTTP::Get` of the same path and headers; a block is
+/// handed the body as it arrives, and a `dest` takes it with `<<`.
 fn send_bodyless(
     mrb: &Mrb,
     self_: Value,
@@ -640,17 +648,15 @@ fn send_bodyless(
 ) -> Result<Value, Error> {
     let (path, header) = match args {
         [path] => (*path, qnil().as_value()),
-        [path, header] => (*path, *header),
-        _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
+        [path, header, ..] => (*path, *header),
+        [] => return Err(Error::argnum(mrb, 0, 1, 3)),
     };
-    let request = new_request(mrb, class, path, header)?;
-    let given = BlockArgument::current(mrb, BlockArgument::Chunks)?;
-    send_request(mrb, self_, request, None, given)
+    send_to_dest(mrb, self_, class, path, header, None, (args, 2))
 }
 
-/// `post(path, data, initheader = nil) { |chunk| }` and its kin with a body,
-/// sent as a `Net::HTTP::Post` carrying `data`; a block is handed the
-/// response's body as it arrives.
+/// `post(path, data, initheader = nil, dest = nil) { |chunk| }` and its kin
+/// with a body, sent as a `Net::HTTP::Post` carrying `data`; a block is
+/// handed the response's body as it arrives, and a `dest` takes it with `<<`.
 fn send_with_body(
     mrb: &Mrb,
     self_: Value,
@@ -659,12 +665,41 @@ fn send_with_body(
 ) -> Result<Value, Error> {
     let (path, data, header) = match args {
         [path, data] => (*path, *data, qnil().as_value()),
-        [path, data, header] => (*path, *data, *header),
-        _ => return Err(Error::argnum(mrb, args.len(), 2, 3)),
+        [path, data, header, ..] => (*path, *data, *header),
+        _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
-    let request = new_request(mrb, class, path, header)?;
+    send_to_dest(mrb, self_, class, path, header, Some(data), (args, 3))
+}
+
+/// Send a `Net::HTTP::<class>` of `path`, `header`, and `data`, its body
+/// handed to the block or appended to the `dest` among `args` at its place,
+/// as net-http's `get` and `send_entity` hand `read_body` either.
+fn send_to_dest(
+    mrb: &Mrb,
+    self_: Value,
+    class: &core::ffi::CStr,
+    path: Value,
+    header: Value,
+    data: Option<Value>,
+    (args, at): (&[Value], usize),
+) -> Result<Value, Error> {
     let given = BlockArgument::current(mrb, BlockArgument::Chunks)?;
-    send_request(mrb, self_, request, Some(data), given)
+    let dest = dest_of(mrb, args, at, false)?;
+    let request = new_request(mrb, class, path, header)?;
+    // A `dest` beside a block is refused once the response came, as
+    // net-http's `read_body` refuses both after the request was sent.
+    if dest.is_some() && given.is_some() {
+        send_request(mrb, self_, request, data, None)?;
+        return Err(argument_error(
+            mrb,
+            "both arg and block given for HTTP method",
+        ));
+    }
+    let response = send_request(mrb, self_, request, data, given)?;
+    if let Some(dest) = dest {
+        read_body_to(mrb, response, dest)?;
+    }
+    Ok(response)
 }
 
 /// A `Net::HTTP::<class>` for `path` and `header`.
@@ -1201,11 +1236,49 @@ fn response_message(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     ivar_get(mrb, self_, c"@message")
 }
 
-/// `body` and `read_body { |chunk| }`: the body, read to the end, or each
-/// chunk of it handed to a block as it arrives, as CRuby streams it.
-fn response_read_body(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+/// `body`: the body, read to the end, as net-http's `read_body` with no
+/// `dest` reads it.
+fn response_body(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let block = current_block(mrb)?;
     read_body_into(mrb, self_, block)
+}
+
+/// `read_body(dest = nil) { |chunk| }`: the body, read to the end, each chunk
+/// of it handed to a block as it arrives, as CRuby streams it, or appended to
+/// `dest`, which then stands as the body.
+fn response_read_body(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let block = current_block(mrb)?;
+    match dest_of(mrb, args, 0, block.is_some())? {
+        Some(dest) => read_body_to(mrb, self_, dest),
+        None => read_body_into(mrb, self_, block),
+    }
+}
+
+/// The `dest` at `at` among `args`, `nil` naming none; one given beside a
+/// block raises `ArgumentError`, as net-http's `read_body` refuses both.
+fn dest_of(mrb: &Mrb, args: &[Value], at: usize, block: bool) -> Result<Option<Value>, Error> {
+    if args.len() > at + 1 {
+        return Err(Error::argnum(mrb, args.len(), at as i32, at as i32 + 1));
+    }
+    let dest = args.get(at).copied().filter(|dest| !dest.is_nil());
+    if dest.is_some() && block {
+        return Err(argument_error(
+            mrb,
+            "both arg and block given for HTTP method",
+        ));
+    }
+    Ok(dest)
+}
+
+/// Append `response`'s body to `dest` with `<<`, which then stands as the
+/// body, as net-http's `read_body(dest)` does.
+fn read_body_to(mrb: &Mrb, response: Value, dest: Value) -> Result<Value, Error> {
+    let body = read_body_into(mrb, response, None)?;
+    if !body.is_nil() {
+        dest.funcall::<_, _, Value>(mrb, c"<<", [body])?;
+    }
+    ivar_set(mrb, response, c"@body", dest)?;
+    Ok(dest)
 }
 
 /// The body of `response`, or each chunk of it handed to `block`. Once the
