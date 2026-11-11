@@ -324,10 +324,28 @@ impl HttpRule {
 
     /// Whether this rule speaks to `method` on `path`.
     pub(crate) fn matches(&self, method: &str, path: &str) -> bool {
+        self.names_method(method) && glob_matches(&self.path, path)
+    }
+
+    /// Whether this rule speaks to `method`, or to any.
+    fn names_method(&self, method: &str) -> bool {
         self.method
             .as_deref()
             .is_none_or(|own| own.eq_ignore_ascii_case(method))
-            && glob_matches(&self.path, path)
+    }
+
+    /// Whether this rule speaks to `method` on `path` as a lenient server
+    /// routes it, ignoring case and a trailing slash, so that a deny refuses
+    /// every spelling such a server serves as the denied path.
+    pub(crate) fn matches_leniently(&self, method: &str, path: &str) -> bool {
+        let (pattern, path) = (self.path.to_ascii_lowercase(), path.to_ascii_lowercase());
+        let untrailed = |path: &str| -> String {
+            match path.strip_suffix('/') {
+                Some(rest) if !rest.is_empty() => rest.to_string(),
+                _ => path.to_string(),
+            }
+        };
+        self.names_method(method) && glob_matches(&untrailed(&pattern), &untrailed(&path))
     }
 }
 

@@ -278,7 +278,8 @@ impl Rule {
     }
 
     /// Whether this endpoint's rules allow `method` on `path`: with none,
-    /// every request; with some, one allowing it and none denying it.
+    /// every request; with some, one allowing it exactly and none denying it
+    /// in any spelling a lenient server routes the same.
     fn allows_request(&self, method: &str, path: &str) -> bool {
         self.rules.is_empty()
             || (is_unambiguous(path)
@@ -289,7 +290,7 @@ impl Rule {
                 && !self
                     .rules
                     .iter()
-                    .any(|rule| !rule.allows && rule.matches(method, path)))
+                    .any(|rule| !rule.allows && rule.matches_leniently(method, path)))
     }
 
     /// Whether this rule's host names `name`, exactly or beneath its wildcard
@@ -679,13 +680,21 @@ mod tests {
                 admit("api.example.com", "GET", "/repos/a//secrets"),
                 admit("api.example.com", "GET", "/repos/a/%73ecrets"),
                 admit("api.example.com", "GET", "/repos/a/b%20c/"),
+                admit("api.example.com", "GET", "/repos/a/secrets/"),
+                admit("api.example.com", "GET", "/repos/a/SECRETS"),
+                admit("api.example.com", "GET", "/STATUS"),
                 admit("open.example.com", "PUT", "/anything/at/all"),
             ],
-            [true, false, true, false, false, false, false, false, false, true, true],
+            [
+                true, false, true, false, false, false, false, false, false, true, false, false,
+                false, true
+            ],
             "Ruleset::admits_request must pass only what an http endpoint's rules allow and none \
              denies, refuse a path servers may split or normalize differently (a . segment, an \
              empty one, an encoded unreserved character) while passing an encoded space and a \
-             trailing slash, and pass any request to an endpoint with no rules"
+             trailing slash, refuse a denied path however a lenient server spells it (a trailing \
+             slash, another case) while an allow matches exactly, and pass any request to an \
+             endpoint with no rules"
         );
     }
 }
