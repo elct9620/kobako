@@ -520,8 +520,8 @@ impl Namespace {
 ## `Namespace::alloc_virtual_address`
 
 Allocate the virtual address a lookup's answer is handed out at. It is never
-reused for a second name, and a name already handed one keeps it. `None` answers while the lookup is under way, and
-its failure once it failed. `TemporaryFailure` answers once the range is spent,
+reused for a second name, and a name already handed one keeps it. `None`
+answers while the lookup is under way, and its failure once it failed. `TemporaryFailure` answers once the range is spent,
 or once `cred`'s memory cannot hold the entry, which stays to the end.
 
 ```rust
@@ -1509,8 +1509,8 @@ impl Namespace {
 
 Bind a socket to an address as a Cred, once the socket hooks pass it. Linux's
 `bind` asks `security_socket_bind` the same way, before the protocol's own
-bind. The Guest only reaches out, so kobako's own module passes only the unspecified
-address at port 0. Any other answers `PermissionDenied`.
+bind. The Guest only reaches out, so kobako's own module passes only the
+unspecified address at port 0. Any other answers `PermissionDenied`.
 
 ```rust
 impl Namespace {

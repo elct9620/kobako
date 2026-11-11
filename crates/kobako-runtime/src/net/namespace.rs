@@ -1096,7 +1096,17 @@ mod tests {
             answers: Mutex::new(vec!["127.0.0.1".parse().unwrap()]),
             ..ResolvesNames::default()
         });
-        let namespace = resolving_namespace(vec![tcp("cache.internal", 6379)], "", family.clone());
+        let refusing = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut entry = crate::network::Builder::default();
+        entry.endpoint(tcp("cache.internal", 6379));
+        let refuses = refusing.clone();
+        entry.resolve_policy(move |_: &Name<'_>| !refuses.load(Ordering::SeqCst));
+        let network = Network::new("names", Arc::new(entry)).unwrap();
+        let namespace = Namespace::for_network(
+            &network,
+            family.clone(),
+            Arc::new(crate::net::HyperOutbound::new()),
+        );
         let first = resolve_virtual_address(&namespace, "cache.internal");
         *family.answers.lock().unwrap() = vec!["10.0.0.1".parse().unwrap()];
         let again = namespace
@@ -1104,11 +1114,14 @@ mod tests {
             .expect("the lookup starts");
         let answer = wait_for_answer(&again);
         let second = resolve_virtual_address(&namespace, "cache.internal");
+        refusing.store(true, Ordering::SeqCst);
+        let refused = wait_for_answer(&namespace.resolve("cache.internal").expect("it answers"));
         assert_eq!(
             (
                 first,
                 second,
                 answer,
+                refused,
                 family.lookups.load(Ordering::SeqCst),
                 namespace.translations.lock().unwrap().len()
             ),
@@ -1116,12 +1129,14 @@ mod tests {
                 "198.18.0.0:6379".parse().unwrap(),
                 "198.18.0.0:6379".parse().unwrap(),
                 Ok(vec!["127.0.0.1".parse().unwrap()]),
+                Err(LookupError::NameUnresolvable),
                 1,
                 1
             ),
             "a name looked up again in one Invocation, in any spelling of it, must keep its \
              virtual address and its first real addresses, query the resolver once, and take no \
-             second entry, so a resolver cannot rebind it"
+             second entry, so a resolver cannot rebind it, while a resolve policy that refuses \
+             it later still answers NXDOMAIN"
         );
     }
 
