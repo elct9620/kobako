@@ -2723,7 +2723,7 @@ mod tests {
     // @behavior NW-171
     #[test]
     fn a_closed_output_streams_pollable_is_ready_at_once() {
-        let guest = network_guest(network::Endpoint::new("127.0.0.1", 80).unwrap());
+        let mut guest = network_guest(network::Endpoint::new("127.0.0.1", 80).unwrap());
         // A refused lookup's file never polls writable, so only the stream's
         // own closed state can make its pollable ready.
         let lookup = guest
@@ -2731,18 +2731,21 @@ mod tests {
             .resolve("unnamed.test")
             .expect("the lookup answers");
         let file = Arc::new(Mutex::new(lookup.alloc_file(guest.wasi().cred())));
-        let output = table::OutputStream::new(table::Stream::File(file));
-        let pollable = || {
-            table::Pollable::Output(
-                output.stream.clone(),
-                output.flushing.clone(),
-                output.closed.clone(),
-            )
-        };
-        let open = pollable().is_ready(None);
-        output.closed.store(true, Ordering::Release);
+        let output: OutputStream = guest
+            .table()
+            .push(table::OutputStream::new(table::Stream::File(file)))
+            .unwrap();
+        let pollable = guest.streams_output_stream_subscribe(output).unwrap();
+        let ready = |guest: &mut Invocation| guest.table().get(pollable).unwrap().is_ready(None);
+        let open = ready(&mut guest);
+        guest
+            .table()
+            .get(output)
+            .unwrap()
+            .closed
+            .store(true, Ordering::Release);
         assert_eq!(
-            (open, pollable().is_ready(None)),
+            (open, ready(&mut guest)),
             (false, true),
             "output-stream.subscribe of a stream that cannot take a write must not be ready, and \
              once the stream is closed it must be ready at once, as io.wit has a closed stream's \
