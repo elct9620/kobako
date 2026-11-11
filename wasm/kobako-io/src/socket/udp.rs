@@ -10,7 +10,7 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
-use super::address::{local_of, no_limit, peer_of, to_ip_socket_address};
+use super::address::{local_of, no_timeout, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
     direct_args, ensure_flags_carried, exception_option, mesg_bytes_of, open_socket_of, ready_of,
@@ -276,7 +276,7 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
 /// and keeps its end.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
     ensure_open(mrb, self_)?;
-    let (ip, port, call) = peer_of(mrb, host, port, &no_limit, UDP, "connect(2)")?;
+    let (ip, port, call) = peer_of(mrb, host, port, &no_timeout, UDP, "connect(2)")?;
     let failed = |code| to_error(mrb, code, UDP, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         match bind(&open.socket, (Ipv4Addr::UNSPECIFIED, 0)) {
@@ -321,7 +321,7 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     // Whether the address a send names is the peer, `None` when it names none.
     let (names_peer, call) = match to {
         Some((host, port)) => {
-            let (ip, number, call) = peer_of(mrb, host, port, &no_limit, UDP, "sendto(2)")?;
+            let (ip, number, call) = peer_of(mrb, host, port, &no_timeout, UDP, "sendto(2)")?;
             let names_peer = Datagrams::of(mrb, self_)?.with(mrb, |open| {
                 Ok(open
                     .streams

@@ -226,15 +226,15 @@ impl Invocation {
     /// Start a bind of `sock`, standing at `standing`, to `local_address`, as
     /// both sockets' `start-bind` do in wasmtime's order: the network first,
     /// then a bind or connect under way, then any other state, then the
-    /// address as WASI takes it and the protocol finds `valid`, through the
-    /// socket hooks to the socket's own bind.
+    /// address as WASI takes it and the protocol finds `is_valid`, through
+    /// the socket hooks to the socket's own bind.
     fn start_bind(
         &mut self,
         network: Network,
         sock: &dyn ProtoOps,
         local_address: &IpSocketAddress,
         standing: BindStanding,
-        valid: fn(SocketAddr) -> bool,
+        is_valid: fn(SocketAddr) -> bool,
     ) -> Result<(), SocketError> {
         self.ensure_network(network)?;
         match standing {
@@ -243,7 +243,7 @@ impl Invocation {
             BindStanding::Settled => return Err(ErrorCode::InvalidState.into()),
         }
         let addr = to_socket_addr(local_address)
-            .filter(|addr| valid(*addr))
+            .filter(|addr| is_valid(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().cred().clone();
         Ok(self.network().bind(&cred, sock, addr)?)

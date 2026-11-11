@@ -63,20 +63,20 @@ fn resolve(
 }
 
 /// A lookup that waits as long as it takes.
-pub(super) fn no_limit() -> Result<Option<Duration>, Error> {
+pub(super) fn no_timeout() -> Result<Option<Duration>, Error> {
     Ok(None)
 }
 
 /// The peer `host` and `port` name for `call` on a `class`: the IPv4 address
-/// `host` spells, or the one its name leads to within what `resolv_limit`
-/// reads, with the words CRuby's `Errno` carries for them. The limit is read
-/// only for a name, as CRuby reads its resolve timeout only where it must
-/// resolve one.
+/// `host` spells, or the one its name leads to within what `resolv_timeout`
+/// reads, with the words CRuby's `Errno` carries for them. The timeout is
+/// read only for a name, as CRuby reads its resolve timeout only where it
+/// must resolve one.
 pub(super) fn peer_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
-    resolv_limit: &dyn Fn() -> Result<Option<Duration>, Error>,
+    resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
     class: &str,
     call: &str,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
@@ -88,7 +88,7 @@ pub(super) fn peer_of(
         Ok(std::net::IpAddr::V6(_)) => {
             return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call))
         }
-        Err(_) => resolve(mrb, &host_text, resolv_limit()?, class, &call)?,
+        Err(_) => resolve(mrb, &host_text, resolv_timeout()?, class, &call)?,
     };
     Ok((ip, port, call))
 }
@@ -111,7 +111,7 @@ pub(super) fn local_of(
     let ip = match text.as_str() {
         "" | "<any>" => Ipv4Addr::UNSPECIFIED,
         "<broadcast>" => Ipv4Addr::BROADCAST,
-        _ => return peer_of(mrb, host, port, &no_limit, class, "bind(2)"),
+        _ => return peer_of(mrb, host, port, &no_timeout, class, "bind(2)"),
     };
     let (port, port_text) = port_of(mrb, port)?;
     Ok((ip, port, peer_message("bind(2)", &text, port_text)))

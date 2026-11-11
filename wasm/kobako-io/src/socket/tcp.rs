@@ -266,12 +266,12 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let Timeouts { resolv, connect } = timeouts_of(mrb, options)?;
-    let resolv_limit = || match (resolv, caller) {
+    let resolv_timeout = || match (resolv, caller) {
         (None, _) => Ok(None),
         (Some(sec), Caller::TcpSocketNew) => time_interval_of(mrb, sec),
         (Some(sec), Caller::SocketTcp) => deadline_of(mrb, sec),
     };
-    let (ip, port, quoted) = peer_of(mrb, host, port, &resolv_limit, TCP, "connect(2)")?;
+    let (ip, port, quoted) = peer_of(mrb, host, port, &resolv_timeout, TCP, "connect(2)")?;
     let named = |call: &str, quoted: String, (ip, port): (Ipv4Addr, u16)| match caller {
         Caller::TcpSocketNew => quoted,
         Caller::SocketTcp => format!("{call} for {ip}:{port}"),
