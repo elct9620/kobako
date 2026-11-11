@@ -41,7 +41,7 @@ global budget.
 | `timeout` | wall time inside the guest, Service calls included |
 | `setup_timeout` | instantiating a Guest Binary and reading its ABI version, not compiling it |
 | `memory_limit` | the run's `memory.grow` past its starting memory |
-| `open_file_limit` | every descriptor one run holds, the standard three, Mounts', sockets', name lookups', and HTTP requests' included |
+| `open_file_limit` | every descriptor one run holds: the standard three, Mounts, sockets, lookups, HTTP requests |
 
 `setup_timeout` applies the first time a path is loaded, and later Sandboxes on
 that path skip the check. A Pool builds each Sandbox at its first checkout, so
