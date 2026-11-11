@@ -43,7 +43,7 @@ class TestE2EIoWait < Minitest::Test
     end
     [Float::NAN, -1, Float::INFINITY, 1.0e19, (2**63) - 1].flat_map do |timeout|
       [refusal.call { $stdout.wait_writable(timeout) }, refusal.call { IO.select(nil, [$stdout], nil, timeout) }]
-    end
+    end + [refusal.call { IO.select([Object.new], nil, nil, -1) }]
   RUBY
 
   # @behavior IO-047
@@ -51,11 +51,11 @@ class TestE2EIoWait < Minitest::Test
     expected = [["RangeError", "NaN out of Time range"], ["ArgumentError", "time interval must not be negative"],
                 ["RangeError", "Inf out of Time range"],
                 ["RangeError", "10000000000000000000.000000 out of Time range"], :waited]
-               .flat_map { |refusal| [refusal] * 2 }
+               .flat_map { |refusal| [refusal] * 2 } + [["ArgumentError", "time interval must not be negative"]]
 
     assert_equal expected, Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(REFUSED_TIMEOUTS).value,
                  "IO#wait_writable and IO.select through Sandbox#eval must raise RangeError for a NaN, infinite, " \
                  "or past-time_t timeout and ArgumentError for a negative one, with CRuby's messages, and wait " \
-                 "for the Integer 2**63 - 1"
+                 "for the Integer 2**63 - 1; IO.select must read the timeout before the IOs it is given"
   end
 end

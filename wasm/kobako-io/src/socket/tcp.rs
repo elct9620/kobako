@@ -4,7 +4,6 @@
 use std::cell::RefCell;
 use std::net::{Ipv4Addr, Shutdown};
 use std::task::Poll;
-use std::time::Duration;
 
 use beni::prelude::*;
 use beni::scan_args::{get_kwargs, scan_args};
@@ -297,7 +296,11 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
         match socket.finish_connect() {
             Ok(streams) => break streams,
             Err(ErrorCode::WouldBlock) => {
-                if wait_within(&pollable, connect) {
+                let limit = match connect {
+                    Some(sec) => time_interval_of(mrb, sec)?,
+                    None => None,
+                };
+                if wait_within(&pollable, limit) {
                     continue;
                 }
                 return Err(match caller {
@@ -326,10 +329,11 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
 }
 
 /// The limits `TCPSocket.new`'s keywords set on resolving a name, read only
-/// if a name is resolved, and on connecting.
+/// for a name, and on connecting, read only once a connect must wait, as
+/// CRuby's `rsock_connect` reaches `wait_connectable` only then.
 struct Timeouts {
     resolv: Option<Value>,
-    connect: Option<Duration>,
+    connect: Option<Value>,
 }
 
 /// The limits `resolv_timeout:` and `connect_timeout:` set, refusing any
@@ -349,10 +353,7 @@ fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
         &["resolv_timeout", "connect_timeout", "fast_fallback"],
     )?;
     let (resolv, connect, _fast_fallback) = kw.optional;
-    Ok(Timeouts {
-        resolv,
-        connect: connect.map_or(Ok(None), |sec| time_interval_of(mrb, sec))?,
-    })
+    Ok(Timeouts { resolv, connect })
 }
 
 fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {

@@ -236,12 +236,9 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
         scan_args::<(Value,), (Option<Value>, Option<Value>, Option<Value>), (), (), (), ()>(mrb)?;
     let (read,) = args.required;
     let (write, error, timeout) = args.optional;
-    if let Some(error) = error.filter(|set| !set.is_nil()) {
-        let error = RArray::try_convert(error, mrb)?;
-        for i in 0..error.len() {
-            to_io(mrb, error.entry(mrb, i as isize)?)?;
-        }
-    }
+    // The timeout is read first, and then the read, write, and error sets in
+    // turn, as CRuby's `rb_f_select` reads it before `select_internal`.
+    let millis = to_millis(mrb, timeout)?;
     let mut watched = Vec::new();
     for (set, events) in [(Some(read), POLLRDNORM), (write, POLLWRNORM)] {
         let Some(set) = set.filter(|set| !set.is_nil()) else {
@@ -257,9 +254,12 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
             });
         }
     }
-    // The timeout is read first, as CRuby's `select` reads it before it
-    // looks at any stream.
-    let millis = to_millis(mrb, timeout)?;
+    if let Some(error) = error.filter(|set| !set.is_nil()) {
+        let error = RArray::try_convert(error, mrb)?;
+        for i in 0..error.len() {
+            to_io(mrb, error.entry(mrb, i as isize)?)?;
+        }
+    }
     let buffered = watched
         .iter()
         .any(|w| w.events == POLLRDNORM && socket::holds_buffered(mrb, w.io));

@@ -447,4 +447,4 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | --- | --- |
 | Given | a script waiting on `$stdout`, through `wait_writable` and `IO.select` |
 | When | it gives a timeout of NaN, a negative number, infinity, a Float past 2 ** 63, or the Integer just below |
-| Then | NaN, infinity, and the large Float raise `RangeError`, and the negative one `ArgumentError`, as CRuby's `rb_time_interval` refuses each. The Integer waits, as CRuby reads an Integer as itself. `IO.select` refuses a bad timeout even over a socket holding buffered bytes |
+| Then | NaN, infinity, and the large Float raise `RangeError`, and the negative one `ArgumentError`, as CRuby's `rb_time_interval` refuses each. The Integer waits, as CRuby reads an Integer as itself. `IO.select` reads the timeout before the IOs it is given. It so refuses a bad one even over a socket holding buffered bytes |

@@ -842,7 +842,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server that answers once the script closes its write side |
 | When | the script connects with `connect_timeout:`, writes several strings in one call, and reads with `gets(sep)` and `readpartial(n, buf)` |
-| Then | each answers as CRuby's does. A local port the script chooses raises `Errno::EACCES`, and an unknown keyword raises `ArgumentError`. A literal address reads no `resolv_timeout:`, as CRuby reads it only for a name |
+| Then | each answers as CRuby's does. A local port the script chooses raises `Errno::EACCES`, and an unknown keyword raises `ArgumentError`. A literal address reads no `resolv_timeout:`, as CRuby reads it only for a name. A connect refused at once reads no `connect_timeout:`, as CRuby reads it only once a connect waits |
 
 ## `NW-068` A script's Net::HTTP raises Net::ReadTimeout past its read timeout
 
