@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::net::{Ipv4Addr, Shutdown};
 use std::task::Poll;
+use std::time::Duration;
 
 use beni::prelude::*;
 use beni::scan_args::{get_kwargs, scan_args};
@@ -268,7 +269,12 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let Timeouts { resolv, connect } = timeouts_of(mrb, options)?;
-    let (ip, port, quoted) = peer_of(mrb, host, port, resolv, TCP, "connect(2)")?;
+    let resolv_limit = || match (resolv, caller) {
+        (None, _) => Ok(None),
+        (Some(sec), Caller::TcpSocketNew) => time_interval_of(mrb, sec),
+        (Some(sec), Caller::SocketTcp) => deadline_of(mrb, sec),
+    };
+    let (ip, port, quoted) = peer_of(mrb, host, port, &resolv_limit, TCP, "connect(2)")?;
     let named = |call: &str, quoted: String, (ip, port): (Ipv4Addr, u16)| match caller {
         Caller::TcpSocketNew => quoted,
         Caller::SocketTcp => format!("{call} for {ip}:{port}"),
@@ -354,6 +360,18 @@ fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
     )?;
     let (resolv, connect, _fast_fallback) = kw.optional;
     Ok(Timeouts { resolv, connect })
+}
+
+/// The wait `sec` leaves, as `Socket.tcp` reads `resolv_timeout:` into the
+/// deadline `now + sec`: one already past ends at once, and NaN, which no
+/// time reaches, never.
+fn deadline_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>, Error> {
+    let seconds = f64::try_convert(sec, mrb)?;
+    Ok(match seconds {
+        _ if seconds.is_nan() => None,
+        _ if seconds <= 0.0 => Some(Duration::ZERO),
+        _ => Some(Duration::try_from_secs_f64(seconds).unwrap_or(Duration::MAX)),
+    })
 }
 
 fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {

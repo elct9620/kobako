@@ -21,7 +21,12 @@ class TestE2ENetworkSocketTcp < Minitest::Test
     rescue SystemCallError => e
       [e.class.to_s, e.message]
     end
-    [[plain.class.to_s, plain.closed?, plain.peeraddr[1]], answered, held.closed?, refused]
+    past = begin
+      Socket.tcp("unnamed.example", %<open>d, resolv_timeout: -1)
+    rescue StandardError => e
+      e.class.to_s
+    end
+    [[plain.class.to_s, plain.closed?, plain.peeraddr[1]], answered, held.closed?, refused, past]
   RUBY
 
   # @behavior NW-143
@@ -31,9 +36,11 @@ class TestE2ENetworkSocketTcp < Minitest::Test
       value = loopback_sandbox(open, closed).eval(format(CONNECTS, open: open, closed: closed)).value
 
       assert_equal [["TCPSocket", false, open], false, true,
-                    ["Errno::ECONNREFUSED", "Connection refused - connect(2) for 127.0.0.1:#{closed}"]], value,
+                    ["Errno::ECONNREFUSED", "Connection refused - connect(2) for 127.0.0.1:#{closed}"],
+                    "Socket::ResolutionError"], value,
                    "Socket.tcp must answer a connected TCPSocket, close the block's socket after it and answer the " \
-                   "block's value, and name a refused end as host:port"
+                   "block's value, name a refused end as host:port, and read a negative resolv_timeout: as a " \
+                   "deadline already past, so a lookup answered at once still answers"
     end
   end
 end

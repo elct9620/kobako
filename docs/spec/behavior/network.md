@@ -1774,7 +1774,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server |
 | When | the script calls `Socket.tcp` with and without a block, and to a closed port |
-| Then | it answers a connected `TCPSocket`, where CRuby's answers a `Socket`, since the guest makes no raw socket. The block's socket is closed after it, and the call answers the block's value. A refusal names its end as `host:port`, as CRuby's does |
+| Then | it answers a connected `TCPSocket`, where CRuby's answers a `Socket`, since the guest makes no raw socket. The block's socket is closed after it, and the call answers the block's value. A refusal names its end as `host:port`, as CRuby's does. `resolv_timeout:` reads as the deadline `now + sec`, as CRuby's `Socket.tcp` takes it. A negative one so ends only a lookup still waiting |
 
 ## `NW-144` A script's socket answers its read and write edges as CRuby's
 
