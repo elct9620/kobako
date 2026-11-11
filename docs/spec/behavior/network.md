@@ -53,6 +53,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_udp.rb`
 - `test/e2e/test_network_udp_cruby.rb`
 - `test/e2e/test_network_udp_flags.rb`
+- `test/e2e/test_network_udp_peerless.rb`
 - `test/e2e/test_network_udp_named.rb`
 - `test/e2e/test_network_udp_nonblock.rb`
 - `test/e2e/test_network_udp_wait.rb`
@@ -2234,3 +2235,16 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server that answers what it read once the script closes its write side |
 | When | the script sends with flags 0, with `MSG_DONTWAIT`, and with a destination, then with `MSG_OOB` and `nil`. It closes its write side and sends, then closes the socket and sends |
 | Then | the first three answer how many bytes they sent, and the server reads them in order. A destination changes nothing, as Linux's TCP ignores one. `MSG_OOB` raises `Errno::ENOTSUP` and `nil` `TypeError`, as `NUM2INT` reads the flags. The send after `close_write` raises `Errno::EPIPE`, and the closed socket `IOError` |
+
+## `NW-181` A UDPSocket with no peer refuses every read
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-057` |
+| relates | `NW-173` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `UDPSocket` no `connect` has named a peer for |
+| When | the script reads it with `recvfrom`, `recv`, `read`, and each non-blocking read, `exception: false` among them |
+| Then | each raises `Errno::EACCES`, waiting or not. The guest streams a UDP socket only with a peer it names, so nothing may arrive. CRuby's would wait, or answer EAGAIN |
