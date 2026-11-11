@@ -13,8 +13,8 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 use super::address::{local_of, no_limit, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
-    direct_args, ensure_flags_carried, exception_option, open_socket_of, ready_of, IoState,
-    Readiness, SocketIo, Wait,
+    direct_args, ensure_flags_carried, exception_option, mesg_bytes_of, open_socket_of, ready_of,
+    IoState, Readiness, SocketIo, Wait,
 };
 use super::ip::{local_end_of, to_addr_array};
 use super::{bind, family_of, to_error, Family, AF_INET};
@@ -296,13 +296,6 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
         Ok(())
     })?;
     Ok(0.into_value(mrb))
-}
-
-/// The bytes of `mesg`, as CRuby's `send` converts it.
-fn mesg_bytes_of(mrb: &Mrb, mesg: Value) -> Result<Vec<u8>, Error> {
-    let mesg = mesg.to_r_string(mrb)?;
-    // SAFETY: the bytes are copied before the next mruby call.
-    Ok(unsafe { mesg.as_bytes(mrb) }.to_vec())
 }
 
 /// `send(mesg, flags[, host, port])` sends one datagram to the peer, waiting

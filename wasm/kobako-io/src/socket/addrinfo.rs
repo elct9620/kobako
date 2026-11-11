@@ -78,7 +78,7 @@ pub(super) struct Addrinfo {
 }
 
 impl Addrinfo {
-    fn of<'a>(mrb: &Mrb, value: Value) -> Result<&'a Addrinfo, Error> {
+    pub(super) fn of<'a>(mrb: &Mrb, value: Value) -> Result<&'a Addrinfo, Error> {
         <&Addrinfo>::try_convert(value, mrb)
     }
 

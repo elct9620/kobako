@@ -246,6 +246,7 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
         beni::method!(socket_write_nonblock, -1),
     )?;
     basic.define_method(mrb, c"syswrite", beni::method!(socket_syswrite, 1))?;
+    basic.define_method(mrb, c"send", beni::method!(socket_send, -1))?;
     basic.define_method(mrb, c"recv", beni::method!(socket_recv, -1))?;
     basic.define_method(
         mrb,
@@ -314,6 +315,34 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
 fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Error> {
     let bytes = written_bytes_of(mrb, string)?;
     let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
+    Ok((sent as i64).into_value(mrb))
+}
+
+/// The bytes of `mesg`, as CRuby's `send` converts it.
+pub(super) fn mesg_bytes_of(mrb: &Mrb, mesg: Value) -> Result<Vec<u8>, Error> {
+    let mesg = mesg.to_r_string(mrb)?;
+    // SAFETY: the bytes are copied before the next mruby call.
+    Ok(unsafe { mesg.as_bytes(mrb) }.to_vec())
+}
+
+/// `send(mesg, flags[, dest])` sends every byte of `mesg` past any buffer,
+/// waiting for room, as CRuby's `BasicSocket#send`: `dest`, an `Addrinfo` or
+/// a String, changes nothing on a connected stream, as Linux's TCP ignores
+/// one, and the flags read as `NUM2INT` reads them after the open file. A
+/// shut writing side raises `Errno::EPIPE`, as `send(2)` does.
+fn socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let (mesg, flags, dest) = match args {
+        [mesg, flags] => (*mesg, *flags, None),
+        [mesg, flags, dest] => (*mesg, *flags, Some(*dest)),
+        _ => return Err(Error::argnum(mrb, args.len(), 2, 3)),
+    };
+    let bytes = mesg_bytes_of(mrb, mesg)?;
+    if let Some(dest) = dest.filter(|dest| super::addrinfo::Addrinfo::of(mrb, *dest).is_err()) {
+        dest.to_r_string(mrb)?;
+    }
+    let source = open_socket_of(mrb, self_)?;
+    ensure_flags_carried(mrb, i64::try_convert(flags, mrb)?, "send(2)")?;
+    let sent = ready_of(source.send(mrb, &bytes, Wait::Block)?);
     Ok((sent as i64).into_value(mrb))
 }
 

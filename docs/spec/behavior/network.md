@@ -24,6 +24,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_tcp.rb`
 - `test/e2e/test_network_tcp_cruby.rb`
 - `test/e2e/test_network_tcp_arguments.rb`
+- `test/e2e/test_network_tcp_send.rb`
 - `test/e2e/test_network_own_end.rb`
 - `test/e2e/test_network_socket_io.rb`
 - `test/e2e/test_network_socket_io_edges.rb`
@@ -2220,3 +2221,16 @@ endpoint "api.example.com", port: 443
 | Given | a guest's TCP socket over `wasi:sockets` |
 | When | it sets keep-alive times of 1.5 and 0.5 seconds, then whole seconds, and reads each back |
 | Then | 1.5 reads 2 and 0.5 reads 1, as wasmtime's pass through rustix, which rounds a part of a second up. Whole seconds read unchanged |
+
+## `NW-180` A script's TCPSocket sends as CRuby's BasicSocket#send
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+| relates | `NW-176` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers what it read once the script closes its write side |
+| When | the script sends with flags 0, with `MSG_DONTWAIT`, and with a destination, then with `MSG_OOB` and `nil`. It closes its write side and sends, then closes the socket and sends |
+| Then | the first three answer how many bytes they sent, and the server reads them in order. A destination changes nothing, as Linux's TCP ignores one. `MSG_OOB` raises `Errno::ENOTSUP` and `nil` `TypeError`, as `NUM2INT` reads the flags. The send after `close_write` raises `Errno::EPIPE`, and the closed socket `IOError` |
