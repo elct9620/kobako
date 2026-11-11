@@ -236,8 +236,9 @@ impl ProtoOps for UdpSock {
     /// `__skb_recv_udp` asks `sock_error` before it dequeues, so the socket
     /// reads on. An empty queue answers `WouldBlock` even once its reading
     /// side is shut, as a non-blocking `__skb_recv_udp` answers EAGAIN and
-    /// only a blocking wait ends on `RCV_SHUTDOWN`. A read takes in what a
-    /// bounded pump left waiting in the host socket.
+    /// only a blocking wait ends on `RCV_SHUTDOWN`. A read takes only what the
+    /// queue holds, as `__skb_recv_udp` reads the socket's own queue; what a
+    /// bounded turn left in the host socket comes with the reactor's next.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), FilesystemError> {
         let mut state = self.state();
         if let Some(err) = state.inet.error.take() {
@@ -247,7 +248,6 @@ impl ProtoOps for UdpSock {
             return Err(FilesystemError::WouldBlock);
         };
         state.rmem_alloc -= truesize_of(datagram.len());
-        self.pump(&mut state);
         let n = buf.len().min(datagram.len());
         buf[..n].copy_from_slice(&datagram[..n]);
         Ok((n, Some(from)))
@@ -641,6 +641,10 @@ mod tests {
             sock.pump(&mut state);
             state.receive_queue.len()
         };
+        let started = Instant::now();
+        while sock.state().receive_queue.len() < 100 && started.elapsed() < Duration::from_secs(5) {
+            thread::sleep(Duration::from_millis(1));
+        }
         let mut read = Vec::new();
         let mut buf = [0; 1];
         while let Ok((1, _)) = sock.recvmsg(&mut buf) {
@@ -650,8 +654,8 @@ mod tests {
             (one_turn, read),
             (64, (0..100u8).collect::<Vec<_>>()),
             "a UDP socket whose peer sent 100 datagrams must take 64 in one turn, as \
-             NAPI_POLL_WEIGHT bounds one poll, and read all 100 in order as each read takes in \
-             what still waits"
+             NAPI_POLL_WEIGHT bounds one poll, and read all 100 in order once a later turn takes \
+             the rest"
         );
     }
 

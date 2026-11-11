@@ -2158,7 +2158,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a UDP socket whose peer sent it more datagrams than one turn takes |
 | When | the socket takes them in from the host, then reads each |
-| Then | one turn takes at most 64, as `NAPI_POLL_WEIGHT` bounds one poll. A flooded socket so holds no thread past its turn. A turn that spent its bound runs again after the reactor's next round, as NAPI repolls. Each read takes in what still waits. The socket so reads every datagram its buffer holds |
+| Then | one turn takes at most 64, as `NAPI_POLL_WEIGHT` bounds one poll. A flooded socket so holds no thread past its turn. A turn that spent its bound runs again after the reactor's next round, as NAPI repolls. A read takes only what the socket's own queue holds, as `__skb_recv_udp` does. The socket so reads every datagram its buffer holds |
 
 ## `NW-175` A name keeps its virtual address for the Invocation
 
