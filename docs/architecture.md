@@ -9,6 +9,7 @@ This is kobako's one global map. It names each part, the seams between them, and
 | which part owns this | Code Map |
 | what every assembly shares | Fixed Pillar |
 | where a replacement plugs in | Seams |
+| what stays in the core | Thin Core |
 | what a word means where | Contexts |
 | what must never exist | Invariants |
 | which reference decides a behavior | Baselines |
@@ -165,7 +166,7 @@ An assembly composes replaceable parts around the fixed pillar. Each line names 
 ```
 Sandbox        = host model . Wasm Driver . kobako-runtime . Guest Binary
 Wasm Driver    = Engine + preview1, preview2 encodings   (kobako-wasmtime)
-kobako-runtime = host ABI endpoint + VFS + socket layer + HTTP egress
+kobako-runtime = host ABI endpoint + VFS + socket layer + L7 proxy seam
 Guest Binary   = guest ABI endpoint + guest model + gems (kobako-wasm)
 host model     = Frontend + Codec                        (ext/ + lib/ | kobako)
 guest model    = flows + Codec                           (kobako-mruby | own Guest)
@@ -201,11 +202,35 @@ A seam carries typed Envelopes and payload bytes, never encoded Envelope bytes. 
 | a result that does not frame | a `Trap` |
 | a host resource the guest reaches through WASI | a `Grant`, such as a `Mount` |
 | a path call the guest makes beneath a Mount | a `vfs` operation |
-| a lookup, a connection, or a request the guest makes | a `net::Namespace` call, past the entries' policies |
+| a lookup, a connection, or a request the guest makes | a socket layer or L7 proxy call, past the entries' policies |
 | how a connection or a request leaves the host | a `ProtocolFamily`, an `Outbound` |
 | how a Frontend's thread waits on any lock or host-side event | a `Blocking`, registered once |
 | a Frontend giving up on an Invocation its callback cannot answer | `DispatchHandler::abandoned` |
 | an Engine's memory and exports | a `GuestInstance` |
+
+## Thin Core
+
+`kobako-runtime` is an assembly point, and it stays small. It holds only what every assembly shares; full features plug in at its seams. Each part sits in one class below, and a part kept in the core names the guarantee that needs it.
+
+| Class | Holds | Example |
+|---|---|---|
+| standard | behavior to a reference | the VFS, the socket layer |
+| primitive | a shared mechanism | the wait queue, poll |
+| encoding | an ABI put onto an Engine | a Wasm Driver's preview1, preview2 |
+| extension | a replaceable part, defaulting to a crate | a Filesystem, the L7 proxy |
+| outside crate | a crate taken as it is | rustls, `wasmtime wizer` |
+| own | what nothing existing covers | the kobako ABI, the mruby guest |
+
+### Lightweight Crates
+
+A crate an extension's default takes is lightweight, as mio is. Outside Crates, above, holds the rules every crate meets.
+
+| Trait | mio's case |
+|---|---|
+| one primitive | poll alone |
+| no runtime or policy | hyper takes only its `rt` traits |
+| every platform | epoll, kqueue, IOCP |
+| a measured cost | the ext shrank as it replaced ureq |
 
 ## Contexts
 
@@ -287,7 +312,7 @@ Each row names the one reference a layer's spec and code are judged against.
 | Layer | Reference | Detail |
 |---|---|---|
 | `vfs` | Linux's VFS, in behavior and logic | [`filesystem/README.md`](filesystem/README.md) |
-| `net` | Linux's sockets: sockfs, `proto_ops`, LSM hooks; for HTTP, an egress proxy | [`spec/behavior/network.md`](spec/behavior/network.md) |
+| `net` | Linux's sockets down to `proto_ops`; a backend below; HTTP, an egress proxy | [`network/README.md`](network/README.md) |
 | `filesystem` | the spec | [`spec/`](spec/) |
 | WASI host layer | WIT; where it leaves room, wasmtime-wasi | WASI Host Layer, below |
 | guest Ruby | CRuby 3.4 on Linux in behavior; mruby in wording | [`spec/behavior/network.md`](spec/behavior/network.md), [`spec/behavior/regexp.md`](spec/behavior/regexp.md) |
