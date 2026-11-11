@@ -32,8 +32,10 @@ pub trait ProtoOps: Send + Sync {
     /// IPv6 address answers `AddressFamilyNotSupported`, and a socket bound
     /// or connected already `InvalidInput`, as `__inet_bind` refuses one.
     fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError>;
-    /// Read what the socket holds; `WouldBlock` while it holds nothing yet.
-    fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError>;
+    /// Read what the socket holds and who sent it, as `->recvmsg` fills
+    /// `msg_name`: a datagram's peer as the guest named it, none for a
+    /// stream; `WouldBlock` while it holds nothing yet.
+    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), FilesystemError>;
     /// Write what the socket takes now; `WouldBlock` while it takes nothing.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError>;
     /// What a call would find ready, the socket's wait queue registered on
@@ -411,7 +413,7 @@ impl FileOperations for SocketFile {
         if buf.is_empty() {
             return Ok(0);
         }
-        self.ops.recvmsg(buf)
+        self.ops.recvmsg(buf).map(|(n, _)| n)
     }
 
     fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {

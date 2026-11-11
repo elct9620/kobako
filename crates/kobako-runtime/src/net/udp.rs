@@ -147,25 +147,6 @@ impl UdpSock {
         Ok(())
     }
 
-    /// One datagram, cut to `buf`, and the peer it came from as the guest
-    /// named it, as `udp_recvmsg` fills `msg_name` with each one's source. A
-    /// pending failure is answered first, as `recvmsg` answers it. A read
-    /// takes in what a bounded pump left waiting in the host socket.
-    pub fn recvfrom(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), FilesystemError> {
-        let mut state = self.state();
-        if let Some(err) = state.inet.error.take() {
-            return Err(err);
-        }
-        let Some((datagram, from)) = state.receive_queue.pop_front() else {
-            return Err(FilesystemError::WouldBlock);
-        };
-        state.rmem_alloc -= truesize_of(datagram.len());
-        Self::pump(&mut state);
-        let n = buf.len().min(datagram.len());
-        buf[..n].copy_from_slice(&datagram[..n]);
-        Ok((n, from))
-    }
-
     /// Hold the port `alloc` gives as the guest's own, unless one is held,
     /// as a cgroup hook keeps what `getsockname4` answers in the socket's
     /// own storage.
@@ -243,14 +224,27 @@ impl ProtoOps for UdpSock {
         state.inet.bind(addr, connected)
     }
 
-    /// One datagram, cut to `buf`, as a datagram socket's read takes one. A
+    /// One datagram, cut to `buf`, and the peer it came from as the guest
+    /// named it, as `udp_recvmsg` fills `msg_name` with each one's source. A
     /// pending failure is answered first, once, and then cleared, as
     /// `__skb_recv_udp` asks `sock_error` before it dequeues, so the socket
     /// reads on. An empty queue answers `WouldBlock` even once its reading
     /// side is shut, as a non-blocking `__skb_recv_udp` answers EAGAIN and
-    /// only a blocking wait ends on `RCV_SHUTDOWN`.
-    fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        self.recvfrom(buf).map(|(n, _)| n)
+    /// only a blocking wait ends on `RCV_SHUTDOWN`. A read takes in what a
+    /// bounded pump left waiting in the host socket.
+    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), FilesystemError> {
+        let mut state = self.state();
+        if let Some(err) = state.inet.error.take() {
+            return Err(err);
+        }
+        let Some((datagram, from)) = state.receive_queue.pop_front() else {
+            return Err(FilesystemError::WouldBlock);
+        };
+        state.rmem_alloc -= truesize_of(datagram.len());
+        Self::pump(&mut state);
+        let n = buf.len().min(datagram.len());
+        buf[..n].copy_from_slice(&datagram[..n]);
+        Ok((n, Some(from)))
     }
 
     /// One datagram, sent whole and at once, as `udp_sendmsg` sends: one past
@@ -581,7 +575,7 @@ mod tests {
         let polled = sock.poll(None);
         let mut buf = [0; 8];
         let first = sock.recvmsg(&mut buf);
-        let second = sock.recvmsg(&mut buf).map(|n| buf[..n].to_vec());
+        let second = sock.recvmsg(&mut buf).map(|(n, _)| buf[..n].to_vec());
         assert_eq!(
             (polled, first, second),
             (
@@ -639,7 +633,7 @@ mod tests {
         let one_turn = sock.state().receive_queue.len();
         let mut read = Vec::new();
         let mut buf = [0; 1];
-        while let Ok((1, _)) = sock.recvfrom(&mut buf) {
+        while let Ok((1, _)) = sock.recvmsg(&mut buf) {
             read.push(buf[0]);
         }
         assert_eq!(
@@ -669,16 +663,16 @@ mod tests {
         UdpSock::pump(&mut sock.state());
         let mut buf = [0; 8];
         let mut read = || {
-            sock.recvfrom(&mut buf)
+            sock.recvmsg(&mut buf)
                 .map(|(n, from)| (buf[..n].to_vec(), from))
         };
         assert_eq!(
             (read(), read()),
             (
-                Ok((b"one".to_vec(), at_first)),
-                Ok((b"two".to_vec(), at_second))
+                Ok((b"one".to_vec(), Some(at_first))),
+                Ok((b"two".to_vec(), Some(at_second)))
             ),
-            "UdpSock::recvfrom after the socket connects to a second peer must read the first \
+            "a UDP socket's read after it connects to a second peer must read the first \
              peer's datagram with the first peer and the second's with the second, as \
              udp_recvmsg names each datagram's source"
         );
@@ -699,11 +693,11 @@ mod tests {
             .expect("an uncapped socket connects to an IPv6 peer");
         let mut buf = [0; 8];
         let read = sock
-            .recvfrom(&mut buf)
+            .recvmsg(&mut buf)
             .map(|(n, from)| (buf[..n].to_vec(), from));
         assert_eq!(
             read,
-            Ok((b"one".to_vec(), at_first)),
+            Ok((b"one".to_vec(), Some(at_first))),
             "a UDP socket that connects from an IPv4 peer to an IPv6 one must still read the \
              datagram the first peer sent before, with the first peer, as Linux's repointed \
              socket keeps its receive queue"
@@ -758,7 +752,7 @@ mod tests {
         peer.send_to(b"PONG", from).unwrap();
         wait_for(|table| sock.poll(table), PollMask::IN);
         let mut answer = [0; 2];
-        let read = sock.recvmsg(&mut answer).unwrap();
+        let (read, _) = sock.recvmsg(&mut answer).unwrap();
         let rest = sock.recvmsg(&mut [0; 2]);
         sock.release();
         assert_eq!(
@@ -800,7 +794,7 @@ mod tests {
                 Err(FilesystemError::ConnectionRefused),
                 Err(FilesystemError::WouldBlock)
             ),
-            "UdpSock::recvmsg after a datagram to a closed port must answer ECONNREFUSED once \
+            "a UDP socket's read after a datagram to a closed port must answer ECONNREFUSED once \
              and then read on, as sock_error clears sk_err"
         );
     }

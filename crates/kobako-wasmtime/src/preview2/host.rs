@@ -820,14 +820,15 @@ impl SocketsHost for Invocation {
         let mut sum = 0;
         let mut buf = vec![0; MAX_DATAGRAM];
         while received.len() < max_results && sum < MAX_RECEIVE_BYTES {
-            match datagrams.sock.recvfrom(&mut buf) {
-                Ok((n, from)) => {
+            match datagrams.sock.recvmsg(&mut buf) {
+                Ok((n, Some(from))) => {
                     sum += 1 + n;
                     received.push(IncomingDatagram {
                         data: buf[..n].to_vec(),
                         remote_address: from_socket_addr(from),
                     });
                 }
+                Ok((_, None)) => unreachable!("a UDP socket names each datagram's sender"),
                 Err(FilesystemError::WouldBlock) => break,
                 Err(err) if received.is_empty() => return Err(err.into()),
                 Err(_) => break,

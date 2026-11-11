@@ -451,7 +451,7 @@ impl ProtoOps for TcpSock {
     /// answers the peer's end as zero, ahead of any failure as `SOCK_DONE`
     /// is, then a pending failure once; it answers EAGAIN until either comes,
     /// and ENOTCONN on a socket that never connected.
-    fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), FilesystemError> {
         let mut state = self.state();
         if !state.receive_queue.is_empty() {
             let take = state.receive_queue.len().min(buf.len());
@@ -459,17 +459,17 @@ impl ProtoOps for TcpSock {
                 *slot = byte;
             }
             self.pump_and_wake(state);
-            return Ok(take);
+            return Ok((take, None));
         }
         if state.received_end {
-            return Ok(0);
+            return Ok((0, None));
         }
         if let Some(err) = state.inet.error.take() {
             return Err(err);
         }
         match state.phase {
-            _ if state.inet.rcv_shut => Ok(0),
-            Phase::Failed | Phase::Reset => Ok(0),
+            _ if state.inet.rcv_shut => Ok((0, None)),
+            Phase::Failed | Phase::Reset => Ok((0, None)),
             Phase::Unconnected => Err(FilesystemError::NotConnected),
             Phase::Connecting | Phase::Connected => Err(FilesystemError::WouldBlock),
         }

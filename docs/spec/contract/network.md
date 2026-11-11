@@ -796,11 +796,13 @@ pub trait ProtoOps {
 
 ## `ProtoOps::recvmsg`
 
-Read what the socket holds; `WouldBlock` while it holds nothing yet.
+Read what the socket holds and who sent it, as Linux's `udp_recvmsg` fills
+`msg_name`. A datagram names its peer as the Guest named it, and a stream
+names none. It answers `WouldBlock` while it holds nothing yet.
 
 ```rust
 pub trait ProtoOps {
-    fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError>;
+    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), FilesystemError>;
 }
 ```
 
@@ -1475,18 +1477,6 @@ its host socket once it connects to one peer. A read takes one datagram.
 
 ```rust
 pub struct UdpSock {}
-```
-
-## `UdpSock::recvfrom`
-
-One datagram, cut to the buffer, and the peer it came from as the Guest named
-it. Linux's `udp_recvmsg` fills `msg_name` with each datagram's source alike. A
-pending failure answers first; an empty queue answers `WouldBlock`.
-
-```rust
-impl UdpSock {
-    pub fn recvfrom(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), FilesystemError> {}
-}
 ```
 
 ## `Namespace::create_udp_socket`
