@@ -89,23 +89,9 @@ module Kobako
 
       def credential: (Symbol | String placement, placeholder: untyped) ?{ (Request) -> String? } -> self
 
-      def credentials: () -> Array[untyped]
-
       def endpoint: (untyped host, port: untyped, ?protocol: untyped, ?addresses: untyped) ?{ (Rules) -> void } -> self
 
       def policy: (Symbol hook) ?{ (untyped) -> boolish } -> self
-
-      def endpoints: () -> Array[untyped]
-
-      def resolve?: (String name) -> bool
-
-      def connect?: (Connection connection) -> bool
-
-      def request?: (Request request) -> bool
-
-      private
-
-      def allows?: (Symbol hook, untyped asked) -> bool
     end
   end
 end

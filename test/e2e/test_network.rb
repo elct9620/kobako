@@ -46,6 +46,18 @@ class TestE2ENetwork < Minitest::Test
                  "and Socket::ResolutionError EAI_FAIL for a name"
   end
 
+  # @behavior NW-029
+  def test_a_wildcard_endpoint_leading_to_private_addresses_raises_argument_error
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:api) do |net|
+      net.endpoint "*.example.com", port: 443, addresses: [:private]
+    end
+
+    assert_raises(ArgumentError,
+                  "Sandbox#eval with a wildcard endpoint whose addresses name :private must raise ArgumentError") do
+      sandbox.eval("1 + 1")
+    end
+  end
+
   def test_an_entry_playing_no_endpoints_lets_the_invocation_run
     value = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:audit, Object.new).eval("1 + 1").value
 

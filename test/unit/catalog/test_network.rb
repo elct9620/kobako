@@ -68,59 +68,6 @@ module Kobako
                    "Kobako::Network::Endpoint.new must keep an address set as it is and a CIDR as address/prefix"
     end
 
-    def test_a_block_adds_to_the_object_given_beside_it
-      given = Struct.new(:endpoints).new([Network::Endpoint.new(host: "a.example.com", port: 443)])
-      network = Catalog::Network.new(name: :api, entry: given) { |net| net.endpoint "b.example.com", port: 443 }
-
-      assert_equal %w[a.example.com b.example.com], network.entry.endpoints.map(&:host),
-                   "an entry given as an object and a block must answer the object's endpoints, then the block's"
-    end
-
-    # An object refusing a connect to one host.
-    RefusesHost = Struct.new(:refused) do
-      def connect?(connection) = connection.host != refused
-    end
-
-    # @behavior NW-021
-    def test_a_block_policy_and_the_given_objects_connect_both_judge
-      builder = Catalog::Network.new(name: :guard, entry: RefusesHost.new("10.0.0.9")) do |net|
-        net.policy(:connect) { |c| c.port != 22 }
-      end.entry
-      answers = [["10.0.0.1", 80], ["10.0.0.1", 22], ["10.0.0.9", 80]].map do |host, port|
-        builder.connect?(Network::Connection.new(host: host, port: port, protocol: :tcp))
-      end
-
-      assert_equal [true, false, false], answers,
-                   "Builder#connect? must refuse what the given object's connect? or a policy(:connect) block refuses"
-    end
-
-    # An object refusing a lookup of one name.
-    RefusesName = Struct.new(:refused) do
-      def resolve?(name) = name != refused
-    end
-
-    # @behavior NW-036
-    def test_a_block_policy_and_the_given_objects_resolve_both_judge
-      builder = Catalog::Network.new(name: :guard, entry: RefusesName.new("a.example.com")) do |net|
-        net.policy(:resolve) { |name| !name.end_with?(".internal") }
-      end.entry
-
-      assert_equal [true, false, false], %w[b.example.com a.example.com db.internal].map { builder.resolve?(_1) },
-                   "Builder#resolve? must refuse what the given object's resolve? or a policy(:resolve) block refuses"
-    end
-
-    def test_a_block_adds_credentials_after_the_given_objects
-      given = Struct.new(:credentials).new([:given])
-      builder = Catalog::Network.new(name: :api, entry: given) do |net|
-        net.credential(:bearer, placeholder: "kobako-token") { "s3cret" }
-      end.entry
-
-      assert_equal [:given, :bearer, "kobako-token"],
-                   [builder.credentials.first, builder.credentials.last.placement,
-                    builder.credentials.last.placeholder],
-                   "Builder#credential must add after the given object's credentials"
-    end
-
     def test_a_credential_with_another_placement_is_refused
       assert_raises(ArgumentError, "Kobako::Network::Credential with another placement must be refused") do
         Kobako::Network::Credential.new(:digest, placeholder: "x") { "y" }

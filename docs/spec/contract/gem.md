@@ -184,22 +184,6 @@ module Kobako
 end
 ```
 
-## `Kobako::Network::Builder#request?`
-
-Whether the given object's `request?` and each block's request policy allow a
-Request.
-
-```ruby
-module Kobako
-  module Network
-    class Builder
-      def request?(request)
-      end
-    end
-  end
-end
-```
-
 ## `Kobako::Network::Builder#endpoint`
 
 Let the guest reach a host on a port, as an endpoint takes them. A given block
@@ -210,21 +194,6 @@ module Kobako
   module Network
     class Builder
       def endpoint(host, port:, protocol: :http, addresses: [:public])
-      end
-    end
-  end
-end
-```
-
-## `Kobako::Network::Builder#endpoints`
-
-The given object's endpoints, then the block's.
-
-```ruby
-module Kobako
-  module Network
-    class Builder
-      def endpoints
       end
     end
   end
@@ -242,38 +211,6 @@ module Kobako
   module Network
     class Builder
       def policy(hook, &block)
-      end
-    end
-  end
-end
-```
-
-## `Kobako::Network::Builder#resolve?`
-
-Whether the given object's `resolve?` and each block's resolve policy allow a
-lookup of a name.
-
-```ruby
-module Kobako
-  module Network
-    class Builder
-      def resolve?(name)
-      end
-    end
-  end
-end
-```
-
-## `Kobako::Network::Builder#connect?`
-
-Whether the given object's `connect?` and each block's connect policy allow a
-Connection.
-
-```ruby
-module Kobako
-  module Network
-    class Builder
-      def connect?(connection)
       end
     end
   end
@@ -900,17 +837,3 @@ module Kobako
 end
 ```
 
-## `Kobako::Network::Builder#credentials`
-
-The given object's credentials, then the block's.
-
-```ruby
-module Kobako
-  module Network
-    class Builder
-      def credentials
-      end
-    end
-  end
-end
-```

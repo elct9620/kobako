@@ -146,7 +146,10 @@ module Kobako
     end
 
     # The entry a block given to Sandbox#network builds, adding to the object
-    # given beside it, as Faraday.new yields its builder.
+    # given beside it, as Faraday.new yields its builder. It collects what the
+    # block declares; each invocation composes it with the given object, the
+    # object's endpoints, credentials, and policies first, any refusal
+    # winning.
     class Builder
       HOOKS = %i[resolve connect request].freeze # :nodoc:
 
@@ -185,44 +188,11 @@ module Kobako
         self
       end
 
-      # The given object's endpoints, then the block's.
-      def endpoints
-        given = @entry.respond_to?(:endpoints) ? @entry.endpoints.to_a : [] # : Array[untyped]
-        given + @endpoints
-      end
-
       # Swap a Credential's value in place of +placeholder+ in requests bound
       # to this entry's endpoints. Returns +self+.
       def credential(placement, placeholder:, &source)
         @credentials << Credential.new(placement, placeholder: placeholder, &source)
         self
-      end
-
-      # The given object's credentials, then the block's.
-      def credentials
-        given = @entry.respond_to?(:credentials) ? @entry.credentials.to_a : [] # : Array[untyped]
-        given + @credentials
-      end
-
-      # Whether the given object's +resolve?+ and each block's resolve policy
-      # allow a lookup of +name+.
-      def resolve?(name) = allows?(:resolve, name)
-
-      # Whether the given object's +connect?+ and each block's connect policy
-      # allow +connection+.
-      def connect?(connection) = allows?(:connect, connection)
-
-      # Whether the given object's +request?+ and each block's request policy
-      # allow +request+.
-      def request?(request) = allows?(:request, request)
-
-      private
-
-      def allows?(hook, asked)
-        question = :"#{hook}?"
-        return false if @entry.respond_to?(question) && !@entry.public_send(question, asked)
-
-        @policies.fetch(hook).all? { |policy| policy.call(asked) }
       end
     end
   end
