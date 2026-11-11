@@ -88,6 +88,10 @@ impl IoState {
     }
 }
 
+/// Bytes a receive took, beside the end that sent them when the socket names
+/// one, as `recvfrom(2)` fills its address.
+pub(super) type Received = (Vec<u8>, Option<(Ipv4Addr, u16)>);
+
 /// What a `BasicSocket` call reaches: the socket's receiving and sending, as
 /// Linux's `proto_ops` gives each socket type its own, and what CRuby keeps
 /// beside it.
@@ -108,7 +112,7 @@ pub(super) trait SocketIo {
         max: usize,
         wait: Wait,
         _call: &str,
-    ) -> Result<Poll<Option<(Vec<u8>, Option<(Ipv4Addr, u16)>)>>, Error> {
+    ) -> Result<Poll<Option<Received>>, Error> {
         let received = self.receive(mrb, max, wait)?;
         Ok(received.map(|bytes| bytes.map(|bytes| (bytes, None))))
     }
