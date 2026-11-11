@@ -230,7 +230,7 @@ impl Invocation {
         // The exchange reserves the request's parts itself, so the guest's
         // copies give theirs back before it does.
         drop((request.headers, request.memory));
-        let Some(namespace) = self.wasi().table().network() else {
+        let Some(namespace) = self.wasi().network() else {
             return FutureState::Refused(ErrorCode::HTTPRequestDenied);
         };
         let cred = self.wasi().cred();
@@ -504,10 +504,9 @@ impl HttpHost for Invocation {
         &mut self,
         handle: FutureIncomingResponse,
     ) -> wasmtime::Result<()> {
-        if let FutureState::Sent(exchange, _) = self.table().delete(handle)?.0 {
-            exchange.release();
-        }
-        Ok(())
+        // A sent future holds its exchange's last reference beside its own
+        // child pollable, so dropping it lets the exchange go.
+        self.table().delete(handle).map(drop)
     }
 
     fn types_incoming_response_status(&mut self, this: IncomingResponse) -> wasmtime::Result<u16> {
@@ -602,7 +601,7 @@ impl HttpHost for Invocation {
         _options: Option<resource::RequestOptions>,
     ) -> Result<FutureIncomingResponse, error::HttpError> {
         let request = request.0;
-        if self.wasi().table().network().is_none() {
+        if self.wasi().network().is_none() {
             return Err(ErrorCode::HTTPRequestDenied.into());
         }
         if self.wasi().table().is_full() {

@@ -48,6 +48,9 @@ pub(crate) struct Wasi {
     profile: Profile,
     descriptors: Descriptors,
     table: preview2::Table,
+    /// The network the Invocation's Grants make, where every socket and
+    /// lookup is made; none without a network Grant.
+    network: Option<Namespace>,
     clocks: Clocks,
     stdout: Arc<PipeInodeInfo>,
     stderr: Arc<PipeInodeInfo>,
@@ -72,9 +75,7 @@ impl Wasi {
             config.profile,
             grants.iter().filter_map(to_mount).collect(),
         )?;
-        if let Some(network) = to_network(grants, open_connections, config.connection_limit)? {
-            wasi.table.grant(network);
-        }
+        wasi.network = to_network(grants, open_connections, config.connection_limit)?;
         Ok(wasi)
     }
 
@@ -174,6 +175,7 @@ impl Wasi {
             profile,
             descriptors,
             table,
+            network: None,
             clocks,
             stdout,
             stderr,
@@ -202,6 +204,10 @@ impl Wasi {
 
     pub(crate) fn table_mut(&mut self) -> &mut preview2::Table {
         &mut self.table
+    }
+
+    pub(crate) fn network(&self) -> Option<&Namespace> {
+        self.network.as_ref()
     }
 
     pub(crate) fn descriptors_mut(&mut self) -> &mut Descriptors {

@@ -15,6 +15,11 @@ pub(crate) use bindings::add_to_linker;
 pub(crate) use error::IntoAnswer;
 pub(crate) use table::{Pollable, Table};
 
+/// The most bytes one read hands the guest, one `check-write` offers a file,
+/// and about the most one datagram `receive` answers, as wasmtime-wasi's
+/// one read allocation limit bounds each.
+const MAX_READ_SIZE_ALLOC: usize = 64 * 1024;
+
 #[allow(clippy::all, unused_parens)]
 pub(crate) mod bindings {
     include!(concat!(env!("OUT_DIR"), "/preview2_bindings.rs"));

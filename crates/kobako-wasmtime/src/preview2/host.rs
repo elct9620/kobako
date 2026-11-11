@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
-    sock_alloc_file, Namespace, ProtoOps, SockOpt, MAX_DATAGRAM, MAX_SOCKET_BUFFER,
-    MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
+    sock_alloc_file, Namespace, ProtoOps, SockOpt, MAX_DATAGRAM, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE,
+    MAX_TCP_KEEPINTVL,
 };
 use kobako_runtime::vfs::{Cred, FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
@@ -38,6 +38,7 @@ use super::sockets::{
 };
 use super::table::SharedFile;
 use super::table::{self, EndingStream, SocketFile, Stream, TcpState, UdpState};
+use super::MAX_READ_SIZE_ALLOC;
 use crate::invocation::Invocation;
 use crate::trap::{Interrupted, TimeoutTrap};
 
@@ -48,10 +49,6 @@ const MAX_BLOCKING_WRITE: usize = 4096;
 /// The most datagrams one `receive` answers and one `check-send` permits, as
 /// wasmtime-wasi's.
 const MAX_DATAGRAMS: usize = 16;
-
-/// About the most bytes one `receive` answers, each datagram counting one more
-/// for its record, as wasmtime-wasi's read allocation limit.
-const MAX_RECEIVE_BYTES: usize = 64 * 1024;
 
 /// Where a socket stands for a bind, as each protocol reads its own state.
 enum BindStanding {
@@ -151,7 +148,7 @@ impl Invocation {
     /// and with `Interrupted` as the frontend interrupts; the wait sleeps
     /// until the soonest pollable is due, or a queue `ready` registered on
     /// wakes.
-    pub(crate) fn wait_for<T>(
+    fn wait_for<T>(
         &self,
         due: Option<Instant>,
         mut ready: impl FnMut(Option<&mut PollTable>) -> Option<T>,
@@ -176,16 +173,9 @@ impl Invocation {
         }
     }
 
-    /// The handle is the capability to connect or look up, so it must name a
-    /// network, as WASI's host checks it.
-    fn ensure_network(&self, network: Network) -> wasmtime::Result<()> {
-        self.wasi().table().get(network).map(drop)
-    }
-
     /// The Invocation's network, which every socket and lookup is made in.
     fn network(&self) -> &Namespace {
         self.wasi()
-            .table()
             .network()
             .expect("a socket or a lookup is only made with a network")
     }
@@ -201,7 +191,7 @@ impl Invocation {
         create: impl FnOnce(&Namespace, &Arc<Cred>) -> Result<Arc<S>, FilesystemError>,
         resource: impl FnOnce(SocketFile<S>) -> H::Host,
     ) -> Result<H, SocketError> {
-        if self.wasi().table().network().is_none() {
+        if self.wasi().network().is_none() {
             return Err(ErrorCode::AccessDenied.into());
         }
         if family == IpAddressFamily::Ipv6 {
@@ -229,19 +219,17 @@ impl Invocation {
     }
 
     /// Start a bind of `sock`, standing at `standing`, to `local_address`, as
-    /// both sockets' `start-bind` do in wasmtime's order: the network first,
-    /// then a bind or connect under way, then any other state, then the
-    /// address as WASI takes it and the protocol finds `is_valid`, through
-    /// the socket hooks to the socket's own bind.
+    /// both sockets' `start-bind` do in wasmtime's order, the network handle
+    /// checked as it was lifted: a bind or connect under way, then any other
+    /// state, then the address as WASI takes it and the protocol finds
+    /// `is_valid`, through the socket hooks to the socket's own bind.
     fn start_bind(
         &mut self,
-        network: Network,
         sock: &dyn ProtoOps,
         local_address: &IpSocketAddress,
         standing: BindStanding,
         is_valid: fn(SocketAddr) -> bool,
     ) -> Result<(), SocketError> {
-        self.ensure_network(network)?;
         match standing {
             BindStanding::Unbound => {}
             BindStanding::Busy => return Err(ErrorCode::ConcurrencyConflict.into()),
@@ -317,11 +305,10 @@ impl SocketsHost for Invocation {
     /// says of a host without one.
     fn ip_name_lookup_resolve_addresses(
         &mut self,
-        network: Network,
+        _network: Network,
         name: String,
     ) -> Result<ResolveAddressStream, SocketError> {
-        self.ensure_network(network)?;
-        let Some(namespace) = self.wasi().table().network() else {
+        let Some(namespace) = self.wasi().network() else {
             return Err(ErrorCode::PermanentResolverFailure.into());
         };
         if self.wasi().table().is_full() {
@@ -396,7 +383,7 @@ impl SocketsHost for Invocation {
     fn tcp_tcp_socket_start_bind(
         &mut self,
         this: TcpSocket,
-        network: Network,
+        _network: Network,
         local_address: IpSocketAddress,
     ) -> Result<(), SocketError> {
         let socket = self.tcp(this)?;
@@ -407,7 +394,6 @@ impl SocketsHost for Invocation {
         };
         let sock = socket.socket.sock.clone();
         self.start_bind(
-            network,
             sock.as_ref(),
             &local_address,
             standing,
@@ -432,10 +418,9 @@ impl SocketsHost for Invocation {
     fn tcp_tcp_socket_start_connect(
         &mut self,
         this: TcpSocket,
-        network: Network,
+        _network: Network,
         remote_address: IpSocketAddress,
     ) -> Result<(), SocketError> {
-        self.ensure_network(network)?;
         let socket = self.tcp(this)?;
         match socket.state {
             TcpState::Unbound | TcpState::Bound => {}
@@ -688,7 +673,7 @@ impl SocketsHost for Invocation {
     fn udp_udp_socket_start_bind(
         &mut self,
         this: UdpSocket,
-        network: Network,
+        _network: Network,
         local_address: IpSocketAddress,
     ) -> Result<(), SocketError> {
         let socket = self.udp(this)?;
@@ -700,7 +685,7 @@ impl SocketsHost for Invocation {
         let sock = socket.socket.sock.clone();
         // UDP binds any address WASI takes, as wasmtime asks UDP of its family
         // alone; the socket hooks refuse all but the implicit one.
-        self.start_bind(network, sock.as_ref(), &local_address, standing, |_| true)?;
+        self.start_bind(sock.as_ref(), &local_address, standing, |_| true)?;
         self.udp(this)?.state = UdpState::Binding;
         Ok(())
     }
@@ -810,7 +795,6 @@ impl SocketsHost for Invocation {
 
     /// Ready at once, since a bind settles as it starts.
     fn udp_udp_socket_subscribe(&mut self, this: UdpSocket) -> wasmtime::Result<Pollable> {
-        self.udp(this)?;
         self.table().push_child(table::Pollable::Ready, this)
     }
 
@@ -819,7 +803,8 @@ impl SocketsHost for Invocation {
     }
 
     /// Up to `max_results` datagrams the peer sent, without waiting, never
-    /// past `MAX_DATAGRAMS` or `MAX_RECEIVE_BYTES`; none yet is an empty list.
+    /// past `MAX_DATAGRAMS` or about `MAX_READ_SIZE_ALLOC` bytes, each
+    /// datagram counting one more for its record; none yet is an empty list.
     fn udp_incoming_datagram_stream_receive(
         &mut self,
         this: IncomingDatagramStream,
@@ -831,7 +816,7 @@ impl SocketsHost for Invocation {
         let mut received = Vec::new();
         let mut sum = 0;
         let mut buf = vec![0; MAX_DATAGRAM];
-        while received.len() < max_results && sum < MAX_RECEIVE_BYTES {
+        while received.len() < max_results && sum < MAX_READ_SIZE_ALLOC {
             match socket_file.sock.recvmsg(&mut buf) {
                 Ok((n, Some(from))) => {
                     sum += 1 + n;
@@ -968,7 +953,7 @@ impl IoHost for Invocation {
     ) -> Result<Vec<u8>, StreamError> {
         self.within_open(this, |host| {
             let stream = host.table().get(this)?.stream.clone();
-            let mut buf = vec![0; len.min(MAX_SOCKET_BUFFER as u64) as usize];
+            let mut buf = vec![0; len.min(MAX_READ_SIZE_ALLOC as u64) as usize];
             match stream.read(&mut buf) {
                 Ok(0) if !buf.is_empty() => Err(StreamError::Closed),
                 Ok(n) => {
@@ -3480,7 +3465,7 @@ mod tests {
         let guest = store.data_mut();
         let network = guest.instance_network_instance_network().unwrap();
         let wrong = guest.tcp_tcp_socket_drop(TcpSocket(network.0)).is_err();
-        let kept = guest.ensure_network(network).is_ok();
+        let kept = guest.table().get(network).is_ok();
         assert!(
             wrong && kept,
             "tcp-socket's drop of a network handle must trap and leave the network held"

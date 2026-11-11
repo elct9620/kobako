@@ -9,12 +9,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
-use kobako_runtime::net::{NameLookup, Namespace, TcpSock, UdpSock, MAX_SOCKET_BUFFER};
+use kobako_runtime::net::{NameLookup, TcpSock, UdpSock};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
 
 use super::bindings::wasi_sockets_network_0_2_12::ErrorCode;
+use super::MAX_READ_SIZE_ALLOC;
 use crate::wasi::MAX_TABLE_ENTRIES;
 
 /// A file every view of it shares, as handles on one `struct file` do.
@@ -62,10 +63,6 @@ impl<S> SocketFile<S> {
     }
 }
 
-/// How many bytes `check-write` offers a stream onto a file that takes any
-/// write, as wasmtime-wasi offers a file's output stream.
-const MAX_FILE_WRITE: usize = MAX_SOCKET_BUFFER;
-
 /// What an `input-stream` or an `output-stream` reads or writes: a socket's
 /// file, whose socket holds what was written until the host takes it, or any
 /// other file.
@@ -100,7 +97,9 @@ impl Stream {
     pub(crate) fn room(&self) -> usize {
         match self {
             Stream::Socket(socket) => socket.sock.send_room(),
-            Stream::File(_) => MAX_FILE_WRITE,
+            // A file takes any write, so it offers what wasmtime-wasi offers
+            // a file's output stream.
+            Stream::File(_) => MAX_READ_SIZE_ALLOC,
         }
     }
 
@@ -397,30 +396,18 @@ pub(crate) struct Table {
     /// The number past every one handed out so far.
     next: u32,
     open_files: OpenFiles,
-    network: Option<Namespace>,
 }
 
 impl Table {
-    /// A table holding nothing, counting its files against `open_files`, with
-    /// no network until one is granted. Numbers start at 1, as the Canonical
-    /// ABI keeps 0 for no handle.
+    /// A table holding nothing, counting its files against `open_files`.
+    /// Numbers start at 1, as the Canonical ABI keeps 0 for no handle.
     pub(crate) fn new(open_files: OpenFiles) -> Self {
         Self {
             entries: BTreeMap::new(),
             free: Vec::new(),
             next: 1,
             open_files,
-            network: None,
         }
-    }
-
-    /// Give the guest `network`, as an Invocation's network Grants make it.
-    pub(crate) fn grant(&mut self, network: Namespace) {
-        self.network = Some(network);
-    }
-
-    pub(crate) fn network(&self) -> Option<&Namespace> {
-        self.network.as_ref()
     }
 
     /// Whether the Invocation holds as many files as it may, so a new socket
