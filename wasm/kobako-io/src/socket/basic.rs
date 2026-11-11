@@ -64,6 +64,12 @@ pub(super) struct IoState {
     /// `close_write` closed the writing side, as CRuby's IO clears
     /// `FMODE_WRITABLE`.
     write_closed: Cell<bool>,
+    /// `shutdown` shut the reading side, as `sk_shutdown`'s `RCV_SHUTDOWN`;
+    /// a wait to read ends at once, as `tcp_poll` and `datagram_poll` report
+    /// it. The guest keeps it itself: WASI 0.2's TCP `shutdown(receive)`
+    /// discards what arrived, where Linux's `SHUT_RD` still reads it, and its
+    /// UDP names no shutdown.
+    pub(super) rcv_shut: Cell<bool>,
 }
 
 impl IoState {
@@ -73,6 +79,7 @@ impl IoState {
             sync: Cell::new(true),
             read_closed: Cell::new(false),
             write_closed: Cell::new(false),
+            rcv_shut: Cell::new(false),
         }
     }
 }
@@ -112,9 +119,19 @@ pub(super) trait SocketIo {
     fn handle(&self, mrb: &Mrb) -> Result<u32, Error>;
 
     /// When a wait for the socket to read or write ends, as its `poll` would
-    /// answer: a shut side is ready at once, as Linux's `tcp_poll` and
-    /// `datagram_poll` report it.
-    fn readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error>;
+    /// answer: a shut reading side is ready at once, as Linux's `tcp_poll`
+    /// and `datagram_poll` report `RCV_SHUTDOWN`, and otherwise as the
+    /// protocol finds it.
+    fn readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error> {
+        if matches!(direction, Direction::Read) && self.io().rcv_shut.get() {
+            return Ok(Readiness::Ready);
+        }
+        self.protocol_readiness(mrb, direction)
+    }
+
+    /// When a wait ends as the protocol's own `poll` would answer, its
+    /// reading side open.
+    fn protocol_readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error>;
 
     /// Release the socket, its streams before it.
     fn close(&self);

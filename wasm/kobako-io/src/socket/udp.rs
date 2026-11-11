@@ -18,6 +18,7 @@ use super::ip::{local_end_of, to_addr_array};
 use super::{bind, family_of, to_error, Family, AF_INET};
 use crate::errno;
 use crate::io::{would_wait, Direction};
+use crate::wasi::wait_within;
 use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
 };
@@ -43,12 +44,8 @@ struct OpenSocket {
     streams: Option<Streams>,
     socket: UdpSocket,
     bound: bool,
-    /// `shutdown` shut the reading side, which only makes a wait ready at
-    /// once, as Linux's `datagram_poll` reports it while `udp_recvmsg` still
-    /// delivers. WASI 0.2 names no shutdown for UDP, so the guest keeps both
-    /// sides itself.
-    rcv_shut: bool,
-    /// `shutdown` shut the sending side, so a send answers `EPIPE`.
+    /// `shutdown` shut the sending side, so a send answers `EPIPE`. WASI 0.2
+    /// names no shutdown for UDP, so the guest keeps it itself.
     send_shut: bool,
 }
 
@@ -90,7 +87,9 @@ impl SocketIo for Datagrams {
     /// still reads.
     fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
         self.with(mrb, |open| {
-            open.rcv_shut |= how != Shutdown::Write;
+            if how != Shutdown::Write {
+                self.io().rcv_shut.set(true);
+            }
             open.send_shut |= how != Shutdown::Read;
             match open.streams {
                 Some(_) => Ok(()),
@@ -123,10 +122,9 @@ impl SocketIo for Datagrams {
 
     /// A socket with no peer never reads and answers a write at once, as a
     /// write raises `Errno::EDESTADDRREQ` without waiting.
-    fn readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error> {
+    fn protocol_readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error> {
         self.with(mrb, |open| {
             Ok(match (direction, &open.streams) {
-                (Direction::Read, _) if open.rcv_shut => Readiness::Ready,
                 (Direction::Read, Some(streams)) => {
                     Readiness::Pending(streams.incoming.subscribe())
                 }
@@ -232,7 +230,6 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
             streams: None,
             socket,
             bound: false,
-            rcv_shut: false,
             send_shut: false,
         })),
         io: IoState::new(),
@@ -240,11 +237,9 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
     Ok(mrb.wrap_as(datagrams, class).as_value())
 }
 
-/// Bind to `end` as the host lets a bind take it.
+/// Bind to `end` as the host lets a bind take it; the host refuses a socket
+/// bound already.
 fn bind_to(open: &mut OpenSocket, end: (Ipv4Addr, u16)) -> Result<(), ErrorCode> {
-    if open.bound {
-        return Err(ErrorCode::InvalidState);
-    }
     bind(&open.socket, end)?;
     open.bound = true;
     Ok(())
@@ -362,10 +357,11 @@ fn send_datagram(
                 .map_err(|code| to_error(mrb, code, UDP, call))?,
             Err(code) => return Err(to_error(mrb, code, UDP, call)),
         };
-        match (sent, wait) {
-            (0, Wait::Block) => pollable.block(),
-            (0, Wait::DontWait) => return Ok(Poll::Pending),
-            _ => return Ok(Poll::Ready(())),
+        if sent > 0 {
+            return Ok(Poll::Ready(()));
+        }
+        if !wait_within(&pollable, wait.timeout()) {
+            return Ok(Poll::Pending);
         }
     }
 }
@@ -399,8 +395,8 @@ fn receive_from(
                 };
                 return Ok(Poll::Ready((data, from)));
             }
-            Ok(_) if wait == Wait::DontWait => return Ok(Poll::Pending),
-            Ok(_) => pollable.block(),
+            Ok(_) if !wait_within(&pollable, wait.timeout()) => return Ok(Poll::Pending),
+            Ok(_) => {}
             Err(code) => return Err(to_error(mrb, code, UDP, call)),
         }
     }

@@ -158,14 +158,18 @@ fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], events: c_short) -> Result<
     })
 }
 
+/// The way a wait for `events` watches a socket.
+fn direction_of(events: c_short) -> Direction {
+    match events {
+        POLLRDNORM => Direction::Read,
+        _ => Direction::Write,
+    }
+}
+
 /// What a wait on `io` watches, refusing a stream not opened for the way it
 /// waits, as CRuby's `IOError` does: a captured stream only writes.
 fn wait_target_of(mrb: &Mrb, io: Value, events: c_short) -> Result<WaitTarget, Error> {
-    let direction = match events {
-        POLLRDNORM => Direction::Read,
-        _ => Direction::Write,
-    };
-    if let Some(readiness) = socket::readiness_of(mrb, io, direction)? {
+    if let Some(readiness) = socket::readiness_of(mrb, io, direction_of(events))? {
         return Ok(WaitTarget::Socket(readiness));
     }
     let fd = crate::io::checked_fd(mrb, io, crate::stream::REACH_REFUSAL)?;
@@ -263,11 +267,8 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
     let targets = watched
         .iter()
         .map(|w| {
-            let direction = match w.events {
-                POLLRDNORM => Direction::Read,
-                _ => Direction::Write,
-            };
-            if let Some(readiness) = socket::select_readiness_of(mrb, w.io, direction)? {
+            if let Some(readiness) = socket::select_readiness_of(mrb, w.io, direction_of(w.events))?
+            {
                 return Ok((WaitTarget::Socket(readiness), w.events));
             }
             let fd = w.io.funcall::<_, _, Value>(mrb, c"fileno", ())?;

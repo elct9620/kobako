@@ -1449,8 +1449,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a TCP and a UDP endpoint naming loopback peers |
-| When | the script names `"0.0.0.0"` port 0 as a `TCPSocket`'s local end and binds a `UDPSocket` to `"<any>"` port `"0"`. It then binds another to `127.0.0.1` |
-| Then | the TCP socket connects and the first bind passes, as CRuby reads each with `AI_PASSIVE`. The bind to `127.0.0.1` raises `Errno::EACCES`, as the host refuses it |
+| When | the script names `"0.0.0.0"` port 0 as a `TCPSocket`'s local end and binds a `UDPSocket` to `"<any>"` port `"0"`. It binds that socket again, then binds another to `127.0.0.1` |
+| Then | the TCP socket connects and the first bind passes, as CRuby reads each with `AI_PASSIVE`. The second bind raises `Errno::EINVAL`, as Linux's. The bind to `127.0.0.1` raises `Errno::EACCES`, as the host refuses it |
 
 ## `NW-118` A script's socket answers IO's edge calls as CRuby's
 

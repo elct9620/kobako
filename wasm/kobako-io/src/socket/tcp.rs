@@ -1,7 +1,7 @@
 //! `TCPSocket`, one connection over `wasi:sockets/tcp`, as CRuby's
 //! `ext/socket/tcpsocket.c` opens one to a peer.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::net::{Ipv4Addr, Shutdown};
 use std::task::Poll;
 use std::time::Duration;
@@ -37,10 +37,6 @@ struct OpenSocket {
     output: OutputStream,
     socket: TcpSocket,
     peer: (Ipv4Addr, u16),
-    /// `shutdown` shut the reading side. WASI 0.2's `shutdown(receive)`
-    /// discards what arrived, where Linux's `SHUT_RD` still reads it, so the
-    /// guest keeps this side itself and the host never hears of it.
-    rcv_shut: Cell<bool>,
 }
 
 /// What a `TCPSocket` stands for, kept in its payload so a script's instance
@@ -62,7 +58,7 @@ impl SocketIo for Connection {
     /// the end rather than wait, as Linux's `tcp_recvmsg` stops at
     /// `RCV_SHUTDOWN`.
     fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error> {
-        if self.with(mrb, |open| Ok(open.rcv_shut.get()))? {
+        if self.io().rcv_shut.get() {
             let received = match max {
                 0 => Poll::Pending,
                 _ => self.receive_from_stream(mrb, max, Wait::DontWait)?,
@@ -112,7 +108,7 @@ impl SocketIo for Connection {
                     .map_err(|code| to_error(mrb, code, "TCPSocket", "shutdown(2)"))?;
             }
             if how != Shutdown::Write {
-                open.rcv_shut.set(true);
+                self.io().rcv_shut.set(true);
             }
             Ok(())
         })
@@ -135,10 +131,9 @@ impl SocketIo for Connection {
         self.with(mrb, |open| Ok(open.socket.handle()))
     }
 
-    fn readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error> {
+    fn protocol_readiness(&self, mrb: &Mrb, direction: Direction) -> Result<Readiness, Error> {
         self.with(mrb, |open| {
             Ok(match direction {
-                Direction::Read if open.rcv_shut.get() => Readiness::Ready,
                 Direction::Read => Readiness::Pending(open.input.subscribe()),
                 Direction::Write => Readiness::Pending(open.output.subscribe()),
             })
@@ -325,7 +320,6 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
             output,
             socket,
             peer: (ip, port),
-            rcv_shut: Cell::new(false),
         })),
         io: IoState::new(),
     })
