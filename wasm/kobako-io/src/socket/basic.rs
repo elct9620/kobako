@@ -538,18 +538,21 @@ pub(crate) fn readiness_of(
     source.readiness(mrb, direction).map(Some)
 }
 
-/// When a select's wait on the socket `value` ends, `None` when `value` is no
-/// socket. Only a closed socket raises `IOError`, as CRuby's `select` checks
-/// nothing of a stream's modes.
+/// Whether `value` is a socket a select may wait on; a closed one raises
+/// `IOError`, as CRuby's `select` checks each IO open before it waits.
+pub(crate) fn is_open_socket(mrb: &Mrb, value: Value) -> Result<bool, Error> {
+    if source_of(mrb, value).is_err() {
+        return Ok(false);
+    }
+    open_socket_of(mrb, value).map(|_| true)
+}
+
+/// When a select's wait on the socket `value` ends. Only a closed socket
+/// raises `IOError`, as CRuby's `select` checks nothing of a stream's modes.
 pub(crate) fn select_readiness_of(
     mrb: &Mrb,
     value: Value,
     direction: Direction,
-) -> Result<Option<Readiness>, Error> {
-    if source_of(mrb, value).is_err() {
-        return Ok(None);
-    }
-    open_socket_of(mrb, value)?
-        .readiness(mrb, direction)
-        .map(Some)
+) -> Result<Readiness, Error> {
+    open_socket_of(mrb, value)?.readiness(mrb, direction)
 }

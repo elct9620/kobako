@@ -2196,3 +2196,15 @@ endpoint "api.example.com", port: 443
 | Given | a script's `Net::HTTP` to a loopback server, its `read_timeout` set negative |
 | When | it sends a request |
 | Then | it raises `ArgumentError` before the request reaches the server. CRuby's raises only once a read waits, which turns on timing; the guest reads both timeouts as the request starts |
+
+## `NW-178` A select whose IO's fileno closes a selected socket raises IOError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-065` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script's `TCPSocket`, and `$stdout` with a `fileno` of its own that closes the socket |
+| When | it selects the socket to read and `$stdout` to write |
+| Then | the select raises `IOError` for the closed socket, and the run goes on. Every call into the script ends before any socket waits |

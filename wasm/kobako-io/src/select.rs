@@ -267,16 +267,32 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
         true => 0,
         false => millis,
     };
-    let targets = watched
+    // Every call into the script, a `fileno` it defined among them, runs
+    // before any socket subscribes, so none can drop a stream whose pollable
+    // is out, which the host would trap.
+    let fds = watched
         .iter()
         .map(|w| {
-            if let Some(readiness) = socket::select_readiness_of(mrb, w.io, direction_of(w.events))?
-            {
-                return Ok((WaitTarget::Socket(readiness), w.events));
+            if socket::is_open_socket(mrb, w.io)? {
+                return Ok(None);
             }
             let fd = w.io.funcall::<_, _, Value>(mrb, c"fileno", ())?;
-            let fd = Integer::try_convert(fd, mrb)?.to_i64(mrb)? as c_int;
-            Ok((WaitTarget::File(fd), w.events))
+            Ok(Some(Integer::try_convert(fd, mrb)?.to_i64(mrb)? as c_int))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    let targets = watched
+        .iter()
+        .zip(fds)
+        .map(|(w, fd)| {
+            let target = match fd {
+                Some(fd) => WaitTarget::File(fd),
+                None => WaitTarget::Socket(socket::select_readiness_of(
+                    mrb,
+                    w.io,
+                    direction_of(w.events),
+                )?),
+            };
+            Ok((target, w.events))
         })
         .collect::<Result<Vec<_>, Error>>()?;
     let ready = wait_any(mrb, &targets, timeout)?;

@@ -34,4 +34,26 @@ class TestE2ENetworkSocketWait < Minitest::Test
                    "back, and raise IOError once closed, as CRuby's do"
     end
   end
+
+  CLOSING_FILENO = <<~RUBY
+    socket = TCPSocket.new("127.0.0.1", %<port>d)
+    $stdout.define_singleton_method(:fileno) { socket.close || 1 }
+    begin
+      IO.select([socket], [$stdout], nil, 0)
+      :selected
+    rescue IOError => e
+      [e.class.to_s, e.message]
+    end
+  RUBY
+
+  # @behavior NW-178
+  def test_a_select_whose_fileno_closes_a_selected_socket_raises_io_error
+    with_answering_server("a") do |port|
+      value = loopback_sandbox(port).eval(format(CLOSING_FILENO, port: port)).value
+
+      assert_equal ["IOError", "closed stream"], value,
+                   "IO.select of a TCPSocket beside an IO whose own #fileno closes that socket must raise " \
+                   "IOError for the closed socket, not end the run"
+    end
+  end
 end
