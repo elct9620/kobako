@@ -80,21 +80,29 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
     socket.connect("127.0.0.1", %<udp>d)
     early = UDPSocket.new
     marked = outcome.call { early.shutdown(:WR) }
+    peerless = [outcome.call { early.send("x", 0) }, outcome.call { early.write("x") }]
     early.connect("127.0.0.1", %<udp>d)
     [unconnected, socket.shutdown(:WR), outcome.call { socket.send("x", 0) }, outcome.call { socket.write("x") },
-     marked, outcome.call { early.send("x", 0) }]
+     marked, peerless, outcome.call { early.send("x", 0) }]
   RUBY
+
+  ENOTCONN = ["Errno::ENOTCONN", "Transport endpoint is not connected - shutdown(2)"].freeze
+  UDP_SIDES_OUTCOMES = [
+    ENOTCONN, 0, ["Errno::EPIPE", "Broken pipe - send(2)"], ["Errno::EPIPE", "Broken pipe"], ENOTCONN,
+    [["Errno::EDESTADDRREQ", "Destination address required - send(2)"],
+     ["Errno::EDESTADDRREQ", "Destination address required"]],
+    ["Errno::EPIPE", "Broken pipe - send(2)"]
+  ].freeze
 
   # @behavior NW-137
   def test_a_script_shuts_a_udp_sockets_sending_side
     with_quiet_udp_peer do |udp|
       value = udp_sandbox(udp).eval(format(UDP_SIDES, tcp: 0, udp: udp)).value
 
-      enotconn = ["Errno::ENOTCONN", "Transport endpoint is not connected - shutdown(2)"]
-      assert_equal [enotconn, 0, ["Errno::EPIPE", "Broken pipe - send(2)"], ["Errno::EPIPE", "Broken pipe"],
-                    enotconn, ["Errno::EPIPE", "Broken pipe - send(2)"]], value,
+      assert_equal UDP_SIDES_OUTCOMES, value,
                    "UDPSocket#shutdown before #connect must raise Errno::ENOTCONN yet keep the side it names shut, " \
-                   "so a send after a later #connect raises Errno::EPIPE; after #connect #shutdown(:WR) must " \
+                   "so #send and #write before any #connect raise Errno::EDESTADDRREQ, as a peer is asked for " \
+                   "first, and a send after a later #connect raises Errno::EPIPE; after #connect #shutdown(:WR) must " \
                    "answer 0 and a later #send or #write raise Errno::EPIPE, as Linux's datagram socket does"
     end
   end

@@ -3,6 +3,7 @@
 //! with the one peer a `connect` names, as Linux's connected UDP socket does.
 
 use std::cell::RefCell;
+use std::ffi::CStr;
 use std::net::{Ipv4Addr, Shutdown};
 use std::task::Poll;
 
@@ -50,6 +51,22 @@ struct OpenSocket {
     send_shut: bool,
 }
 
+impl OpenSocket {
+    /// The streams a send reaches its peer through, or the `Errno` name that
+    /// refuses it: an address other than the peer first, as the socket hooks
+    /// judge before the protocol; then no peer, then a shut sending side, in
+    /// `udp_sendmsg`'s order. `names_peer` says whether the address a send
+    /// names is the peer, `None` when it names none.
+    fn streams_for_send(&self, names_peer: Option<bool>) -> Result<&Streams, &'static CStr> {
+        match (&self.streams, names_peer) {
+            (_, Some(false)) => Err(c"EACCES"),
+            (None, _) => Err(c"EDESTADDRREQ"),
+            _ if self.send_shut => Err(c"EPIPE"),
+            (Some(streams), _) => Ok(streams),
+        }
+    }
+}
+
 /// What a `UDPSocket` stands for, kept in its payload so a script's instance
 /// variables cannot rewrite it; `None` once closed.
 #[beni::wrap(class = "UDPSocket", name = "Kobako::UDPSocket")]
@@ -74,10 +91,9 @@ impl SocketIo for Datagrams {
     /// datagram socket sends; with no peer it raises `Errno::EDESTADDRREQ`,
     /// carrying no call, as CRuby's `IO#write` does.
     fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error> {
-        let sent = self.with(mrb, |open| match &open.streams {
-            _ if open.send_shut => Err(errno::error_alone(mrb, c"EPIPE")),
-            Some(streams) => send_datagram(mrb, streams, bytes.to_vec(), "write(2)", wait),
-            None => Err(errno::error_alone(mrb, c"EDESTADDRREQ")),
+        let sent = self.with(mrb, |open| match open.streams_for_send(None) {
+            Ok(streams) => send_datagram(mrb, streams, bytes.to_vec(), "write(2)", wait),
+            Err(name) => Err(errno::error_alone(mrb, name)),
         })?;
         Ok(sent.map(|()| bytes.len()))
     }
@@ -334,19 +350,9 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         None => (None, "send(2)".to_string()),
     };
     let len = data.len();
-    Datagrams::of(mrb, self_)?.with(mrb, |open| {
-        if open.send_shut {
-            return Err(errno::error_by_name(mrb, c"EPIPE", &call));
-        }
-        let streams = open.streams.as_ref().filter(|_| names_peer != Some(false));
-        let Some(streams) = streams else {
-            let name = match names_peer {
-                Some(_) => c"EACCES",
-                None => c"EDESTADDRREQ",
-            };
-            return Err(errno::error_by_name(mrb, name, &call));
-        };
-        send_datagram(mrb, streams, data, &call, Wait::Block).map(ready_of)
+    Datagrams::of(mrb, self_)?.with(mrb, |open| match open.streams_for_send(names_peer) {
+        Ok(streams) => send_datagram(mrb, streams, data, &call, Wait::Block).map(ready_of),
+        Err(name) => Err(errno::error_by_name(mrb, name, &call)),
     })?;
     Ok((len as i64).into_value(mrb))
 }

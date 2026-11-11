@@ -1699,8 +1699,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a UDP peer that answers datagrams |
-| When | the script calls `shutdown` before `connect`, then `shutdown(:WR)` after it, then sends. Another socket shuts its sending side before `connect`, then sends after it |
-| Then | the first raises `Errno::ENOTCONN`, the second answers 0, and the send raises `Errno::EPIPE`, as Linux's datagram socket does. The other's shutdown raises `Errno::ENOTCONN` yet keeps the side shut, so its send raises `Errno::EPIPE`, as `inet_shutdown` marks it first |
+| When | the script calls `shutdown` before `connect`, then `shutdown(:WR)` after it, then sends. Another socket shuts its sending side before `connect`, then sends before and after it |
+| Then | the first raises `Errno::ENOTCONN`, the second answers 0, and the send raises `Errno::EPIPE`, as Linux's datagram socket does. The other's shutdown raises `Errno::ENOTCONN` yet keeps the side shut, as `inet_shutdown` marks it first. Its send before `connect` raises `Errno::EDESTADDRREQ`, as `udp_sendmsg` asks for a peer first. Its send after raises `Errno::EPIPE` |
 
 ## `NW-138` A script packs and unpacks a socket address, as CRuby's
 
