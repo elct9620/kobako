@@ -55,7 +55,7 @@ guest Ruby       the Errno CRuby raises for it, worded as mruby words it
 
 ## Contract Registration
 
-A contract that is not `internal` is a promise: changing it breaks someone. It registers only what kobako's own build cannot catch breaking.
+A contract is a promise to someone outside kobako: changing it breaks them. It registers only what is promised.
 
 | Registers | Leaves out |
 |---|---|
@@ -63,7 +63,7 @@ A contract that is not `internal` is a promise: changing it breaks someone. It r
 | each type a seam's signatures carry | a helper `pub` only to cross a crate |
 | a name an SDK user calls, such as `Sandbox` | a re-export, registered where it is defined |
 
-A name only kobako's own crates call breaks their build when it changes, so it needs no contract. A seam's change compiles cleanly against kobako's own implementation yet breaks a third party's, which only the contract and its grade in [`guides/customization.md`](../guides/customization.md) catch.
+A name only kobako's own crates call is promised to no one, and its change already fails their build. A seam's change breaks a third party's implementation that kobako never compiles, which only the contract and its grade in [`guides/customization.md`](../guides/customization.md) bring to light.
 
 ## Naming Principles
 

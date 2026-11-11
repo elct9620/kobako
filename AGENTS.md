@@ -14,7 +14,7 @@ Every change follows these rules. An earlier row wins on conflict.
 |---|---|
 | Spec | sumi under `docs/spec/` holds behavior; extend it first when silent |
 | Spec | Each scenario owes a test tagged `@behavior`; prose cites no scenario id |
-| Spec | A contract registers only a seam a third party implements, the types it carries, and what an SDK user calls |
+| Spec | A contract registers only what is promised outside kobako: a seam, the types it carries, and what an SDK user calls |
 | Spec | A contract's `Includes` lists declaring files only, never append-only ones |
 | Code | Build what the spec asks; no flags, shims, or defensive layers |
 | Code | Judge a behavior in the Baselines order: security, the WASI contract, then the layer's reference |
