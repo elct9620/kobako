@@ -848,15 +848,17 @@ impl SocketsHost for Invocation {
         self.table().delete(handle).map(drop)
     }
 
-    /// `MAX_DATAGRAMS` while the send queue has room, none while it is full,
-    /// as wasmtime-wasi's; a `send` stops where the queue fills.
+    /// `MAX_DATAGRAMS` whenever the stream's pollable is ready, none
+    /// otherwise, as wasmtime-wasi's answers both from one readiness; a
+    /// pending failure permits, so the `send` it permits answers it, and a
+    /// `send` stops where the queue fills.
     fn udp_outgoing_datagram_stream_check_send(
         &mut self,
         this: OutgoingDatagramStream,
     ) -> Result<u64, SocketError> {
         let socket_file = self.table().get(this)?.socket.clone();
         let found = socket_file.file().poll(None);
-        let permitted = if found.contains(PollMask::OUT) {
+        let permitted = if found.is_ready_for(PollMask::OUT) {
             MAX_DATAGRAMS as u64
         } else {
             0
@@ -983,7 +985,9 @@ impl IoHost for Invocation {
     }
 
     /// Write every byte, at most 4096, waiting for room as it goes, then until
-    /// what was written has left for the host.
+    /// what was written has left for the host. A stream that closed once every
+    /// byte was taken answers success, as wasmtime-wasi-io's does; a failure
+    /// still answers.
     fn streams_output_stream_blocking_write_and_flush(
         &mut self,
         this: OutputStream,
@@ -1012,8 +1016,10 @@ impl IoHost for Invocation {
                 let failed = stream.poll(table).contains(PollMask::ERR);
                 (failed || stream.is_drained()).then_some(())
             })?;
-            stream.write(&[])?;
-            Ok(())
+            match stream.write(&[]) {
+                Ok(_) | Err(FilesystemError::BrokenPipe) => Ok(()),
+                Err(err) => Err(err.into()),
+            }
         })
     }
 
