@@ -2274,3 +2274,16 @@ endpoint "api.example.com", port: 443
 | Given | a script's `UDPSocket` connected to a loopback peer |
 | When | it sends naming the peer by a `sockaddr` String and by an `Addrinfo`. Then it names another port, an Integer destination, and an Integer message |
 | Then | the first two send, as CRuby's `sendto` takes either. Another port raises `Errno::EACCES`. Each Integer raises `TypeError`, as CRuby converts them |
+
+## `NW-184` A request whose target is not in origin form is refused unsent
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-145` |
+| relates | `NW-041` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint, and a Wasm Driver handing the runtime a request |
+| When | the request's target is absolute-form, asterisk-form, empty, or carries a fragment |
+| Then | it answers `Denied` and nothing is sent, since a proxy forwards such a target past the authority the endpoint judged |

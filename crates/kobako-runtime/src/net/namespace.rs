@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use super::egress::EgressProxy;
 use super::family::admitted_addresses_of;
 use super::http::{
-    split_authority, to_field_name, to_field_value, Exchange, HttpError, Outbound, OutgoingRequest,
-    Scheme,
+    split_authority, to_field_name, to_field_value, to_origin_form, Exchange, HttpError, Outbound,
+    OutgoingRequest, Scheme,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::transport::Connector;
@@ -131,16 +131,21 @@ impl Namespace {
     /// too, and an `http` endpoint must name it at its port; a literal address
     /// passes the ruleset as itself, so a virtual one is refused, and an IPv6
     /// one reaches nothing. A header the guest may not set is refused too, so
-    /// the seam frames every request itself. Any refusal answers `Denied`, and
-    /// nothing is sent.
+    /// the seam frames every request itself, and so is a target not in origin
+    /// form, which a proxy would forward past the judged authority. Any
+    /// refusal answers `Denied`, and nothing is sent.
     pub fn send(
         &self,
         cred: &Arc<Cred>,
         request: OutgoingRequest,
     ) -> Result<Arc<Exchange>, HttpError> {
-        if request.headers.iter().any(|(name, value)| {
-            to_field_name(name).is_err() || to_field_value(value.clone()).is_err()
-        }) {
+        let in_origin_form = to_origin_form(&request.path_with_query).as_deref()
+            == Some(request.path_with_query.as_str());
+        if !in_origin_form
+            || request.headers.iter().any(|(name, value)| {
+                to_field_name(name).is_err() || to_field_value(value.clone()).is_err()
+            })
+        {
             return Err(HttpError::Denied);
         }
         let (host, port) =

@@ -1268,6 +1268,30 @@ mod tests {
         );
     }
 
+    // @behavior NW-184
+    #[test]
+    fn a_request_whose_target_is_not_in_origin_form_is_refused_unsent() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
+        let cred = prepare_creds_within(&[], None);
+        let answers = ["http://other.example/x", "*", "", "/a#b"].map(|target| {
+            let mut request = greeting_request(&format!("127.0.0.1:{port}"));
+            request.path_with_query = target.to_string();
+            namespace.send(&cred, request).err()
+        });
+        thread::sleep(Duration::from_millis(20));
+        assert!(
+            answers
+                .iter()
+                .all(|answer| *answer == Some(HttpError::Denied))
+                && listener.accept().is_err(),
+            "Namespace::send of a request whose target is absolute-form, asterisk-form, empty, or \
+             carries a fragment must answer Denied, sending nothing, got {answers:?}"
+        );
+    }
+
     // @behavior NW-048
     #[test]
     fn an_https_request_opens_tls_before_any_byte_of_http() {
