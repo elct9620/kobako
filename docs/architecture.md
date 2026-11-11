@@ -49,7 +49,7 @@ Arguments, environment, reading a clock, process, scheduling, and randomness sta
 ```
 
 - The host model is a Frontend and its Codec; it drives a Wasm Driver through the `Runtime` trait.
-- The Wasm Driver encodes each ABI onto the Engine and keeps only the checks a syscall entry makes itself.
+- The Wasm Driver encodes each ABI onto the Engine. It keeps only a syscall entry's own checks and the steps only its ABI has.
 - `kobako-runtime` decides every other answer kobako provides.
 
 ## WASI Standards
@@ -258,7 +258,7 @@ These rules are written as what never exists, so a single counterexample breaks 
 | magnus beneath `kobako-wasmtime` | `crates:graph` |
 | Envelope bytes read or written outside the two ABI endpoints | `kobako_runtime::endpoint`, `kobako-core` |
 | a Frontend or guest model that encodes, decodes, allocates, or packs | the Seam Crossings |
-| an answer the Wasm Driver decides, beyond the checks a syscall entry makes itself | `kobako-runtime` |
+| an answer the Wasm Driver decides, beyond its entry checks and ABI-only steps | `kobako-runtime` |
 | a call that succeeds where POSIX refuses it | each divergence being a refusal |
 | a document linked or cited from source code, comments and tool output included | each comment stating its own intent |
 | a guest crate on `beni` that skips libmruby on a build | no linked-only `cfg` |

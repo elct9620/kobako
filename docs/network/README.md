@@ -43,7 +43,7 @@ A socket and a request take two paths through the same four parts, and meet agai
 +-----------------------------------------------------+
 ```
 
-The Wasm Driver only encodes. Every answer the guest sees is decided in `kobako-runtime`, so another Wasm Driver answers alike.
+The Wasm Driver keeps its entry checks and the steps only WASI has, such as `start-*` and `finish-*`. Every Linux answer the guest sees is decided in `kobako-runtime`, so another Wasm Driver answers alike.
 
 ### Linux Roles
 
@@ -171,7 +171,7 @@ The guest sees only virtual addresses, so the host's network never reaches it.
 | a UDP receive | real to virtual | cgroup `recvmsg4` |
 | a connect to an unmapped one | refused, `EACCES` | — |
 
-The range is `198.18.0.0/15`, inside the reserved set, so no real destination lies in it. Each Invocation allocates from the bottom and never reuses an address for a second name. A lookup never hands out `198.19.255.254`, the guest's own end.
+The range is `198.18.0.0/15`, inside the reserved set, so no real destination lies in it. Each Invocation allocates from the bottom and never reuses an address for a second name. A name keeps its address and its first real addresses, as a fake-IP pool answers a known host. A later lookup meets the hooks and the endpoints again but queries nothing, so a resolver cannot rebind it. A lookup never hands out `198.19.255.254`, the guest's own end.
 
 A connected socket's own port is virtual too, numbered from 32768 in connect order. The host's ephemeral port would carry its connection state into the guest, as CVE-2022-1012 showed. The socket keeps both ends, as a NAT's tuple does.
 

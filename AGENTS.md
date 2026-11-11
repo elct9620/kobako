@@ -62,6 +62,6 @@ Start here to grasp the whole before reading code.
 | `docs/process/convention.md` | The baseline a name or a comment's wording is judged against |
 | `docs/guides/` | What a Host App or an implementer relies on |
 | `lib/kobako/sandbox.rb` | Where a run starts and settles into an `Execution` |
-| `crates/kobako-runtime/src/` | Every answer a guest sees: the VFS, the Policy, the Filesystems |
+| `crates/kobako-runtime/src/` | Every Linux answer a guest sees: the VFS, the Policy, the Filesystems, the network |
 | `crates/kobako-wasmtime/src/preview1.rs` | How the Wasm Driver encodes WASI preview1 onto `kobako-runtime` |
 | `wasm/kobako-core/src/guest.rs` | The ABI surface the Guest Binary exports and imports |
