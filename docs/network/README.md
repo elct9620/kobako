@@ -235,9 +235,10 @@ A refusal reaches the script as the `Errno` CRuby's would raise, and the script 
 |---|---|
 | a name no endpoint allows | `Socket::ResolutionError` |
 | an address, a policy, or a bind refused | `Errno::EACCES` |
+| a UDP read with no peer, waiting or not | `Errno::EACCES` |
 | an IPv6 family or literal | `Errno::EAFNOSUPPORT` |
 | a full connection cap | `Errno::EAGAIN` |
 | the open file limit, at a new socket | `Errno::EMFILE` |
-| a receive flag WASI carries none of, such as `MSG_PEEK` | `Errno::ENOTSUP` |
+| a receive or send flag WASI carries none of, such as `MSG_OOB` | `Errno::ENOTSUP` |
 
 A wait past the deadline traps as `TimeoutTrap`, not as an `Errno`.
