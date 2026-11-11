@@ -15,7 +15,7 @@ use super::http::{
 };
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::transport::Connector;
-use super::{OpenConnections, ProtoOps, ProtocolFamily, TcpSock, UdpSock};
+use super::{MemoryCharge, OpenConnections, ProtoOps, ProtocolFamily, TcpSock, UdpSock};
 use crate::grant::Policy;
 use crate::network::{Connection, EntryError, Name, Network, Protocol, Request, Ruleset};
 use crate::vfs::{Cred, FilesystemError};
@@ -51,14 +51,21 @@ pub struct Namespace {
     /// How many more connections this Invocation may make; `None` makes no
     /// count.
     connections_left: Mutex<Option<usize>>,
-    /// Each name looked up and its real addresses, at its virtual address's
-    /// offset from the bottom of the range.
-    translations: Mutex<Vec<(String, Vec<IpAddr>)>>,
+    translations: Mutex<Translations>,
     /// The virtual port this Invocation's next connect takes.
     next_port: Mutex<u16>,
     /// Every TCP socket made here, so an orphan still sending ends with the
     /// Invocation.
     tcp_sockets: Mutex<Vec<Weak<TcpSock>>>,
+}
+
+/// Each name looked up and its real addresses, at its virtual address's
+/// offset from the bottom of the range, and the memory they hold against
+/// the Invocation's, given back as the namespace goes.
+#[derive(Default)]
+struct Translations {
+    entries: Vec<(String, Vec<IpAddr>)>,
+    memory: Option<MemoryCharge>,
 }
 
 /// The Invocation's end lets go of every orphan still sending, so nothing it
@@ -120,7 +127,7 @@ impl Namespace {
             outbound,
             open_connections,
             connections_left: Mutex::new(connection_limit),
-            translations: Mutex::new(Vec::new()),
+            translations: Mutex::default(),
             next_port: Mutex::new(*VIRTUAL_PORTS.start()),
             tcp_sockets: Mutex::new(Vec::new()),
         })
@@ -159,13 +166,9 @@ impl Namespace {
         if self.judge(cred, &connection).is_err() {
             return Err(HttpError::Denied);
         }
-        // The guest has no IPv6, so an IPv6 literal reaches nothing once the
-        // hooks judged it, as its sockets answer EAFNOSUPPORT.
         let reachable = match literal {
-            Some(ip) if ip.is_ipv6() => false,
             Some(ip) => self
-                .ruleset
-                .admit_literal(SocketAddr::new(ip, port), Protocol::Http)
+                .admit_judged_literal(SocketAddr::new(ip, port), Protocol::Http)
                 .is_ok(),
             None => self.allows_lookup(&host),
         };
@@ -225,6 +228,7 @@ impl Namespace {
             .translations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .entries
             .iter()
             .find(|(known, _)| *known == name)
             .map(|(_, real)| real.clone());
@@ -285,7 +289,7 @@ impl Namespace {
     /// hold the entry, which the table keeps until the Invocation ends.
     pub fn alloc_virtual_address(
         &self,
-        cred: &Cred,
+        cred: &Arc<Cred>,
         lookup: &NameLookup,
     ) -> Option<Result<Ipv4Addr, LookupError>> {
         let real = match lookup.answer()? {
@@ -297,13 +301,14 @@ impl Namespace {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         if let Some(offset) = translations
+            .entries
             .iter()
             .position(|(known, _)| known == lookup.name())
             .and_then(|offset| u32::try_from(offset).ok())
         {
             return Some(Ok(Ipv4Addr::from(VIRTUAL_BASE + offset)));
         }
-        let Some(offset) = u32::try_from(translations.len())
+        let Some(offset) = u32::try_from(translations.entries.len())
             .ok()
             .filter(|o| *o < NAMED_SIZE)
         else {
@@ -313,10 +318,16 @@ impl Namespace {
         let held = std::mem::size_of_val(&entry)
             + entry.0.len()
             + entry.1.len() * std::mem::size_of::<IpAddr>();
-        if cred.security_vm_enough_memory(held).is_err() {
+        let charged = match &mut translations.memory {
+            Some(memory) => memory.resize(memory.bytes() + held),
+            None => MemoryCharge::new(cred, held).map(|memory| {
+                translations.memory = Some(memory);
+            }),
+        };
+        if charged.is_err() {
             return Some(Err(LookupError::TemporaryFailure));
         }
-        translations.push(entry);
+        translations.entries.push(entry);
         Some(Ok(Ipv4Addr::from(VIRTUAL_BASE + offset)))
     }
 
@@ -326,6 +337,7 @@ impl Namespace {
         self.translations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .entries
             .get(usize::try_from(offset).ok()?)
             .cloned()
     }
@@ -433,6 +445,22 @@ impl Namespace {
         }
     }
 
+    /// Whether a `protocol` connection may reach `addr`, a literal the socket
+    /// hooks already passed, for a socket and a request alike: the guest has
+    /// no IPv6, so an IPv6 one answers `EAFNOSUPPORT`, as
+    /// `inet_stream_connect` refuses it after `security_socket_connect`; any
+    /// other meets the ruleset as itself.
+    fn admit_judged_literal(
+        &self,
+        addr: SocketAddr,
+        protocol: Protocol,
+    ) -> Result<(), FilesystemError> {
+        if addr.is_ipv6() {
+            return Err(FilesystemError::AddressFamilyNotSupported);
+        }
+        self.ruleset.admit_literal(addr, protocol)
+    }
+
     /// The real addresses a `protocol` connection to `addr` may dial, once the
     /// socket hooks and the ruleset pass it. The hooks judge what the guest
     /// named first; only then does the address meet the guest's family, as
@@ -456,12 +484,9 @@ impl Namespace {
             _ => addr.ip().to_string(),
         };
         self.judge(cred, &Connection::new(&host, addr.port(), protocol))?;
-        if addr.is_ipv6() {
-            return Err(FilesystemError::AddressFamilyNotSupported);
-        }
         match translated {
             None => {
-                self.ruleset.admit_literal(addr, protocol)?;
+                self.admit_judged_literal(addr, protocol)?;
                 Ok(vec![addr])
             }
             Some(None) => Err(FilesystemError::PermissionDenied),
@@ -1128,7 +1153,7 @@ mod tests {
                 answer,
                 refused,
                 family.lookups.load(Ordering::SeqCst),
-                namespace.translations.lock().unwrap().len()
+                namespace.translations.lock().unwrap().entries.len()
             ),
             (
                 "198.18.0.0:6379".parse().unwrap(),

@@ -150,11 +150,7 @@ fn to_credentials(
                         "a credential's placement must be :bearer or :basic",
                     ))
                 }
-                None => Placement::Header(
-                    RString::try_convert(placement)?
-                        .to_string()?
-                        .to_ascii_lowercase(),
-                ),
+                None => Placement::Header(RString::try_convert(placement)?.to_string()?),
             };
             let placeholder: String = credential
                 .funcall::<_, _, Value>("placeholder", ())?

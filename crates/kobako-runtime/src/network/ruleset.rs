@@ -225,7 +225,9 @@ fn full_prefix_of(ip: IpAddr) -> u8 {
     }
 }
 
-fn contains(net: IpAddr, prefix: u8, ip: IpAddr) -> bool {
+/// Whether `ip` is within `net` at `prefix`, an address of another family
+/// never, read in `is_within`'s order.
+fn is_within_net(ip: IpAddr, net: IpAddr, prefix: u8) -> bool {
     match (net, ip) {
         (IpAddr::V4(net), IpAddr::V4(ip)) => is_within(ip, net.octets(), u32::from(prefix)),
         (IpAddr::V6(net), IpAddr::V6(ip)) => is_within_v6(ip, net, u32::from(prefix)),
@@ -269,10 +271,17 @@ fn encodes_unreserved(hex: &str) -> bool {
 }
 
 impl Rule {
+    /// Whether this rule speaks `protocol` at `port`.
+    fn serves(&self, port: u16, protocol: Protocol) -> bool {
+        self.port == port && self.protocol == protocol
+    }
+
     /// Whether this rule's host holds `host`, a name or a literal address.
     fn holds(&self, host: &str) -> bool {
         match host.parse::<IpAddr>() {
-            Ok(ip) => matches!(self.host, Host::Cidr(net, prefix) if contains(net, prefix, ip)),
+            Ok(ip) => {
+                matches!(self.host, Host::Cidr(net, prefix) if is_within_net(ip, net, prefix))
+            }
             Err(_) => self.names(host),
         }
     }
@@ -314,7 +323,7 @@ impl Rule {
             Addresses::Public => !own && address_set_of(ip) == AddressSet::Public,
             Addresses::Private => !own && address_set_of(ip) == AddressSet::Private,
             Addresses::Local => own || address_set_of(ip) == AddressSet::Local,
-            Addresses::Cidr(net, prefix) => contains(*net, *prefix, ip),
+            Addresses::Cidr(net, prefix) => is_within_net(ip, *net, *prefix),
         })
     }
 }
@@ -378,8 +387,7 @@ impl Ruleset {
     pub fn binds(&self, host: &str, port: u16, method: &str, path: &str) -> bool {
         is_unambiguous(path)
             && self.rules.iter().any(|rule| {
-                rule.port == port
-                    && rule.protocol == Protocol::Http
+                rule.serves(port, Protocol::Http)
                     && matches!(&rule.host, Host::Name(name) if name == host)
                     && rule.allows_request(method, path)
             })
@@ -390,8 +398,7 @@ impl Ruleset {
     /// admits the request.
     pub fn admits_request(&self, host: &str, port: u16, method: &str, path: &str) -> bool {
         self.rules.iter().any(|rule| {
-            rule.port == port
-                && rule.protocol == Protocol::Http
+            rule.serves(port, Protocol::Http)
                 && rule.holds(host)
                 && rule.allows_request(method, path)
         })
@@ -428,10 +435,7 @@ impl Ruleset {
             return false;
         };
         self.rules.iter().any(|rule| {
-            rule.port == addr.port()
-                && rule.protocol == protocol
-                && rule.names(name)
-                && rule.leads_to(ip, local)
+            rule.serves(addr.port(), protocol) && rule.names(name) && rule.leads_to(ip, local)
         })
     }
 
@@ -447,9 +451,8 @@ impl Ruleset {
     ) -> Result<(), FilesystemError> {
         let ip = to_screened(addr.ip()).ok_or(FilesystemError::PermissionDenied)?;
         let matched = self.rules.iter().any(|rule| {
-            rule.port == addr.port()
-                && rule.protocol == protocol
-                && matches!(rule.host, Host::Cidr(net, prefix) if contains(net, prefix, ip))
+            rule.serves(addr.port(), protocol)
+                && matches!(rule.host, Host::Cidr(net, prefix) if is_within_net(ip, net, prefix))
         });
         match matched {
             true => Ok(()),
