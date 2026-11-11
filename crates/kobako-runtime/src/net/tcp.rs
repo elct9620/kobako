@@ -225,7 +225,7 @@ impl TcpSock {
                 Err(err) => last = to_error(&err),
             }
         }
-        Self::close(state, last);
+        Self::done_with_error(state, last);
     }
 
     /// Give the host socket `socket` the options the guest set.
@@ -235,9 +235,10 @@ impl TcpSock {
         set_hop_limit(socket, state.inet.ttl)
     }
 
-    /// Close the socket on `err`, as `tcp_done` does after a failed connect
-    /// or a reset: `TCP_CLOSE`, both sides shut down, the failure pending.
-    fn close(state: &mut State, err: FilesystemError) {
+    /// End the socket on `err`, as `tcp_done_with_error` does after a failed
+    /// connect or a reset: `TCP_CLOSE`, both sides shut down, the failure
+    /// pending.
+    fn done_with_error(state: &mut State, err: FilesystemError) {
         Self::close_host(state);
         state.inet.put_port();
         state.phase = match state.phase {
@@ -280,7 +281,7 @@ impl TcpSock {
             return;
         }
         if let Err(err) = Self::move_bytes(state) {
-            Self::close(state, err);
+            Self::done_with_error(state, err);
         }
     }
 
@@ -530,18 +531,18 @@ impl ProtoOps for TcpSock {
         poll_wait(&self.wait, table);
         let state = self.state();
         let closed = state.phase == Phase::Unconnected || state.phase.is_closed();
-        let rcv_shutdown = state.received_end || state.inet.rcv_shut || state.phase.is_closed();
-        let send_shutdown = state.inet.send_shut || state.phase.is_closed();
+        let rcv_shut = state.received_end || state.inet.rcv_shut || state.phase.is_closed();
+        let send_shut = state.inet.send_shut || state.phase.is_closed();
         let mut mask = PollMask::default();
-        if closed || (rcv_shutdown && send_shutdown) {
+        if closed || (rcv_shut && send_shut) {
             mask = mask | PollMask::HUP;
         }
-        if !state.receive_queue.is_empty() || rcv_shutdown {
+        if !state.receive_queue.is_empty() || rcv_shut {
             mask = mask | PollMask::IN;
         }
         let queued = state.write_queue.len();
-        let writeable = state.inet.buffers.sndbuf.saturating_sub(queued) >= queued / 2;
-        if state.phase != Phase::Connecting && (send_shutdown || writeable) {
+        let writable = state.inet.buffers.sndbuf.saturating_sub(queued) >= queued / 2;
+        if state.phase != Phase::Connecting && (send_shut || writable) {
             mask = mask | PollMask::OUT;
         }
         if state.inet.error.is_some() {

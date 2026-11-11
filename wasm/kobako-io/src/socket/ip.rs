@@ -28,14 +28,14 @@ fn ip_socket_recvfrom(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, 
         mrb,
         self_,
         args,
-        PastBuffer::new(Wait::Block, "recvfrom", true),
+        PastBuffer::new(Wait::Blocking, "recvfrom", true),
     )
 }
 
 /// `addr(reverse_lookup = nil)` answers the socket's own end: the virtual
 /// address and port the host hands the guest for it.
 fn ip_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    reverse_lookup_of(mrb, args)?;
+    ensure_reverse_lookup_args(mrb, args)?;
     to_addr_array(mrb, open_socket_of(mrb, self_)?.local_end(mrb)?)
 }
 
@@ -43,12 +43,12 @@ fn ip_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
 /// The guest names no host, so a reverse lookup asked for answers the
 /// address.
 fn ip_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    reverse_lookup_of(mrb, args)?;
+    ensure_reverse_lookup_args(mrb, args)?;
     to_addr_array(mrb, open_socket_of(mrb, self_)?.peer_end(mrb)?)
 }
 
 /// `addr` and `peeraddr` take at most a `reverse_lookup` flag.
-fn reverse_lookup_of(mrb: &Mrb, args: &[Value]) -> Result<(), Error> {
+fn ensure_reverse_lookup_args(mrb: &Mrb, args: &[Value]) -> Result<(), Error> {
     // CRuby's `ip_addr` reads the first argument alone and leaves the rest.
     match args.first() {
         None => Ok(()),

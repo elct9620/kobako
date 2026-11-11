@@ -12,7 +12,7 @@ use beni::{
     Error, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash, TryConvert, TypedData, Value,
 };
 
-use super::address::{end_of, pack_host, port_of, sockaddr_of};
+use super::address::{end_of, pack_host, port_of, to_sockaddr};
 use super::basic::{open_socket_of, string_value_of};
 use super::{
     family_of, name_of, resolution_error, socket_error, Family, AF_INET, AF_INET6, EAI_NONAME,
@@ -479,12 +479,12 @@ fn addrinfo_ip_unpack(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 fn addrinfo_to_sockaddr(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let info = Addrinfo::of(mrb, self_)?;
-    Ok(mrb.str_new(&sockaddr_of(info.ip, info.port)).as_value())
+    Ok(mrb.str_new(&to_sockaddr(info.ip, info.port)).as_value())
 }
 
 /// The address as CRuby's `inspect_sockaddr` shows it: the port after it
 /// when there is one, an IPv6 address in brackets then.
-fn sockaddr_text(info: &Addrinfo) -> String {
+fn sockaddr_text_of(info: &Addrinfo) -> String {
     match (info.ip, info.port) {
         (ip, 0) => ip.to_string(),
         (IpAddr::V4(ip), port) => format!("{ip}:{port}"),
@@ -493,7 +493,7 @@ fn sockaddr_text(info: &Addrinfo) -> String {
 }
 
 fn addrinfo_inspect_sockaddr(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let text = sockaddr_text(Addrinfo::of(mrb, self_)?);
+    let text = sockaddr_text_of(Addrinfo::of(mrb, self_)?);
     Ok(mrb.str_new(text.as_bytes()).as_value())
 }
 
@@ -502,7 +502,7 @@ fn addrinfo_inspect_sockaddr(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// up.
 fn addrinfo_inspect(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let info = Addrinfo::of(mrb, self_)?;
-    let mut text = format!("#<Addrinfo: {}", sockaddr_text(info));
+    let mut text = format!("#<Addrinfo: {}", sockaddr_text_of(info));
     if info.pfamily != 0 && info.pfamily != afamily_of(info.ip) {
         text += &match info.pfamily {
             AF_INET => " PF_INET".to_string(),

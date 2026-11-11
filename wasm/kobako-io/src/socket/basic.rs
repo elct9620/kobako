@@ -13,7 +13,7 @@ use beni::{
     Error, Integer, IntoValue, Mrb, Qfalse, RClass, RHash, RString, Symbol, TryConvert, Value,
 };
 
-use super::address::sockaddr_of;
+use super::address::to_sockaddr;
 use super::buffer::{eof_error, fill};
 use super::ip::to_addr_array;
 use super::option::Refusal;
@@ -26,7 +26,7 @@ use crate::wasi::wasi::io::poll::Pollable;
 /// for one `recvmsg` or `sendmsg`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Wait {
-    Block,
+    Blocking,
     DontWait,
 }
 
@@ -34,7 +34,7 @@ impl Wait {
     /// How long a wait under it may last: unbounded, or not at all.
     pub(super) fn timeout(self) -> Option<std::time::Duration> {
         match self {
-            Wait::Block => None,
+            Wait::Blocking => None,
             Wait::DontWait => Some(std::time::Duration::ZERO),
         }
     }
@@ -229,7 +229,7 @@ pub(super) fn ready_of<T>(poll: Poll<T>) -> T {
 /// The arguments before a trailing `exception:` keyword, and whether a call
 /// that would wait raises, as CRuby's socket `*_nonblock` methods take it:
 /// `true` unless given `false`, as `init.c` asks only `ex == Qfalse`.
-pub(super) fn exception_option<'a>(
+pub(super) fn exception_option_of<'a>(
     mrb: &Mrb,
     args: &'a [Value],
 ) -> Result<(&'a [Value], bool), Error> {
@@ -344,7 +344,7 @@ fn socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Err
     if bytes.is_empty() {
         return Ok(0.into_value(mrb));
     }
-    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block, None)?);
+    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Blocking, None)?);
     Ok((sent as i64).into_value(mrb))
 }
 
@@ -353,7 +353,7 @@ fn socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Err
 /// `IO::EAGAINWaitWritable`, or answers `:wait_writable` with
 /// `exception: false`, as CRuby's does.
 fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (args, exception) = exception_option(mrb, args)?;
+    let (args, exception) = exception_option_of(mrb, args)?;
     let [string] = args else {
         return Err(Error::argnum(mrb, args.len(), 1, 1));
     };
@@ -368,7 +368,7 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
 /// answering how many it sent.
 fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Error> {
     let bytes = written_bytes_of(mrb, string)?;
-    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block, None)?);
+    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Blocking, None)?);
     Ok((sent as i64).into_value(mrb))
 }
 
@@ -447,7 +447,7 @@ fn socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
     let send = send_args_of(mrb, self_, mesg, flags, dest, false)?;
     let sent = ready_of(
         send.socket
-            .send(mrb, &send.bytes, Wait::Block, Some(send.call))?,
+            .send(mrb, &send.bytes, Wait::Blocking, Some(send.call))?,
     );
     Ok((sent as i64).into_value(mrb))
 }
@@ -625,13 +625,13 @@ fn close_side(mrb: &Mrb, self_: Value, how: Shutdown) -> Result<Value, Error> {
 /// `getsockname` answers the socket's own end packed as a `sockaddr_in`.
 fn socket_getsockname(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let (ip, port) = open_socket_of(mrb, self_)?.local_end(mrb)?;
-    Ok(mrb.str_new(&sockaddr_of(ip.into(), port)).as_value())
+    Ok(mrb.str_new(&to_sockaddr(ip.into(), port)).as_value())
 }
 
 /// `getpeername` answers the peer packed as a `sockaddr_in`.
 fn socket_getpeername(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let (ip, port) = open_socket_of(mrb, self_)?.peer_end(mrb)?;
-    Ok(mrb.str_new(&sockaddr_of(ip.into(), port)).as_value())
+    Ok(mrb.str_new(&to_sockaddr(ip.into(), port)).as_value())
 }
 
 /// `close` releases the socket; closing it again does nothing.
@@ -649,7 +649,7 @@ fn socket_closed_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 /// leaving `outbuf` as it was. Like CRuby's `recvfrom(2)`, it reads whether
 /// or not `close_read` closed the reading side.
 fn socket_recv(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let past = PastBuffer::new(Wait::Block, "recv", false);
+    let past = PastBuffer::new(Wait::Blocking, "recv", false);
     receive_past_buffer(mrb, self_, args, past)
 }
 
@@ -731,7 +731,7 @@ fn socket_sysread(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
     }
     let source = reader_of(mrb, self_)?;
     direct.ensure_takes(mrb, source, "sysread for buffered IO")?;
-    match ready_of(source.receive(mrb, maxlen, Wait::Block)?) {
+    match ready_of(source.receive(mrb, maxlen, Wait::Blocking)?) {
         Some(bytes) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
         None => Err(eof_error(mrb)),
     }
@@ -742,7 +742,7 @@ fn socket_sysread(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
 /// raises `IO::EAGAINWaitReadable`, or answers `:wait_readable` with
 /// `exception: false`. Bytes a read held back raise `IOError`, as CRuby's.
 fn socket_recv_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (args, exception) = exception_option(mrb, args)?;
+    let (args, exception) = exception_option_of(mrb, args)?;
     let past = PastBuffer::new(Wait::DontWait, "recvfrom", false).with_exception(exception);
     receive_past_buffer(mrb, self_, args, past)
 }

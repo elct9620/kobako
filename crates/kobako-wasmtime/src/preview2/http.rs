@@ -60,7 +60,7 @@ pub(crate) struct Request {
 
 impl Request {
     /// The bytes the guest's own strings hold.
-    fn room(&self) -> usize {
+    fn size(&self) -> usize {
         let method = match &self.method {
             Method::Other(other) => other.len(),
             _ => 0,
@@ -178,8 +178,10 @@ fn to_method_name(method: &Method) -> Option<String> {
 }
 
 impl Invocation {
-    fn request(&mut self, request: OutgoingRequest) -> wasmtime::Result<&mut Request> {
-        self.table().get_mut(request).map(|request| &mut request.0)
+    fn request_mut(&mut self, request: OutgoingRequest) -> wasmtime::Result<&mut Request> {
+        self.table_mut()
+            .get_mut(request)
+            .map(|request| &mut request.0)
     }
 
     /// Change `request` through `change`, then reserve what its strings now
@@ -190,17 +192,17 @@ impl Invocation {
         request: OutgoingRequest,
         change: impl FnOnce(&mut Request),
     ) -> wasmtime::Result<()> {
-        let request = self.request(request)?;
+        let request = self.request_mut(request)?;
         change(request);
-        let room = request.room();
+        let size = request.size();
         request
             .memory
-            .resize(room)
+            .resize(size)
             .map_err(|_| wasmtime::Error::msg("the guest's request outgrows its memory"))
     }
 
-    fn future(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<&mut FutureState> {
-        self.table().get_mut(future).map(|future| &mut future.0)
+    fn future_mut(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<&mut FutureState> {
+        self.table_mut().get_mut(future).map(|future| &mut future.0)
     }
 
     /// Hand `request` to the namespace, which judges it here on the guest
@@ -246,7 +248,7 @@ impl Invocation {
     /// The future's request leaves once its body ended, and fails once its body
     /// was dropped unfinished.
     fn advance(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<()> {
-        let state = self.future(future)?;
+        let state = self.future_mut(future)?;
         if matches!(state, FutureState::Waiting(request) if request.link.is_aborted()) {
             *state = FutureState::Refused(ErrorCode::HTTPProtocolError);
             return Ok(());
@@ -258,7 +260,7 @@ impl Invocation {
             unreachable!("matched as waiting above");
         };
         let sent = self.send(request);
-        *self.future(future)? = sent;
+        *self.future_mut(future)? = sent;
         Ok(())
     }
 }
@@ -277,7 +279,7 @@ impl HttpHost for Invocation {
 
     fn types_fields_new(&mut self) -> wasmtime::Result<Fields> {
         let entries = net::Fields::new(self.wasi().cred().clone());
-        self.table().push(resource::Fields {
+        self.table_mut().push(resource::Fields {
             entries,
             mutable: true,
         })
@@ -292,7 +294,7 @@ impl HttpHost for Invocation {
         name: String,
         value: Vec<u8>,
     ) -> Result<(), error::HeaderError> {
-        let fields = self.table().get(this)?;
+        let fields = self.table_mut().get(this)?;
         if !fields.mutable {
             // The header is read before the list is found immutable, as
             // wasmtime parses one before it asks whether it may change.
@@ -311,11 +313,11 @@ impl HttpHost for Invocation {
     }
 
     fn types_fields_entries(&mut self, this: Fields) -> wasmtime::Result<Vec<(String, Vec<u8>)>> {
-        Ok(self.table().get(this)?.entries.entries())
+        Ok(self.table_mut().get(this)?.entries.entries())
     }
 
     fn types_fields_drop(&mut self, handle: Fields) -> wasmtime::Result<()> {
-        self.table().delete(handle).map(drop)
+        self.table_mut().delete(handle).map(drop)
     }
 
     /// A GET with `headers`, which it takes, and a body the guest may ask for.
@@ -332,7 +334,7 @@ impl HttpHost for Invocation {
             finished: AtomicBool::new(false),
             aborted: AtomicBool::new(false),
         });
-        self.table().push(resource::OutgoingRequest(Request {
+        self.table_mut().push(resource::OutgoingRequest(Request {
             method: Method::Get,
             scheme: None,
             authority: None,
@@ -348,11 +350,11 @@ impl HttpHost for Invocation {
         &mut self,
         this: OutgoingRequest,
     ) -> wasmtime::Result<Result<OutgoingBody, ()>> {
-        let link = self.request(this)?.link.clone();
+        let link = self.request_mut(this)?.link.clone();
         if link.handed.swap(true, Ordering::AcqRel) {
             return Ok(Err(()));
         }
-        self.table()
+        self.table_mut()
             .push(resource::OutgoingBody {
                 link,
                 stream_handed: false,
@@ -397,7 +399,7 @@ impl HttpHost for Invocation {
                 return Ok(Err(()));
             }
         }
-        self.request(this)?.scheme = scheme;
+        self.request_mut(this)?.scheme = scheme;
         Ok(Ok(()))
     }
 
@@ -417,7 +419,7 @@ impl HttpHost for Invocation {
     }
 
     fn types_outgoing_request_drop(&mut self, handle: OutgoingRequest) -> wasmtime::Result<()> {
-        self.table().delete(handle).map(drop)
+        self.table_mut().delete(handle).map(drop)
     }
 
     /// The stream writing the body, handed out once.
@@ -425,12 +427,12 @@ impl HttpHost for Invocation {
         &mut self,
         this: OutgoingBody,
     ) -> wasmtime::Result<Result<OutputStream, ()>> {
-        let body = self.table().get_mut(this)?;
+        let body = self.table_mut().get_mut(this)?;
         if std::mem::replace(&mut body.stream_handed, true) {
             return Ok(Err(()));
         }
         let stream = Stream::File(Arc::new(Mutex::new(body.link.body.alloc_file())));
-        self.table()
+        self.table_mut()
             .push_child(table::OutputStream::new(stream), this)
             .map(Ok)
     }
@@ -449,7 +451,7 @@ impl HttpHost for Invocation {
     /// A body dropped unfinished fails its request, as wasmtime-wasi-http aborts
     /// it with an HTTP protocol error.
     fn types_outgoing_body_drop(&mut self, handle: OutgoingBody) -> wasmtime::Result<()> {
-        let link = self.table().delete(handle)?.link;
+        let link = self.table_mut().delete(handle)?.link;
         link.aborted.store(true, Ordering::Release);
         Ok(())
     }
@@ -461,11 +463,11 @@ impl HttpHost for Invocation {
         this: FutureIncomingResponse,
     ) -> wasmtime::Result<Pollable> {
         self.advance(this)?;
-        let pollable = match self.future(this)? {
+        let pollable = match self.future_mut(this)? {
             FutureState::Sent(_, file) => table::Pollable::File(file.clone(), PollMask::IN),
             _ => table::Pollable::Ready,
         };
-        self.table().push_child(pollable, this)
+        self.table_mut().push_child(pollable, this)
     }
 
     /// The response once its head arrives, handed out once.
@@ -475,7 +477,7 @@ impl HttpHost for Invocation {
         this: FutureIncomingResponse,
     ) -> wasmtime::Result<Option<Result<Result<IncomingResponse, ErrorCode>, ()>>> {
         self.advance(this)?;
-        let state = self.future(this)?;
+        let state = self.future_mut(this)?;
         let answer = match state {
             FutureState::Waiting(_) => return Ok(None),
             FutureState::Taken => return Ok(Some(Err(()))),
@@ -489,7 +491,7 @@ impl HttpHost for Invocation {
         *state = FutureState::Taken;
         match answer {
             Ok((status, exchange)) => self
-                .table()
+                .table_mut()
                 .push(resource::IncomingResponse {
                     status,
                     exchange,
@@ -506,11 +508,11 @@ impl HttpHost for Invocation {
     ) -> wasmtime::Result<()> {
         // A sent future holds its exchange's last reference beside its own
         // child pollable, so dropping it lets the exchange go.
-        self.table().delete(handle).map(drop)
+        self.table_mut().delete(handle).map(drop)
     }
 
     fn types_incoming_response_status(&mut self, this: IncomingResponse) -> wasmtime::Result<u16> {
-        Ok(self.table().get(this)?.status)
+        Ok(self.table_mut().get(this)?.status)
     }
 
     /// The response's headers, which the guest cannot change; a copy that
@@ -519,13 +521,13 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingResponse,
     ) -> wasmtime::Result<Fields> {
-        let headers = match self.table().get(this)?.exchange.response() {
+        let headers = match self.table_mut().get(this)?.exchange.response() {
             Some(Ok(head)) => head.headers,
             _ => unreachable!("a response is handed out only once its head arrived"),
         };
         let cred = self.wasi().cred().clone();
         let entries = net::Fields::with_entries(cred, headers).map_err(to_field_trap)?;
-        self.table().push(resource::Fields {
+        self.table_mut().push(resource::Fields {
             entries,
             mutable: false,
         })
@@ -536,12 +538,12 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingResponse,
     ) -> wasmtime::Result<Result<IncomingBody, ()>> {
-        let response = self.table().get_mut(this)?;
+        let response = self.table_mut().get_mut(this)?;
         if std::mem::replace(&mut response.consumed, true) {
             return Ok(Err(()));
         }
         let exchange = response.exchange.clone();
-        self.table()
+        self.table_mut()
             .push(resource::IncomingBody {
                 exchange,
                 stream_handed: false,
@@ -551,7 +553,7 @@ impl HttpHost for Invocation {
 
     /// A response dropped with its body never asked for lets the exchange go.
     fn types_incoming_response_drop(&mut self, handle: IncomingResponse) -> wasmtime::Result<()> {
-        let response = self.table().delete(handle)?;
+        let response = self.table_mut().delete(handle)?;
         if !response.consumed {
             response.exchange.release();
         }
@@ -563,13 +565,13 @@ impl HttpHost for Invocation {
         &mut self,
         this: IncomingBody,
     ) -> wasmtime::Result<Result<InputStream, ()>> {
-        let body = self.table().get_mut(this)?;
+        let body = self.table_mut().get_mut(this)?;
         if std::mem::replace(&mut body.stream_handed, true) {
             return Ok(Err(()));
         }
         let exchange = body.exchange.clone();
         let file = Arc::new(Mutex::new(exchange.alloc_body_file(self.wasi().cred())));
-        self.table()
+        self.table_mut()
             .push_child(table::InputStream::new(Stream::File(file)), this)
             .map(Ok)
     }
@@ -580,15 +582,15 @@ impl HttpHost for Invocation {
         this: resource::IncomingBody,
     ) -> wasmtime::Result<FutureTrailers> {
         this.exchange.release();
-        self.table().push(resource::FutureTrailers)
+        self.table_mut().push(resource::FutureTrailers)
     }
 
     fn types_incoming_body_drop(&mut self, handle: IncomingBody) -> wasmtime::Result<()> {
-        self.table().delete(handle).map(drop)
+        self.table_mut().delete(handle).map(drop)
     }
 
     fn types_future_trailers_drop(&mut self, handle: FutureTrailers) -> wasmtime::Result<()> {
-        self.table().delete(handle).map(drop)
+        self.table_mut().delete(handle).map(drop)
     }
 
     /// Send `request`, which it takes. Without a network Grant it answers
@@ -615,7 +617,7 @@ impl HttpHost for Invocation {
             return Err(code.into());
         }
         Ok(self
-            .table()
+            .table_mut()
             .push_file(resource::FutureIncomingResponse(future))?)
     }
 }
@@ -848,7 +850,7 @@ mod tests {
             set(&mut guest, fields, "x-ok"),
         ];
         let entries = net::Fields::new(guest.wasi().cred().clone());
-        let frozen = guest.table().push(resource::Fields {
+        let frozen = guest.table_mut().push(resource::Fields {
             entries,
             mutable: false,
         });
@@ -972,7 +974,7 @@ mod tests {
                 .types_outgoing_request_set_path_with_query(request, Some(value.to_string()))
                 .unwrap()
                 .ok()
-                .map(|()| guest.request(request).unwrap().path_with_query.clone())
+                .map(|()| guest.request_mut(request).unwrap().path_with_query.clone())
         };
         let paths = [path(""), path("?q"), path("relative")];
         assert_eq!(
@@ -1004,7 +1006,7 @@ mod tests {
             .types_outgoing_request_set_path_with_query(request, Some("/admin#x".to_string()))
             .unwrap()
             .expect("a path with a fragment");
-        let target = guest.request(request).unwrap().path_with_query.clone();
+        let target = guest.request_mut(request).unwrap().path_with_query.clone();
         let request = guest.take_handle(request).unwrap();
         let answer = guest.outgoing_handler_handle(request, None).into_answer();
         assert!(
@@ -1021,7 +1023,7 @@ mod tests {
         let mut guest = guest(None);
         let entries = net::Fields::new(guest.wasi().cred().clone());
         let frozen = guest
-            .table()
+            .table_mut()
             .push(resource::Fields {
                 entries,
                 mutable: false,

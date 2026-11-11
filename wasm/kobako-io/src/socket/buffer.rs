@@ -9,7 +9,7 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, RHash, RString, Symbol, TryConvert, Value};
 
 use super::basic::{
-    exception_option, open_socket_of, outbuf_of, read_length_of, reader_of, ready_of, source_of,
+    exception_option_of, open_socket_of, outbuf_of, read_length_of, reader_of, ready_of, source_of,
     strbuf_length_of, string_value_of, SocketIo, Wait,
 };
 use crate::io::{argument_error, required_block, would_wait, Direction};
@@ -112,7 +112,7 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
     let mut read = Vec::new();
     while length.is_none_or(|length| read.len() < length) {
         let want = length.map_or(MAX_READ, |length| length - read.len());
-        match ready_of(read_some(mrb, source, want, Wait::Block)?) {
+        match ready_of(read_some(mrb, source, want, Wait::Blocking)?) {
             Some(bytes) => read.extend(bytes),
             None => break,
         }
@@ -127,7 +127,7 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
 /// `readpartial(maxlen, outbuf = nil)` answers what one read brings, into
 /// `outbuf` when given, raising `EOFError` at the end, as CRuby does.
 fn socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    read_partial(mrb, self_, args, Wait::Block, true)
+    read_partial(mrb, self_, args, Wait::Blocking, true)
 }
 
 /// `read_nonblock(maxlen, outbuf = nil, exception: true)` answers as
@@ -135,7 +135,7 @@ fn socket_readpartial(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, 
 /// `IO::EAGAINWaitReadable`. With `exception: false` it answers
 /// `:wait_readable` instead, and `nil` at the end.
 fn socket_read_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (args, exception) = exception_option(mrb, args)?;
+    let (args, exception) = exception_option_of(mrb, args)?;
     read_partial(mrb, self_, args, Wait::DontWait, exception)
 }
 
@@ -156,7 +156,7 @@ fn read_partial(
     // `readpartial` reads its length as `io_getpartial` does, and
     // `read_nonblock` as `rsock_read_nonblock` sizes its buffer.
     let maxlen = match wait {
-        Wait::Block => read_length_of(mrb, maxlen)?,
+        Wait::Blocking => read_length_of(mrb, maxlen)?,
         Wait::DontWait => strbuf_length_of(mrb, maxlen)?,
     };
     let outbuf = outbuf_of(mrb, outbuf)?;
@@ -165,7 +165,7 @@ fn read_partial(
     // `read_nonblock` reads past a `close_read`, as `rsock_read_nonblock`
     // takes the IO alone.
     let source = match wait {
-        Wait::Block => reader_of(mrb, self_)?,
+        Wait::Blocking => reader_of(mrb, self_)?,
         Wait::DontWait => open_socket_of(mrb, self_)?,
     };
     if maxlen == 0 {
@@ -186,7 +186,7 @@ fn read_partial(
 /// A limit of zero answers an empty line at once; an empty separator reads a
 /// paragraph, skipping the newlines before and after it, as CRuby's `rspara`
 /// does.
-fn next_line(
+fn take_line(
     mrb: &Mrb,
     source: &dyn SocketIo,
     (separator, limit, chomp): &LineArgs,
@@ -209,7 +209,7 @@ fn next_line(
             source.io().rbuf.borrow_mut().splice(0..0, rest);
             break;
         }
-        match ready_of(read_some(mrb, source, MAX_READ, Wait::Block)?) {
+        match ready_of(read_some(mrb, source, MAX_READ, Wait::Blocking)?) {
             Some(bytes) => line.extend(bytes),
             None => break,
         }
@@ -231,7 +231,7 @@ fn next_line(
 /// Drop the newlines that stand next, reading on until another byte or the
 /// end comes, as CRuby's `swallow` does around a paragraph.
 fn skip_newlines(mrb: &Mrb, source: &dyn SocketIo) -> Result<(), Error> {
-    while ready_of(refill(mrb, source, Wait::Block)?) {
+    while ready_of(refill(mrb, source, Wait::Blocking)?) {
         let mut held = source.io().rbuf.borrow_mut();
         let newlines = held.iter().take_while(|byte| **byte == b'\n').count();
         held.drain(..newlines);
@@ -255,7 +255,7 @@ fn ensure_limit(mrb: &Mrb, (_, limit, _): &LineArgs, name: &str) -> Result<(), E
 /// `nil` at the end.
 fn socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let line_args = line_args_of(mrb, args)?;
-    Ok(match next_line(mrb, reader_of(mrb, self_)?, &line_args)? {
+    Ok(match take_line(mrb, reader_of(mrb, self_)?, &line_args)? {
         Some(line) => mrb.str_new(&line).as_value(),
         None => qnil().as_value(),
     })
@@ -273,7 +273,7 @@ pub(super) fn eof_error(mrb: &Mrb) -> Error {
 /// raising `EOFError` at the end.
 fn socket_readline(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let line_args = line_args_of(mrb, args)?;
-    match next_line(mrb, reader_of(mrb, self_)?, &line_args)? {
+    match take_line(mrb, reader_of(mrb, self_)?, &line_args)? {
         Some(line) => Ok(mrb.str_new(&line).as_value()),
         None => Err(eof_error(mrb)),
     }
@@ -281,12 +281,12 @@ fn socket_readline(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
 
 /// The next byte, waiting for one, without taking it; `None` at the end.
 fn peek_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
-    ready_of(refill(mrb, source, Wait::Block)?);
+    ready_of(refill(mrb, source, Wait::Blocking)?);
     Ok(source.io().rbuf.borrow().first().copied())
 }
 
 /// The next byte, taking it; `None` at the end.
-fn next_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
+fn take_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
     let byte = peek_byte(mrb, source)?;
     if byte.is_some() {
         source.io().rbuf.borrow_mut().remove(0);
@@ -296,13 +296,13 @@ fn next_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
 
 /// The next character, one byte, as a socket reads in binary mode, which
 /// CRuby's `rsock_init_sock` sets; `None` at the end.
-fn next_char(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<Vec<u8>>, Error> {
-    Ok(next_byte(mrb, source)?.map(|byte| vec![byte]))
+fn take_char(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<Vec<u8>>, Error> {
+    Ok(take_byte(mrb, source)?.map(|byte| vec![byte]))
 }
 
 /// `getc` answers the next character, `nil` at the end.
 fn socket_getc(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    Ok(match next_char(mrb, reader_of(mrb, self_)?)? {
+    Ok(match take_char(mrb, reader_of(mrb, self_)?)? {
         Some(char) => mrb.str_new(&char).as_value(),
         None => qnil().as_value(),
     })
@@ -310,7 +310,7 @@ fn socket_getc(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// `readchar` answers the next character, raising `EOFError` at the end.
 fn socket_readchar(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    match next_char(mrb, reader_of(mrb, self_)?)? {
+    match take_char(mrb, reader_of(mrb, self_)?)? {
         Some(char) => Ok(mrb.str_new(&char).as_value()),
         None => Err(eof_error(mrb)),
     }
@@ -318,7 +318,7 @@ fn socket_readchar(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 
 /// `getbyte` answers the next byte as an Integer, `nil` at the end.
 fn socket_getbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    Ok(match next_byte(mrb, reader_of(mrb, self_)?)? {
+    Ok(match take_byte(mrb, reader_of(mrb, self_)?)? {
         Some(byte) => i64::from(byte).into_value(mrb),
         None => qnil().as_value(),
     })
@@ -327,7 +327,7 @@ fn socket_getbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// `readbyte` answers the next byte as an Integer, raising `EOFError` at the
 /// end.
 fn socket_readbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    match next_byte(mrb, reader_of(mrb, self_)?)? {
+    match take_byte(mrb, reader_of(mrb, self_)?)? {
         Some(byte) => Ok(i64::from(byte).into_value(mrb)),
         None => Err(eof_error(mrb)),
     }
@@ -337,7 +337,7 @@ fn socket_readbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn socket_each_char(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let block = required_block(mrb, "each_char")?;
     let source = reader_of(mrb, self_)?;
-    while let Some(char) = next_char(mrb, source)? {
+    while let Some(char) = take_char(mrb, source)? {
         let _scope = mrb.arena_scope();
         block.call::<_, Value>(mrb, [mrb.str_new(&char).as_value()])?;
     }
@@ -348,7 +348,7 @@ fn socket_each_char(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn socket_each_byte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let block = required_block(mrb, "each_byte")?;
     let source = reader_of(mrb, self_)?;
-    while let Some(byte) = next_byte(mrb, source)? {
+    while let Some(byte) = take_byte(mrb, source)? {
         block.call::<_, Value>(mrb, [i64::from(byte).into_value(mrb)])?;
     }
     Ok(self_)
@@ -416,7 +416,7 @@ fn socket_each_line(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
     let line_args = line_args_of(mrb, args)?;
     ensure_limit(mrb, &line_args, "each_line")?;
     let source = reader_of(mrb, self_)?;
-    while let Some(line) = next_line(mrb, source, &line_args)? {
+    while let Some(line) = take_line(mrb, source, &line_args)? {
         let _scope = mrb.arena_scope();
         block.call::<_, Value>(mrb, [mrb.str_new(&line).as_value()])?;
     }
@@ -430,7 +430,7 @@ fn socket_readlines(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
     ensure_limit(mrb, &line_args, "readlines")?;
     let source = reader_of(mrb, self_)?;
     let lines = mrb.ary_new();
-    while let Some(line) = next_line(mrb, source, &line_args)? {
+    while let Some(line) = take_line(mrb, source, &line_args)? {
         lines.push(mrb, mrb.str_new(&line).as_value())?;
     }
     Ok(lines.as_value())
@@ -439,7 +439,11 @@ fn socket_readlines(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
 /// `eof?` waits for the next bytes, holding them for the next read, and
 /// answers whether the end came instead, as CRuby's fills its buffer.
 fn socket_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
-    Ok(!ready_of(refill(mrb, reader_of(mrb, self_)?, Wait::Block)?))
+    Ok(!ready_of(refill(
+        mrb,
+        reader_of(mrb, self_)?,
+        Wait::Blocking,
+    )?))
 }
 
 /// What `gets` and its kin take: the separator, `None` to read to the end,

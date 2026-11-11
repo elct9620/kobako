@@ -41,7 +41,7 @@ struct UnreadBody {
     stream: Option<InputStream>,
     body: Option<IncomingBody>,
     /// How long one chunk may take, as `read_timeout` bounds each read.
-    read: Option<Duration>,
+    read_timeout: Option<Duration>,
     /// Whether the response carries a body; one that carries none answers
     /// `nil` for it, as CRuby's does.
     carried: bool,
@@ -57,7 +57,7 @@ impl UnreadBody {
         let Some(stream) = &self.stream else {
             return Ok(None);
         };
-        match read_within(stream, MAX_READ as u64, self.read) {
+        match read_within(stream, MAX_READ as u64, self.read_timeout) {
             Ok(Some(bytes)) => Ok(Some(bytes)),
             Ok(None) => Err(net_error(mrb, c"ReadTimeout", "Net::ReadTimeout")),
             Err(StreamError::Closed) => {
@@ -969,7 +969,7 @@ fn send(mrb: &Mrb, parts: &RequestParts<'_>) -> Result<Answer, Error> {
         body: UnreadBody {
             stream: Some(stream),
             body: Some(incoming),
-            read: parts.timeouts.read,
+            read_timeout: parts.timeouts.read,
             carried,
             sized,
         },
@@ -1009,7 +1009,7 @@ fn to_error(mrb: &Mrb, parts: &RequestParts<'_>, code: ErrorCode) -> Error {
         ErrorCode::ConnectionLimitReached => connect(c"EAGAIN"),
         ErrorCode::DestinationNotFound | ErrorCode::DnsError(_) => {
             let (code, words) = socket::EAI_NONAME;
-            socket::resolution_error_with(mrb, code, &opening(&format!("getaddrinfo: {words}")))
+            socket::to_resolution_error(mrb, code, &opening(&format!("getaddrinfo: {words}")))
         }
         ErrorCode::ConnectionTimeout => {
             net_error(mrb, c"OpenTimeout", &opening("execution expired"))
@@ -1181,7 +1181,7 @@ fn family_of(status: u16) -> &'static core::ffi::CStr {
 
 /// The `Net::HTTPResponse` subclass a status stands for: its own, or its
 /// family's.
-fn response_class(mrb: &Mrb, status: u16) -> Result<RClass, Error> {
+fn response_class_of(mrb: &Mrb, status: u16) -> Result<RClass, Error> {
     let name = STATUSES
         .iter()
         .find(|(code, ..)| *code == status)
@@ -1202,7 +1202,7 @@ fn to_response(
     headers: Vec<(String, Vec<u8>)>,
     body: Option<&[u8]>,
 ) -> Result<Value, Error> {
-    let response: Value = response_class(mrb, status)?.funcall(mrb, c"new", ())?;
+    let response: Value = response_class_of(mrb, status)?.funcall(mrb, c"new", ())?;
     let header = mrb.hash_new();
     for (name, value) in headers {
         let key = mrb.str_new(name.to_ascii_lowercase().as_bytes());
@@ -1574,20 +1574,20 @@ fn header_to_hash(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 /// The header hash and the lowercase key `name` stands for in it.
-fn header_key(mrb: &Mrb, self_: Value, name: Value) -> Result<(RHash, Value), Error> {
+fn header_key_of(mrb: &Mrb, self_: Value, name: Value) -> Result<(RHash, Value), Error> {
     let header = RHash::try_convert(ivar_get(mrb, self_, c"@header")?, mrb)?;
     Ok((header, to_field_key(mrb, name)?))
 }
 
 /// `key?(name)`: whether the header is present, case-insensitively.
 fn header_key_p(mrb: &Mrb, self_: Value, name: Value) -> Result<bool, Error> {
-    let (header, key) = header_key(mrb, self_, name)?;
+    let (header, key) = header_key_of(mrb, self_, name)?;
     Ok(!header.aref::<_, Value>(mrb, key)?.is_nil())
 }
 
 /// `delete(name)`: remove the header, answering its values, or `nil`.
 fn header_delete(mrb: &Mrb, self_: Value, name: Value) -> Result<Value, Error> {
-    let (header, key) = header_key(mrb, self_, name)?;
+    let (header, key) = header_key_of(mrb, self_, name)?;
     header.delete(mrb, key)
 }
 
@@ -1672,7 +1672,7 @@ fn encode_www_form(mrb: &Mrb, params: Value) -> Result<String, Error> {
     let mut encoded = Vec::new();
     for i in 0..pairs.len() {
         let pair = RArray::try_convert(pairs.entry(mrb, i as isize)?, mrb)?;
-        let name = www_form_component(mrb, pair.entry(mrb, 0)?)?;
+        let name = to_www_form_component(mrb, pair.entry(mrb, 0)?)?;
         let value: Value = pair.entry(mrb, 1)?;
         if value.is_nil() {
             encoded.push(name);
@@ -1682,12 +1682,12 @@ fn encode_www_form(mrb: &Mrb, params: Value) -> Result<String, Error> {
                 let value: Value = values.entry(mrb, j as isize)?;
                 each.push(match value.is_nil() {
                     true => name.clone(),
-                    false => format!("{name}={}", www_form_component(mrb, value)?),
+                    false => format!("{name}={}", to_www_form_component(mrb, value)?),
                 });
             }
             encoded.push(each.join("&"));
         } else {
-            encoded.push(format!("{name}={}", www_form_component(mrb, value)?));
+            encoded.push(format!("{name}={}", to_www_form_component(mrb, value)?));
         }
     }
     Ok(encoded.join("&"))
@@ -1706,17 +1706,17 @@ fn to_ary(mrb: &Mrb, value: Value) -> Result<Option<RArray>, Error> {
     value.funcall(mrb, c"to_ary", ()).map(Some)
 }
 
-/// `value.to_s` as `URI.encode_www_form_component` writes it.
-fn www_form_component(mrb: &Mrb, value: Value) -> Result<String, Error> {
-    Ok(www_form_escape(&to_bytes(
+/// `value.to_s` as `URI.encode_to_www_form_component` writes it.
+fn to_www_form_component(mrb: &Mrb, value: Value) -> Result<String, Error> {
+    Ok(escape_www_form(&to_bytes(
         mrb,
         value.funcall(mrb, c"to_s", ())?,
     )?))
 }
 
-/// One form component as `URI.encode_www_form_component` writes it: `*-._`
+/// One form component as `URI.encode_to_www_form_component` writes it: `*-._`
 /// and alphanumerics kept, a space as `+`, every other byte as `%XX`.
-fn www_form_escape(bytes: &[u8]) -> String {
+fn escape_www_form(bytes: &[u8]) -> String {
     let mut escaped = String::with_capacity(bytes.len());
     for &byte in bytes {
         match byte {

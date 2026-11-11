@@ -79,10 +79,10 @@ impl Profile {
     /// When a guest's clock, due `at` in host time, is due in a wait on this
     /// profile, whichever ABI a Wasm Driver encodes the wait into. A hermetic
     /// guest's clocks never advance, so a wait on them alone is due at once;
-    /// beside a host-side `producer`, which only host time brings, it is due at
-    /// `at` as a live clock is.
-    pub fn clock_due(self, at: Instant, producer: bool) -> Instant {
-        match (self, producer) {
+    /// beside a host-side producer, which only host time brings, as
+    /// `has_producer` says, it is due at `at` as a live clock is.
+    pub fn clock_due(self, at: Instant, has_producer: bool) -> Instant {
+        match (self, has_producer) {
             (Self::Hermetic, false) => Instant::now(),
             _ => at,
         }

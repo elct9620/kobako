@@ -345,47 +345,41 @@ fn to_ruby_entry(
 /// The endpoint a Ruby object answering `host` and `port` stands for, and
 /// `protocol`, `addresses`, and `rules` where it answers them; one it leaves
 /// out takes the default `Kobako::Network::Endpoint` gives it.
-fn to_endpoint(ruby: &Ruby, endpoint: Value) -> Result<Endpoint, MagnusError> {
-    let refused = |message: String| MagnusError::new(ruby.exception_arg_error(), message);
-    let host: String = endpoint
+fn to_endpoint(ruby: &Ruby, object: Value) -> Result<Endpoint, MagnusError> {
+    let to_arg_error = |message: String| MagnusError::new(ruby.exception_arg_error(), message);
+    let host: String = object
         .funcall::<_, _, Value>("host", ())?
         .funcall("to_s", ())?;
-    let port: u16 = endpoint.funcall("port", ())?;
-    let mut answered = Endpoint::new(host, port).map_err(|err| refused(err.to_string()))?;
-    if endpoint.respond_to("protocol", false)? {
-        answered = answered.with_protocol(
-            match symbol_name_of(endpoint.funcall("protocol", ())?)?.as_deref() {
+    let port: u16 = object.funcall("port", ())?;
+    let mut endpoint = Endpoint::new(host, port).map_err(|err| to_arg_error(err.to_string()))?;
+    if object.respond_to("protocol", false)? {
+        endpoint = endpoint.with_protocol(
+            match symbol_name_of(object.funcall("protocol", ())?)?.as_deref() {
                 Some("http") => Protocol::Http,
                 Some("tcp") => Protocol::Tcp,
                 Some("udp") => Protocol::Udp,
-                _ => return Err(refused("protocol must be :http, :tcp, or :udp".to_string())),
+                _ => {
+                    return Err(to_arg_error(
+                        "protocol must be :http, :tcp, or :udp".to_string(),
+                    ))
+                }
             },
         );
     }
-    if endpoint.respond_to("addresses", false)? {
-        let addresses: RArray = endpoint.funcall("addresses", ())?;
-        answered = answered.with_addresses(
-            (0..addresses.len() as isize)
-                .map(|index| {
-                    to_addresses(addresses.entry(index)?).ok_or_else(|| {
-                        refused(
-                            "addresses must be :public, :private, :local, a CIDR, or an IPAddr"
-                                .to_string(),
-                        )
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-        );
+    if object.respond_to("addresses", false)? {
+        let addresses = each_of(object.funcall("addresses", ())?, |address| {
+            to_addresses(address).ok_or_else(|| {
+                to_arg_error(
+                    "addresses must be :public, :private, :local, a CIDR, or an IPAddr".to_string(),
+                )
+            })
+        })?;
+        endpoint = endpoint.with_addresses(addresses);
     }
-    if endpoint.respond_to("rules", false)? {
-        let rules: RArray = endpoint.funcall("rules", ())?;
-        answered = answered.with_rules(
-            (0..rules.len() as isize)
-                .map(|index| to_rule(rules.entry(index)?))
-                .collect::<Result<Vec<_>, _>>()?,
-        );
+    if object.respond_to("rules", false)? {
+        endpoint = endpoint.with_rules(each_of(object.funcall("rules", ())?, to_rule)?);
     }
-    Ok(answered)
+    Ok(endpoint)
 }
 
 /// The rule a Ruby object answering `allow?`, `method`, and `path` stands for.

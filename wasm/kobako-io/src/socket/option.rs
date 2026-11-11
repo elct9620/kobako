@@ -150,7 +150,11 @@ pub(super) fn init(mrb: &Mrb, socket: RClass, basic: RClass) -> Result<(), Error
     option.define_singleton_method(mrb, c"new", beni::method!(option_s_new, 4))?;
     option.define_singleton_method(mrb, c"int", beni::method!(option_s_int, 4))?;
     option.define_singleton_method(mrb, c"bool", beni::method!(option_s_bool, 4))?;
-    option.define_method(mrb, c"initialize_copy", beni::method!(option_copy, 1))?;
+    option.define_method(
+        mrb,
+        c"initialize_copy",
+        beni::method!(option_initialize_copy, 1),
+    )?;
     option.define_method(mrb, c"family", beni::method!(option_family, 0))?;
     option.define_method(mrb, c"level", beni::method!(option_level, 0))?;
     option.define_method(mrb, c"optname", beni::method!(option_optname, 0))?;
@@ -552,7 +556,7 @@ fn option_s_bool(
 }
 
 /// `dup` and `clone` copy the payload, which nothing changes afterward.
-fn option_copy(mrb: &Mrb, self_: RTypedData, orig: Value) -> Result<Value, Error> {
+fn option_initialize_copy(mrb: &Mrb, self_: RTypedData, orig: Value) -> Result<Value, Error> {
     // A receiver already holding an option keeps it, as an option never changes.
     let _ = self_.init(mrb, SockOption::of(mrb, orig)?.clone());
     Ok(self_.as_value())

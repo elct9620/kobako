@@ -1004,7 +1004,7 @@ impl Bindgen for FunctionBody<'_> {
                 let (list, len) = (self.tmp(), self.tmp());
                 let _ = writeln!(
                     self.src,
-                    "let {len} = {abi}::list_len(&mut caller, {ptr}, {given}, {size}, {align})?;\n\
+                    "let {len} = {abi}::checked_list_len(&mut caller, {ptr}, {given}, {size}, {align})?;\n\
                      fuel.spend({len}, {size})?;\n\
                      let mut {list} = Vec::with_capacity({len});\n\
                      for i in 0..{len} {{ let base = {ptr}.wrapping_add((i * {size}) as i32); {list}.push({block}); }}",

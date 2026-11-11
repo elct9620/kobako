@@ -57,8 +57,8 @@ impl<S> SocketFile<S> {
         lock(&self.file)
     }
 
-    /// Another view of the file, as `get_file` takes a reference to one.
-    pub(crate) fn get_file(&self) -> SharedFile {
+    /// Another view of the file, sharing the one the socket holds.
+    pub(crate) fn shared_file(&self) -> SharedFile {
         self.file.clone()
     }
 }
@@ -73,11 +73,11 @@ pub(crate) enum Stream {
 }
 
 impl Stream {
-    /// Another view of the file the stream stands on, as `get_file` takes a
+    /// Another view of the file the stream stands on, as Linux's `get_file` takes a
     /// reference to one `struct file`.
-    pub(crate) fn get_file(&self) -> SharedFile {
+    pub(crate) fn shared_file(&self) -> SharedFile {
         match self {
-            Stream::Socket(socket) => socket.get_file(),
+            Stream::Socket(socket) => socket.shared_file(),
             Stream::File(file) => file.clone(),
         }
     }
@@ -85,12 +85,12 @@ impl Stream {
     /// Read what the stream holds now; `WouldBlock` while it holds nothing
     /// yet, as `io.wit` makes a read non-blocking.
     pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        lock(&self.get_file()).read(buf)
+        lock(&self.shared_file()).read(buf)
     }
 
     /// Write what the stream takes now, never waiting.
     pub(crate) fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
-        lock(&self.get_file()).write(buf)
+        lock(&self.shared_file()).write(buf)
     }
 
     /// How many bytes a write takes now.
@@ -113,7 +113,7 @@ impl Stream {
 
     /// What a poll finds, registering on `table` for a poll that will sleep.
     pub(crate) fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
-        lock(&self.get_file()).poll(table)
+        lock(&self.shared_file()).poll(table)
     }
 }
 
@@ -309,7 +309,7 @@ pub(crate) enum Pollable {
     /// A TCP socket, ready whenever no connect is under way as it is polled,
     /// as wasmtime's socket pollable reads its operation in progress then,
     /// so one pollable serves the socket's whole life.
-    Connect(SocketFile<TcpSock>),
+    TcpSocket(SocketFile<TcpSock>),
     /// Something that is always ready, as a bind that settles as it starts
     /// is.
     Ready,
@@ -317,11 +317,12 @@ pub(crate) enum Pollable {
 
 impl Pollable {
     /// This pollable as a wait on `profile` holds it, beside a host-side
-    /// producer when `producer` says so: a clock is due as the profile has it.
-    pub(crate) fn for_wait(self, profile: Profile, producer: bool) -> Self {
+    /// producer when `has_producer` says so: a clock is due as the profile has
+    /// it.
+    pub(crate) fn for_wait(self, profile: Profile, has_producer: bool) -> Self {
         match self {
             Pollable::Clock { at } => Pollable::Clock {
-                at: profile.clock_due(at, producer),
+                at: profile.clock_due(at, has_producer),
             },
             other => other,
         }
@@ -340,7 +341,7 @@ impl Pollable {
                     || (found.contains(PollMask::OUT)
                         && !OutputStream::is_flushing(stream, flushing))
             }
-            Pollable::Connect(socket) => {
+            Pollable::TcpSocket(socket) => {
                 lock(&socket.file).poll(table);
                 !socket.sock.is_connecting()
             }
@@ -361,7 +362,7 @@ impl Pollable {
     pub(crate) fn is_producer(&self) -> bool {
         matches!(
             self,
-            Pollable::File(..) | Pollable::Output(..) | Pollable::Connect(..)
+            Pollable::File(..) | Pollable::Output(..) | Pollable::TcpSocket(..)
         )
     }
 }

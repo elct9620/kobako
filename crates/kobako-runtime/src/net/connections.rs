@@ -8,10 +8,10 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 /// The process's limit until a Host App sets its own, as tokio caps its
 /// blocking pool.
-const PROCESS_DEFAULT: usize = 512;
+const DEFAULT_PROCESS_LIMIT: usize = 512;
 
 static PROCESS: LazyLock<Arc<OpenConnections>> =
-    LazyLock::new(|| OpenConnections::new(Some(PROCESS_DEFAULT)));
+    LazyLock::new(|| OpenConnections::new(Some(DEFAULT_PROCESS_LIMIT)));
 
 /// Every connection the process's Sandboxes hold open together, 512 at most
 /// until `set_limit` moves it.

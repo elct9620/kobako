@@ -19,7 +19,7 @@ use crate::wasi::wasi::sockets::network::{
 };
 
 /// The words CRuby's `Errno` carries for a call on `host` and `port`.
-fn peer_message(call: &str, host: &str, port: impl std::fmt::Display) -> String {
+fn to_peer_message(call: &str, host: &str, port: impl std::fmt::Display) -> String {
     format!("{call} for \"{host}\" port {port}")
 }
 
@@ -117,7 +117,7 @@ fn end_of_host(
     call: &str,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
     let (port, port_text) = port_of(mrb, port)?;
-    let call = peer_message(call, &host_text, port_text);
+    let call = to_peer_message(call, &host_text, port_text);
     let ip = match host_text.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(ip)) => ip,
         Ok(std::net::IpAddr::V6(_)) => {
@@ -197,7 +197,7 @@ const AF_INET6: u16 = 10;
 
 /// `(ip, port)` as Linux lays out a `sockaddr_in`, or a `sockaddr_in6` for an
 /// IPv6 address: the family in host order, the port in network order.
-pub(super) fn sockaddr_of(ip: IpAddr, port: u16) -> Vec<u8> {
+pub(super) fn to_sockaddr(ip: IpAddr, port: u16) -> Vec<u8> {
     let mut sockaddr = Vec::with_capacity(28);
     match ip {
         IpAddr::V4(ip) => {
@@ -242,7 +242,7 @@ pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error>
 fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
     let (port, _) = port_of(mrb, port)?;
     let ip = pack_host(mrb, host, false)?;
-    Ok(mrb.str_new(&sockaddr_of(ip, port)).as_value())
+    Ok(mrb.str_new(&to_sockaddr(ip, port)).as_value())
 }
 
 /// `Socket.unpack_sockaddr_in(sockaddr)` answers `[port, ip]`; a String no

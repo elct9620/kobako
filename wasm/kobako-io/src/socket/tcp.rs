@@ -81,7 +81,7 @@ impl SocketIo for Connection {
     ) -> Result<Poll<usize>, Error> {
         self.with(mrb, |open| {
             let failed = |err| stream_error(mrb, err, call);
-            if wait == Wait::Block {
+            if wait == Wait::Blocking {
                 for chunk in bytes.chunks(MAX_BLOCKING_WRITE) {
                     open.output
                         .blocking_write_and_flush(chunk)

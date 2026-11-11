@@ -13,8 +13,8 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 use super::address::{end_of, local_of, no_timeout, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
-    exception_option, ready_of, receive_past_buffer, send_args_of, IoState, PastBuffer, Readiness,
-    SocketIo, Wait,
+    exception_option_of, ready_of, receive_past_buffer, send_args_of, IoState, PastBuffer,
+    Readiness, SocketIo, Wait,
 };
 use super::ip::local_end_of;
 use super::option::{set_udp_option, udp_option, Refusal};
@@ -354,7 +354,7 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     };
     let len = data.len();
     Datagrams::of(mrb, self_)?.with(mrb, |open| match open.streams_for_send(names_peer) {
-        Ok(streams) => send_datagram(mrb, streams, data, &call, Wait::Block).map(ready_of),
+        Ok(streams) => send_datagram(mrb, streams, data, &call, Wait::Blocking).map(ready_of),
         Err(name) => Err(errno::error_by_name(mrb, name, &call)),
     })?;
     Ok((len as i64).into_value(mrb))
@@ -433,7 +433,7 @@ fn receive_from(
 /// `IO::EAGAINWaitReadable`, or answers `:wait_readable` with
 /// `exception: false`.
 fn udp_socket_recvfrom_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (args, exception) = exception_option(mrb, args)?;
+    let (args, exception) = exception_option_of(mrb, args)?;
     let past = PastBuffer::new(Wait::DontWait, "recvfrom", true).with_exception(exception);
     receive_past_buffer(mrb, self_, args, past)
 }

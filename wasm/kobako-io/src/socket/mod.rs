@@ -224,11 +224,11 @@ const EAI_SERVICE: (i32, &str) = (-8, "Servname not supported for ai_socktype");
 
 /// The `Socket::ResolutionError` CRuby raises for a `getaddrinfo` failure.
 fn resolution_error(mrb: &Mrb, (code, words): (i32, &str)) -> Error {
-    resolution_error_with(mrb, code, &format!("getaddrinfo: {words}"))
+    to_resolution_error(mrb, code, &format!("getaddrinfo: {words}"))
 }
 
 /// The `Socket::ResolutionError` for `code`, carrying `message` whole.
-pub(crate) fn resolution_error_with(mrb: &Mrb, code: i32, message: &str) -> Error {
+pub(crate) fn to_resolution_error(mrb: &Mrb, code: i32, message: &str) -> Error {
     let class = match mrb
         .class_get(c"Socket")
         .and_then(|socket| socket.const_get::<_, ExceptionClass>(mrb, c"ResolutionError"))

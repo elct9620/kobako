@@ -37,7 +37,7 @@ fn memory_of<T>(caller: &mut Caller<'_, T>) -> wasmtime::Result<Memory> {
 /// The guest address `offset` bytes past `at`, a 32-bit pointer as the
 /// Canonical ABI reads one; widened so the sum never wraps into memory the
 /// guest did not name.
-fn address(at: i32, offset: usize) -> usize {
+fn to_address(at: i32, offset: usize) -> usize {
     at as u32 as usize + offset
 }
 
@@ -59,7 +59,7 @@ fn write<T>(caller: &mut Caller<'_, T>, at: usize, bytes: &[u8]) -> wasmtime::Re
 /// `align`, as the Canonical ABI traps on a misaligned one before an answer
 /// is written.
 pub(crate) fn ensure_aligned(at: i32, align: usize) -> wasmtime::Result<()> {
-    match address(at, 0).is_multiple_of(align) {
+    match to_address(at, 0).is_multiple_of(align) {
         true => Ok(()),
         false => Err(wasmtime::Error::msg(
             "the return area the guest named is not aligned",
@@ -73,7 +73,7 @@ pub(crate) fn load<S: Scalar>(
     offset: usize,
 ) -> wasmtime::Result<S> {
     let mut bytes = [0; 8];
-    read(caller, address(at, offset), &mut bytes[..S::SIZE])?;
+    read(caller, to_address(at, offset), &mut bytes[..S::SIZE])?;
     Ok(S::from_le(&bytes[..S::SIZE]))
 }
 
@@ -85,14 +85,14 @@ pub(crate) fn store<S: Scalar>(
 ) -> wasmtime::Result<()> {
     let mut bytes = [0; 8];
     value.to_le(&mut bytes[..S::SIZE]);
-    write(caller, address(at, offset), &bytes[..S::SIZE])
+    write(caller, to_address(at, offset), &bytes[..S::SIZE])
 }
 
 /// The length of the list of `len` elements of `size` bytes the guest names
 /// at `at`, once it lies wholly inside the guest's memory and on its `align`,
 /// as wasmtime's `WasmList::new` checks before anything is read; a list
 /// outside traps, so no length the guest names sizes a host allocation first.
-pub(crate) fn list_len(
+pub(crate) fn checked_list_len(
     caller: &mut Caller<'_, impl Sized>,
     at: i32,
     len: i32,
@@ -102,7 +102,7 @@ pub(crate) fn list_len(
     let len = len as u32 as usize;
     let end = len
         .checked_mul(size)
-        .and_then(|bytes| address(at, 0).checked_add(bytes));
+        .and_then(|bytes| to_address(at, 0).checked_add(bytes));
     let memory = memory_of(caller)?;
     match end {
         Some(end) if end <= memory.data_size(caller.as_context_mut()) => {}
@@ -112,7 +112,7 @@ pub(crate) fn list_len(
             ))
         }
     }
-    if !address(at, 0).is_multiple_of(align) {
+    if !to_address(at, 0).is_multiple_of(align) {
         return Err(wasmtime::Error::msg(
             "a list the guest named is not aligned",
         ));
@@ -150,10 +150,10 @@ pub(crate) fn load_list<S: Scalar>(
     at: i32,
     len: i32,
 ) -> wasmtime::Result<Vec<S>> {
-    let len = list_len(caller, at, len, S::SIZE, S::SIZE)?;
+    let len = checked_list_len(caller, at, len, S::SIZE, S::SIZE)?;
     fuel.spend(len, S::SIZE)?;
     let mut bytes = vec![0; len * S::SIZE];
-    read(caller, address(at, 0), &mut bytes)?;
+    read(caller, to_address(at, 0), &mut bytes)?;
     Ok((0..len)
         .map(|i| S::from_le(&bytes[i * S::SIZE..][..S::SIZE]))
         .collect())
@@ -167,10 +167,10 @@ pub(crate) fn load_string(
     at: i32,
     len: i32,
 ) -> wasmtime::Result<String> {
-    let len = list_len(caller, at, len, 1, 1)?;
+    let len = checked_list_len(caller, at, len, 1, 1)?;
     fuel.spend(len, 1)?;
     let mut bytes = vec![0; len];
-    read(caller, address(at, 0), &mut bytes)?;
+    read(caller, to_address(at, 0), &mut bytes)?;
     String::from_utf8(bytes).map_err(|_| invalid("string"))
 }
 
@@ -188,7 +188,7 @@ pub(crate) fn realloc(
         .ok_or_else(|| wasmtime::Error::msg("the guest exports no cabi_realloc"))?
         .typed::<(i32, i32, i32, i32), i32>(caller.as_context_mut())?;
     let at = realloc.call(caller.as_context_mut(), (0, 0, align as i32, size))?;
-    list_len(caller, at, size, 1, align)?;
+    checked_list_len(caller, at, size, 1, align)?;
     Ok(at)
 }
 
@@ -204,7 +204,7 @@ pub(crate) fn store_list<S: Scalar>(
     let len = i32::try_from(list.len())
         .map_err(|_| wasmtime::Error::msg("a list too long for the guest"))?;
     let at = realloc(caller, bytes.len() as i32, align)?;
-    write(caller, address(at, 0), &bytes)?;
+    write(caller, to_address(at, 0), &bytes)?;
     Ok((at, len))
 }
 
