@@ -2325,3 +2325,15 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server |
 | When | the script opens a `TCPSocket` and a `UDPSocket` with `open` and a block, then a `UDPSocket` with no block |
 | Then | each block's value is answered and its socket closed after it, as `rb_io_s_open` does. Without a block, `open` answers the socket |
+
+## `NW-188` A TCPSocket receives from no named sender, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-133` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers a line |
+| When | the script calls `recvfrom` with a length, then with a buffer |
+| Then | each answers what comes next beside `nil` for the sender, the buffer filled, as CRuby's `IPSocket#recvfrom` answers a stream |

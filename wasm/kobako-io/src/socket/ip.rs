@@ -6,16 +6,30 @@ use std::net::Ipv4Addr;
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, Qtrue, RClass, Symbol, Value};
 
-use super::basic::open_socket_of;
+use super::basic::{open_socket_of, receive_past_buffer, PastBuffer, Wait};
 use super::to_error;
 use crate::io::argument_error;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpSocketAddress, Ipv4SocketAddress};
 
-/// Define `IPSocket#addr` and `IPSocket#peeraddr`.
+/// Define `IPSocket#addr`, `IPSocket#peeraddr`, and `IPSocket#recvfrom`.
 pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
     ip.define_method(mrb, c"addr", beni::method!(ip_socket_addr, -1))?;
     ip.define_method(mrb, c"peeraddr", beni::method!(ip_socket_peeraddr, -1))?;
+    ip.define_method(mrb, c"recvfrom", beni::method!(ip_socket_recvfrom, -1))?;
     Ok(())
+}
+
+/// `recvfrom(maxlen, flags = 0, outbuf = nil)` answers what comes next, cut
+/// to `maxlen`, with its sender as `[mesg, ["AF_INET", port, host, host]]`;
+/// a stream names no sender, so a `TCPSocket` answers `[mesg, nil]`, as
+/// CRuby's `ip_recvfrom` does.
+fn ip_socket_recvfrom(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    receive_past_buffer(
+        mrb,
+        self_,
+        args,
+        PastBuffer::new(Wait::Block, "recvfrom", true),
+    )
 }
 
 /// `addr(reverse_lookup = nil)` answers the socket's own end: the virtual

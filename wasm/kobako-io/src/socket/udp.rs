@@ -13,14 +13,14 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 use super::address::{end_of, local_of, no_timeout, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
-    dest_sockaddr_of, direct_args, ensure_flags_carried, exception_option, flags_of, mesg_bytes_of,
-    open_socket_of, ready_of, IoState, Readiness, SocketIo, Wait,
+    dest_sockaddr_of, ensure_flags_carried, exception_option, flags_of, mesg_bytes_of, ready_of,
+    receive_past_buffer, IoState, PastBuffer, Readiness, SocketIo, Wait,
 };
-use super::ip::{local_end_of, to_addr_array};
+use super::ip::local_end_of;
 use super::option::{set_udp_option, udp_option, Refusal};
 use super::{bind, family_of, to_error, Family, AF_INET};
 use crate::errno;
-use crate::io::{would_wait, Direction};
+use crate::io::Direction;
 use crate::wasi::wait_within;
 use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
@@ -83,6 +83,18 @@ impl SocketIo for Datagrams {
     fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error> {
         let received = self.with(mrb, |open| receive_from(mrb, open, max, "read(2)", wait))?;
         Ok(received.map(|(data, _)| Some(data)))
+    }
+
+    /// The next datagram, cut to `max`, and the peer that sent it.
+    fn receive_from(
+        &self,
+        mrb: &Mrb,
+        max: usize,
+        wait: Wait,
+        call: &str,
+    ) -> Result<Poll<Option<(Vec<u8>, Option<(Ipv4Addr, u16)>)>>, Error> {
+        let received = self.with(mrb, |open| receive_from(mrb, open, max, call, wait))?;
+        Ok(received.map(|(data, from)| Some((data, Some(from)))))
     }
 
     /// `bytes` as one datagram to the peer, as `write(2)` on a connected
@@ -208,7 +220,6 @@ pub(super) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
     socket.define_method(mrb, c"bind", beni::method!(udp_socket_bind, 2))?;
     socket.define_method(mrb, c"connect", beni::method!(udp_socket_connect, 2))?;
     socket.define_method(mrb, c"send", beni::method!(udp_socket_send, -1))?;
-    socket.define_method(mrb, c"recvfrom", beni::method!(udp_socket_recvfrom, -1))?;
     socket.define_method(
         mrb,
         c"recvfrom_nonblock",
@@ -435,48 +446,12 @@ fn receive_from(
     }
 }
 
-/// `recvfrom(maxlen, flags = 0, outbuf = nil)` answers the next datagram, cut
-/// to `maxlen`, with its sender as `[mesg, ["AF_INET", port, host, host]]`.
-fn udp_socket_recvfrom(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    receive_from_sender(mrb, self_, args, Wait::Block, true)
-}
-
 /// `recvfrom_nonblock(maxlen, flags = 0, outbuf = nil, exception: true)`
 /// answers as `recvfrom` does, at once: with no datagram come yet it raises
 /// `IO::EAGAINWaitReadable`, or answers `:wait_readable` with
 /// `exception: false`.
 fn udp_socket_recvfrom_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (args, exception) = exception_option(mrb, args)?;
-    receive_from_sender(mrb, self_, args, Wait::DontWait, exception)
-}
-
-/// What `recvfrom` and `recvfrom_nonblock` answer, apart from whether they
-/// wait; bytes a read held back raise `IOError`, as CRuby's.
-fn receive_from_sender(
-    mrb: &Mrb,
-    self_: Value,
-    args: &[Value],
-    wait: Wait,
-    exception: bool,
-) -> Result<Value, Error> {
-    let (maxlen, outbuf) = direct_args(
-        mrb,
-        open_socket_of(mrb, self_)?,
-        args,
-        "recvfrom for buffered IO",
-    )?;
-    let received = Datagrams::of(mrb, self_)?.with(mrb, |open| {
-        receive_from(mrb, open, maxlen, "recvfrom(2)", wait)
-    })?;
-    let Poll::Ready((data, from)) = received else {
-        return would_wait(mrb, Direction::Read, "recvfrom(2) would block", exception);
-    };
-    let mesg = mrb.str_new(&data).as_value();
-    if let Some(outbuf) = outbuf {
-        outbuf.funcall::<_, _, Value>(mrb, c"replace", [mesg])?;
-    }
-    let answer = mrb.ary_new();
-    answer.push(mrb, outbuf.unwrap_or(mesg))?;
-    answer.push(mrb, to_addr_array(mrb, from)?)?;
-    Ok(answer.as_value())
+    let past = PastBuffer::new(Wait::DontWait, "recvfrom", true).with_exception(exception);
+    receive_past_buffer(mrb, self_, args, past)
 }

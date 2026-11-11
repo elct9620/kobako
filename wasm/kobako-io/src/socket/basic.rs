@@ -15,6 +15,7 @@ use beni::{
 
 use super::address::sockaddr_of;
 use super::buffer::{eof_error, fill};
+use super::ip::to_addr_array;
 use super::option::Refusal;
 use super::tcp::Connection;
 use crate::errno;
@@ -97,6 +98,20 @@ pub(super) trait SocketIo {
     /// Up to `max` of the next bytes the host brings, `None` at the end;
     /// `Pending` when none have come and `wait` does not wait.
     fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error>;
+
+    /// What `receive` answers, beside the end that sent it, as `recvfrom(2)`
+    /// names one: a stream names none, as CRuby's answers `nil` for it. An
+    /// `Errno` it raises names `call`.
+    fn receive_from(
+        &self,
+        mrb: &Mrb,
+        max: usize,
+        wait: Wait,
+        _call: &str,
+    ) -> Result<Poll<Option<(Vec<u8>, Option<(Ipv4Addr, u16)>)>>, Error> {
+        let received = self.receive(mrb, max, wait)?;
+        Ok(received.map(|bytes| bytes.map(|bytes| (bytes, None))))
+    }
 
     /// Send `bytes`, all of them when `wait` waits, else what there is room
     /// for, answering how many were sent; `Pending` when there is no room and
@@ -550,12 +565,68 @@ fn socket_closed_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 /// leaving `outbuf` as it was. Like CRuby's `recvfrom(2)`, it reads whether
 /// or not `close_read` closed the reading side.
 fn socket_recv(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let source = open_socket_of(mrb, self_)?;
-    let (maxlen, outbuf) = direct_args(mrb, source, args, "recv for buffered IO")?;
-    match ready_of(source.receive(mrb, maxlen, Wait::Block)?) {
-        Some(bytes) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
-        None => Ok(qnil().as_value()),
+    let past = PastBuffer::new(Wait::Block, "recv", false);
+    receive_past_buffer(mrb, self_, args, past)
+}
+
+/// How a receive past the buffer reads: whether it waits, the name its
+/// buffered refusal and its `Errno` carry, and whether it answers the sender
+/// too.
+pub(super) struct PastBuffer {
+    wait: Wait,
+    exception: bool,
+    name: &'static str,
+    with_sender: bool,
+}
+
+impl PastBuffer {
+    pub(super) fn new(wait: Wait, name: &'static str, with_sender: bool) -> Self {
+        Self {
+            wait,
+            exception: true,
+            name,
+            with_sender,
+        }
     }
+
+    /// The same read, answering `:wait_readable` rather than raising when
+    /// it would wait and `exception` is false.
+    pub(super) fn with_exception(self, exception: bool) -> Self {
+        Self { exception, ..self }
+    }
+}
+
+/// What `recv`, `recv_nonblock`, `recvfrom`, and `recvfrom_nonblock` answer,
+/// as CRuby's one `rsock_s_recvfrom` serves them: up to `maxlen` of what
+/// comes next into `outbuf`, past the buffer, which raises `IOError` while it
+/// holds bytes; `nil` at a stream's end. With the sender, the answer is the
+/// message and the sender's address, `nil` for a stream.
+pub(super) fn receive_past_buffer(
+    mrb: &Mrb,
+    self_: Value,
+    args: &[Value],
+    past: PastBuffer,
+) -> Result<Value, Error> {
+    let source = open_socket_of(mrb, self_)?;
+    let refusal = format!("{} for buffered IO", past.name);
+    let (maxlen, outbuf) = direct_args(mrb, source, args, &refusal)?;
+    let call = format!("{}(2)", past.name);
+    let Poll::Ready(received) = source.receive_from(mrb, maxlen, past.wait, &call)? else {
+        let blocked = format!("{call} would block");
+        return would_wait(mrb, Direction::Read, &blocked, past.exception);
+    };
+    let Some((bytes, sender)) = received else {
+        return Ok(qnil().as_value());
+    };
+    let mesg = fill(mrb, outbuf, mrb.str_new(&bytes).as_value())?;
+    if !past.with_sender {
+        return Ok(mesg);
+    }
+    let sender = match sender {
+        Some(sender) => to_addr_array(mrb, sender)?,
+        None => qnil().as_value(),
+    };
+    Ok(mrb.ary_new_from_values(&[mesg, sender]).as_value())
 }
 
 /// `sysread(maxlen, outbuf = nil)` answers up to `maxlen` of what comes next,
@@ -583,13 +654,8 @@ fn socket_sysread(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
 /// `exception: false`. Bytes a read held back raise `IOError`, as CRuby's.
 fn socket_recv_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (args, exception) = exception_option(mrb, args)?;
-    let source = open_socket_of(mrb, self_)?;
-    let (maxlen, outbuf) = direct_args(mrb, source, args, "recvfrom for buffered IO")?;
-    match source.receive(mrb, maxlen, Wait::DontWait)? {
-        Poll::Ready(Some(bytes)) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
-        Poll::Ready(None) => Ok(qnil().as_value()),
-        Poll::Pending => would_wait(mrb, Direction::Read, "recvfrom(2) would block", exception),
-    }
+    let past = PastBuffer::new(Wait::DontWait, "recvfrom", false).with_exception(exception);
+    receive_past_buffer(mrb, self_, args, past)
 }
 
 /// A call a socket has no position for raises `Errno::ESPIPE`, as Linux's
