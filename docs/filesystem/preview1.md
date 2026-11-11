@@ -45,7 +45,9 @@ Each preview1 behavior is decided by these sources in order; an earlier one wins
 1. Take the ABI shape and types from the WASI witx.
 2. Take each case wasi-testsuite tests from wasi-testsuite.
 3. Take semantics neither defines from Linux.
-4. Consult wasmtime-wasi as a reference, never as a baseline.
+4. Where all three leave room, match wasmtime-wasi, the reference implementation.
+
+Where preview2 also covers a call, preview1 adapts preview2's answer, as an older WASI version adapts to a newer one.
 
 Taking semantics from Linux never departs from POSIX, so a divergence stays a subset: kobako may refuse more, never succeed differently.
 

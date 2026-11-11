@@ -268,19 +268,46 @@ What a successful stat reports, such as an inode number, follows the Profile. `k
 
 ## Baselines
 
-Behavior lives in the spec under [`spec/`](spec/). Each layer has one reference its spec and code are judged against.
+Behavior lives in the spec under [`spec/`](spec/). Each layer is judged against its own reference, and this order settles a conflict between them. How to apply it while writing code is in [`process/convention.md`](process/convention.md).
 
-| Layer | Baseline | Detail |
+```
+ order  source                    what it may do
+ 1      security                  refuse more; never succeed differently
+ 2      the newest WASI contract  bound what crosses; older versions adapt to it
+ 3      each layer's reference    decide the answer within its own layer
+ 4      a scenario                state each difference 1 or 2 forces on 3
+```
+
+Security wins because the guest is untrusted, and a refusal is the only departure that stays safe. The WASI contract comes next, since the guest speaks nothing else.
+
+### Layer References
+
+Each row names the one reference a layer's spec and code are judged against.
+
+| Layer | Reference | Detail |
 |---|---|---|
-| WASI encoding | witx, then wasi-testsuite, then Linux | [`filesystem/preview1.md`](filesystem/preview1.md) |
 | `vfs` | Linux's VFS, in behavior and logic | [`filesystem/README.md`](filesystem/README.md) |
+| `net` | Linux's sockets: sockfs, `proto_ops`, LSM hooks | [`spec/behavior/network.md`](spec/behavior/network.md) |
 | `filesystem` | the spec | [`spec/`](spec/) |
-| `net` | Linux's sockets: sockfs, `proto_ops`, the LSM and cgroup connect hooks, a softirq-like reactor | [`spec/behavior/network.md`](spec/behavior/network.md) |
-| capability gems | CRuby as closely as the guest can; a scenario states each forced difference | [`spec/behavior/json.md`](spec/behavior/json.md), [`spec/behavior/regexp.md`](spec/behavior/regexp.md) |
+| WASI host layer | WIT; where it leaves room, wasmtime-wasi | WASI Host Layer, below |
+| guest Ruby | CRuby 3.4 on Linux in behavior; mruby in wording | [`spec/behavior/network.md`](spec/behavior/network.md), [`spec/behavior/regexp.md`](spec/behavior/regexp.md) |
 | the two Frontends | each other | [`process/parity.md`](process/parity.md) |
-| names and wording | the naming baseline | [`process/convention.md`](process/convention.md) |
+| names and wording | the convention | [`process/convention.md`](process/convention.md) |
 
-wasmtime-wasi is a reference for the WASI encoding, never a baseline.
+Guest Ruby covers `kobako-io` and every capability gem.
+
+### WASI Host Layer
+
+kobako implements the WASI host layer itself, over `kobako-runtime`, so each source below plays one part.
+
+| Source | Part |
+|---|---|
+| WIT, then witx | the contract: the calls, types, and error codes that cross |
+| wasmtime-wasi | the reference implementation, matched where the contract leaves room |
+| wasi-testsuite | the acceptance check for a preview1 answer |
+| Linux | the answer itself, decided inside `kobako-runtime` |
+
+An error is decided inside by Linux, crosses as the error code the WIT maps it to, and must be one wasi-testsuite accepts at preview1. Where preview1 and preview2 both cover a call, preview1 adapts preview2's answer, and preview2 takes no shape for preview1 ([`filesystem/preview1.md`](filesystem/preview1.md)).
 
 ## Capability Negotiation
 
