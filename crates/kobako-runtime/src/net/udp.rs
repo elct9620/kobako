@@ -816,9 +816,12 @@ mod tests {
     // @behavior NW-070
     #[test]
     fn a_udp_failure_is_answered_once() {
+        // Held, yet connected elsewhere, the port takes no datagram from the
+        // socket and answers it unreachable, and no other socket, this one's
+        // own host socket among them, can be handed it meanwhile.
         let closed = UdpSocket::bind("127.0.0.1:0").unwrap();
+        closed.connect("127.0.0.1:9").unwrap();
         let addr = closed.local_addr().unwrap();
-        drop(closed);
         let sock = connected_socket(addr);
         wait_for(|table| sock.poll(table), PollMask::OUT);
         sock.sendmsg(b"ping").unwrap();
