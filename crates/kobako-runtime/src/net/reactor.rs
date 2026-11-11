@@ -36,6 +36,10 @@ pub(crate) struct Reactor {
     sockets: Mutex<HashMap<Token, Weak<dyn Ready>>>,
     /// The tasks woken and waiting their turn, as a scheduler's run queue.
     run_queue: Mutex<VecDeque<Arc<Task>>>,
+    /// The sockets whose last turn ended at its bound with more waiting, run
+    /// again after the next round of events, as NAPI puts a poll that spent
+    /// its weight back at the tail of `poll_list`.
+    repoll: Mutex<Vec<Weak<dyn Ready>>>,
     /// Whether the thread stopped, its poll having failed, so the next socket
     /// starts another reactor rather than register on one nobody waits on.
     stopped: AtomicBool,
@@ -72,6 +76,7 @@ impl Reactor {
             next: AtomicUsize::new(1),
             sockets: Mutex::default(),
             run_queue: Mutex::default(),
+            repoll: Mutex::default(),
             stopped: AtomicBool::new(false),
         });
         let running = reactor.clone();
@@ -106,6 +111,12 @@ impl Reactor {
                     .collect()
             };
             ready.iter().for_each(|socket| socket.on_event());
+            let again =
+                std::mem::take(&mut *self.repoll.lock().unwrap_or_else(PoisonError::into_inner));
+            again
+                .iter()
+                .filter_map(Weak::upgrade)
+                .for_each(|socket| socket.on_event());
             if run_tasks {
                 self.run_tasks();
             }
@@ -196,6 +207,18 @@ impl Registration {
     /// once the registration drops.
     pub(crate) fn deregister(&self, source: &mut impl Source) {
         let _ = self.reactor.registry.deregister(source);
+    }
+
+    /// Run `ready`'s `on_event` again after the reactor's next round, as
+    /// NAPI repolls a device that spent its weight with more to take; no
+    /// further event may come for what already waits.
+    pub(crate) fn repoll(&self, ready: Weak<dyn Ready>) {
+        self.reactor
+            .repoll
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(ready);
+        let _ = self.reactor.waker.wake();
     }
 }
 

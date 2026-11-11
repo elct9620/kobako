@@ -106,7 +106,7 @@ impl UdpSock {
             if same_family {
                 // What the old peer sent reads as its own, so it is taken in
                 // before the host socket repoints.
-                Self::pump(&mut state);
+                self.pump(&mut state);
                 if let Some((socket, _)) = state.host.as_ref() {
                     socket.connect(addr).map_err(|err| to_error(&err))?;
                 }
@@ -134,7 +134,7 @@ impl UdpSock {
         let mut state = self.state();
         // What the old peer sent reads as its own, so it is taken in before
         // the host socket it waits in goes.
-        Self::pump(&mut state);
+        self.pump(&mut state);
         if let Some((mut earlier, registration)) = state.host.take() {
             registration.deregister(&mut earlier);
         }
@@ -163,9 +163,11 @@ impl UdpSock {
     /// peer sent as the socket repointed is dropped, as a datagram may be
     /// lost. A full receive queue drops what comes, as a full `sk_rcvbuf`
     /// does. A failure the host reports is kept pending and the queue reads
-    /// on behind it, as datagrams queue behind `sk_err`.
-    fn pump(state: &mut State) {
-        let Some((socket, _)) = state.host.as_ref() else {
+    /// on behind it, as datagrams queue behind `sk_err`. A turn that spends
+    /// its bound asks the reactor to take another, as NAPI repolls, since no
+    /// further event may come for what already waits.
+    fn pump(&self, state: &mut State) {
+        let Some((socket, registration)) = state.host.as_ref() else {
             return;
         };
         let host_peer = socket.peer_addr().ok();
@@ -194,10 +196,14 @@ impl UdpSock {
                 }
             }
         }
+        if taken == MAX_PUMPED_DATAGRAMS {
+            let ready: Weak<dyn Ready> = self.this.clone();
+            registration.repoll(ready);
+        }
     }
 
     fn pump_and_wake(&self, mut state: MutexGuard<'_, State>) {
-        Self::pump(&mut state);
+        self.pump(&mut state);
         drop(state);
         self.wait.wake_up();
     }
@@ -217,7 +223,7 @@ impl Ready for UdpSock {
 /// `udp_prot`.
 impl ProtoOps for UdpSock {
     /// A socket connected to a peer holds its own end already, as
-    /// `udp_pre_connect` autobinds one.
+    /// `inet_dgram_connect` autobinds one through `inet_autobind`.
     fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
         let mut state = self.state();
         let connected = state.inet.peer.is_some();
@@ -241,7 +247,7 @@ impl ProtoOps for UdpSock {
             return Err(FilesystemError::WouldBlock);
         };
         state.rmem_alloc -= truesize_of(datagram.len());
-        Self::pump(&mut state);
+        self.pump(&mut state);
         let n = buf.len().min(datagram.len());
         buf[..n].copy_from_slice(&datagram[..n]);
         Ok((n, Some(from)))
@@ -629,8 +635,12 @@ mod tests {
         }
         wait_until_queued(&sock);
         thread::sleep(Duration::from_millis(200));
-        UdpSock::pump(&mut sock.state());
-        let one_turn = sock.state().receive_queue.len();
+        // The turn is read under its own lock, before a repoll can take more.
+        let one_turn = {
+            let mut state = sock.state();
+            sock.pump(&mut state);
+            state.receive_queue.len()
+        };
         let mut read = Vec::new();
         let mut buf = [0; 1];
         while let Ok((1, _)) = sock.recvmsg(&mut buf) {
@@ -642,6 +652,30 @@ mod tests {
             "a UDP socket whose peer sent 100 datagrams must take 64 in one turn, as \
              NAPI_POLL_WEIGHT bounds one poll, and read all 100 in order as each read takes in \
              what still waits"
+        );
+    }
+
+    // @behavior NW-174
+    #[test]
+    fn a_turn_that_spends_its_bound_is_taken_again_unread() {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let sock = connected_socket(peer.local_addr().unwrap());
+        let local = stop_reactor_for(&sock);
+        for i in 0..100u8 {
+            peer.send_to(&[i], local).unwrap();
+        }
+        wait_until_queued(&sock);
+        thread::sleep(Duration::from_millis(200));
+        sock.pump(&mut sock.state());
+        let started = Instant::now();
+        while sock.state().receive_queue.len() < 100 && started.elapsed() < Duration::from_secs(5) {
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(
+            sock.state().receive_queue.len(),
+            100,
+            "a UDP socket whose turn took 64 of 100 datagrams must take the rest in a later turn \
+             with no read and no further event, as NAPI repolls a device that spent its weight"
         );
     }
 
@@ -660,7 +694,7 @@ mod tests {
             .expect("an uncapped socket connects again");
         second.send_to(b"two", local).unwrap();
         wait_until_queued(&sock);
-        UdpSock::pump(&mut sock.state());
+        sock.pump(&mut sock.state());
         let mut buf = [0; 8];
         let mut read = || {
             sock.recvmsg(&mut buf)
