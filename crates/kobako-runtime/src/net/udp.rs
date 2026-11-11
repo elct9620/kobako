@@ -67,9 +67,11 @@ pub struct UdpSock {
 impl UdpSock {
     /// A socket connected to nothing, as `inet_create` makes one; its receive
     /// queue is reserved against `cred`'s memory, and past it the socket
-    /// answers `ENOMEM`.
+    /// answers `ENOMEM`. The reserve holds the whole buffer, or one datagram
+    /// of the most size, which an empty queue takes past the buffer.
     pub(crate) fn new(cred: &Arc<Cred>) -> Result<Arc<Self>, FilesystemError> {
-        let memory = MemoryCharge::new(cred, MAX_SOCKET_BUFFER)?;
+        let reserve = MAX_SOCKET_BUFFER.max(truesize_of(MAX_DATAGRAM));
+        let memory = MemoryCharge::new(cred, reserve)?;
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 host: None,
@@ -178,7 +180,10 @@ impl UdpSock {
                     let Some(peer) = peer.filter(|_| host_peer == Some(from)) else {
                         continue;
                     };
-                    if state.rmem_alloc + truesize_of(n) <= state.inet.buffers.rcvbuf {
+                    // A full buffer drops it, but an empty queue takes one
+                    // past the buffer, as `__udp_enqueue_schedule_skb` does.
+                    let room = state.rmem_alloc + truesize_of(n) <= state.inet.buffers.rcvbuf;
+                    if room || state.rmem_alloc == 0 {
                         state
                             .receive_queue
                             .push_back((datagram[..n].to_vec(), peer));
@@ -503,6 +508,48 @@ mod tests {
             "a UDP socket whose receive buffer reads 2304 must queue no more than 41 of 200 \
              empty datagrams, as each spends the queue entry that holds it and its sender, as \
              Linux's truesize counts the sk_buff"
+        );
+    }
+
+    // @behavior NW-185
+    #[test]
+    fn an_empty_queue_takes_a_datagram_past_the_receive_buffer() {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = peer.local_addr().unwrap();
+        let sock =
+            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+        sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
+        let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
+        sock.connect(&family, addr, addr, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
+        let local = sock
+            .state()
+            .host
+            .as_ref()
+            .map(|(socket, _)| socket.local_addr().unwrap())
+            .expect("the socket holds its host socket");
+        for _ in 0..2 {
+            peer.send_to(&[7; 3000], local).unwrap();
+        }
+        let started = Instant::now();
+        while sock.state().receive_queue.is_empty() && started.elapsed() < Duration::from_secs(5) {
+            sock.on_event();
+            thread::sleep(Duration::from_millis(1));
+        }
+        thread::sleep(Duration::from_millis(50));
+        sock.on_event();
+        let lengths = sock
+            .state()
+            .receive_queue
+            .iter()
+            .map(|(bytes, _)| bytes.len())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lengths,
+            [3000],
+            "a UDP socket whose receive buffer reads 2304 must take one 3000-byte datagram into \
+             its empty queue and drop the next, as __udp_enqueue_schedule_skb accepts a packet \
+             past rcvbuf only while the queue is empty"
         );
     }
 

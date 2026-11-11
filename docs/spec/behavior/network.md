@@ -2287,3 +2287,15 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint, and a Wasm Driver handing the runtime a request |
 | When | the request's target is absolute-form, asterisk-form, empty, or carries a fragment |
 | Then | it answers `Denied` and nothing is sent, since a proxy forwards such a target past the authority the endpoint judged |
+
+## `NW-185` An empty queue takes a datagram past the receive buffer
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-148` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket with a small receive buffer, connected to a peer |
+| When | the peer sends it two datagrams, each larger than the buffer |
+| Then | the socket queues the first and drops the second. Linux accepts a datagram past `rcvbuf` only into an empty queue |
