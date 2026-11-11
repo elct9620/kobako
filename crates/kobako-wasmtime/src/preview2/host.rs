@@ -385,6 +385,7 @@ impl SocketsHost for Invocation {
             table::TcpSocket {
                 socket,
                 state: TcpState::Unbound,
+                input_closed: Arc::default(),
             }
         })
     }
@@ -478,14 +479,15 @@ impl SocketsHost for Invocation {
             }
             _ => return Err(ErrorCode::NotInProgress.into()),
         };
-        let socket = socket.socket.clone();
+        let (socket, input_closed) = (socket.socket.clone(), socket.input_closed.clone());
         match finished {
             Ok(()) => {
                 self.tcp(this)?.state = TcpState::Connected;
                 let stream = Stream::Socket(socket);
-                let input = self
-                    .table()
-                    .push_child(table::InputStream::new(stream.clone()), this)?;
+                let input = self.table().push_child(
+                    table::InputStream::with_closed(stream.clone(), input_closed),
+                    this,
+                )?;
                 let output = self
                     .table()
                     .push_child(table::OutputStream::new(stream), this)?;
@@ -523,6 +525,11 @@ impl SocketsHost for Invocation {
             ShutdownType::Send => Shutdown::Write,
             ShutdownType::Both => Shutdown::Both,
         };
+        // `tcp.wit` closes the input stream and drops what it still queued,
+        // where Linux's `SHUT_RD` keeps reading what arrived.
+        if how != Shutdown::Write {
+            socket.input_closed.store(true, Ordering::Release);
+        }
         Ok(socket.socket.sock.shutdown(how)?)
     }
 
@@ -2852,6 +2859,47 @@ mod tests {
             "output-stream.blocking-write-and-flush of no bytes after tcp-socket.shutdown of the \
              send side must answer closed, as wasmtime's first asks the stream for room, not \
              {answers:?}"
+        );
+    }
+
+    // @behavior NW-186
+    #[test]
+    fn a_shutdown_of_the_receive_side_closes_the_input_stream() {
+        let (mut guest, listener) = guest_and_listener();
+        let port = listener.local_addr().unwrap().port();
+        let started = Instant::now();
+        let answers = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (input, _) = guest
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
+                .expect("the listener accepts");
+            let (mut peer, _) = listener.accept().expect("the listener accepts");
+            std::io::Write::write_all(&mut peer, b"queued").expect("the peer sends");
+            let readable = guest.streams_input_stream_subscribe(input)?;
+            guest.poll_pollable_block(readable)?;
+            guest
+                .tcp_tcp_socket_shutdown(socket, ShutdownType::Receive)
+                .into_answer()?
+                .expect("a connected socket shuts its receive side");
+            let read = guest.streams_input_stream_read(input, 16).into_answer()?;
+            Ok::<_, wasmtime::Error>(matches!(read, Err(StreamError::Closed)))
+        });
+        assert!(
+            matches!(answers, Ok(true)),
+            "input-stream.read after tcp-socket.shutdown of the receive side must answer closed, \
+             though bytes were queued, as tcp.wit closes the input stream and discards its queue, \
+             not {answers:?}"
         );
     }
 

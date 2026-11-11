@@ -167,15 +167,19 @@ pub(crate) trait EndingStream {
 
 pub(crate) struct InputStream {
     pub(crate) stream: Stream,
-    closed: AtomicBool,
+    /// The stream's end, which its TCP socket shares, so a shutdown of the
+    /// receiving side closes the stream, as `tcp.wit` has it.
+    closed: Arc<AtomicBool>,
 }
 
 impl InputStream {
     pub(crate) fn new(stream: Stream) -> Self {
-        Self {
-            stream,
-            closed: AtomicBool::default(),
-        }
+        Self::with_closed(stream, Arc::default())
+    }
+
+    /// A stream whose end `closed` shares with the socket it reads.
+    pub(crate) fn with_closed(stream: Stream, closed: Arc<AtomicBool>) -> Self {
+        Self { stream, closed }
     }
 }
 
@@ -245,6 +249,9 @@ pub(crate) struct OutgoingDatagramStream {
 pub(crate) struct TcpSocket {
     pub(crate) socket: SocketFile<TcpSock>,
     pub(crate) state: TcpState,
+    /// The end of the input stream a connect hands out, which a shutdown of
+    /// the receiving side sets.
+    pub(crate) input_closed: Arc<AtomicBool>,
 }
 
 /// The steps of a TCP socket only WASI has: its streams are handed out once

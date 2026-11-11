@@ -2299,3 +2299,15 @@ endpoint "api.example.com", port: 443
 | Given | a UDP socket with a small receive buffer, connected to a peer |
 | When | the peer sends it two datagrams, each larger than the buffer |
 | Then | the socket queues the first and drops the second. Linux accepts a datagram past `rcvbuf` only into an empty queue |
+
+## `NW-186` A shutdown of the receive side closes the input stream
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-136` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket whose input stream holds bytes the peer sent |
+| When | the guest shuts its receive side through `wasi:sockets` and reads the stream |
+| Then | the read answers `closed`, as `tcp.wit` closes the input stream and discards its queue. Linux's `SHUT_RD` would still read what arrived, so the WASI contract decides |
