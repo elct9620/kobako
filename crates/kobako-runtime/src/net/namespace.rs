@@ -357,11 +357,16 @@ impl Namespace {
         sock: &TcpSock,
         addr: SocketAddr,
     ) -> Result<(), FilesystemError> {
+        // A connect that dials holds its port first, as `tcp_v4_connect`
+        // hashes one before it sends the SYN, so a dial failing at once puts
+        // it back; one answering a pending failure dials nothing and holds
+        // none.
         self.connect_through(cred, addr, Protocol::Tcp, |real, open| {
+            if sock.is_unconnected() {
+                sock.hold_virtual_port(&mut || self.alloc_virtual_port());
+            }
             sock.connect(real, addr, open)
-        })?;
-        sock.hold_virtual_port(&mut || self.alloc_virtual_port());
-        Ok(())
+        })
     }
 
     /// The steps every protocol's connect takes, as `inet_stream_connect`

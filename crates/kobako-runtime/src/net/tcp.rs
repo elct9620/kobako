@@ -401,6 +401,11 @@ impl TcpSock {
         }
     }
 
+    /// Whether the socket stands unconnected, so a connect would dial.
+    pub(crate) fn is_unconnected(&self) -> bool {
+        self.state().phase == Phase::Unconnected
+    }
+
     /// Whether a connect is under way, as a socket in `TCP_SYN_SENT` is.
     pub fn is_connecting(&self) -> bool {
         self.state().phase == Phase::Connecting
@@ -1030,15 +1035,19 @@ mod tests {
     #[test]
     fn a_socket_whose_connect_failed_takes_a_fresh_virtual_port() {
         let closed = SocketAddr::from(([127, 0, 0, 1], 1));
-        let sock = dial(closed);
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+            .expect("an unbounded socket is made");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         let mut next = 40000;
         let mut alloc = || {
             next += 1;
             next
         };
+        // The port is held before the dial, as the namespace holds it.
         sock.hold_virtual_port(&mut alloc);
         let before = sock.getsockname().port();
+        sock.connect(vec![closed], closed, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
         wait_for(|table| file.poll(table), PollMask::ERR);
         let failed = sock.finish_connect();
         let kept = sock.getsockname().port();
