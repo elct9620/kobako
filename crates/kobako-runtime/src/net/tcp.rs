@@ -202,14 +202,15 @@ impl TcpSock {
     /// reactor whose poll failed meanwhile is replaced, not waited on.
     fn dial_next(&self, state: &mut State, mut last: FilesystemError) {
         while let Some(addr) = state.untried.pop_front() {
-            let dialed = self.family.connect(addr).and_then(|stream| {
+            let dialed = Reactor::current().and_then(|reactor| {
+                let stream = self.family.connect(addr)?;
                 // A connect that already settled may refuse an option; its own
                 // outcome is what the guest reads, as wasmtime's `apply`
                 // ignores an option's failure on a socket it just made.
                 let _ = Self::set_options(SockRef::from(&stream), state);
                 let mut stream = mio::net::TcpStream::from_std(stream);
                 let ready: Weak<dyn Ready> = self.this.clone();
-                let registration = Reactor::current()?.register(&mut stream, ready)?;
+                let registration = reactor.register(&mut stream, ready)?;
                 Ok((stream, registration))
             });
             match dialed {
@@ -902,10 +903,9 @@ mod tests {
     // @behavior RT-386
     #[test]
     fn a_failed_connect_gives_back_a_port_its_bind_did_not_name() {
-        let closed = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap();
+        // A privileged port no test can bind, so every connect to it is
+        // refused and no other socket is handed it meanwhile.
+        let closed = SocketAddr::from(([127, 0, 0, 1], 1));
         let cred = prepare_creds_within(&[], None);
         let failed_after = |own: &str| {
             let sock =

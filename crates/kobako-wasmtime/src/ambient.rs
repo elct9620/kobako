@@ -1,5 +1,5 @@
 //! The guest's time and entropy at the WASI layer — the one ambient
-//! authority that separates the hermetic rung from permissive. `Wasi::new`
+//! authority that separates the hermetic profile from permissive. `Wasi::new`
 //! wires the frozen sources on `Hermetic` and the live clock on
 //! `Permissive`; `Clocks` is what the guest reads its time from under either.
 //!

@@ -527,7 +527,7 @@ impl Table {
         }
         if entry.children > 0 {
             return Err(wasmtime::Error::msg(
-                "the guest dropped a resource while a child of it lives",
+                "the guest dropped or gave up a resource while a child of it lives",
             ));
         }
         let entry = self
