@@ -358,11 +358,20 @@ pub(super) fn dest_sockaddr_of(mrb: &Mrb, dest: Value) -> Result<Value, Error> {
 }
 
 /// The flags a send or a receive takes, read as CRuby's `NUM2INT` reads
-/// them: a Float drops its fraction, and a number past C's `int` raises
-/// `RangeError`.
+/// them: a Float drops its fraction, and NaN, an infinity, or a number past
+/// C's `int` raises `RangeError`.
 pub(super) fn flags_of(mrb: &Mrb, flags: Value) -> Result<i64, Error> {
     let whole = match f64::from_value(flags) {
-        Some(float) => Integer::try_convert((float.trunc() as i64).into_value(mrb), mrb)?,
+        Some(float) if float.abs() < i64::MAX as f64 => {
+            Integer::try_convert((float.trunc() as i64).into_value(mrb), mrb)?
+        }
+        Some(_) => {
+            let shown = flags
+                .funcall::<_, _, Value>(mrb, c"to_s", ())?
+                .to_r_string(mrb)?;
+            let message = format!("float {} out of range of integer", shown.to_string(mrb)?);
+            return Err(Error::new(mrb, mrb.exception_range_error()?, &message));
+        }
         None => Integer::try_convert(flags, mrb)?,
     };
     Ok(i64::from(whole.to_i32(mrb)?))

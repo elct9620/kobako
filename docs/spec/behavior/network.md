@@ -2233,8 +2233,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server that answers, upcased, what it read once the script closes its write side |
-| When | the script sends with flags 0, `MSG_DONTWAIT`, 64.7, and a destination. It sends with `MSG_OOB`, with `nil`, and with an Integer message or destination. It closes its write side and sends, then closes the socket and sends |
-| Then | the first four answer how many bytes they sent, and the server reads them in order. A destination changes nothing, as Linux's TCP ignores one. 64.7 sends as 64, as `NUM2INT` drops a fraction. `MSG_OOB` raises `Errno::ENOTSUP`, since WASI carries no send flag. `nil` and each Integer raise `TypeError`, as CRuby converts them. The send after `close_write` raises `Errno::EPIPE` naming `send(2)`, and the closed socket `IOError` |
+| When | the script sends with flags 0, `MSG_DONTWAIT`, 64.7, and a destination. It sends with `MSG_OOB`, `nil`, NaN, and an Integer message or destination. It closes its write side and sends, then closes the socket and sends |
+| Then | the first four answer how many bytes they sent, and the server reads them in order. A destination changes nothing, as Linux's TCP ignores one. 64.7 sends as 64, as `NUM2INT` drops a fraction. `MSG_OOB` raises `Errno::ENOTSUP`, since WASI carries no send flag. `nil` and each Integer raise `TypeError`, as CRuby converts them, and NaN `RangeError`. The send after `close_write` raises `Errno::EPIPE` naming `send(2)`, and the closed socket `IOError` |
 
 ## `NW-181` A UDPSocket with no peer refuses every read
 

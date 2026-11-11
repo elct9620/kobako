@@ -305,6 +305,13 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
     Ok(0.into_value(mrb))
 }
 
+/// The address a `send` names: a `sockaddr` or an `Addrinfo` in one
+/// argument, or a host and a port in two.
+enum SendTo {
+    Sockaddr(Value),
+    HostPort(Value, Value),
+}
+
 /// `send(mesg, flags[, dest | host, port])` sends one datagram to the peer,
 /// waiting for room; `dest`, a `sockaddr` String or an `Addrinfo`, names an
 /// address as CRuby's `sendto` takes one, and `host` is looked up, its name
@@ -315,11 +322,16 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
 fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (mesg, flags, to) = match args {
         [mesg, flags] => (*mesg, *flags, None),
-        [mesg, flags, dest] => (*mesg, *flags, Some(Ok(dest_sockaddr_of(mrb, *dest)?))),
-        [mesg, flags, host, port] => (*mesg, *flags, Some(Err((*host, *port)))),
+        [mesg, flags, dest] => (*mesg, *flags, Some(SendTo::Sockaddr(*dest))),
+        [mesg, flags, host, port] => (*mesg, *flags, Some(SendTo::HostPort(*host, *port))),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let data = mesg_bytes_of(mrb, mesg)?;
+    // A `dest` converts after the message, as CRuby's `bsock_send` reads it.
+    let to = match to {
+        Some(SendTo::Sockaddr(dest)) => Some(SendTo::Sockaddr(dest_sockaddr_of(mrb, dest)?)),
+        other => other,
+    };
     ensure_open(mrb, self_)?;
     // The flags read as CRuby's `NUM2INT` reads them, after the open file.
     let call = match to {
@@ -329,11 +341,13 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     ensure_flags_carried(mrb, flags_of(mrb, flags)?, call)?;
     // The address a send names, and the words its `Errno` carries.
     let addressed = match to {
-        Some(Ok(sockaddr)) => match end_of(mrb, sockaddr)? {
+        Some(SendTo::Sockaddr(sockaddr)) => match end_of(mrb, sockaddr)? {
             (IpAddr::V4(ip), port) => Some((ip, port, call.to_string())),
             (IpAddr::V6(_), _) => return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", call)),
         },
-        Some(Err((host, port))) => Some(peer_of(mrb, host, port, &no_timeout, UDP, call)?),
+        Some(SendTo::HostPort(host, port)) => {
+            Some(peer_of(mrb, host, port, &no_timeout, UDP, call)?)
+        }
         None => None,
     };
     // Whether the address a send names is the peer, `None` when it names none.
