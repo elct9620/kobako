@@ -356,9 +356,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a name its lookup handed a virtual address, from the bottom of `198.18.0.0/15` |
-| When | the guest connects to that virtual address |
-| Then | the real address the endpoint's `addresses` lead to is dialed. An endpoint leading only to public addresses refuses a local one |
+| Given | a name its lookup handed one virtual address for each real address, from the bottom of `198.18.0.0/15` |
+| When | the guest connects to one of those virtual addresses |
+| Then | the one real address it stands for is dialed, as cgroup `connect4` rewrites one destination. The endpoint's `addresses` must lead to it, so an endpoint leading only to public addresses refuses a local one |
 
 ## `NW-026` A virtual address no lookup handed out is refused
 
@@ -406,7 +406,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a wildcard endpoint whose `addresses` name `private` or `local` |
 | When | the ruleset compiles |
-| Then | it is refused, since a guest-controlled name beneath the wildcard could reach them; `public` and a CIDR stand |
+| Then | it is refused, since a guest-controlled name beneath the wildcard could reach them; `public` and a CIDR stand. The invocation compiling it fails as the Host App's argument error, never a trap. Ruby raises `ArgumentError`, and Rust answers `Error::Argument`. The ruleset compiles once |
 
 ## `NW-030` Without the network, a lookup answers permanent-resolver-failure
 
@@ -429,10 +429,10 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a name an endpoint names, looked up through `ip-name-lookup` |
-| When | the guest connects through the one virtual address the lookup hands out |
-| Then | the lookup ends after that address, and `remote-address` answers the virtual address, as cgroup `getpeername4` maps a real peer back |
+| When | the guest connects through a virtual address the lookup hands out |
+| Then | `remote-address` answers that virtual address, as cgroup `getpeername4` maps a real peer back |
 
-## `NW-032` Each address a name may lead to is dialed in turn
+## `NW-032` A TCPSocket tries each address a name leads to in turn
 
 | Attribute | Value |
 | --- | --- |
@@ -440,9 +440,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a name answering `::1` first, then `127.0.0.1`, through an endpoint leading to `local` |
-| When | the guest connects and `::1` refuses |
-| Then | `127.0.0.1` is dialed next, so a name answering both loopbacks still connects |
+| Given | a name answering two IPv4 addresses through an endpoint leading to `local`, the first of them refusing |
+| When | the script opens a `TCPSocket` to the name |
+| Then | the lookup hands out a virtual address for each. The socket connects through the second after the first refuses, as CRuby's `TCPSocket.new` tries each address. A single connect dials one destination, as Linux's does |
 
 ## `NW-033` A TCPSocket reaches a name and shows its virtual address
 
@@ -2178,7 +2178,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a name the guest looked up once, whose resolver answers otherwise afterwards |
 | When | the guest looks it up again in the same Invocation, in any spelling of it |
-| Then | the policies and endpoints judge it again, and it answers the same virtual address and real addresses. No query reaches the resolver, and the table takes no second entry. A resolver so cannot rebind a name, as a fake-IP pool answers a known host |
+| Then | the policies and endpoints judge it again. It answers the same virtual addresses, each standing for the same real address. No query reaches the resolver, and the table takes no second entry. A resolver so cannot rebind a name, as a fake-IP pool answers a known host |
 
 ## `NW-176` A send flag WASI cannot carry raises
 

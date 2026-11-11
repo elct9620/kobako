@@ -118,7 +118,7 @@ module Kobako
     # empty host, a port outside 1 to 65535, or an unknown protocol, or a call
     # after the first invocation. An
     # endpoint the ruleset refuses, such as a wildcard leading to +:private+,
-    # fails the invocation that compiles it with Kobako::TrapError.
+    # raises ArgumentError from the invocation that compiles it.
     def network(name, entry = nil, &builder)
       refuse_once_invoked("network")
       @grants.register(Catalog::Network.new(name: name, entry: entry, &builder))

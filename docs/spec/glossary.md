@@ -489,15 +489,15 @@ Namespace -> Protocol Family -> host sockets, host resolver
 The replaceable sender of a guest's HTTP request, as wasmtime's `send_request`. It frames and sends what the ruleset already admitted.
 
 ```
-Namespace -> outbound seam -> the server
+L7 proxy -> outbound seam -> socket layer -> the server
 ```
 
 ### Namespace
 
-One invocation's view of the network, as Linux's `struct net`. It holds the ruleset, the Protocol Family, and the connection limits, and every socket, lookup, and request passes through it.
+One invocation's view of the network, as Linux's `struct net`. It holds the ruleset, the virtual addresses, the Protocol Family, and the connection limits. The socket layer and the L7 proxy read them; it judges nothing itself.
 
 ```
-guest call -> Namespace: socket hooks, ruleset, virtual addresses -> Protocol Family
+socket layer, L7 proxy -> read -> Namespace: ruleset, virtual addresses, limits
 ```
 
 ### Socket Hooks
@@ -510,7 +510,7 @@ guest names an address -> socket hooks -> ruleset -> dial
 
 ### Virtual Address
 
-The address a lookup hands the guest in place of a real one. No second name reuses it. A connect to it dials its name's real addresses, so the guest never learns one.
+The address a lookup hands the guest in place of one real address. No second name reuses it. A connect to it dials the one real address it stands for, so the guest never learns one.
 
 ```
 lookup "api.example.com" -> virtual address -> connect -> the real addresses
