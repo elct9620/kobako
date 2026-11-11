@@ -18,8 +18,9 @@ use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
 use super::basic::{IoState, Readiness, SocketIo, Wait};
 use super::ip::local_end_of;
-use super::{bind, seconds_of, stream_error, to_error};
+use super::{bind, stream_error, to_error};
 use crate::errno;
+use crate::io::time_interval_of;
 use crate::io::{argument_error, Direction};
 use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
@@ -363,7 +364,7 @@ fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
                 return Err(argument_error(mrb, &format!("unknown keyword: {name}")));
             }
         };
-        *limit = seconds_of(mrb, options.aref(mrb, given)?)?;
+        *limit = time_interval_of(mrb, options.aref(mrb, given)?)?;
     }
     Ok(timeouts)
 }

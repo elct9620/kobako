@@ -436,3 +436,15 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a script holding a copy of a file whose original it closed |
 | When | it closes the copy |
 | Then | the close answers `nil` and the copy is closed, as CRuby's close does |
+
+## `IO-047` A timeout CRuby refuses raises as CRuby's does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-044` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script waiting on `$stdout`, through `wait_writable` and `IO.select` |
+| When | it gives a timeout of NaN, a negative number, infinity, or one past 2 ** 63 seconds |
+| Then | NaN, infinity, and the large one raise `RangeError`, and the negative one `ArgumentError`, as CRuby's `rb_time_interval` refuses each. A socket's and `Net::HTTP`'s timeouts read the same way |

@@ -29,6 +29,7 @@
 //! Reading, seeking, and closing live in `crate::stream`.
 
 use std::cell::RefCell;
+use std::time::Duration;
 
 use beni::prelude::*;
 use beni::scan_args::scan_args;
@@ -489,6 +490,33 @@ pub(crate) fn argument_error(mrb: &Mrb, msg: &str) -> Error {
         Ok(cls) => Error::new(mrb, cls, msg),
         Err(err) => err,
     }
+}
+
+/// The wait `sec` names, `None` for `nil`, as CRuby's `rb_time_interval`
+/// reads a timeout: NaN raises `RangeError`, a negative one `ArgumentError`,
+/// and one past what `time_t` counts `RangeError`.
+pub(crate) fn time_interval_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>, Error> {
+    if sec.is_nil() {
+        return Ok(None);
+    }
+    let seconds = f64::try_convert(sec, mrb)?;
+    let out_of_range = |shown: &str| match mrb.exception_range_error() {
+        Ok(cls) => Error::new(mrb, cls, &format!("{shown} out of Time range")),
+        Err(err) => err,
+    };
+    if seconds.is_nan() {
+        return Err(out_of_range("NaN"));
+    }
+    if seconds < 0.0 {
+        return Err(argument_error(mrb, "time interval must not be negative"));
+    }
+    if seconds.is_infinite() {
+        return Err(out_of_range("Inf"));
+    }
+    if seconds >= i64::MAX as f64 {
+        return Err(out_of_range(&format!("{seconds:.6}")));
+    }
+    Ok(Some(Duration::from_secs_f64(seconds)))
 }
 
 /// The value may be stale: a copy keeps it after the original closes it,

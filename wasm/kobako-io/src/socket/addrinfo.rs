@@ -16,10 +16,9 @@ use beni::{
 use super::address::{end_of, pack_host, port_of, sockaddr_of};
 use super::basic::open_socket_of;
 use super::{
-    family_of, name_of, resolution_error, seconds_of, socket_error, Family, AF_INET, AF_INET6,
-    EAI_NONAME,
+    family_of, name_of, resolution_error, socket_error, Family, AF_INET, AF_INET6, EAI_NONAME,
 };
-use crate::io::argument_error;
+use crate::io::{argument_error, time_interval_of};
 
 /// Linux's socket kinds, and the protocols each IP kind carries.
 pub(super) const SOCK_STREAM: i64 = 1;
@@ -327,7 +326,7 @@ fn addrinfo_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Val
                 .transpose()?
                 .as_deref()
             {
-                Some("timeout") => timeout = seconds_of(mrb, options.aref(mrb, key)?)?,
+                Some("timeout") => timeout = time_interval_of(mrb, options.aref(mrb, key)?)?,
                 _ => {
                     let message = format!("unknown keyword: {}", key.inspect(mrb));
                     return Err(argument_error(mrb, &message));

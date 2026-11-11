@@ -17,7 +17,7 @@ use beni::{
 };
 
 use crate::errno;
-use crate::io::argument_error;
+use crate::io::{argument_error, time_interval_of};
 use crate::socket;
 use crate::wasi::wasi::http::outgoing_handler::handle;
 use crate::wasi::wasi::http::types::{
@@ -399,14 +399,7 @@ fn http_set_write_timeout(mrb: &Mrb, self_: Value, sec: Value) -> Result<Value, 
 
 /// The timeout an `ivar` sets, `None` for `nil`, which waits on.
 fn timeout_of(mrb: &Mrb, self_: Value, name: &core::ffi::CStr) -> Result<Option<Duration>, Error> {
-    let sec = ivar_get(mrb, self_, name)?;
-    if sec.is_nil() {
-        return Ok(None);
-    }
-    let sec = f64::try_convert(sec, mrb)?;
-    Duration::try_from_secs_f64(sec)
-        .map(Some)
-        .map_err(|_| argument_error(mrb, "time interval must not be negative"))
+    time_interval_of(mrb, ivar_get(mrb, self_, name)?)
 }
 
 /// How long a request may wait to read and to write. The wait for a response's

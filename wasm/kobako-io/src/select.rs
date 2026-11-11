@@ -10,7 +10,7 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Mrb, RArray, RClass, Symbol, TryConvert, Value};
 use core::ffi::{c_int, c_short};
 
-use crate::io::{argument_error, Direction};
+use crate::io::{time_interval_of, Direction};
 use crate::socket::Readiness;
 use crate::wasi::wasi::clocks::monotonic_clock::subscribe_duration;
 use crate::wasi::wasi::io::poll::{self as io_poll, Pollable};
@@ -301,12 +301,11 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
 /// A timeout in seconds as poll's milliseconds, rounded up so a short one
 /// still waits; `nil` waits without end, as `-1` asks.
 fn to_millis(mrb: &Mrb, timeout: Option<Value>) -> Result<c_int, Error> {
-    let Some(timeout) = timeout.filter(|t| !t.is_nil()) else {
+    let Some(timeout) = timeout else {
         return Ok(-1);
     };
-    let seconds = f64::try_convert(timeout, mrb)?;
-    if seconds < 0.0 {
-        return Err(argument_error(mrb, "time interval must not be negative"));
-    }
-    Ok((seconds * 1000.0).ceil().min(c_int::MAX as f64) as c_int)
+    Ok(match time_interval_of(mrb, timeout)? {
+        Some(wait) => (wait.as_secs_f64() * 1000.0).ceil().min(c_int::MAX as f64) as c_int,
+        None => -1,
+    })
 }
