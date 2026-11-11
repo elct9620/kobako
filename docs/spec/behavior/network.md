@@ -710,8 +710,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a `#network` block naming a loopback peer as a `udp` endpoint |
-| When | the script connects a `UDPSocket` to the peer, sends, and calls `recvfrom` |
-| Then | it reads the peer's answer and the peer's address as CRuby's `["AF_INET", port, host, host]` |
+| When | the script binds a `UDPSocket` to port 0, connects it to the peer twice, sends, and calls `recvfrom` |
+| Then | it reads the peer's answer and the peer's address as CRuby's `["AF_INET", port, host, host]`. A connect keeps the end a bind or an earlier connect took |
 
 ## `NW-057` A UDPSocket with no named peer raises what Linux would
 

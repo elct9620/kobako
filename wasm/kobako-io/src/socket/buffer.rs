@@ -13,11 +13,7 @@ use beni::{
 
 use super::basic::{exception_option, length_of, reader_of, ready_of, source_of, SocketIo, Wait};
 use crate::io::{argument_error, would_wait, Direction};
-
-/// The most a read through the buffer asks of one receive: the size of the
-/// host's socket buffer, and past the largest IPv4 datagram, so a datagram
-/// comes whole.
-const MAX_BUFFERED_READ: usize = 64 * 1024;
+use crate::wasi::MAX_READ;
 
 pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     basic.define_method(mrb, c"read", beni::method!(socket_read, -1))?;
@@ -70,7 +66,7 @@ fn refill(mrb: &Mrb, source: &dyn SocketIo, wait: Wait) -> Result<Poll<bool>, Er
     if !source.io().rbuf.borrow().is_empty() {
         return Ok(Poll::Ready(true));
     }
-    Ok(match source.receive(mrb, MAX_BUFFERED_READ, wait)? {
+    Ok(match source.receive(mrb, MAX_READ, wait)? {
         Poll::Ready(Some(bytes)) => {
             *source.io().rbuf.borrow_mut() = bytes;
             Poll::Ready(true)
@@ -114,7 +110,7 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
     let source = reader_of(mrb, self_)?;
     let mut read = Vec::new();
     while length.is_none_or(|length| read.len() < length) {
-        let want = length.map_or(MAX_BUFFERED_READ, |length| length - read.len());
+        let want = length.map_or(MAX_READ, |length| length - read.len());
         match ready_of(read_some(mrb, source, want, Wait::Block)?) {
             Some(bytes) => read.extend(bytes),
             None => break,
@@ -198,7 +194,7 @@ fn next_line(
             source.io().rbuf.borrow_mut().splice(0..0, rest);
             break;
         }
-        match ready_of(read_some(mrb, source, MAX_BUFFERED_READ, Wait::Block)?) {
+        match ready_of(read_some(mrb, source, MAX_READ, Wait::Block)?) {
             Some(bytes) => line.extend(bytes),
             None => break,
         }

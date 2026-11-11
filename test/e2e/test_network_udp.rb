@@ -11,6 +11,8 @@ class TestE2ENetworkUdp < Minitest::Test
 
   PING = <<~RUBY
     socket = UDPSocket.new
+    socket.bind("0.0.0.0", 0)
+    socket.connect("127.0.0.1", %<port>d)
     socket.connect("127.0.0.1", %<port>d)
     socket.send("ping", 0)
     answer = socket.recvfrom(16)
@@ -108,8 +110,8 @@ class TestE2ENetworkUdp < Minitest::Test
       value = udp_sandbox(port).eval(format(PING, port: port)).value
 
       assert_equal ["PING", ["AF_INET", port, "127.0.0.1", "127.0.0.1"]], value,
-                   "UDPSocket#recvfrom after a send to the peer #connect names must answer the " \
-                   "peer's datagram and its address"
+                   "UDPSocket#recvfrom after a send to the peer #connect names, the socket bound to " \
+                   "port 0 first and connected twice, must answer the peer's datagram and its address"
     end
   end
 

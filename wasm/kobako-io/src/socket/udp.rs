@@ -45,7 +45,6 @@ struct Streams {
 struct OpenSocket {
     streams: Option<Streams>,
     socket: UdpSocket,
-    bound: bool,
     /// `shutdown` shut the sending side, so a send answers `EPIPE`. WASI 0.2
     /// names no shutdown for UDP, so the guest keeps it itself.
     send_shut: bool,
@@ -98,15 +97,12 @@ impl SocketIo for Datagrams {
         Ok(sent.map(|()| bytes.len()))
     }
 
-    /// Mark the sides `how` names shut, as Linux's `inet_shutdown` does, and
+    /// Mark the sending side shut too, as Linux's `inet_shutdown` does, and
     /// then raise `Errno::ENOTCONN` for one with no peer, which keeps the
     /// marks. Shutting the sending side refuses later sends; what arrives
     /// still reads.
-    fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
+    fn protocol_shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
         self.with(mrb, |open| {
-            if how != Shutdown::Write {
-                self.io().rcv_shut.set(true);
-            }
             open.send_shut |= how != Shutdown::Read;
             match open.streams {
                 Some(_) => Ok(()),
@@ -246,20 +242,11 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
         open: RefCell::new(Some(OpenSocket {
             streams: None,
             socket,
-            bound: false,
             send_shut: false,
         })),
         io: IoState::new(),
     };
     Ok(mrb.wrap_as(datagrams, class).as_value())
-}
-
-/// Bind to `end` as the host lets a bind take it; the host refuses a socket
-/// bound already.
-fn bind_to(open: &mut OpenSocket, end: (Ipv4Addr, u16)) -> Result<(), ErrorCode> {
-    bind(&open.socket, end)?;
-    open.bound = true;
-    Ok(())
 }
 
 /// Raise `IOError` for a closed socket before a call looks its host up, as
@@ -275,7 +262,7 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
     ensure_open(mrb, self_)?;
     let (ip, port, call) = local_of(mrb, host, port, UDP)?;
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
-        bind_to(open, (ip, port)).map_err(|code| match code {
+        bind(&open.socket, (ip, port)).map_err(|code| match code {
             ErrorCode::InvalidState => errno::error_by_name(mrb, c"EINVAL", &call),
             code => to_error(mrb, code, UDP, &call),
         })
@@ -284,14 +271,17 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
 }
 
 /// `connect(host, port)` streams with the peer `host` and `port` name, binding
-/// first if no bind came before, as Linux's autobind does.
+/// first if no bind came before, as Linux's autobind does; the host answers a
+/// socket bound already, by `bind` or an earlier `connect`, `invalid-state`
+/// and keeps its end.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
     ensure_open(mrb, self_)?;
     let (ip, port, call) = peer_of(mrb, host, port, &no_limit, UDP, "connect(2)")?;
     let failed = |code| to_error(mrb, code, UDP, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
-        if !open.bound {
-            bind_to(open, (Ipv4Addr::UNSPECIFIED, 0)).map_err(failed)?;
+        match bind(&open.socket, (Ipv4Addr::UNSPECIFIED, 0)) {
+            Ok(()) | Err(ErrorCode::InvalidState) => {}
+            Err(code) => return Err(failed(code)),
         }
         open.streams = None;
         let (incoming, outgoing) = open

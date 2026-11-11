@@ -40,6 +40,10 @@ pub(crate) fn wait_within(
     wasi::io::poll::poll(&[pollable, &clock]).contains(&0)
 }
 
+/// The most one read of a host stream asks: the host's socket buffer, and
+/// past the largest IPv4 datagram, so a datagram comes whole.
+pub(crate) const MAX_READ: usize = 64 * 1024;
+
 /// What `stream` holds, up to `max` bytes, each wait for more at most
 /// `limit`; `Ok(None)` once a wait passes its limit, as `write_within` stops
 /// once one does. A zero limit reads what is there without waiting.

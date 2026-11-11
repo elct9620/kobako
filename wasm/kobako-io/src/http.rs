@@ -24,10 +24,7 @@ use crate::wasi::wasi::http::types::{
     ErrorCode, Fields, HeaderError, IncomingBody, Method, OutgoingBody, OutgoingRequest, Scheme,
 };
 use crate::wasi::wasi::io::streams::{InputStream, StreamError};
-use crate::wasi::{read_within, wait_within, write_within};
-
-/// The most one read of a response's body asks, the host's buffer.
-const MAX_BODY_READ: u64 = 64 * 1024;
+use crate::wasi::{read_within, wait_within, write_within, MAX_READ};
 
 /// How much of a streamed body passes between collections.
 const BYTES_PER_COLLECTION: usize = 1 << 20;
@@ -61,7 +58,7 @@ impl UnreadBody {
         let Some(stream) = &self.stream else {
             return Ok(None);
         };
-        match read_within(stream, MAX_BODY_READ, self.read) {
+        match read_within(stream, MAX_READ as u64, self.read) {
             Ok(Some(bytes)) => Ok(Some(bytes)),
             Ok(None) => Err(net_error(mrb, c"ReadTimeout", "Net::ReadTimeout")),
             Err(StreamError::Closed) => {

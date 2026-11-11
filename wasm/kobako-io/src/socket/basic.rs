@@ -100,8 +100,19 @@ pub(super) trait SocketIo {
     /// `wait` does not wait.
     fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error>;
 
-    /// Shut the side `how` names, as `shutdown(2)` does.
-    fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error>;
+    /// Shut the side `how` names, as `shutdown(2)` does: the reading side is
+    /// marked first, as `inet_shutdown` sets `sk_shutdown` before the
+    /// protocol's own shutdown, which may still fail.
+    fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
+        if how != Shutdown::Write {
+            self.io().rcv_shut.set(true);
+        }
+        self.protocol_shutdown(mrb, how)
+    }
+
+    /// Shut the side `how` names as the protocol's own shutdown does, the
+    /// reading side marked already.
+    fn protocol_shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error>;
 
     /// The socket's own end, as `getsockname(2)` answers it: an unbound one
     /// answers the unspecified address.

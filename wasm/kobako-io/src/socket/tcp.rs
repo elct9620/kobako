@@ -98,17 +98,14 @@ impl SocketIo for Connection {
         })
     }
 
-    /// The guest keeps a shut reading side; the host shuts the writing side,
-    /// sending the FIN once what was written is sent.
-    fn shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
+    /// The host shuts the writing side, sending the FIN once what was written
+    /// is sent.
+    fn protocol_shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
         self.with(mrb, |open| {
             if how != Shutdown::Read {
                 open.socket
                     .shutdown(ShutdownType::Send)
                     .map_err(|code| to_error(mrb, code, "TCPSocket", "shutdown(2)"))?;
-            }
-            if how != Shutdown::Write {
-                self.io().rcv_shut.set(true);
             }
             Ok(())
         })
