@@ -113,7 +113,7 @@ Each part owns one concern. Its dependencies on other kobako parts may only poin
 | `kobako-wasmtime` | one Wasm Driver, `kobako_wasmtime::Driver`, and its preview1 and preview2 encodings | runtime, transport |
 | `kobako` | the Rust SDK: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby gem and its own Codec | the native ext |
-| `ext/` | the magnus bridge: Ruby values to Envelopes, a Ruby object to a Filesystem | runtime, transport, wasmtime |
+| `ext/` | the magnus bridge: Ruby values to Envelopes, objects to a Filesystem or network entry | runtime, transport, wasmtime |
 | `kobako-core` | the guest ABI: `Guest`, `export_guest!`, the dispatch proxy | transport |
 | `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the bridge gem | core, transport, codec *(optional)* |
 | `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behavior, no wire | none |
@@ -287,7 +287,7 @@ Each row names the one reference a layer's spec and code are judged against.
 | Layer | Reference | Detail |
 |---|---|---|
 | `vfs` | Linux's VFS, in behavior and logic | [`filesystem/README.md`](filesystem/README.md) |
-| `net` | Linux's sockets: sockfs, `proto_ops`, LSM hooks | [`spec/behavior/network.md`](spec/behavior/network.md) |
+| `net` | Linux's sockets: sockfs, `proto_ops`, LSM hooks; for HTTP, an egress proxy | [`spec/behavior/network.md`](spec/behavior/network.md) |
 | `filesystem` | the spec | [`spec/`](spec/) |
 | WASI host layer | WIT; where it leaves room, wasmtime-wasi | WASI Host Layer, below |
 | guest Ruby | CRuby 3.4 on Linux in behavior; mruby in wording | [`spec/behavior/network.md`](spec/behavior/network.md), [`spec/behavior/regexp.md`](spec/behavior/regexp.md) |

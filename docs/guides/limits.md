@@ -49,8 +49,9 @@ its `SetupError` raises from `with`.
 
 ## Network Caps
 
-Three limits bound the guest's connections. A connection past any of them
-raises `Errno::EAGAIN` in the guest, and the script goes on.
+Three limits bound the guest's connections and its name lookups. A
+connection past any of them raises `Errno::EAGAIN` in the guest, a lookup
+`Socket::ResolutionError` for `EAI_AGAIN`, and the script goes on.
 
 | Limit | Measures |
 |---|---|

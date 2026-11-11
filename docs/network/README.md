@@ -7,7 +7,7 @@ The Network Context owns the named entries, their endpoints, and the sockets the
 | this one | the outbound path, the socket file, virtual addresses, waiting, the answers without a Grant |
 | [`spec/behavior/network.md`](../spec/behavior/network.md) | each promise, as a scenario |
 | [`guides/security.md`](../guides/security.md) | what an endpoint lets the guest do |
-| [`guides/customization.md`](../guides/customization.md) | the network seams a Rust Host App replaces |
+| [`guides/customization.md`](../guides/customization.md) | the network seams a Wasm Driver of one's own replaces |
 
 ## Layers
 
@@ -100,7 +100,7 @@ A request is judged on the guest thread, where Ruby policies and credential sour
                         +-------------+
 ```
 
-`Swaps` are the credentials a request over `https` carries. A Rust Host App may replace the outbound sender, which still dials through the `Connector`, so the same ruleset judges it. The connector resolves the authority itself and tries each admitted address, as hyper-util's `HttpConnector` does.
+`Swaps` are the credentials a request over `https` carries. A Wasm Driver of one's own may replace the outbound sender, which still dials through the `Connector`, so the same ruleset judges it. The connector resolves the authority itself and tries each admitted address, as hyper-util's `HttpConnector` does.
 
 ## Outbound Path
 
@@ -237,7 +237,8 @@ A refusal reaches the script as the `Errno` CRuby's would raise, and the script 
 | an address, a policy, or a bind refused | `Errno::EACCES` |
 | a UDP read with no peer, waiting or not | `Errno::EACCES` |
 | an IPv6 family or literal | `Errno::EAFNOSUPPORT` |
-| a full connection cap | `Errno::EAGAIN` |
+| a full connection cap, at a connection | `Errno::EAGAIN` |
+| a full connection cap, at a lookup | `Socket::ResolutionError` for `EAI_AGAIN` |
 | the open file limit, at a new socket | `Errno::EMFILE` |
 | a receive or send flag WASI carries none of, such as `MSG_OOB` | `Errno::ENOTSUP` |
 
