@@ -9,7 +9,6 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 use beni::prelude::*;
-use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
     Error, ExceptionClass, ForEach, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash, RModule,
@@ -17,7 +16,7 @@ use beni::{
 };
 
 use crate::errno;
-use crate::io::{argument_error, time_interval_of};
+use crate::io::{argument_error, current_block, time_interval_of};
 use crate::socket;
 use crate::wasi::wasi::http::outgoing_handler::handle;
 use crate::wasi::wasi::http::types::{
@@ -465,11 +464,6 @@ fn http_set_use_ssl(mrb: &Mrb, self_: Value, flag: Value) -> Result<Value, Error
 fn http_start(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let block = current_block(mrb)?;
     run_session(mrb, self_, block)
-}
-
-/// The block the method running now was handed, whatever its arguments.
-fn current_block(mrb: &Mrb) -> Result<Option<Proc>, Error> {
-    Ok(scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?.block)
 }
 
 /// Start a session, yielding to `block` and finishing once it returns; one

@@ -2311,3 +2311,15 @@ endpoint "api.example.com", port: 443
 | Given | a connected TCP socket whose input stream holds bytes the peer sent |
 | When | the guest shuts its receive side through `wasi:sockets` and reads the stream |
 | Then | the read answers `closed`, as `tcp.wit` closes the input stream and discards its queue. Linux's `SHUT_RD` would still read what arrived, so the WASI contract decides |
+
+## `NW-187` A script opens a socket with a block, as CRuby's IO.open
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-095` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script opens a `TCPSocket` and a `UDPSocket` with `open` and a block, then a `UDPSocket` with no block |
+| Then | each block's value is answered and its socket closed after it, as `rb_io_s_open` does. Without a block, `open` answers the socket |

@@ -5,14 +5,11 @@
 use std::task::Poll;
 
 use beni::prelude::*;
-use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{
-    Error, Integer, IntoValue, Mrb, Proc, RArray, RClass, RHash, RString, Symbol, TryConvert, Value,
-};
+use beni::{Error, Integer, IntoValue, Mrb, RClass, RHash, RString, Symbol, TryConvert, Value};
 
 use super::basic::{exception_option, length_of, reader_of, ready_of, source_of, SocketIo, Wait};
-use crate::io::{argument_error, would_wait, Direction};
+use crate::io::{argument_error, required_block, would_wait, Direction};
 use crate::wasi::MAX_READ;
 
 pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
@@ -337,14 +334,6 @@ fn socket_readbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     }
 }
 
-/// The block a call that yields to the end needs, as `each_line` asks for
-/// one.
-fn required_block(mrb: &Mrb, name: &str) -> Result<Proc, Error> {
-    scan_args::<(), (), (), (), (), Option<Proc>>(mrb)?
-        .block
-        .ok_or_else(|| argument_error(mrb, &format!("{name} needs a block")))
-}
-
 /// `each_char { |char| }` yields each character to the end.
 fn socket_each_char(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let block = required_block(mrb, "each_char")?;
@@ -421,9 +410,7 @@ fn socket_ungetbyte(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Err
 /// `each_line(sep = $/, limit = nil, chomp: false) { |line| }` yields each
 /// line to the end.
 fn socket_each_line(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let block = scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?
-        .block
-        .ok_or_else(|| argument_error(mrb, "each_line needs a block"))?;
+    let block = required_block(mrb, "each_line")?;
     let line_args = line_args_of(mrb, args)?;
     ensure_limit(mrb, &line_args, "each_line")?;
     let source = reader_of(mrb, self_)?;

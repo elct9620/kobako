@@ -15,7 +15,7 @@ use std::io::{self, Write};
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, Object, Proc, RArray, RClass, Value};
+use beni::{Error, IntoValue, Mrb, Object, RClass, Value};
 
 use crate::io::{argument_error, Stream};
 use crate::stream::with_file;
@@ -40,7 +40,6 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     file.define_method(mrb, c"truncate", beni::method!(file_truncate, 1))?;
     file.define_singleton_method(mrb, c"truncate", beni::method!(file_s_truncate, 2))?;
 
-    file.define_singleton_method(mrb, c"open", beni::method!(file_s_open, -1))?;
     file.define_singleton_method(mrb, c"read", beni::method!(file_s_read, 1))?;
     file.define_singleton_method(mrb, c"write", beni::method!(file_s_write, 2))?;
     file.define_singleton_method(mrb, c"exist?", beni::method!(file_s_exist_p, 1))?;
@@ -175,19 +174,6 @@ fn file_s_truncate(mrb: &Mrb, _self: Value, path: Value, length: i64) -> Result<
         return Err(errno::from_io(mrb, &io::Error::last_os_error(), &path));
     }
     Ok(0.into_value(mrb))
-}
-
-/// `File.open` with a block yields the file and closes it however the
-/// block ends, answering the block's value.
-fn file_s_open(mrb: &Mrb, self_: RClass, args: &[Value]) -> Result<Value, Error> {
-    let block = scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?.block;
-    let file = crate::io::new(mrb, self_, args)?;
-    let Some(block) = block else {
-        return Ok(file);
-    };
-    let answer = block.call(mrb, [file]);
-    file.funcall::<_, _, Value>(mrb, c"close", ())?;
-    answer
 }
 
 fn file_s_read(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {

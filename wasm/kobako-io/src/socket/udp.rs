@@ -204,7 +204,6 @@ pub(super) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
     let socket = mrb.define_class(c"UDPSocket", ip_socket)?;
     Datagrams::mark_carriers(mrb)?;
     socket.define_singleton_method(mrb, c"new", beni::method!(udp_socket_s_new, -1))?;
-    socket.define_singleton_method(mrb, c"open", beni::method!(udp_socket_s_new, -1))?;
     socket.define_method(mrb, c"bind", beni::method!(udp_socket_bind, 2))?;
     socket.define_method(mrb, c"connect", beni::method!(udp_socket_connect, 2))?;
     socket.define_method(mrb, c"send", beni::method!(udp_socket_send, -1))?;

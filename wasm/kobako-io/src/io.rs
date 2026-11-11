@@ -35,8 +35,8 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, ExceptionClass, Integer, IntoValue, Module, Mrb, RArray, RClass, RTypedData, Symbol,
-    TryConvert, TypedData, Value,
+    Error, ExceptionClass, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RTypedData,
+    Symbol, TryConvert, TypedData, Value,
 };
 
 use crate::{descriptors, errno};
@@ -95,6 +95,37 @@ pub(crate) fn new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Err
     Ok(stream)
 }
 
+/// `open(*args) { |io| }` makes what the class's `new` makes from `args`; with
+/// a block it yields that and closes it however the block ends, answering the
+/// block's value, as CRuby's `rb_io_s_open` does for every IO class.
+fn io_s_open(mrb: &Mrb, self_: RClass, args: &[Value]) -> Result<Value, Error> {
+    let block = current_block(mrb)?;
+    let io = self_.as_value().funcall::<_, _, Value>(mrb, c"new", args)?;
+    match block {
+        Some(block) => yield_and_close(mrb, io, block),
+        None => Ok(io),
+    }
+}
+
+/// Yield `io` to `block` and close it however the block ends, answering the
+/// block's value, as `rb_ensure` closes it around `rb_yield`.
+pub(crate) fn yield_and_close(mrb: &Mrb, io: Value, block: Proc) -> Result<Value, Error> {
+    let answer = block.call::<_, Value>(mrb, [io]);
+    io.funcall::<_, _, Value>(mrb, c"close", ())?;
+    answer
+}
+
+/// The block the current method was given, if any.
+pub(crate) fn current_block(mrb: &Mrb) -> Result<Option<Proc>, Error> {
+    Ok(scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?.block)
+}
+
+/// The block the current method `name` was given, raising `ArgumentError`
+/// without one.
+pub(crate) fn required_block(mrb: &Mrb, name: &str) -> Result<Proc, Error> {
+    current_block(mrb)?.ok_or_else(|| argument_error(mrb, &format!("{name} needs a block")))
+}
+
 /// The gem-init step named after mruby's own `mrb_init_io`; the body order
 /// is the dependency order, the class before the instances built from it.
 pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
@@ -111,6 +142,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     // A body with a fixed argument list takes them as typed parameters;
     // the variadic ones take the call's arguments as a slice.
     io.define_singleton_method(mrb, c"new", beni::method!(new, -1))?;
+    io.define_singleton_method(mrb, c"open", beni::method!(io_s_open, -1))?;
     io.define_method(mrb, c"initialize", beni::method!(io_initialize, -1))?;
     io.define_method(
         mrb,

@@ -22,9 +22,9 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use core::ffi::c_int;
 
-use beni::{Error, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RString, Symbol, Value};
+use beni::{Error, Integer, IntoValue, Module, Mrb, RClass, RString, Symbol, Value};
 
-use crate::io::{argument_error, checked_fd, is_closed, release, Stream};
+use crate::io::{argument_error, checked_fd, is_closed, release, required_block, Stream};
 use crate::{descriptors, errno};
 
 /// What a stream that may not be read from is refused with.
@@ -191,9 +191,7 @@ fn io_gets(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 fn io_each_line(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
-    let block = scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?
-        .block
-        .ok_or_else(|| argument_error(mrb, "each_line needs a block"))?;
+    let block = required_block(mrb, "each_line")?;
     let fd = readable_fd(mrb, self_)?;
     while let Some(line) = read_line(fd).map_err(|err| read_error(mrb, self_, &err))? {
         let _scope = mrb.arena_scope();

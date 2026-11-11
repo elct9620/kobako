@@ -7,11 +7,9 @@ use std::task::Poll;
 use std::time::Duration;
 
 use beni::prelude::*;
-use beni::scan_args::{get_kwargs, scan_args};
+use beni::scan_args::get_kwargs;
 use beni::value::qnil;
-use beni::{
-    Error, ExceptionClass, Module, Mrb, Proc, RArray, RClass, RHash, TryConvert, TypedData, Value,
-};
+use beni::{Error, ExceptionClass, Module, Mrb, RClass, RHash, TryConvert, TypedData, Value};
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
@@ -19,7 +17,7 @@ use super::basic::{IoState, Readiness, SocketIo, Wait};
 use super::ip::local_end_of;
 use super::{bind, stream_error, to_error};
 use crate::errno;
-use crate::io::{time_interval_of, Direction};
+use crate::io::{current_block, time_interval_of, yield_and_close, Direction};
 use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
@@ -212,7 +210,6 @@ pub(super) fn init(mrb: &Mrb, socket_class: RClass, ip: RClass) -> Result<(), Er
     let socket = mrb.define_class(c"TCPSocket", ip)?;
     Connection::mark_carriers(mrb)?;
     socket.define_singleton_method(mrb, c"new", beni::method!(tcp_socket_s_new, -1))?;
-    socket.define_singleton_method(mrb, c"open", beni::method!(tcp_socket_s_new, -1))?;
     Ok(())
 }
 
@@ -234,17 +231,15 @@ fn tcp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
 /// socket and closes it after, answering what the block answers. A connect
 /// slower than `connect_timeout` raises `Errno::ETIMEDOUT`, as CRuby's does.
 fn socket_s_tcp(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    let block = scan_args::<(), (), RArray, (), (), Option<Proc>>(mrb)?.block;
+    let block = current_block(mrb)?;
     let connection = dial(mrb, args, Caller::SocketTcp)?;
     let socket = mrb
         .wrap_as(connection, mrb.class_get(c"TCPSocket")?)
         .as_value();
-    let Some(block) = block else {
-        return Ok(socket);
-    };
-    let answer = block.call::<_, Value>(mrb, [socket]);
-    socket.funcall::<_, _, Value>(mrb, c"close", ())?;
-    answer
+    match block {
+        Some(block) => yield_and_close(mrb, socket, block),
+        None => Ok(socket),
+    }
 }
 
 /// Which call a connect answers for: `Socket.tcp` names its end as an
