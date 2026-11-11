@@ -12,7 +12,7 @@ use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, Qfalse, Qtrue, RClass, RHash, Symbol, TryConvert, Value};
 
 use super::address::sockaddr_of;
-use super::buffer::{end_of_file, fill};
+use super::buffer::{eof_error, fill};
 use super::tcp::Connection;
 use crate::errno;
 use crate::io::{argument_error, would_wait, Direction};
@@ -467,7 +467,7 @@ fn socket_sysread(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
     }
     match ready_of(source.receive(mrb, maxlen, Wait::Block)?) {
         Some(bytes) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
-        None => Err(end_of_file(mrb)),
+        None => Err(eof_error(mrb)),
     }
 }
 

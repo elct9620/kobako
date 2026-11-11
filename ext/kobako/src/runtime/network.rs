@@ -142,7 +142,7 @@ fn to_credentials(
         .map(|index| {
             let credential: Value = credentials.entry(index)?;
             let placement: Value = credential.funcall("placement", ())?;
-            let placement = match symbol_name(placement)?.as_deref() {
+            let placement = match symbol_name_of(placement)?.as_deref() {
                 Some("bearer") => Placement::Bearer,
                 Some("basic") => Placement::Basic,
                 Some(_) => {
@@ -276,7 +276,7 @@ fn to_endpoint(ruby: &Ruby, endpoint: Value) -> Result<Endpoint, MagnusError> {
     let mut answered = Endpoint::new(host, port).map_err(|err| refused(err.to_string()))?;
     if endpoint.respond_to("protocol", false)? {
         answered = answered.with_protocol(
-            match symbol_name(endpoint.funcall("protocol", ())?)?.as_deref() {
+            match symbol_name_of(endpoint.funcall("protocol", ())?)?.as_deref() {
                 Some("http") => Protocol::Http,
                 Some("tcp") => Protocol::Tcp,
                 Some("udp") => Protocol::Udp,
@@ -326,7 +326,7 @@ fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
 /// An address set's symbol, a CIDR as `address/prefix`, or an `IPAddr`, which
 /// carries its prefix apart from its address.
 fn to_addresses(value: Value) -> Option<Addresses> {
-    match symbol_name(value).ok()?.as_deref() {
+    match symbol_name_of(value).ok()?.as_deref() {
         Some("public") => return Some(Addresses::Public),
         Some("private") => return Some(Addresses::Private),
         Some("local") => return Some(Addresses::Local),
@@ -349,7 +349,7 @@ fn to_addresses(value: Value) -> Option<Addresses> {
     (prefix <= longest).then_some(Addresses::Cidr(address, prefix))
 }
 
-fn symbol_name(value: Value) -> Result<Option<String>, MagnusError> {
+fn symbol_name_of(value: Value) -> Result<Option<String>, MagnusError> {
     Symbol::from_value(value)
         .map(|symbol| symbol.name().map(|name| name.into_owned()))
         .transpose()

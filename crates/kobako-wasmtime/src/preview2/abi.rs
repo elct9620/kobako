@@ -27,7 +27,7 @@ macro_rules! scalar {
 
 scalar!(u8, i8, u16, i16, u32, i32, u64, i64);
 
-fn memory<T>(caller: &mut Caller<'_, T>) -> wasmtime::Result<Memory> {
+fn memory_of<T>(caller: &mut Caller<'_, T>) -> wasmtime::Result<Memory> {
     match caller.get_export("memory") {
         Some(Extern::Memory(memory)) => Ok(memory),
         _ => Err(wasmtime::Error::msg("the guest exports no memory")),
@@ -42,14 +42,14 @@ fn address(at: i32, offset: usize) -> usize {
 }
 
 fn read<T>(caller: &mut Caller<'_, T>, at: usize, buf: &mut [u8]) -> wasmtime::Result<()> {
-    let memory = memory(caller)?;
+    let memory = memory_of(caller)?;
     memory
         .read(caller.as_context_mut(), at, buf)
         .map_err(|_| wasmtime::Error::msg("a value the guest named lies outside its memory"))
 }
 
 fn write<T>(caller: &mut Caller<'_, T>, at: usize, bytes: &[u8]) -> wasmtime::Result<()> {
-    let memory = memory(caller)?;
+    let memory = memory_of(caller)?;
     memory
         .write(caller.as_context_mut(), at, bytes)
         .map_err(|_| wasmtime::Error::msg("an answer's place lies outside the guest's memory"))
@@ -103,7 +103,7 @@ pub(crate) fn list_len(
     let end = len
         .checked_mul(size)
         .and_then(|bytes| address(at, 0).checked_add(bytes));
-    let memory = memory(caller)?;
+    let memory = memory_of(caller)?;
     match end {
         Some(end) if end <= memory.data_size(caller.as_context_mut()) => {}
         _ => {

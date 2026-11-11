@@ -4,7 +4,7 @@
 //!
 //! It guards each wasmtime-wasi upgrade: a change in what preview1 answers
 //! shows up here rather than in a guest. The deliberate differences — a
-//! clock wait under the hermetic rung — are witnessed in `poll`.
+//! clock wait on the hermetic profile — are witnessed in `poll`.
 
 mod mount;
 

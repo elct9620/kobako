@@ -23,8 +23,8 @@ use super::socket::{
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
-/// How much one host read moves at once.
-const CHUNK: usize = 16 * 1024;
+/// The most one host read moves at once.
+const MAX_HOST_READ: usize = 16 * 1024;
 
 /// Linux's keepalive defaults, `TCP_KEEPALIVE_TIME`, `TCP_KEEPALIVE_INTVL`,
 /// and `TCP_KEEPALIVE_PROBES`, in seconds and probes.
@@ -285,10 +285,10 @@ impl TcpSock {
         let Some((stream, _)) = state.host.as_mut() else {
             return Ok(());
         };
-        let mut chunk = [0; CHUNK];
+        let mut chunk = [0; MAX_HOST_READ];
         let rcvbuf = state.inet.buffers.rcvbuf;
         while state.receive_queue.len() < rcvbuf && !state.received_end {
-            let room = (rcvbuf - state.receive_queue.len()).min(CHUNK);
+            let room = (rcvbuf - state.receive_queue.len()).min(MAX_HOST_READ);
             match stream.read(&mut chunk[..room]) {
                 Ok(0) => state.received_end = true,
                 Ok(n) => state.receive_queue.extend(&chunk[..n]),
@@ -940,7 +940,7 @@ mod tests {
                 Err(FilesystemError::AlreadyConnected),
                 Err(FilesystemError::AlreadyConnected)
             ],
-            "TcpSock::connect on a connected socket, and on one connected then reset, must \
+            "a TCP socket's connect on a connected socket, and on one connected then reset, must \
              answer EISCONN, as __inet_stream_connect does, before taking another place"
         );
     }
@@ -976,7 +976,7 @@ mod tests {
                 Ok(()),
                 false
             ),
-            "TcpSock::connect on a socket whose connect was refused must answer ECONNREFUSED \
+            "a TCP socket's connect after its connect was refused must answer ECONNREFUSED \
              and dial nothing, then connect afresh with none of the failure left, as Linux \
              disconnects a failed socket"
         );

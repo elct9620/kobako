@@ -519,7 +519,7 @@ impl Guest {
     }
 
     /// A guest on `profile`.
-    fn for_posture(profile: Profile, grants: &[Grant]) -> Self {
+    fn for_profile(profile: Profile, grants: &[Grant]) -> Self {
         Self::build(None, None, profile, Vec::new(), grants)
     }
 
@@ -871,7 +871,7 @@ fn a_mount_appears_as_a_directory_at_its_path() {
 /// The inode number the guest reads for `file.txt` from a stat and from a
 /// listing, and for the Mount's root from `.`.
 fn inodes_seen(profile: Profile) -> (u64, u64, u64) {
-    let mut guest = Guest::for_posture(
+    let mut guest = Guest::for_profile(
         profile,
         &[grant(file_and_directory(), Access::ReadWrite, None)],
     );
@@ -1946,15 +1946,15 @@ fn a_link_reports_no_size_however_its_filesystem_sizes_it() {
     );
 }
 
-/// One Tmpfs read-write, as an invocation on each posture is handed it.
+/// One Tmpfs read-write, as an invocation on each profile is handed it.
 fn tmpfs_grant(tmpfs: &Arc<Tmpfs>) -> [Grant; 1] {
     [grant(tmpfs.clone(), Access::ReadWrite, None)]
 }
 
 // @behavior RT-156
 #[test]
-fn the_weaker_posture_sees_the_times_a_filesystem_keeps() {
-    let mut guest = Guest::for_posture(Profile::Permissive, &tmpfs_grant(&Arc::new(Tmpfs::new())));
+fn the_permissive_profile_sees_the_times_a_filesystem_keeps() {
+    let mut guest = Guest::for_profile(Profile::Permissive, &tmpfs_grant(&Arc::new(Tmpfs::new())));
     let before = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("the host clock stands past the epoch")
@@ -1962,17 +1962,17 @@ fn the_weaker_posture_sees_the_times_a_filesystem_keeps() {
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
     assert!(
         guest.times_of_path(FILE)[1] >= before,
-        "path_filestat_get of a file written beneath a Mount through preview1 on the weaker \
-         posture must report a modification time no earlier than the write"
+        "path_filestat_get of a file written beneath a Mount through preview1 on the \
+         permissive profile must report a modification time no earlier than the write"
     );
 }
 
-// A Tmpfs records the host's real time, so only the posture's view turns it
+// A Tmpfs records the host's real time, so only the profile's view turns it
 // into the epoch.
 // @behavior RT-157
 #[test]
-fn the_strongest_posture_sees_every_time_at_the_unix_epoch() {
-    let mut guest = Guest::for_posture(Profile::Hermetic, &tmpfs_grant(&Arc::new(Tmpfs::new())));
+fn the_hermetic_profile_sees_every_time_at_the_unix_epoch() {
+    let mut guest = Guest::for_profile(Profile::Hermetic, &tmpfs_grant(&Arc::new(Tmpfs::new())));
     assert_eq!(guest.call("write_file", FILE), 0, "the write must succeed");
     let path = guest.times_of_path(FILE);
     assert_eq!(guest.call("stat_opened", FILE), 0, "the stat must succeed");
@@ -1980,22 +1980,22 @@ fn the_strongest_posture_sees_every_time_at_the_unix_epoch() {
         (path, guest.stat_times()),
         ([0; 3], [0; 3]),
         "path_filestat_get and fd_filestat_get of a written file through preview1 on the \
-         strongest posture must report each time as the Unix epoch"
+         hermetic profile must report each time as the Unix epoch"
     );
 }
 
 // @behavior RT-158
 #[test]
-fn a_time_another_posture_wrote_reaches_the_strongest_posture_as_the_epoch() {
+fn a_time_another_profile_wrote_reaches_the_hermetic_profile_as_the_epoch() {
     let tmpfs = Arc::new(Tmpfs::new());
-    let mut writer = Guest::for_posture(Profile::Permissive, &tmpfs_grant(&tmpfs));
+    let mut writer = Guest::for_profile(Profile::Permissive, &tmpfs_grant(&tmpfs));
     assert_eq!(writer.call("write_file", FILE), 0, "the write must succeed");
-    let mut reader = Guest::for_posture(Profile::Hermetic, &tmpfs_grant(&tmpfs));
+    let mut reader = Guest::for_profile(Profile::Hermetic, &tmpfs_grant(&tmpfs));
     assert_eq!(
         reader.times_of_path(FILE),
         [0; 3],
-        "path_filestat_get through preview1 on the strongest posture, of a file the weaker \
-         posture wrote into the same Tmpfs, must report each time as the Unix epoch"
+        "path_filestat_get through preview1 on the hermetic profile, of a file the permissive \
+         profile wrote into the same Tmpfs, must report each time as the Unix epoch"
     );
 }
 

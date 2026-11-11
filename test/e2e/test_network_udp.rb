@@ -62,7 +62,7 @@ class TestE2ENetworkUdp < Minitest::Test
   RUBY
 
   # @behavior NW-158
-  def test_a_scripts_udp_socket_keeps_its_reading_sides_shutdown
+  def test_a_udp_socket_shut_for_reading_polls_readable_yet_still_receives
     with_upcase_peer do |port|
       value = udp_sandbox(port).eval(format(SHUT_READING, port: port)).value
 

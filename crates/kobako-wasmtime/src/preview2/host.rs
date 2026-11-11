@@ -264,7 +264,7 @@ impl Invocation {
 
     /// Wait until `stream`'s poll finds `mask`, or an error or a hang-up.
     fn wait_on(&self, stream: &Stream, mask: PollMask) -> wasmtime::Result<()> {
-        let pollable = table::Pollable::File(stream.file(), mask);
+        let pollable = table::Pollable::File(stream.get_file(), mask);
         self.wait_for(None, |table| pollable.is_ready(table).then_some(()))
     }
 
@@ -769,7 +769,7 @@ impl SocketsHost for Invocation {
         if !socket.state.is_bound() {
             return Err(ErrorCode::InvalidState.into());
         }
-        let datagrams = socket.socket.clone();
+        let socket_file = socket.socket.clone();
         let peer = match remote_address.as_ref().map(to_remote_addr) {
             Some(Some(addr)) => Some(addr),
             Some(None) => return Err(ErrorCode::InvalidArgument.into()),
@@ -777,13 +777,13 @@ impl SocketsHost for Invocation {
         };
         let cred = self.wasi().cred();
         self.network()
-            .connect_datagram(cred, &datagrams.sock, peer)?;
+            .connect_datagram(cred, &socket_file.sock, peer)?;
         let incoming = self
             .table()
-            .push_child(table::IncomingDatagramStream(datagrams.clone()), this)?;
+            .push_child(table::IncomingDatagramStream(socket_file.clone()), this)?;
         let outgoing = self.table().push_child(
             table::OutgoingDatagramStream {
-                socket: datagrams,
+                socket: socket_file,
                 permit: 0,
             },
             this,
@@ -808,14 +808,14 @@ impl SocketsHost for Invocation {
         this: IncomingDatagramStream,
         max_results: u64,
     ) -> Result<Vec<IncomingDatagram>, SocketError> {
-        let datagrams = self.table().get(this)?.0.clone();
+        let socket_file = self.table().get(this)?.0.clone();
         let max_results =
             usize::try_from(max_results).map_or(MAX_DATAGRAMS, |max| max.min(MAX_DATAGRAMS));
         let mut received = Vec::new();
         let mut sum = 0;
         let mut buf = vec![0; MAX_DATAGRAM];
         while received.len() < max_results && sum < MAX_RECEIVE_BYTES {
-            match datagrams.sock.recvmsg(&mut buf) {
+            match socket_file.sock.recvmsg(&mut buf) {
                 Ok((n, Some(from))) => {
                     sum += 1 + n;
                     received.push(IncomingDatagram {
@@ -853,8 +853,8 @@ impl SocketsHost for Invocation {
         &mut self,
         this: OutgoingDatagramStream,
     ) -> Result<u64, SocketError> {
-        let datagrams = self.table().get(this)?.socket.clone();
-        let found = datagrams.file().poll(None);
+        let socket_file = self.table().get(this)?.socket.clone();
+        let found = socket_file.file().poll(None);
         let permitted = if found.contains(PollMask::OUT) {
             MAX_DATAGRAMS as u64
         } else {
@@ -883,17 +883,17 @@ impl SocketsHost for Invocation {
             )
             .into());
         }
-        let stream = self.table().get(this)?.socket.clone();
+        let socket_file = self.table().get(this)?.socket.clone();
         let mut sent = 0;
         for datagram in datagrams {
             let addressed = datagram.remote_address.as_ref().map(to_socket_addr);
             // Its size is judged before its address, as wasmtime's send asks.
             let refused = if datagram.data.len() > MAX_DATAGRAM {
                 Some(ErrorCode::DatagramTooLarge)
-            } else if addressed.is_some_and(|addr| addr != stream.sock.getpeername()) {
+            } else if addressed.is_some_and(|addr| addr != socket_file.sock.getpeername()) {
                 Some(ErrorCode::InvalidArgument)
             } else {
-                match stream.file().write(&datagram.data) {
+                match socket_file.file().write(&datagram.data) {
                     Ok(_) => None,
                     Err(FilesystemError::WouldBlock) => break,
                     Err(err) => Some(to_error_code(&err)),
@@ -973,7 +973,7 @@ impl IoHost for Invocation {
 
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
-        let file = self.table().get(this)?.stream.file();
+        let file = self.table().get(this)?.stream.get_file();
         self.subscribe_file(file, PollMask::IN, this)
     }
 
@@ -1469,7 +1469,7 @@ mod tests {
 
     // @behavior RT-338
     #[test]
-    fn a_clock_wait_on_the_strongest_posture_ends_at_once() {
+    fn a_clock_wait_on_the_hermetic_profile_ends_at_once() {
         let (mut store, instance) = guest(Profile::Hermetic, None);
         let started = Instant::now();
         let pollable = call::<i64, i32>(&mut store, &instance, "subscribe", 10_000_000_000)
@@ -1477,7 +1477,7 @@ mod tests {
         call::<i32, ()>(&mut store, &instance, "block", pollable).expect("the wait answers");
         assert!(
             started.elapsed() < Duration::from_secs(1),
-            "pollable.block on ten seconds of subscribe-duration at the hermetic posture must \
+            "pollable.block on ten seconds of subscribe-duration on the hermetic profile must \
              return at once, not after {:?}",
             started.elapsed()
         );
@@ -1521,8 +1521,8 @@ mod tests {
             (len, index) == (1, 0)
                 && spent >= Duration::from_millis(50)
                 && spent < Duration::from_secs(5),
-            "poll of one pollable on fifty milliseconds of subscribe-duration at the permissive \
-             posture must answer [0] once they pass, got {len} index {index} after {spent:?}"
+            "poll of one pollable on fifty milliseconds of subscribe-duration on the permissive \
+             profile must answer [0] once they pass, got {len} index {index} after {spent:?}"
         );
     }
 
@@ -2992,7 +2992,7 @@ mod tests {
         assert!(
             answer == vec![1] && spent >= Duration::from_millis(50),
             "poll of a silent socket beside fifty milliseconds of subscribe-duration at the \
-             hermetic posture must answer the clock once they pass, got {answer:?} after \
+             hermetic profile must answer the clock once they pass, got {answer:?} after \
              {spent:?}"
         );
     }

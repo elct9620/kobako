@@ -17,7 +17,7 @@ use crate::io::{argument_error, would_wait, Direction};
 /// The most a read through the buffer asks of one receive: the size of the
 /// host's socket buffer, and past the largest IPv4 datagram, so a datagram
 /// comes whole.
-const READ_CHUNK: usize = 64 * 1024;
+const MAX_BUFFERED_READ: usize = 64 * 1024;
 
 pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     basic.define_method(mrb, c"read", beni::method!(socket_read, -1))?;
@@ -70,7 +70,7 @@ fn refill(mrb: &Mrb, source: &dyn SocketIo, wait: Wait) -> Result<Poll<bool>, Er
     if !source.io().rbuf.borrow().is_empty() {
         return Ok(Poll::Ready(true));
     }
-    Ok(match source.receive(mrb, READ_CHUNK, wait)? {
+    Ok(match source.receive(mrb, MAX_BUFFERED_READ, wait)? {
         Poll::Ready(Some(bytes)) => {
             *source.io().rbuf.borrow_mut() = bytes;
             Poll::Ready(true)
@@ -114,7 +114,7 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
     let source = reader_of(mrb, self_)?;
     let mut read = Vec::new();
     while length.is_none_or(|length| read.len() < length) {
-        let want = length.map_or(READ_CHUNK, |length| length - read.len());
+        let want = length.map_or(MAX_BUFFERED_READ, |length| length - read.len());
         match ready_of(read_some(mrb, source, want, Wait::Block)?) {
             Some(bytes) => read.extend(bytes),
             None => break,
@@ -165,7 +165,7 @@ fn read_partial(
         Poll::Ready(None) if !exception => fill(mrb, outbuf, qnil().as_value()),
         Poll::Ready(None) => {
             fill(mrb, outbuf, qnil().as_value())?;
-            Err(end_of_file(mrb))
+            Err(eof_error(mrb))
         }
         Poll::Pending => would_wait(mrb, Direction::Read, "read would block", exception),
     }
@@ -198,7 +198,7 @@ fn next_line(
             source.io().rbuf.borrow_mut().splice(0..0, rest);
             break;
         }
-        match ready_of(read_some(mrb, source, READ_CHUNK, Wait::Block)?) {
+        match ready_of(read_some(mrb, source, MAX_BUFFERED_READ, Wait::Block)?) {
             Some(bytes) => line.extend(bytes),
             None => break,
         }
@@ -251,7 +251,7 @@ fn socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
 }
 
 /// The `EOFError` a `read` form raises at the end, as CRuby's.
-pub(super) fn end_of_file(mrb: &Mrb) -> Error {
+pub(super) fn eof_error(mrb: &Mrb) -> Error {
     match mrb.exc_get(c"EOFError") {
         Ok(class) => Error::new(mrb, class, "end of file reached"),
         Err(err) => err,
@@ -264,7 +264,7 @@ fn socket_readline(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     let line_args = line_args_of(mrb, args)?;
     match next_line(mrb, reader_of(mrb, self_)?, &line_args)? {
         Some(line) => Ok(mrb.str_new(&line).as_value()),
-        None => Err(end_of_file(mrb)),
+        None => Err(eof_error(mrb)),
     }
 }
 
@@ -320,7 +320,7 @@ fn socket_getc(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn socket_readchar(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     match next_char(mrb, reader_of(mrb, self_)?)? {
         Some(char) => Ok(mrb.str_new(&char).as_value()),
-        None => Err(end_of_file(mrb)),
+        None => Err(eof_error(mrb)),
     }
 }
 
@@ -337,7 +337,7 @@ fn socket_getbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn socket_readbyte(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     match next_byte(mrb, reader_of(mrb, self_)?)? {
         Some(byte) => Ok(i64::from(byte).into_value(mrb)),
-        None => Err(end_of_file(mrb)),
+        None => Err(eof_error(mrb)),
     }
 }
 

@@ -50,10 +50,10 @@ struct State {
     /// Whether the host socket took the last send, until the reactor next
     /// sees it change, as `sock_writeable` reads its room.
     writable: bool,
-    /// What every inet socket holds. A send goes
-    /// to the host at once, so `SO_SNDBUF` only reads back; once the reading
-    /// side is shut, an empty queue still answers EAGAIN, as `__skb_recv_udp`
-    /// does, and once the writing side is, a send answers `EPIPE`.
+    /// What every inet socket holds. A send goes to the host at once, so
+    /// `SO_SNDBUF` only reads back; once the reading side is shut, an empty
+    /// queue still answers EAGAIN, as `__skb_recv_udp` does, and once the
+    /// writing side is, a send answers `EPIPE`.
     inet: InetSock,
 }
 
@@ -734,7 +734,7 @@ mod tests {
                 first_heard.is_some() && first_heard == second_heard
             ),
             (Ok(()), Ok(()), true),
-            "UdpSock::connect to a second peer under a cap of one must keep the place the \
+            "a UDP socket's connect to a second peer under a cap of one must keep the place the \
              socket holds, not answer EAGAIN, and the second peer must hear from the port the \
              first heard"
         );

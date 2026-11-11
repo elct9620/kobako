@@ -1,6 +1,6 @@
 //! `TCPSocket`, and what `UDPSocket` shares with it, over WASI 0.2's
-//! `wasi:sockets`, which the guest imports as a
-//! core module, as wasi-libc imports preview1. A Sandbox giving the guest no
+//! `wasi:sockets`, which the guest imports as a core module, as wasi-libc
+//! imports preview1. A Sandbox giving the guest no
 //! network answers every socket as unsupported, so the guest raises
 //! `NotImplementedError`, as it does with no Mount; a refusal raises the
 //! `Errno` CRuby's would.

@@ -28,7 +28,7 @@ use crate::wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
 use crate::wasi::{read_within, wait_within};
 
 /// The most `blocking-write-and-flush` takes in one call, as WASI bounds it.
-const WRITE_CHUNK: usize = 4096;
+const MAX_BLOCKING_WRITE: usize = 4096;
 
 /// One connection, its streams dropped before the socket, as WASI asks of a
 /// child resource.
@@ -77,7 +77,7 @@ impl SocketIo for Connection {
         self.with(mrb, |open| {
             let failed = |err| stream_error(mrb, err);
             if wait == Wait::Block {
-                for chunk in bytes.chunks(WRITE_CHUNK) {
+                for chunk in bytes.chunks(MAX_BLOCKING_WRITE) {
                     open.output
                         .blocking_write_and_flush(chunk)
                         .map_err(failed)?;

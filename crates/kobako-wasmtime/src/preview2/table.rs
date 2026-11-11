@@ -76,8 +76,9 @@ pub(crate) enum Stream {
 }
 
 impl Stream {
-    /// The file the stream stands on, as a view of one `struct file`.
-    pub(crate) fn file(&self) -> SharedFile {
+    /// Another view of the file the stream stands on, as `get_file` takes a
+    /// reference to one `struct file`.
+    pub(crate) fn get_file(&self) -> SharedFile {
         match self {
             Stream::Socket(socket) => socket.get_file(),
             Stream::File(file) => file.clone(),
@@ -87,12 +88,12 @@ impl Stream {
     /// Read what the stream holds now; `WouldBlock` while it holds nothing
     /// yet, as `io.wit` makes a read non-blocking.
     pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        lock(&self.file()).read(buf)
+        lock(&self.get_file()).read(buf)
     }
 
     /// Write what the stream takes now, never waiting.
     pub(crate) fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
-        lock(&self.file()).write(buf)
+        lock(&self.get_file()).write(buf)
     }
 
     /// How many bytes a write takes now.
@@ -113,7 +114,7 @@ impl Stream {
 
     /// What a poll finds, registering on `table` for a poll that will sleep.
     pub(crate) fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
-        lock(&self.file()).poll(table)
+        lock(&self.get_file()).poll(table)
     }
 }
 

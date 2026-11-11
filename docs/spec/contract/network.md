@@ -168,7 +168,8 @@ impl Policies {
 
 ## `Name`
 
-One name the Guest asks to look up, lowercase and with no trailing dot.
+One name the Guest asks to look up, lowercase and with no trailing dot, an IDN
+as its A-label.
 
 ```rust
 pub struct Name<'a> {

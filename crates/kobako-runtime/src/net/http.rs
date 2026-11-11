@@ -421,8 +421,8 @@ struct State {
     /// memory as it arrives.
     head_memory: Option<MemoryCharge>,
     body: VecDeque<u8>,
-    body_end: bool,
-    body_error: bool,
+    body_ended: bool,
+    body_failed: bool,
     /// The task waiting for room in the body's buffer.
     filler: Option<Waker>,
 }
@@ -463,8 +463,8 @@ impl Exchange {
                 phase: Phase::Sending,
                 head_memory: None,
                 body: VecDeque::new(),
-                body_end: false,
-                body_error: false,
+                body_ended: false,
+                body_failed: false,
                 filler: None,
             })),
             wait: Arc::default(),
@@ -550,7 +550,7 @@ impl Exchange {
     fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
         let mut state = self.state();
         if state.body.is_empty() {
-            return match (state.body_end, state.body_error) {
+            return match (state.body_ended, state.body_failed) {
                 (_, true) => Err(FilesystemError::ConnectionReset),
                 (true, _) => Ok(0),
                 _ => Err(FilesystemError::WouldBlock),
@@ -624,7 +624,7 @@ impl FileOperations for BodyFile {
         poll_wait(&self.0.wait, table);
         let state = self.0.state();
         let settled = !matches!(state.phase, Phase::Sending);
-        match settled && (!state.body.is_empty() || state.body_end || state.body_error) {
+        match settled && (!state.body.is_empty() || state.body_ended || state.body_failed) {
             true => PollMask::IN,
             false => PollMask::default(),
         }
@@ -651,8 +651,8 @@ async fn fill_body(state: &Mutex<State>, wait: &WaitQueueHead, mut body: Respons
                     pending = frame.into_data().unwrap_or_default();
                     continue;
                 }
-                Some(Err(_)) => lock(state).body_error = true,
-                None => lock(state).body_end = true,
+                Some(Err(_)) => lock(state).body_failed = true,
+                None => lock(state).body_ended = true,
             }
             wait.wake_up();
             return;

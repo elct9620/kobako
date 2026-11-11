@@ -328,8 +328,8 @@ impl Namespace {
     /// A TCP socket connecting to `addr`, the address the guest named, as
     /// `cred`. The socket hooks judge what the guest named first, in Linux's
     /// order: the modules `cred` holds, then each entry's policy, any refusal
-    /// winning. A literal address then passes the
-    /// ruleset as itself. A virtual one is translated to its name's real
+    /// winning. A literal address then passes the ruleset as itself. A
+    /// virtual one is translated to its name's real
     /// addresses, an unmapped one refused as any refused destination is; each
     /// real address the ruleset lets the name lead to is dialed exactly, in
     /// turn, until one answers, so a name answering `::1` first still reaches

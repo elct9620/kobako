@@ -171,9 +171,9 @@ module Kobako
 
       # Judge each decision +hook+ names with the block; a falsy answer or a
       # raised StandardError refuses. +:resolve+ hands the block the name a
-      # lookup asks for, lowercase with no trailing dot, +:connect+ a
-      # Connection, and +:request+ a Request. Raises ArgumentError for another
-      # hook. Returns +self+.
+      # lookup asks for, lowercase with no trailing dot and an IDN as its
+      # A-label, +:connect+ a Connection, and +:request+ a Request. Raises
+      # ArgumentError for another hook. Returns +self+.
       def policy(hook, &block)
         unless HOOKS.include?(hook)
           raise ArgumentError,

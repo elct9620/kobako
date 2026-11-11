@@ -16,13 +16,13 @@ pub(crate) type Answer<T = ()> = Result<T, types::Error>;
 /// the witx case, `E` prefixed and upper-cased, so a name the runtime adds
 /// reaches its own code without a second table to keep.
 fn from_posix_name(name: &str) -> Option<Errno> {
-    static BY_POSIX_NAME: LazyLock<HashMap<String, Errno>> = LazyLock::new(|| {
+    static ERRNO_BY_POSIX_NAME: LazyLock<HashMap<String, Errno>> = LazyLock::new(|| {
         (0..=u16::from(Errno::Notcapable))
             .filter_map(|code| Errno::try_from(code).ok())
             .map(|errno| (format!("E{errno:?}").to_ascii_uppercase(), errno))
             .collect()
     });
-    BY_POSIX_NAME.get(name).copied()
+    ERRNO_BY_POSIX_NAME.get(name).copied()
 }
 
 /// A pointer outside the memory or misaligned traps, as the witx

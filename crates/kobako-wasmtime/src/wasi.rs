@@ -54,7 +54,7 @@ pub(crate) struct Wasi {
 }
 
 impl Wasi {
-    /// An invocation's context, granting the posture the Sandbox requested
+    /// An invocation's context, granting the profile the Sandbox requested
     /// and presenting each of the invocation's Mounts as a preopen, from
     /// descriptor 3 in order.
     pub(crate) fn for_invocation(
@@ -78,7 +78,7 @@ impl Wasi {
         Ok(wasi)
     }
 
-    /// A compile's context, at the strongest posture whatever the Sandbox
+    /// A compile's context, on the hermetic profile whatever the Sandbox
     /// requested: compiling the Snippets needs no ambient authority, so
     /// it is granted none.
     pub(crate) fn for_compile(config: &Config, stdin: Vec<u8>) -> Result<Self, Trap> {
@@ -96,7 +96,7 @@ impl Wasi {
     /// The ABI version probe's context. Instantiating it runs the
     /// artifact's start section, yet reading a version needs no input, no
     /// ambient authority, and no output: the probe takes an empty stdin, the
-    /// strongest posture, and pipes sized to keep nothing.
+    /// hermetic profile, and pipes sized to keep nothing.
     pub(crate) fn for_probe() -> Result<Self, Trap> {
         Self::new(
             Vec::new(),
@@ -144,13 +144,13 @@ impl Wasi {
         let cred = descriptors.cred().clone();
 
         let mut builder = WasiCtxBuilder::new();
-        // The profile decides the ambient authority granted: the
-        // hermetic rung denies the preview1 time and entropy imports (see
-        // `ambient`), the permissive rung wires the live clocks that the
-        // guest's waits read too, and leaves the live entropy.
-        // Ambient filesystem, environment, and network stay absent on both rungs —
-        // the builder grants none unless asked. The exhaustive match makes
-        // a future ladder rung a compile error here, not authority granted
+        // The profile decides the ambient authority granted: the hermetic
+        // profile denies the preview1 time and entropy imports (see
+        // `ambient`), the permissive one wires the live clocks that the
+        // guest's waits read too, and leaves the live entropy. Ambient
+        // filesystem, environment, and network stay absent on both; the
+        // builder grants none unless asked. The exhaustive match makes a
+        // future profile a compile error here, not authority granted
         // silently.
         let clocks = match profile {
             Profile::Hermetic => {
@@ -270,7 +270,7 @@ fn to_mount(grant: &Grant) -> Option<Mount> {
 
 #[cfg(test)]
 mod tests {
-    //! Witness what an invocation's context grants at each profile rung:
+    //! Witness what an invocation's context grants on each profile:
     //! `wasi:clocks` / `wasi:random` frozen under `Hermetic` and live
     //! under `Permissive`, and no ambient filesystem, environment, or
     //! socket under either.
