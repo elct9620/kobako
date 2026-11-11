@@ -24,7 +24,7 @@ gem "beni", "~> 0.25.0", require: false
 # Ruby 4.0), so the group is a boundary, not a workaround.
 group :development do
   gem "irb", require: false
-  gem "minitest", "~> 6.0", require: false
+  gem "minitest", "~> 6.1", require: false
   gem "rubocop", "~> 1.92", require: false
 
   # Static type checker. Signatures live in sig/.
