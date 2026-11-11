@@ -2208,3 +2208,15 @@ endpoint "api.example.com", port: 443
 | Given | a script's `TCPSocket`, and `$stdout` with a `fileno` of its own that closes the socket |
 | When | it selects the socket to read and `$stdout` to write |
 | Then | the select raises `IOError` for the closed socket, and the run goes on. Every call into the script ends before any socket waits |
+
+## `NW-179` A keepalive time rounds a part of a second up
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-367` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest's TCP socket over `wasi:sockets` |
+| When | it sets keep-alive times of 1.5 and 0.5 seconds, then whole seconds, and reads each back |
+| Then | 1.5 reads 2 and 0.5 reads 1, as wasmtime's pass through rustix, which rounds a part of a second up. Whole seconds read unchanged |

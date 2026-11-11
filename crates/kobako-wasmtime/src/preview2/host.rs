@@ -2589,6 +2589,52 @@ mod tests {
         );
     }
 
+    // @behavior NW-179
+    #[test]
+    fn a_keepalive_time_rounds_a_part_of_a_second_up() {
+        let (mut guest, _listener) = guest_and_listener();
+        let socket = guest
+            .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+            .into_answer()
+            .unwrap()
+            .expect("a network makes a socket");
+        let mut set_and_read = |idle: u64, interval: u64| {
+            guest
+                .tcp_tcp_socket_set_keep_alive_idle_time(socket, idle)
+                .into_answer()
+                .unwrap()
+                .expect("a fresh socket takes the idle time");
+            guest
+                .tcp_tcp_socket_set_keep_alive_interval(socket, interval)
+                .into_answer()
+                .unwrap()
+                .expect("a fresh socket takes the interval");
+            (
+                guest
+                    .tcp_tcp_socket_keep_alive_idle_time(socket)
+                    .into_answer()
+                    .unwrap(),
+                guest
+                    .tcp_tcp_socket_keep_alive_interval(socket)
+                    .into_answer()
+                    .unwrap(),
+            )
+        };
+        assert_eq!(
+            [
+                set_and_read(1_500_000_000, 500_000_000),
+                set_and_read(2_000_000_000, 1)
+            ],
+            [
+                (Ok(2_000_000_000), Ok(1_000_000_000)),
+                (Ok(2_000_000_000), Ok(1_000_000_000))
+            ],
+            "tcp-socket keep-alive times of 1.5 s and 0.5 s must read back 2 s and 1 s, and whole \
+             seconds unchanged, as wasmtime's pass through rustix, which rounds a part of a \
+             second up"
+        );
+    }
+
     // @behavior NW-092
     #[test]
     fn a_write_past_the_last_check_write_permit_traps() {

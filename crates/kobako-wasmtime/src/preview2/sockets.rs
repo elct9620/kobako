@@ -16,11 +16,11 @@ pub(crate) fn to_nanos(secs: u32) -> u64 {
     u64::from(secs) * NANOS_PER_SEC
 }
 
-/// A keepalive time in whole seconds, clamped to 1 through `max`, the
-/// runtime's ceiling, as wasmtime clamps it; zero has none, as WIT answers it
-/// `invalid-argument`.
+/// A keepalive time in whole seconds, a part of one rounding up as rustix's
+/// `duration_to_secs` does for wasmtime, clamped to 1 through `max`, the
+/// runtime's ceiling; zero has none, as WIT answers it `invalid-argument`.
 pub(crate) fn to_keepalive_secs(nanos: u64, max: u32) -> Option<u32> {
-    let secs = (nanos / NANOS_PER_SEC).clamp(1, u64::from(max));
+    let secs = nanos.div_ceil(NANOS_PER_SEC).clamp(1, u64::from(max));
     (nanos != 0).then(|| u32::try_from(secs).expect("clamped within u32"))
 }
 
