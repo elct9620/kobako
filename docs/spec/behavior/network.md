@@ -21,6 +21,7 @@ endpoint "api.example.com", port: 443
 ## Includes
 
 - `test/e2e/test_network.rb`
+- `test/e2e/test_network_builder.rb`
 - `test/e2e/test_network_tcp.rb`
 - `test/e2e/test_network_tcp_cruby.rb`
 - `test/e2e/test_network_tcp_arguments.rb`
@@ -28,6 +29,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_own_end.rb`
 - `test/e2e/test_network_socket_io.rb`
 - `test/e2e/test_network_socket_io_edges.rb`
+- `test/e2e/test_network_socket_open.rb`
 - `test/e2e/test_network_socket_nonblock.rb`
 - `test/e2e/test_network_socket_wait.rb`
 - `test/e2e/test_network_socket_direct.rb`
@@ -1578,7 +1580,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server |
 | When | the script asks for `TCP_NODELAY`, sets `SO_KEEPALIVE` on a `UDPSocket`, and sets `SO_REUSEADDR`. It makes a `Socket::Option` for `AF_UNIX`, then for a family no one names |
-| Then | the first two raise `Errno::ENOPROTOOPT` and the name `SocketError`, where CRuby sets each. `AF_UNIX` raises `NotImplementedError`, where CRuby numbers it, since the guest numbers only IPv4 and IPv6. The unknown family raises `SocketError`, as CRuby's does |
+| Then | the first two raise `Errno::ENOPROTOOPT` and the name `SocketError`, where CRuby sets each. `AF_UNIX` raises `NotImplementedError`, where CRuby numbers it, since the guest numbers only IPv4 and IPv6. The unknown family raises `SocketError`, as CRuby's does. On a closed socket, an unknown level raises `IOError` first, as CRuby reads the open IO before the arguments |
 
 ## `NW-128` A script's Net::HTTP defines no TLS setting
 

@@ -17,6 +17,7 @@ use super::basic::{
     open_socket_of, ready_of, IoState, Readiness, SocketIo, Wait,
 };
 use super::ip::{local_end_of, to_addr_array};
+use super::option::{set_udp_option, udp_option, Refusal};
 use super::{bind, family_of, to_error, Family, AF_INET};
 use crate::errno;
 use crate::io::{would_wait, Direction};
@@ -130,6 +131,19 @@ impl SocketIo for Datagrams {
         })
     }
 
+    fn option(&self, mrb: &Mrb, option: (i32, i32)) -> Result<Result<i32, Refusal>, Error> {
+        self.with(mrb, |open| Ok(udp_option(&open.socket, option)))
+    }
+
+    fn set_option(
+        &self,
+        mrb: &Mrb,
+        option: (i32, i32),
+        int: i32,
+    ) -> Result<Result<(), Refusal>, Error> {
+        self.with(mrb, |open| Ok(set_udp_option(&open.socket, option, int)))
+    }
+
     fn kind(&self) -> (i64, i64) {
         (SOCK_DGRAM, IPPROTO_UDP)
     }
@@ -161,19 +175,6 @@ impl SocketIo for Datagrams {
 
     fn is_closed(&self) -> bool {
         self.open.borrow().is_none()
-    }
-}
-
-/// What `call` answers for the UDP socket `value` stands for, `None` when it
-/// stands for no `UDPSocket`; a closed one raises `IOError`.
-pub(super) fn with_udp_socket<T>(
-    mrb: &Mrb,
-    value: Value,
-    call: impl FnOnce(&UdpSocket) -> Result<T, Error>,
-) -> Result<Option<T>, Error> {
-    match Datagrams::of(mrb, value) {
-        Ok(datagrams) => datagrams.with(mrb, |open| call(&open.socket)).map(Some),
-        Err(_) => Ok(None),
     }
 }
 

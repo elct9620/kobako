@@ -8,8 +8,7 @@ use beni::{
     Error, IntoValue, Mrb, Qfalse, Qtrue, RClass, RString, RTypedData, TryConvert, TypedData, Value,
 };
 
-use super::tcp::with_tcp_socket;
-use super::udp::with_udp_socket;
+use super::basic::open_socket_of;
 use super::{family_of, name_of, socket_error, to_error, Family, AF_INET, AF_INET6};
 use crate::errno;
 use crate::wasi::wasi::sockets::network::ErrorCode;
@@ -246,8 +245,10 @@ fn int_of(mrb: &Mrb, bytes: &[u8]) -> Result<i32, Error> {
 }
 
 /// `setsockopt(level, optname, optval)`, or `setsockopt(option)`, answering
-/// 0 as CRuby's does.
+/// 0 as CRuby's does; a closed socket raises `IOError` first, as CRuby's
+/// takes the open IO before reading its arguments.
 fn socket_setsockopt(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let socket = open_socket_of(mrb, self_)?;
     let (level, optname, data) = match args {
         [option] => {
             let option = SockOption::of(mrb, *option)?;
@@ -262,18 +263,15 @@ fn socket_setsockopt(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, E
     };
     let int = int_of(mrb, &data)?;
     let option = (level, optname);
-    let set = match with_tcp_socket(mrb, self_, |socket| Ok(set_tcp_option(socket, option, int)))? {
-        Some(set) => set,
-        None => with_udp_socket(mrb, self_, |socket| Ok(set_udp_option(socket, option, int)))?
-            .unwrap_or(Err(Refusal::Unknown)),
-    };
-    set.map(|()| 0.into_value(mrb))
+    socket
+        .set_option(mrb, option, int)?
+        .map(|()| 0.into_value(mrb))
         .map_err(|refused| refused.into_error(mrb, level, "setsockopt(2)"))
 }
 
 /// Why a socket answered no option: WASI's error, an option WASI has no call
 /// for, or a level the socket's protocol does not take.
-enum Refusal {
+pub(super) enum Refusal {
     Wasi(ErrorCode),
     Unknown,
     Unsupported,
@@ -406,7 +404,11 @@ fn inet_option(socket: &impl InetOptions, option: (i32, i32)) -> Option<Result<i
 
 /// Set the option `(level, optname)` of a TCP socket to `int`, as Linux's
 /// `setsockopt(2)` reads it.
-fn set_tcp_option(socket: &TcpSocket, option: (i32, i32), int: i32) -> Result<(), Refusal> {
+pub(super) fn set_tcp_option(
+    socket: &TcpSocket,
+    option: (i32, i32),
+    int: i32,
+) -> Result<(), Refusal> {
     if let Some(set) = set_inet_option(socket, option, int) {
         return set;
     }
@@ -438,7 +440,7 @@ fn to_nanos(secs: i32, max: u32) -> Result<u64, Refusal> {
 
 /// What the option `(level, optname)` of a TCP socket reads, as Linux's
 /// `getsockopt(2)` answers it.
-fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
+pub(super) fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
     if let Some(read) = inet_option(socket, option) {
         return read;
     }
@@ -457,13 +459,17 @@ fn tcp_option(socket: &TcpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
 
 /// Set the option `(level, optname)` of a UDP socket to `int`. A TCP option
 /// raises ENOPROTOOPT, as `udp_setsockopt` hands it to `ip_setsockopt`.
-fn set_udp_option(socket: &UdpSocket, option: (i32, i32), int: i32) -> Result<(), Refusal> {
+pub(super) fn set_udp_option(
+    socket: &UdpSocket,
+    option: (i32, i32),
+    int: i32,
+) -> Result<(), Refusal> {
     set_inet_option(socket, option, int).unwrap_or(Err(Refusal::Unknown))
 }
 
 /// What the option `(level, optname)` of a UDP socket reads. A TCP option
 /// raises ENOTSUP, as Linux answers `getsockopt` at a level UDP does not take.
-fn udp_option(socket: &UdpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
+pub(super) fn udp_option(socket: &UdpSocket, option: (i32, i32)) -> Result<i32, Refusal> {
     match (inet_option(socket, option), option) {
         (Some(read), _) => read,
         (None, (IPPROTO_TCP, _)) => Err(Refusal::Unsupported),
@@ -479,14 +485,10 @@ fn socket_getsockopt(
     level: Value,
     optname: Value,
 ) -> Result<Value, Error> {
+    let socket = open_socket_of(mrb, self_)?;
     let level = level_of(mrb, level)?;
     let optname = optname_of(mrb, level, optname)?;
-    let option = (level, optname);
-    let read = match with_tcp_socket(mrb, self_, |socket| Ok(tcp_option(socket, option)))? {
-        Some(read) => read,
-        None => with_udp_socket(mrb, self_, |socket| Ok(udp_option(socket, option)))?
-            .unwrap_or(Err(Refusal::Unknown)),
-    };
+    let read = socket.option(mrb, (level, optname))?;
     let value = read.map_err(|refused| refused.into_error(mrb, level, "getsockopt(2)"))?;
     let option = SockOption {
         family: AF_INET,

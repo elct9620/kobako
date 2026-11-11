@@ -68,7 +68,7 @@ class TestE2ENetworkSocketOptionsCruby < Minitest::Test
     ]
     socket.close
     udp.close
-    answers
+    answers + [answer.call { udp.getsockopt(:BOGUS, :X) }, answer.call { udp.setsockopt(:BOGUS, :X, 1) }]
   RUBY
 
   UNANSWERED_ANSWERS = [
@@ -77,7 +77,9 @@ class TestE2ENetworkSocketOptionsCruby < Minitest::Test
     "Errno::ENOPROTOOPT: Protocol not available - setsockopt(2)",
     "SocketError: unknown socket level option name: REUSEADDR",
     "NotImplementedError: address family UNIX is unimplemented: the guest numbers only INET and INET6",
-    "SocketError: unknown socket domain: BOGUS"
+    "SocketError: unknown socket domain: BOGUS",
+    "IOError: closed stream",
+    "IOError: closed stream"
   ].freeze
 
   # @behavior NW-127
@@ -88,7 +90,8 @@ class TestE2ENetworkSocketOptionsCruby < Minitest::Test
       assert_equal UNANSWERED_ANSWERS, value,
                    "TCP_NODELAY and a UDPSocket's SO_KEEPALIVE must raise Errno::ENOPROTOOPT, a name the guest " \
                    "defines no constant for SocketError, and a family CRuby knows but the guest cannot number " \
-                   "NotImplementedError, where CRuby takes each; a family no one knows raises SocketError as CRuby's"
+                   "NotImplementedError, where CRuby takes each; a family no one knows raises SocketError as " \
+                   "CRuby's, and a closed socket raises IOError before an unknown level"
     end
   end
 end

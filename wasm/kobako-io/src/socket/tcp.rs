@@ -15,6 +15,7 @@ use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
 use super::basic::{IoState, Readiness, SocketIo, Wait};
 use super::ip::local_end_of;
+use super::option::{set_tcp_option, tcp_option, Refusal};
 use super::{bind, stream_error, to_error};
 use crate::errno;
 use crate::io::{current_block, time_interval_of, yield_and_close, Direction};
@@ -124,6 +125,19 @@ impl SocketIo for Connection {
         self.with(mrb, |open| Ok(open.peer))
     }
 
+    fn option(&self, mrb: &Mrb, option: (i32, i32)) -> Result<Result<i32, Refusal>, Error> {
+        self.with(mrb, |open| Ok(tcp_option(&open.socket, option)))
+    }
+
+    fn set_option(
+        &self,
+        mrb: &Mrb,
+        option: (i32, i32),
+        int: i32,
+    ) -> Result<Result<(), Refusal>, Error> {
+        self.with(mrb, |open| Ok(set_tcp_option(&open.socket, option, int)))
+    }
+
     fn kind(&self) -> (i64, i64) {
         (SOCK_STREAM, IPPROTO_TCP)
     }
@@ -147,19 +161,6 @@ impl SocketIo for Connection {
 
     fn is_closed(&self) -> bool {
         self.open.borrow().is_none()
-    }
-}
-
-/// What `call` answers for the TCP socket `value` stands for, `None` when it
-/// stands for no `TCPSocket`; a closed one raises `IOError`.
-pub(super) fn with_tcp_socket<T>(
-    mrb: &Mrb,
-    value: Value,
-    call: impl FnOnce(&TcpSocket) -> Result<T, Error>,
-) -> Result<Option<T>, Error> {
-    match Connection::of(mrb, value) {
-        Ok(connection) => connection.with(mrb, |open| call(&open.socket)).map(Some),
-        Err(_) => Ok(None),
     }
 }
 

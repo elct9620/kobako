@@ -15,6 +15,7 @@ use beni::{
 
 use super::address::sockaddr_of;
 use super::buffer::{eof_error, fill};
+use super::option::Refusal;
 use super::tcp::Connection;
 use crate::errno;
 use crate::io::{argument_error, would_wait, Direction};
@@ -130,6 +131,19 @@ pub(super) trait SocketIo {
     /// The peer as the guest named it, as `getpeername(2)` answers it; with
     /// none it raises `Errno::ENOTCONN`.
     fn peer_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error>;
+
+    /// What `option`, a level and a name, reads on the socket, as the
+    /// protocol's `getsockopt` answers it.
+    fn option(&self, mrb: &Mrb, option: (i32, i32)) -> Result<Result<i32, Refusal>, Error>;
+
+    /// Set `option` to `int` on the socket, as the protocol's `setsockopt`
+    /// takes it.
+    fn set_option(
+        &self,
+        mrb: &Mrb,
+        option: (i32, i32),
+        int: i32,
+    ) -> Result<Result<(), Refusal>, Error>;
 
     /// The socket's kind and protocol, as an `Addrinfo` of one of its ends
     /// carries them.
