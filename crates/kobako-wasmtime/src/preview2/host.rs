@@ -223,14 +223,15 @@ impl Invocation {
             .push_child(table::Pollable::File(file, mask), parent)
     }
 
-    /// Start a bind of a socket standing at `standing` to `local_address`, as
+    /// Start a bind of `sock`, standing at `standing`, to `local_address`, as
     /// both sockets' `start-bind` do in wasmtime's order: the network first,
     /// then a bind or connect under way, then any other state, then the
     /// address as WASI takes it and the protocol finds `valid`, through the
-    /// socket hooks.
+    /// socket hooks to the socket's own bind.
     fn start_bind(
         &mut self,
         network: Network,
+        sock: &dyn ProtoOps,
         local_address: &IpSocketAddress,
         standing: BindStanding,
         valid: fn(SocketAddr) -> bool,
@@ -245,7 +246,7 @@ impl Invocation {
             .filter(|addr| valid(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().descriptors().cred().clone();
-        Ok(self.network().bind(&cred, addr)?)
+        Ok(self.network().bind(&cred, sock, addr)?)
     }
 
     fn tcp(&mut self, handle: TcpSocket) -> wasmtime::Result<&mut table::TcpSocket> {
@@ -390,12 +391,20 @@ impl SocketsHost for Invocation {
         network: Network,
         local_address: IpSocketAddress,
     ) -> Result<(), SocketError> {
-        let standing = match self.tcp(this)?.state {
+        let socket = self.tcp(this)?;
+        let standing = match socket.state {
             TcpState::Unbound => BindStanding::Unbound,
-            state if state == TcpState::Binding || state.is_connecting() => BindStanding::Busy,
+            state if state.is_in_progress() => BindStanding::Busy,
             _ => BindStanding::Settled,
         };
-        self.start_bind(network, &local_address, standing, is_valid_unicast_address)?;
+        let sock = socket.socket.sock.clone();
+        self.start_bind(
+            network,
+            sock.as_ref(),
+            &local_address,
+            standing,
+            is_valid_unicast_address,
+        )?;
         self.tcp(this)?.state = TcpState::Binding;
         Ok(())
     }
@@ -422,9 +431,7 @@ impl SocketsHost for Invocation {
         let socket = self.tcp(this)?;
         match socket.state {
             TcpState::Unbound | TcpState::Bound => {}
-            state if state == TcpState::Binding || state.is_connecting() => {
-                return Err(ErrorCode::ConcurrencyConflict.into())
-            }
+            state if state.is_in_progress() => return Err(ErrorCode::ConcurrencyConflict.into()),
             _ => return Err(ErrorCode::InvalidState.into()),
         }
         let sock = socket.socket.sock.clone();
@@ -672,14 +679,16 @@ impl SocketsHost for Invocation {
         network: Network,
         local_address: IpSocketAddress,
     ) -> Result<(), SocketError> {
-        let standing = match self.udp(this)?.state {
+        let socket = self.udp(this)?;
+        let standing = match socket.state {
             UdpState::Unbound => BindStanding::Unbound,
             UdpState::Binding => BindStanding::Busy,
             _ => BindStanding::Settled,
         };
+        let sock = socket.socket.sock.clone();
         // UDP binds any address WASI takes, as wasmtime asks UDP of its family
         // alone; the socket hooks refuse all but the implicit one.
-        self.start_bind(network, &local_address, standing, |_| true)?;
+        self.start_bind(network, sock.as_ref(), &local_address, standing, |_| true)?;
         self.udp(this)?.state = UdpState::Binding;
         Ok(())
     }
@@ -2480,6 +2489,9 @@ mod tests {
         let again = guest
             .tcp_tcp_socket_start_connect(socket, network, to)
             .into_answer();
+        let bound_while_connecting = guest
+            .tcp_tcp_socket_start_bind(socket, network, ipv4((0, 0, 0, 0), 0))
+            .into_answer();
         let udp = guest
             .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
             .into_answer()
@@ -2495,17 +2507,19 @@ mod tests {
             (
                 first.unwrap(),
                 again.unwrap(),
+                bound_while_connecting.unwrap(),
                 bound.unwrap(),
                 rebound.unwrap()
             ),
             (
                 Ok(()),
                 Err(ErrorCode::ConcurrencyConflict),
+                Err(ErrorCode::ConcurrencyConflict),
                 Ok(()),
                 Err(ErrorCode::ConcurrencyConflict)
             ),
-            "start-connect and start-bind again before their finish must answer \
-             concurrency-conflict"
+            "start-connect again, or a TCP start-bind, while a connect is under way, and \
+             start-bind again before its finish, must answer concurrency-conflict"
         );
     }
 

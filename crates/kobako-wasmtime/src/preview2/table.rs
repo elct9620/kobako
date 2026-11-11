@@ -240,9 +240,13 @@ pub(crate) enum TcpState {
 }
 
 impl TcpState {
-    /// Whether a connect is under way, its failure not yet answered.
-    pub(crate) fn is_connecting(self) -> bool {
-        matches!(self, Self::Connecting | Self::ConnectFailed(_))
+    /// Whether a bind or a connect is under way, a failed connect's error
+    /// not yet answered, as wasmtime keeps one `in_progress_operation`.
+    pub(crate) fn is_in_progress(self) -> bool {
+        matches!(
+            self,
+            Self::Binding | Self::Connecting | Self::ConnectFailed(_)
+        )
     }
 
     /// Whether a socket option may be read or set now: as wasmtime's, a

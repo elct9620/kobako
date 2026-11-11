@@ -23,10 +23,15 @@ use super::connections::Place;
 pub const MAX_SOCKET_BUFFER: usize = 64 * 1024;
 
 /// What one protocol answers for its socket, as Linux's `struct proto_ops`:
-/// the file's reads and writes, what a poll finds, its shutdown, names, and
-/// options, and the release once every view is gone. A Wasm Driver reaches
-/// every socket through it, whichever protocol stands behind.
+/// its bind, the file's reads and writes, what a poll finds, its shutdown,
+/// names, and options, and the release once every view is gone, whichever
+/// protocol stands behind.
 pub trait ProtoOps: Send + Sync {
+    /// Take `addr` as the socket's own end once the socket hooks passed it,
+    /// as `->bind` runs after `__sys_bind` asks `security_socket_bind`: an
+    /// IPv6 address answers `AddressFamilyNotSupported`, and a socket bound
+    /// or connected already `InvalidInput`, as `__inet_bind` refuses one.
+    fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError>;
     /// Read what the socket holds; `WouldBlock` while it holds nothing yet.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<usize, FilesystemError>;
     /// Write what the socket takes now; `WouldBlock` while it takes nothing.
@@ -108,6 +113,8 @@ pub(crate) struct InetSock {
     /// The socket's place against its Sandbox's cap and the process's, given
     /// back as it is released.
     pub(crate) place: Option<Place>,
+    /// Whether a bind took the socket's own end, as `inet_num` records one.
+    bound: bool,
     /// What its queues may hold, reserved against the Invocation's memory
     /// until the socket is released.
     memory: Option<MemoryCharge>,
@@ -125,8 +132,28 @@ impl InetSock {
             rcv_shut: false,
             send_shut: false,
             place: None,
+            bound: false,
             memory: Some(memory),
         }
+    }
+
+    /// Take `addr` as the socket's own end, as `inet_bind` does: an IPv6
+    /// address answers `EAFNOSUPPORT`, and a socket already bound, or
+    /// `connected` and so bound by its connect, `EINVAL`, as `__inet_bind`
+    /// refuses one past `TCP_CLOSE` or holding a port.
+    pub(crate) fn bind(
+        &mut self,
+        addr: SocketAddr,
+        connected: bool,
+    ) -> Result<(), FilesystemError> {
+        if addr.is_ipv6() {
+            return Err(FilesystemError::AddressFamilyNotSupported);
+        }
+        if self.bound || connected {
+            return Err(FilesystemError::InvalidInput);
+        }
+        self.bound = true;
+        Ok(())
     }
 
     /// The guest's own end, at its own virtual address once a port is held.

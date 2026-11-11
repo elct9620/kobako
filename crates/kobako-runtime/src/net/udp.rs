@@ -235,6 +235,14 @@ impl Ready for UdpSock {
 /// UDP's answers for its socket file, as `inet_dgram_ops` hands each call to
 /// `udp_prot`.
 impl ProtoOps for UdpSock {
+    /// A socket connected to a peer holds its own end already, as
+    /// `udp_pre_connect` autobinds one.
+    fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
+        let mut state = self.state();
+        let connected = state.inet.peer.is_some();
+        state.inet.bind(addr, connected)
+    }
+
     /// One datagram, cut to `buf`, as a datagram socket's read takes one. A
     /// pending failure is answered first, once, and then cleared, as
     /// `__skb_recv_udp` asks `sock_error` before it dequeues, so the socket

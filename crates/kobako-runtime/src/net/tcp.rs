@@ -438,6 +438,14 @@ impl Ready for TcpSock {
 /// TCP's answers for its socket file, as `inet_stream_ops` hands each call to
 /// `tcp_prot`.
 impl ProtoOps for TcpSock {
+    /// A socket that began a connect holds its own end already, as
+    /// `inet_hash_connect` binds one past `TCP_CLOSE`.
+    fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
+        let mut state = self.state();
+        let connected = state.phase != Phase::Unconnected;
+        state.inet.bind(addr, connected)
+    }
+
     /// What the receive buffer holds, up to `buf`'s length, as
     /// `tcp_recvmsg_locked` copies what is queued first. A drained buffer then
     /// answers the peer's end as zero, ahead of any failure as `SOCK_DONE`
@@ -850,6 +858,38 @@ mod tests {
             "SO_RCVBUF and SO_SNDBUF must double a size as Linux does, within the socket's \
              reserved buffer and above Linux's least, and the queues must hold no more than they \
              say; the receive queue held {held}"
+        );
+    }
+
+    // @behavior RT-385
+    #[test]
+    fn a_socket_binds_once_and_not_after_its_connect() {
+        let any: SocketAddr = "0.0.0.0:0".parse().unwrap();
+        let cred = prepare_creds_within(&[], None);
+        let fresh = TcpSock::new(Arc::new(HostInet), &cred).expect("the reactor starts");
+        let (first, second) = (fresh.bind(any), fresh.bind(any));
+        let ipv6 = TcpSock::new(Arc::new(HostInet), &cred)
+            .expect("the reactor starts")
+            .bind("[::]:0".parse().unwrap());
+        let (connected, _file, _peer) = connected_socket();
+        let udp_peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let udp = crate::net::UdpSock::new(&cred).expect("an unbounded socket is made");
+        let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
+        let at = udp_peer.local_addr().unwrap();
+        udp.connect(&family, at, at, &OpenConnections::new(None))
+            .expect("an uncapped socket connects");
+        assert_eq!(
+            (first, second, ipv6, connected.bind(any), udp.bind(any)),
+            (
+                Ok(()),
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::AddressFamilyNotSupported),
+                Err(FilesystemError::InvalidInput),
+                Err(FilesystemError::InvalidInput)
+            ),
+            "a socket's bind must take its own end once, answer EINVAL to a second bind and to a \
+             bind after a TCP or UDP connect bound it, and EAFNOSUPPORT to IPv6, as Linux's \
+             inet_bind"
         );
     }
 

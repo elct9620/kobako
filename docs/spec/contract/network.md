@@ -782,6 +782,18 @@ What one protocol answers for its socket file, as Linux's `struct proto_ops`.
 pub trait ProtoOps: Send + Sync {}
 ```
 
+## `ProtoOps::bind`
+
+Take an address as the socket's own end, once the socket hooks passed it. An
+IPv6 address answers `AddressFamilyNotSupported`. A socket bound already, or
+bound by its connect, answers `InvalidInput`.
+
+```rust
+pub trait ProtoOps {
+    fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError>;
+}
+```
+
 ## `ProtoOps::recvmsg`
 
 Read what the socket holds; `WouldBlock` while it holds nothing yet.
@@ -1504,14 +1516,13 @@ impl Namespace {
 
 ## `Namespace::bind`
 
-Bind a socket to an address as a Cred, once the socket hooks pass it, as
-Linux's `bind` asks `security_socket_bind`. The Guest only reaches out, so
-kobako's own module passes only the unspecified address at port 0. Any other
-answers `PermissionDenied`, and an IPv6 address the hooks pass answers
-`AddressFamilyNotSupported`.
+Bind a socket to an address as a Cred, once the socket hooks pass it. Linux's
+`bind` asks `security_socket_bind` the same way, before the protocol's own
+bind. The Guest only reaches out, so kobako's own module passes only the unspecified
+address at port 0. Any other answers `PermissionDenied`.
 
 ```rust
 impl Namespace {
-    pub fn bind(&self, cred: &Cred, addr: SocketAddr) -> Result<(), FilesystemError> {}
+    pub fn bind(&self, cred: &Cred, sock: &dyn ProtoOps, addr: SocketAddr) -> Result<(), FilesystemError> {}
 }
 ```

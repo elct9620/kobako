@@ -15,7 +15,7 @@ use super::http::{
 };
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::transport::Connector;
-use super::{OpenConnections, ProtocolFamily, TcpSock, UdpSock};
+use super::{OpenConnections, ProtoOps, ProtocolFamily, TcpSock, UdpSock};
 use crate::grant::Policy;
 use crate::network::{Connection, EntryError, Name, Network, Protocol, Request, Ruleset};
 use crate::vfs::{Cred, FilesystemError};
@@ -384,16 +384,17 @@ impl Namespace {
         UdpSock::new(cred)
     }
 
-    /// Bind a socket to `addr` as `cred`, once the socket hooks pass it, as
-    /// `__sys_bind` asks `security_socket_bind`; the host socket takes its
-    /// own address as it connects, so a bind the hooks pass leaves nothing
-    /// to do here.
-    pub fn bind(&self, cred: &Cred, addr: SocketAddr) -> Result<(), FilesystemError> {
+    /// Bind `sock` to `addr` as `cred`, once the socket hooks pass it, as
+    /// `__sys_bind` asks `security_socket_bind` before the protocol's
+    /// `->bind`; the host socket takes its own address as it connects.
+    pub fn bind(
+        &self,
+        cred: &Cred,
+        sock: &dyn ProtoOps,
+        addr: SocketAddr,
+    ) -> Result<(), FilesystemError> {
         cred.security_socket_bind(addr)?;
-        match addr.is_ipv6() {
-            true => Err(FilesystemError::AddressFamilyNotSupported),
-            false => Ok(()),
-        }
+        sock.bind(addr)
     }
 
     /// Connect a UDP socket to `addr`, the one peer the guest named, as
@@ -818,7 +819,10 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         let ipv6 = dial(&namespace, &cred, "[::1]:4567".parse().unwrap()).err();
         let unmapped = dial(&namespace, &cred, "198.18.5.5:4567".parse().unwrap()).err();
-        let bound = namespace.bind(&cred, "[::]:0".parse().unwrap()).err();
+        let sock = UdpSock::new(&cred).expect("an unbounded socket is made");
+        let bound = namespace
+            .bind(&cred, sock.as_ref(), "[::]:0".parse().unwrap())
+            .err();
         let judged = seen
             .lock()
             .unwrap()

@@ -4259,3 +4259,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | its send queue holds two thirds of the buffer, then one byte more |
 | Then | it polls writable at two thirds and not past them. Linux's `__sk_stream_is_writeable` asks the room left to be half what is queued. A waiter so wakes for room worth a write |
 
+## `RT-385` A socket binds once, and not after its connect
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-117` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a fresh TCP socket, a connected one, and a connected UDP socket |
+| When | a Wasm Driver binds each past the socket hooks, the fresh one twice and once to IPv6 |
+| Then | the first bind takes the socket's own end. A second bind, or one after a connect bound the socket, answers EINVAL, as `__inet_bind` refuses. IPv6 answers EAFNOSUPPORT |
+
