@@ -7,11 +7,10 @@ use std::task::Poll;
 use std::time::Duration;
 
 use beni::prelude::*;
-use beni::scan_args::scan_args;
+use beni::scan_args::{get_kwargs, scan_args};
 use beni::value::qnil;
 use beni::{
-    Error, ExceptionClass, Module, Mrb, Proc, RArray, RClass, RHash, Symbol, TryConvert, TypedData,
-    Value,
+    Error, ExceptionClass, Module, Mrb, Proc, RArray, RClass, RHash, TryConvert, TypedData, Value,
 };
 
 use super::address::{local_of, peer_of, to_ip_socket_address};
@@ -20,8 +19,7 @@ use super::basic::{IoState, Readiness, SocketIo, Wait};
 use super::ip::local_end_of;
 use super::{bind, stream_error, to_error};
 use crate::errno;
-use crate::io::time_interval_of;
-use crate::io::{argument_error, Direction};
+use crate::io::{time_interval_of, Direction};
 use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
@@ -344,29 +342,24 @@ struct Timeouts {
 /// keyword CRuby's does not take. `fast_fallback:` chooses between IPv6 and
 /// IPv4 attempts, so on a guest that speaks only IPv4 it changes nothing.
 fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
-    let mut timeouts = Timeouts {
-        resolv: None,
-        connect: None,
-    };
     let Some(options) = options else {
-        return Ok(timeouts);
+        return Ok(Timeouts {
+            resolv: None,
+            connect: None,
+        });
     };
-    let keys: RArray = options.funcall(mrb, c"keys", ())?;
-    for i in 0..keys.len() {
-        let given: Value = keys.entry(mrb, i as isize)?;
-        let name = Symbol::from_value(given).and_then(|name| name.name(mrb).ok());
-        let limit = match name.as_deref() {
-            Some("resolv_timeout") => &mut timeouts.resolv,
-            Some("connect_timeout") => &mut timeouts.connect,
-            Some("fast_fallback") => continue,
-            _ => {
-                let name = given.inspect(mrb);
-                return Err(argument_error(mrb, &format!("unknown keyword: {name}")));
-            }
-        };
-        *limit = time_interval_of(mrb, options.aref(mrb, given)?)?;
-    }
-    Ok(timeouts)
+    let kw = get_kwargs::<_, (), (Option<Value>, Option<Value>, Option<Value>), ()>(
+        mrb,
+        options,
+        &[],
+        &["resolv_timeout", "connect_timeout", "fast_fallback"],
+    )?;
+    let (resolv, connect, _fast_fallback) = kw.optional;
+    let limit_of = |sec: Option<Value>| sec.map_or(Ok(None), |sec| time_interval_of(mrb, sec));
+    Ok(Timeouts {
+        resolv: limit_of(resolv)?,
+        connect: limit_of(connect)?,
+    })
 }
 
 fn io_timeout_error(mrb: &Mrb) -> Result<ExceptionClass, Error> {

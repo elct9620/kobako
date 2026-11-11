@@ -7,10 +7,10 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
 use beni::prelude::*;
+use beni::scan_args::get_kwargs;
 use beni::value::qnil;
 use beni::{
-    Error, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash, Symbol, TryConvert, TypedData,
-    Value,
+    Error, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash, TryConvert, TypedData, Value,
 };
 
 use super::address::{end_of, pack_host, port_of, sockaddr_of};
@@ -318,20 +318,9 @@ fn addrinfo_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Val
     let mut timeout = None;
     if let Some(options) = args.last().copied().and_then(RHash::from_value) {
         args.pop();
-        let keys: RArray = options.funcall(mrb, c"keys", ())?;
-        for i in 0..keys.len() {
-            let key: Value = keys.entry(mrb, i as isize)?;
-            match Symbol::from_value(key)
-                .map(|key| key.name(mrb))
-                .transpose()?
-                .as_deref()
-            {
-                Some("timeout") => timeout = time_interval_of(mrb, options.aref(mrb, key)?)?,
-                _ => {
-                    let message = format!("unknown keyword: {}", key.inspect(mrb));
-                    return Err(argument_error(mrb, &message));
-                }
-            }
+        let kw = get_kwargs::<_, (), (Option<Value>,), ()>(mrb, options, &[], &["timeout"])?;
+        if let (Some(sec),) = kw.optional {
+            timeout = time_interval_of(mrb, sec)?;
         }
     }
     let (node, service, rest) = match args.as_slice() {

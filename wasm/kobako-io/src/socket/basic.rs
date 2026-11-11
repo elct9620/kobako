@@ -7,10 +7,9 @@ use std::net::{Ipv4Addr, Shutdown};
 use std::task::Poll;
 
 use beni::prelude::*;
+use beni::scan_args::get_kwargs;
 use beni::value::qnil;
-use beni::{
-    Error, IntoValue, Mrb, Qfalse, Qtrue, RArray, RClass, RHash, Symbol, TryConvert, Value,
-};
+use beni::{Error, IntoValue, Mrb, Qfalse, Qtrue, RClass, RHash, Symbol, TryConvert, Value};
 
 use super::address::sockaddr_of;
 use super::buffer::{end_of_file, fill};
@@ -174,28 +173,20 @@ pub(super) fn exception_option<'a>(
     let Some(options) = RHash::from_value(*last) else {
         return Ok((args, true));
     };
-    let keys: RArray = options.funcall(mrb, c"keys", ())?;
-    let mut exception = true;
-    for i in 0..keys.len() {
-        let key: Value = keys.entry(mrb, i as isize)?;
-        let named = Symbol::from_value(key).and_then(|key| key.name(mrb).ok());
-        if named.as_deref() != Some("exception") {
-            let message = format!("unknown keyword: {}", key.inspect(mrb));
+    let kw = get_kwargs::<_, (), (Option<Value>,), ()>(mrb, options, &[], &["exception"])?;
+    let (given,) = kw.optional;
+    let exception = match given {
+        None => true,
+        Some(given) if Qtrue::from_value(given).is_some() => true,
+        Some(given) if Qfalse::from_value(given).is_some() => false,
+        Some(given) => {
+            let message = format!(
+                "expected true or false as exception: {}",
+                given.inspect(mrb)
+            );
             return Err(argument_error(mrb, &message));
         }
-        let given: Value = options.aref(mrb, key)?;
-        exception = match (Qtrue::from_value(given), Qfalse::from_value(given)) {
-            (Some(_), _) => true,
-            (_, Some(_)) => false,
-            _ => {
-                let message = format!(
-                    "expected true or false as exception: {}",
-                    given.inspect(mrb)
-                );
-                return Err(argument_error(mrb, &message));
-            }
-        };
-    }
+    };
     Ok((rest, exception))
 }
 
