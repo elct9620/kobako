@@ -233,6 +233,7 @@ These names come from another side, and each stays as that side spells it. The s
 | Rust API Guidelines | `new`, `try_`, `as_`, `into_`, `_mut`, a getter without `get_`, a trait such as `Blocking` |
 | Rust API Guidelines, where a type name drops what its module path says | `io::Error`, `kobako_wasmtime::Driver` |
 | Linux, for the VFS, a Filesystem's operations, locks, and scheduling | `filename_mkdirat`, `vfs_mkdir`, `DentryOperations::revalidate`, `RwSemaphore::down_read`, `sched::schedule` |
+| Linux, for `net`'s sockets | `ProtoOps`, `InetSock`, `sock_alloc_file`, `put_port`, `MAX_TCP_KEEPIDLE` |
 | Ruby and its hooks | `method_missing`, `respond_to_missing?`, `LocalJumpError`, `ThreadError` |
 | magnus and beni | `funcall`, `define_method` |
 | WASI and POSIX | `fd_readdir`, `PATH_MAX`, `ELOOP` |
