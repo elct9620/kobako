@@ -205,7 +205,9 @@ impl Namespace {
 
     /// A lookup of `name`. The name is normalized, then each entry's `resolve`
     /// policy and the endpoints judge it; a refused or unmatched name answers
-    /// as NXDOMAIN before any query, as a real one would.
+    /// as NXDOMAIN before any query, as a real one would. A name the
+    /// Invocation already translated answers its first real addresses again,
+    /// with no query, so a resolver cannot rebind it.
     pub fn resolve(&self, name: &str) -> Result<Arc<NameLookup>, LookupError> {
         let name = normalize(name)?;
         if !self.allows_lookup(&name) || !self.ruleset.admits_name(&name) {
@@ -214,7 +216,17 @@ impl Namespace {
                 Err(LookupError::NameUnresolvable),
             ));
         }
-        NameLookup::start(self.family.clone(), name, &self.open_connections)
+        let translated = self
+            .translations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|(known, _)| *known == name)
+            .map(|(_, real)| real.clone());
+        match translated {
+            Some(real) => Ok(NameLookup::with_answer(name, Ok(real))),
+            None => NameLookup::start(self.family.clone(), name, &self.open_connections),
+        }
     }
 
     /// Whether every `resolve` policy lets `name`, normalized, be looked up.
@@ -261,8 +273,9 @@ impl Namespace {
     }
 
     /// Allocate the virtual address `lookup`'s answer is handed out at, from
-    /// the bottom of the range, never reused for a second name; `None` while
-    /// the lookup is under way, its failure once it failed, and
+    /// the bottom of the range, never reused for a second name; a name
+    /// already handed one keeps it, as a fake-IP pool answers a known host.
+    /// `None` while the lookup is under way, its failure once it failed, and
     /// `TemporaryFailure` once the range is spent or `cred`'s memory cannot
     /// hold the entry, which the table keeps until the Invocation ends.
     pub fn alloc_virtual_address(
@@ -278,6 +291,13 @@ impl Namespace {
             .translations
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        if let Some(offset) = translations
+            .iter()
+            .position(|(known, _)| known == lookup.name())
+            .and_then(|offset| u32::try_from(offset).ok())
+        {
+            return Some(Ok(Ipv4Addr::from(VIRTUAL_BASE + offset)));
+        }
         let Some(offset) = u32::try_from(translations.len())
             .ok()
             .filter(|o| *o < NAMED_SIZE)
@@ -1062,6 +1082,42 @@ mod tests {
             "Namespace::alloc_virtual_address must answer temporary-failure when the \
              Invocation's memory cannot hold the name's entry, and hand out the bottom of the \
              range once it can"
+        );
+    }
+
+    // @behavior NW-175
+    #[test]
+    fn a_name_keeps_its_virtual_address_and_first_answer_for_the_invocation() {
+        let family = Arc::new(ResolvesNames {
+            answers: Mutex::new(vec!["127.0.0.1".parse().unwrap()]),
+            ..ResolvesNames::default()
+        });
+        let namespace = resolving_namespace(vec![tcp("cache.internal", 6379)], "", family.clone());
+        let first = resolve_virtual_address(&namespace, "cache.internal");
+        *family.answers.lock().unwrap() = vec!["10.0.0.1".parse().unwrap()];
+        let again = namespace
+            .resolve("Cache.Internal.")
+            .expect("the lookup starts");
+        let answer = wait_for_answer(&again);
+        let second = resolve_virtual_address(&namespace, "cache.internal");
+        assert_eq!(
+            (
+                first,
+                second,
+                answer,
+                family.lookups.load(Ordering::SeqCst),
+                namespace.translations.lock().unwrap().len()
+            ),
+            (
+                "198.18.0.0:6379".parse().unwrap(),
+                "198.18.0.0:6379".parse().unwrap(),
+                Ok(vec!["127.0.0.1".parse().unwrap()]),
+                1,
+                1
+            ),
+            "a name looked up again in one Invocation, in any spelling of it, must keep its \
+             virtual address and its first real addresses, query the resolver once, and take no \
+             second entry, so a resolver cannot rebind it"
         );
     }
 

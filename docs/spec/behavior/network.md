@@ -2082,7 +2082,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a script's `UDPSocket` connected to an endpoint's name |
 | When | it sends naming that name and port, then naming another address |
-| Then | the first reaches the peer the socket streams with, without another lookup. The second raises `Errno::EACCES` |
+| Then | the name is looked up again, as CRuby's `sendto` does. It keeps its virtual address, so the first reaches the peer the socket streams with. The second raises `Errno::EACCES` |
 
 ## `NW-169` A closed socket refuses a position, sync, or advice call
 
@@ -2158,3 +2158,16 @@ endpoint "api.example.com", port: 443
 | Given | a UDP socket whose peer sent it more datagrams than one turn takes |
 | When | the socket takes them in from the host, then reads each |
 | Then | one turn takes at most 64, as `NAPI_POLL_WEIGHT` bounds one poll. A flooded socket so holds no thread past its turn. Each read takes in what still waits, so the socket reads every datagram its buffer holds |
+
+## `NW-175` A name keeps its virtual address for the Invocation
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-025` |
+| relates | `NW-149` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a name the guest looked up once, whose resolver answers otherwise afterwards |
+| When | the guest looks it up again in the same Invocation, in any spelling of it |
+| Then | the policies and endpoints judge it again, and it answers the same virtual address and real addresses. No query reaches the resolver, and the table takes no second entry. A resolver so cannot rebind a name, as a fake-IP pool answers a known host |

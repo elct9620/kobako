@@ -80,7 +80,7 @@ class TestE2ENetworkAddrinfo < Minitest::Test
     ["#<Addrinfo: 10.0.0.1:53 UDP>", "#<Addrinfo: 10.0.0.1:53 SOCK_RAW IPPROTO_UDP>"],
     ["#<Addrinfo: 0.0.0.0:80 TCP>"],
     [["#<Addrinfo: 198.18.0.0:80 TCP localhost (localhost)>", "localhost"]],
-    [["AF_INET", 80, "198.18.0.1", "198.18.0.1", 2, 1, 6]],
+    [["AF_INET", 80, "198.18.0.0", "198.18.0.0", 2, 1, 6]],
     ["Socket::ResolutionError", "getaddrinfo: Address family for hostname not supported"],
     ["Socket::ResolutionError", "getaddrinfo: Name or service not known"]
   ].freeze

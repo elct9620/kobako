@@ -62,22 +62,9 @@ fn resolve(
     }
 }
 
-/// The host as `host` spells it and the port `port` names for `call`, with the
-/// words CRuby's `Errno` carries for them.
-pub(super) fn peer_spelling_of(
-    mrb: &Mrb,
-    host: Value,
-    port: Value,
-    call: &str,
-) -> Result<(String, u16, String), Error> {
-    let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
-    let (port, port_text) = port_of(mrb, port)?;
-    let call = peer_message(call, &host_text, port_text);
-    Ok((host_text, port, call))
-}
-
 /// The peer `host` and `port` name for `call` on a `class`: the IPv4 address
-/// `host` spells, or the one its name leads to within `resolv_timeout`.
+/// `host` spells, or the one its name leads to within `resolv_timeout`, with
+/// the words CRuby's `Errno` carries for them.
 pub(super) fn peer_of(
     mrb: &Mrb,
     host: Value,
@@ -86,7 +73,9 @@ pub(super) fn peer_of(
     class: &str,
     call: &str,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
-    let (host_text, port, call) = peer_spelling_of(mrb, host, port, call)?;
+    let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
+    let (port, port_text) = port_of(mrb, port)?;
+    let call = peer_message(call, &host_text, port_text);
     let ip = match host_text.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(ip)) => ip,
         Ok(std::net::IpAddr::V6(_)) => {

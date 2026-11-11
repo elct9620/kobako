@@ -9,7 +9,7 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
-use super::address::{local_of, peer_of, peer_spelling_of, to_ip_socket_address};
+use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
     direct_args, exception_option, open_socket_of, ready_of, IoState, Readiness, SocketIo, Wait,
@@ -37,23 +37,6 @@ struct Streams {
     incoming: IncomingDatagramStream,
     outgoing: OutgoingDatagramStream,
     peer: (Ipv4Addr, u16),
-    /// The host `connect` was handed, as the resolver reads a name, so a send
-    /// naming it again reaches the same peer without another lookup.
-    lookup_name: String,
-}
-
-/// `host` as the resolver reads a name: lowercase, with no trailing dot.
-fn to_lookup_name(host: &str) -> String {
-    host.trim_end_matches('.').to_ascii_lowercase()
-}
-
-impl Streams {
-    /// Whether `host` and `port` name the peer: the host `connect` was handed,
-    /// or the address it streams with.
-    fn names(&self, host: &str, port: u16) -> bool {
-        port == self.peer.1
-            && (to_lookup_name(host) == self.lookup_name || host.parse() == Ok(self.peer.0))
-    }
 }
 
 struct OpenSocket {
@@ -283,7 +266,6 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
 /// `connect(host, port)` streams with the peer `host` and `port` name, binding
 /// first if no bind came before, as Linux's autobind does.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
-    let lookup_name = to_lookup_name(&host.to_r_string(mrb)?.to_string(mrb)?);
     let (ip, port, call) = peer_of(mrb, host, port, None, UDP, "connect(2)")?;
     let failed = |code| to_error(mrb, code, UDP, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
@@ -299,7 +281,6 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
             incoming,
             outgoing,
             peer: (ip, port),
-            lookup_name,
         });
         Ok(())
     })?;
@@ -314,8 +295,11 @@ fn mesg_bytes_of(mrb: &Mrb, mesg: Value) -> Result<Vec<u8>, Error> {
 }
 
 /// `send(mesg, flags[, host, port])` sends one datagram to the peer, waiting
-/// for room; one to an address no `connect` named raises `Errno::EACCES`, and
-/// one with no peer at all `Errno::EDESTADDRREQ`, as Linux's.
+/// for room; `host` is looked up as CRuby's `sendto` does, and its name keeps
+/// the address `connect` was given, so the peer is judged by address, as
+/// `wasi:sockets` compares one. One to another address raises
+/// `Errno::EACCES`, and one with no peer at all `Errno::EDESTADDRREQ`, as
+/// Linux's.
 fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (mesg, to) = match args {
         [mesg, _flags] => (*mesg, None),
@@ -326,18 +310,13 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     // Whether the address a send names is the peer, `None` when it names none.
     let (names_peer, call) = match to {
         Some((host, port)) => {
-            let (spelled, number, call) = peer_spelling_of(mrb, host, port, "sendto(2)")?;
+            let (ip, number, call) = peer_of(mrb, host, port, None, UDP, "sendto(2)")?;
             let names_peer = Datagrams::of(mrb, self_)?.with(mrb, |open| {
                 Ok(open
                     .streams
                     .as_ref()
-                    .is_some_and(|streams| streams.names(&spelled, number)))
+                    .is_some_and(|streams| streams.peer == (ip, number)))
             })?;
-            // Another destination is looked up first, so a name no endpoint
-            // allows, or IPv6, raises what a connect to it would.
-            if !names_peer {
-                peer_of(mrb, host, port, None, UDP, "sendto(2)")?;
-            }
             (Some(names_peer), call)
         }
         None => (None, "send(2)".to_string()),

@@ -507,7 +507,8 @@ impl Namespace {
 ## `Namespace::resolve`
 
 A lookup of a name, normalized first. A name a policy refuses or no endpoint
-names answers as NXDOMAIN before any query.
+names answers as NXDOMAIN before any query. A name the Invocation already
+translated answers its first real addresses again, with no query.
 
 ```rust
 impl Namespace {
@@ -518,7 +519,7 @@ impl Namespace {
 ## `Namespace::alloc_virtual_address`
 
 Allocate the virtual address a lookup's answer is handed out at. It is never
-reused for a second name. `None` answers while the lookup is under way, and
+reused for a second name, and a name already handed one keeps it. `None` answers while the lookup is under way, and
 its failure once it failed. `TemporaryFailure` answers once the range is spent,
 or once `cred`'s memory cannot hold the entry, which stays to the end.
 

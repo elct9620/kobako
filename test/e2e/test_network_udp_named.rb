@@ -23,10 +23,14 @@ class TestE2ENetworkUdpNamed < Minitest::Test
       outcome.call { socket.send("b", 0, "LOCALHOST.", %<port>d) },
       outcome.call { socket.send("c", 0, virtual, %<port>d) },
       outcome.call { socket.send("x", 0, "localhost", %<port>d + 1) },
+      outcome.call { socket.send("x", 0, "localhost..", %<port>d) },
       outcome.call { socket.send("x", 0, "unnamed.example", %<port>d) },
       outcome.call { socket.send("x", 0, "::1", %<port>d) }
     ]
   RUBY
+
+  ADDRESSED_OUTCOMES = [1, 1, 1, "Errno::EACCES", "Socket::ResolutionError", "Socket::ResolutionError",
+                        "Errno::EAFNOSUPPORT"].freeze
 
   # @behavior NW-168
   def test_a_connected_udp_socket_sends_to_the_peer_it_names_again
@@ -34,11 +38,10 @@ class TestE2ENetworkUdpNamed < Minitest::Test
     port = peers.first.addr[1]
     value = localhost_udp_sandbox(port).eval(format(ADDRESSED, port: port)).value
 
-    assert_equal [[1, 1, 1, "Errno::EACCES", "Socket::ResolutionError", "Errno::EAFNOSUPPORT"], %w[a b c]],
-                 [value, receive_from_any(peers, 3).sort],
+    assert_equal [ADDRESSED_OUTCOMES, %w[a b c]], [value, receive_from_any(peers, 3).sort],
                  "UDPSocket#send naming the host #connect named in any case, or the peer's address, at its port " \
-                 "must reach that peer; one to another port must raise Errno::EACCES, and one to a name no " \
-                 "endpoint allows or to IPv6 must raise what a connect to it would"
+                 "must reach that peer; one to another port must raise Errno::EACCES, and one to a name the " \
+                 "resolver refuses, a name no endpoint allows, or IPv6 must raise what a connect to it would"
   ensure
     peers&.each(&:close)
   end
