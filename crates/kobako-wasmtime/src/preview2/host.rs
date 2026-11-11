@@ -271,17 +271,20 @@ impl Invocation {
     /// `call` on an output stream still open: one closed answers `closed`,
     /// and a call that fails closes it, as `io.wit` has every operation past
     /// `last-operation-failed` answer `closed`.
-    fn on_open_output<T>(
+    fn within_open_output<T>(
         &mut self,
         this: OutputStream,
         call: impl FnOnce(&mut Self) -> Result<T, StreamError>,
     ) -> Result<T, StreamError> {
-        if self.table().get(this)?.closed {
+        if self.table().get(this)?.closed.load(Ordering::Acquire) {
             return Err(StreamError::Closed);
         }
         let answer = call(self);
         if let Err(StreamError::Closed | StreamError::LastOperationFailed(_)) = answer {
-            self.table().get_mut(this)?.closed = true;
+            self.table()
+                .get(this)?
+                .closed
+                .store(true, Ordering::Release);
         }
         answer
     }
@@ -994,7 +997,7 @@ impl IoHost for Invocation {
             )
             .into());
         }
-        self.on_open_output(this, |host| {
+        self.within_open_output(this, |host| {
             let stream = host.table().get(this)?.stream.clone();
             let mut rest = &contents[..];
             while !rest.is_empty() {
@@ -1022,7 +1025,7 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> Result<u64, StreamError> {
-        self.on_open_output(this, |host| {
+        self.within_open_output(this, |host| {
             let stream = host.table().get(this)?.stream.clone();
             stream.write(&[])?;
             let output = host.table().get_mut(this)?;
@@ -1045,7 +1048,7 @@ impl IoHost for Invocation {
         this: OutputStream,
         contents: Vec<u8>,
     ) -> Result<(), StreamError> {
-        self.on_open_output(this, |host| {
+        self.within_open_output(this, |host| {
             let output = host.table().get_mut(this)?;
             if contents.len() > output.permit {
                 return Err(wasmtime::Error::msg(
@@ -1073,7 +1076,7 @@ impl IoHost for Invocation {
     /// Start a flush, which completes once what was written has left for the
     /// host; `check-write` answers zero until then, as `io.wit` asks.
     fn streams_output_stream_flush(&mut self, this: OutputStream) -> Result<(), StreamError> {
-        self.on_open_output(this, |host| {
+        self.within_open_output(this, |host| {
             let stream = host.table().get(this)?.stream.clone();
             stream.write(&[])?;
             host.table()
@@ -1084,15 +1087,19 @@ impl IoHost for Invocation {
         })
     }
 
-    /// A pollable ready once `check-write` would offer a byte, the stream its
-    /// parent, as `io.wit` makes it a child: the stream takes a write and no
-    /// flush is still under way.
+    /// A pollable ready once the stream polls writable and no flush is still
+    /// under way, or at once on a closed stream, the stream its parent, as
+    /// `io.wit` makes it a child.
     fn streams_output_stream_subscribe(
         &mut self,
         this: OutputStream,
     ) -> wasmtime::Result<Pollable> {
         let output = self.table().get(this)?;
-        let pollable = table::Pollable::Output(output.stream.clone(), output.flushing.clone());
+        let pollable = table::Pollable::Output(
+            output.stream.clone(),
+            output.flushing.clone(),
+            output.closed.clone(),
+        );
         self.table().push_child(pollable, this)
     }
 
@@ -2710,6 +2717,36 @@ mod tests {
              socket's send buffer must fail before any byte leaves, rather than send the peer \
              part of it, and the next check-write must answer closed, as io.wit closes a stream \
              past last-operation-failed"
+        );
+    }
+
+    // @behavior NW-171
+    #[test]
+    fn a_closed_output_streams_pollable_is_ready_at_once() {
+        let guest = network_guest(network::Endpoint::new("127.0.0.1", 80).unwrap());
+        // A refused lookup's file never polls writable, so only the stream's
+        // own closed state can make its pollable ready.
+        let lookup = guest
+            .network()
+            .resolve("unnamed.test")
+            .expect("the lookup answers");
+        let file = Arc::new(Mutex::new(lookup.alloc_file(guest.wasi().cred())));
+        let output = table::OutputStream::new(table::Stream::File(file));
+        let pollable = || {
+            table::Pollable::Output(
+                output.stream.clone(),
+                output.flushing.clone(),
+                output.closed.clone(),
+            )
+        };
+        let open = pollable().is_ready(None);
+        output.closed.store(true, Ordering::Release);
+        assert_eq!(
+            (open, pollable().is_ready(None)),
+            (false, true),
+            "output-stream.subscribe of a stream that cannot take a write must not be ready, and \
+             once the stream is closed it must be ready at once, as io.wit has a closed stream's \
+             pollable"
         );
     }
 

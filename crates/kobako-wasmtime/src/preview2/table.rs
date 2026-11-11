@@ -183,9 +183,9 @@ pub(crate) struct OutputStream {
     /// spends.
     pub(crate) permit: usize,
     /// Whether a call failed or answered `closed`, after which every call
-    /// answers `closed`, as `io.wit` closes a stream past
-    /// `last-operation-failed`.
-    pub(crate) closed: bool,
+    /// answers `closed` and the stream's pollables are ready, as `io.wit`
+    /// closes a stream past `last-operation-failed`.
+    pub(crate) closed: Arc<AtomicBool>,
 }
 
 impl OutputStream {
@@ -194,7 +194,7 @@ impl OutputStream {
             stream,
             flushing: Arc::default(),
             permit: 0,
-            closed: false,
+            closed: Arc::default(),
         }
     }
 
@@ -279,10 +279,11 @@ pub(crate) enum Pollable {
     /// `PollMask`, or an error or a hang-up, as Linux's `poll` reports both
     /// whatever was asked.
     File(SharedFile, PollMask),
-    /// An output stream, ready once `check-write` would offer a byte: the
-    /// stream takes a write and no flush is still under way, or it failed,
-    /// as `io.wit` has its pollable ready.
-    Output(Stream, Arc<AtomicBool>),
+    /// An output stream, its flush under way, and whether it is closed: ready
+    /// once the stream polls writable and no flush is still under way, or it
+    /// failed or closed, as `io.wit` has a closed stream's pollable ready at
+    /// once.
+    Output(Stream, Arc<AtomicBool>, Arc<AtomicBool>),
     /// Something that is always ready, as a bind that settles as it starts
     /// is.
     Ready,
@@ -305,9 +306,10 @@ impl Pollable {
         match self {
             Pollable::Clock { at } => Instant::now() >= *at,
             Pollable::File(file, mask) => lock(file).poll(table).is_ready_for(*mask),
-            Pollable::Output(stream, flushing) => {
+            Pollable::Output(stream, flushing, closed) => {
                 let found = stream.poll(table);
-                found.contains(PollMask::ERR)
+                closed.load(Ordering::Acquire)
+                    || found.contains(PollMask::ERR)
                     || found.contains(PollMask::HUP)
                     || (found.contains(PollMask::OUT)
                         && !OutputStream::is_flushing(stream, flushing))

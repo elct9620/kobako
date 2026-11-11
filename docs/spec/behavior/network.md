@@ -2120,7 +2120,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a connected socket's output stream, whose `check-write` permitted some bytes |
 | When | the guest shrinks the socket's send buffer, then writes every permitted byte |
-| Then | the write fails before any byte leaves, so the peer never reads a stream with a gap. Holding the bytes would pass the memory the socket reserved. Every later call on the stream answers `closed`, as `io.wit` closes a stream past `last-operation-failed` |
+| Then | the write fails before any byte leaves, so the peer never reads a stream with a gap. Holding the bytes would pass the memory the socket reserved. Every later call on the stream answers `closed`, as `io.wit` closes a stream past `last-operation-failed`. Its pollable is then ready at once |
 
 ## `NW-172` A datagram reads with the peer that sent it
 
