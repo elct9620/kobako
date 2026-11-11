@@ -192,7 +192,8 @@ impl Invocation {
 
     /// A socket `create` makes in the Invocation's network, with its file,
     /// handed out as the handle `resource` takes, as `__sys_socket` makes one.
-    /// With no network, or for an IPv6 `family`, it is `not-supported`, and
+    /// With no network it is `access-denied`, as wasmtime-wasi's host with
+    /// sockets disallowed answers; for an IPv6 `family` `not-supported`, and
     /// past the open file limit `new-socket-limit`.
     fn create_socket<S: ProtoOps + 'static, H: table::Handle>(
         &mut self,
@@ -200,7 +201,10 @@ impl Invocation {
         create: impl FnOnce(&Namespace, &Arc<Cred>) -> Result<Arc<S>, FilesystemError>,
         resource: impl FnOnce(SocketFile<S>) -> H::Host,
     ) -> Result<H, SocketError> {
-        if self.wasi().table().network().is_none() || family == IpAddressFamily::Ipv6 {
+        if self.wasi().table().network().is_none() {
+            return Err(ErrorCode::AccessDenied.into());
+        }
+        if family == IpAddressFamily::Ipv6 {
             return Err(ErrorCode::NotSupported.into());
         }
         if self.wasi().table().is_full() {
@@ -1297,14 +1301,14 @@ mod tests {
 
     // @behavior NW-009
     #[test]
-    fn without_the_network_creating_a_socket_answers_not_supported() {
+    fn without_the_network_creating_a_socket_answers_access_denied() {
         let (mut store, instance) = guest(Profile::Hermetic, None);
         call::<(), ()>(&mut store, &instance, "create_ipv4", ()).expect("the call answers");
         let answer = read(&mut store, &instance, 16, 5);
         assert_eq!(
             (answer[0], answer[4]),
-            (1, 2),
-            "create-tcp-socket with no network entry must answer err(not-supported)"
+            (1, 1),
+            "create-tcp-socket with no network entry must answer err(access-denied)"
         );
     }
 

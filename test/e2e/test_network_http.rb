@@ -21,7 +21,7 @@ class TestE2ENetworkHttp < Minitest::Test
   REFUSED_GET = <<~RUBY
     begin
       Net::HTTP.get("127.0.0.1", "/", %<port>d)
-    rescue SystemCallError, NotImplementedError => e
+    rescue SystemCallError => e
       [e.class.to_s, e.message]
     end
   RUBY
@@ -61,10 +61,10 @@ class TestE2ENetworkHttp < Minitest::Test
   end
 
   # @behavior NW-043
-  def test_without_the_network_net_http_raises_not_implemented_error
+  def test_without_the_network_net_http_raises_eacces
     value = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(format(REFUSED_GET, port: 80)).value
 
-    assert_equal "NotImplementedError", value&.first,
-                 "Net::HTTP in a Sandbox with no network entry must raise NotImplementedError"
+    assert_equal "Errno::EACCES", value&.first,
+                 "Net::HTTP in a Sandbox with no network entry must raise Errno::EACCES as CRuby wraps it"
   end
 end

@@ -221,11 +221,11 @@ Every Guest Binary imports the network interfaces, so every Wasm Driver links th
 
 | Call | Answer |
 |---|---|
-| `create-tcp-socket`, `create-udp-socket` | `not-supported` |
+| `create-tcp-socket`, `create-udp-socket` | `access-denied` |
 | `resolve-addresses` | `permanent-resolver-failure` |
 | `outgoing-handler.handle` | `HTTP-request-denied` |
 
-The guest gem raises `NotImplementedError` for each, as it does without a Mount.
+These are the answers wasmtime-wasi gives with sockets disallowed. The guest gem raises what CRuby raises for each: `Errno::EACCES` for a socket and a request, and `Socket::ResolutionError` for `EAI_FAIL` for a lookup.
 
 ## Guest Errors
 

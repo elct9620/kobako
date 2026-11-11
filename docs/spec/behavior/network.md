@@ -159,7 +159,7 @@ endpoint "api.example.com", port: 443
 | When | an entry is given an empty name, or an endpoint whose host is empty or whose port is zero |
 | Then | the entry is refused |
 
-## `NW-009` Without the network, creating a socket answers not-supported
+## `NW-009` Without the network, creating a socket answers access-denied
 
 | Attribute | Value |
 | --- | --- |
@@ -169,7 +169,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a guest with no network entry |
 | When | it creates a TCP socket through `wasi:sockets` |
-| Then | the call answers `not-supported` at once, as WASI's host without a network does |
+| Then | the call answers `access-denied` at once, as wasmtime-wasi's host with sockets disallowed does |
 
 ## `NW-010` The guest's network is one handle it may drop
 
@@ -179,7 +179,7 @@ endpoint "api.example.com", port: 443
 | When | it asks `instance-network` for its network and drops the handle |
 | Then | the drop succeeds, and dropping it again traps |
 
-## `NW-011` Without the network, a TCPSocket raises NotImplementedError
+## `NW-011` Without the network, a TCPSocket raises EACCES
 
 | Attribute | Value |
 | --- | --- |
@@ -188,8 +188,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with no network entry |
-| When | the script opens a `TCPSocket` |
-| Then | it raises `NotImplementedError`, as a file opened with no Mount does |
+| When | the script opens a `TCPSocket` to an address, and one to a name |
+| Then | the address raises `Errno::EACCES`, as CRuby's does where `socket()` is denied. The name raises `Socket::ResolutionError` for `EAI_FAIL`, as a lookup that fails for good does |
 
 ## `NW-012` Each address falls in one address set
 
@@ -557,7 +557,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a Sandbox whose endpoints name no such authority, or one with no network entry |
 | When | the script sends a request through `Net::HTTP` |
-| Then | it raises `Errno::EACCES` wrapped as CRuby wraps a failed open, or `NotImplementedError` with no network |
+| Then | it raises `Errno::EACCES` wrapped as CRuby wraps a failed open |
 
 ## `NW-044` An HTTP endpoint's rules admit only what they allow
 

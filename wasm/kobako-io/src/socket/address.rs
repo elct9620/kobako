@@ -7,7 +7,7 @@ use std::time::Duration;
 use beni::prelude::*;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
-use super::{no_network, resolution_error, to_error, EAI_AGAIN, EAI_NONAME, EAI_SERVICE};
+use super::{resolution_error, to_error, EAI_AGAIN, EAI_FAIL, EAI_NONAME, EAI_SERVICE};
 use crate::errno;
 use crate::io::argument_error;
 use crate::wasi::wait_within;
@@ -24,22 +24,22 @@ fn peer_message(call: &str, host: &str, port: impl std::fmt::Display) -> String 
 
 /// The IPv4 address `name` leads to, as kobako's resolver hands out a virtual
 /// one; a name with no address raises `Socket::ResolutionError`, as an
-/// unallowed one does, and a lookup slower than `timeout` raises
-/// `Errno::ETIMEDOUT`, as CRuby's `resolv_timeout` does.
+/// unallowed one does, a Sandbox with no network fails it for good, as
+/// `EAI_FAIL`, and a lookup slower than `timeout` raises `Errno::ETIMEDOUT`,
+/// as CRuby's `resolv_timeout` does.
 fn resolve(
     mrb: &Mrb,
     name: &str,
     timeout: Option<Duration>,
-    class: &str,
     call: &str,
 ) -> Result<Ipv4Addr, Error> {
     let to_lookup_error = |code| match code {
-        ErrorCode::PermanentResolverFailure => no_network(mrb, class),
+        ErrorCode::PermanentResolverFailure => resolution_error(mrb, EAI_FAIL),
         ErrorCode::TemporaryResolverFailure => resolution_error(mrb, EAI_AGAIN),
         ErrorCode::NameUnresolvable | ErrorCode::InvalidArgument => {
             resolution_error(mrb, EAI_NONAME)
         }
-        code => to_error(mrb, code, class, call),
+        code => to_error(mrb, code, call),
     };
     let stream = resolve_addresses(&instance_network(), name).map_err(to_lookup_error)?;
     let pollable = stream.subscribe();
@@ -67,7 +67,7 @@ pub(super) fn no_timeout() -> Result<Option<Duration>, Error> {
     Ok(None)
 }
 
-/// The peer `host` and `port` name for `call` on a `class`: the IPv4 address
+/// The peer `host` and `port` name for `call`: the IPv4 address
 /// `host` spells, or the one its name leads to within what `resolv_timeout`
 /// reads, with the words CRuby's `Errno` carries for them. The timeout is
 /// read only for a name, as CRuby reads its resolve timeout only where it
@@ -77,7 +77,6 @@ pub(super) fn peer_of(
     host: Value,
     port: Value,
     resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
-    class: &str,
     call: &str,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
     let host_text = host.to_r_string(mrb)?.to_string(mrb)?;
@@ -88,7 +87,7 @@ pub(super) fn peer_of(
         Ok(std::net::IpAddr::V6(_)) => {
             return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call))
         }
-        Err(_) => resolve(mrb, &host_text, resolv_timeout()?, class, &call)?,
+        Err(_) => resolve(mrb, &host_text, resolv_timeout()?, &call)?,
     };
     Ok((ip, port, call))
 }
@@ -102,7 +101,6 @@ pub(super) fn local_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
-    class: &str,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
     let text = match host.is_nil() {
         true => String::new(),
@@ -111,7 +109,7 @@ pub(super) fn local_of(
     let ip = match text.as_str() {
         "" | "<any>" => Ipv4Addr::UNSPECIFIED,
         "<broadcast>" => Ipv4Addr::BROADCAST,
-        _ => return peer_of(mrb, host, port, &no_timeout, class, "bind(2)"),
+        _ => return peer_of(mrb, host, port, &no_timeout, "bind(2)"),
     };
     let (port, port_text) = port_of(mrb, port)?;
     Ok((ip, port, peer_message("bind(2)", &text, port_text)))
@@ -174,7 +172,7 @@ pub(super) fn pack_host(mrb: &Mrb, host: Value) -> Result<IpAddr, Error> {
         "<broadcast>" => Ipv4Addr::BROADCAST.into(),
         _ => match text.parse::<IpAddr>() {
             Ok(ip) => ip,
-            Err(_) => resolve(mrb, &text, None, "Socket", "getaddrinfo(3)")?.into(),
+            Err(_) => resolve(mrb, &text, None, "getaddrinfo(3)")?.into(),
         },
     })
 }

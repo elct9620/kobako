@@ -48,7 +48,6 @@ fn reverse_lookup_of(mrb: &Mrb, args: &[Value]) -> Result<(), Error> {
 pub(super) fn local_end_of(
     mrb: &Mrb,
     local: Result<IpSocketAddress, ErrorCode>,
-    class: &str,
 ) -> Result<(Ipv4Addr, u16), Error> {
     match local {
         Ok(IpSocketAddress::Ipv4(Ipv4SocketAddress {
@@ -58,7 +57,7 @@ pub(super) fn local_end_of(
         Ok(IpSocketAddress::Ipv6(_)) | Err(ErrorCode::InvalidState) => {
             Ok((Ipv4Addr::UNSPECIFIED, 0))
         }
-        Err(code) => Err(to_error(mrb, code, class, "getsockname(2)")),
+        Err(code) => Err(to_error(mrb, code, "getsockname(2)")),
     }
 }
 

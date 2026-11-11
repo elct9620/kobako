@@ -29,8 +29,6 @@ use crate::wasi::wasi::sockets::udp::{
 };
 use crate::wasi::wasi::sockets::udp_create_socket::create_udp_socket;
 
-const UDP: &str = "UDPSocket";
-
 /// A datagram received, and the end that sent it.
 type Datagram = (Vec<u8>, (Ipv4Addr, u16));
 
@@ -122,7 +120,7 @@ impl SocketIo for Datagrams {
     /// address.
     fn local_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
         let local = self.with(mrb, |open| Ok(open.socket.local_address()))?;
-        local_end_of(mrb, local, UDP)
+        local_end_of(mrb, local)
     }
 
     fn peer_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
@@ -244,7 +242,7 @@ fn udp_socket_s_new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, E
         }
     }
     let socket = create_udp_socket(IpAddressFamily::Ipv4)
-        .map_err(|code| to_error(mrb, code, UDP, "socket(2) - udp"))?;
+        .map_err(|code| to_error(mrb, code, "socket(2) - udp"))?;
     let datagrams = Datagrams {
         open: RefCell::new(Some(OpenSocket {
             streams: None,
@@ -267,11 +265,11 @@ fn ensure_open(mrb: &Mrb, self_: Value) -> Result<(), Error> {
 /// bind take it; a second bind raises `Errno::EINVAL`, as Linux's.
 fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
     ensure_open(mrb, self_)?;
-    let (ip, port, call) = local_of(mrb, host, port, UDP)?;
+    let (ip, port, call) = local_of(mrb, host, port)?;
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         bind(&open.socket, (ip, port)).map_err(|code| match code {
             ErrorCode::InvalidState => errno::error_by_name(mrb, c"EINVAL", &call),
-            code => to_error(mrb, code, UDP, &call),
+            code => to_error(mrb, code, &call),
         })
     })?;
     Ok(0.into_value(mrb))
@@ -283,8 +281,8 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
 /// and keeps its end.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
     ensure_open(mrb, self_)?;
-    let (ip, port, call) = peer_of(mrb, host, port, &no_timeout, UDP, "connect(2)")?;
-    let failed = |code| to_error(mrb, code, UDP, &call);
+    let (ip, port, call) = peer_of(mrb, host, port, &no_timeout, "connect(2)")?;
+    let failed = |code| to_error(mrb, code, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         match bind(&open.socket, (Ipv4Addr::UNSPECIFIED, 0)) {
             Ok(()) | Err(ErrorCode::InvalidState) => {}
@@ -345,9 +343,7 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
             (IpAddr::V4(ip), port) => Some((ip, port, call.to_string())),
             (IpAddr::V6(_), _) => return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", call)),
         },
-        Some(SendTo::HostPort(host, port)) => {
-            Some(peer_of(mrb, host, port, &no_timeout, UDP, call)?)
-        }
+        Some(SendTo::HostPort(host, port)) => Some(peer_of(mrb, host, port, &no_timeout, call)?),
         None => None,
     };
     // Whether the address a send names is the peer, `None` when it names none.
@@ -391,8 +387,8 @@ fn send_datagram(
             Ok(_) => streams
                 .outgoing
                 .send(&datagram)
-                .map_err(|code| to_error(mrb, code, UDP, call))?,
-            Err(code) => return Err(to_error(mrb, code, UDP, call)),
+                .map_err(|code| to_error(mrb, code, call))?,
+            Err(code) => return Err(to_error(mrb, code, call)),
         };
         if sent > 0 {
             return Ok(Poll::Ready(()));
@@ -434,7 +430,7 @@ fn receive_from(
             }
             Ok(_) if !wait_within(&pollable, wait.timeout()) => return Ok(Poll::Pending),
             Ok(_) => {}
-            Err(code) => return Err(to_error(mrb, code, UDP, call)),
+            Err(code) => return Err(to_error(mrb, code, call)),
         }
     }
 }

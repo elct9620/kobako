@@ -975,10 +975,6 @@ fn to_error(mrb: &Mrb, parts: &RequestParts<'_>, code: ErrorCode) -> Error {
         errno::error_with_message(mrb, name, &opening(&detail))
     };
     match code {
-        ErrorCode::HttpRequestDenied if !socket::has_network() => errno::not_implemented(
-            mrb,
-            "Net::HTTP is unimplemented: this Sandbox gives the guest no network",
-        ),
         ErrorCode::HttpRequestDenied => connect(c"EACCES"),
         ErrorCode::ConnectionRefused => connect(c"ECONNREFUSED"),
         ErrorCode::ConnectionLimitReached => connect(c"EAGAIN"),

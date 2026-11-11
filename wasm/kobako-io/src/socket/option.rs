@@ -291,7 +291,7 @@ impl Refusal {
     fn into_error(self, mrb: &Mrb, level: i32, call: &str) -> Error {
         let known = LEVELS.iter().any(|known| known.number == level);
         match self {
-            Self::Wasi(code) => to_error(mrb, code, "BasicSocket", call),
+            Self::Wasi(code) => to_error(mrb, code, call),
             Self::Unknown if known => errno::error_by_name(mrb, c"ENOPROTOOPT", call),
             Self::Unknown | Self::Unsupported => errno::error_by_name(mrb, c"ENOTSUP", call),
         }

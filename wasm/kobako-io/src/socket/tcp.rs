@@ -111,7 +111,7 @@ impl SocketIo for Connection {
             if how != Shutdown::Read {
                 open.socket
                     .shutdown(ShutdownType::Send)
-                    .map_err(|code| to_error(mrb, code, "TCPSocket", "shutdown(2)"))?;
+                    .map_err(|code| to_error(mrb, code, "shutdown(2)"))?;
             }
             Ok(())
         })
@@ -119,7 +119,7 @@ impl SocketIo for Connection {
 
     fn local_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
         let local = self.with(mrb, |open| Ok(open.socket.local_address()))?;
-        local_end_of(mrb, local, "TCPSocket")
+        local_end_of(mrb, local)
     }
 
     fn peer_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
@@ -261,7 +261,6 @@ enum Caller {
 /// leads to, from a local end the script chooses, bound first as the host
 /// lets a bind take it.
 fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> {
-    const TCP: &str = "TCPSocket";
     let mut args = args.to_vec();
     let options = args.last().copied().and_then(RHash::from_value);
     if options.is_some() {
@@ -277,13 +276,13 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
         (Some(sec), Caller::TcpSocketNew) => time_interval_of(mrb, sec),
         (Some(sec), Caller::SocketTcp) => deadline_of(mrb, sec),
     };
-    let (ip, port, quoted) = peer_of(mrb, host, port, &resolv_timeout, TCP, "connect(2)")?;
+    let (ip, port, quoted) = peer_of(mrb, host, port, &resolv_timeout, "connect(2)")?;
     let named = |call: &str, quoted: String, (ip, port): (Ipv4Addr, u16)| match caller {
         Caller::TcpSocketNew => quoted,
         Caller::SocketTcp => format!("{call} for {ip}:{port}"),
     };
     let call = named("connect(2)", quoted, (ip, port));
-    let failed = |code| to_error(mrb, code, TCP, &call);
+    let failed = |code| to_error(mrb, code, &call);
     let socket = create_tcp_socket(IpAddressFamily::Ipv4).map_err(failed)?;
     let network = instance_network();
     if local.iter().any(|end| !end.is_nil()) {
@@ -292,10 +291,9 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
             local.first().copied().unwrap_or(none),
             local.get(1).copied().unwrap_or(none),
         );
-        let (local_ip, local_port, quoted) = local_of(mrb, local_host, local_port, TCP)?;
+        let (local_ip, local_port, quoted) = local_of(mrb, local_host, local_port)?;
         let bind_call = named("bind(2)", quoted, (local_ip, local_port));
-        bind(&socket, (local_ip, local_port))
-            .map_err(|code| to_error(mrb, code, TCP, &bind_call))?;
+        bind(&socket, (local_ip, local_port)).map_err(|code| to_error(mrb, code, &bind_call))?;
     }
     socket
         .start_connect(&network, to_ip_socket_address((ip, port)))

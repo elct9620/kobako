@@ -32,17 +32,18 @@ class TestE2ENetwork < Minitest::Test
   end
 
   # @behavior NW-011
-  def test_without_the_network_a_tcp_socket_raises_not_implemented_error
+  def test_without_the_network_a_tcp_socket_raises_eacces
     value = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(<<~RUBY).value
-      begin
-        TCPSocket.new("127.0.0.1", 80)
-      rescue NotImplementedError => e
-        [e.class.to_s, e.message.include?("no network")]
+      ["127.0.0.1", "example.com"].map do |host|
+        TCPSocket.new(host, 80)
+      rescue SystemCallError, SocketError => e
+        [e.class.to_s, e.respond_to?(:error_code) ? e.error_code : nil]
       end
     RUBY
 
-    assert_equal ["NotImplementedError", true], value,
-                 "TCPSocket.new in a Sandbox with no network entry must raise NotImplementedError naming it"
+    assert_equal [["Errno::EACCES", nil], ["Socket::ResolutionError", -4]], value,
+                 "TCPSocket.new in a Sandbox with no network entry must raise Errno::EACCES for an address " \
+                 "and Socket::ResolutionError EAI_FAIL for a name"
   end
 
   def test_an_entry_playing_no_endpoints_lets_the_invocation_run

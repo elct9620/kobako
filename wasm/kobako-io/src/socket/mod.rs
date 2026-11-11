@@ -1,8 +1,8 @@
 //! `TCPSocket`, and what `UDPSocket` shares with it, over WASI 0.2's
 //! `wasi:sockets`, which the guest imports as a core module, as wasi-libc
-//! imports preview1. A Sandbox giving the guest no network answers every
-//! socket as unsupported, so the guest raises `NotImplementedError`, as it
-//! does with no Mount; a refusal raises the `Errno` CRuby's would.
+//! imports preview1. A Sandbox giving the guest no network denies every
+//! socket, as a WASI host with sockets disallowed does; that and every other
+//! refusal raise the `Errno` CRuby's would.
 //!
 //! Each class lives in its own file, as CRuby's `ext/socket` keeps one per
 //! class; what they share, the `Socket` constants and errors, lives here, as
@@ -38,8 +38,7 @@ pub(crate) use buffer::holds_buffered;
 
 use crate::errno;
 use crate::wasi::wasi::io::streams::StreamError;
-use crate::wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
-use crate::wasi::wasi::sockets::tcp_create_socket::create_tcp_socket;
+use crate::wasi::wasi::sockets::network::ErrorCode;
 
 /// Define `Socket`, `BasicSocket`, `IPSocket`, `TCPSocket`, and `UDPSocket`.
 pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
@@ -184,19 +183,10 @@ fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
     Ok(Family::Named(bare.to_string()))
 }
 
-/// The `NotImplementedError` a `class` raises when the Sandbox gives the guest
-/// no network.
-fn no_network(mrb: &Mrb, class: &str) -> Error {
-    errno::not_implemented(
-        mrb,
-        &format!("{class} is unimplemented: this Sandbox gives the guest no network"),
-    )
-}
-
-/// The `Errno` a WASI error code stands for, from `call` on a `class`.
-fn to_error(mrb: &Mrb, code: ErrorCode, class: &str, call: &str) -> Error {
+/// The `Errno` a WASI error code stands for, from `call`.
+fn to_error(mrb: &Mrb, code: ErrorCode, call: &str) -> Error {
     let name = match code {
-        ErrorCode::NotSupported => return no_network(mrb, class),
+        ErrorCode::NotSupported => c"ENOTSUP",
         ErrorCode::AccessDenied => c"EACCES",
         ErrorCode::DatagramTooLarge => c"EMSGSIZE",
         ErrorCode::ConnectionRefused => c"ECONNREFUSED",
@@ -224,17 +214,12 @@ fn resolution_error_code(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     }
 }
 
-/// Linux's `EAI_NONAME`, `EAI_AGAIN`, and `EAI_SERVICE`, with `gai_strerror`'s
-/// words for each.
+/// Linux's `EAI_NONAME`, `EAI_AGAIN`, `EAI_FAIL`, and `EAI_SERVICE`, with
+/// `gai_strerror`'s words for each.
 pub(crate) const EAI_NONAME: (i32, &str) = (-2, "Name or service not known");
 const EAI_AGAIN: (i32, &str) = (-3, "Temporary failure in name resolution");
+const EAI_FAIL: (i32, &str) = (-4, "Non-recoverable failure in name resolution");
 const EAI_SERVICE: (i32, &str) = (-8, "Servname not supported for ai_socktype");
-
-/// Whether the Sandbox gives the guest the network: without it, no socket is
-/// made, which answers at once and does nothing first.
-pub(crate) fn has_network() -> bool {
-    create_tcp_socket(IpAddressFamily::Ipv4).is_ok()
-}
 
 /// The `Socket::ResolutionError` CRuby raises for a `getaddrinfo` failure.
 fn resolution_error(mrb: &Mrb, (code, words): (i32, &str)) -> Error {
