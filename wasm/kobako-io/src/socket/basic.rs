@@ -256,10 +256,19 @@ fn written_bytes_of(mrb: &Mrb, object: Value) -> Result<Vec<u8>, Error> {
     Ok(unsafe { data.as_bytes(mrb) }.to_vec())
 }
 
-/// A length a read is given, refusing a negative one as CRuby's does.
-pub(super) fn length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
+/// The length `read` and `readpartial` are given, refusing a negative one as
+/// CRuby's `io_getpartial` does.
+pub(super) fn read_length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
+    let length = i64::try_convert(length, mrb)?;
+    usize::try_from(length)
+        .map_err(|_| argument_error(mrb, &format!("negative length {length} given")))
+}
+
+/// The length a socket read sizes its buffer by, as CRuby's `rsock_strbuf`
+/// makes one, so a negative one raises what `rb_str_new` raises.
+pub(super) fn strbuf_length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
     usize::try_from(i64::try_convert(length, mrb)?)
-        .map_err(|_| argument_error(mrb, "negative length given"))
+        .map_err(|_| argument_error(mrb, "negative string size (or size too big)"))
 }
 
 /// The socket `value` stands for, a `TCPSocket` or a `UDPSocket`.
@@ -300,11 +309,13 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     basic.define_method(mrb, c"getsockname", beni::method!(socket_getsockname, 0))?;
     basic.define_method(mrb, c"getpeername", beni::method!(socket_getpeername, 0))?;
     super::buffer::init(mrb, basic)?;
-    for name in [
-        c"seek", c"rewind", c"pos", c"pos=", c"tell", c"pread", c"pwrite",
-    ] {
-        basic.define_method(mrb, name, beni::method!(refuse_position, -1))?;
+    for name in [c"rewind", c"pos", c"tell"] {
+        basic.define_method(mrb, name, beni::method!(refuse_position, 0))?;
     }
+    basic.define_method(mrb, c"pos=", beni::method!(refuse_position_of_one, 1))?;
+    basic.define_method(mrb, c"seek", beni::method!(refuse_seek, -1))?;
+    basic.define_method(mrb, c"pread", beni::method!(refuse_pread, -1))?;
+    basic.define_method(mrb, c"pwrite", beni::method!(refuse_pwrite, 2))?;
     basic.define_method(mrb, c"fsync", beni::method!(refuse_sync, 0))?;
     basic.define_method(mrb, c"fdatasync", beni::method!(refuse_sync, 0))?;
     basic.define_method(mrb, c"advise", beni::method!(socket_advise, -1))?;
@@ -508,7 +519,7 @@ pub(super) fn direct_args_of(mrb: &Mrb, args: &[Value]) -> Result<DirectArgs, Er
         [maxlen, flags, outbuf] => (*maxlen, Some(*flags), Some(*outbuf)),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 3)),
     };
-    let maxlen = length_of(mrb, maxlen)?;
+    let maxlen = strbuf_length_of(mrb, maxlen)?;
     let flags = match flags.filter(|flags| !flags.is_nil()) {
         Some(flags) => flags_of(mrb, flags)?,
         None => 0,
@@ -554,7 +565,8 @@ fn shutdown_of(mrb: &Mrb, how: Option<Value>) -> Result<Shutdown, Error> {
             )),
         };
     }
-    match i64::try_convert(how, mrb)? {
+    // A number reads as `NUM2INT` reads it, past `int` a RangeError.
+    match flags_of(mrb, how)? {
         0 => Ok(Shutdown::Read),
         1 => Ok(Shutdown::Write),
         2 => Ok(Shutdown::Both),
@@ -738,9 +750,35 @@ fn socket_recv_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value
 /// A call a socket has no position for raises `Errno::ESPIPE`, as Linux's
 /// `lseek`, `pread`, and `pwrite` answer one; a closed socket raises
 /// `IOError` first, as CRuby checks the stream before the call.
-fn refuse_position(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
+fn refuse_position(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     open_socket_of(mrb, self_)?;
     Err(errno::error_alone(mrb, c"ESPIPE"))
+}
+
+/// `pos=(offset)`, refused as every position call is.
+fn refuse_position_of_one(mrb: &Mrb, self_: Value, _offset: Value) -> Result<Value, Error> {
+    refuse_position(mrb, self_)
+}
+
+/// `pwrite(string, offset)`, refused as every position call is.
+fn refuse_pwrite(mrb: &Mrb, self_: Value, _string: Value, _offset: Value) -> Result<Value, Error> {
+    refuse_position(mrb, self_)
+}
+
+/// `seek(offset, whence = SEEK_SET)`, its arity checked first, as CRuby's.
+fn refuse_seek(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    if !(1..=2).contains(&args.len()) {
+        return Err(Error::argnum(mrb, args.len(), 1, 2));
+    }
+    refuse_position(mrb, self_)
+}
+
+/// `pread(maxlen, offset, outbuf = nil)`, its arity checked first.
+fn refuse_pread(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    if !(2..=3).contains(&args.len()) {
+        return Err(Error::argnum(mrb, args.len(), 2, 3));
+    }
+    refuse_position(mrb, self_)
 }
 
 /// A socket keeps nothing to sync, so `fsync` raises `Errno::EINVAL`, as
@@ -759,6 +797,10 @@ fn socket_advise(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error
     };
     crate::stream::advice_of(mrb, *advice)?;
     open_socket_of(mrb, self_)?;
+    // The offset and the length read as `NUM2OFFT`, after the open IO.
+    for number in args[1..].iter().filter(|number| !number.is_nil()) {
+        i64::try_convert(*number, mrb)?;
+    }
     Ok(qnil().as_value())
 }
 

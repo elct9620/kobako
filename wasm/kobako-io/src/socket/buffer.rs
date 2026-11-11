@@ -9,8 +9,8 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, RHash, RString, Symbol, TryConvert, Value};
 
 use super::basic::{
-    exception_option, length_of, open_socket_of, outbuf_of, reader_of, ready_of, source_of,
-    SocketIo, Wait,
+    exception_option, open_socket_of, outbuf_of, read_length_of, reader_of, ready_of, source_of,
+    strbuf_length_of, string_value_of, SocketIo, Wait,
 };
 use crate::io::{argument_error, required_block, would_wait, Direction};
 use crate::wasi::MAX_READ;
@@ -104,7 +104,7 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
         _ => return Err(Error::argnum(mrb, args.len(), 0, 2)),
     };
     let length = match length.filter(|v| !v.is_nil()) {
-        Some(v) => Some(length_of(mrb, v)?),
+        Some(v) => Some(read_length_of(mrb, v)?),
         None => None,
     };
     let outbuf = outbuf_of(mrb, outbuf)?;
@@ -153,7 +153,12 @@ fn read_partial(
         [maxlen, outbuf] => (*maxlen, Some(*outbuf)),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
-    let maxlen = length_of(mrb, maxlen)?;
+    // `readpartial` reads its length as `io_getpartial` does, and
+    // `read_nonblock` as `rsock_read_nonblock` sizes its buffer.
+    let maxlen = match wait {
+        Wait::Block => read_length_of(mrb, maxlen)?,
+        Wait::DontWait => strbuf_length_of(mrb, maxlen)?,
+    };
     let outbuf = outbuf_of(mrb, outbuf)?;
     // CRuby's `io_getpartial` takes the open IO before it answers a read of
     // nothing; `readpartial` asks for a readable side too, while
@@ -472,15 +477,16 @@ fn separator_and_limit_of(
         if value.is_nil() {
             return Ok(None);
         }
-        let text = value.to_r_string(mrb)?;
+        let text = string_value_of(mrb, value)?;
         // SAFETY: the bytes are copied before the next mruby call.
         Ok(Some(unsafe { text.as_bytes(mrb) }.to_vec()))
     };
+    // One argument that is no String is the limit, as CRuby's
+    // `rb_io_getline_args` reads it, so a Symbol raises TypeError as a limit.
+    let is_limit = |value: Value| !value.is_nil() && RString::from_value(value).is_none();
     match args {
         [] => Ok((Some(b"\n".to_vec()), None)),
-        [only] if Integer::from_value(*only).is_some() => {
-            Ok((Some(b"\n".to_vec()), limit_of(*only)?))
-        }
+        [only] if is_limit(*only) => Ok((Some(b"\n".to_vec()), limit_of(*only)?)),
         [separator] => Ok((separator_of(*separator)?, None)),
         [separator, limit] => Ok((separator_of(*separator)?, limit_of(*limit)?)),
         _ => Err(Error::argnum(mrb, args.len(), 0, 2)),

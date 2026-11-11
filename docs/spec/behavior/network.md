@@ -31,6 +31,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_io_edges.rb`
 - `test/e2e/test_network_socket_open.rb`
 - `test/e2e/test_network_socket_order_cruby.rb`
+- `test/e2e/test_network_socket_args_cruby.rb`
 - `test/e2e/test_network_socket_nonblock.rb`
 - `test/e2e/test_network_socket_wait.rb`
 - `test/e2e/test_network_socket_direct.rb`
@@ -2362,3 +2363,15 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server |
 | When | the script connects naming the host by an Integer, by `nil`, and by a Symbol. It packs a `sockaddr_in` from the Integer |
 | Then | the Integer is the IPv4 address it numbers and `nil` the loopback, as CRuby's `host_str` reads them. The Symbol raises `TypeError` |
+
+## `NW-191` A script's socket reads each argument as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-144` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script passes socket calls arguments CRuby converts. It gives a side past `int`, negative lengths, and too few position arguments. It gives a String offset, extra `addr` arguments, and a Symbol to `gets` |
+| Then | each raises the class CRuby's raises, its wording mruby's where mruby converts, and `addr` takes its first argument alone |

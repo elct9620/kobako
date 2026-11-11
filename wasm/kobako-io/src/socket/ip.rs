@@ -49,10 +49,10 @@ fn ip_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, 
 
 /// `addr` and `peeraddr` take at most a `reverse_lookup` flag.
 fn reverse_lookup_of(mrb: &Mrb, args: &[Value]) -> Result<(), Error> {
-    match args {
-        [] => Ok(()),
-        [flag] => ensure_reverse_lookup_flag(mrb, *flag),
-        _ => Err(Error::argnum(mrb, args.len(), 0, 1)),
+    // CRuby's `ip_addr` reads the first argument alone and leaves the rest.
+    match args.first() {
+        None => Ok(()),
+        Some(flag) => ensure_reverse_lookup_flag(mrb, *flag),
     }
 }
 
