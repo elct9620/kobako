@@ -394,6 +394,11 @@ impl TcpSock {
         }
     }
 
+    /// Whether a connect is under way, as a socket in `TCP_SYN_SENT` is.
+    pub fn is_connecting(&self) -> bool {
+        self.state().phase == Phase::Connecting
+    }
+
     /// How many bytes a send would take now.
     pub fn send_room(&self) -> usize {
         let state = self.state();

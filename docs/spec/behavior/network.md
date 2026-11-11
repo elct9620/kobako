@@ -1131,9 +1131,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a TCP socket that never connected, and one whose connect finished |
-| When | the guest blocks on a pollable each `subscribe` hands out |
-| Then | each answers at once, since only a connect under way makes the pollable wait, as wasmtime's socket pollable does |
+| Given | a TCP socket that never connected, and one whose connect finished with its send buffer full |
+| When | the guest blocks on each `subscribe` pollable, and again on the one taken during the connect |
+| Then | each answers at once. Only a connect under way as it is polled makes a pollable wait, as wasmtime's does |
 
 ## `NW-092` A write past the permit check-write gave traps
 

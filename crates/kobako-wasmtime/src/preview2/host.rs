@@ -491,15 +491,13 @@ impl SocketsHost for Invocation {
         }
     }
 
-    /// Waits on a connect under way, and is ready at once otherwise, as
-    /// wasmtime's socket pollable waits only on an operation in progress.
+    /// Waits on a connect under way whenever it is polled, and is ready
+    /// otherwise, as wasmtime's socket pollable waits only on an operation in
+    /// progress.
     fn tcp_tcp_socket_subscribe(&mut self, this: TcpSocket) -> wasmtime::Result<Pollable> {
-        let socket = self.tcp(this)?;
-        if socket.state != TcpState::Connecting {
-            return self.table().push_child(table::Pollable::Ready, this);
-        }
-        let file = socket.socket.get_file();
-        self.subscribe_file(file, PollMask::OUT, this)
+        let socket = self.tcp(this)?.socket.clone();
+        self.table()
+            .push_child(table::Pollable::Connect(socket), this)
     }
 
     fn tcp_tcp_socket_shutdown(
@@ -2554,29 +2552,38 @@ mod tests {
                 .tcp_tcp_socket_finish_connect(socket)
                 .into_answer()?
                 .expect("the listener accepts");
-            // The listener never reads, so the send buffer fills and a wait
-            // for room would hold; the pollable answers anyway once connected.
-            loop {
+            // The listener never reads, so once the host's buffers fill too the
+            // send buffer stays full and a wait for room would hold; the
+            // pollable answers anyway once connected.
+            let mut full_for = 0;
+            while full_for < 5 {
                 match guest
                     .streams_output_stream_check_write(output)
                     .into_answer()?
                 {
-                    Ok(0) => break,
-                    Ok(n) => guest
-                        .streams_output_stream_write(output, vec![b'x'; n as usize])
-                        .into_answer()?
-                        .expect("the stream takes what it permitted"),
+                    Ok(0) => {
+                        full_for += 1;
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Ok(n) => {
+                        full_for = 0;
+                        guest
+                            .streams_output_stream_write(output, vec![b'x'; n as usize])
+                            .into_answer()?
+                            .expect("the stream takes what it permitted");
+                    }
                     Err(_) => return Err(wasmtime::Error::msg("the stream failed")),
                 }
             }
             let connected = guest.tcp_tcp_socket_subscribe(socket)?;
             guest.poll_pollable_block(connected)?;
+            guest.poll_pollable_block(connecting)?;
             Ok::<_, wasmtime::Error>(())
         });
         assert!(
             answered.is_ok() && started.elapsed() < Duration::from_secs(5),
-            "pollable.block on a fresh socket's subscribe, and on a connected socket's, must \
-             answer at once, not {answered:?} after {:?}",
+            "pollable.block on a fresh socket's subscribe, on a connected socket's, and again on \
+             the one taken while it connected, must answer at once, not {answered:?} after {:?}",
             started.elapsed()
         );
     }

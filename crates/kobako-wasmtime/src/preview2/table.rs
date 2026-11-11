@@ -284,6 +284,10 @@ pub(crate) enum Pollable {
     /// failed or closed, as `io.wit` has a closed stream's pollable ready at
     /// once.
     Output(Stream, Arc<AtomicBool>, Arc<AtomicBool>),
+    /// A TCP socket, ready whenever no connect is under way as it is polled,
+    /// as wasmtime's socket pollable reads its operation in progress then,
+    /// so one pollable serves the socket's whole life.
+    Connect(SocketFile<TcpSock>),
     /// Something that is always ready, as a bind that settles as it starts
     /// is.
     Ready,
@@ -314,6 +318,10 @@ impl Pollable {
                     || (found.contains(PollMask::OUT)
                         && !OutputStream::is_flushing(stream, flushing))
             }
+            Pollable::Connect(socket) => {
+                lock(&socket.file).poll(table);
+                !socket.sock.is_connecting()
+            }
             Pollable::Ready => true,
         }
     }
@@ -329,7 +337,10 @@ impl Pollable {
     /// Whether a host-side producer makes this ready, as a socket's peer, a
     /// resolver, or a server does.
     pub(crate) fn is_producer(&self) -> bool {
-        matches!(self, Pollable::File(..) | Pollable::Output(..))
+        matches!(
+            self,
+            Pollable::File(..) | Pollable::Output(..) | Pollable::Connect(..)
+        )
     }
 }
 

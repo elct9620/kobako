@@ -725,6 +725,16 @@ impl TcpSock {
 }
 ```
 
+## `TcpSock::is_connecting`
+
+Whether a connect is under way, as a socket in `TCP_SYN_SENT` is.
+
+```rust
+impl TcpSock {
+    pub fn is_connecting(&self) -> bool {}
+}
+```
+
 ## `TcpSock::send_room`
 
 How many bytes a send would take now.
