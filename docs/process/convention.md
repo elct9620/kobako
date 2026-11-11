@@ -8,6 +8,7 @@ How code in kobako is judged while it is written: which answer a behavior gives,
 | what a difference from a reference owes | Forced Differences |
 | how an error crosses the layers | Errors |
 | what a contract registers | Contract Registration |
+| how severe a finding is | Finding Severity |
 | what a name must achieve | Naming Principles |
 | what a name or a comment may point at | Self-Contained Wording |
 | how a name is settled | Naming Precedence |
@@ -64,6 +65,32 @@ A contract is a promise to someone outside kobako: changing it breaks them. It r
 | a name an SDK user calls, such as `Sandbox` | a re-export, registered where it is defined |
 
 A name only kobako's own crates call is promised to no one, and its change already fails their build. A seam's change breaks a third party's implementation that kobako never compiles, which only the contract and its grade in [`guides/customization.md`](../guides/customization.md) bring to light.
+
+## Finding Severity
+
+A finding is a difference between the code and its reference. Its effect decides High; its scope decides Med or Low, as code smells and architecture smells part.
+
+| Level | Holds when | After |
+|---|---|---|
+| High | it breaks security, the WASI contract, or a scenario's promise | IEEE 1044's effect |
+| Med | the split is unclean: it crosses a module, a layer, or a seam | Garcia's architecture smells |
+| Low | the fix stays inside one module | Fowler's code smells |
+
+A Med whose effect reaches security, the contract, or a promise is High, whatever its scope.
+
+### Escalation
+
+A Low that meets any check below is Med. Each check is read off the code.
+
+| Check | After |
+|---|---|
+| the same difference stands in three places | the rule of three |
+| its fix changes two modules or more | Shotgun Surgery |
+| one module changes for two reasons | Divergent Change |
+| a dependency runs against Part Ownership, or cycles | Arcan's dependency smells |
+| a concept sits at the wrong layer | Garcia's granularity |
+
+A Med left through three rounds is marked apart; its level stays.
 
 ## Naming Principles
 
