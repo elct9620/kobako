@@ -1421,7 +1421,7 @@ mod tests {
             ));
         let network = Network::new("api", Arc::new(entry)).unwrap();
         let seam = Arc::new(RecordsSwaps::default());
-        let family = Arc::new(RefusesDials);
+        let family = Arc::new(CountsDials::default());
         let namespace = Namespace::for_network(&network, family, seam.clone());
         let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));
         request.path_with_query = path.to_string();
@@ -1432,15 +1432,6 @@ mod tests {
         let _ = read_response(&exchange);
         let recorded = seam.0.lock().unwrap().pop().unwrap_or_default();
         recorded
-    }
-
-    /// A family refusing every dial, for a seam that never dials through it.
-    struct RefusesDials;
-
-    impl ProtocolFamily for RefusesDials {
-        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
-            Err(io::ErrorKind::ConnectionRefused.into())
-        }
     }
 
     // @behavior NW-050
@@ -1546,7 +1537,7 @@ mod tests {
         let network = Network::new("api", Arc::new(entry)).unwrap();
         let namespace = Namespace::for_network(
             &network,
-            Arc::new(RefusesDials),
+            Arc::new(CountsDials::default()),
             Arc::new(RecordsSwaps::default()),
         );
         let cred = prepare_creds_within(&[], Some(2 * MAX_SOCKET_BUFFER));
@@ -1605,7 +1596,7 @@ mod tests {
             let network = Network::new("api", Arc::new(entry)).unwrap();
             let namespace = Namespace::for_network(
                 &network,
-                Arc::new(RefusesDials),
+                Arc::new(CountsDials::default()),
                 Arc::new(AnswersHeader(size)),
             );
             let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 16 * 1024));
@@ -1643,8 +1634,11 @@ mod tests {
         let mut entry = Builder::default();
         entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
         let network = Network::new("api", Arc::new(entry)).unwrap();
-        let namespace =
-            Namespace::for_network(&network, Arc::new(RefusesDials), Arc::new(NeverAnswers));
+        let namespace = Namespace::for_network(
+            &network,
+            Arc::new(CountsDials::default()),
+            Arc::new(NeverAnswers),
+        );
         let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 40 * 1024));
         let mut request = OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80");
         request.path_with_query = format!("/{}", "p".repeat(30 * 1024));
@@ -1714,7 +1708,7 @@ mod tests {
             let network = Network::new("api", Arc::new(entry)).unwrap();
             let namespace = Namespace::for_network(
                 &network,
-                Arc::new(RefusesDials),
+                Arc::new(CountsDials::default()),
                 Arc::new(StreamsEndlessly),
             );
             let cred = prepare_creds_within(&[], None);

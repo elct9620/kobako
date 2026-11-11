@@ -1584,11 +1584,9 @@ mod tests {
         endpoints: impl IntoIterator<Item = network::Endpoint>,
         open_file_limit: Option<usize>,
     ) -> Invocation {
-        let config = Config {
-            open_file_limit,
-            ..Config::for_profile(Profile::Hermetic)
-        };
-        Invocation::with_network(&config, endpoints)
+        Invocation::hermetic(Some(endpoints.into_iter().collect()), |config| {
+            config.open_file_limit = open_file_limit
+        })
     }
 
     // @behavior NW-030

@@ -175,4 +175,28 @@ impl Invocation {
         .expect("WASI context must build");
         Self::new(None, wasi)
     }
+
+    /// A hermetic invocation whose one network entry holds `endpoints`, or
+    /// with no network for `None`, under the hermetic config `adjust` moves.
+    pub(crate) fn hermetic(
+        endpoints: Option<Vec<kobako_runtime::network::Endpoint>>,
+        adjust: impl FnOnce(&mut crate::config::Config),
+    ) -> Self {
+        let mut config =
+            crate::config::Config::for_profile(kobako_runtime::profile::Profile::Hermetic);
+        adjust(&mut config);
+        match endpoints {
+            Some(endpoints) => Self::with_network(&config, endpoints),
+            None => {
+                let wasi = Wasi::for_invocation(
+                    &config,
+                    Vec::new(),
+                    &[],
+                    &crate::wasi::sandbox_connections(),
+                )
+                .expect("WASI context must build");
+                Self::new(None, wasi)
+            }
+        }
+    }
 }

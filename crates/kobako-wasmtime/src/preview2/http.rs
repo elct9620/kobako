@@ -627,14 +627,11 @@ mod tests {
     use std::time::{Duration as Wait, Instant};
 
     use kobako_runtime::network;
-    use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::run_task;
 
     use super::super::IntoAnswer;
     use super::*;
-    use crate::config::Config;
     use crate::preview2::bindings::{Host as _, IoHost};
-    use crate::wasi::{sandbox_connections, Wasi};
 
     /// A hermetic invocation whose network holds `endpoints`, or none at all.
     fn guest(endpoints: Option<Vec<network::Endpoint>>) -> Invocation {
@@ -646,18 +643,7 @@ mod tests {
         endpoints: Option<Vec<network::Endpoint>>,
         memory_limit: Option<usize>,
     ) -> Invocation {
-        let config = Config {
-            memory_limit,
-            ..Config::for_profile(Profile::Hermetic)
-        };
-        match endpoints {
-            Some(endpoints) => Invocation::with_network(&config, endpoints),
-            None => {
-                let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
-                    .expect("WASI context must build");
-                Invocation::new(None, wasi)
-            }
-        }
+        Invocation::hermetic(endpoints, |config| config.memory_limit = memory_limit)
     }
 
     /// A GET for `/greeting` at `authority` over HTTP.
