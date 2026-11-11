@@ -982,7 +982,8 @@ impl IoHost for Invocation {
     /// Write every byte, at most 4096, waiting for room as it goes, then until
     /// what was written has left for the host. A stream that closed once every
     /// byte was taken answers success, as wasmtime-wasi-io's does; a failure
-    /// still answers.
+    /// still answers, and so does a stream closed before a write of nothing,
+    /// as wasmtime's first asks the stream for room.
     fn streams_output_stream_blocking_write_and_flush(
         &mut self,
         this: OutputStream,
@@ -1012,7 +1013,8 @@ impl IoHost for Invocation {
                 (failed || stream.is_drained()).then_some(())
             })?;
             match stream.write(&[]) {
-                Ok(_) | Err(FilesystemError::BrokenPipe) => Ok(()),
+                Err(FilesystemError::BrokenPipe) if !contents.is_empty() => Ok(()),
+                Ok(_) => Ok(()),
                 Err(err) => Err(err.into()),
             }
         })
@@ -2774,6 +2776,45 @@ mod tests {
              socket's send buffer must fail before any byte leaves, rather than send the peer \
              part of it, and the next check-write must answer closed, as io.wit closes a stream \
              past last-operation-failed"
+        );
+    }
+
+    // @behavior NW-182
+    #[test]
+    fn a_blocking_flush_after_the_send_side_shut_answers_closed() {
+        let (mut guest, listener) = guest_and_listener();
+        let port = listener.local_addr().unwrap().port();
+        let started = Instant::now();
+        let answers = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (_, output) = guest
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
+                .expect("the listener accepts");
+            guest
+                .tcp_tcp_socket_shutdown(socket, ShutdownType::Send)
+                .into_answer()?
+                .expect("a connected socket shuts its send side");
+            let nothing = guest
+                .streams_output_stream_blocking_write_and_flush(output, Vec::new())
+                .into_answer()?;
+            Ok::<_, wasmtime::Error>(matches!(nothing, Err(StreamError::Closed)))
+        });
+        assert!(
+            matches!(answers, Ok(true)),
+            "output-stream.blocking-write-and-flush of no bytes after tcp-socket.shutdown of the \
+             send side must answer closed, as wasmtime's first asks the stream for room, not \
+             {answers:?}"
         );
     }
 

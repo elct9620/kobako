@@ -2248,3 +2248,16 @@ endpoint "api.example.com", port: 443
 | Given | a `UDPSocket` no `connect` has named a peer for |
 | When | the script reads it with `recvfrom`, `recv`, `read`, and each non-blocking read, `exception: false` among them |
 | Then | each raises `Errno::EACCES`, waiting or not. The guest streams a UDP socket only with a peer it names, so nothing may arrive. CRuby's would wait, or answer EAGAIN |
+
+## `NW-182` A blocking flush of nothing after the send side shut answers closed
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-136` |
+| relates | `NW-171` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest's connected TCP socket over `wasi:sockets`, its send side shut |
+| When | it calls `blocking-write-and-flush` on the output stream with no bytes |
+| Then | the call answers `closed`, as wasmtime's first asks the stream for room |
