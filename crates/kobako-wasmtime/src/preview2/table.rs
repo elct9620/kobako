@@ -158,19 +158,30 @@ pub(crate) trait Handle: Copy {
 /// out.
 pub(crate) struct Network;
 
+/// A stream either way, which `io.wit` ends alike: once a call fails or
+/// answers `closed`, every later call answers `closed`.
+pub(crate) trait EndingStream {
+    /// Whether the stream reached that end.
+    fn closed(&self) -> &AtomicBool;
+}
+
 pub(crate) struct InputStream {
     pub(crate) stream: Stream,
-    /// Whether a read answered `closed`, which every later read answers, a
-    /// read of nothing included, as wasmtime remembers a stream's end.
-    pub(crate) closed: bool,
+    closed: AtomicBool,
 }
 
 impl InputStream {
     pub(crate) fn new(stream: Stream) -> Self {
         Self {
             stream,
-            closed: false,
+            closed: AtomicBool::default(),
         }
+    }
+}
+
+impl EndingStream for InputStream {
+    fn closed(&self) -> &AtomicBool {
+        &self.closed
     }
 }
 
@@ -182,10 +193,15 @@ pub(crate) struct OutputStream {
     /// What the last `check-write` permitted, which each write carrying bytes
     /// spends.
     pub(crate) permit: usize,
-    /// Whether a call failed or answered `closed`, after which every call
-    /// answers `closed` and the stream's pollables are ready, as `io.wit`
-    /// closes a stream past `last-operation-failed`.
+    /// The stream's end, which its pollables read too: a closed stream's
+    /// pollable is ready at once.
     pub(crate) closed: Arc<AtomicBool>,
+}
+
+impl EndingStream for OutputStream {
+    fn closed(&self) -> &AtomicBool {
+        &self.closed
+    }
 }
 
 impl OutputStream {

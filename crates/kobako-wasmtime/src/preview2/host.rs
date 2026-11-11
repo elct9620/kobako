@@ -36,7 +36,7 @@ use super::sockets::{
     to_socket_addr,
 };
 use super::table::SharedFile;
-use super::table::{self, SocketFile, Stream, TcpState, UdpState};
+use super::table::{self, EndingStream, SocketFile, Stream, TcpState, UdpState};
 use crate::invocation::Invocation;
 use crate::trap::{Interrupted, TimeoutTrap};
 
@@ -268,22 +268,26 @@ impl Invocation {
         self.wait_for(None, |table| pollable.is_ready(table).then_some(()))
     }
 
-    /// `call` on an output stream still open: one closed answers `closed`,
-    /// and a call that fails closes it, as `io.wit` has every operation past
-    /// `last-operation-failed` answer `closed`.
-    fn within_open_output<T>(
+    /// `call` on a stream still open: one closed answers `closed`, and a call
+    /// that fails or answers `closed` closes it, as `io.wit` has every
+    /// operation past `last-operation-failed` answer `closed`.
+    fn within_open<H, T>(
         &mut self,
-        this: OutputStream,
+        this: H,
         call: impl FnOnce(&mut Self) -> Result<T, StreamError>,
-    ) -> Result<T, StreamError> {
-        if self.table().get(this)?.closed.load(Ordering::Acquire) {
+    ) -> Result<T, StreamError>
+    where
+        H: table::Handle,
+        H::Host: EndingStream,
+    {
+        if self.table().get(this)?.closed().load(Ordering::Acquire) {
             return Err(StreamError::Closed);
         }
         let answer = call(self);
         if let Err(StreamError::Closed | StreamError::LastOperationFailed(_)) = answer {
             self.table()
                 .get(this)?
-                .closed
+                .closed()
                 .store(true, Ordering::Release);
         }
         answer
@@ -950,28 +954,19 @@ impl IoHost for Invocation {
         this: InputStream,
         len: u64,
     ) -> Result<Vec<u8>, StreamError> {
-        let input = self.table().get(this)?;
-        if input.closed {
-            return Err(StreamError::Closed);
-        }
-        let stream = input.stream.clone();
-        let mut buf = vec![0; len.min(MAX_SOCKET_BUFFER as u64) as usize];
-        match stream.read(&mut buf) {
-            Ok(0) if !buf.is_empty() => {
-                self.table().get_mut(this)?.closed = true;
-                Err(StreamError::Closed)
+        self.within_open(this, |host| {
+            let stream = host.table().get(this)?.stream.clone();
+            let mut buf = vec![0; len.min(MAX_SOCKET_BUFFER as u64) as usize];
+            match stream.read(&mut buf) {
+                Ok(0) if !buf.is_empty() => Err(StreamError::Closed),
+                Ok(n) => {
+                    buf.truncate(n);
+                    Ok(buf)
+                }
+                Err(FilesystemError::WouldBlock) => Ok(Vec::new()),
+                Err(err) => Err(err.into()),
             }
-            Ok(n) => {
-                buf.truncate(n);
-                Ok(buf)
-            }
-            Err(FilesystemError::WouldBlock) => Ok(Vec::new()),
-            // A failed read ends the stream too, as wasmtime's moves to closed.
-            Err(err) => {
-                self.table().get_mut(this)?.closed = true;
-                Err(err.into())
-            }
-        }
+        })
     }
 
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
@@ -999,7 +994,7 @@ impl IoHost for Invocation {
             )
             .into());
         }
-        self.within_open_output(this, |host| {
+        self.within_open(this, |host| {
             let stream = host.table().get(this)?.stream.clone();
             let mut rest = &contents[..];
             while !rest.is_empty() {
@@ -1029,7 +1024,7 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> Result<u64, StreamError> {
-        self.within_open_output(this, |host| {
+        self.within_open(this, |host| {
             let stream = host.table().get(this)?.stream.clone();
             stream.write(&[])?;
             let output = host.table().get_mut(this)?;
@@ -1052,7 +1047,7 @@ impl IoHost for Invocation {
         this: OutputStream,
         contents: Vec<u8>,
     ) -> Result<(), StreamError> {
-        self.within_open_output(this, |host| {
+        self.within_open(this, |host| {
             let output = host.table().get_mut(this)?;
             if contents.len() > output.permit {
                 return Err(wasmtime::Error::msg(
@@ -1080,7 +1075,7 @@ impl IoHost for Invocation {
     /// Start a flush, which completes once what was written has left for the
     /// host; `check-write` answers zero until then, as `io.wit` asks.
     fn streams_output_stream_flush(&mut self, this: OutputStream) -> Result<(), StreamError> {
-        self.within_open_output(this, |host| {
+        self.within_open(this, |host| {
             let stream = host.table().get(this)?.stream.clone();
             stream.write(&[])?;
             host.table()
