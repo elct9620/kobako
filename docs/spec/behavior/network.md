@@ -1667,7 +1667,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server that answers UTF-8 text, an invalid byte, and closes |
 | When | the script calls `getc`, `readchar`, `getbyte`, `readbyte`, `ungetc`, `ungetbyte`, `readline`, `each_char`, and `each_byte`, then each again at the end |
-| Then | each answers as CRuby's IO does: a character takes its whole UTF-8 sequence and an invalid byte stands alone. What `ungetc` and `ungetbyte` push comes first. At the end the `get` forms answer `nil` and the `read` forms raise `EOFError` |
+| Then | each answers as CRuby's socket does: a character is one byte, as `rsock_init_sock` sets binary mode. What `ungetc` and `ungetbyte` push comes first, and `ungetc` raises `RangeError` past 255. At the end the `get` forms answer `nil` and the `read` forms raise `EOFError` |
 
 ## `NW-135` A receive flag WASI cannot carry raises
 

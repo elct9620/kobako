@@ -276,29 +276,10 @@ fn next_byte(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<u8>, Error> {
     Ok(byte)
 }
 
-/// The next character: a UTF-8 sequence whole, or a byte that starts none
-/// alone, as CRuby's `getc` reads its external encoding; `None` at the end.
+/// The next character, one byte, as a socket reads in binary mode, which
+/// CRuby's `rsock_init_sock` sets; `None` at the end.
 fn next_char(mrb: &Mrb, source: &dyn SocketIo) -> Result<Option<Vec<u8>>, Error> {
-    let Some(first) = next_byte(mrb, source)? else {
-        return Ok(None);
-    };
-    let width = match first {
-        0xC2..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xF4 => 4,
-        _ => 1,
-    };
-    let mut char = vec![first];
-    while char.len() < width {
-        match peek_byte(mrb, source)? {
-            Some(byte) if byte & 0xC0 == 0x80 => {
-                source.io().rbuf.borrow_mut().remove(0);
-                char.push(byte);
-            }
-            _ => break,
-        }
-    }
-    Ok(Some(char))
+    Ok(next_byte(mrb, source)?.map(|byte| vec![byte]))
 }
 
 /// `getc` answers the next character, `nil` at the end.
@@ -365,16 +346,19 @@ fn push_back(source: &dyn SocketIo, bytes: &[u8]) {
         .splice(0..0, bytes.iter().copied());
 }
 
-/// `ungetc(string)` puts `string`, or the character an Integer numbers,
-/// back for the next read, as CRuby's does.
+/// `ungetc(string)` puts `string`, or the byte an Integer numbers, back for
+/// the next read, as CRuby's does in binary mode: a socket's character is
+/// one byte, so a number past 255 raises `RangeError`.
 fn socket_ungetc(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Error> {
     let source = reader_of(mrb, self_)?;
     let bytes = match Integer::from_value(pushed) {
         Some(_) => {
-            let code = u32::try_convert(pushed, mrb)?;
-            let char = char::from_u32(code)
-                .ok_or_else(|| argument_error(mrb, &format!("invalid character: {code}")))?;
-            char.to_string().into_bytes()
+            let code = i64::try_convert(pushed, mrb)?;
+            let byte = u8::try_from(code).map_err(|_| match mrb.exception_range_error() {
+                Ok(class) => Error::new(mrb, class, &format!("{code} out of char range")),
+                Err(err) => err,
+            })?;
+            vec![byte]
         }
         None => {
             let text = RString::try_convert(pushed, mrb)
