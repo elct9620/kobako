@@ -499,6 +499,16 @@ pub(crate) fn time_interval_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>
     if sec.is_nil() {
         return Ok(None);
     }
+    // An Integer reads as itself, as `time_timespec` reads one through
+    // `NUM2TIMET`: past `time_t` it raises `RangeError` before its sign is
+    // asked.
+    if let Some(int) = Integer::from_value(sec) {
+        let seconds = int.to_i64(mrb)?;
+        return match u64::try_from(seconds) {
+            Ok(seconds) => Ok(Some(Duration::from_secs(seconds))),
+            Err(_) => Err(argument_error(mrb, "time interval must not be negative")),
+        };
+    }
     let seconds = f64::try_convert(sec, mrb)?;
     let out_of_range = |shown: &str| match mrb.exception_range_error() {
         Ok(cls) => Error::new(mrb, cls, &format!("{shown} out of Time range")),

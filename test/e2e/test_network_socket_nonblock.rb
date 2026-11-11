@@ -15,12 +15,14 @@ class TestE2ENetworkSocketNonblock < Minitest::Test
     socket = TCPSocket.new("127.0.0.1", %<port>d)
     before = [
       outcome.call { socket.read_nonblock(10) }, socket.read_nonblock(10, exception: false),
-      outcome.call { socket.recv_nonblock(10) }, socket.recv_nonblock(10, exception: false)
+      outcome.call { socket.recv_nonblock(10) }, socket.recv_nonblock(10, exception: false),
+      outcome.call { socket.read_nonblock(10, exception: nil) }
     ]
     socket.write("\\r\\n")
     IO.select([socket])
     buffer = +"zz"
-    held = [socket.gets, outcome.call { socket.recv_nonblock(10) }, socket.read_nonblock(1, buffer), buffer]
+    held = [socket.gets, outcome.call { socket.recv_nonblock(10) }, socket.read_nonblock(1, buffer), buffer,
+            outcome.call { IO.select([socket], nil, nil, -1) }]
     rest = socket.read_nonblock(10)
     IO.select([socket])
     ended = [
@@ -32,8 +34,10 @@ class TestE2ENetworkSocketNonblock < Minitest::Test
 
   READ_ANSWERS = [
     [NonblockOutcome.would_block("read would block"), :wait_readable,
-     NonblockOutcome.would_block("recvfrom(2) would block"), :wait_readable],
-    ["ab\n", NonblockOutcome.plain_raise("IOError", "recvfrom for buffered IO"), "c", "c"],
+     NonblockOutcome.would_block("recvfrom(2) would block"), :wait_readable,
+     NonblockOutcome.would_block("read would block")],
+    ["ab\n", NonblockOutcome.plain_raise("IOError", "recvfrom for buffered IO"), "c", "c",
+     NonblockOutcome.plain_raise("ArgumentError", "time interval must not be negative")],
     "d",
     [NonblockOutcome.plain_raise("EOFError", "end of file reached"), nil, nil]
   ].freeze
@@ -45,7 +49,8 @@ class TestE2ENetworkSocketNonblock < Minitest::Test
 
       assert_equal READ_ANSWERS, value,
                    "TCPSocket#read_nonblock and #recv_nonblock before bytes come must raise IO::EAGAINWaitReadable " \
-                   "or answer :wait_readable with exception: false; after #gets, #read_nonblock must take what it " \
+                   "or answer :wait_readable with exception: false and raise with any other exception: value; " \
+                   "after #gets, IO.select must still refuse a negative timeout, #read_nonblock must take what it " \
                    "held back and #recv_nonblock raise IOError; at the end #read_nonblock must raise EOFError and " \
                    "#recv_nonblock answer nil, as CRuby's do"
     end

@@ -66,7 +66,8 @@ class TestE2ENetworkAddrinfo < Minitest::Test
     rescue SocketError => e
       [e.class.to_s, e.message]
     end
-    [Addrinfo.getaddrinfo("127.0.0.1", 80).map(&:inspect), Addrinfo.getaddrinfo("127.0.0.1", 80, :INET, :STREAM).map(&:inspect),
+    [Addrinfo.getaddrinfo("127.0.0.1", 80).map(&:inspect),
+     Addrinfo.getaddrinfo("127.0.0.1", 80, :INET, :STREAM, timeout: -1).map(&:inspect),
      Addrinfo.getaddrinfo("10.0.0.1", "53", nil, nil, Socket::IPPROTO_UDP).map(&:inspect),
      Addrinfo.getaddrinfo(nil, 80, :INET, :STREAM, nil, Socket::AI_PASSIVE).map(&:inspect),
      Addrinfo.getaddrinfo("localhost", 80, nil, :STREAM, nil, Socket::AI_CANONNAME).map { |a| [a.inspect, a.canonname] },

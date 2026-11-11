@@ -842,7 +842,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server that answers once the script closes its write side |
 | When | the script connects with `connect_timeout:`, writes several strings in one call, and reads with `gets(sep)` and `readpartial(n, buf)` |
-| Then | each answers as CRuby's does. A local port the script chooses raises `Errno::EACCES`, and an unknown keyword raises `ArgumentError` |
+| Then | each answers as CRuby's does. A local port the script chooses raises `Errno::EACCES`, and an unknown keyword raises `ArgumentError`. A literal address reads no `resolv_timeout:`, as CRuby reads it only for a name |
 
 ## `NW-068` A script's Net::HTTP raises Net::ReadTimeout past its read timeout
 
@@ -1600,7 +1600,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server that answers `"ab\ncd"` to a line and closes |
 | When | the script calls `read_nonblock` and `recv_nonblock` before the answer comes, then after it comes, then at its end |
-| Then | before it comes each raises `IO::EAGAINWaitReadable`, an `Errno::EAGAIN` that is an `IO::WaitReadable`, or answers `:wait_readable` with `exception: false`. After a `gets`, `read_nonblock` takes what the `gets` held back first. `recv_nonblock` then raises `IOError`, as CRuby's does over a buffer. At the end `read_nonblock` raises `EOFError` and `recv_nonblock` answers `nil` |
+| Then | before it comes each raises `IO::EAGAINWaitReadable`, an `Errno::EAGAIN` that is an `IO::WaitReadable`, or answers `:wait_readable` with `exception: false`. Any other `exception:` value raises, as CRuby asks only for `false`. After a `gets`, `read_nonblock` takes what the `gets` held back first. `recv_nonblock` then raises `IOError`, as CRuby's does over a buffer. At the end `read_nonblock` raises `EOFError` and `recv_nonblock` answers `nil` |
 
 ## `NW-130` A script writes a socket without waiting, as CRuby's
 
@@ -1748,7 +1748,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a network entry naming `localhost` |
 | When | the script calls `Addrinfo.getaddrinfo` and `Socket.getaddrinfo` for a literal and for `localhost`, with and without a family, kind, and `AI_CANONNAME`. It looks up a name no entry names |
-| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. The unnamed one raises `Socket::ResolutionError`, as CRuby's does |
+| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none |
 
 ## `NW-142` A script reads a socket's ends as Addrinfos
 

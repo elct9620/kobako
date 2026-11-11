@@ -9,7 +9,7 @@ use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
 use super::{no_network, resolution_error, to_error, EAI_AGAIN, EAI_NONAME, EAI_SERVICE};
 use crate::errno;
-use crate::io::argument_error;
+use crate::io::{argument_error, time_interval_of};
 use crate::wasi::wait_within;
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::ip_name_lookup::resolve_addresses;
@@ -64,12 +64,13 @@ fn resolve(
 
 /// The peer `host` and `port` name for `call` on a `class`: the IPv4 address
 /// `host` spells, or the one its name leads to within `resolv_timeout`, with
-/// the words CRuby's `Errno` carries for them.
+/// the words CRuby's `Errno` carries for them. The timeout is read only for a
+/// name, as CRuby reads it only where it must resolve one.
 pub(super) fn peer_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
-    resolv_timeout: Option<Duration>,
+    resolv_timeout: Option<Value>,
     class: &str,
     call: &str,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
@@ -81,7 +82,13 @@ pub(super) fn peer_of(
         Ok(std::net::IpAddr::V6(_)) => {
             return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call))
         }
-        Err(_) => resolve(mrb, &host_text, resolv_timeout, class, &call)?,
+        Err(_) => {
+            let limit = match resolv_timeout {
+                Some(sec) => time_interval_of(mrb, sec)?,
+                None => None,
+            };
+            resolve(mrb, &host_text, limit, class, &call)?
+        }
     };
     Ok((ip, port, call))
 }
@@ -152,13 +159,9 @@ pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
 /// The address `host` names to pack, as CRuby's `rsock_addrinfo` reads it:
 /// `nil` is the loopback, an Integer the IPv4 address it numbers, `""` and
 /// `"<any>"` any address, and `"<broadcast>"` the broadcast one. A literal is
-/// itself, and a name the address it leads to within `timeout`. The guest has
-/// no IPv6, so `nil` is IPv4's loopback.
-pub(super) fn pack_host(
-    mrb: &Mrb,
-    host: Value,
-    timeout: Option<Duration>,
-) -> Result<IpAddr, Error> {
+/// itself, and a name the address it leads to. The guest has no IPv6, so
+/// `nil` is IPv4's loopback.
+pub(super) fn pack_host(mrb: &Mrb, host: Value) -> Result<IpAddr, Error> {
     if host.is_nil() {
         return Ok(Ipv4Addr::LOCALHOST.into());
     }
@@ -171,7 +174,7 @@ pub(super) fn pack_host(
         "<broadcast>" => Ipv4Addr::BROADCAST.into(),
         _ => match text.parse::<IpAddr>() {
             Ok(ip) => ip,
-            Err(_) => resolve(mrb, &text, timeout, "Socket", "getaddrinfo(3)")?.into(),
+            Err(_) => resolve(mrb, &text, None, "Socket", "getaddrinfo(3)")?.into(),
         },
     })
 }
@@ -226,7 +229,7 @@ pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error>
 /// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name.
 fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
     let (port, _) = port_of(mrb, port)?;
-    let ip = pack_host(mrb, host, None)?;
+    let ip = pack_host(mrb, host)?;
     Ok(mrb.str_new(&sockaddr_of(ip, port)).as_value())
 }
 

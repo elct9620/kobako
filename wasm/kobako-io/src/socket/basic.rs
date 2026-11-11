@@ -9,7 +9,7 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::scan_args::get_kwargs;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, Qfalse, Qtrue, RClass, RHash, Symbol, TryConvert, Value};
+use beni::{Error, IntoValue, Mrb, Qfalse, RClass, RHash, Symbol, TryConvert, Value};
 
 use super::address::sockaddr_of;
 use super::buffer::{eof_error, fill};
@@ -178,8 +178,8 @@ pub(super) fn ready_of<T>(poll: Poll<T>) -> T {
 }
 
 /// The arguments before a trailing `exception:` keyword, and whether a call
-/// that would wait raises, as CRuby's `*_nonblock` methods take it: `true`
-/// unless given `false`.
+/// that would wait raises, as CRuby's socket `*_nonblock` methods take it:
+/// `true` unless given `false`, as `init.c` asks only `ex == Qfalse`.
 pub(super) fn exception_option<'a>(
     mrb: &Mrb,
     args: &'a [Value],
@@ -192,19 +192,10 @@ pub(super) fn exception_option<'a>(
     };
     let kw = get_kwargs::<_, (), (Option<Value>,), ()>(mrb, options, &[], &["exception"])?;
     let (given,) = kw.optional;
-    let exception = match given {
-        None => true,
-        Some(given) if Qtrue::from_value(given).is_some() => true,
-        Some(given) if Qfalse::from_value(given).is_some() => false,
-        Some(given) => {
-            let message = format!(
-                "expected true or false as exception: {}",
-                given.inspect(mrb)
-            );
-            return Err(argument_error(mrb, &message));
-        }
-    };
-    Ok((rest, exception))
+    Ok((
+        rest,
+        !given.is_some_and(|given| Qfalse::from_value(given).is_some()),
+    ))
 }
 
 /// The bytes `object` spells, as CRuby's `IO#write` converts it.

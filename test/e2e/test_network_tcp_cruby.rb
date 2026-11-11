@@ -108,7 +108,8 @@ class TestE2ENetworkTcpCruby < Minitest::Test
     socket.readpartial(2, buffer)
     chosen = begin; TCPSocket.new("127.0.0.1", %<port>d, nil, 4321); rescue Errno::EACCES; :refused; end
     unknown = begin; TCPSocket.new("127.0.0.1", %<port>d, wait: 1); rescue ArgumentError; :refused; end
-    [sent, first, buffer, socket.read, chosen, unknown]
+    unread = begin; TCPSocket.new("127.0.0.1", 1, resolv_timeout: -1); rescue Errno::EACCES; :refused; end
+    [sent, first, buffer, socket.read, chosen, unknown, unread]
   RUBY
 
   # @behavior NW-067
@@ -116,10 +117,11 @@ class TestE2ENetworkTcpCruby < Minitest::Test
     with_upcase_server do |port|
       value = loopback_sandbox(port).eval(format(SHAPES, port: port)).value
 
-      assert_equal [5, "A|", "B|", "C", :refused, :refused], value,
+      assert_equal [5, "A|", "B|", "C", :refused, :refused, :refused], value,
                    "TCPSocket.new with connect_timeout:, write of several strings, gets with a separator, and " \
                    "readpartial into a buffer must answer as CRuby's, while a chosen local port raises " \
-                   "Errno::EACCES and an unknown keyword ArgumentError"
+                   "Errno::EACCES, an unknown keyword ArgumentError, and a literal address with a negative " \
+                   "resolv_timeout: the refusal its connect meets, as CRuby reads that timeout only for a name"
     end
   end
 end

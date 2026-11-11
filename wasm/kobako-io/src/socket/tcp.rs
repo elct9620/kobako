@@ -325,10 +325,10 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
     })
 }
 
-/// The limits `TCPSocket.new`'s keywords set on resolving a name and on
-/// connecting.
+/// The limits `TCPSocket.new`'s keywords set on resolving a name, read only
+/// if a name is resolved, and on connecting.
 struct Timeouts {
-    resolv: Option<Duration>,
+    resolv: Option<Value>,
     connect: Option<Duration>,
 }
 
@@ -349,10 +349,9 @@ fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
         &["resolv_timeout", "connect_timeout", "fast_fallback"],
     )?;
     let (resolv, connect, _fast_fallback) = kw.optional;
-    let limit_of = |sec: Option<Value>| sec.map_or(Ok(None), |sec| time_interval_of(mrb, sec));
     Ok(Timeouts {
-        resolv: limit_of(resolv)?,
-        connect: limit_of(connect)?,
+        resolv,
+        connect: connect.map_or(Ok(None), |sec| time_interval_of(mrb, sec))?,
     })
 }
 

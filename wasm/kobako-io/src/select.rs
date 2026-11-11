@@ -257,12 +257,15 @@ fn io_s_select(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
             });
         }
     }
+    // The timeout is read first, as CRuby's `select` reads it before it
+    // looks at any stream.
+    let millis = to_millis(mrb, timeout)?;
     let buffered = watched
         .iter()
         .any(|w| w.events == POLLRDNORM && socket::holds_buffered(mrb, w.io));
     let timeout = match buffered {
         true => 0,
-        false => to_millis(mrb, timeout)?,
+        false => millis,
     };
     let targets = watched
         .iter()

@@ -41,7 +41,7 @@ The rows run in the order one system call passes through them. The boundary row 
 
 ## Driver Role
 
-`kobako-runtime` decides the answers, and the Wasm Driver only encodes. A judgment belongs to the Wasm Driver in two cases. Either it would vanish under preview2, or it is a check a syscall entry makes itself, such as which descriptor a call takes. Every other judgment belongs to `kobako-runtime`. Reading a clock, the environment, and random bytes are answered by native WASI instead, with the frozen sources wired in by the Wasm Driver. A clock's `subscribe-duration` is kobako's, since its pollable waits beside a socket's.
+`kobako-runtime` decides the answers, and the Wasm Driver encodes them. A judgment belongs to the Wasm Driver in two cases. One is a step only its ABI has, such as preview2's `start-*` and `finish-*`. The other is a check a syscall entry makes itself, such as which descriptor a call takes. Every other judgment belongs to `kobako-runtime`. Reading a clock, the environment, and random bytes are answered by native WASI instead, with the frozen sources wired in by the Wasm Driver. A clock's `subscribe-duration` is kobako's, since its pollable waits beside a socket's.
 
 ```
 +- Wasm Driver: encode ----------------+
