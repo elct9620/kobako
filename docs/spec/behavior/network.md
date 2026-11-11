@@ -1047,8 +1047,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a UDP socket streaming to the peer its endpoint names |
-| When | the guest sends one datagram a byte past what IPv4 UDP carries |
-| Then | the send answers `datagram-too-large`, as Linux's `udp_sendmsg` answers `EMSGSIZE` |
+| When | the guest sends one datagram a byte past what IPv4 UDP carries, to the peer and to another address |
+| Then | each send answers `datagram-too-large`, as Linux's `udp_sendmsg` answers `EMSGSIZE`. The size is judged before the address, as wasmtime's `send` judges it |
 
 ## `NW-085` A request's name lookup holds its place until the resolver returns
 
@@ -1107,8 +1107,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a guest holding a network Grant |
-| When | it connects or streams to the unspecified address, port 0, a broadcast, or a multicast address. It binds a UDP socket to a multicast address |
-| Then | each answers `invalid-argument` before the socket hooks are asked, as wasmtime's checks answer them |
+| When | it connects or streams to the unspecified address, port 0, a broadcast, or a multicast address. It binds a TCP and a UDP socket to a multicast address |
+| Then | TCP answers `invalid-argument` for each before the socket hooks are asked, as wasmtime's checks answer them. UDP answers it for the unspecified address and port 0 alone, as wasmtime asks UDP. The hooks refuse its multicast bind and its broadcast or multicast peer with `access-denied` |
 
 ## `NW-090` A second start while one is under way answers concurrency-conflict
 

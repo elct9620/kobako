@@ -57,8 +57,9 @@ pub(crate) fn to_socket_addr(addr: &IpSocketAddress) -> Option<SocketAddr> {
     }
 }
 
-/// Whether `addr` may be bound to, as wasmtime's `is_valid_unicast_address`
-/// asks: no multicast and no broadcast address.
+/// Whether a TCP socket may bind or connect to `addr`, as wasmtime's
+/// `is_valid_unicast_address` asks only of TCP: no multicast and no broadcast
+/// address.
 pub(crate) fn is_valid_unicast_address(addr: SocketAddr) -> bool {
     match addr {
         SocketAddr::V4(v4) => !v4.ip().is_multicast() && !v4.ip().is_broadcast(),
@@ -66,11 +67,10 @@ pub(crate) fn is_valid_unicast_address(addr: SocketAddr) -> bool {
     }
 }
 
-/// Whether `addr` may be reached, as wasmtime's `is_valid_remote_address`
-/// asks with `is_valid_unicast_address`: a unicast address, neither
-/// unspecified nor at port 0.
-pub(crate) fn is_valid_remote_address(addr: SocketAddr) -> bool {
-    is_valid_unicast_address(addr) && !addr.ip().is_unspecified() && addr.port() != 0
+/// The peer the guest named, if it may be reached, as wasmtime's
+/// `is_valid_remote_address` asks: neither unspecified nor at port 0.
+pub(crate) fn to_remote_addr(addr: &IpSocketAddress) -> Option<SocketAddr> {
+    to_socket_addr(addr).filter(|addr| !addr.ip().is_unspecified() && addr.port() != 0)
 }
 
 /// `addr` as the guest reads it; an IPv6 one reads as the unspecified IPv4

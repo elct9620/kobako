@@ -4,7 +4,7 @@
 //! its Protocol Family. The clock subscriptions, the streams, and `poll` wait
 //! on the runtime's wait primitive.
 
-use std::net::Shutdown;
+use std::net::{Shutdown, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -31,8 +31,8 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::error::{SocketError, StreamError};
 use super::sockets::{
-    from_socket_addr, is_valid_remote_address, is_valid_unicast_address, to_asked_size,
-    to_buffer_size, to_error_code, to_hop_limit, to_keepalive_secs, to_lookup_error_code, to_nanos,
+    from_socket_addr, is_valid_unicast_address, to_asked_size, to_buffer_size, to_error_code,
+    to_hop_limit, to_keepalive_secs, to_lookup_error_code, to_nanos, to_remote_addr,
     to_socket_addr,
 };
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
@@ -226,12 +226,14 @@ impl Invocation {
     /// Start a bind of a socket standing at `standing` to `local_address`, as
     /// both sockets' `start-bind` do in wasmtime's order: the network first,
     /// then a bind or connect under way, then any other state, then the
-    /// address as WASI takes it, through the socket hooks.
+    /// address as WASI takes it and the protocol finds `valid`, through the
+    /// socket hooks.
     fn start_bind(
         &mut self,
         network: Network,
         local_address: &IpSocketAddress,
         standing: BindStanding,
+        valid: fn(SocketAddr) -> bool,
     ) -> Result<(), SocketError> {
         self.ensure_network(network)?;
         match standing {
@@ -240,7 +242,7 @@ impl Invocation {
             BindStanding::Settled => return Err(ErrorCode::InvalidState.into()),
         }
         let addr = to_socket_addr(local_address)
-            .filter(|addr| is_valid_unicast_address(*addr))
+            .filter(|addr| valid(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().descriptors().cred().clone();
         Ok(self.network().bind(&cred, addr)?)
@@ -393,7 +395,7 @@ impl SocketsHost for Invocation {
             state if state == TcpState::Binding || state.is_connecting() => BindStanding::Busy,
             _ => BindStanding::Settled,
         };
-        self.start_bind(network, &local_address, standing)?;
+        self.start_bind(network, &local_address, standing, is_valid_unicast_address)?;
         self.tcp(this)?.state = TcpState::Binding;
         Ok(())
     }
@@ -426,8 +428,8 @@ impl SocketsHost for Invocation {
             _ => return Err(ErrorCode::InvalidState.into()),
         }
         let sock = socket.socket.sock.clone();
-        let addr = to_socket_addr(&remote_address)
-            .filter(|addr| is_valid_remote_address(*addr))
+        let addr = to_remote_addr(&remote_address)
+            .filter(|addr| is_valid_unicast_address(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().descriptors().cred();
         // Past the address's own checks the attempt is under way, so its
@@ -675,7 +677,9 @@ impl SocketsHost for Invocation {
             UdpState::Binding => BindStanding::Busy,
             _ => BindStanding::Settled,
         };
-        self.start_bind(network, &local_address, standing)?;
+        // UDP binds any address WASI takes, as wasmtime asks UDP of its family
+        // alone; the socket hooks refuse all but the implicit one.
+        self.start_bind(network, &local_address, standing, |_| true)?;
         self.udp(this)?.state = UdpState::Binding;
         Ok(())
     }
@@ -762,9 +766,9 @@ impl SocketsHost for Invocation {
             return Err(ErrorCode::InvalidState.into());
         }
         let datagrams = socket.socket.clone();
-        let peer = match remote_address.as_ref().map(to_socket_addr) {
-            Some(Some(addr)) if is_valid_remote_address(addr) => Some(addr),
-            Some(_) => return Err(ErrorCode::InvalidArgument.into()),
+        let peer = match remote_address.as_ref().map(to_remote_addr) {
+            Some(Some(addr)) => Some(addr),
+            Some(None) => return Err(ErrorCode::InvalidArgument.into()),
             None => None,
         };
         let cred = self.wasi().descriptors().cred();
@@ -878,7 +882,10 @@ impl SocketsHost for Invocation {
         let mut sent = 0;
         for datagram in datagrams {
             let addressed = datagram.remote_address.as_ref().map(to_socket_addr);
-            let refused = if addressed.is_some_and(|addr| addr != stream.sock.getpeername()) {
+            // Its size is judged before its address, as wasmtime's send asks.
+            let refused = if datagram.data.len() > MAX_DATAGRAM {
+                Some(ErrorCode::DatagramTooLarge)
+            } else if addressed.is_some_and(|addr| addr != stream.sock.getpeername()) {
                 Some(ErrorCode::InvalidArgument)
             } else {
                 match stream.file().write(&datagram.data) {
@@ -2370,19 +2377,66 @@ mod tests {
             .into_answer()
             .unwrap()
             .expect("a network makes a socket");
-        let bind = guest
+        let tcp_bind = {
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()
+                .unwrap()
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_bind(socket, network, ipv4((224, 0, 0, 1), 0))
+                .into_answer()
+                .unwrap()
+        };
+        let udp_bind = guest
             .udp_udp_socket_start_bind(udp, network, ipv4((224, 0, 0, 1), 0))
             .into_answer()
             .unwrap();
+        let bound = guest
+            .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+            .into_answer()
+            .unwrap()
+            .expect("a network makes a socket");
+        guest
+            .udp_udp_socket_start_bind(bound, network, ipv4((0, 0, 0, 0), 0))
+            .into_answer()
+            .unwrap()
+            .expect("an ephemeral bind is the implicit one");
+        guest
+            .udp_udp_socket_finish_bind(bound)
+            .into_answer()
+            .unwrap()
+            .expect("the bind settles");
+        let mut stream = |to| {
+            guest
+                .udp_udp_socket_stream(bound, Some(to))
+                .into_answer()
+                .unwrap()
+                .map(drop)
+        };
+        let streams = [
+            stream(ipv4((0, 0, 0, 0), 80)),
+            stream(ipv4((127, 0, 0, 1), 0)),
+            stream(ipv4((255, 255, 255, 255), 80)),
+            stream(ipv4((224, 0, 0, 1), 80)),
+        ];
         assert_eq!(
-            (connects, bind),
+            (connects, tcp_bind, udp_bind, streams),
             (
                 [Err(ErrorCode::InvalidArgument); 4],
-                Err(ErrorCode::InvalidArgument)
+                Err(ErrorCode::InvalidArgument),
+                Err(ErrorCode::AccessDenied),
+                [
+                    Err(ErrorCode::InvalidArgument),
+                    Err(ErrorCode::InvalidArgument),
+                    Err(ErrorCode::AccessDenied),
+                    Err(ErrorCode::AccessDenied)
+                ]
             ),
-            "start-connect to 0.0.0.0, port 0, a broadcast, or a multicast address, and \
-             start-bind to a multicast address, must answer invalid-argument, not \
-             access-denied"
+            "start-connect to 0.0.0.0, port 0, a broadcast, or a multicast address, and a TCP \
+             start-bind to a multicast address, must answer invalid-argument; a UDP socket \
+             checks only the unspecified address and port 0 that way, as wasmtime's, so its \
+             multicast bind and broadcast or multicast stream answer access-denied"
         );
     }
 
@@ -2704,7 +2758,7 @@ mod tests {
                 .udp_outgoing_datagram_stream_check_send(outgoing)
                 .into_answer()?
                 .expect("the stream with room permits a datagram");
-            guest
+            let sent = guest
                 .udp_outgoing_datagram_stream_send(
                     outgoing,
                     vec![OutgoingDatagram {
@@ -2712,13 +2766,38 @@ mod tests {
                         remote_address: None,
                     }],
                 )
-                .into_answer()
+                .into_answer()?;
+            let elsewhere = IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port,
+                address: (127, 0, 0, 2),
+            });
+            guest
+                .udp_outgoing_datagram_stream_check_send(outgoing)
+                .into_answer()?
+                .expect("the stream with room permits a datagram");
+            let misaddressed = guest
+                .udp_outgoing_datagram_stream_send(
+                    outgoing,
+                    vec![OutgoingDatagram {
+                        data: vec![0; MAX_DATAGRAM + 1],
+                        remote_address: Some(elsewhere),
+                    }],
+                )
+                .into_answer()?;
+            Ok::<_, wasmtime::Error>((sent, misaddressed))
         })
         .expect("the send answers");
         assert!(
-            matches!(sent, Err(ErrorCode::DatagramTooLarge)),
+            matches!(
+                sent,
+                (
+                    Err(ErrorCode::DatagramTooLarge),
+                    Err(ErrorCode::DatagramTooLarge)
+                )
+            ),
             "outgoing-datagram-stream.send of one byte past what IPv4 UDP carries must answer \
-             datagram-too-large, as udp_sendmsg answers EMSGSIZE, not {sent:?}"
+             datagram-too-large, as udp_sendmsg answers EMSGSIZE, even to an address other than \
+             the peer, as wasmtime judges the size first, not {sent:?}"
         );
     }
 
