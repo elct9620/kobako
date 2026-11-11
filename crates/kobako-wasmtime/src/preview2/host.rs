@@ -1181,6 +1181,16 @@ mod tests {
             (func $send (param i32 i32 i32 i32)))
           (import "wasi:http/outgoing-handler@0.2.12" "handle"
             (func $handle (param i32 i32 i32 i32)))
+          (import "wasi_snapshot_preview1" "sock_accept"
+            (func $sock_accept (param i32 i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "sock_recv"
+            (func $sock_recv (param i32 i32 i32 i32 i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "sock_send"
+            (func $sock_send (param i32 i32 i32 i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "sock_shutdown"
+            (func $sock_shutdown (param i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "fd_fdstat_get"
+            (func $fd_fdstat_get (param i32 i32) (result i32)))
           (memory (export "memory") 1)
           (global $bump (mut i32) (i32.const 4096))
           (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32)
@@ -1201,7 +1211,19 @@ mod tests {
           (func (export "send") (param i32 i32 i32)
             (call $send (local.get 0) (local.get 1) (local.get 2) (i32.const 32)))
           (func (export "handle") (param i32 i32 i32)
-            (call $handle (local.get 0) (local.get 1) (local.get 2) (i32.const 32))))
+            (call $handle (local.get 0) (local.get 1) (local.get 2) (i32.const 32)))
+          (func (export "sock_accept") (param i32) (result i32)
+            (call $sock_accept (local.get 0) (i32.const 0) (i32.const 256)))
+          (func (export "sock_recv") (param i32) (result i32)
+            (call $sock_recv (local.get 0) (i32.const 256) (i32.const 0) (i32.const 0)
+              (i32.const 272) (i32.const 276)))
+          (func (export "sock_send") (param i32) (result i32)
+            (call $sock_send (local.get 0) (i32.const 256) (i32.const 0) (i32.const 0)
+              (i32.const 272)))
+          (func (export "sock_shutdown") (param i32) (result i32)
+            (call $sock_shutdown (local.get 0) (i32.const 3)))
+          (func (export "fdstat") (param i32) (result i32)
+            (call $fd_fdstat_get (local.get 0) (i32.const 256))))
     "#;
 
     /// A guest at `profile`, holding at most `open_file_limit` files.
@@ -3191,6 +3213,28 @@ mod tests {
             (1, Some(3), 1),
             "a guest holding only stdin, stdout, and stderr must take 1 for its first preview2 \
              handle, still find 3 as preview1's next descriptor, and take 1 again once it is freed"
+        );
+    }
+
+    // @behavior RT-383
+    #[test]
+    fn preview1_reaches_no_socket_and_no_preview2_handle() {
+        let (mut store, instance) = guest(Profile::Hermetic, None);
+        let handles: Vec<i32> = (0..3)
+            .map(|_| call::<(), i32>(&mut store, &instance, "network", ()).expect("a network"))
+            .collect();
+        let mut on = |name: &str, fd: i32| {
+            call::<i32, i32>(&mut store, &instance, name, fd).expect("the call answers")
+        };
+        let calls = ["sock_accept", "sock_recv", "sock_send", "sock_shutdown"];
+        let on_stdout = calls.map(|name| on(name, 1));
+        let on_handle = (on("fdstat", 3), on("sock_shutdown", 3));
+        assert_eq!(
+            (handles, on_stdout, on_handle),
+            (vec![1, 2, 3], [57; 4], (8, 8)),
+            "sock_accept, sock_recv, sock_send, and sock_shutdown on stdout must answer \
+             ENOTSOCK, as a preview1 descriptor is always a file, and preview1 calls on 3, a \
+             number only a preview2 handle holds, must answer EBADF"
         );
     }
 

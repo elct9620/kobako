@@ -4235,3 +4235,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it subscribes to a clock of the largest duration, through preview2 or preview1, and waits on it |
 | Then | the wait lasts until the deadline ends it, as a wait on nothing that can become ready does |
 
+## `RT-383` preview1 reaches no socket and no preview2 handle
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-306`, `RT-347` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding its standard streams and preview2 handles numbered past them |
+| When | it makes each preview1 socket call on a standard stream, and preview1 calls on a number only a handle holds |
+| Then | each socket call answers ENOTSOCK, as wasmtime's preview1 answers a file. A call on the handle's number answers EBADF. An older WASI adapts to a newer one, so preview1 holds files alone |
+
