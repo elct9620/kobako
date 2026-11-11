@@ -117,6 +117,9 @@ pub(crate) struct InetSock {
     pub(crate) place: Option<Place>,
     /// Whether a bind took the socket's own end, as `inet_num` records one.
     bound: bool,
+    /// Whether the bind named its port, which the socket then keeps once it
+    /// closes, as `SOCK_BINDPORT_LOCK` does.
+    port_locked: bool,
     /// What its queues may hold, reserved against the Invocation's memory
     /// until the socket is released.
     memory: Option<MemoryCharge>,
@@ -135,6 +138,7 @@ impl InetSock {
             send_shut: false,
             place: None,
             bound: false,
+            port_locked: false,
             memory: Some(memory),
         }
     }
@@ -155,7 +159,15 @@ impl InetSock {
             return Err(FilesystemError::InvalidInput);
         }
         self.bound = true;
+        self.port_locked = addr.port() != 0;
         Ok(())
+    }
+
+    /// Give back the end a bind took once the socket closes, unless the bind
+    /// named its port, as `tcp_set_state` puts the port on entering
+    /// `TCP_CLOSE` without `SOCK_BINDPORT_LOCK`.
+    pub(crate) fn put_port(&mut self) {
+        self.bound &= self.port_locked;
     }
 
     /// The guest's own end, at its own virtual address once a port is held.

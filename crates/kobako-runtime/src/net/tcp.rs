@@ -109,7 +109,6 @@ pub struct TcpSock {
     /// What a guest's poll waits on.
     wait: Arc<WaitQueueHead>,
     family: Arc<dyn ProtocolFamily>,
-    reactor: Arc<Reactor>,
     this: Weak<Self>,
 }
 
@@ -122,7 +121,6 @@ impl TcpSock {
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, FilesystemError> {
         let memory = MemoryCharge::new(cred, 2 * MAX_SOCKET_BUFFER)?;
-        let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 phase: Phase::Unconnected,
@@ -143,7 +141,6 @@ impl TcpSock {
             }),
             wait: Arc::default(),
             family,
-            reactor,
             this: this.clone(),
         }))
     }
@@ -201,7 +198,8 @@ impl TcpSock {
     }
 
     /// Start connecting to the next address left, or fail with `last` once
-    /// none is.
+    /// none is. Each dial registers on the reactor running as it dials, so a
+    /// reactor whose poll failed meanwhile is replaced, not waited on.
     fn dial_next(&self, state: &mut State, mut last: FilesystemError) {
         while let Some(addr) = state.untried.pop_front() {
             let dialed = self.family.connect(addr).and_then(|stream| {
@@ -211,7 +209,7 @@ impl TcpSock {
                 let _ = Self::set_options(SockRef::from(&stream), state);
                 let mut stream = mio::net::TcpStream::from_std(stream);
                 let ready: Weak<dyn Ready> = self.this.clone();
-                let registration = self.reactor.register(&mut stream, ready)?;
+                let registration = Reactor::current()?.register(&mut stream, ready)?;
                 Ok((stream, registration))
             });
             match dialed {
@@ -236,6 +234,7 @@ impl TcpSock {
     /// or a reset: `TCP_CLOSE`, both sides shut down, the failure pending.
     fn close(state: &mut State, err: FilesystemError) {
         Self::close_host(state);
+        state.inet.put_port();
         state.phase = match state.phase {
             Phase::Connected => Phase::Reset,
             _ => Phase::Failed,
@@ -256,6 +255,7 @@ impl TcpSock {
         state.fin_sent = false;
         state.inet.error = None;
         state.inet.peer = None;
+        state.inet.put_port();
     }
 
     /// Let the host socket go, deregistered from the reactor.
@@ -443,11 +443,12 @@ impl Ready for TcpSock {
 /// TCP's answers for its socket file, as `inet_stream_ops` hands each call to
 /// `tcp_prot`.
 impl ProtoOps for TcpSock {
-    /// A socket that began a connect holds its own end already, as
-    /// `inet_hash_connect` binds one past `TCP_CLOSE`.
+    /// A socket connecting or connected holds its own end already, as
+    /// `inet_hash_connect` binds one past `TCP_CLOSE`; one a failed connect or
+    /// a reset closed is back in `TCP_CLOSE`.
     fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
         let mut state = self.state();
-        let connected = state.phase != Phase::Unconnected;
+        let connected = matches!(state.phase, Phase::Connecting | Phase::Connected);
         state.inet.bind(addr, connected)
     }
 
@@ -657,7 +658,7 @@ mod tests {
     /// A socket connecting to `addr` through the host.
     fn dial(addr: SocketAddr) -> Arc<TcpSock> {
         let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
-            .expect("the reactor starts");
+            .expect("an unbounded socket is made");
         sock.connect(vec![addr], addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         sock
@@ -721,7 +722,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = listener.local_addr().unwrap();
         let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
-            .expect("the reactor starts");
+            .expect("an unbounded socket is made");
         sock.setsockopt(SockOpt::KeepAlive, 1)
             .expect("an unconnected socket takes an option");
         let keepalive = |sock: &TcpSock| sock.getsockopt(SockOpt::KeepAlive).unwrap();
@@ -750,7 +751,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = listener.local_addr().unwrap();
         let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
-            .expect("the reactor starts");
+            .expect("an unbounded socket is made");
         let get = |opt| sock.getsockopt(opt).unwrap();
         let defaults = (
             get(SockOpt::KeepIdle),
@@ -798,7 +799,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = listener.local_addr().unwrap();
         let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
-            .expect("the reactor starts");
+            .expect("an unbounded socket is made");
         let host_ttl = |sock: &TcpSock| {
             sock.state()
                 .host
@@ -871,10 +872,10 @@ mod tests {
     fn a_socket_binds_once_and_not_after_its_connect() {
         let any: SocketAddr = "0.0.0.0:0".parse().unwrap();
         let cred = prepare_creds_within(&[], None);
-        let fresh = TcpSock::new(Arc::new(HostInet), &cred).expect("the reactor starts");
+        let fresh = TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
         let (first, second) = (fresh.bind(any), fresh.bind(any));
         let ipv6 = TcpSock::new(Arc::new(HostInet), &cred)
-            .expect("the reactor starts")
+            .expect("an unbounded socket is made")
             .bind("[::]:0".parse().unwrap());
         let (connected, _file, _peer) = connected_socket();
         let udp_peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -895,6 +896,34 @@ mod tests {
             "a socket's bind must take its own end once, answer EINVAL to a second bind and to a \
              bind after a TCP or UDP connect bound it, and EAFNOSUPPORT to IPv6, as Linux's \
              inet_bind"
+        );
+    }
+
+    // @behavior RT-386
+    #[test]
+    fn a_failed_connect_gives_back_a_port_its_bind_did_not_name() {
+        let closed = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let cred = prepare_creds_within(&[], None);
+        let failed_after = |own: &str| {
+            let sock =
+                TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
+            sock.bind(own.parse().unwrap())
+                .expect("a fresh socket binds");
+            sock.connect(vec![closed], closed, &OpenConnections::new(None))
+                .expect("an uncapped socket connects");
+            let file = sock_alloc_file(sock.clone(), &Arc::default());
+            wait_for(|table| file.poll(table), PollMask::ERR);
+            sock.bind("0.0.0.0:0".parse().unwrap())
+        };
+        assert_eq!(
+            (failed_after("0.0.0.0:0"), failed_after("127.0.0.1:40000")),
+            (Ok(()), Err(FilesystemError::InvalidInput)),
+            "a TCP socket bound to port 0 must bind again once its connect to a closed port fails, \
+             and one bound to a named port must still answer EINVAL, as tcp_set_state puts the \
+             port on TCP_CLOSE unless SOCK_BINDPORT_LOCK keeps it"
         );
     }
 

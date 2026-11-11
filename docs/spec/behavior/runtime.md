@@ -4271,3 +4271,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a Wasm Driver binds each past the socket hooks, the fresh one twice and once to IPv6 |
 | Then | the first bind takes the socket's own end. A second bind, or one after a connect bound the socket, answers EINVAL, as `__inet_bind` refuses. IPv6 answers EAFNOSUPPORT |
 
+
+## `RT-386` A failed connect gives back a port its bind did not name
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-385` |
+
+| Step | Statement |
+| --- | --- |
+| Given | two TCP sockets, one bound to port 0 and one to a named port |
+| When | each connects to a closed port, and binds again once the connect fails |
+| Then | the first binds again, since `TCP_CLOSE` puts its port back. The second answers EINVAL, as `SOCK_BINDPORT_LOCK` keeps a named port |
