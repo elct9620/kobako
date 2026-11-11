@@ -13,8 +13,8 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 use super::address::{end_of, local_of, no_timeout, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
-    dest_sockaddr_of, ensure_flags_carried, exception_option, flags_of, mesg_bytes_of, ready_of,
-    receive_past_buffer, IoState, PastBuffer, Readiness, SocketIo, Wait,
+    exception_option, ready_of, receive_past_buffer, send_args_of, IoState, PastBuffer, Readiness,
+    SocketIo, Wait,
 };
 use super::ip::local_end_of;
 use super::option::{set_udp_option, udp_option, Refusal};
@@ -314,13 +314,6 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
     Ok(0.into_value(mrb))
 }
 
-/// The address a `send` names: a `sockaddr` or an `Addrinfo` in one
-/// argument, or a host and a port in two.
-enum SendTo {
-    Sockaddr(Value),
-    HostPort(Value, Value),
-}
-
 /// `send(mesg, flags[, dest | host, port])` sends one datagram to the peer,
 /// waiting for room; `dest`, a `sockaddr` String or an `Addrinfo`, names an
 /// address as CRuby's `sendto` takes one, and `host` is looked up, its name
@@ -329,33 +322,22 @@ enum SendTo {
 /// `Errno::EACCES`, and one with no peer at all `Errno::EDESTADDRREQ`, as
 /// Linux's.
 fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (mesg, flags, to) = match args {
-        [mesg, flags] => (*mesg, *flags, None),
-        [mesg, flags, dest] => (*mesg, *flags, Some(SendTo::Sockaddr(*dest))),
-        [mesg, flags, host, port] => (*mesg, *flags, Some(SendTo::HostPort(*host, *port))),
+    let (mesg, flags, dest, host_port) = match args {
+        [mesg, flags] => (*mesg, *flags, None, None),
+        [mesg, flags, dest] => (*mesg, *flags, Some(*dest), None),
+        [mesg, flags, host, port] => (*mesg, *flags, None, Some((*host, *port))),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
-    let data = mesg_bytes_of(mrb, mesg)?;
-    // A `dest` converts after the message, as CRuby's `bsock_send` reads it.
-    let to = match to {
-        Some(SendTo::Sockaddr(dest)) => Some(SendTo::Sockaddr(dest_sockaddr_of(mrb, dest)?)),
-        other => other,
-    };
-    ensure_open(mrb, self_)?;
-    // The flags read as CRuby's `NUM2INT` reads them, after the open file.
-    let call = match to {
-        Some(_) => "sendto(2)",
-        None => "send(2)",
-    };
-    ensure_flags_carried(mrb, flags_of(mrb, flags)?, call)?;
+    let send = send_args_of(mrb, self_, mesg, flags, dest, host_port.is_some())?;
+    let (data, call) = (send.bytes, send.call);
     // The address a send names, and the words its `Errno` carries.
-    let addressed = match to {
-        Some(SendTo::Sockaddr(sockaddr)) => match end_of(mrb, sockaddr)? {
+    let addressed = match (send.dest, host_port) {
+        (Some(sockaddr), _) => match end_of(mrb, sockaddr)? {
             (IpAddr::V4(ip), port) => Some((ip, port, call.to_string())),
             (IpAddr::V6(_), _) => return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", call)),
         },
-        Some(SendTo::HostPort(host, port)) => Some(peer_of(mrb, host, port, &no_timeout, call)?),
-        None => None,
+        (None, Some((host, port))) => Some(peer_of(mrb, host, port, &no_timeout, call)?),
+        (None, None) => None,
     };
     // Whether the address a send names is the peer, `None` when it names none.
     let (names_peer, call) = match addressed {

@@ -418,15 +418,50 @@ fn socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
         [mesg, flags, dest] => (*mesg, *flags, Some(*dest)),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 3)),
     };
-    let bytes = mesg_bytes_of(mrb, mesg)?;
-    let call = match dest {
-        Some(dest) => dest_sockaddr_of(mrb, dest).map(|_| "sendto(2)")?,
-        None => "send(2)",
-    };
-    let source = open_socket_of(mrb, self_)?;
-    ensure_flags_carried(mrb, flags_of(mrb, flags)?, call)?;
-    let sent = ready_of(source.send(mrb, &bytes, Wait::Block, Some(call))?);
+    let send = send_args_of(mrb, self_, mesg, flags, dest, false)?;
+    let sent = ready_of(
+        send.socket
+            .send(mrb, &send.bytes, Wait::Block, Some(send.call))?,
+    );
     Ok((sent as i64).into_value(mrb))
+}
+
+/// What a send reads of its arguments, in CRuby's `rsock_bsock_send` order.
+pub(super) struct SendArgs<'a> {
+    pub(super) bytes: Vec<u8>,
+    /// The `dest` sockaddr String, once it converted.
+    pub(super) dest: Option<Value>,
+    pub(super) socket: &'a dyn SocketIo,
+    /// The call its `Errno` names: `sendto(2)` once a destination is named.
+    pub(super) call: &'static str,
+}
+
+/// Read a send's arguments as CRuby's `rsock_bsock_send` reads them: the
+/// message as `StringValue`, a `dest` as a sockaddr String, the open socket,
+/// then the flags as `NUM2INT`, refusing one WASI carries none of. A send
+/// `addressed` some other way names `sendto(2)` too.
+pub(super) fn send_args_of<'a>(
+    mrb: &Mrb,
+    self_: Value,
+    mesg: Value,
+    flags: Value,
+    dest: Option<Value>,
+    addressed: bool,
+) -> Result<SendArgs<'a>, Error> {
+    let bytes = mesg_bytes_of(mrb, mesg)?;
+    let dest = dest.map(|dest| dest_sockaddr_of(mrb, dest)).transpose()?;
+    let call = match addressed || dest.is_some() {
+        true => "sendto(2)",
+        false => "send(2)",
+    };
+    let socket = open_socket_of(mrb, self_)?;
+    ensure_flags_carried(mrb, flags_of(mrb, flags)?, call)?;
+    Ok(SendArgs {
+        bytes,
+        dest,
+        socket,
+        call,
+    })
 }
 
 /// Linux's `MSG_DONTWAIT`, the one flag a guest's receive or send takes; it
