@@ -36,9 +36,9 @@ pub(crate) struct Reactor {
     sockets: Mutex<HashMap<Token, Weak<dyn Ready>>>,
     /// The tasks woken and waiting their turn, as a scheduler's run queue.
     run_queue: Mutex<VecDeque<Arc<Task>>>,
-    /// The sockets whose last turn ended at its bound with more waiting, run
-    /// again after the next round of events, as NAPI puts a poll that spent
-    /// its weight back at the tail of `poll_list`.
+    /// The sockets whose last turn ended at its bound with more waiting, each
+    /// once, run again after the next round of events, as NAPI puts a poll
+    /// that spent its weight back at the tail of `poll_list`.
     repoll: Mutex<Vec<Weak<dyn Ready>>>,
     /// Whether the thread stopped, its poll having failed, so the next socket
     /// starts another reactor rather than register on one nobody waits on.
@@ -89,7 +89,14 @@ impl Reactor {
     fn run(&self, poll: &mut mio::Poll) {
         let mut events = Events::with_capacity(256);
         loop {
-            if let Err(err) = poll.poll(&mut events, None) {
+            // What asked for another turn before this round runs after its
+            // events, as `net_rx_action` takes the polls newly scheduled
+            // ahead of its repoll list; what asks during the round waits for
+            // the next.
+            let again =
+                std::mem::take(&mut *self.repoll.lock().unwrap_or_else(PoisonError::into_inner));
+            let wait = (!again.is_empty()).then_some(std::time::Duration::ZERO);
+            if let Err(err) = poll.poll(&mut events, wait) {
                 if err.kind() == io::ErrorKind::Interrupted {
                     continue;
                 }
@@ -111,8 +118,6 @@ impl Reactor {
                     .collect()
             };
             ready.iter().for_each(|socket| socket.on_event());
-            let again =
-                std::mem::take(&mut *self.repoll.lock().unwrap_or_else(PoisonError::into_inner));
             again
                 .iter()
                 .filter_map(Weak::upgrade)
@@ -209,15 +214,20 @@ impl Registration {
         let _ = self.reactor.registry.deregister(source);
     }
 
-    /// Run `ready`'s `on_event` again after the reactor's next round, as
-    /// NAPI repolls a device that spent its weight with more to take; no
-    /// further event may come for what already waits.
+    /// Run `ready`'s `on_event` again after the reactor's next round of
+    /// events, once however often it asks, as NAPI repolls a device that
+    /// spent its weight with more to take and `NAPI_STATE_SCHED` keeps it
+    /// queued once; no further event may come for what already waits.
     pub(crate) fn repoll(&self, ready: Weak<dyn Ready>) {
-        self.reactor
+        let mut repoll = self
+            .reactor
             .repoll
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(ready);
+            .unwrap_or_else(PoisonError::into_inner);
+        if !repoll.iter().any(|queued| queued.ptr_eq(&ready)) {
+            repoll.push(ready);
+        }
+        drop(repoll);
         let _ = self.reactor.waker.wake();
     }
 }
