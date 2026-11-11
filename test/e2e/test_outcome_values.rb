@@ -90,30 +90,27 @@ class TestE2EOutcomeValues < Minitest::Test
     assert_equal 0, node, "the innermost value must survive the round-trip intact"
   end
 
-  # H-1 regression: a Float returned from the guest must reach the host
-  # bit-identical, not via `Float#to_s` + Rust `parse` (which used the
-  # mruby %.16g formatter and could drop the last ULP on edge values).
-  # `0.1 + 0.2` is the canonical witness: the IEEE-754 result is
-  # `0.30000000000000004` and any narrower text formatting would lose
-  # the trailing 4. Asserting bit equality via `==` is sufficient
-  # because the codec encodes Float as msgpack `float 64`.
+  # A Float the guest returns reaches the host bit-identical. `0.1 + 0.2` is
+  # the witness: its IEEE-754 result is `0.30000000000000004`, and any text
+  # formatting narrower than 17 digits loses the trailing 4. Equality is bit
+  # equality here, since the codec carries a Float as msgpack `float 64`.
   # @behavior S-075
   def test_outcome_float_precision_round_trips_full_f64
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     result = sandbox.eval("0.1 + 0.2").value
     assert_equal 0.30000000000000004, result,
-                 "H-1: Float outcome must round-trip the full 64-bit payload"
+                 "Sandbox#eval of 0.1 + 0.2 must answer the bit-identical Float 0.30000000000000004"
   end
 
-  # H-2 regression: an Integer must round-trip via the direct unbox
-  # path — a text-coercion round-trip would silently fall back to 0 on
-  # parse failure. 2^40 ± 1 lies past 32 bits, so it exercises the
-  # 64-bit unbox of the MRB_INT64 build.
+  # An Integer the guest returns reaches the host whole. 2^40 ± 1 lies past
+  # 32 bits, so it exercises the 64-bit Integer of the MRB_INT64 build.
   # @behavior S-076
   def test_outcome_integer_round_trips_via_direct_unbox
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    assert_equal 1_099_511_627_777, sandbox.eval("1_099_511_627_777").value
-    assert_equal(-1_099_511_627_777, sandbox.eval("-1_099_511_627_777").value)
+    assert_equal 1_099_511_627_777, sandbox.eval("1_099_511_627_777").value,
+                 "Sandbox#eval of an Integer past 32 bits must answer it whole"
+    assert_equal(-1_099_511_627_777, sandbox.eval("-1_099_511_627_777").value,
+                 "Sandbox#eval of a negative Integer past 32 bits must answer it whole")
   end
 
   # outcome path: +try_codec_value+ raises on a type outside the 11-entry

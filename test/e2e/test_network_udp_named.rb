@@ -8,6 +8,7 @@ require "socket"
 # it, and one naming another address is refused.
 class TestE2ENetworkUdpNamed < Minitest::Test
   include E2eGuestHelper
+  include NetworkSandboxes
 
   ADDRESSED = <<~RUBY
     outcome = lambda do |&call|
@@ -39,7 +40,7 @@ class TestE2ENetworkUdpNamed < Minitest::Test
   def test_a_connected_udp_socket_sends_to_the_peer_it_names_again
     peers = loopback_peers
     port = peers.first.addr[1]
-    value = localhost_udp_sandbox(port).eval(format(ADDRESSED, port: port)).value
+    value = localhost_sandbox(port, protocol: :udp).eval(format(ADDRESSED, port: port)).value
 
     assert_equal [ADDRESSED_OUTCOMES, %w[a b c]], [value, receive_from_any(peers, 3).sort],
                  "UDPSocket#send naming the host #connect named in any case, or the peer's address, at its port " \
@@ -48,13 +49,6 @@ class TestE2ENetworkUdpNamed < Minitest::Test
                  "while a closed socket's send, connect, and bind raise IOError before any lookup"
   ensure
     peers&.each(&:close)
-  end
-
-  # A Sandbox whose one UDP endpoint is localhost at +port+.
-  def localhost_udp_sandbox(port)
-    Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM).network(:local) do |net|
-      net.endpoint "localhost", port: port, protocol: :udp, addresses: [:local]
-    end
   end
 
   # Peers on IPv4 loopback and, where the host has one, IPv6 loopback at the

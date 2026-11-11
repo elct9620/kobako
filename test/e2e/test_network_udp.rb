@@ -77,7 +77,7 @@ class TestE2ENetworkUdp < Minitest::Test
 
   # @behavior NW-079
   def test_a_udp_socket_is_an_io_that_io_select_waits_on
-    with_quiet_peer do |peer, port|
+    with_quiet_udp_peer do |port, peer|
       value = udp_sandbox(port).eval(format(UDP_IO, port: port)).value
 
       assert_equal [[[true, true, true, true], true, "Destination address required", 4], "abcd"],
@@ -86,15 +86,6 @@ class TestE2ENetworkUdp < Minitest::Test
                    "answer a new one writable; #write before #connect must raise Errno::EDESTADDRREQ as CRuby's " \
                    "IO#write does; and #write of two strings after #connect must reach the peer as one datagram"
     end
-  end
-
-  # Yield a loopback peer that answers nothing, and its port.
-  def with_quiet_peer
-    peer = UDPSocket.new
-    peer.bind("127.0.0.1", 0)
-    yield peer, peer.addr[1]
-  ensure
-    peer&.close
   end
 
   # The first datagram +peer+ receives within a few seconds, or nil when none

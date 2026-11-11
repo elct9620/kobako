@@ -30,11 +30,12 @@ module UdpLoopback
     peer&.close
   end
 
-  # Yield the port of a loopback peer that answers nothing.
+  # Yield the port of a loopback peer that answers nothing, and the peer, so a
+  # journey may read what reached it.
   def with_quiet_udp_peer
     peer = UDPSocket.new
     peer.bind("127.0.0.1", 0)
-    yield peer.addr[1]
+    yield peer.addr[1], peer
   ensure
     peer&.close
   end

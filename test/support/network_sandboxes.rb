@@ -17,11 +17,11 @@ module NetworkSandboxes
     end
   end
 
-  # A Sandbox whose one entry reaches `localhost` at +port+ over TCP, its
-  # resolve policy +policy+ when given.
-  def localhost_sandbox(port, &policy)
+  # A Sandbox whose one entry reaches `localhost` at +port+ over +protocol+,
+  # its resolve policy +policy+ when given.
+  def localhost_sandbox(port, protocol: :tcp, &policy)
     Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM).network(:local) do |net|
-      net.endpoint "localhost", port: port, protocol: :tcp, addresses: [:local]
+      net.endpoint "localhost", port: port, protocol: protocol, addresses: [:local]
       net.policy(:resolve, &policy) if policy
     end
   end
