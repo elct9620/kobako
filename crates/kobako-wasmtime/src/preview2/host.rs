@@ -181,12 +181,12 @@ impl Invocation {
         self.wasi().table().get(network).map(drop)
     }
 
-    /// The Invocation's network, which every socket is made in.
+    /// The Invocation's network, which every socket and lookup is made in.
     fn network(&self) -> &Namespace {
         self.wasi()
             .table()
             .network()
-            .expect("a socket is only made with a network")
+            .expect("a socket or a lookup is only made with a network")
     }
 
     /// A socket `create` makes in the Invocation's network, with its file,
@@ -337,13 +337,8 @@ impl SocketsHost for Invocation {
             return Ok(None);
         }
         let lookup = stream.lookup.clone();
-        let namespace = self
-            .wasi()
-            .table()
-            .network()
-            .expect("a lookup is only made with a network");
         let cred = self.wasi().cred();
-        let at = match namespace.alloc_virtual_address(cred, &lookup) {
+        let at = match self.network().alloc_virtual_address(cred, &lookup) {
             None => return Err(ErrorCode::WouldBlock.into()),
             Some(answer) => answer.map_err(|err| to_lookup_error_code(err, false))?,
         };
