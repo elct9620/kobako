@@ -258,14 +258,19 @@ pub(crate) fn resolution_error_with(mrb: &Mrb, code: i32, message: &str) -> Erro
 }
 
 /// The `Errno` a stream's failure raises, by the POSIX name the host gives
-/// it, as CRuby raises `Errno::ECONNRESET` from a reset socket's read.
-pub(crate) fn stream_error(mrb: &Mrb, err: StreamError) -> Error {
+/// it, as CRuby raises `Errno::ECONNRESET` from a reset socket's read; it
+/// names `call` when there is one, as CRuby's `send` names `send(2)`.
+pub(crate) fn stream_error(mrb: &Mrb, err: StreamError, call: Option<&str>) -> Error {
+    let raise = |name: &core::ffi::CStr| match call {
+        Some(call) => errno::error_by_name(mrb, name, call),
+        None => errno::error_alone(mrb, name),
+    };
     match err {
-        StreamError::Closed => errno::error_alone(mrb, c"EPIPE"),
+        StreamError::Closed => raise(c"EPIPE"),
         StreamError::LastOperationFailed(err) => {
             let name = err.to_debug_string();
             match CString::new(name.as_str()) {
-                Ok(name) if errno::is_known(&name) => errno::error_alone(mrb, &name),
+                Ok(name) if errno::is_known(&name) => raise(&name),
                 _ => errno::io_error(mrb, &name),
             }
         }

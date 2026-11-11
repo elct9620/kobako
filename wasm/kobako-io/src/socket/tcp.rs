@@ -73,9 +73,15 @@ impl SocketIo for Connection {
 
     /// The bytes, as CRuby's `IO#write` sends all it is given and
     /// `write_nonblock` what there is room for.
-    fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error> {
+    fn send(
+        &self,
+        mrb: &Mrb,
+        bytes: &[u8],
+        wait: Wait,
+        call: Option<&str>,
+    ) -> Result<Poll<usize>, Error> {
         self.with(mrb, |open| {
-            let failed = |err| stream_error(mrb, err);
+            let failed = |err| stream_error(mrb, err, call);
             if wait == Wait::Block {
                 for chunk in bytes.chunks(MAX_BLOCKING_WRITE) {
                     open.output
@@ -194,7 +200,7 @@ impl Connection {
                 Ok(Some(bytes)) => Ok(Poll::Ready(Some(bytes))),
                 Ok(None) => Ok(Poll::Pending),
                 Err(StreamError::Closed) => Ok(Poll::Ready(None)),
-                Err(err) => Err(stream_error(mrb, err)),
+                Err(err) => Err(stream_error(mrb, err, None)),
             }
         })
     }

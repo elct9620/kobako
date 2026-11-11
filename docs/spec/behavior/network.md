@@ -713,7 +713,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a `#network` block naming a loopback peer as a `udp` endpoint |
 | When | the script binds a `UDPSocket` to port 0, connects it to the peer twice, sends, and calls `recvfrom` |
-| Then | it reads the peer's answer and the peer's address as CRuby's `["AF_INET", port, host, host]`. A connect keeps the end a bind or an earlier connect took |
+| Then | it reads the peer's answer and the peer's address as CRuby's `["AF_INET", port, host, host]`. A connect passes after a bind or an earlier connect |
 
 ## `NW-057` A UDPSocket with no named peer raises what Linux would
 
@@ -2232,9 +2232,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a TCP endpoint naming a loopback server that answers what it read once the script closes its write side |
-| When | the script sends with flags 0, with `MSG_DONTWAIT`, and with a destination, then with `MSG_OOB` and `nil`. It closes its write side and sends, then closes the socket and sends |
-| Then | the first three answer how many bytes they sent, and the server reads them in order. A destination changes nothing, as Linux's TCP ignores one. `MSG_OOB` raises `Errno::ENOTSUP` and `nil` `TypeError`, as `NUM2INT` reads the flags. The send after `close_write` raises `Errno::EPIPE`, and the closed socket `IOError` |
+| Given | a TCP endpoint naming a loopback server that answers, upcased, what it read once the script closes its write side |
+| When | the script sends with flags 0, `MSG_DONTWAIT`, 64.7, and a destination. It sends with `MSG_OOB`, with `nil`, and with an Integer message or destination. It closes its write side and sends, then closes the socket and sends |
+| Then | the first four answer how many bytes they sent, and the server reads them in order. A destination changes nothing, as Linux's TCP ignores one. 64.7 sends as 64, as `NUM2INT` drops a fraction. `MSG_OOB` raises `Errno::ENOTSUP`, since WASI carries no send flag. `nil` and each Integer raise `TypeError`, as CRuby converts them. The send after `close_write` raises `Errno::EPIPE` naming `send(2)`, and the closed socket `IOError` |
 
 ## `NW-181` A UDPSocket with no peer refuses every read
 
@@ -2261,3 +2261,16 @@ endpoint "api.example.com", port: 443
 | Given | a guest's connected TCP socket over `wasi:sockets`, its send side shut |
 | When | it calls `blocking-write-and-flush` on the output stream with no bytes |
 | Then | the call answers `closed`, as wasmtime's first asks the stream for room |
+
+## `NW-183` A UDPSocket sends to its peer named by a sockaddr or an Addrinfo
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-168` |
+| relates | `NW-180` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script's `UDPSocket` connected to a loopback peer |
+| When | it sends naming the peer by a `sockaddr` String and by an `Addrinfo`. Then it names another port, an Integer destination, and an Integer message |
+| Then | the first two send, as CRuby's `sendto` takes either. Another port raises `Errno::EACCES`. Each Integer raises `TypeError`, as CRuby converts them |

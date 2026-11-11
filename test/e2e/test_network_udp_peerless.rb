@@ -19,7 +19,8 @@ class TestE2ENetworkUdpPeerless < Minitest::Test
     [
       outcome.call { socket.recvfrom(1) }, outcome.call { socket.recv(1) }, outcome.call { socket.read(1) },
       outcome.call { socket.recvfrom_nonblock(1) }, outcome.call { socket.recv_nonblock(1) },
-      outcome.call { socket.recvfrom_nonblock(1, exception: false) }
+      outcome.call { socket.read_nonblock(1) }, outcome.call { socket.recvfrom_nonblock(1, exception: false) },
+      outcome.call { socket.read_nonblock(1, exception: false) }
     ]
   RUBY
 
@@ -27,9 +28,9 @@ class TestE2ENetworkUdpPeerless < Minitest::Test
   def test_a_read_with_no_peer_raises_eacces_waiting_or_not
     value = udp_sandbox(9).eval(READS).value
 
-    assert_equal ["Errno::EACCES"] * 6, value,
-                 "UDPSocket#recvfrom, #recv, #read, #recvfrom_nonblock, #recv_nonblock, and #recvfrom_nonblock " \
-                 "with exception: false on a socket no #connect named a peer for must each raise Errno::EACCES, " \
-                 "where CRuby's would wait or answer EAGAIN"
+    assert_equal ["Errno::EACCES"] * 8, value,
+                 "UDPSocket#recvfrom, #recv, #read, #recvfrom_nonblock, #recv_nonblock, #read_nonblock, and the " \
+                 "last two with exception: false on a socket no #connect named a peer for must each raise " \
+                 "Errno::EACCES, where CRuby's would wait or answer EAGAIN"
   end
 end

@@ -4,17 +4,17 @@
 
 use std::cell::RefCell;
 use std::ffi::CStr;
-use std::net::{Ipv4Addr, Shutdown};
+use std::net::{IpAddr, Ipv4Addr, Shutdown};
 use std::task::Poll;
 
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
-use super::address::{local_of, no_timeout, peer_of, to_ip_socket_address};
+use super::address::{end_of, local_of, no_timeout, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
-    direct_args, ensure_flags_carried, exception_option, mesg_bytes_of, open_socket_of, ready_of,
-    IoState, Readiness, SocketIo, Wait,
+    dest_sockaddr_of, direct_args, ensure_flags_carried, exception_option, flags_of, mesg_bytes_of,
+    open_socket_of, ready_of, IoState, Readiness, SocketIo, Wait,
 };
 use super::ip::{local_end_of, to_addr_array};
 use super::{bind, family_of, to_error, Family, AF_INET};
@@ -88,8 +88,15 @@ impl SocketIo for Datagrams {
 
     /// `bytes` as one datagram to the peer, as `write(2)` on a connected
     /// datagram socket sends; with no peer it raises `Errno::EDESTADDRREQ`,
-    /// carrying no call, as CRuby's `IO#write` does.
-    fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error> {
+    /// carrying no call, as CRuby's `IO#write` does. `UDPSocket#send` answers
+    /// on its own, so nothing names a call here.
+    fn send(
+        &self,
+        mrb: &Mrb,
+        bytes: &[u8],
+        wait: Wait,
+        _call: Option<&str>,
+    ) -> Result<Poll<usize>, Error> {
         let sent = self.with(mrb, |open| match open.streams_for_send(None) {
             Ok(streams) => send_datagram(mrb, streams, bytes.to_vec(), "write(2)", wait),
             Err(name) => Err(errno::error_alone(mrb, name)),
@@ -298,16 +305,18 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
     Ok(0.into_value(mrb))
 }
 
-/// `send(mesg, flags[, host, port])` sends one datagram to the peer, waiting
-/// for room; `host` is looked up as CRuby's `sendto` does, and its name keeps
-/// the address `connect` was given, so the peer is judged by address, as
-/// `wasi:sockets` compares one. One to another address raises
+/// `send(mesg, flags[, dest | host, port])` sends one datagram to the peer,
+/// waiting for room; `dest`, a `sockaddr` String or an `Addrinfo`, names an
+/// address as CRuby's `sendto` takes one, and `host` is looked up, its name
+/// keeping the address `connect` was given, so the peer is judged by
+/// address, as `wasi:sockets` compares one. One to another address raises
 /// `Errno::EACCES`, and one with no peer at all `Errno::EDESTADDRREQ`, as
 /// Linux's.
 fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (mesg, flags, to) = match args {
         [mesg, flags] => (*mesg, *flags, None),
-        [mesg, flags, host, port] => (*mesg, *flags, Some((*host, *port))),
+        [mesg, flags, dest] => (*mesg, *flags, Some(Ok(dest_sockaddr_of(mrb, *dest)?))),
+        [mesg, flags, host, port] => (*mesg, *flags, Some(Err((*host, *port)))),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let data = mesg_bytes_of(mrb, mesg)?;
@@ -317,11 +326,19 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         Some(_) => "sendto(2)",
         None => "send(2)",
     };
-    ensure_flags_carried(mrb, i64::try_convert(flags, mrb)?, call)?;
+    ensure_flags_carried(mrb, flags_of(mrb, flags)?, call)?;
+    // The address a send names, and the words its `Errno` carries.
+    let addressed = match to {
+        Some(Ok(sockaddr)) => match end_of(mrb, sockaddr)? {
+            (IpAddr::V4(ip), port) => Some((ip, port, call.to_string())),
+            (IpAddr::V6(_), _) => return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", call)),
+        },
+        Some(Err((host, port))) => Some(peer_of(mrb, host, port, &no_timeout, UDP, call)?),
+        None => None,
+    };
     // Whether the address a send names is the peer, `None` when it names none.
-    let (names_peer, call) = match to {
-        Some((host, port)) => {
-            let (ip, number, call) = peer_of(mrb, host, port, &no_timeout, UDP, "sendto(2)")?;
+    let (names_peer, call) = match addressed {
+        Some((ip, number, call)) => {
             let names_peer = Datagrams::of(mrb, self_)?.with(mrb, |open| {
                 Ok(open
                     .streams
@@ -330,7 +347,7 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
             })?;
             (Some(names_peer), call)
         }
-        None => (None, "send(2)".to_string()),
+        None => (None, call.to_string()),
     };
     let len = data.len();
     Datagrams::of(mrb, self_)?.with(mrb, |open| match open.streams_for_send(names_peer) {

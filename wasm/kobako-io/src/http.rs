@@ -899,7 +899,7 @@ fn send(mrb: &Mrb, parts: &RequestParts<'_>) -> Result<Answer, Error> {
     if let Some(body) = &parts.body {
         let stream = out.write().map_err(|()| failed("request body taken"))?;
         let written = write_within(&stream, body, parts.timeouts.write)
-            .map_err(|err| socket::stream_error(mrb, err))?;
+            .map_err(|err| socket::stream_error(mrb, err, None))?;
         if !written {
             return Err(net_error(mrb, c"WriteTimeout", "Net::WriteTimeout"));
         }

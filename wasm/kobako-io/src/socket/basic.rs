@@ -9,7 +9,9 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::scan_args::get_kwargs;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, Qfalse, RClass, RHash, Symbol, TryConvert, Value};
+use beni::{
+    Error, Integer, IntoValue, Mrb, Qfalse, RClass, RHash, RString, Symbol, TryConvert, Value,
+};
 
 use super::address::sockaddr_of;
 use super::buffer::{eof_error, fill};
@@ -97,8 +99,15 @@ pub(super) trait SocketIo {
 
     /// Send `bytes`, all of them when `wait` waits, else what there is room
     /// for, answering how many were sent; `Pending` when there is no room and
-    /// `wait` does not wait.
-    fn send(&self, mrb: &Mrb, bytes: &[u8], wait: Wait) -> Result<Poll<usize>, Error>;
+    /// `wait` does not wait. An `Errno` it raises names `call`, as CRuby's
+    /// `send` names `send(2)`; `None` names none, as its `IO#write` does.
+    fn send(
+        &self,
+        mrb: &Mrb,
+        bytes: &[u8],
+        wait: Wait,
+        call: Option<&str>,
+    ) -> Result<Poll<usize>, Error>;
 
     /// Shut the side `how` names, as `shutdown(2)` does: the reading side is
     /// marked first, as `inet_shutdown` sets `sk_shutdown` before the
@@ -290,7 +299,7 @@ fn socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Err
     for object in objects {
         bytes.extend(written_bytes_of(mrb, *object)?);
     }
-    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
+    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block, None)?);
     Ok((sent as i64).into_value(mrb))
 }
 
@@ -304,7 +313,7 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
         return Err(Error::argnum(mrb, args.len(), 1, 1));
     };
     let bytes = written_bytes_of(mrb, *string)?;
-    match writer_of(mrb, self_)?.send(mrb, &bytes, Wait::DontWait)? {
+    match writer_of(mrb, self_)?.send(mrb, &bytes, Wait::DontWait, None)? {
         Poll::Ready(sent) => Ok((sent as i64).into_value(mrb)),
         Poll::Pending => would_wait(mrb, Direction::Write, "write would block", exception),
     }
@@ -314,22 +323,57 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
 /// answering how many it sent.
 fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Error> {
     let bytes = written_bytes_of(mrb, string)?;
-    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block)?);
+    let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Block, None)?);
     Ok((sent as i64).into_value(mrb))
 }
 
-/// The bytes of `mesg`, as CRuby's `send` converts it.
+/// `value` as CRuby's `StringValue` takes it: a String, or what its `to_str`
+/// answers; anything else raises `TypeError`.
+fn string_value_of(mrb: &Mrb, value: Value) -> Result<RString, Error> {
+    if let Some(string) = RString::from_value(value) {
+        return Ok(string);
+    }
+    let to_str = Symbol::new(mrb, "to_str")?.as_value();
+    if !value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_str])? {
+        return Err(errno::type_error(mrb, value));
+    }
+    let string = value.funcall::<_, _, Value>(mrb, c"to_str", ())?;
+    RString::from_value(string).ok_or_else(|| errno::type_error(mrb, value))
+}
+
+/// The bytes of `mesg`, as CRuby's `send` takes them through `StringValue`.
 pub(super) fn mesg_bytes_of(mrb: &Mrb, mesg: Value) -> Result<Vec<u8>, Error> {
-    let mesg = mesg.to_r_string(mrb)?;
+    let mesg = string_value_of(mrb, mesg)?;
     // SAFETY: the bytes are copied before the next mruby call.
     Ok(unsafe { mesg.as_bytes(mrb) }.to_vec())
+}
+
+/// The `sockaddr` a send's `dest` names, as CRuby's `SockAddrStringValue`
+/// reads it: an `Addrinfo`'s own, or a String.
+pub(super) fn dest_sockaddr_of(mrb: &Mrb, dest: Value) -> Result<Value, Error> {
+    match super::addrinfo::Addrinfo::of(mrb, dest) {
+        Ok(_) => dest.funcall(mrb, c"to_sockaddr", ()),
+        Err(_) => string_value_of(mrb, dest).map(|string| string.as_value()),
+    }
+}
+
+/// The flags a send or a receive takes, read as CRuby's `NUM2INT` reads
+/// them: a Float drops its fraction, and a number past C's `int` raises
+/// `RangeError`.
+pub(super) fn flags_of(mrb: &Mrb, flags: Value) -> Result<i64, Error> {
+    let whole = match f64::from_value(flags) {
+        Some(float) => Integer::try_convert((float.trunc() as i64).into_value(mrb), mrb)?,
+        None => Integer::try_convert(flags, mrb)?,
+    };
+    Ok(i64::from(whole.to_i32(mrb)?))
 }
 
 /// `send(mesg, flags[, dest])` sends every byte of `mesg` past any buffer,
 /// waiting for room, as CRuby's `BasicSocket#send`: `dest`, an `Addrinfo` or
 /// a String, changes nothing on a connected stream, as Linux's TCP ignores
 /// one, and the flags read as `NUM2INT` reads them after the open file. A
-/// shut writing side raises `Errno::EPIPE`, as `send(2)` does.
+/// shut writing side raises `Errno::EPIPE` naming `send(2)`, or `sendto(2)`
+/// with a `dest`, as CRuby's does.
 fn socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (mesg, flags, dest) = match args {
         [mesg, flags] => (*mesg, *flags, None),
@@ -337,12 +381,13 @@ fn socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
         _ => return Err(Error::argnum(mrb, args.len(), 2, 3)),
     };
     let bytes = mesg_bytes_of(mrb, mesg)?;
-    if let Some(dest) = dest.filter(|dest| super::addrinfo::Addrinfo::of(mrb, *dest).is_err()) {
-        dest.to_r_string(mrb)?;
-    }
+    let call = match dest {
+        Some(dest) => dest_sockaddr_of(mrb, dest).map(|_| "sendto(2)")?,
+        None => "send(2)",
+    };
     let source = open_socket_of(mrb, self_)?;
-    ensure_flags_carried(mrb, i64::try_convert(flags, mrb)?, "send(2)")?;
-    let sent = ready_of(source.send(mrb, &bytes, Wait::Block)?);
+    ensure_flags_carried(mrb, flags_of(mrb, flags)?, call)?;
+    let sent = ready_of(source.send(mrb, &bytes, Wait::Block, Some(call))?);
     Ok((sent as i64).into_value(mrb))
 }
 
@@ -380,7 +425,7 @@ pub(super) fn direct_args(
     };
     let maxlen = length_of(mrb, maxlen)?;
     if let Some(flags) = flags.filter(|flags| !flags.is_nil()) {
-        ensure_flags_carried(mrb, i64::try_convert(flags, mrb)?, "recvfrom(2)")?;
+        ensure_flags_carried(mrb, flags_of(mrb, flags)?, "recvfrom(2)")?;
     }
     if !source.io().rbuf.borrow().is_empty() {
         return Err(errno::io_error(mrb, refusal));
