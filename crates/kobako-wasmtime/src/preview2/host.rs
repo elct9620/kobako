@@ -264,6 +264,24 @@ impl Invocation {
         let pollable = table::Pollable::File(stream.file(), mask);
         self.wait_for(None, |table| pollable.is_ready(table).then_some(()))
     }
+
+    /// `call` on an output stream still open: one closed answers `closed`,
+    /// and a call that fails closes it, as `io.wit` has every operation past
+    /// `last-operation-failed` answer `closed`.
+    fn on_open_output<T>(
+        &mut self,
+        this: OutputStream,
+        call: impl FnOnce(&mut Self) -> Result<T, StreamError>,
+    ) -> Result<T, StreamError> {
+        if self.table().get(this)?.closed {
+            return Err(StreamError::Closed);
+        }
+        let answer = call(self);
+        if let Err(StreamError::Closed | StreamError::LastOperationFailed(_)) = answer {
+            self.table().get_mut(this)?.closed = true;
+        }
+        answer
+    }
 }
 
 impl SocketsHost for Invocation {
@@ -964,24 +982,26 @@ impl IoHost for Invocation {
             )
             .into());
         }
-        let stream = self.table().get(this)?.stream.clone();
-        let mut rest = &contents[..];
-        while !rest.is_empty() {
-            self.wait_on(&stream, PollMask::OUT)?;
-            match stream.write(rest) {
-                Ok(n) => rest = &rest[n..],
-                Err(FilesystemError::WouldBlock) => {}
-                Err(err) => return Err(err.into()),
+        self.on_open_output(this, |host| {
+            let stream = host.table().get(this)?.stream.clone();
+            let mut rest = &contents[..];
+            while !rest.is_empty() {
+                host.wait_on(&stream, PollMask::OUT)?;
+                match stream.write(rest) {
+                    Ok(n) => rest = &rest[n..],
+                    Err(FilesystemError::WouldBlock) => {}
+                    Err(err) => return Err(err.into()),
+                }
             }
-        }
-        // Registering through the stream's poll puts the wait on its queue,
-        // which a socket's writer wakes after each chunk it sends.
-        self.wait_for(None, |table| {
-            let failed = stream.poll(table).contains(PollMask::ERR);
-            (failed || stream.is_drained()).then_some(())
-        })?;
-        stream.write(&[])?;
-        Ok(())
+            // Registering through the stream's poll puts the wait on its
+            // queue, which a socket's writer wakes after each chunk it sends.
+            host.wait_for(None, |table| {
+                let failed = stream.poll(table).contains(PollMask::ERR);
+                (failed || stream.is_drained()).then_some(())
+            })?;
+            stream.write(&[])?;
+            Ok(())
+        })
     }
 
     /// How many bytes a write takes now, zero while the stream is full or a
@@ -990,16 +1010,18 @@ impl IoHost for Invocation {
         &mut self,
         this: OutputStream,
     ) -> Result<u64, StreamError> {
-        let stream = self.table().get(this)?.stream.clone();
-        stream.write(&[])?;
-        let output = self.table().get_mut(this)?;
-        if table::OutputStream::is_flushing(&stream, &output.flushing) {
-            output.permit = 0;
-            return Ok(0);
-        }
-        output.flushing.store(false, Ordering::Release);
-        output.permit = stream.room();
-        Ok(output.permit as u64)
+        self.on_open_output(this, |host| {
+            let stream = host.table().get(this)?.stream.clone();
+            stream.write(&[])?;
+            let output = host.table().get_mut(this)?;
+            if table::OutputStream::is_flushing(&stream, &output.flushing) {
+                output.permit = 0;
+                return Ok(0);
+            }
+            output.flushing.store(false, Ordering::Release);
+            output.permit = stream.room();
+            Ok(output.permit as u64)
+        })
     }
 
     /// Write what `check-write` permitted; more than it permits traps, as
@@ -1011,38 +1033,43 @@ impl IoHost for Invocation {
         this: OutputStream,
         contents: Vec<u8>,
     ) -> Result<(), StreamError> {
-        let output = self.table().get_mut(this)?;
-        if contents.len() > output.permit {
-            return Err(
-                wasmtime::Error::msg("the guest wrote past what check-write permitted").into(),
-            );
-        }
-        if !contents.is_empty() {
-            output.permit = 0;
-        }
-        // A socket whose send buffer shrank since check-write has less room
-        // than it permitted; holding the rest would pass the memory the
-        // socket reserved, so the write fails whole, before any byte leaves,
-        // rather than send the peer a stream with a gap. Room only grows
-        // until the write, as the reactor only drains.
-        let stream = output.stream.clone();
-        if stream.room() < contents.len() {
-            return Err(FilesystemError::NoBufferSpace.into());
-        }
-        stream.write(&contents)?;
-        Ok(())
+        self.on_open_output(this, |host| {
+            let output = host.table().get_mut(this)?;
+            if contents.len() > output.permit {
+                return Err(wasmtime::Error::msg(
+                    "the guest wrote past what check-write permitted",
+                )
+                .into());
+            }
+            if !contents.is_empty() {
+                output.permit = 0;
+            }
+            // A socket whose send buffer shrank since check-write has less
+            // room than it permitted; holding the rest would pass the memory
+            // the socket reserved, so the write fails whole, before any byte
+            // leaves, rather than send the peer a stream with a gap. Room only
+            // grows until the write, as the reactor only drains.
+            let stream = output.stream.clone();
+            if stream.room() < contents.len() {
+                return Err(FilesystemError::NoBufferSpace.into());
+            }
+            stream.write(&contents)?;
+            Ok(())
+        })
     }
 
     /// Start a flush, which completes once what was written has left for the
     /// host; `check-write` answers zero until then, as `io.wit` asks.
     fn streams_output_stream_flush(&mut self, this: OutputStream) -> Result<(), StreamError> {
-        let stream = self.table().get(this)?.stream.clone();
-        stream.write(&[])?;
-        self.table()
-            .get(this)?
-            .flushing
-            .store(true, Ordering::Release);
-        Ok(())
+        self.on_open_output(this, |host| {
+            let stream = host.table().get(this)?.stream.clone();
+            stream.write(&[])?;
+            host.table()
+                .get(this)?
+                .flushing
+                .store(true, Ordering::Release);
+            Ok(())
+        })
     }
 
     /// A pollable ready once `check-write` would offer a byte, the stream its
@@ -2580,7 +2607,10 @@ mod tests {
             let written = guest
                 .streams_output_stream_write(output, vec![0; permit as usize])
                 .into_answer()?;
-            Ok::<_, wasmtime::Error>(written.is_ok())
+            let after = guest
+                .streams_output_stream_check_write(output)
+                .into_answer()?;
+            Ok::<_, wasmtime::Error>((written.is_ok(), matches!(after, Err(StreamError::Closed))))
         })
         .expect("the calls answer");
         let (mut peer, _) = listener.accept().expect("the listener accepts");
@@ -2589,10 +2619,11 @@ mod tests {
         let heard = std::io::Read::read(&mut peer, &mut [0; 16]).ok();
         assert_eq!(
             (written, heard),
-            (false, None),
+            ((false, true), None),
             "output-stream.write of the whole check-write permit after the guest shrank the \
              socket's send buffer must fail before any byte leaves, rather than send the peer \
-             part of it"
+             part of it, and the next check-write must answer closed, as io.wit closes a stream \
+             past last-operation-failed"
         );
     }
 

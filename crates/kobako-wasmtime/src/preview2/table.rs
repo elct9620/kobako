@@ -173,6 +173,10 @@ pub(crate) struct OutputStream {
     /// What the last `check-write` permitted, which each write carrying bytes
     /// spends.
     pub(crate) permit: usize,
+    /// Whether a call failed or answered `closed`, after which every call
+    /// answers `closed`, as `io.wit` closes a stream past
+    /// `last-operation-failed`.
+    pub(crate) closed: bool,
 }
 
 impl OutputStream {
@@ -181,6 +185,7 @@ impl OutputStream {
             stream,
             flushing: Arc::default(),
             permit: 0,
+            closed: false,
         }
     }
 
