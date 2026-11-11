@@ -306,9 +306,18 @@ fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Erro
     Ok((sent as i64).into_value(mrb))
 }
 
-/// Linux's `MSG_DONTWAIT`, the one receive flag a guest's receive takes; it
+/// Linux's `MSG_DONTWAIT`, the one flag a guest's receive or send takes; it
 /// waits all the same, as CRuby's `recv` waits again on `EAGAIN`.
 const MSG_DONTWAIT: i64 = 0x40;
+
+/// Refuse a `flags` WASI carries none of with `Errno::ENOTSUP`, naming
+/// `call`, as a receive and a send both take only `MSG_DONTWAIT`.
+pub(super) fn ensure_flags_carried(mrb: &Mrb, flags: i64, call: &str) -> Result<(), Error> {
+    match flags & !MSG_DONTWAIT {
+        0 => Ok(()),
+        _ => Err(errno::error_by_name(mrb, c"ENOTSUP", call)),
+    }
+}
 
 /// What a receive past `source`'s buffer takes: `maxlen`, `flags`, and an
 /// `outbuf`, refusing a flag WASI carries none of with `Errno::ENOTSUP`.
@@ -331,9 +340,7 @@ pub(super) fn direct_args(
     };
     let maxlen = length_of(mrb, maxlen)?;
     if let Some(flags) = flags.filter(|flags| !flags.is_nil()) {
-        if i64::try_convert(flags, mrb)? & !MSG_DONTWAIT != 0 {
-            return Err(errno::error_by_name(mrb, c"ENOTSUP", "recvfrom(2)"));
-        }
+        ensure_flags_carried(mrb, i64::try_convert(flags, mrb)?, "recvfrom(2)")?;
     }
     if !source.io().rbuf.borrow().is_empty() {
         return Err(errno::io_error(mrb, refusal));

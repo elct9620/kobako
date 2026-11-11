@@ -51,6 +51,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_https.rb`
 - `test/e2e/test_network_udp.rb`
 - `test/e2e/test_network_udp_cruby.rb`
+- `test/e2e/test_network_udp_flags.rb`
 - `test/e2e/test_network_udp_named.rb`
 - `test/e2e/test_network_udp_nonblock.rb`
 - `test/e2e/test_network_udp_wait.rb`
@@ -2171,3 +2172,15 @@ endpoint "api.example.com", port: 443
 | Given | a name the guest looked up once, whose resolver answers otherwise afterwards |
 | When | the guest looks it up again in the same Invocation, in any spelling of it |
 | Then | the policies and endpoints judge it again, and it answers the same virtual address and real addresses. No query reaches the resolver, and the table takes no second entry. A resolver so cannot rebind a name, as a fake-IP pool answers a known host |
+
+## `NW-176` A send flag WASI cannot carry raises
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-135` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script's `UDPSocket` connected to a loopback peer |
+| When | it sends with `MSG_DONTWAIT`'s 64, with `MSG_OOB`'s 1, and with `nil` |
+| Then | 64 sends, as CRuby's does. 1 raises `Errno::ENOTSUP`, since WASI carries no send flag. `nil` raises `TypeError`, as CRuby converts the flags with `NUM2INT` |

@@ -12,7 +12,8 @@ use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 use super::address::{local_of, peer_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
-    direct_args, exception_option, open_socket_of, ready_of, IoState, Readiness, SocketIo, Wait,
+    direct_args, ensure_flags_carried, exception_option, open_socket_of, ready_of, IoState,
+    Readiness, SocketIo, Wait,
 };
 use super::ip::{local_end_of, to_addr_array};
 use super::{bind, family_of, to_error, Family, AF_INET};
@@ -305,13 +306,19 @@ fn mesg_bytes_of(mrb: &Mrb, mesg: Value) -> Result<Vec<u8>, Error> {
 /// `Errno::EACCES`, and one with no peer at all `Errno::EDESTADDRREQ`, as
 /// Linux's.
 fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let (mesg, to) = match args {
-        [mesg, _flags] => (*mesg, None),
-        [mesg, _flags, host, port] => (*mesg, Some((*host, *port))),
+    let (mesg, flags, to) = match args {
+        [mesg, flags] => (*mesg, *flags, None),
+        [mesg, flags, host, port] => (*mesg, *flags, Some((*host, *port))),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let data = mesg_bytes_of(mrb, mesg)?;
     ensure_open(mrb, self_)?;
+    // The flags read as CRuby's `NUM2INT` reads them, after the open file.
+    let call = match to {
+        Some(_) => "sendto(2)",
+        None => "send(2)",
+    };
+    ensure_flags_carried(mrb, i64::try_convert(flags, mrb)?, call)?;
     // Whether the address a send names is the peer, `None` when it names none.
     let (names_peer, call) = match to {
         Some((host, port)) => {
