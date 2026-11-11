@@ -4038,9 +4038,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a socket whose connect was refused, its failure not yet read |
+| Given | a socket whose connect was refused, its failure not yet read, under a connection cap of one |
 | When | a Wasm Driver asks it to connect again, then once more to a listener |
-| Then | the first answers ECONNREFUSED and dials nothing. The next connects and reads none of the earlier failure, as Linux disconnects a failed socket |
+| Then | the first answers ECONNREFUSED and dials nothing. The next connects on the place the socket holds. It reads none of the earlier failure, as Linux disconnects a failed socket |
 
 ## `RT-365` A guest's TCP socket keeps Nagle's algorithm
 
@@ -4185,7 +4185,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a socket whose connect is under way |
 | When | a Wasm Driver shuts it down |
-| Then | the shutdown answers success, as `inet_shutdown` disconnects a socket in `TCP_SYN_SENT`. The socket stands unconnected with neither side marked, so finishing the connect answers ENOTCONN |
+| Then | the shutdown answers success, as `inet_shutdown` disconnects a socket in `TCP_SYN_SENT`. The socket stands unconnected with neither side marked, and `ECONNRESET` pending, as `tcp_disconnect` sets it. Its poll shows ERR. Finishing the connect answers ECONNRESET once, then ENOTCONN. The socket keeps its place until released |
 
 ## `RT-378` A released socket sends what it queued, then its FIN
 
@@ -4283,7 +4283,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | each connects to a closed port, and binds again once the connect fails |
 | Then | the first binds again, since `TCP_CLOSE` puts its port back. The second answers EINVAL, as `SOCK_BINDPORT_LOCK` keeps a named port |
 
-
 ## `RT-387` A pollable listed twice in one poll waits once
 
 | Attribute | Value |
@@ -4295,3 +4294,17 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a near clock and a far clock |
 | When | it polls a list naming each of them twice |
 | Then | the poll answers both indices of the near clock. Each handle waits once, as wasmtime groups the list by handle |
+
+
+## `RT-388` A socket whose connect failed takes a fresh virtual port
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-386` |
+| relates | `NW-112` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP socket holding a virtual port, whose connect to a closed port fails |
+| When | it reads its own end, then connects again |
+| Then | it reads the old port until the connect. The connect takes a fresh port, as a hash connect picks one once `__inet_put_port` cleared `inet_num` |

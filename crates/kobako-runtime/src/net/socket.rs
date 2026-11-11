@@ -14,7 +14,7 @@ use crate::vfs::{
 };
 use crate::wait::PollTable;
 
-use super::connections::Place;
+use super::connections::{open, OpenConnections, Place};
 
 /// How much a socket holds each way before it stops reading and refuses
 /// more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket and net core's
@@ -178,9 +178,31 @@ impl InetSock {
         }
     }
 
-    /// Hold the port `alloc` gives, unless one is held.
+    /// Hold the port `alloc` gives as a connect begins, unless the socket
+    /// still holds one, as a hash connect picks a port only when `inet_num`
+    /// is zero; a port put back once the socket closed is then replaced,
+    /// while reading the socket's own end still answers the old one until
+    /// then, as `inet_sport` keeps it.
     pub(crate) fn hold_virtual_port(&mut self, alloc: &mut dyn FnMut() -> u16) {
-        self.virtual_port.get_or_insert_with(alloc);
+        if !self.bound || self.virtual_port.is_none() {
+            self.virtual_port = Some(alloc());
+        }
+        self.bound = true;
+    }
+
+    /// A new place against `open_connections` and the process, or `None`
+    /// when the socket holds one already, so a socket connecting again
+    /// counts once; either cap full answers `EAGAIN`.
+    pub(crate) fn open_place(
+        &self,
+        open_connections: &Arc<OpenConnections>,
+    ) -> Result<Option<Place>, FilesystemError> {
+        match self.place {
+            Some(_) => Ok(None),
+            None => open(open_connections)
+                .map(Some)
+                .ok_or(FilesystemError::WouldBlock),
+        }
     }
 
     /// Mark the sides `how` names shut, as `inet_shutdown` sets
@@ -188,6 +210,21 @@ impl InetSock {
     pub(crate) fn mark_shutdown(&mut self, how: Shutdown) {
         self.rcv_shut |= matches!(how, Shutdown::Read | Shutdown::Both);
         self.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
+    }
+
+    /// Shut the sides `how` names, as `inet_shutdown` does for TCP and UDP
+    /// alike: a socket not `connected` marks them still and answers
+    /// `ENOTCONN`.
+    pub(crate) fn shutdown(
+        &mut self,
+        how: Shutdown,
+        connected: bool,
+    ) -> Result<(), FilesystemError> {
+        self.mark_shutdown(how);
+        match connected {
+            true => Ok(()),
+            false => Err(FilesystemError::NotConnected),
+        }
     }
 
     /// Give back the socket's place and its memory, as `sk_free` does once
@@ -209,13 +246,29 @@ impl InetSock {
         Ok(u32::try_from(value).unwrap_or(u32::MAX))
     }
 
-    /// Set a buffer `opt` to twice `value`, as `sock_setsockopt` does; the
-    /// hop limit and TCP's options are the protocol's to set.
-    pub(crate) fn set_buffer(&mut self, opt: SockOpt, value: u32) -> Result<(), FilesystemError> {
+    /// Set `opt` at the socket and IP levels, as `sk_setsockopt` and
+    /// `do_ip_setsockopt` do for every inet protocol: a buffer to twice
+    /// `value`, and the hop limit, which reaches `host`, a host socket
+    /// already dialed, at once; a host refusing it leaves the old value, as a
+    /// failed `setsockopt` changes nothing. A TCP option answers
+    /// `ProtocolNotAvailable`.
+    pub(crate) fn setsockopt(
+        &mut self,
+        opt: SockOpt,
+        value: u32,
+        host: Option<SockRef<'_>>,
+    ) -> Result<(), FilesystemError> {
         let bytes = usize::try_from(value).unwrap_or(usize::MAX);
         match opt {
             SockOpt::RcvBuf => self.buffers.set_rcvbuf(bytes),
             SockOpt::SndBuf => self.buffers.set_sndbuf(bytes),
+            SockOpt::Ttl => {
+                let ttl = to_ttl(value)?;
+                if let Some(host) = host {
+                    set_hop_limit(host, ttl).map_err(|err| to_error(&err))?;
+                }
+                self.ttl = ttl;
+            }
             _ => return Err(FilesystemError::ProtocolNotAvailable),
         }
         Ok(())

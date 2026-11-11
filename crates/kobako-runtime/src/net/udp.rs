@@ -10,13 +10,13 @@ use std::io;
 use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use super::connections::{open, OpenConnections};
+use super::connections::OpenConnections;
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use socket2::SockRef;
 
 use super::socket::{
-    set_hop_limit, to_error, to_ttl, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+    set_hop_limit, to_error, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -115,10 +115,7 @@ impl UdpSock {
                 return Ok(());
             }
         }
-        let place = match self.state().inet.place.is_some() {
-            true => None,
-            false => Some(open(open_connections).ok_or(FilesystemError::WouldBlock)?),
-        };
+        let place = self.state().inet.open_place(open_connections)?;
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         let host = family
             .connect_datagram(addr)
@@ -320,14 +317,11 @@ impl ProtoOps for UdpSock {
     /// connected to no peer marks them and answers `ENOTCONN`.
     fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
         let mut state = self.state();
-        state.inet.mark_shutdown(how);
         let connected = state.inet.peer.is_some();
+        let shut = state.inet.shutdown(how, connected);
         drop(state);
         self.wait.wake_up();
-        match connected {
-            true => Ok(()),
-            false => Err(FilesystemError::NotConnected),
-        }
+        shut
     }
 
     fn getpeername(&self) -> Option<SocketAddr> {
@@ -347,16 +341,10 @@ impl ProtoOps for UdpSock {
     /// goes to the host at once, so `SO_SNDBUF` only reads back. A hop limit
     /// reaches a host socket already there at once.
     fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), FilesystemError> {
-        let mut state = self.state();
-        if opt != SockOpt::Ttl {
-            return state.inet.set_buffer(opt, value);
-        }
-        let ttl = to_ttl(value)?;
-        if let Some((socket, _)) = &state.host {
-            set_hop_limit(SockRef::from(socket), ttl).map_err(|err| to_error(&err))?;
-        }
-        state.inet.ttl = ttl;
-        Ok(())
+        let mut guard = self.state();
+        let state = &mut *guard;
+        let host = state.host.as_ref().map(|(socket, _)| SockRef::from(socket));
+        state.inet.setsockopt(opt, value, host)
     }
 
     /// Let the host socket go, deregistered from the reactor.

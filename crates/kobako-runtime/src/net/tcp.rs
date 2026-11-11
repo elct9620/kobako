@@ -13,12 +13,12 @@ use std::time::Duration;
 
 use socket2::{SockRef, TcpKeepalive};
 
-use super::connections::{open, OpenConnections};
+use super::connections::OpenConnections;
 use super::family::ProtocolFamily;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
-    ensure_within, set_hop_limit, take_connect_outcome, to_error, to_ttl, InetSock, MemoryCharge,
-    ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+    ensure_within, set_hop_limit, take_connect_outcome, to_error, InetSock, MemoryCharge, ProtoOps,
+    SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -176,9 +176,13 @@ impl TcpSock {
                 Phase::Unconnected => {}
             }
         }
-        let place = open(open_connections).ok_or(FilesystemError::WouldBlock)?;
         let mut state = self.state();
-        state.inet.place = Some(place);
+        if let Some(place) = state.inet.open_place(open_connections)? {
+            state.inet.place = Some(place);
+        }
+        // A connect starts with no failure pending, as `tcp_connect_init`
+        // clears `sk_err`.
+        state.inet.error = None;
         state.untried = addrs.into();
         state.inet.peer = Some(peer);
         state.phase = Phase::Connecting;
@@ -204,9 +208,9 @@ impl TcpSock {
         while let Some(addr) = state.untried.pop_front() {
             let dialed = Reactor::current().and_then(|reactor| {
                 let stream = self.family.connect(addr)?;
-                // A connect that already settled may refuse an option; its own
-                // outcome is what the guest reads, as wasmtime's `apply`
-                // ignores an option's failure on a socket it just made.
+                // The guest's own setsockopt already took each option, so one
+                // the host socket refuses as it dials is no part of the
+                // connect's outcome, which is what the guest reads.
                 let _ = Self::set_options(SockRef::from(&stream), state);
                 let mut stream = mio::net::TcpStream::from_std(stream);
                 let ready: Weak<dyn Ready> = self.this.clone();
@@ -378,16 +382,17 @@ impl TcpSock {
         drop(orphan);
     }
 
-    /// How the connect ended: still under way answers EAGAIN, as a
-    /// non-blocking `connect` answers `EINPROGRESS` until `SO_ERROR` settles;
-    /// a failed one answers its failure, which reading `SO_ERROR` clears.
+    /// How the connect ended, as a non-blocking socket's repeated `connect`
+    /// answers in `__inet_stream_connect`: still under way answers EAGAIN
+    /// where Linux answers `EALREADY`; connected answers success; a failure
+    /// pending answers once, as `sock_error` clears `sk_err`, and an
+    /// unconnected socket with none answers `ENOTCONN`.
     pub fn finish_connect(&self) -> Result<(), FilesystemError> {
         let mut state = self.state();
         match &state.phase {
-            Phase::Unconnected => Err(FilesystemError::NotConnected),
             Phase::Connecting => Err(FilesystemError::WouldBlock),
             Phase::Connected => Ok(()),
-            Phase::Failed | Phase::Reset => Err(state
+            Phase::Unconnected | Phase::Failed | Phase::Reset => Err(state
                 .inet
                 .error
                 .take()
@@ -549,25 +554,23 @@ impl ProtoOps for TcpSock {
     /// side, which still reads what arrived, as `inet_shutdown` sets
     /// `SEND_SHUTDOWN` and `RCV_SHUTDOWN`; a socket not connected marks them
     /// and answers `ENOTCONN`. One still connecting is disconnected instead,
-    /// back to unconnected with nothing marked, as `inet_shutdown` disconnects
-    /// one in `TCP_SYN_SENT`.
+    /// back to unconnected with nothing marked and `ECONNRESET` pending, as
+    /// `inet_shutdown` disconnects one in `TCP_SYN_SENT` and
+    /// `tcp_disconnect` sets `sk_err`; it keeps its place until released.
     fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
         let mut state = self.state();
         if state.phase == Phase::Connecting {
             Self::close_host(&mut state);
             Self::disconnect(&mut state);
-            state.inet.place = None;
+            state.inet.error = Some(FilesystemError::ConnectionReset);
             drop(state);
             self.wait.wake_up();
             return Ok(());
         }
-        state.inet.mark_shutdown(how);
         let connected = state.phase == Phase::Connected;
+        let shut = state.inet.shutdown(how, connected);
         self.pump_and_wake(state);
-        match connected {
-            true => Ok(()),
-            false => Err(FilesystemError::NotConnected),
-        }
+        shut
     }
 
     fn getpeername(&self) -> Option<SocketAddr> {
@@ -613,11 +616,12 @@ impl ProtoOps for TcpSock {
                 ensure_within(value, MAX_TCP_KEEPCNT)?;
                 self.set_options_with(|state| state.keepalive.count = value)
             }
-            SockOpt::Ttl => {
-                let ttl = to_ttl(value)?;
-                self.set_options_with(|state| state.inet.ttl = ttl)
+            _ => {
+                let mut guard = self.state();
+                let state = &mut *guard;
+                let host = state.host.as_ref().map(|(stream, _)| SockRef::from(stream));
+                state.inet.setsockopt(opt, value, host)
             }
-            _ => self.state().inet.set_buffer(opt, value),
         }
     }
 
@@ -985,34 +989,65 @@ mod tests {
         let closed = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let refused_at = closed.local_addr().unwrap();
         drop(closed);
-        let sock = dial(refused_at);
+        // One place, which the failed socket still holds, so connecting
+        // afresh must reuse it rather than ask the full cap for another.
+        let cap = OpenConnections::new(Some(1));
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+            .expect("an unbounded socket is made");
+        sock.connect(vec![refused_at], refused_at, &cap)
+            .expect("a socket under a cap of one connects");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(|table| file.poll(table), PollMask::ERR);
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let open_at = listener.local_addr().unwrap();
-        let connect = || sock.connect(vec![open_at], open_at, &OpenConnections::new(None));
-        let first = connect();
-        let second = connect();
+        let connect = || sock.connect(vec![open_at], open_at, &cap);
+        let message = "a TCP socket's connect after its connect was refused must answer \
+                       ECONNREFUSED and dial nothing, then connect afresh under a cap of one, on \
+                       the place it holds, with none of the failure left, as Linux disconnects a \
+                       failed socket";
+        let tries = (connect(), connect());
+        assert_eq!(
+            tries,
+            (Err(FilesystemError::ConnectionRefused), Ok(())),
+            "{message}"
+        );
         listener
             .accept()
             .expect("the listener accepts the fresh connect");
         wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
             (
-                first,
-                second,
                 sock.finish_connect(),
                 file.poll(None).contains(PollMask::ERR)
             ),
-            (
-                Err(FilesystemError::ConnectionRefused),
-                Ok(()),
-                Ok(()),
-                false
-            ),
-            "a TCP socket's connect after its connect was refused must answer ECONNREFUSED \
-             and dial nothing, then connect afresh with none of the failure left, as Linux \
-             disconnects a failed socket"
+            (Ok(()), false),
+            "{message}"
+        );
+    }
+
+    // @behavior RT-388
+    #[test]
+    fn a_socket_whose_connect_failed_takes_a_fresh_virtual_port() {
+        let closed = SocketAddr::from(([127, 0, 0, 1], 1));
+        let sock = dial(closed);
+        let file = sock_alloc_file(sock.clone(), &Arc::default());
+        let mut next = 40000;
+        let mut alloc = || {
+            next += 1;
+            next
+        };
+        sock.hold_virtual_port(&mut alloc);
+        let before = sock.getsockname().port();
+        wait_for(|table| file.poll(table), PollMask::ERR);
+        let failed = sock.finish_connect();
+        let kept = sock.getsockname().port();
+        sock.hold_virtual_port(&mut alloc);
+        assert_eq!(
+            (failed, before, kept, sock.getsockname().port()),
+            (Err(FilesystemError::ConnectionRefused), 40001, 40001, 40002),
+            "a TCP socket whose connect failed must read its old virtual port until it connects \
+             again, then take a fresh one, as a hash connect picks a port once __inet_put_port \
+             cleared inet_num"
         );
     }
 
@@ -1116,17 +1151,30 @@ mod tests {
         // shutdown meets a connect under way.
         sock.state().phase = Phase::Connecting;
         let shut = sock.shutdown(Shutdown::Both);
-        let (finished, marked) = {
-            let finished = sock.finish_connect();
+        let errored = sock.poll(None).contains(PollMask::ERR);
+        let (first, second) = (sock.finish_connect(), sock.finish_connect());
+        let (marked, placed) = {
             let state = sock.state();
-            (finished, (state.inet.rcv_shut, state.inet.send_shut))
+            (
+                (state.inet.rcv_shut, state.inet.send_shut),
+                state.inet.place.is_some(),
+            )
         };
         assert_eq!(
-            (shut, finished, marked),
-            (Ok(()), Err(FilesystemError::NotConnected), (false, false)),
-            "a shutdown of a socket still connecting must answer success, leave it unconnected \
-             so finishing the connect answers ENOTCONN, and mark neither side, as inet_shutdown \
-             disconnects a socket in TCP_SYN_SENT"
+            (shut, errored, first, second, marked, placed),
+            (
+                Ok(()),
+                true,
+                Err(FilesystemError::ConnectionReset),
+                Err(FilesystemError::NotConnected),
+                (false, false),
+                true
+            ),
+            "a shutdown of a socket still connecting must answer success and leave it \
+             unconnected with ECONNRESET pending, its poll showing ERR, so finishing the connect \
+             answers ECONNRESET once and then ENOTCONN, mark neither side, and keep its place \
+             until released, as inet_shutdown disconnects a socket in TCP_SYN_SENT and \
+             tcp_disconnect sets sk_err"
         );
     }
 
