@@ -14,8 +14,10 @@ Every change follows these rules. An earlier row wins on conflict.
 |---|---|
 | Spec | sumi under `docs/spec/` holds behavior; extend it first when silent |
 | Spec | Each scenario owes a test tagged `@behavior`; prose cites no scenario id |
+| Spec | A contract registers only a seam a third party implements, the types it carries, and what an SDK user calls |
 | Spec | A contract's `Includes` lists declaring files only, never append-only ones |
 | Code | Build what the spec asks; no flags, shims, or defensive layers |
+| Code | Judge a behavior in the Baselines order: security, the WASI contract, then the layer's reference |
 | Code | `vfs` aligns behavior and logic to Linux VFS; `filesystem` follows the spec |
 | Code | Fix a gap in its own layer; wrapper changes go to `beni` upstream |
 | Tooling | `bundle exec rake` is the gate |
@@ -59,7 +61,7 @@ Start here to grasp the whole before reading code.
 | `docs/architecture.md` | The global map: parts, seams, Contexts, invariants, baselines |
 | `docs/spec/` | Behavior, contracts, and the glossary; the source of truth |
 | `docs/wire/`, `docs/isolation/`, `docs/filesystem/`, `docs/network/` | One Context's design across crates |
-| `docs/process/convention.md` | The baseline a name or a comment's wording is judged against |
+| `docs/process/convention.md` | How a behavior, a contract, and a name are judged while code is written |
 | `docs/guides/` | What a Host App or an implementer relies on |
 | `lib/kobako/sandbox.rb` | Where a run starts and settles into an `Execution` |
 | `crates/kobako-runtime/src/` | Every Linux answer a guest sees: the VFS, the Policy, the Filesystems, the network |
