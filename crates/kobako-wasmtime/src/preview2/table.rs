@@ -6,7 +6,7 @@
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 use kobako_runtime::net::{NameLookup, Namespace, TcpSock, UdpSock, MAX_SOCKET_BUFFER};
@@ -15,7 +15,15 @@ use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
 
 use super::bindings::wasi_sockets_network_0_2_12::ErrorCode;
-use crate::descriptors::{lock, SharedFile, MAX_NUMBERS};
+use crate::wasi::MAX_TABLE_ENTRIES;
+
+/// A file every view of it shares, as handles on one `struct file` do.
+pub(crate) type SharedFile = Arc<Mutex<File>>;
+
+/// The shared `file`, which a read or a write takes `&mut`.
+pub(crate) fn lock(file: &SharedFile) -> MutexGuard<'_, File> {
+    file.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// One socket file every view of a guest socket shares, as handles on one
 /// `struct file` share one `struct socket`: the protocol's half is `S`, and
@@ -399,7 +407,7 @@ impl Table {
     }
 
     /// Hand out a handle for `resource`, a view that holds no file of its
-    /// own; refused past `MAX_NUMBERS`.
+    /// own; refused past `MAX_TABLE_ENTRIES`.
     pub(crate) fn push<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
         self.insert(Box::new(resource), None, false).map(H::new)
     }
@@ -422,14 +430,14 @@ impl Table {
     }
 
     /// Number `resource` from the free list, else past every number handed
-    /// out; refused past `MAX_NUMBERS`.
+    /// out; refused past `MAX_TABLE_ENTRIES`.
     fn insert(
         &mut self,
         resource: Box<dyn Any + Send>,
         parent: Option<u32>,
         counted: bool,
     ) -> wasmtime::Result<u32> {
-        if self.entries.len() >= MAX_NUMBERS {
+        if self.entries.len() >= MAX_TABLE_ENTRIES {
             return Err(wasmtime::Error::msg(
                 "the guest holds as many resources as a table may",
             ));

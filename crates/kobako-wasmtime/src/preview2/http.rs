@@ -18,8 +18,8 @@ use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::error;
+use super::table::SharedFile;
 use super::table::{self, Stream};
-use crate::descriptors::SharedFile;
 use crate::invocation::Invocation;
 
 /// A request's body and whether the guest ended it, shared between the request
@@ -233,7 +233,7 @@ impl Invocation {
         let Some(namespace) = self.wasi().table().network() else {
             return FutureState::Refused(ErrorCode::HTTPRequestDenied);
         };
-        let cred = self.wasi().descriptors().cred();
+        let cred = self.wasi().cred();
         match namespace.send(cred, outgoing) {
             Ok(exchange) => {
                 let file = Arc::new(Mutex::new(exchange.alloc_response_file(cred)));
@@ -276,7 +276,7 @@ impl HttpHost for Invocation {
     }
 
     fn types_fields_new(&mut self) -> wasmtime::Result<Fields> {
-        let entries = net::Fields::new(self.wasi().descriptors().cred().clone());
+        let entries = net::Fields::new(self.wasi().cred().clone());
         self.table().push(resource::Fields {
             entries,
             mutable: true,
@@ -321,7 +321,7 @@ impl HttpHost for Invocation {
     /// A GET with `headers`, which it takes, and a body the guest may ask for.
     fn types_outgoing_request_new(&mut self, headers: Fields) -> wasmtime::Result<OutgoingRequest> {
         let entries = self.table().delete(headers)?.entries;
-        let cred = self.wasi().descriptors().cred().clone();
+        let cred = self.wasi().cred().clone();
         let memory = MemoryCharge::empty(&cred);
         let link = Arc::new(BodyLink {
             body: RequestBody::new(cred),
@@ -525,7 +525,7 @@ impl HttpHost for Invocation {
             Some(Ok(head)) => head.headers,
             _ => unreachable!("a response is handed out only once its head arrived"),
         };
-        let cred = self.wasi().descriptors().cred().clone();
+        let cred = self.wasi().cred().clone();
         let entries = net::Fields::with_entries(cred, headers).map_err(to_field_trap)?;
         self.table().push(resource::Fields {
             entries,
@@ -570,9 +570,7 @@ impl HttpHost for Invocation {
             return Ok(Err(()));
         }
         let exchange = body.exchange.clone();
-        let file = Arc::new(Mutex::new(
-            exchange.alloc_body_file(self.wasi().descriptors().cred()),
-        ));
+        let file = Arc::new(Mutex::new(exchange.alloc_body_file(self.wasi().cred())));
         self.table()
             .push_child(table::InputStream::new(Stream::File(file)), this)
             .map(Ok)
@@ -861,7 +859,7 @@ mod tests {
             set(&mut guest, fields, "bad name"),
             set(&mut guest, fields, "x-ok"),
         ];
-        let entries = net::Fields::new(guest.wasi().descriptors().cred().clone());
+        let entries = net::Fields::new(guest.wasi().cred().clone());
         let frozen = guest.table().push(resource::Fields {
             entries,
             mutable: false,
@@ -1030,7 +1028,7 @@ mod tests {
     #[test]
     fn an_immutable_list_reads_a_header_before_refusing_the_change() {
         let mut guest = guest(None);
-        let entries = net::Fields::new(guest.wasi().descriptors().cred().clone());
+        let entries = net::Fields::new(guest.wasi().cred().clone());
         let frozen = guest
             .table()
             .push(resource::Fields {

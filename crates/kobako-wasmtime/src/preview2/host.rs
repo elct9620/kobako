@@ -35,8 +35,8 @@ use super::sockets::{
     to_hop_limit, to_keepalive_secs, to_lookup_error_code, to_nanos, to_remote_addr,
     to_socket_addr,
 };
+use super::table::SharedFile;
 use super::table::{self, SocketFile, Stream, TcpState, UdpState};
-use crate::descriptors::SharedFile;
 use crate::invocation::Invocation;
 use crate::trap::{Interrupted, TimeoutTrap};
 
@@ -205,7 +205,7 @@ impl Invocation {
         if self.wasi().table().is_full() {
             return Err(ErrorCode::NewSocketLimit.into());
         }
-        let cred = self.wasi().descriptors().cred().clone();
+        let cred = self.wasi().cred().clone();
         let sock = create(self.network(), &cred)?;
         let socket = SocketFile::new(sock.clone(), sock_alloc_file(sock, &cred));
         Ok(self.table().push_file(resource(socket))?)
@@ -245,7 +245,7 @@ impl Invocation {
         let addr = to_socket_addr(local_address)
             .filter(|addr| valid(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
-        let cred = self.wasi().descriptors().cred().clone();
+        let cred = self.wasi().cred().clone();
         Ok(self.network().bind(&cred, sock, addr)?)
     }
 
@@ -318,7 +318,7 @@ impl SocketsHost for Invocation {
         let lookup = namespace
             .resolve(&name)
             .map_err(|err| to_lookup_error_code(err, true))?;
-        let file = lookup.alloc_file(self.wasi().descriptors().cred());
+        let file = lookup.alloc_file(self.wasi().cred());
         Ok(self.table().push_file(table::ResolveAddressStream {
             lookup,
             file: Arc::new(Mutex::new(file)),
@@ -342,7 +342,7 @@ impl SocketsHost for Invocation {
             .table()
             .network()
             .expect("a lookup is only made with a network");
-        let cred = self.wasi().descriptors().cred();
+        let cred = self.wasi().cred();
         let at = match namespace.alloc_virtual_address(cred, &lookup) {
             None => return Err(ErrorCode::WouldBlock.into()),
             Some(answer) => answer.map_err(|err| to_lookup_error_code(err, false))?,
@@ -438,7 +438,7 @@ impl SocketsHost for Invocation {
         let addr = to_remote_addr(&remote_address)
             .filter(|addr| is_valid_unicast_address(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
-        let cred = self.wasi().descriptors().cred();
+        let cred = self.wasi().cred();
         // Past the address's own checks the attempt is under way, so its
         // failure waits for `finish-connect`, as wasmtime's connecting future
         // checks permission and dials, and then closes the socket. A full
@@ -780,7 +780,7 @@ impl SocketsHost for Invocation {
             Some(None) => return Err(ErrorCode::InvalidArgument.into()),
             None => None,
         };
-        let cred = self.wasi().descriptors().cred();
+        let cred = self.wasi().cred();
         self.network()
             .connect_datagram(cred, &datagrams.sock, peer)?;
         let incoming = self
@@ -3035,14 +3035,14 @@ mod tests {
         let (mut store, instance) = guest(Profile::Hermetic, Some(3));
         let first = call::<i64, i32>(&mut store, &instance, "subscribe", 0);
         let guest = store.data_mut();
-        let held = (1..crate::descriptors::MAX_NUMBERS)
+        let held = (1..crate::wasi::MAX_TABLE_ENTRIES)
             .map(|_| guest.monotonic_clock_subscribe_duration(0))
             .take_while(Result::is_ok)
             .count();
         let past = guest.monotonic_clock_subscribe_duration(0);
         assert_eq!(
             (first.is_ok(), held, past.is_err()),
-            (true, crate::descriptors::MAX_NUMBERS - 1, true),
+            (true, crate::wasi::MAX_TABLE_ENTRIES - 1, true),
             "subscribe-duration with the open file limit filled by the standard streams must \
              hand out pollables up to a million handles, then trap"
         );

@@ -31,11 +31,21 @@ fn prepare_creds(config: &Config) -> Arc<Cred> {
     prepare_creds_within(&config.security, config.memory_limit)
 }
 
-/// One instance's WASI context: its descriptor table, the clocks its
-/// waits pass on, and the capture pipes stdout and stderr write into, so
-/// the captures are read back from the same owner that wired them.
+/// The most entries preview1's descriptor table or preview2's resource table
+/// holds, as wasmtime's `ResourceTable::max_capacity` bounds a table.
+pub(crate) const MAX_TABLE_ENTRIES: usize = 1_000_000;
+
+/// One instance's WASI context: who its calls are made for, each encoding's
+/// table, the clocks its waits pass on, and the capture pipes stdout and
+/// stderr write into, so the captures are read back from the same owner that
+/// wired them.
 pub(crate) struct Wasi {
     ctx: WasiP1Ctx,
+    /// Who the guest's calls are made for, through either encoding, as a
+    /// task holds its `cred`.
+    cred: Arc<Cred>,
+    /// The isolation the guest runs under, through either encoding.
+    profile: Profile,
     descriptors: Descriptors,
     table: preview2::Table,
     clocks: Clocks,
@@ -129,6 +139,9 @@ impl Wasi {
             profile,
         )
         .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?;
+        // The Cred the Mounts' Policies restrict, which preview1's table and
+        // preview2's calls share, as every fd a task holds shares its cred.
+        let cred = descriptors.cred().clone();
 
         let mut builder = WasiCtxBuilder::new();
         // The profile decides the ambient authority granted: the
@@ -157,6 +170,8 @@ impl Wasi {
 
         Ok(Self {
             ctx: builder.build_p1(),
+            cred,
+            profile,
             descriptors,
             table,
             clocks,
@@ -167,6 +182,14 @@ impl Wasi {
 
     pub(crate) fn ctx_mut(&mut self) -> &mut WasiP1Ctx {
         &mut self.ctx
+    }
+
+    pub(crate) fn cred(&self) -> &Arc<Cred> {
+        &self.cred
+    }
+
+    pub(crate) fn profile(&self) -> Profile {
+        self.profile
     }
 
     pub(crate) fn descriptors(&self) -> &Descriptors {

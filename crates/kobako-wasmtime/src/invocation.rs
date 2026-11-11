@@ -109,7 +109,7 @@ impl Invocation {
     }
 
     pub(crate) fn profile(&self) -> Profile {
-        self.wasi.descriptors().profile()
+        self.wasi.profile()
     }
 
     pub(crate) fn limiter_mut(&mut self) -> &mut MemoryLimiter {

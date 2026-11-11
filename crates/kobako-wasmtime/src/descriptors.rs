@@ -9,13 +9,15 @@
 //! both count against one `OpenFiles`.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 
 use kobako_runtime::filesystem::FilesystemError;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::{restrict_self, WalkGuard};
 use kobako_runtime::vfs::{Cred, File, OpenFiles};
+
+use crate::wasi::MAX_TABLE_ENTRIES;
 
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
 pub(crate) struct Descriptor {
@@ -33,18 +35,6 @@ impl Descriptor {
         }
     }
 }
-
-/// A file every view of it shares, as handles on one `struct file` do.
-pub(crate) type SharedFile = Arc<Mutex<File>>;
-
-/// The shared `file`, which a read or a write takes `&mut`.
-pub(crate) fn lock(file: &SharedFile) -> MutexGuard<'_, File> {
-    file.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-/// The most entries one table holds, as wasmtime's
-/// `ResourceTable::max_capacity` bounds a table.
-pub(crate) const MAX_NUMBERS: usize = 1_000_000;
 
 pub(crate) struct Descriptors {
     used: BTreeMap<u32, Descriptor>,
@@ -157,9 +147,9 @@ impl Descriptors {
     /// The number the next descriptor takes, the lowest one the table does
     /// not hold, as Linux's `get_unused_fd_flags` finds it; `None` when the
     /// Invocation holds as many files as it may, or the table as many as
-    /// `MAX_NUMBERS`.
+    /// `MAX_TABLE_ENTRIES`.
     pub(crate) fn lowest_unused(&self) -> Option<u32> {
-        if self.open_files.is_full() || self.used.len() >= MAX_NUMBERS {
+        if self.open_files.is_full() || self.used.len() >= MAX_TABLE_ENTRIES {
             return None;
         }
         (self.next_fd..=u32::MAX).find(|fd| !self.used.contains_key(fd))
