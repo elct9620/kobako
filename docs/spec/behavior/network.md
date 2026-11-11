@@ -30,6 +30,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_io.rb`
 - `test/e2e/test_network_socket_io_edges.rb`
 - `test/e2e/test_network_socket_open.rb`
+- `test/e2e/test_network_socket_order_cruby.rb`
 - `test/e2e/test_network_socket_nonblock.rb`
 - `test/e2e/test_network_socket_wait.rb`
 - `test/e2e/test_network_socket_direct.rb`
@@ -2337,3 +2338,15 @@ endpoint "api.example.com", port: 443
 | Given | a TCP endpoint naming a loopback server that answers a line |
 | When | the script calls `recvfrom` with a length, then with a buffer |
 | Then | each answers what comes next beside `nil` for the sender, the buffer filled, as CRuby's `IPSocket#recvfrom` answers a stream |
+
+## `NW-189` A script's socket checks a call in CRuby's order
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-144` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server that answers a word, and two unconnected `UDPSocket`s |
+| When | the script reads into an Integer buffer and closes each side of a socket with no peer. It writes nothing, then reads and asks `sync` on a closed socket |
+| Then | the buffer raises `TypeError` and the word still reads after. Each side closes, so the socket ends closed. An empty `write` answers 0 where `syswrite` sends. A closed socket answers `sysread(0)` with `""`. It refuses `readpartial`, `read_nonblock`, and `sync` with `IOError`, and `recv(-1)` with `ArgumentError`, as CRuby's do |

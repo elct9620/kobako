@@ -33,6 +33,7 @@ const fn code(
 
 const CODES: &[Code] = &[
     code(c"EACCES", 2, 13, "Permission denied"),
+    code(c"EADDRINUSE", 3, 98, "Address already in use"),
     code(c"EADDRNOTAVAIL", 4, 99, "Cannot assign requested address"),
     code(
         c"EAFNOSUPPORT",

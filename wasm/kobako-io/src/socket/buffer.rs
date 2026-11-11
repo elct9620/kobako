@@ -8,7 +8,10 @@ use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, RHash, RString, Symbol, TryConvert, Value};
 
-use super::basic::{exception_option, length_of, reader_of, ready_of, source_of, SocketIo, Wait};
+use super::basic::{
+    exception_option, length_of, open_socket_of, outbuf_of, reader_of, ready_of, source_of,
+    SocketIo, Wait,
+};
 use crate::io::{argument_error, required_block, would_wait, Direction};
 use crate::wasi::MAX_READ;
 
@@ -97,13 +100,14 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
     let (length, outbuf) = match args {
         [] => (None, None),
         [length] => (Some(*length), None),
-        [length, outbuf] => (Some(*length), Some(*outbuf).filter(|buf| !buf.is_nil())),
+        [length, outbuf] => (Some(*length), Some(*outbuf)),
         _ => return Err(Error::argnum(mrb, args.len(), 0, 2)),
     };
     let length = match length.filter(|v| !v.is_nil()) {
         Some(v) => Some(length_of(mrb, v)?),
         None => None,
     };
+    let outbuf = outbuf_of(mrb, outbuf)?;
     let source = reader_of(mrb, self_)?;
     let mut read = Vec::new();
     while length.is_none_or(|length| read.len() < length) {
@@ -146,14 +150,23 @@ fn read_partial(
 ) -> Result<Value, Error> {
     let (maxlen, outbuf) = match args {
         [maxlen] => (*maxlen, None),
-        [maxlen, outbuf] => (*maxlen, Some(*outbuf).filter(|buf| !buf.is_nil())),
+        [maxlen, outbuf] => (*maxlen, Some(*outbuf)),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 2)),
     };
     let maxlen = length_of(mrb, maxlen)?;
+    let outbuf = outbuf_of(mrb, outbuf)?;
+    // CRuby's `io_getpartial` takes the open IO before it answers a read of
+    // nothing; `readpartial` asks for a readable side too, while
+    // `read_nonblock` reads past a `close_read`, as `rsock_read_nonblock`
+    // takes the IO alone.
+    let source = match wait {
+        Wait::Block => reader_of(mrb, self_)?,
+        Wait::DontWait => open_socket_of(mrb, self_)?,
+    };
     if maxlen == 0 {
         return fill(mrb, outbuf, mrb.str_new(b"").as_value());
     }
-    match read_some(mrb, reader_of(mrb, self_)?, maxlen, wait)? {
+    match read_some(mrb, source, maxlen, wait)? {
         Poll::Ready(Some(bytes)) => fill(mrb, outbuf, mrb.str_new(&bytes).as_value()),
         Poll::Ready(None) if !exception => fill(mrb, outbuf, qnil().as_value()),
         Poll::Ready(None) => {

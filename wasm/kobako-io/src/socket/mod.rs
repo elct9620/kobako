@@ -195,6 +195,7 @@ fn to_error(mrb: &Mrb, code: ErrorCode, call: &str) -> Error {
         ErrorCode::Timeout => c"ETIMEDOUT",
         ErrorCode::RemoteUnreachable => c"EHOSTUNREACH",
         ErrorCode::AddressNotBindable => c"EADDRNOTAVAIL",
+        ErrorCode::AddressInUse => c"EADDRINUSE",
         ErrorCode::NewSocketLimit => c"EMFILE",
         ErrorCode::WouldBlock => c"EAGAIN",
         ErrorCode::InvalidArgument => c"EINVAL",
