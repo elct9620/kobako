@@ -51,10 +51,11 @@ These two tables show what is yours at each level, guest side first.
 |---|---|---|---|
 | L1 | MessagePack | wasmtime | the Ruby gem |
 | L2 | MessagePack ⚠ | wasmtime | the Ruby gem |
-| L3 | yours | yours | the Rust SDK's ⚠ |
-| L4 | yours | yours | yours |
+| L3 | yours | yours, experimental | the Rust SDK's ⚠ |
+| L4 | yours | yours, experimental | yours, experimental |
 
 The ⚠ cells are the traps: the freedom looks available from where you stand, and is not.
+An experimental cell is open to you but promised nothing, while kobako builds its own WASI host layer.
 The other fixed cells surprise nobody: you picked the Ruby gem, so you get its Engine.
 
 ## L1 Bundled Assembly

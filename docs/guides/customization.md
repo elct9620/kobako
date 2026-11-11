@@ -25,6 +25,7 @@ kobako owes you, and it is set by what you do with the name.
 | **append-only** | match, implement, or read a set | the set only gains members |
 | **exhaustive** | match a set completely | a new member breaks your match on purpose |
 | **replaceable** | write your own in kobako's place | the documented obligations are all you owe |
+| **experimental** | build on it at your own risk | nothing; it may change in any release |
 
 An append-only enum carries `#[non_exhaustive]`, and a new trait method carries a
 default unless it keeps a guarantee no default can. An exhaustive set has neither, so
@@ -46,8 +47,7 @@ A struct is graded by whether its fields can grow:
 | none | none | stable | nothing; you pass on what kobako made |
 
 `Iattr::size` and `Kiocb::at` are such constructors. `DirEmit` and `Failure` offer
-none, so you only read what kobako hands you. `OpenFlags` you only pass from
-`build_open_flags` to `do_file_open`, so what it holds may change beneath you.
+none, so you only read what kobako hands you.
 
 ## Replaceable Points
 
@@ -61,15 +61,17 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 | Flags | `MrbGuest::apply_flag` | guest | replaceable |
 | Invocation flow | a `Guest` method implemented rather than forwarded | guest | replaceable · methods append-only |
 | The whole guest | `impl kobako_core::Guest` + `export_guest!` | guest | replaceable · methods append-only |
-| Wasm engine | `impl Runtime` + `GuestInstance`, handed to `Sandbox::with_runtime` | Rust SDK | replaceable |
-| Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a Frontend of your own | replaceable |
+| Wasm engine | `impl Runtime` + `GuestInstance`, handed to `Sandbox::with_runtime` | Rust SDK | experimental |
+| Wasm engine | `impl Runtime` + `DispatchHandler` + `Yielder` | a Frontend of your own | experimental |
 | Filesystem | `impl FileSystemType` + `InodeOperations` + `FileOperations` + `DentryOperations`, behind a Mount | Rust SDK | replaceable · methods append-only |
-| Host wait, for a lock or for I/O | `impl Blocking`, handed once to `sched::register_blocking` | a Frontend of your own | replaceable · methods append-only |
+| Host wait, for a lock or for I/O | `impl Blocking`, handed once to `sched::register_blocking` | a Frontend of your own | experimental |
 | Network policy | `impl Policy<Name>`, `Policy<Connection>`, or `Policy<Request>`, handed to a `network::Builder` | Rust SDK | replaceable |
 | Credential | `impl CredentialSource`, handed to `Credential::new` | Rust SDK | replaceable |
-| Protocol Family | `impl ProtocolFamily`, handed to `Namespace::new` | a Wasm Driver of your own | replaceable · methods append-only |
-| Outbound HTTP | `impl Outbound`, handed to `Namespace::new` | a Wasm Driver of your own | replaceable · methods append-only |
+| Protocol Family | `impl ProtocolFamily`, handed to `Namespace::new` | a Wasm Driver of your own | experimental |
+| Outbound HTTP | `impl Outbound`, handed to `Namespace::new` | a Wasm Driver of your own | experimental |
 | security module | `impl SecurityOperations`, handed to `kobako_wasmtime::Config::security` | Rust SDK | replaceable · methods append-only |
+
+A Wasm engine, Wasm Driver, or Frontend of your own stays experimental while kobako builds its own WASI host layer, which reshapes everything beneath `Runtime`.
 
 ### Graded Names
 
@@ -78,22 +80,22 @@ The types those seams carry, by grade:
 | Grade | Names |
 |---|---|
 | **stable** | `export_guest!` · `kobako_core::proxy::dispatch` · `kobako_core::abi::*` · `kobako_mruby::{Kobako, dispatch, MsgpackCodec}` · `kobako_codec::msgpack::{Encode, Decode, Encoder, Decoder}` · `kobako_codec::msgpack::codec::MAX_NESTING_DEPTH` · `kobako::{Sandbox, Execution, Context, Handles, RunPayload, Yielder}` · `kobako::extension::ProviderFn` · `kobako::handles::DetachedHandles` · `kobako::msgpack::IntoReceiver` · `kobako_wasmtime::Driver` |
-| **stable** | `kobako_runtime::{Tmpfs, Bind, Overlay, Mount, MountPathError}` · `kobako_runtime::filesystem::Filesystem` · `kobako_runtime::filesystem::{PipeInodeInfo, Rdir, create_pipe_files}` · `kobako_runtime::vfs::{Cred, Dentry, DirContext, File, FileSecurity, FMode, Identity, Inode, Mask, OpenFlags, Path, PollMask, Start, SuperBlock, VfsMount, build_open_flags, do_file_open, filename_mkdirat, filename_rmdir, filename_unlinkat, filename_renameat2, filename_linkat, filename_symlinkat, dir_emit_dots, generic_file_llseek, generic_read_dir, generic_write_sync, vfs_fstatat, do_readlinkat, do_utimes_path, do_utimes_fd, verify_dirent_name, PATH_MAX, NAME_MAX}` · `kobako_runtime::security::{WalkGuard, prepare_creds_within, restrict_self}` · `kobako_runtime::endpoint::{Calls, MemoryCap, MemoryLimitExceeded, ABANDONED, RUNTIME_INCOMPATIBLE, clip_capture, compile_request, compiled_bytecodes, handle, pipe_capacity, read_compile_reply, read_outcome, request_of, stdin_content, verify_abi_version, write_request}` · `kobako_runtime::sched::{Task, run_task}` · `kobako_runtime::wait::{WaitQueueHead, PollTable, poll_wait, do_poll}` |
-| **stable** | `kobako_runtime::network::{Network, Secret, EntryError, Builder, Ruleset, address_set_of}` · `kobako_runtime::net::{HostInet, OpenConnections, process_connections, RequestBody, Connector, Transport, Exchange, HyperOutbound, ResponseBody, ResponseFuture, NameLookup, Namespace, TcpSock, UdpSock, Fields, sock_alloc_file, new_platform_tls, MAX_SOCKET_BUFFER, MAX_DATAGRAM, MAX_FIELD_SIZE}` |
-| **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Entry, Completion, Access}` · `kobako_runtime::vfs::{Lookup, SecurityPath, SetTime, Whence}` · `kobako_runtime::endpoint::UpcallEnd` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` · `kobako_runtime::network::AddressSet` · `kobako_runtime::net::{ResponseHead, Response}` |
-| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{Trap, SetupError, InvokeError, Grant, GrantKind, Policy, MountRequest, FileType, FilesystemError, SeedError, Snapshot, Capture, Usage, Kstat, DirEntry}` · `kobako_runtime::filesystem::{RenameFlag, Finish}` · `kobako_runtime::vfs::{OpenHow, DirEmit, Iattr, Kiocb}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` · `kobako_runtime::network::{Entry, CredentialSource, Placement, Credential, Policies, Request, Name, Connection, Endpoint, HttpRule, Protocol, Addresses}` · `kobako_runtime::net::{ProtocolFamily, Outbound, ProtoOps, SockOpt, Scheme, OutgoingRequest, HttpError, LookupError, FieldError}` |
+| **stable** | `kobako_runtime::{Tmpfs, Bind, Overlay}` · `kobako_runtime::filesystem::{Filesystem, Rdir}` · `kobako_runtime::vfs::{Cred, Dentry, DirContext, FileSecurity, FMode, Identity, Inode, Mask, PollMask, SuperBlock, VfsMount, dir_emit_dots, generic_file_llseek, generic_read_dir, generic_write_sync, NAME_MAX}` · `kobako_runtime::wait::{WaitQueueHead, PollTable, poll_wait}` |
+| **stable** | `kobako_runtime::network::{Secret, EntryError, Builder}` |
+| **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Access}` · `kobako_runtime::vfs::{Lookup, SecurityPath, SetTime, Whence}` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` |
+| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{SetupError, Policy, MountRequest, FileType, FilesystemError, SeedError, Usage, Kstat, DirEntry}` · `kobako_runtime::filesystem::{RenameFlag, Finish}` · `kobako_runtime::vfs::{OpenHow, DirEmit, Iattr, Kiocb}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` · `kobako_runtime::network::{Entry, CredentialSource, Placement, Credential, Policies, Request, Name, Connection, Endpoint, HttpRule, Protocol, Addresses}` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
 | **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, six re-exported from `kobako_core` |
+| **experimental** | `kobako_runtime::{Runtime, GuestInstance, DispatchHandler, Yielder, Blocking}` · `kobako_runtime::net::{ProtocolFamily, Outbound}` · every other public name of `kobako-runtime` |
 
 A re-export keeps the grade of what it re-exports. The `kobako` root re-exports
 `Usage`, `Fault`, `FaultKind`, `Access`, `Policy`, `MountRequest`, `Profile`, and `Filesystem`, and
 `kobako::msgpack::Value` re-exports `kobako_codec::msgpack::Value`.
 `kobako::filesystem` re-exports `kobako_runtime::filesystem`, which names every type
 a Filesystem's operations take, so each name there keeps the grade above.
-`kobako::network` re-exports `kobako_runtime::network`, which re-exports
-`OpenConnections` and `process_connections` from `net`.
+`kobako::network` re-exports `kobako_runtime::network`.
 
 ### Fixed Pillar
 
@@ -316,12 +318,12 @@ shipped shell is not privileged. The ABI is in
 
 ## Wasm Engine
 
-`crates/kobako-runtime` is the Engine-free contract, and `crates/kobako-wasmtime` is
-one Wasm Driver implementing it. The contract carries a Frontend through
-`Sandbox::with_runtime`, so any Wasm Driver satisfying it carries the Rust SDK above it
-unchanged.
+`crates/kobako-runtime` is the Engine-free layer, and `crates/kobako-wasmtime` is
+one Wasm Driver built on it. A Wasm Driver of your own carries the Rust SDK above it
+through `Sandbox::with_runtime`. Every part below is experimental: kobako promises
+none of it while its own WASI host layer reshapes the runtime.
 
-| Contract part | Names |
+| Part | Names |
 |---|---|
 | Engine seams | `Runtime`, `DispatchHandler`, `Yielder` |
 | host ABI endpoint | `endpoint`, over a `GuestInstance` the Wasm Driver implements |
