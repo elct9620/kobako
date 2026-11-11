@@ -213,7 +213,7 @@ One reactor thread per process waits on every host socket, as a softirq fills a 
 | a name lookup | a thread of its own, as a resolver blocks |
 | a guest's timeout | a clock the guest polls beside the socket |
 
-A lookup, a response, and a request body are each a file on one anonymous inode, as an eventfd is. A Wasm Driver therefore waits on files alone, and the posture decides when a clock beside them is due. The host keeps no timer. A wait the deadline ends traps the run, and the run's end releases every socket it held.
+A lookup, a response, and a request body are each a file on one anonymous inode, as an eventfd is. A Wasm Driver therefore waits on files alone, and the profile decides when a clock beside them is due. The host keeps no timer. A wait the deadline ends traps the run, and the run's end releases every socket it held.
 
 ## Without a Grant
 

@@ -1,10 +1,10 @@
-//! Isolation profile — the posture a frontend requests and a runtime
-//! builds and declares.
+//! Isolation profile — what a frontend requests and a runtime builds and
+//! declares.
 //!
-//! A rung on an ordered ladder: the host application requests the
-//! posture it wants, the runtime builds it and declares the posture it
-//! actually built, and the frontend refuses a declaration below the
-//! request — so the request is also the floor.
+//! One of an ordered set: the host application requests the profile it
+//! wants, the runtime builds it and declares the profile it actually
+//! built, and the frontend refuses a declaration below the request — so
+//! the request is also the floor.
 
 use std::hash::{BuildHasher, RandomState};
 use std::sync::LazyLock;
@@ -12,9 +12,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::vfs::{FileType, Identity, Kstat};
 
-/// The ordered isolation ladder a runtime builds one rung of.
+/// The ordered isolation profiles a runtime builds one of.
 ///
-/// `Hermetic` is the full ambient-denial posture: ambient time and
+/// `Hermetic` is the full ambient-denial profile: ambient time and
 /// entropy denied at the WASI boundary, and no ambient filesystem /
 /// environment / network reachability: only a Grant reaches a file or a
 /// socket. `Permissive` differs only in the ambient
@@ -25,10 +25,10 @@ use crate::vfs::{FileType, Identity, Kstat};
 ///
 /// Deliberately not `#[non_exhaustive]`, unlike this crate's error
 /// types. A wildcard arm here would let a runtime silently keep building
-/// the posture it already knows while declaring it satisfied a rung it
-/// never implemented; the compile error a new rung causes is what forces
+/// the profile it already knows while declaring it satisfied one it never
+/// implemented; the compile error a new profile causes is what forces
 /// each runtime to answer for it. The ordering is the same reason — a
-/// rung inserted mid-ladder changes what every existing `>=` means, which
+/// profile inserted between two changes what every existing `>=` means, which
 /// no wildcard could have absorbed either.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Profile {
@@ -37,7 +37,7 @@ pub enum Profile {
 }
 
 impl Profile {
-    /// The inode number a guest on this posture sees for `identity`. A
+    /// The inode number a guest on this profile sees for `identity`. A
     /// hermetic guest sees none, as a Filesystem's device number depends on
     /// how many were made before it in the process. Any other sees a hash of
     /// it under a key the process draws once, so it can tell entries apart
@@ -50,7 +50,7 @@ impl Profile {
         }
     }
 
-    /// `stat` as a guest on this posture sees it, whichever ABI a Wasm
+    /// `stat` as a guest on this profile sees it, whichever ABI a Wasm
     /// Driver encodes it into. A Filesystem records the host's real time whatever
     /// the invocation writing to it runs under, so one shared across
     /// invocations keeps one record; a hermetic guest sees every time at the
@@ -77,7 +77,7 @@ impl Profile {
     }
 
     /// When a guest's clock, due `at` in host time, is due in a wait on this
-    /// posture, whichever ABI a Wasm Driver encodes the wait into. A hermetic
+    /// profile, whichever ABI a Wasm Driver encodes the wait into. A hermetic
     /// guest's clocks never advance, so a wait on them alone is due at once;
     /// beside a host-side `producer`, which only host time brings, it is due at
     /// `at` as a live clock is.
@@ -97,7 +97,7 @@ mod tests {
     // guest reads a link's size and a time here or nowhere.
     // @behavior RT-173 RT-183
     #[test]
-    fn a_guest_sees_no_size_for_a_link_and_only_what_its_posture_allows() {
+    fn a_guest_sees_no_size_for_a_link_and_only_what_its_profile_allows() {
         let reported = Kstat::new(FileType::Symlink, 42)
             .with_identity(7, 9)
             .with_times(Some(SystemTime::now()), None, None);
@@ -108,12 +108,12 @@ mod tests {
         assert_eq!(
             (hermetic.size, permissive.size, hermetic.ino, hermetic.atime),
             (0, 0, 0, Some(UNIX_EPOCH)),
-            "Profile::guest_kstat of a link must report no size on any posture, and at the \
-             hermetic rung no inode number and every time at the Unix epoch"
+            "Profile::guest_kstat of a link must report no size on any profile, and on the \
+             hermetic profile no inode number and every time at the Unix epoch"
         );
         assert!(
             permissive.ino != 0 && permissive.ino != 9 && permissive.atime == reported.atime,
-            "Profile::guest_kstat at the permissive rung must hash the inode number and keep \
+            "Profile::guest_kstat on the permissive profile must hash the inode number and keep \
              the time"
         );
     }
@@ -129,7 +129,7 @@ mod tests {
                 .map(|profile| profile.guest_kstat(reported).dev),
             [0, 0],
             "Profile::guest_kstat of an entry a Filesystem reports on device 7 must report \
-             device 0 on either posture"
+             device 0 on either profile"
         );
     }
 
@@ -156,7 +156,7 @@ mod tests {
         assert_ne!(
             seen,
             unkeyed.finish(),
-            "Profile::guest_ino at the permissive rung must not answer a hash anyone can compute \
+            "Profile::guest_ino on the permissive profile must not answer a hash anyone can compute \
              from the device and inode numbers"
         );
     }
@@ -177,7 +177,7 @@ mod tests {
             ),
             (1, 1, 3),
             "Profile::guest_kstat of an entry reporting no count must show one name on each \
-             posture, and of one reporting three must show three"
+             profile, and of one reporting three must show three"
         );
     }
 

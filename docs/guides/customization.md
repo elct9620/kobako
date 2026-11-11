@@ -326,7 +326,7 @@ unchanged.
 | Engine seams | `Runtime`, `DispatchHandler`, `Yielder` |
 | host ABI endpoint | `endpoint`, over a `GuestInstance` the Wasm Driver implements |
 | files | `vfs`, with `File` answering what a guest may do with an open file |
-| declared Posture | `Profile`, with `guest_kstat` for an entry and `clock_due` for a wait |
+| declared Profile | `Profile`, with `guest_kstat` for an entry and `clock_due` for a wait |
 | per-invocation types | `Snapshot`, `Completion`, `Capture`, `Usage`, `Trap` |
 
 The Rust SDK takes a Wasm Driver at `Sandbox::with_runtime` and keeps the whole tier
@@ -346,7 +346,7 @@ every answer (→ [`isolation/README.md`](../isolation/README.md)).
 
 ### Engine Options
 
-Only the Posture and each Invocation's Grants cross that seam. The Engine's own caps
+Only the Profile and each Invocation's Grants cross that seam. The Engine's own caps
 are configured where the Wasm Driver is built
 (→ [runtime](../spec/behavior/runtime.md)).
 
@@ -354,7 +354,7 @@ are configured where the Wasm Driver is built
 |---|---|
 | `Runtime::compile` | compiles nothing; the SDK replays the preloaded source |
 | `Runtime::supports` | supports no Grant; the SDK refuses a Mount |
-| `Runtime::profile` | required; the SDK checks the Posture it declares |
+| `Runtime::profile` | required; the SDK checks the Profile it declares |
 
 ### Engine-free Builds
 

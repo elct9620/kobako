@@ -1241,11 +1241,11 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | the first invocation runs |
 | Then | it fails as a bytecode failure |
 
-## `S-149` A deadline still fires under the strongest posture
+## `S-149` A deadline still fires under the strongest profile
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox at the strongest posture with a deadline |
+| Given | a Sandbox at the strongest profile with a deadline |
 | When | guest code loops without end |
 | Then | the deadline cuts it short |
 

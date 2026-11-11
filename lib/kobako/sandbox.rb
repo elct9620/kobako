@@ -189,7 +189,7 @@ module Kobako
 
     private
 
-    # A runtime whose declared posture falls below the request never runs
+    # A runtime whose declared profile falls below the request never runs
     # guest code.
     def build_runtime
       runtime = Kobako::Runtime.from_path(@wasm_path, **@options.to_h)

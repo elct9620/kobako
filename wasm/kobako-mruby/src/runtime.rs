@@ -183,7 +183,7 @@ impl Kobako {
     /// is resolved here, on the failure path, so a dispatch that succeeds
     /// pays nothing for it. A category this build predates, or a class an
     /// alternative shell did not register, falls back to the base — the
-    /// same posture the wire takes when it meets a category it predates.
+    /// same fallback the wire takes when it meets a category it predates.
     fn class_for(&self, kind: kobako_transport::envelope::FaultKind) -> beni::ExceptionClass {
         use kobako_transport::envelope::FaultKind;
 

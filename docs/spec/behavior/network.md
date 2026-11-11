@@ -327,7 +327,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest at the strongest posture with the network |
+| Given | a guest at the strongest profile with the network |
 | When | it polls a silent socket beside a clock fifty milliseconds out |
 | Then | the clock answers once fifty milliseconds of host time pass, since a host-side producer takes host time |
 

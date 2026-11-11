@@ -69,7 +69,7 @@ pub trait Runtime {
     }
 
     /// The isolation profile this runtime provides. Deliberately
-    /// without a default: every engine states its posture explicitly,
+    /// without a default: every engine states its profile explicitly,
     /// and a frontend refuses construction when the declaration falls
     /// below the floor its host application requested.
     fn profile(&self) -> Profile;

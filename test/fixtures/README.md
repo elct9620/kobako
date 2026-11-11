@@ -154,7 +154,7 @@ Hand-written text-format module whose compile never finishes, so a cap has to st
 
 ## `minimal_compile_ambient.wat`
 
-Hand-written text-format module whose compile answers the ambient bytes it read. Compiling runs no script, so the real Guest Binary cannot show which posture its compile ran at.
+Hand-written text-format module whose compile answers the ambient bytes it read. Compiling runs no script, so the real Guest Binary cannot show which profile its compile ran at.
 
 | Downcall | What it does |
 |---|---|

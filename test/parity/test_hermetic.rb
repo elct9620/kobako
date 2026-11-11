@@ -2,20 +2,20 @@
 
 require "test_helper"
 
-# Differential parity — profile posture: a requested isolation profile
+# Differential parity — profile: a requested isolation profile
 # must build, declare, and floor-check identically on both frontends and
 # reach the same observables.
 #
 # The frozen epoch and constant entropy themselves are not
 # guest-observable — the pure default binary deliberately exposes no
-# Time / entropy surface to compare, which is the very hermetic posture
+# Time / entropy surface to compare, which is the very hermetic profile
 # under test, and the boot-state side of that determinism is pinned
 # end-to-end in test/e2e/test_canonical_boot.rb. What a differential
 # scenario pins here is the profile seam: the option flows through both
 # frontends and neither diverges in accepting or enforcing it.
 class TestParityHermetic < Parity::Case
   # @behavior RT-027
-  # An explicitly requested hermetic posture is honored identically, and
+  # An explicitly requested hermetic profile is honored identically, and
   # an eval under it observes the same result.
   def test_hermetic_profile_is_honored_identically
     assert_parity Parity::Scenario.new(
@@ -26,7 +26,7 @@ class TestParityHermetic < Parity::Case
   end
 
   # @behavior RT-028
-  # Switching to the permissive posture floor-checks and resolves the same
+  # Switching to the permissive profile floor-checks and resolves the same
   # way on both frontends — success or refusal, they must agree.
   def test_permissive_profile_switch_is_identical
     assert_parity Parity::Scenario.new(

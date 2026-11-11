@@ -3,7 +3,7 @@
 
 mod support;
 
-mod compile_posture;
+mod compile_profile;
 mod guest_file;
 mod preamble_flags;
 mod snippet_compile;

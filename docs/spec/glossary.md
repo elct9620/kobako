@@ -266,20 +266,20 @@ A named switch the host sets for an Invocation's interpreter. A Guest Binary tha
 
 ### Ambient
 
-Authority the guest would hold without the Host App handing it over. The guest holds none of it unless a Posture grants it.
+Authority the guest would hold without the Host App handing it over. The guest holds none of it unless a Profile grants it.
 
 ```
 handed over by the Host App  -> Services, Handles, Grants
 Ambient                      -> host time, entropy, files, environment, sockets
 ```
 
-### Posture
+### Profile
 
-The isolation a Wasm Driver builds around the guest, one rung on an ordered ladder. The Host App requests a rung as a floor, and the Wasm Driver declares the rung it built. Rungs differ only in which Ambient authority they grant.
+The isolation a Wasm Driver builds around the guest, one of an ordered set. The Host App requests a profile as a floor, and the Wasm Driver declares the profile it built. Profiles differ only in which Ambient authority they grant.
 
 ```
 permissive  <  hermetic
-   requested rung  <=  declared rung   -> accepted
+   requested profile  <=  declared profile   -> accepted
 ```
 
 ### Engine

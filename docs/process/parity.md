@@ -45,7 +45,7 @@ grows append-only with the corpus.
 
 | Part | Holds |
 |---|---|
-| options | caps and the requested Posture |
+| options | caps and the requested Profile |
 | services | Service stubs and their Exposure |
 | preloads | source or bytecode snippets |
 | flags | Flags, each advisory or critical |
@@ -171,6 +171,6 @@ each Frontend.
 |---|---|---|
 | Seal | its timing | its spelling |
 | Extensions | composition, backend resolution | the dependency assertion, install-error shapes |
-| Posture | the requested Posture | the floor-refusal spelling |
+| Profile | the requested Profile | the floor-refusal spelling |
 | Mount | what the guest reads and its refusals | path validation, a Mount's Policy |
 | Network | the ruleset, its refusals, and the guest's view of each | an entry's Policies, the Protocol Family, the outbound seam |

@@ -63,7 +63,7 @@ class TestE2EFileStatIno < Minitest::Test
   end
 
   # @behavior RT-183
-  def test_a_script_reads_a_hash_on_the_weaker_posture_and_zero_on_the_strongest
+  def test_a_script_reads_a_hash_on_the_weaker_profile_and_zero_on_the_strongest
     hashes = tmpfs_entries(:permissive).map { |ino| Integer(ino) }
 
     assert_equal %w[0 0 0], tmpfs_entries(:hermetic),

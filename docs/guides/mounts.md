@@ -191,7 +191,7 @@ alone. A refused path keeps its content private and still reports the rest.
 | that the path exists, and its kind | what stands there |
 | its size | how long the content is |
 | its inode number, on `permissive` | whether two paths are one file |
-| its count of names, on either Posture | hard links, including any outside the Mount |
+| its count of names, on either Profile | hard links, including any outside the Mount |
 
 Keep a file out of the Mount when even these must stay private.
 

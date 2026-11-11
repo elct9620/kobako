@@ -53,7 +53,7 @@ fn rstring_to_vec(s: RString) -> Vec<u8> {
 }
 
 /// `kind` arrives as a Symbol so the registry never names the wire's
-/// discriminant; an off-ladder kind raises rather than defaulting.
+/// discriminant; an unknown kind raises rather than defaulting.
 fn to_snippets(ruby: &Ruby, entries: RArray) -> Result<Snippets, MagnusError> {
     let mut snippets = Snippets {
         entries: Vec::with_capacity(entries.len()),
@@ -226,8 +226,8 @@ impl Runtime {
         };
         let timeout = to_duration(timeout_seconds, "timeout")?;
         let setup_timeout = to_duration(setup_timeout_seconds, "setup_timeout")?;
-        // Fail closed on an off-ladder rung: an unrecognized posture must
-        // never fall back to a weaker posture. Same defence in depth as the
+        // Fail closed on an unknown profile: it must never fall back to a
+        // weaker one. Same defence in depth as the
         // timeout guard above — `SandboxOptions` is the primary validator.
         let profile = match profile.name()?.as_ref() {
             "hermetic" => Profile::Hermetic,
@@ -239,7 +239,7 @@ impl Runtime {
                 ));
             }
         };
-        // Same fail-closed posture as `profile`: an unrecognized mode raises
+        // Fail closed as `profile` does: an unrecognized mode raises
         // rather than defaulting. `SandboxOptions` is the primary validator;
         // this guards direct `from_path` calls.
         let release_gvl = match gvl.name()?.as_ref() {
@@ -363,7 +363,7 @@ impl Runtime {
     }
 
     /// The driver's declaration, which the Sandbox checks against the
-    /// posture its `profile:` option requested.
+    /// profile its `profile:` option requested.
     fn profile(&self) -> Symbol {
         let ruby = Ruby::get().expect("Ruby thread");
         match self.driver.profile() {

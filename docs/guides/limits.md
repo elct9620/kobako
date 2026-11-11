@@ -78,7 +78,7 @@ usage.memory_peak # => Integer bytes grown, never past memory_limit
 
 ## Isolation Profile
 
-`profile:` requests the isolation posture, and the default `:hermetic` is the
+`profile:` requests the isolation profile, and the default `:hermetic` is the
 strictest. Construction raises `Kobako::SetupError` on a runtime weaker than
 the request.
 
@@ -89,7 +89,7 @@ live entropy      constant entropy
 ```
 
 Neither profile gives the guest an ambient filesystem, environment, or network.
-What each rung reveals is in [Security Model](security.md).
+What each profile reveals is in [Security Model](security.md).
 
 ## Rust SDK
 

@@ -35,10 +35,10 @@ class TestRuntimeConstruction < Minitest::Test
   end
 
   # The unlinkable module asks the host for one name beyond the ABI's
-  # import; the host answering it at either posture would mean the guest
+  # import; the host answering it on either profile would mean the guest
   # can reach something besides WASI and that import.
   # @behavior RT-064
-  def test_the_host_links_nothing_beyond_the_abi_import_at_either_posture
+  def test_the_host_links_nothing_beyond_the_abi_import_on_either_profile
     Kobako::SandboxOptions::PROFILES.each do |profile|
       err = assert_raises(Kobako::SetupError) do
         Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_unlinkable.wat"), profile: profile)

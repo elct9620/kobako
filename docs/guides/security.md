@@ -49,12 +49,12 @@ feature that specifies it.
 | a Tmpfs holds no more than its size | [filesystem](../spec/behavior/filesystem.md) |
 | a value the wire cannot carry becomes a Handle or a controlled error | [transport-dispatch](../spec/behavior/transport-dispatch.md) |
 
-## Postures
+## Profiles
 
-Postures form the ladder `permissive < hermetic`; `Sandbox.new(profile:)` requests
-one and defaults to `:hermetic`. The rungs differ in what the guest reads of time, entropy, and a Mount's entries.
+Profiles are ordered `permissive < hermetic`; `Sandbox.new(profile:)` requests
+one and defaults to `:hermetic`. The profiles differ in what the guest reads of time, entropy, and a Mount's entries.
 
-| Posture | Clocks and entropy | A Mount's entries | Everything else |
+| Profile | Clocks and entropy | A Mount's entries | Everything else |
 |---|---|---|---|
 | `hermetic` | frozen clock, constant entropy | every time at the epoch, inode number 0 | no ambient filesystem, `ENV`, or socket |
 | `permissive` | live host time and entropy | real times, an inode number per entry | same as `hermetic` |
@@ -64,13 +64,13 @@ A permissive guest's inode number tells entries apart, and nothing outside the p
 `hermetic` keeps the guest deterministic except for values a Service injects or a
 network entry brings.
 Requesting `:permissive` trades that reproducibility for real time and entropy;
-every other guarantee holds on both rungs. Live time and entropy reach only a
+every other guarantee holds on both profiles. Live time and entropy reach only a
 third-party guest. The bundled Guest Binaries read no clock, using one only to
 bound a wait, and give scripts no randomness.
 
 The request is also a floor. Keep the default when the engine is swappable. An
 engine that cannot deny ambient authority is then refused at construction, not
-silently weakening these guarantees. The ladder is specified in
+silently weakening these guarantees. The order is specified in
 [runtime](../spec/behavior/runtime.md).
 
 ## Uncapped Limits

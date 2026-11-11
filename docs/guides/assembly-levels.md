@@ -60,13 +60,13 @@ The other fixed cells surprise nobody: you picked the Ruby gem, so you get its E
 ## L1 Bundled Assembly
 
 L1 is `gem "kobako"` and the `data/kobako.wasm` it ships, with every part chosen for you but one.
-The Posture is yours to lower, and it defaults to hermetic.
+The Profile is yours to lower, and it defaults to hermetic.
 
 | Part | Choice |
 |---|---|
 | Codec | MessagePack |
 | capability | `kobako-io` only |
-| Posture | hermetic by default; `profile: :permissive` lets a wait take host time |
+| Profile | hermetic by default; `profile: :permissive` lets a wait take host time |
 | Engine | wasmtime |
 | invocation flows | the provided `MrbGuest` flows |
 

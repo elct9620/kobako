@@ -112,7 +112,7 @@ pub struct Sandbox {
 impl Sandbox {
     /// Load a Guest Binary under the given caps, on the bundled wasmtime
     /// engine. Fails with `Error::Setup` when the artifact is absent or
-    /// unusable, or when the engine's declared posture falls below the
+    /// unusable, or when the engine's declared profile falls below the
     /// requested floor.
     ///
     /// Behind the default `wasmtime` feature — a host that brings its own
@@ -155,7 +155,7 @@ impl Sandbox {
     /// own artifact and caps.
     ///
     /// `profile` is the floor the engine's declaration must meet: a stricter
-    /// posture constructs, a weaker one fails with `Error::Setup` rather than
+    /// profile constructs, a weaker one fails with `Error::Setup` rather than
     /// running untrusted code under less isolation than the host asked for.
     pub fn with_runtime(
         runtime: impl Runtime + Send + Sync + 'static,

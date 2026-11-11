@@ -58,7 +58,7 @@ These judgments decide an answer, so `kobako-runtime` holds them whichever ABI a
 | Position, append, access, offset limit | `vfs::File` | `struct file` |
 | Listing lock and position | `File::iterate_dir` | `iterate_dir` |
 | `.` and `..` | Filesystem: `dir_emit_dots` or `Rdir` | libfs, 9p, FUSE |
-| Posture mask | `Profile::guest_kstat` | kobako's Posture |
+| Profile mask | `Profile::guest_kstat` | kobako's Profile |
 | Read-only, set times, link | `vfs` | Linux VFS |
 | Sync and nonblock accepted | `vfs::File` | Linux accepts both |
 | Start is not a directory | `set_nameidata` | `set_nameidata` |
@@ -66,7 +66,7 @@ These judgments decide an answer, so `kobako-runtime` holds them whichever ABI a
 | Path length, NUL | `getname` | `getname` |
 | Neither-read-nor-write open | `build_open_flags`, `do_o_path` | `O_PATH` |
 
-The Posture mask hides times, inode numbers, and a link's size; `kobako-runtime` decides it and the Wasm Driver only calls it. An open asking neither to read nor to write stands for its path alone, so it neither asks the Filesystem nor opens a file.
+The Profile mask hides times, inode numbers, and a link's size; `kobako-runtime` decides it and the Wasm Driver only calls it. An open asking neither to read nor to write stands for its path alone, so it neither asks the Filesystem nor opens a file.
 
 ## Driver Decisions
 

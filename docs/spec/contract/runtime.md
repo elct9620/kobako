@@ -212,7 +212,7 @@ pub struct Usage {}
 
 ## `Profile`
 
-The isolation posture an engine declares, ordered so a floor can be compared
+The isolation profile an engine declares, ordered so a floor can be compared
 against it.
 
 ```rust
@@ -502,7 +502,7 @@ impl MemoryLimitExceeded {
 
 ## `Profile::guest_kstat`
 
-What a Filesystem reports, as a Guest on one posture sees it, whichever ABI a
+What a Filesystem reports, as a Guest on one profile sees it, whichever ABI a
 Wasm Driver encodes it into. A Wasm Driver shows only this.
 
 ```rust
@@ -513,7 +513,7 @@ impl Profile {
 
 ## `Profile::clock_due`
 
-When a Guest's clock is due in a wait on one posture, whichever ABI encodes the
+When a Guest's clock is due in a wait on one profile, whichever ABI encodes the
 wait. A hermetic clock alone is due at once. Beside a
 host-side producer it is due in host time.
 
@@ -1591,7 +1591,7 @@ impl DirEntry {
 
 ## `Profile::guest_ino`
 
-The inode number a guest on this posture sees for an identity. A hermetic guest
+The inode number a guest on this profile sees for an identity. A hermetic guest
 sees none. Any other sees a hash under a key the process draws once.
 
 ```rust

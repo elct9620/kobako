@@ -125,7 +125,7 @@ One WASI call passes the Wasm Driver, the VFS, and a Filesystem in turn, and eac
 
 ## Divergence Kinds
 
-kobako differs from Linux in three kinds of way. As to which call succeeds, all three only refuse more; none lets a call succeed that Linux would refuse. What a successful stat reports, such as a link's size or an inode number, is the Posture's to mask.
+kobako differs from Linux in three kinds of way. As to which call succeeds, all three only refuse more; none lets a call succeed that Linux would refuse. What a successful stat reports, such as a link's size or an inode number, is the Profile's to mask.
 
 | Kind | Example | Owner |
 |---|---|---|

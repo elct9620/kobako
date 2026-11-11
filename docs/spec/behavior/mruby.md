@@ -281,6 +281,6 @@ A host may keep the guest's compiled snippets and replay them in place of the so
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox over the default Guest Binary at each posture |
+| Given | a Sandbox over the default Guest Binary at each profile |
 | When | guest code calls `IO.select` with nothing to wait on and a timeout |
-| Then | it answers `nil`, at once at the strongest posture and once the timeout passes at the other. Guest code reads no time either way |
+| Then | it answers `nil`, at once at the strongest profile and once the timeout passes at the other. Guest code reads no time either way |

@@ -1,14 +1,14 @@
 # Runtime
 
-What the host checks before a guest runs, which posture it builds, and how invocations share a process.
+What the host checks before a guest runs, which profile it builds, and how invocations share a process.
 
 ### Startup checks
 
 The runtime is what stands between a request and a guest that runs. Three checks happen before any guest does:
 
 - The artifact states an ABI version the host implements.
-- The requested isolation posture is one the ladder names.
-- The posture actually built is not weaker than the one accepted.
+- The requested isolation profile is one kobako names.
+- The profile actually built is not weaker than the one accepted.
 
 ### Scheduling modes
 
@@ -18,7 +18,7 @@ The scheduling scenarios pair off deliberately, because releasing the lock chang
 
 Ambient denial is read at the WASI layer, not through guest code. The default Guest Binary gives scripts no surface to reach it from.
 
-"Reaches nothing" cannot be witnessed whole, so it is held as what the host grants. No posture preopens a directory, sets a variable, or holds a socket. The guest exports only what the ABI names.
+"Reaches nothing" cannot be witnessed whole, so it is held as what the host grants. No profile preopens a directory, sets a variable, or holds a socket. The guest exports only what the ABI names.
 
 What the determinism buys is witnessed where it shows: two invocations beginning from the same interpreter state.
 
@@ -72,7 +72,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/preview1/mount_view.rs`
 - `crates/kobako-wasmtime/src/preview1/memory.rs`
 - `crates/kobako-wasmtime/src/preview1/differential.rs`
-- `crates/kobako-wasmtime/tests/integration/compile_posture.rs`
+- `crates/kobako-wasmtime/tests/integration/compile_profile.rs`
 - `crates/kobako-wasmtime/src/exports.rs`
 - `crates/kobako/tests/integration/concurrency.rs`
 - `crates/kobako/tests/integration/runtime_injection.rs`
@@ -143,80 +143,80 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a Sandbox is constructed over the same path again |
 | Then | construction fails again |
 
-## `RT-009` The strongest posture is the one nobody has to ask for
+## `RT-009` The strongest profile is the one nobody has to ask for
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options naming no posture |
+| Given | Sandbox options naming no profile |
 | When | the options are read |
-| Then | the posture is the strongest rung |
+| Then | they hold the strongest profile |
 
-## `RT-010` Both rungs of the ladder may be requested
+## `RT-010` Both profiles may be requested
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options carrying each ladder rung in turn |
+| Given | Sandbox options carrying each profile in turn |
 | When | the options are read |
-| Then | each reports the rung it was given |
+| Then | each reports the profile it was given |
 
-## `RT-011` A posture off the ladder is not a posture
+## `RT-011` A profile kobako does not name is refused
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options naming a posture the ladder does not |
+| Given | Sandbox options naming a profile kobako does not |
 | When | the options are built |
-| Then | the posture is refused |
+| Then | the profile is refused |
 
 ## `RT-012` A runtime that built less than was asked for does not run
 
 | Step | Statement |
 | --- | --- |
-| Given | options requesting a rung |
-| Given | a runtime declaring a rung below it |
+| Given | options requesting a profile |
+| Given | a runtime declaring a profile below it |
 | When | the request is enforced as a floor |
 | Then | the declaration is refused |
 
-## `RT-013` A posture nobody can place ranks below every request
+## `RT-013` A profile nobody can place ranks below every request
 
 | Step | Statement |
 | --- | --- |
-| Given | options requesting any rung |
-| Given | a runtime declaring a posture the ladder does not name |
+| Given | options requesting any profile |
+| Given | a runtime declaring a profile kobako does not name |
 | When | the request is enforced as a floor |
 | Then | the declaration is refused |
 
-## `RT-014` A stronger posture satisfies a weaker request
+## `RT-014` A stronger profile satisfies a weaker request
 
 | Step | Statement |
 | --- | --- |
-| Given | options requesting a rung |
-| Given | a runtime declaring that rung or a stronger one |
+| Given | options requesting a profile |
+| Given | a runtime declaring that profile or a stronger one |
 | When | the request is enforced as a floor |
 | Then | the declaration is accepted |
 
-## `RT-015` The bundled runtime builds whichever rung is asked for
+## `RT-015` The bundled runtime builds whichever profile is asked for
 
 | Step | Statement |
 | --- | --- |
 | Given | the bundled Guest Binary |
-| When | a Sandbox is constructed at each ladder rung in turn |
-| Then | each construction reports the rung it requested |
+| When | a Sandbox is constructed at each profile in turn |
+| Then | each construction reports the profile it requested |
 
 ## `RT-016` The request reaches the runtime and comes back
 
 | Step | Statement |
 | --- | --- |
 | Given | the bundled Guest Binary |
-| When | a runtime is built from that path at each ladder rung in turn |
-| Then | each runtime declares the rung it was built for |
+| When | a runtime is built from that path at each profile in turn |
+| Then | each runtime declares the profile it was built for |
 
-## `RT-017` The runtime refuses an unnameable posture on its own
+## `RT-017` The runtime refuses an unnameable profile on its own
 
 | Step | Statement |
 | --- | --- |
 | Given | the bundled Guest Binary |
-| When | a runtime is built from that path with a posture the ladder does not name |
-| Then | the posture is refused |
+| When | a runtime is built from that path with a profile kobako does not name |
+| Then | the profile is refused |
 
 ## `RT-018` Holding the lock is what happens when nobody chooses
 
@@ -290,19 +290,19 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | every Thread evaluates guest source computing from its own input |
 | Then | each Thread receives the result of its own input |
 
-## `RT-027` A requested posture is honored the same way by either frontend
+## `RT-027` A requested profile is honored the same way by either frontend
 
 | Step | Statement |
 | --- | --- |
-| Given | a scenario requesting the hermetic posture explicitly |
+| Given | a scenario requesting the hermetic profile explicitly |
 | When | both frontends run it |
 | Then | they observe the same result |
 
-## `RT-028` A posture switch resolves the same way on either frontend
+## `RT-028` A profile switch resolves the same way on either frontend
 
 | Step | Statement |
 | --- | --- |
-| Given | a scenario switching to the permissive posture |
+| Given | a scenario switching to the permissive profile |
 | When | both frontends run it |
 | Then | they resolve it the same way |
 
@@ -338,11 +338,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a runtime is built from that path |
 | Then | the refusal names the deadline's constraint |
 
-## `RT-033` A posture the ladder does not name
+## `RT-033` A profile kobako does not name
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox construction requesting a profile off the ladder |
+| Given | a Sandbox construction requesting a profile kobako does not name |
 | When | a Sandbox is constructed |
 | Then | the option is refused |
 
@@ -450,43 +450,43 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | source is evaluated against it |
 | Then | the capture is empty |
 
-## `RT-047` The strongest posture reads no host time
+## `RT-047` The strongest profile reads no host time
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest running at the strongest posture |
+| Given | a guest running at the strongest profile |
 | When | it reads the clock |
 | Then | it reads the epoch rather than the host's time |
 
-## `RT-048` The strongest posture reads no host entropy
+## `RT-048` The strongest profile reads no host entropy
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest running at the strongest posture |
+| Given | a guest running at the strongest profile |
 | When | it reads entropy |
 | Then | it reads a constant stream rather than the host's entropy |
 
-## `RT-049` The weaker posture reads live host time
+## `RT-049` The weaker profile reads live host time
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest running at the weaker posture |
+| Given | a guest running at the weaker profile |
 | When | it reads the clock |
 | Then | it reads the host's time |
 
-## `RT-050` The weaker posture reads host entropy
+## `RT-050` The weaker profile reads host entropy
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest running at the weaker posture |
+| Given | a guest running at the weaker profile |
 | When | it reads entropy |
 | Then | it reads the host's entropy |
 
-## `RT-051` The clock the strongest posture offers never advances
+## `RT-051` The clock the strongest profile offers never advances
 
 | Step | Statement |
 | --- | --- |
-| Given | the clock a guest at the strongest posture measures elapsed time with |
+| Given | the clock a guest at the strongest profile measures elapsed time with |
 | When | it is read |
 | Then | it stands still |
 
@@ -584,7 +584,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an artifact importing one host function besides the one the ABI names |
-| When | a Sandbox is built over it at either posture |
+| When | a Sandbox is built over it at either profile |
 | Then | the import is unknown and construction fails |
 
 ## `RT-065` Invocations at once each capture only their own output
@@ -603,7 +603,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | two invocations call it at once |
 | Then | both are inside the Service at the same time |
 
-## `RT-067` No posture grants an ambient filesystem, environment, or socket
+## `RT-067` No profile grants an ambient filesystem, environment, or socket
 
 | Attribute | Value |
 | --- | --- |
@@ -611,7 +611,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest running at either posture |
+| Given | a guest running at either profile |
 | When | it asks for a preopened directory, its environment, or a connection |
 | Then | it finds no directory, no variable, and no socket |
 
@@ -661,7 +661,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | guest code in a later invocation presents it |
 | Then | it resolves to no object |
 
-## `RT-072` Compiling the Snippets runs at the strongest posture whatever the request
+## `RT-072` Compiling the Snippets runs at the strongest profile whatever the request
 
 | Attribute | Value |
 | --- | --- |
@@ -669,11 +669,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox requesting the weaker posture |
+| Given | a Sandbox requesting the weaker profile |
 | When | the guest compiles its Snippets |
 | Then | it reads the epoch and a constant stream rather than the host's time and entropy |
 
-## `RT-073` A wait on the strongest posture's clock ends at once
+## `RT-073` A wait on the strongest profile's clock ends at once
 
 | Attribute | Value |
 | --- | --- |
@@ -681,11 +681,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest running at the strongest posture |
+| Given | a guest running at the strongest profile |
 | When | it waits ten seconds on a clock |
 | Then | the wait returns without the host waiting |
 
-## `RT-074` A wait on the weaker posture's clock ends at the deadline
+## `RT-074` A wait on the weaker profile's clock ends at the deadline
 
 | Attribute | Value |
 | --- | --- |
@@ -693,7 +693,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest running at the weaker posture under a deadline |
+| Given | a guest running at the weaker profile under a deadline |
 | When | it waits on a clock past that deadline |
 | Then | the invocation ends as a deadline reached, at the deadline |
 
@@ -1660,7 +1660,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest renames that directory onto its own path |
 | Then | the rename succeeds and changes nothing |
 
-## `RT-156` The weaker posture sees the times a Filesystem keeps
+## `RT-156` The weaker profile sees the times a Filesystem keeps
 
 | Attribute | Value |
 | --- | --- |
@@ -1668,11 +1668,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation on the weaker posture, with a Mount over a Tmpfs |
+| Given | an invocation on the weaker profile, with a Mount over a Tmpfs |
 | When | the guest writes a file and reads what the path names |
 | Then | its modification time is no earlier than the write |
 
-## `RT-157` The strongest posture sees every time at the Unix epoch
+## `RT-157` The strongest profile sees every time at the Unix epoch
 
 | Attribute | Value |
 | --- | --- |
@@ -1680,11 +1680,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation on the strongest posture, with a Mount over a Tmpfs |
+| Given | an invocation on the strongest profile, with a Mount over a Tmpfs |
 | When | the guest writes a file and reads what the path and the open file name |
 | Then | each time reads the Unix epoch |
 
-## `RT-158` A time another posture wrote reaches the strongest posture as the epoch
+## `RT-158` A time another profile wrote reaches the strongest profile as the epoch
 
 | Attribute | Value |
 | --- | --- |
@@ -1692,7 +1692,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | one Tmpfs mounted for an invocation on each posture |
+| Given | one Tmpfs mounted for an invocation on each profile |
 | When | the weaker writes a file and the strongest reads what the path names |
 | Then | each time the strongest reads is the Unix epoch |
 
@@ -1987,7 +1987,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a caller lists it, stops early, and lists it again from where it stopped |
 | Then | `.` and `..` come first, and each entry carries its own position |
 
-## `RT-183` A guest tells entries apart by inode number where its posture allows
+## `RT-183` A guest tells entries apart by inode number where its profile allows
 
 | Attribute | Value |
 | --- | --- |
@@ -2116,7 +2116,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a Filesystem reporting no count of names for an entry |
-| When | a guest on either posture reads what the entry reports |
+| When | a guest on either profile reads what the entry reports |
 | Then | it reads one name |
 
 ## `RT-194` A permissive guest's inode number names no number its host keeps
@@ -3167,7 +3167,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | an entry whose Filesystem reports a device and an inode number |
-| When | a guest on either posture asks what it is |
+| When | a guest on either profile asks what it is |
 | Then | it sees the device as 0, as the inode number it sees already tells entries apart |
 
 ## `RT-284` A guest's read or write moves its first buffer with room
@@ -3813,11 +3813,11 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest at the weaker posture waiting ten seconds on a clock |
+| Given | a guest at the weaker profile waiting ten seconds on a clock |
 | When | its thread is interrupted |
 | Then | the wait answers EINTR at once, as a signal ends Linux's `poll` |
 
-## `RT-338` A preview2 clock wait on the strongest posture ends at once
+## `RT-338` A preview2 clock wait on the strongest profile ends at once
 
 | Attribute | Value |
 | --- | --- |
@@ -3825,7 +3825,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest running at the strongest posture |
+| Given | a guest running at the strongest profile |
 | When | it subscribes to ten seconds of `wasi:clocks` and blocks on the pollable |
 | Then | the wait returns without the host waiting |
 
@@ -3837,7 +3837,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest at the weaker posture subscribed to fifty milliseconds of `wasi:clocks` |
+| Given | a guest at the weaker profile subscribed to fifty milliseconds of `wasi:clocks` |
 | When | it polls the pollable |
 | Then | `poll` answers its index once the fifty milliseconds have passed |
 
@@ -4231,7 +4231,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest on the permissive posture, under a deadline |
+| Given | a guest on the permissive profile, under a deadline |
 | When | it subscribes to a clock of the largest duration, through preview2 or preview1, and waits on it |
 | Then | the wait lasts until the deadline ends it, as a wait on nothing that can become ready does |
 

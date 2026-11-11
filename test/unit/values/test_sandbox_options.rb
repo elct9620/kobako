@@ -3,7 +3,7 @@
 require "test_helper"
 
 # Kobako::SandboxOptions normalises the per-Sandbox caps and the
-# isolation-profile floor, and owns the PROFILES ladder comparison
+# isolation-profile floor, and owns the PROFILES order comparison
 # (#enforce_floor) that Sandbox.new delegates its construction floor
 # check to. Pure Ruby — no native ext — so it runs on a clean checkout.
 # The profile option is the one non-cap: nil is NOT a disable switch there
@@ -79,15 +79,15 @@ class TestSandboxOptions < Minitest::Test
   end
 
   # @behavior RT-010
-  def test_ladder_profiles_pass_through
+  def test_known_profiles_pass_through
     Kobako::SandboxOptions::PROFILES.each do |profile|
       assert_equal profile, Kobako::SandboxOptions.new(profile: profile).profile,
-                   "ladder value #{profile.inspect} through SandboxOptions.new must be readable back unchanged"
+                   "profile #{profile.inspect} through SandboxOptions.new must be readable back unchanged"
     end
   end
 
   # @behavior RT-011
-  def test_rejects_profile_outside_the_ladder
+  def test_rejects_an_unknown_profile
     # nil included deliberately: the no-floor request is an explicit
     # :permissive, so profile has no nil-disable form.
     [nil, :sealed, "hermetic", 1].each do |bad|
@@ -124,8 +124,8 @@ class TestSandboxOptions < Minitest::Test
 
   # @behavior RT-012
   # The floor check's failing branch is witnessed here, on the
-  # ladder owner, with a plain declared value — the bundled runtime
-  # always builds the requested rung, so no real runtime can hand
+  # order's owner, with a plain declared value — the bundled runtime
+  # always builds the requested profile, so no real runtime can hand
   # Sandbox.new a below-floor declaration.
   def test_enforce_floor_rejects_a_declaration_below_the_requested_floor
     err = assert_raises(Kobako::SetupError,
@@ -137,13 +137,13 @@ class TestSandboxOptions < Minitest::Test
   end
 
   # @behavior RT-013
-  # Fail-closed: a declaration the gem cannot place on the ladder ranks
+  # Fail-closed: a declaration the gem cannot place in the order ranks
   # below every floor. Witnessed against the :permissive
-  # floor because that is the rung an off-ladder declaration could most
+  # floor because that is the profile an unknown declaration could most
   # plausibly slip past.
-  def test_enforce_floor_ranks_an_off_ladder_declaration_below_every_floor
+  def test_enforce_floor_ranks_an_unknown_declaration_below_every_floor
     err = assert_raises(Kobako::SetupError,
-                        "an off-ladder declaration must rank below even the :permissive floor, failing closed") do
+                        "an unknown declaration must rank below even the :permissive floor, failing closed") do
       Kobako::SandboxOptions.new(profile: :permissive).enforce_floor(:isolated)
     end
     assert_match(/isolated/, err.message)
@@ -151,7 +151,7 @@ class TestSandboxOptions < Minitest::Test
 
   # @behavior RT-014
   # The passing branch: a declaration at the floor constructs, and a
-  # runtime that can only build a stronger posture satisfies a weaker
+  # runtime that can only build a stronger profile satisfies a weaker
   # request by declaring what it built. The contract is "returns
   # without raising" — the return value is void — and minitest turns
   # any raise into a failure, so the bare calls are the whole witness.

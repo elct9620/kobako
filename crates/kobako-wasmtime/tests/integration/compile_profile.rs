@@ -1,4 +1,4 @@
-//! A compile reads no host time or entropy, whatever posture the Sandbox
+//! A compile reads no host time or entropy, whatever profile the Sandbox
 //! requested. Compiling runs no script, so the bundled guest has no way to
 //! show what its clock read; a fixture guest whose compile answers the
 //! ambient bytes it read shows it instead.

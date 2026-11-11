@@ -215,7 +215,7 @@ A Context is an area with its own vocabulary and rules. A name is judged inside 
 |---|---|---|---|
 | Host | the Sandbox lifecycle, what the guest may call, how a failure reaches the Host App | `lib/`, `kobako` | the header comment of `lib/kobako.rb`, [`guides/security.md`](guides/security.md), [`process/parity.md`](process/parity.md) |
 | Wire | the Envelope, the tag registry, the Codecs | `kobako-transport`, `kobako-codec`, `kobako-core`, both `msgpack` overlays, `lib/kobako/{codec,payload}/` | [`wire/`](wire/README.md) |
-| Isolation | the Engine, the Wasm Driver, the Ambient authority a Posture grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` | [`isolation/`](isolation/README.md) |
+| Isolation | the Engine, the Wasm Driver, the Ambient authority a Profile grants | `kobako-runtime`, `kobako-wasmtime`, `ext/` | [`isolation/`](isolation/README.md) |
 | Filesystem | Mounts, Policies, the VFS, the Filesystems | `kobako-runtime`'s `filesystem`, `vfs`, `security`, `mount`; the preview1 encoding; their bridges in `ext/`, `lib/` | [`filesystem/`](filesystem/README.md) |
 | Network | the named entries, their endpoints, the sockets | `kobako-runtime`'s `network`, `net`; the preview2 encoding; its bridges in `ext/`, `lib/` | [`network/`](network/README.md) |
 
@@ -264,7 +264,7 @@ These rules are written as what never exists, so a single counterexample breaks 
 | a guest crate on `beni` that skips libmruby on a build | no linked-only `cfg` |
 | a Codec namespace under the Ruby gem's `Kobako::Codec` | Ruby has MessagePack only |
 
-What a successful stat reports, such as an inode number, follows the Posture. `kobako-wasmtime` links no magnus, so a span with the GVL released cannot reach a Ruby value.
+What a successful stat reports, such as an inode number, follows the Profile. `kobako-wasmtime` links no magnus, so a span with the GVL released cannot reach a Ruby value.
 
 ## Baselines
 
@@ -288,7 +288,7 @@ A Wasm Driver whose Engine cannot do something natively says so, and the Fronten
 
 | Mechanism | Declares | On a mismatch |
 |---|---|---|
-| `Runtime::profile` | the Posture the Wasm Driver built | the Frontend refuses below the floor |
+| `Runtime::profile` | the Profile the Wasm Driver built | the Frontend refuses below the floor |
 | `Runtime::supports` | each kind of Grant it presents | the Frontend refuses an unsupported Grant |
 
 A Wasm Driver whose Engine cannot freeze the clock therefore declares permissive. A Flag is no negotiation: a Guest Binary skips one it does not know unless it is critical, as [`wire/README.md`](wire/README.md) grows it.

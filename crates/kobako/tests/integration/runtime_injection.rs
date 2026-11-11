@@ -105,7 +105,7 @@ fn a_runtime_declaring_less_than_the_requested_floor_is_refused() {
 
     assert!(
         matches!(refusal, Err(Error::Setup(_))),
-        "an engine declaring a posture below the requested floor must fail construction, \
+        "an engine declaring a profile below the requested floor must fail construction, \
          so a host never runs untrusted code under less isolation than it asked for"
     );
 }
@@ -129,6 +129,6 @@ fn the_default_options_floor_reaches_the_bundled_driver_unchanged() {
         Options::default().profile,
         Profile::Hermetic,
         "a Sandbox built without stating a profile must ask for the hermetic floor, \
-         so the secure posture is the one a caller gets by saying nothing"
+         so the strongest profile is the one a caller gets by saying nothing"
     );
 }

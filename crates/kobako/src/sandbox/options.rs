@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use kobako_runtime::profile::Profile;
 
-/// Per-Sandbox caps and posture, the counterpart of the Ruby
+/// Per-Sandbox caps and profile, the counterpart of the Ruby
 /// `SandboxOptions` value object. `None` means "no cap".
 ///
 /// Field-for-field the same shape as the wasmtime driver's `Config`, and
@@ -32,7 +32,7 @@ pub struct Options {
     /// Connections one invocation makes in all, each socket and HTTP request
     /// one.
     pub connection_limit: Option<usize>,
-    /// Requested isolation floor; the driver declares its posture and
+    /// Requested isolation floor; the driver declares its profile and
     /// construction fails below the floor.
     pub profile: Profile,
 }

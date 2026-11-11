@@ -73,9 +73,9 @@ class TestRuntime < Minitest::Test
   end
 
   # @behavior RT-016
-  # The runtime builds the requested isolation rung and declares the
-  # posture it built, so the request round-trips through construction to
-  # the +#profile+ reader on both rungs of the ladder.
+  # The runtime builds the requested isolation profile and declares the
+  # profile it built, so the request round-trips through construction to
+  # the +#profile+ reader on both profiles.
   def test_from_path_builds_and_declares_the_requested_profile
     require_fixture(FIXTURE_PATH)
 
@@ -86,18 +86,18 @@ class TestRuntime < Minitest::Test
   end
 
   # @behavior RT-017
-  # An off-ladder +profile+ rung must fail closed as +ArgumentError+
-  # rather than fall back to a weaker posture. +SandboxOptions+ validates the
-  # Sandbox path; this exercises the ext's defence-in-depth guard on a
-  # direct +from_path+ call.
-  def test_from_path_raises_argument_error_for_off_ladder_profile
+  # An unknown +profile+ must fail closed as +ArgumentError+ rather than
+  # fall back to a weaker one. +SandboxOptions+ validates the Sandbox path;
+  # this exercises the ext's defence-in-depth guard on a direct +from_path+
+  # call.
+  def test_from_path_raises_argument_error_for_an_unknown_profile
     err = assert_raises(ArgumentError,
-                        "an off-ladder profile through from_path must raise ArgumentError, " \
-                        "not fall back to a weaker posture") do
+                        "an unknown profile through from_path must raise ArgumentError, " \
+                        "not fall back to a weaker profile") do
       Kobako::Runtime.from_path(Kobako::Runtime.default_path, **runtime_options(profile: :sealed))
     end
     assert_match(/profile must be :permissive or :hermetic/, err.message,
-                 "an off-ladder profile through from_path must name the rungs it accepts")
+                 "an unknown profile through from_path must name the profiles it accepts")
   end
 
   # @behavior RT-021
@@ -113,7 +113,7 @@ class TestRuntime < Minitest::Test
                  "an unknown gvl mode through from_path must name the modes it accepts")
   end
 
-  # Same fail-closed posture one layer in: the ext names a snippet's form
+  # Failing closed one layer in: the ext names a snippet's form
   # when it builds the Preamble's snippets, so an unrecognized kind must raise rather than
   # default to either form. +Catalog::Snippets+ only ever emits the two,
   # so this exercises the guard on a direct +#eval+ call.

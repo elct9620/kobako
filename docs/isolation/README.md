@@ -1,6 +1,6 @@
 # Isolation
 
-The Isolation Context owns the Engine, the Wasm Driver that drives it, and the Ambient authority a Posture grants. This document records where the Wasm Driver sits, what it may decide, and when that placement should be reconsidered. The whole map is in [`architecture.md`](../architecture.md).
+The Isolation Context owns the Engine, the Wasm Driver that drives it, and the Ambient authority a Profile grants. This document records where the Wasm Driver sits, what it may decide, and when that placement should be reconsidered. The whole map is in [`architecture.md`](../architecture.md).
 
 | Document | Holds |
 |---|---|
@@ -122,7 +122,7 @@ A Wasm Driver for each Engine builds on what that Engine offers for host functio
 | WasmEdge 0.18.1 | `fn` pointer | no | no |
 | WAMR 2.4 | Rust SDK `wamr-rust-sdk` 1.1 | global registration | no |
 
-Shadowing lets kobako answer its calls and leave the rest to the Engine's native WASI. WAMR's Rust SDK still registers natives once for the whole process, at runtime init. WasmEdge lets only one provider own a module name, so its Wasm Driver would answer all 46 preview1 imports itself. An Engine that cannot freeze its clock declares the permissive Posture, as [`architecture.md`](../architecture.md) § Capability Negotiation sets out.
+Shadowing lets kobako answer its calls and leave the rest to the Engine's native WASI. WAMR's Rust SDK still registers natives once for the whole process, at runtime init. WasmEdge lets only one provider own a module name, so its Wasm Driver would answer all 46 preview1 imports itself. An Engine that cannot freeze its clock declares the permissive Profile, as [`architecture.md`](../architecture.md) § Capability Negotiation sets out.
 
 ## Native Delegation
 
