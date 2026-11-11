@@ -25,12 +25,13 @@ class TestE2ENetworkUdpNamed < Minitest::Test
       outcome.call { socket.send("x", 0, "localhost", %<port>d + 1) },
       outcome.call { socket.send("x", 0, "localhost..", %<port>d) },
       outcome.call { socket.send("x", 0, "unnamed.example", %<port>d) },
-      outcome.call { socket.send("x", 0, "::1", %<port>d) }
+      outcome.call { socket.send("x", 0, "::1", %<port>d) },
+      outcome.call { UDPSocket.new.tap(&:close).send("x", 0, "unnamed.example", %<port>d) }
     ]
   RUBY
 
   ADDRESSED_OUTCOMES = [1, 1, 1, "Errno::EACCES", "Socket::ResolutionError", "Socket::ResolutionError",
-                        "Errno::EAFNOSUPPORT"].freeze
+                        "Errno::EAFNOSUPPORT", "IOError"].freeze
 
   # @behavior NW-168
   def test_a_connected_udp_socket_sends_to_the_peer_it_names_again
@@ -41,7 +42,8 @@ class TestE2ENetworkUdpNamed < Minitest::Test
     assert_equal [ADDRESSED_OUTCOMES, %w[a b c]], [value, receive_from_any(peers, 3).sort],
                  "UDPSocket#send naming the host #connect named in any case, or the peer's address, at its port " \
                  "must reach that peer; one to another port must raise Errno::EACCES, and one to a name the " \
-                 "resolver refuses, a name no endpoint allows, or IPv6 must raise what a connect to it would"
+                 "resolver refuses, a name no endpoint allows, or IPv6 must raise what a connect to it would, " \
+                 "while a closed socket raises IOError before any lookup"
   ensure
     peers&.each(&:close)
   end

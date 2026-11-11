@@ -302,6 +302,9 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
     let data = mesg_bytes_of(mrb, mesg)?;
+    // A closed socket raises before any lookup, as CRuby's `GetOpenFile`
+    // comes before `rsock_addrinfo`.
+    Datagrams::of(mrb, self_)?.with(mrb, |_| Ok(()))?;
     // Whether the address a send names is the peer, `None` when it names none.
     let (names_peer, call) = match to {
         Some((host, port)) => {
