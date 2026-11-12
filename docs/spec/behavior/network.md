@@ -2465,3 +2465,16 @@ endpoint "api.example.com", port: 443
 | Given | a script's `Net::HTTP` session |
 | When | it calls `get` with four arguments and `post` with five |
 | Then | each raises `ArgumentError` naming the count from its required arguments, `1..3` and `2..4`, as CRuby's does |
+
+## `NW-199` A request names its server as the endpoint judged it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+| relates | `NW-044` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an HTTP endpoint naming a loopback server |
+| When | the guest spells a request's authority in another case, with a trailing dot, or with the default port |
+| Then | the server reads the host as the rules judged it. It is lowercase with no trailing dot, and a default port is left out |
