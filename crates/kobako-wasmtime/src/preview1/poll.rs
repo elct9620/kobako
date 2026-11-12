@@ -252,7 +252,7 @@ mod tests {
         let config = Config::for_profile(profile);
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
-        let mut store = Store::new(engine, Invocation::new(None, wasi));
+        let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let linker = imports::linker().expect("host imports must link");
         let module = Module::new(engine, WAIT_WAT).expect("wait module must compile");
@@ -345,7 +345,7 @@ mod tests {
         let config = Config::for_profile(Profile::Hermetic);
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
-        let mut store = Store::new(engine, Invocation::new(None, wasi));
+        let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let linker = imports::linker().expect("host imports must link");
         let module = Module::new(engine, WAIT_ON_WAT).expect("wait module must compile");
@@ -388,7 +388,7 @@ mod tests {
         let config = Config::for_profile(Profile::Hermetic);
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
-        let mut store = Store::new(engine, Invocation::new(None, wasi));
+        let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let linker = imports::linker().expect("host imports must link");
         let module = Module::new(engine, WAIT_ON_FD_WAT).expect("wait module must compile");

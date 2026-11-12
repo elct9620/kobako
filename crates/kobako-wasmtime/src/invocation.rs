@@ -8,7 +8,8 @@
 //! Store is created with.
 //!
 //! The slot also carries the per-invocation wall-clock deadline and the
-//! memory cap `MemoryLimiter`, both read from the wasmtime
+//! `MemoryLimiter` charging the guest's growth to the memory budget its
+//! Cred carries, both read from the wasmtime
 //! `epoch_deadline_callback` / `ResourceLimiter` callbacks installed in
 //! `Driver::new_store`.
 
@@ -16,7 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::endpoint::{Calls, MemoryCap, ABANDONED};
+use kobako_runtime::endpoint::{Calls, ABANDONED};
 use kobako_runtime::profile::Profile;
 
 use crate::exports::Exports;
@@ -43,12 +44,15 @@ pub(crate) struct Invocation {
 }
 
 impl Invocation {
-    pub(crate) fn new(memory_limit: Option<usize>, wasi: Wasi) -> Self {
+    /// The guest's growth is charged to the budget `wasi`'s Cred charges what
+    /// the host holds for it to, so both count against one `memory_limit`.
+    pub(crate) fn new(wasi: Wasi) -> Self {
+        let limiter = MemoryLimiter(wasi.cred().memory_budget().clone());
         Self {
             wasi,
             calls: Calls::default(),
             deadline: None,
-            limiter: MemoryLimiter(MemoryCap::new(memory_limit)),
+            limiter,
             wall_entry: None,
             wall_time: Duration::ZERO,
             exports: None,
@@ -119,14 +123,14 @@ impl Invocation {
     /// Only the `memory.grow` delta past `baseline` is charged, so the
     /// image's initial allocation and the high-water mark of earlier
     /// invocations do not consume the budget.
-    pub(crate) fn arm_memory_cap(&mut self, baseline: usize) {
-        self.limiter.0.activate(baseline);
+    pub(crate) fn arm_memory_budget(&mut self, baseline: usize) {
+        self.limiter.0.arm(baseline);
     }
 
     /// Disarmed once the export returns, so post-run host bookkeeping such
     /// as reading the answer back is not charged to the script.
-    pub(crate) fn disarm_memory_cap(&mut self) {
-        self.limiter.0.deactivate();
+    pub(crate) fn disarm_memory_budget(&mut self) {
+        self.limiter.0.disarm();
     }
 
     /// Stamped right before the guest export call, so the bracket matches
@@ -173,7 +177,7 @@ impl Invocation {
             &crate::wasi::sandbox_connections(),
         )
         .expect("WASI context must build");
-        Self::new(None, wasi)
+        Self::new(wasi)
     }
 
     /// A hermetic invocation whose one network entry holds `endpoints`, or
@@ -195,7 +199,7 @@ impl Invocation {
                     &crate::wasi::sandbox_connections(),
                 )
                 .expect("WASI context must build");
-                Self::new(None, wasi)
+                Self::new(wasi)
             }
         }
     }

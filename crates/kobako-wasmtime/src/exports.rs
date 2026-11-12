@@ -126,7 +126,7 @@ mod tests {
             .expect("WASI context must build");
         let mut store = Store::new(
             load_engine().expect("shared engine must be constructible"),
-            Invocation::new(None, wasi),
+            Invocation::new(wasi),
         );
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let instance = imports::linker()

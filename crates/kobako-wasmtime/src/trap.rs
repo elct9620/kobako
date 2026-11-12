@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 use wasmtime::{Store, StoreHookState, UpdateDeadline};
 
 use crate::invocation::Invocation;
-use kobako_runtime::endpoint::MemoryLimitExceeded;
 use kobako_runtime::error::{SetupError, Trap};
+use kobako_runtime::memcg::MemoryLimitExceeded;
 
 /// Marker error returned from the epoch-deadline callback when the
 /// wall-clock deadline is exceeded. Downcast from the wasmtime trap
@@ -111,7 +111,7 @@ fn other_trap_message(err: &wasmtime::Error) -> String {
 }
 
 /// The template is built before any invocation, so no invocation cap can
-/// fire: the memory cap is not yet armed, and the probe's own setup
+/// fire: the memory budget is not yet armed, and the probe's own setup
 /// deadline is told apart where it fires. Every failure here is a setup
 /// fault, not a trap.
 pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
@@ -121,8 +121,8 @@ pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
 #[cfg(test)]
 mod tests {
     use super::{other_trap_message, to_trap, TimeoutTrap, NO_TIMEOUT_EPOCH_DELTA};
-    use kobako_runtime::endpoint::MemoryLimitExceeded;
     use kobako_runtime::error::Trap;
+    use kobako_runtime::memcg::MemoryLimitExceeded;
 
     // The no-timeout priming delta is added to the engine's current
     // epoch inside wasmtime, and the process-wide ticker advances that

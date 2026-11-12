@@ -7,10 +7,8 @@
 //! bytes.
 
 mod buffer;
-mod capture;
 mod dispatch;
 mod invoke;
-mod memory_cap;
 
 use std::fmt::Display;
 
@@ -18,13 +16,11 @@ use kobako_transport::abi::ABI_VERSION;
 
 use crate::error::{SetupError, Trap};
 
-pub use capture::{clip_capture, pipe_capacity};
 pub use dispatch::{handle, Calls, UpcallEnd, ABANDONED};
 pub use invoke::{
     compile_request, compiled_bytecodes, read_compile_reply, read_outcome, request_of,
     stdin_content, write_request,
 };
-pub use memory_cap::{MemoryCap, MemoryLimitExceeded};
 
 /// For a required guest export that is absent or mistyped, wherever it is
 /// looked up. Names neither the export nor a frontend's artifact path;

@@ -65,7 +65,7 @@ fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
         &sandbox_connections(),
     )
     .map_err(|err| err.to_string())?;
-    let mut store = Store::new(engine, Invocation::new(None, wasi));
+    let mut store = Store::new(engine, Invocation::new(wasi));
     arm_deadline(&mut store, Some(Duration::from_secs(30)));
     let module = Module::from_file(engine, wasm).map_err(|err| err.to_string())?;
     let instance = imports::linker()

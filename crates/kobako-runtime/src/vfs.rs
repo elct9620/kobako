@@ -31,7 +31,6 @@ pub(crate) use namei::{
 
 pub(crate) use attr::notify_change;
 pub use attr::{Iattr, SetTime};
-pub(crate) use cred::VmCommitted;
 pub use cred::{Cred, FileSecurity, SecurityOperations, SecurityPath};
 pub use dentry::{Dentry, DentryOperations};
 pub(crate) use file::alloc_file_pseudo;

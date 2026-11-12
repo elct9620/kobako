@@ -1260,7 +1260,7 @@ mod tests {
         };
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
-        instantiate(Invocation::new(None, wasi))
+        instantiate(Invocation::new(wasi))
     }
 
     /// The guest module, instantiated over `invocation`.

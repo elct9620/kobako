@@ -11,8 +11,8 @@ use crate::ambient::{self, Clocks};
 use crate::config::Config;
 use crate::descriptors::Descriptors;
 use crate::preview2;
-use kobako_runtime::endpoint;
 use kobako_runtime::error::{InvokeError, Trap};
+use kobako_runtime::snapshot::Capture;
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
@@ -122,8 +122,8 @@ impl Wasi {
         profile: Profile,
         grants: &[Grant],
     ) -> Result<Self, Trap> {
-        let stdout = PipeInodeInfo::new(endpoint::pipe_capacity(stdout_limit));
-        let stderr = PipeInodeInfo::new(endpoint::pipe_capacity(stderr_limit));
+        let stdout = PipeInodeInfo::new(Capture::pipe_capacity_of(stdout_limit));
+        let stderr = PipeInodeInfo::new(Capture::pipe_capacity_of(stderr_limit));
 
         // stdio lives in kobako's descriptor table, which answers every
         // call that reads a descriptor (`crate::preview1`); the builder
@@ -323,7 +323,7 @@ mod tests {
         let config = Config::for_profile(profile);
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
-        let mut store = Store::new(engine, Invocation::new(None, wasi));
+        let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
 
         let linker = imports::linker().expect("host imports must link");

@@ -26,9 +26,9 @@ pub(crate) fn verify(
     setup_timeout: Option<Duration>,
 ) -> Result<(), SetupError> {
     let wasi = Wasi::for_probe().map_err(|t| SetupError::Dead(t.to_string()))?;
-    // The memory cap stays off: it arms per invocation, and the probe is
+    // The memory budget stays off: it arms per invocation, and the probe is
     // none.
-    let mut store = WtStore::new(load_engine()?, Invocation::new(None, wasi));
+    let mut store = WtStore::new(load_engine()?, Invocation::new(wasi));
     trap::arm_deadline(&mut store, setup_timeout);
     let past_deadline = |err: &wasmtime::Error| {
         matches!(trap::cap_trap(err), Some(Trap::Timeout(_))).then(|| {

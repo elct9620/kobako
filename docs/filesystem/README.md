@@ -66,7 +66,7 @@ Each role keeps to its own work, so a change that crosses roles is a change in t
 | Filesystem | what one entry answers, its own state on a dentry or inode |
 | locking, sched | whether a wait can end, who asks, the Frontend's way to wait |
 
-The VFS also charges what a Cred's Filesystems hold against that Cred's memory cap.
+The VFS also charges what a Cred's Filesystems hold to that Cred's memory budget, the one the guest's own growth is charged to.
 
 ## Linux Alignment
 

@@ -291,7 +291,7 @@ fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
     };
     let wasi = Wasi::for_invocation(&config, stdin_bytes(), &[], &sandbox_connections())
         .expect("WASI context must build");
-    let mut store = Store::new(engine, Invocation::new(None, wasi));
+    let mut store = Store::new(engine, Invocation::new(wasi));
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     let linker = imports::linker().expect("host imports must link");
     let (mut observation, store) = observe(store, &linker, call, fd);
@@ -309,8 +309,8 @@ struct Oracle {
 
 fn through_wasmtime_wasi(call: &str, fd: i32, limit: Option<usize>) -> Observation {
     let engine = load_engine().expect("shared engine must be constructible");
-    let stdout = MemoryOutputPipe::new(kobako_runtime::endpoint::pipe_capacity(limit));
-    let stderr = MemoryOutputPipe::new(kobako_runtime::endpoint::pipe_capacity(limit));
+    let stdout = MemoryOutputPipe::new(kobako_runtime::Capture::pipe_capacity_of(limit));
+    let stderr = MemoryOutputPipe::new(kobako_runtime::Capture::pipe_capacity_of(limit));
     let ctx = WasiCtxBuilder::new()
         .stdin(MemoryInputPipe::new(stdin_bytes()))
         .stdout(stdout.clone())

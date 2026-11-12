@@ -20,6 +20,7 @@ pub mod filesystem;
 pub mod grant;
 mod hashtable;
 mod locking;
+pub mod memcg;
 pub mod mount;
 pub mod net;
 pub mod network;

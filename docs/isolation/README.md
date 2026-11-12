@@ -134,7 +134,7 @@ The same test applies beyond the filesystem. kobako answers only what native WAS
 | a clock's `subscribe-duration` | `kobako-runtime` | its pollable waits beside a socket's |
 | Preamble, Channel | `kobako-runtime` | kobako's own concepts |
 | kobako ABI host side | `kobako-runtime` | no Engine supports it |
-| memory cap accounting | `kobako-runtime` | the growth hook stays in the Wasm Driver |
+| memory budget accounting | `kobako-runtime` | one budget for the guest's growth and what the host holds for it; the growth hook stays in the Wasm Driver |
 | networking | `kobako-runtime` | a new kind of Grant |
 
 Preview1 has `sock_accept`, `sock_recv`, `sock_send`, and `sock_shutdown`, but no connect. Networking is therefore encoded as WASI 0.2's `wasi:sockets`, `wasi:http`, and `wasi:io`, as imports a core module links.

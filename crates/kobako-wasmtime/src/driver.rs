@@ -66,10 +66,7 @@ impl Driver {
     /// instantiating the guest and writing its request count against the
     /// `timeout` as the export call does.
     fn new_store(&self, wasi: Wasi) -> Result<WtStore<Invocation>, SetupError> {
-        let mut store = WtStore::new(
-            load_engine()?,
-            Invocation::new(self.config.memory_limit, wasi),
-        );
+        let mut store = WtStore::new(load_engine()?, Invocation::new(wasi));
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         trap::arm_deadline(&mut store, self.config.timeout);
         store.data_mut().start_wall_clock();
@@ -93,7 +90,7 @@ impl Driver {
     }
 
     /// Disarm runs whether the call returns or traps, so the `wall_time`
-    /// bracket and the memory cap always close; that guarantee is why the
+    /// bracket and the memory budget always close; that guarantee is why the
     /// bracket lives in one place rather than at each call site.
     fn call_with_caps<Params, Results>(
         &self,
@@ -106,7 +103,7 @@ impl Driver {
         Params: wasmtime::WasmParams,
         Results: wasmtime::WasmResults,
     {
-        self.arm_memory_cap(store, exports);
+        self.arm_memory_budget(store, exports);
         // A wait for a lock the call meets ends at the same deadline the guest's
         // code does, so another Sandbox holding it cannot keep this one past it.
         let deadline = store.data().deadline();
@@ -118,14 +115,14 @@ impl Driver {
     }
 
     /// The pre-initialized image's allocation is folded into the memory
-    /// baseline rather than the budget, so the cap arms only once the
+    /// baseline rather than the budget, so the budget arms only once the
     /// image is in place.
-    fn arm_memory_cap(&self, store: &mut WtStore<Invocation>, exports: &Exports) {
+    fn arm_memory_budget(&self, store: &mut WtStore<Invocation>, exports: &Exports) {
         let baseline = match exports.memory {
             Some(m) => m.data_size(store.as_context_mut()),
             None => 0,
         };
-        store.data_mut().arm_memory_cap(baseline);
+        store.data_mut().arm_memory_budget(baseline);
     }
 
     /// Built the same for every `completion`: captures and usage must
@@ -135,15 +132,10 @@ impl Driver {
         let mut usage = Usage::default();
         usage.wall_time = data.wall_time().as_secs_f64();
         usage.memory_peak = data.memory_peak();
-        let clip = |bytes, limit| {
-            let mut capture = Capture::default();
-            (capture.bytes, capture.truncated) = endpoint::clip_capture(bytes, limit);
-            capture
-        };
         Snapshot::new(
             completion,
-            clip(data.wasi().stdout_bytes(), self.config.stdout_limit),
-            clip(data.wasi().stderr_bytes(), self.config.stderr_limit),
+            Capture::new(data.wasi().stdout_bytes(), self.config.stdout_limit),
+            Capture::new(data.wasi().stderr_bytes(), self.config.stderr_limit),
             usage,
         )
     }
@@ -223,5 +215,5 @@ fn guest_of(store: &mut WtStore<Invocation>) -> Guest<'_> {
 
 fn disarm_caps(store: &mut WtStore<Invocation>) {
     store.data_mut().stop_wall_clock();
-    store.data_mut().disarm_memory_cap();
+    store.data_mut().disarm_memory_budget();
 }

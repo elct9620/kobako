@@ -8,11 +8,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::grant::{Grant, Policy};
+use crate::memcg::MemoryBudget;
 use crate::mount::{Access, Mount, MountRequest};
 use crate::network::Connection;
 use crate::vfs::{
     d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, OpenHow, Path, SecurityOperations,
-    SecurityPath, VfsMount, VmCommitted, PATH_MAX,
+    SecurityPath, VfsMount, PATH_MAX,
 };
 use crate::Errno;
 
@@ -258,8 +259,9 @@ impl WalkGuard {
     }
 }
 
-/// The Cred an Invocation opens its Mounts' roots with, its Filesystems holding at
-/// most `memory_limit` bytes on its behalf, or without bound for `None`: kobako's
+/// The Cred an Invocation opens its Mounts' roots with, charging what the host
+/// holds on its behalf to one budget of `memory_limit` bytes, or without bound
+/// for `None`: kobako's
 /// own rules, then each of `modules` in order, before any Mount's Policy applies,
 /// as a Linux task opens the files it keeps before `landlock_restrict_self`.
 /// The modules are those the Wasm Driver was built with, as Linux stacks the LSMs
@@ -270,7 +272,7 @@ pub fn prepare_creds_within(
 ) -> Arc<Cred> {
     let mut security: Vec<Arc<dyn SecurityOperations>> = vec![Arc::new(KobakoSecurity)];
     security.extend(modules.iter().cloned());
-    Cred::within(security, memory_limit.map(VmCommitted::new))
+    Cred::within(security, MemoryBudget::new(memory_limit))
 }
 
 /// An entry's connect policy, judging what the guest named, as one more LSM

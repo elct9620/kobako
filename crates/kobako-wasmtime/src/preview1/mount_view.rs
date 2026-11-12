@@ -545,7 +545,7 @@ impl Guest {
         };
         let wasi = Wasi::for_invocation(&config, Vec::new(), grants, &sandbox_connections())
             .expect("WASI context must build");
-        let mut store = Store::new(engine, Invocation::new(None, wasi));
+        let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let module = Module::new(engine, PROBE_WAT).expect("probe module must compile");
         let instance = imports::linker()

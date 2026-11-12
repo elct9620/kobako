@@ -24,6 +24,29 @@ pub struct Capture {
     pub truncated: bool,
 }
 
+impl Capture {
+    /// What a channel the guest wrote `bytes` into keeps under `limit`: the
+    /// bytes clipped to it, marked when they passed it. The pipe holds one
+    /// byte past the limit, so a channel written to exactly the limit stays
+    /// unmarked.
+    pub fn new(mut bytes: Vec<u8>, limit: Option<usize>) -> Self {
+        let truncated = limit.is_some_and(|limit| bytes.len() > limit);
+        if let Some(limit) = limit.filter(|_| truncated) {
+            bytes.truncate(limit);
+        }
+        Self { bytes, truncated }
+    }
+
+    /// The room a channel's pipe takes for `limit`: one byte past it, so
+    /// writing exactly the limit and passing it stay apart.
+    pub fn pipe_capacity_of(limit: Option<usize>) -> usize {
+        match limit {
+            Some(limit) => limit.saturating_add(1),
+            None => usize::MAX,
+        }
+    }
+}
+
 /// How the guest invocation completed: `Outcome` is the result the guest
 /// left, already framed; `Trap` is an engine fault after the export call
 /// started, kept as a value so the rest of the `Snapshot` survives it.
@@ -73,5 +96,100 @@ impl Snapshot {
             stderr,
             usage,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Channel-agnostic, a function of `limit` rather than of which channel,
+    //! so a regression that breaks one channel cannot slip past.
+    use super::Capture;
+
+    fn kept(bytes: &[u8], limit: Option<usize>) -> (Vec<u8>, bool) {
+        let capture = Capture::new(bytes.to_vec(), limit);
+        (capture.bytes, capture.truncated)
+    }
+
+    // @behavior S-108
+    #[test]
+    fn a_pipe_holds_one_byte_past_its_limit() {
+        assert_eq!(
+            (
+                Capture::pipe_capacity_of(Some(5)),
+                Capture::pipe_capacity_of(Some(0))
+            ),
+            (6, 1),
+            "a limit of 5 and of 0 through Capture::pipe_capacity_of must size the pipe 6 and 1"
+        );
+    }
+
+    // @behavior S-109
+    #[test]
+    fn a_pipe_without_a_limit_holds_usize_max() {
+        assert_eq!(
+            Capture::pipe_capacity_of(None),
+            usize::MAX,
+            "no limit through Capture::pipe_capacity_of must size the pipe usize::MAX"
+        );
+    }
+
+    // @behavior S-110
+    #[test]
+    fn a_pipe_past_usize_max_saturates() {
+        assert_eq!(
+            Capture::pipe_capacity_of(Some(usize::MAX)),
+            usize::MAX,
+            "a limit of usize::MAX through Capture::pipe_capacity_of must saturate at usize::MAX"
+        );
+    }
+
+    // @behavior S-111
+    #[test]
+    fn a_capture_under_its_limit_stays_whole() {
+        assert_eq!(
+            kept(b"abc", Some(5)),
+            (b"abc".to_vec(), false),
+            "3 bytes under a limit of 5 through Capture::new must stay whole and untruncated"
+        );
+    }
+
+    // @behavior S-112
+    #[test]
+    fn a_capture_at_its_limit_is_not_truncated() {
+        assert_eq!(
+            kept(b"abcde", Some(5)),
+            (b"abcde".to_vec(), false),
+            "5 bytes at a limit of 5 through Capture::new must stay whole and untruncated"
+        );
+    }
+
+    // @behavior S-024
+    #[test]
+    fn a_capture_past_its_limit_is_clipped_and_truncated() {
+        assert_eq!(
+            kept(b"abcdef", Some(5)),
+            (b"abcde".to_vec(), true),
+            "6 bytes past a limit of 5 through Capture::new must clip to 5 and flag truncation"
+        );
+    }
+
+    // @behavior S-033
+    #[test]
+    fn a_capture_without_a_limit_stays_whole() {
+        assert_eq!(
+            kept(b"abcdef", None),
+            (b"abcdef".to_vec(), false),
+            "6 bytes with no limit through Capture::new must stay whole and untruncated"
+        );
+    }
+
+    // @behavior S-100 S-101
+    #[test]
+    fn an_empty_capture_stays_empty() {
+        assert_eq!(
+            kept(b"", Some(5)),
+            (Vec::new(), false),
+            "no bytes under a limit of 5 through Capture::new must stay empty and untruncated"
+        );
     }
 }

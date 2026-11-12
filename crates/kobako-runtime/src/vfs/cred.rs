@@ -4,7 +4,6 @@
 
 use std::any::Any;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::dentry::Dentry;
@@ -13,6 +12,7 @@ use super::inode::Mask;
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
 use super::{Errno, FileType};
+use crate::memcg::MemoryBudget;
 use crate::network::Connection;
 
 /// What one security module keeps on an open file, as Linux's `f_security`
@@ -140,30 +140,13 @@ pub trait SecurityOperations: Send + Sync {
     }
 }
 
-/// How many bytes Filesystems hold on one caller's behalf between calls, and the
-/// most they may, as Linux's `__vm_enough_memory` weighs what `vm_committed_as`
-/// counts against its limit, so a guest's descriptors cannot multiply a directory
-/// past what it was allotted.
-pub(crate) struct VmCommitted {
-    limit: usize,
-    used: AtomicUsize,
-}
-
-impl VmCommitted {
-    pub(crate) fn new(limit: usize) -> Arc<Self> {
-        Arc::new(Self {
-            limit,
-            used: AtomicUsize::new(0),
-        })
-    }
-}
-
 /// Who a call is made for, holding the security modules registered for it, as
-/// `cred->security` holds a Landlock domain, and the memory held on its behalf,
-/// which every Cred restricted from it shares, as a task's memory cgroup does.
+/// `cred->security` holds a Landlock domain, and the memory budget the host
+/// charges what it holds on the caller's behalf to, which every Cred restricted
+/// from it shares, as a task's memory cgroup does.
 pub struct Cred {
     security: Vec<Arc<dyn SecurityOperations>>,
-    committed: Option<Arc<VmCommitted>>,
+    memory: Arc<MemoryBudget>,
 }
 
 /// One no module is registered for, which this crate's tests make calls as.
@@ -172,27 +155,24 @@ impl Default for Cred {
     fn default() -> Self {
         Self {
             security: Vec::new(),
-            committed: None,
+            memory: MemoryBudget::new(None),
         }
     }
 }
 
 impl Cred {
-    /// One with `security` registered.
+    /// One with `security` registered, its memory unbounded.
     pub(crate) fn new(security: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
-        Self::within(security, None)
+        Self::within(security, MemoryBudget::new(None))
     }
 
-    /// One with `security` registered and the memory held on its behalf counted
-    /// in `committed`, without bound where none.
+    /// One with `security` registered, charging what is held on its behalf to
+    /// `memory`.
     pub(crate) fn within(
         security: Vec<Arc<dyn SecurityOperations>>,
-        committed: Option<Arc<VmCommitted>>,
+        memory: Arc<MemoryBudget>,
     ) -> Arc<Self> {
-        Arc::new(Self {
-            security,
-            committed,
-        })
+        Arc::new(Self { security, memory })
     }
 
     /// This Cred with `more` modules registered after its own, sharing the
@@ -200,7 +180,13 @@ impl Cred {
     pub(crate) fn with_modules(&self, more: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
         let mut security = self.security.clone();
         security.extend(more);
-        Self::within(security, self.committed.clone())
+        Self::within(security, self.memory.clone())
+    }
+
+    /// The budget the caller's memory is charged to, which a Wasm Driver also
+    /// charges the guest's own growth to.
+    pub fn memory_budget(&self) -> &Arc<MemoryBudget> {
+        &self.memory
     }
 
     /// Ask each module in turn, the first refusal answering, as `call_int_hook`.
@@ -304,27 +290,15 @@ impl Cred {
         self.call_int_hook(|module| module.socket_bind(address))
     }
 
-    /// Count `bytes` more held on this caller's behalf, refusing them past its
-    /// limit, as `security_vm_enough_memory_mm` ends in `__vm_enough_memory`.
+    /// Charge `bytes` more held on this caller's behalf, refusing them past its
+    /// budget, as `security_vm_enough_memory_mm` ends in `__vm_enough_memory`.
     pub(crate) fn security_vm_enough_memory(&self, bytes: usize) -> Result<(), Errno> {
-        let Some(committed) = &self.committed else {
-            return Ok(());
-        };
-        committed
-            .used
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
-                used.checked_add(bytes)
-                    .filter(|&total| total <= committed.limit)
-            })
-            .map(|_| ())
-            .map_err(|_| Errno::OutOfMemory)
+        self.memory.try_charge(bytes)
     }
 
-    /// `bytes` counted earlier are held no more, as `vm_unacct_memory` gives
+    /// `bytes` charged earlier are held no more, as `vm_unacct_memory` gives
     /// them back.
     pub(crate) fn vm_unacct_memory(&self, bytes: usize) {
-        if let Some(committed) = &self.committed {
-            committed.used.fetch_sub(bytes, Ordering::Relaxed);
-        }
+        self.memory.uncharge(bytes);
     }
 }
