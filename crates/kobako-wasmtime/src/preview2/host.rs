@@ -1132,11 +1132,12 @@ impl IoHost for Invocation {
         self.poll_ready(vec![pollable]).map(drop)
     }
 
-    /// The indices of the pollables ready, once one is, as WASI's `poll`
-    /// answers; an empty list traps, as WASI says it does. A handle listed
-    /// more than once waits once and answers at each of its indices, as
-    /// wasmtime groups the list by handle, so a long list of one handle
-    /// costs no more waiters than the handle alone.
+    /// The indices of the pollables ready, once one is, in the order the
+    /// guest listed them, as WASI's `poll` answers; an empty list traps, as
+    /// WASI says it does. A handle listed more than once waits once and
+    /// answers at each of its indices, as wasmtime waits once per resource,
+    /// so a long list of one handle costs no more waiters than the handle
+    /// alone.
     fn poll_poll(&mut self, r#in: Vec<Pollable>) -> wasmtime::Result<Vec<u32>> {
         if r#in.is_empty() {
             return Err(wasmtime::Error::msg("poll was handed no pollable"));
