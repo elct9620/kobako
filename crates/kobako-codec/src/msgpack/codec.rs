@@ -45,6 +45,6 @@ const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
 /// payload from overflowing the wasm stack and hard-trapping the guest;
 /// it sits far below that overflow threshold and matches the limit the
 /// host's MessagePack library imposes, so both sides reject the same
-/// boundary. Shared with the encode-side walk in `kobako`'s codec
-/// conversion so the two guest walks cannot drift apart.
+/// boundary. Shared with `kobako-mruby`'s walk from mruby values to this
+/// codec's, so the two guest walks cannot drift apart.
 pub const MAX_NESTING_DEPTH: usize = 128;
