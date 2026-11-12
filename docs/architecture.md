@@ -320,7 +320,7 @@ Each row names the one reference a layer's spec and code are judged against.
 | the two Frontends | each other | [`process/parity.md`](process/parity.md) |
 | names and wording | the convention | [`process/convention.md`](process/convention.md) |
 
-Guest Ruby covers `kobako-io` and every capability gem.
+Guest Ruby covers `kobako-io` and every capability gem. Linux means its latest stable release, never a release candidate, so a reference holds still while kobako is judged against it.
 
 ### WASI Host Layer
 
