@@ -11,7 +11,7 @@ use crate::payload::RunPayload;
 use crate::receiver::Receiver;
 
 /// A `run` argument in the value-tree spelling: a `Value` passes by
-/// value, a host object auto-wraps into a capability Handle the guest
+/// value and carries no Handle, a host object auto-wraps into a capability Handle the guest
 /// can call back into (the counterpart of the Ruby `#run` auto-wrap;
 /// wrapping applies to the top-level argument position).
 pub enum RunArg {
@@ -53,8 +53,14 @@ fn encode_values(
 }
 
 /// Table exhaustion surfaces as an outer `Err`, since the guest never ran.
+/// A `Value::Handle` the Host App wrote is refused as an argument error,
+/// since only this invocation's table issues the id a Handle carries.
 fn wrap(handles: &Handles<'_>, arg: RunArg) -> Result<Value, Error> {
     match arg {
+        RunArg::Value(value) if carries_handle(&value) => Err(Error::Argument(
+            "a run argument cannot carry a Handle; pass the host object as RunArg::Object"
+                .to_string(),
+        )),
         RunArg::Value(value) => Ok(value),
         RunArg::Object(object) => handles.alloc(object).map(Value::Handle).map_err(|fault| {
             Error::Sandbox(Box::new(Failure::host(
@@ -62,5 +68,16 @@ fn wrap(handles: &Handles<'_>, arg: RunArg) -> Result<Value, Error> {
                 fault.message,
             )))
         }),
+    }
+}
+
+fn carries_handle(value: &Value) -> bool {
+    match value {
+        Value::Handle(_) => true,
+        Value::Array(items) => items.iter().any(carries_handle),
+        Value::Map(pairs) => pairs
+            .iter()
+            .any(|(key, value)| carries_handle(key) || carries_handle(value)),
+        _ => false,
     }
 }

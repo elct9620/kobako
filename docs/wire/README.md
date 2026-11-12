@@ -85,11 +85,11 @@ A Capability Handle is an opaque token for a stateful Ruby object the wire canno
 | Opaque | the guest can only pass it back or call methods on it |
 | Host-allocated | minted for a stateful Service answer or `#run` argument |
 | Scoped to one invocation | each invocation mints its own table |
-| Not constructible | no guest or Host App API turns an integer into one |
+| Not constructible | no guest API turns an integer into one; a Host App's value arguments refuse one |
 | ID range | `1` to `0x7fff_ffff`; `0` is the invalid sentinel |
 | Exhaustion | past the cap raises `Kobako::HandleExhaustedError` |
 
-The Host App has no API to create or inspect Handles. [transport-dispatch](../spec/behavior/transport-dispatch.md) and [transport-boundary](../spec/behavior/transport-boundary.md) hold how each property behaves.
+A Host App hands over host objects, and the invocation's table mints their Handles. A payload spelled in a Host App's own schema carries only the ids that table issued it. [transport-dispatch](../spec/behavior/transport-dispatch.md) and [transport-boundary](../spec/behavior/transport-boundary.md) hold how each property behaves.
 
 ### Handle Lifetime
 

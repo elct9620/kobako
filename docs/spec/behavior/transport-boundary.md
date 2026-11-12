@@ -45,6 +45,7 @@ The methods a Host App cannot foresee handing over are the ones it never wrote. 
 - `test/unit/values/test_handle.rb`
 - `crates/kobako/src/dispatch.rs`
 - `crates/kobako/src/msgpack/receiver.rs`
+- `crates/kobako/tests/integration/run_arguments.rs`
 - `wasm/kobako-mruby/src/runtime/bridges.rs`
 
 ## `T-108` A guest may ask whether a name is reachable
@@ -771,3 +772,15 @@ The methods a Host App cannot foresee handing over are the ones it never wrote. 
 | Given | a bound object whose predicate permits a copy of a Ruby method mixed into `Object` |
 | When | the guest calls that name |
 | Then | it is still refused |
+
+## `T-389` A Host App's run arguments cannot carry a capability reference it wrote
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-161`, `T-162` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Rust Host App writing a capability reference value, at the top or nested in an array or map |
+| When | it runs an entrypoint with that value among its arguments |
+| Then | the run fails as the Host App's argument error before the guest runs. A host object handed over still crosses as a capability reference |
