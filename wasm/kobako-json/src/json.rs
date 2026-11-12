@@ -42,7 +42,7 @@ fn json_parse(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> 
     // allocates any mruby value, so the source string cannot move
     // underneath it; `arbitrary_precision` leaves the parsed tree owning
     // its own copies.
-    let bytes = unsafe { rstr.as_bytes(mrb) };
+    let bytes = unsafe { rstr.as_slice(mrb) };
     let json: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|e| errors::parser_error(mrb, &e.to_string()))?;
     convert::decode(mrb, &json, symbolize)

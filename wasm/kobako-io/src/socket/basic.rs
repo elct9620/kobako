@@ -257,7 +257,7 @@ fn written_bytes_of(mrb: &Mrb, object: Value) -> Result<Vec<u8>, Error> {
         .funcall::<_, _, Value>(mrb, c"to_s", ())?
         .to_r_string(mrb)?;
     // SAFETY: the bytes are copied before the next mruby call.
-    Ok(unsafe { data.as_bytes(mrb) }.to_vec())
+    Ok(unsafe { data.as_slice(mrb) }.to_vec())
 }
 
 /// The length `read` and `readpartial` are given, refusing a negative one as
@@ -404,7 +404,7 @@ pub(super) fn outbuf_of(mrb: &Mrb, outbuf: Option<Value>) -> Result<Option<Value
 pub(super) fn mesg_bytes_of(mrb: &Mrb, mesg: Value) -> Result<Vec<u8>, Error> {
     let mesg = string_value_of(mrb, mesg)?;
     // SAFETY: the bytes are copied before the next mruby call.
-    Ok(unsafe { mesg.as_bytes(mrb) }.to_vec())
+    Ok(unsafe { mesg.as_slice(mrb) }.to_vec())
 }
 
 /// The `sockaddr` a send's `dest` names, as CRuby's `SockAddrStringValue`

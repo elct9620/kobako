@@ -254,7 +254,7 @@ fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
         // guest exception instead of unwinding past this Rust frame.
         let s = val.to_r_string(mrb)?;
         // SAFETY: the slice is consumed before the next mruby call.
-        let mut rest = unsafe { s.as_bytes(mrb) };
+        let mut rest = unsafe { s.as_slice(mrb) };
         while !rest.is_empty() {
             // SAFETY: ptr / len describe a live mruby-owned
             // buffer; `write(2)` reads it without retaining.
@@ -354,7 +354,7 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
     let _scope = mrb.arena_scope();
     let s = val.to_r_string(mrb)?;
     // SAFETY: the slice is dropped before the next mruby call below.
-    let ends_nl = unsafe { s.as_bytes(mrb) }.last() == Some(&b'\n');
+    let ends_nl = unsafe { s.as_slice(mrb) }.last() == Some(&b'\n');
     write_one(mrb, self_, s.as_value())?;
     if !ends_nl {
         write_newline(mrb, self_)?;
@@ -381,7 +381,7 @@ fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
     }
     let s = obj.to_r_string(mrb)?;
     // SAFETY: the first byte is copied out before the next mruby call.
-    let first = unsafe { s.as_bytes(mrb) }.first().copied();
+    let first = unsafe { s.as_slice(mrb) }.first().copied();
     if let Some(byte) = first {
         let one = mrb.str_new(&[byte]).as_value();
         write_one(mrb, self_, one)?;

@@ -188,7 +188,7 @@ fn file_s_write(mrb: &Mrb, _self: Value, path: Value, data: Value) -> Result<Val
     let path = path_arg(mrb, path)?;
     let data = data.to_r_string(mrb)?;
     // SAFETY: the bytes are copied out before the next mruby call.
-    let bytes = unsafe { data.as_bytes(mrb) }.to_vec();
+    let bytes = unsafe { data.as_slice(mrb) }.to_vec();
     fs::File::create(&path)
         .and_then(|mut file| file.write_all(&bytes))
         .map_err(|err| errno::from_io(mrb, &err, &path))?;

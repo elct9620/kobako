@@ -382,7 +382,7 @@ fn socket_ungetc(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Error>
             let text = RString::try_convert(pushed, mrb)
                 .map_err(|_| crate::errno::type_error(mrb, pushed))?;
             // SAFETY: the bytes are copied before the next mruby call.
-            unsafe { text.as_bytes(mrb) }.to_vec()
+            unsafe { text.as_slice(mrb) }.to_vec()
         }
     };
     push_back(source, &bytes);
@@ -402,7 +402,7 @@ fn socket_ungetbyte(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Err
             let text = RString::try_convert(pushed, mrb)
                 .map_err(|_| crate::errno::type_error(mrb, pushed))?;
             // SAFETY: the bytes are copied before the next mruby call.
-            let bytes = unsafe { text.as_bytes(mrb) }.to_vec();
+            let bytes = unsafe { text.as_slice(mrb) }.to_vec();
             push_back(source, &bytes);
         }
     }
@@ -483,7 +483,7 @@ fn separator_and_limit_of(
         }
         let text = string_value_of(mrb, value)?;
         // SAFETY: the bytes are copied before the next mruby call.
-        Ok(Some(unsafe { text.as_bytes(mrb) }.to_vec()))
+        Ok(Some(unsafe { text.as_slice(mrb) }.to_vec()))
     };
     // One argument that is no String is the limit, as CRuby's
     // `rb_io_getline_args` reads it, so a Symbol raises TypeError as a limit.

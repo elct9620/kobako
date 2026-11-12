@@ -234,7 +234,7 @@ fn data_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
 fn bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     match RString::from_value(value) {
         // SAFETY: the bytes are copied out before any later mruby call.
-        Some(text) => Ok(unsafe { text.as_bytes(mrb) }.to_vec()),
+        Some(text) => Ok(unsafe { text.as_slice(mrb) }.to_vec()),
         None => Err(errno::type_error(mrb, value)),
     }
 }

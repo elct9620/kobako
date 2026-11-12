@@ -23,7 +23,7 @@ categories = ["wasm"]
 [dependencies]
 # Typed mruby wrapper — the `Gem` trait this crate implements plus
 # every `Mrb` / `Value` seam the bridges use.
-beni = "0.25.0"
+beni = "0.26.0"
 # Generates the WASI 0.2 interfaces the guest imports from `wit/`, as
 # wasi-libc imports preview1. Its runtime is `wasi::rt`, not the `wit-bindgen`
 # crate's, so the Guest Binary exports only the ABI's own `cabi_realloc`.

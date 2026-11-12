@@ -316,7 +316,7 @@ fn to_text(mrb: &Mrb, value: Value) -> Result<String, Error> {
 fn to_bytes(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     let string = value.to_r_string(mrb)?;
     // SAFETY: the bytes are copied out before the next mruby call.
-    Ok(unsafe { string.as_bytes(mrb) }.to_vec())
+    Ok(unsafe { string.as_slice(mrb) }.to_vec())
 }
 
 /// `Net::HTTP.new(address, port = nil, p_addr = :ENV, ...)`: port 80 unless

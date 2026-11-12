@@ -347,7 +347,7 @@ fn io_pwrite(mrb: &Mrb, self_: Value, data: Value, offset: i64) -> Result<Value,
     let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
     let data = data.to_r_string(mrb)?;
     // SAFETY: the slice is consumed before the next mruby call.
-    let bytes = unsafe { data.as_bytes(mrb) };
+    let bytes = unsafe { data.as_slice(mrb) };
     // SAFETY: `bytes` is a live buffer the call only reads.
     let written = unsafe { raw::pwrite(fd, bytes.as_ptr().cast(), bytes.len(), offset) };
     if written < 0 {

@@ -134,7 +134,8 @@ impl Kobako {
                     HANDLE_ID_IVAR,
                     (id as i32).into_value(mrb),
                 )?;
-                Ok(handle.freeze(mrb))
+                handle.freeze(mrb);
+                Ok(handle)
             })
             .unwrap_or(nil)
     }

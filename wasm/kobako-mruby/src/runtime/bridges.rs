@@ -251,7 +251,8 @@ pub(crate) fn handle_not_constructible(
 /// like the decoder-minted original, so the guest cannot mint a re-pointable
 /// Handle by duplicating one. A `clone` already inherits the frozen flag.
 pub(crate) fn handle_initialize_copy(mrb: &Mrb, self_: Value, _orig: Value) -> Value {
-    self_.freeze(mrb)
+    self_.freeze(mrb);
+    self_
 }
 
 /// Always `true`: every call dispatches through `method_missing` to the
