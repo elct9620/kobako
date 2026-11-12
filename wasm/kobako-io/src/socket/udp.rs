@@ -443,6 +443,6 @@ fn receive_from(
 /// `exception: false`.
 fn udp_socket_recvfrom_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (args, exception) = exception_option_of(mrb, args)?;
-    let past = PastBuffer::new(Wait::DontWait, "recvfrom", true).with_exception(exception);
+    let past = PastBuffer::new(Wait::DontWait, true).with_exception(exception);
     receive_past_buffer(mrb, self_, args, past)
 }

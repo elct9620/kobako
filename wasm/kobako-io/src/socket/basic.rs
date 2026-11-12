@@ -508,8 +508,8 @@ pub(super) fn ensure_flags_carried(mrb: &Mrb, flags: i64, call: &str) -> Result<
 }
 
 /// What a receive past a socket's buffer takes, as CRuby's
-/// `rsock_s_recvfrom` reads it before it takes the open socket: `maxlen`,
-/// `flags` as `NUM2INT`, and an `outbuf` as `StringValue`.
+/// `rsock_s_recvfrom` reads it before it takes the open socket: `flags` as
+/// `NUM2INT`, then `maxlen`, and an `outbuf` as `StringValue`.
 pub(super) struct DirectArgs {
     pub(super) maxlen: usize,
     flags: i64,
@@ -523,11 +523,11 @@ pub(super) fn direct_args_of(mrb: &Mrb, args: &[Value]) -> Result<DirectArgs, Er
         [maxlen, flags, outbuf] => (*maxlen, Some(*flags), Some(*outbuf)),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 3)),
     };
-    let maxlen = strbuf_length_of(mrb, maxlen)?;
     let flags = match flags.filter(|flags| !flags.is_nil()) {
         Some(flags) => flags_of(mrb, flags)?,
         None => 0,
     };
+    let maxlen = strbuf_length_of(mrb, maxlen)?;
     Ok(DirectArgs {
         maxlen,
         flags,
@@ -653,27 +653,33 @@ fn socket_closed_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 /// leaving `outbuf` as it was. Like CRuby's `recvfrom(2)`, it reads whether
 /// or not `close_read` closed the reading side.
 fn socket_recv(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let past = PastBuffer::new(Wait::Blocking, "recv", false);
+    let past = PastBuffer::new(Wait::Blocking, false);
     receive_past_buffer(mrb, self_, args, past)
 }
 
-/// How a receive past the buffer reads: whether it waits, the name its
-/// buffered refusal and its `Errno` carry, and whether it answers the sender
-/// too.
+/// How a receive past the buffer reads: whether it waits, and whether it
+/// answers the sender too.
 pub(super) struct PastBuffer {
     wait: Wait,
     exception: bool,
-    name: &'static str,
     with_sender: bool,
 }
 
 impl PastBuffer {
-    pub(super) fn new(wait: Wait, name: &'static str, with_sender: bool) -> Self {
+    pub(super) fn new(wait: Wait, with_sender: bool) -> Self {
         Self {
             wait,
             exception: true,
-            name,
             with_sender,
+        }
+    }
+
+    /// The refusal a buffer holding bytes raises, which CRuby's blocking
+    /// `rsock_s_recvfrom` names `recv` and its non-blocking one `recvfrom`.
+    fn buffered_refusal(&self) -> &'static str {
+        match self.wait {
+            Wait::Blocking => "recv for buffered IO",
+            _ => "recvfrom for buffered IO",
         }
     }
 
@@ -697,10 +703,11 @@ pub(super) fn receive_past_buffer(
 ) -> Result<Value, Error> {
     let direct = direct_args_of(mrb, args)?;
     let source = open_socket_of(mrb, self_)?;
-    direct.ensure_takes(mrb, source, &format!("{} for buffered IO", past.name))?;
+    direct.ensure_takes(mrb, source, past.buffered_refusal())?;
     let (maxlen, outbuf) = (direct.maxlen, direct.outbuf);
-    let call = format!("{}(2)", past.name);
-    let Poll::Ready(received) = source.receive_from(mrb, maxlen, past.wait, &call)? else {
+    // Every receive is CRuby's one `recvfrom(2)`.
+    let call = "recvfrom(2)";
+    let Poll::Ready(received) = source.receive_from(mrb, maxlen, past.wait, call)? else {
         let blocked = format!("{call} would block");
         return would_wait(mrb, Direction::Read, &blocked, past.exception);
     };
@@ -747,7 +754,7 @@ fn socket_sysread(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
 /// `exception: false`. Bytes a read held back raise `IOError`, as CRuby's.
 fn socket_recv_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (args, exception) = exception_option_of(mrb, args)?;
-    let past = PastBuffer::new(Wait::DontWait, "recvfrom", false).with_exception(exception);
+    let past = PastBuffer::new(Wait::DontWait, false).with_exception(exception);
     receive_past_buffer(mrb, self_, args, past)
 }
 

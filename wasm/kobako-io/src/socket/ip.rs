@@ -24,12 +24,7 @@ pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
 /// a stream names no sender, so a `TCPSocket` answers `[mesg, nil]`, as
 /// CRuby's `ip_recvfrom` does.
 fn ip_socket_recvfrom(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    receive_past_buffer(
-        mrb,
-        self_,
-        args,
-        PastBuffer::new(Wait::Blocking, "recvfrom", true),
-    )
+    receive_past_buffer(mrb, self_, args, PastBuffer::new(Wait::Blocking, true))
 }
 
 /// `addr(reverse_lookup = nil)` answers the socket's own end: the virtual

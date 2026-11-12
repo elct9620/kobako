@@ -26,14 +26,14 @@ class TestE2ENetworkSocketDirect < Minitest::Test
     udp.connect("127.0.0.1", %<udp>d)
     udp.send("x", 0)
     IO.select([udp])
-    [first, held, ended, [udp.getc, outcome.call { udp.recv(10) }]]
+    [first, held, ended, [udp.getc, outcome.call { udp.recv(10) }, outcome.call { udp.recvfrom(10) }]]
   RUBY
 
   DIRECT_ANSWERS = [
     [2, "ab", "cd", "e"],
     [["IOError", "recv for buffered IO"], ["IOError", "sysread for buffered IO"], "f\nxyz"],
     [nil, ["EOFError", "end of file reached"]],
-    ["h", ["IOError", "recv for buffered IO"]]
+    ["h", ["IOError", "recv for buffered IO"], ["IOError", "recv for buffered IO"]]
   ].freeze
 
   # @behavior NW-133

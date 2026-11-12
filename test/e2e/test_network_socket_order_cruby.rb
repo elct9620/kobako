@@ -27,7 +27,8 @@ class TestE2ENetworkSocketOrderCruby < Minitest::Test
     lone.close
     closed = [
       lone.write(""), lone.sysread(0), outcome.call { lone.readpartial(0) },
-      outcome.call { lone.read_nonblock(0) }, outcome.call { lone.sync }, outcome.call { lone.recv(-1) }
+      outcome.call { lone.read_nonblock(0) }, outcome.call { lone.sync }, outcome.call { lone.recv(-1) },
+      outcome.call { lone.read(nil, 1) }
     ]
     [kept, sides, empty, closed]
   RUBY
@@ -37,7 +38,7 @@ class TestE2ENetworkSocketOrderCruby < Minitest::Test
     %w[TypeError TypeError abcdef],
     [nil, nil, true],
     [0, 0, "Errno::EDESTADDRREQ"],
-    [0, "", "IOError", "IOError", "IOError", "ArgumentError"]
+    [0, "", "IOError", "IOError", "IOError", "ArgumentError", "IOError"]
   ].freeze
 
   # @behavior NW-189
@@ -48,8 +49,8 @@ class TestE2ENetworkSocketOrderCruby < Minitest::Test
       assert_equal CRUBY, value,
                    "a socket must convert a read's buffer before taking a byte, close a side whatever its " \
                    "shutdown answers, answer 0 to an empty write, and on a closed socket answer sysread(0) and " \
-                   "refuse readpartial, read_nonblock, and sync with IOError, and recv(-1) with ArgumentError, " \
-                   "as CRuby's do"
+                   "refuse readpartial, read_nonblock, and sync with IOError, recv(-1) with ArgumentError, and " \
+                   "read(nil, 1) with IOError before its buffer, as CRuby's do"
     end
   end
 

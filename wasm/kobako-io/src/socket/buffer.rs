@@ -103,12 +103,19 @@ fn socket_read(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
         [length, outbuf] => (Some(*length), Some(*outbuf)),
         _ => return Err(Error::argnum(mrb, args.len(), 0, 2)),
     };
-    let length = match length.filter(|v| !v.is_nil()) {
-        Some(v) => Some(read_length_of(mrb, v)?),
-        None => None,
+    // CRuby's `io_read` takes the open stream before the buffer when no length
+    // is given, and the length and the buffer before the stream otherwise.
+    let (length, outbuf, source) = match length.filter(|v| !v.is_nil()) {
+        None => {
+            let source = reader_of(mrb, self_)?;
+            (None, outbuf_of(mrb, outbuf)?, source)
+        }
+        Some(v) => {
+            let length = read_length_of(mrb, v)?;
+            let outbuf = outbuf_of(mrb, outbuf)?;
+            (Some(length), outbuf, reader_of(mrb, self_)?)
+        }
     };
-    let outbuf = outbuf_of(mrb, outbuf)?;
-    let source = reader_of(mrb, self_)?;
     let mut read = Vec::new();
     while length.is_none_or(|length| read.len() < length) {
         let want = length.map_or(MAX_READ, |length| length - read.len());
@@ -485,12 +492,19 @@ fn separator_and_limit_of(
         // SAFETY: the bytes are copied before the next mruby call.
         Ok(Some(unsafe { text.as_slice(mrb) }.to_vec()))
     };
-    // One argument that is no String is the limit, as CRuby's
-    // `rb_io_getline_args` reads it, so a Symbol raises TypeError as a limit.
-    let is_limit = |value: Value| !value.is_nil() && RString::from_value(value).is_none();
+    // One argument that `rb_check_string_type` finds no String in, through
+    // `to_str`, is the limit, as CRuby's `rb_io_getline_args` reads it, so a
+    // Symbol raises TypeError as a limit.
+    let is_limit = |value: Value| -> Result<bool, Error> {
+        if value.is_nil() || RString::from_value(value).is_some() {
+            return Ok(false);
+        }
+        let to_str = Symbol::new(mrb, "to_str")?.as_value();
+        Ok(!value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_str])?)
+    };
     match args {
         [] => Ok((Some(b"\n".to_vec()), None)),
-        [only] if is_limit(*only) => Ok((Some(b"\n".to_vec()), limit_of(*only)?)),
+        [only] if is_limit(*only)? => Ok((Some(b"\n".to_vec()), limit_of(*only)?)),
         [separator] => Ok((separator_of(*separator)?, None)),
         [separator, limit] => Ok((separator_of(*separator)?, limit_of(*limit)?)),
         _ => Err(Error::argnum(mrb, args.len(), 0, 2)),

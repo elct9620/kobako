@@ -103,4 +103,23 @@ class TestE2ENetworkHttpEdges < Minitest::Test
                  "Net::HTTP#start on a port nothing listens on must pass and the first request raise, and a " \
                  "proxy raise NotImplementedError"
   end
+
+  ARITY = <<~RUBY
+    http = Net::HTTP.new("127.0.0.1", %<port>d)
+    [-> { http.get("/", nil, nil, 1) }, -> { http.post("/", "d", nil, nil, 1) }].map do |call|
+      call.call
+    rescue ArgumentError => e
+      e.message
+    end
+  RUBY
+
+  # @behavior NW-198
+  def test_a_net_http_verb_names_the_count_it_takes
+    value = http_sandbox(1).eval(format(ARITY, port: 1)).value
+
+    assert_equal ["wrong number of arguments (given 4, expected 1..3)",
+                  "wrong number of arguments (given 5, expected 2..4)"], value,
+                 "Net::HTTP#get with four arguments and #post with five must raise ArgumentError naming 1..3 and " \
+                 "2..4, as CRuby's net/http does"
+  end
 end

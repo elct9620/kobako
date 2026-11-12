@@ -684,7 +684,9 @@ fn send_to_dest(
     (args, at): (&[Value], usize),
 ) -> Result<Value, Error> {
     let given = BlockArgument::current(mrb, BlockArgument::Chunks)?;
-    let dest = dest_of(mrb, args, at, false)?;
+    // `get` requires its path, and `send_entity`'s callers their data too.
+    let required = 1 + usize::from(data.is_some());
+    let dest = dest_of(mrb, args, (at, required), false)?;
     let request = new_request(mrb, class, path, header)?;
     // A `dest` beside a block is refused once the response came, as
     // net-http's `read_body` refuses both after the request was sent.
@@ -1248,17 +1250,28 @@ fn response_body(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// `dest`, which then stands as the body.
 fn response_read_body(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let block = current_block(mrb)?;
-    match dest_of(mrb, args, 0, block.is_some())? {
+    match dest_of(mrb, args, (0, 0), block.is_some())? {
         Some(dest) => read_body_to(mrb, self_, dest),
         None => read_body_into(mrb, self_, block),
     }
 }
 
-/// The `dest` at `at` among `args`, `nil` naming none; one given beside a
-/// block raises `ArgumentError`, as net-http's `read_body` refuses both.
-fn dest_of(mrb: &Mrb, args: &[Value], at: usize, block: bool) -> Result<Option<Value>, Error> {
+/// The `dest` at `at` among `args`, the last a call takes past its
+/// `required` ones, `nil` naming none; one given beside a block raises
+/// `ArgumentError`, as net-http's `read_body` refuses both.
+fn dest_of(
+    mrb: &Mrb,
+    args: &[Value],
+    (at, required): (usize, usize),
+    block: bool,
+) -> Result<Option<Value>, Error> {
     if args.len() > at + 1 {
-        return Err(Error::argnum(mrb, args.len(), at as i32, at as i32 + 1));
+        return Err(Error::argnum(
+            mrb,
+            args.len(),
+            required as i32,
+            at as i32 + 1,
+        ));
     }
     let dest = args.get(at).copied().filter(|dest| !dest.is_nil());
     if dest.is_some() && block {
