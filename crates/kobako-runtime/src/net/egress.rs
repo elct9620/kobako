@@ -111,8 +111,8 @@ fn admit_literal(net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemErro
     net.ruleset().admit_literal(addr, Protocol::Http)
 }
 
-/// What judges a request the namespace let reach its authority, and swaps a
-/// credential into it.
+/// The entries' request policies, which judge a request `send` found its
+/// authority reachable for, and the credentials it swaps into one.
 pub(crate) struct EgressProxy {
     pub(crate) request: Vec<Arc<dyn for<'a> Policy<Request<'a>>>>,
     /// Each entry's own endpoints and the credentials bound to them.
