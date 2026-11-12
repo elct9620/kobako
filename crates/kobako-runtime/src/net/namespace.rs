@@ -1,15 +1,14 @@
-//! The network one Invocation's entries make, as Linux's `struct net` holds the
-//! rules every socket of a namespace passes and the families that dial it. The
-//! guest sees only virtual addresses: a lookup hands out one for each real
-//! address the name resolved to, and a connect to one is translated to the
-//! real address it stands for, as cgroup `connect4` rewrites one destination,
-//! so no name is ever resolved twice.
+//! The network namespace one Invocation's entries make, as Linux's `struct
+//! net` holds the rules every socket of a namespace passes, the ports its
+//! sockets hold, and the family that dials it. It also holds the virtual
+//! addresses a lookup hands out, one for each real address the name resolved
+//! to, which the socket layer's `connect4` reads, so no name is ever resolved
+//! twice.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use super::egress::EgressProxy;
-use super::family::admitted_addresses_of;
 use super::http::{
     split_authority, to_field_name, to_field_value, to_origin_form, Exchange, HttpError, Outbound,
     OutgoingRequest, Scheme,
@@ -17,7 +16,7 @@ use super::http::{
 use super::lookup::{normalize, LookupError, NameLookup};
 use super::socket::BindHash;
 use super::transport::Connector;
-use super::{MemoryCharge, OpenConnections, ProtoOps, ProtocolFamily, TcpSock, UdpSock};
+use super::{MemoryCharge, OpenConnections, ProtocolFamily, TcpSock};
 use crate::grant::Policy;
 use crate::network::{Connection, EntryError, Name, Network, Protocol, Request, Ruleset};
 use crate::vfs::{Cred, FilesystemError};
@@ -351,19 +350,6 @@ impl Namespace {
             .cloned()
     }
 
-    /// Connect the TCP socket `sock` to `addr`, the address the guest named,
-    /// as `cred`, as `__sys_connect` does: the socket hooks judge what the
-    /// guest named first, then the socket's `->connect` takes it.
-    pub fn connect(
-        &self,
-        cred: &Cred,
-        sock: &TcpSock,
-        addr: SocketAddr,
-    ) -> Result<(), FilesystemError> {
-        self.judge_connection_to(cred, addr, Protocol::Tcp)?;
-        ProtoOps::connect(sock, self, addr)
-    }
-
     /// The Protocol Family this namespace's sockets reach the host through.
     pub(crate) fn family(&self) -> &Arc<dyn ProtocolFamily> {
         &self.family
@@ -374,52 +360,20 @@ impl Namespace {
         &self.open_connections
     }
 
-    /// Create a TCP socket connected to nothing for `cred`, which connects
-    /// through this namespace's Protocol Family, as `sock_create` does; its
-    /// buffers count against `cred`'s memory, as a socket's do against its
-    /// creator's memory cgroup.
-    pub fn create_tcp_socket(&self, cred: &Arc<Cred>) -> Result<Arc<TcpSock>, FilesystemError> {
-        let sock = TcpSock::new(self.family.clone(), cred)?;
+    /// The rules every connection made here passes.
+    pub(crate) fn ruleset(&self) -> &Ruleset {
+        &self.ruleset
+    }
+
+    /// Hold `sock`, made here, so it ends with the Invocation should it be
+    /// orphaned still sending, as a namespace's exit ends its sockets.
+    pub(crate) fn hold_tcp_socket(&self, sock: &Arc<TcpSock>) {
         let mut sockets = self
             .tcp_sockets
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         sockets.retain(|sock| sock.strong_count() > 0);
-        sockets.push(Arc::downgrade(&sock));
-        Ok(sock)
-    }
-
-    /// Create a UDP socket connected to nothing for `cred`, as `sock_create`
-    /// does; its receive queue counts against `cred`'s memory.
-    pub fn create_udp_socket(&self, cred: &Arc<Cred>) -> Result<Arc<UdpSock>, FilesystemError> {
-        UdpSock::new(cred)
-    }
-
-    /// Bind `sock` to `addr` as `cred`, once the socket hooks pass it, as
-    /// `__sys_bind` asks `security_socket_bind` before the protocol's
-    /// `->bind`; the host socket takes its own address as it connects.
-    pub fn bind(
-        &self,
-        cred: &Cred,
-        sock: &dyn ProtoOps,
-        addr: SocketAddr,
-    ) -> Result<(), FilesystemError> {
-        cred.security_socket_bind(addr)?;
-        sock.bind(self, addr)
-    }
-
-    /// Connect a UDP socket to `addr`, the one peer the guest named, as
-    /// `cred`, through the same socket hooks a TCP connect passes. A socket
-    /// naming no peer would send each datagram anywhere, so it is refused.
-    pub fn connect_datagram(
-        &self,
-        cred: &Cred,
-        sock: &UdpSock,
-        addr: Option<SocketAddr>,
-    ) -> Result<(), FilesystemError> {
-        let addr = addr.ok_or(FilesystemError::PermissionDenied)?;
-        self.judge_connection_to(cred, addr, Protocol::Udp)?;
-        ProtoOps::connect(sock, self, addr)
+        sockets.push(Arc::downgrade(sock));
     }
 
     /// Whether a request may reach `addr`, a literal the socket hooks already
@@ -438,7 +392,7 @@ impl Namespace {
 
     /// What `addr` stands for when it lies in the virtual range: its name and
     /// real address, or `None` inside the range when no name holds it.
-    fn translated(&self, addr: SocketAddr) -> Option<Option<(String, IpAddr)>> {
+    pub(crate) fn translation_of(&self, addr: SocketAddr) -> Option<Option<(String, IpAddr)>> {
         match addr.ip() {
             IpAddr::V4(ip) if u32::from(ip) & !(VIRTUAL_SIZE - 1) == VIRTUAL_BASE => {
                 Some(self.translate(ip))
@@ -446,81 +400,6 @@ impl Namespace {
             _ => None,
         }
     }
-
-    /// Judge a `protocol` connection to `addr` through the socket hooks, the
-    /// name a virtual address stands for in place of the address, as
-    /// `security_socket_connect` runs before the protocol's `connect`.
-    fn judge_connection_to(
-        &self,
-        cred: &Cred,
-        addr: SocketAddr,
-        protocol: Protocol,
-    ) -> Result<(), FilesystemError> {
-        let host = match self.translated(addr) {
-            Some(Some((name, _))) => name,
-            _ => addr.ip().to_string(),
-        };
-        cred.security_socket_connect(&Connection::new(&host, addr.port(), protocol))
-    }
-
-    /// What a socket's connect to `addr` reaches once its state check passed,
-    /// as cgroup `connect4` runs inside the protocol's `connect`: an IPv6
-    /// address answers `EAFNOSUPPORT`, as `inet_stream_connect` refuses one;
-    /// a virtual address turns into the name it stands for and the one real
-    /// address it stands for, one no name holds answering `EACCES`; any other
-    /// stands as itself.
-    pub(crate) fn connect4(&self, addr: SocketAddr) -> Result<Destination, FilesystemError> {
-        if addr.is_ipv6() {
-            return Err(FilesystemError::AddressFamilyNotSupported);
-        }
-        match self.translated(addr) {
-            None => Ok(Destination::Literal(addr)),
-            Some(None) => Err(FilesystemError::PermissionDenied),
-            Some(Some((name, real))) => Ok(Destination::Named {
-                name,
-                real,
-                port: addr.port(),
-            }),
-        }
-    }
-
-    /// The real address a `protocol` connection to `dest` dials, once the
-    /// ruleset lets it, as the filter judges what leaves after the socket took
-    /// its port; `EACCES` when it does not.
-    pub(crate) fn filter(
-        &self,
-        dest: &Destination,
-        protocol: Protocol,
-    ) -> Result<SocketAddr, FilesystemError> {
-        match dest {
-            Destination::Literal(addr) => {
-                self.ruleset.admit_literal(*addr, protocol)?;
-                Ok(*addr)
-            }
-            Destination::Named { name, real, port } => admitted_addresses_of(
-                &*self.family,
-                &self.ruleset,
-                name,
-                &[*real],
-                *port,
-                protocol,
-            )
-            .pop()
-            .ok_or(FilesystemError::PermissionDenied),
-        }
-    }
-}
-
-/// Where a socket's connect leads once cgroup `connect4` ran: the literal
-/// address the guest named, or the name a virtual address stands for, the
-/// real address it stands for, and the port.
-pub(crate) enum Destination {
-    Literal(SocketAddr),
-    Named {
-        name: String,
-        real: IpAddr,
-        port: u16,
-    },
 }
 
 #[cfg(test)]
@@ -552,6 +431,11 @@ mod tests {
     use std::time::Duration;
 
     use super::super::family::testing::CountsDials;
+    use super::super::socket::{
+        create_tcp_socket, create_udp_socket, sys_bind, sys_connect, sys_connect_datagram,
+        AddressFamily,
+    };
+    use super::super::UdpSock;
     use super::*;
     use crate::grant::Grant;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
@@ -718,7 +602,7 @@ mod tests {
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::WouldBlock)) && family.dials() == 0,
-            "Namespace::connect past the Sandbox's cap must answer EAGAIN, dialing nothing"
+            "a socket's connect past the Sandbox's cap must answer EAGAIN, dialing nothing"
         );
     }
 
@@ -748,7 +632,7 @@ mod tests {
         let third = dial(&namespace, &cred, addr);
         assert!(
             matches!(third, Err(FilesystemError::WouldBlock)),
-            "Namespace::connect past the Invocation's connection limit must answer EAGAIN even \
+            "a socket's connect past the Invocation's connection limit must answer EAGAIN even \
              once the earlier connections closed"
         );
     }
@@ -811,8 +695,8 @@ mod tests {
         cred: &Arc<Cred>,
         addr: SocketAddr,
     ) -> Result<Arc<TcpSock>, FilesystemError> {
-        let sock = namespace.create_tcp_socket(cred)?;
-        namespace.connect(cred, &sock, addr).map(|()| sock)
+        let sock = create_tcp_socket(namespace, cred, AddressFamily::Inet)?;
+        sys_connect(namespace, cred, &sock, addr).map(|()| sock)
     }
 
     /// A new UDP socket `namespace` connects to `addr` as `cred`.
@@ -821,8 +705,8 @@ mod tests {
         cred: &Arc<Cred>,
         addr: Option<SocketAddr>,
     ) -> Result<Arc<UdpSock>, FilesystemError> {
-        let sock = namespace.create_udp_socket(cred)?;
-        namespace.connect_datagram(cred, &sock, addr).map(|()| sock)
+        let sock = create_udp_socket(namespace, cred, AddressFamily::Inet)?;
+        sys_connect_datagram(namespace, cred, &sock, addr).map(|()| sock)
     }
 
     fn settle(sock: &TcpSock) {
@@ -838,7 +722,7 @@ mod tests {
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::PermissionDenied)) && family.dials() == 0,
-            "Namespace::connect must refuse with EACCES, dialing nothing, once any entry's \
+            "a socket's connect must refuse with EACCES, dialing nothing, once any entry's \
              connect policy refuses"
         );
         assert_eq!(
@@ -858,7 +742,7 @@ mod tests {
         assert_eq!(
             family.dials(),
             1,
-            "Namespace::connect every connect policy allows must dial the address once"
+            "a socket's connect every connect policy allows must dial the address once"
         );
     }
 
@@ -869,9 +753,7 @@ mod tests {
         let ipv6 = dial(&namespace, &cred, "[::1]:4567".parse().unwrap()).err();
         let unmapped = dial(&namespace, &cred, "198.18.5.5:4567".parse().unwrap()).err();
         let sock = UdpSock::new(&cred).expect("an unbounded socket is made");
-        let bound = namespace
-            .bind(&cred, sock.as_ref(), "[::]:0".parse().unwrap())
-            .err();
+        let bound = sys_bind(&namespace, &cred, sock.as_ref(), "[::]:0".parse().unwrap()).err();
         let judged = seen
             .lock()
             .unwrap()
@@ -887,8 +769,8 @@ mod tests {
                 vec!["::1".to_string(), "198.18.5.5".to_string()],
                 0
             ),
-            "Namespace::connect must show the connect policy an IPv6 address and an unmapped \
-             virtual one before answering EAFNOSUPPORT and EACCES, Namespace::bind must answer \
+            "a socket's connect must show the connect policy an IPv6 address and an unmapped \
+             virtual one before answering EAFNOSUPPORT and EACCES, a socket's bind must answer \
              EAFNOSUPPORT for an IPv6 address, and none may dial"
         );
     }
@@ -1041,7 +923,7 @@ mod tests {
         assert_eq!(
             (answer, family.dials.lock().unwrap().len()),
             (Some(FilesystemError::PermissionDenied), 0),
-            "Namespace::connect must refuse with EACCES, dialing nothing, when the Protocol \
+            "a socket's connect must refuse with EACCES, dialing nothing, when the Protocol \
              Family cannot read the host's own addresses, rather than judge the name's \
              addresses as if the host had none"
         );
@@ -1082,7 +964,7 @@ mod tests {
         assert_eq!(
             (answer, family.0.load(Ordering::SeqCst)),
             (Some(FilesystemError::PermissionDenied), 0),
-            "Namespace::connect through a Protocol Family that leaves the host's own addresses \
+            "a socket's connect through a Protocol Family that leaves the host's own addresses \
              unsaid must refuse with EACCES, dialing nothing, as one that cannot read them does"
         );
     }
@@ -1361,7 +1243,7 @@ mod tests {
         }
         assert!(
             admitted.is_ok() && matches!(refused, Err(FilesystemError::PermissionDenied)),
-            "Namespace::connect_datagram must pass an address a udp endpoint names and refuse one \
+            "a UDP socket's connect must pass an address a udp endpoint names and refuse one \
              only a tcp endpoint names"
         );
     }

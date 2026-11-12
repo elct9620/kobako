@@ -11,8 +11,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
-    sock_alloc_file, Namespace, ProtoOps, SockOpt, MAX_DATAGRAM, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE,
-    MAX_TCP_KEEPINTVL,
+    create_tcp_socket, create_udp_socket, sock_alloc_file, sys_bind, sys_connect,
+    sys_connect_datagram, AddressFamily, Namespace, ProtoOps, SockOpt, MAX_DATAGRAM,
+    MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
 use kobako_runtime::vfs::{Cred, FilesystemError, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
@@ -183,25 +184,27 @@ impl Invocation {
     /// A socket `create` makes in the Invocation's network, with its file,
     /// handed out as the handle `resource` takes, as `__sys_socket` makes one.
     /// With no network it is `access-denied`, as wasmtime-wasi's host with
-    /// sockets disallowed answers; for an IPv6 `family` `not-supported`, and
-    /// past the open file limit `new-socket-limit`.
+    /// sockets disallowed answers; past the open file limit
+    /// `new-socket-limit`, once the socket was made, as wasmtime pushes the
+    /// socket it made.
     fn create_socket<S: ProtoOps + 'static, H: table::Handle>(
         &mut self,
         family: IpAddressFamily,
-        create: impl FnOnce(&Namespace, &Arc<Cred>) -> Result<Arc<S>, FilesystemError>,
+        create: impl FnOnce(&Namespace, &Arc<Cred>, AddressFamily) -> Result<Arc<S>, FilesystemError>,
         resource: impl FnOnce(SocketFile<S>) -> H::Host,
     ) -> Result<H, SocketError> {
         if self.wasi().network().is_none() {
             return Err(ErrorCode::AccessDenied.into());
         }
-        if family == IpAddressFamily::Ipv6 {
-            return Err(ErrorCode::NotSupported.into());
-        }
+        let cred = self.wasi().cred().clone();
+        let family = match family {
+            IpAddressFamily::Ipv4 => AddressFamily::Inet,
+            IpAddressFamily::Ipv6 => AddressFamily::Inet6,
+        };
+        let sock = create(self.network(), &cred, family)?;
         if self.wasi().table().is_full() {
             return Err(ErrorCode::NewSocketLimit.into());
         }
-        let cred = self.wasi().cred().clone();
-        let sock = create(self.network(), &cred)?;
         let socket = SocketFile::new(sock.clone(), sock_alloc_file(sock, &cred));
         Ok(self.table_mut().push_file(resource(socket))?)
     }
@@ -239,7 +242,7 @@ impl Invocation {
             .filter(|addr| is_valid(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().cred().clone();
-        Ok(self.network().bind(&cred, sock, addr)?)
+        Ok(sys_bind(self.network(), &cred, sock, addr)?)
     }
 
     fn tcp_mut(&mut self, handle: TcpSocket) -> wasmtime::Result<&mut table::TcpSocket> {
@@ -369,7 +372,7 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<TcpSocket, SocketError> {
-        self.create_socket(address_family, Namespace::create_tcp_socket, |socket| {
+        self.create_socket(address_family, create_tcp_socket, |socket| {
             table::TcpSocket {
                 socket,
                 state: TcpState::Unbound,
@@ -438,7 +441,7 @@ impl SocketsHost for Invocation {
         // checks permission and dials, and then closes the socket. A full
         // connection count is refused at once, as `would-block` from
         // `finish-connect` would read as a connect still under way.
-        self.tcp_mut(this)?.state = match self.network().connect(cred, &sock, addr) {
+        self.tcp_mut(this)?.state = match sys_connect(self.network(), cred, &sock, addr) {
             Ok(()) => TcpState::Connecting,
             Err(FilesystemError::WouldBlock) => {
                 self.tcp_mut(this)?.state = TcpState::Closed(ErrorCode::WouldBlock);
@@ -660,7 +663,7 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<UdpSocket, SocketError> {
-        self.create_socket(address_family, Namespace::create_udp_socket, |socket| {
+        self.create_socket(address_family, create_udp_socket, |socket| {
             table::UdpSocket {
                 socket,
                 state: UdpState::Unbound,
@@ -779,8 +782,7 @@ impl SocketsHost for Invocation {
             None => None,
         };
         let cred = self.wasi().cred();
-        self.network()
-            .connect_datagram(cred, &socket_file.sock, peer)?;
+        sys_connect_datagram(self.network(), cred, &socket_file.sock, peer)?;
         let incoming = self
             .table_mut()
             .push_child(table::IncomingDatagramStream(socket_file.clone()), this)?;

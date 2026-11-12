@@ -18,8 +18,8 @@ use super::family::ProtocolFamily;
 use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
-    ensure_within, set_hop_limit, take_connect_outcome, to_error, BindHash, InetSock, MemoryCharge,
-    ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+    connect4, ensure_within, filter, set_hop_limit, take_connect_outcome, to_error, BindHash,
+    InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::network::Protocol;
 use crate::vfs::{Cred, FilesystemError, PollMask};
@@ -455,10 +455,10 @@ impl ProtoOps for TcpSock {
     /// does.
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
         self.check_state()?;
-        let dest = net.connect4(addr)?;
+        let dest = connect4(net, addr)?;
         net.within_connection_limit(FilesystemError::WouldBlock, || {
             self.hold_port(net.ports_of(Protocol::Tcp))?;
-            let real = net.filter(&dest, Protocol::Tcp).inspect_err(|_| {
+            let real = filter(net, &dest, Protocol::Tcp).inspect_err(|_| {
                 self.state().inet.put_port();
             })?;
             self.dial(real, addr, net.open_connections())

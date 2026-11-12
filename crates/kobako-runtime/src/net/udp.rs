@@ -18,7 +18,8 @@ use crate::network::Protocol;
 use socket2::SockRef;
 
 use super::socket::{
-    set_hop_limit, to_error, BindHash, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+    connect4, filter, set_hop_limit, to_error, BindHash, InetSock, MemoryCharge, ProtoOps, SockOpt,
+    MAX_SOCKET_BUFFER,
 };
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -231,11 +232,11 @@ impl ProtoOps for UdpSock {
     /// handshake, so that address is its peer; the port stays held whatever
     /// the connect answers, as an autobind does.
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
-        let dest = net.connect4(addr)?;
+        let dest = connect4(net, addr)?;
         net.within_connection_limit(FilesystemError::WouldBlock, || {
             self.hold_port(net.ports_of(Protocol::Udp))
                 .map_err(|_| FilesystemError::WouldBlock)?;
-            let real = net.filter(&dest, Protocol::Udp)?;
+            let real = filter(net, &dest, Protocol::Udp)?;
             self.dial(net.family(), real, addr, net.open_connections())
         })
     }

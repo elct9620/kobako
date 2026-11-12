@@ -16,7 +16,9 @@ use crate::vfs::{
 use crate::wait::PollTable;
 
 use super::connections::{open, OpenConnections, Place};
-use super::Namespace;
+use super::family::admitted_addresses_of;
+use super::{Namespace, TcpSock, UdpSock};
+use crate::network::{Connection, Protocol};
 
 /// How much a socket holds each way before it stops reading and refuses
 /// more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket and net core's
@@ -636,6 +638,168 @@ pub fn sock_alloc_file(sock: Arc<dyn ProtoOps>, cred: &Arc<Cred>) -> File {
     )
 }
 
+/// The address family a socket is made in, as `socket()`'s `domain`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AddressFamily {
+    /// `AF_INET`.
+    Inet,
+    /// `AF_INET6`, which the guest has none of.
+    Inet6,
+}
+
+/// Refuse a family the guest has no socket of, as `__sock_create` answers
+/// `EAFNOSUPPORT` for a family no `net_proto_family` registered.
+fn check_family(family: AddressFamily) -> Result<(), FilesystemError> {
+    match family {
+        AddressFamily::Inet => Ok(()),
+        AddressFamily::Inet6 => Err(FilesystemError::AddressFamilyNotSupported),
+    }
+}
+
+/// Create a TCP socket of `family`, connected to nothing, in `net` for
+/// `cred`, as `__sock_create` does; it connects through `net`'s Protocol
+/// Family, and its buffers count against `cred`'s memory, as a socket's do
+/// against its creator's memory cgroup.
+pub fn create_tcp_socket(
+    net: &Namespace,
+    cred: &Arc<Cred>,
+    family: AddressFamily,
+) -> Result<Arc<TcpSock>, FilesystemError> {
+    check_family(family)?;
+    let sock = TcpSock::new(net.family().clone(), cred)?;
+    net.hold_tcp_socket(&sock);
+    Ok(sock)
+}
+
+/// Create a UDP socket of `family`, connected to nothing, in `net` for
+/// `cred`, as `__sock_create` does; its receive queue counts against `cred`'s
+/// memory.
+pub fn create_udp_socket(
+    _net: &Namespace,
+    cred: &Arc<Cred>,
+    family: AddressFamily,
+) -> Result<Arc<UdpSock>, FilesystemError> {
+    check_family(family)?;
+    UdpSock::new(cred)
+}
+
+/// Bind `sock` to `addr` in `net` as `cred`, as `__sys_bind` asks
+/// `security_socket_bind` before the protocol's `->bind`; the host socket
+/// takes its own address as it connects.
+pub fn sys_bind(
+    net: &Namespace,
+    cred: &Cred,
+    sock: &dyn ProtoOps,
+    addr: SocketAddr,
+) -> Result<(), FilesystemError> {
+    cred.security_socket_bind(addr)?;
+    sock.bind(net, addr)
+}
+
+/// Connect the TCP socket `sock` in `net` to `addr`, the address the guest
+/// named, as `cred`, as `__sys_connect` does: the socket hooks judge what the
+/// guest named first, then the socket's `->connect` takes it.
+pub fn sys_connect(
+    net: &Namespace,
+    cred: &Cred,
+    sock: &TcpSock,
+    addr: SocketAddr,
+) -> Result<(), FilesystemError> {
+    security_socket_connect(net, cred, addr, Protocol::Tcp)?;
+    ProtoOps::connect(sock, net, addr)
+}
+
+/// Connect the UDP socket `sock` in `net` to `addr`, the one peer the guest
+/// named, as `cred`, through the same socket hooks a TCP connect passes. A
+/// socket naming no peer would send each datagram anywhere, so it is refused.
+pub fn sys_connect_datagram(
+    net: &Namespace,
+    cred: &Cred,
+    sock: &UdpSock,
+    addr: Option<SocketAddr>,
+) -> Result<(), FilesystemError> {
+    let addr = addr.ok_or(FilesystemError::PermissionDenied)?;
+    security_socket_connect(net, cred, addr, Protocol::Udp)?;
+    ProtoOps::connect(sock, net, addr)
+}
+
+/// Judge a `protocol` connection to `addr` through the socket hooks `cred`
+/// holds, the name a virtual address in `net` stands for in place of the
+/// address, as `security_socket_connect` runs before the protocol's
+/// `connect`.
+fn security_socket_connect(
+    net: &Namespace,
+    cred: &Cred,
+    addr: SocketAddr,
+    protocol: Protocol,
+) -> Result<(), FilesystemError> {
+    let host = match net.translation_of(addr) {
+        Some(Some((name, _))) => name,
+        _ => addr.ip().to_string(),
+    };
+    cred.security_socket_connect(&Connection::new(&host, addr.port(), protocol))
+}
+
+/// Where a socket's connect leads once cgroup `connect4` ran: the literal
+/// address the guest named, or the name a virtual address stands for, the
+/// real address it stands for, and the port.
+pub(crate) enum Destination {
+    Literal(SocketAddr),
+    Named {
+        name: String,
+        real: IpAddr,
+        port: u16,
+    },
+}
+
+/// What a socket's connect to `addr` reaches in `net` once its state check
+/// passed, as cgroup `connect4` runs inside the protocol's `connect`: an IPv6
+/// address answers `EAFNOSUPPORT`, as `inet_stream_connect` refuses one; a
+/// virtual address turns into the name it stands for and the one real
+/// address it stands for, one no name holds answering `EACCES`; any other
+/// stands as itself.
+pub(crate) fn connect4(net: &Namespace, addr: SocketAddr) -> Result<Destination, FilesystemError> {
+    if addr.is_ipv6() {
+        return Err(FilesystemError::AddressFamilyNotSupported);
+    }
+    match net.translation_of(addr) {
+        None => Ok(Destination::Literal(addr)),
+        Some(None) => Err(FilesystemError::PermissionDenied),
+        Some(Some((name, real))) => Ok(Destination::Named {
+            name,
+            real,
+            port: addr.port(),
+        }),
+    }
+}
+
+/// The real address a `protocol` connection to `dest` dials, once `net`'s
+/// ruleset lets it, as the filter judges what leaves after the socket took
+/// its port; `EACCES` when it does not.
+pub(crate) fn filter(
+    net: &Namespace,
+    dest: &Destination,
+    protocol: Protocol,
+) -> Result<SocketAddr, FilesystemError> {
+    match dest {
+        Destination::Literal(addr) => {
+            net.ruleset().admit_literal(*addr, protocol)?;
+            Ok(*addr)
+        }
+        Destination::Named { name, real, port } => admitted_addresses_of(
+            &**net.family(),
+            net.ruleset(),
+            name,
+            &[*real],
+            *port,
+            protocol,
+        )
+        .pop()
+        .ok_or(FilesystemError::PermissionDenied),
+    }
+}
+
 /// What the socket tests share.
 #[cfg(test)]
 pub(crate) mod testing {
@@ -671,6 +835,35 @@ mod tests {
             ],
             "a host socket failing with ENETDOWN, ENOBUFS, or EHOSTDOWN must answer ENETDOWN, \
              ENOBUFS, and EHOSTUNREACH, read from its errno where std names no kind"
+        );
+    }
+
+    // @behavior NW-066
+    #[test]
+    fn a_socket_of_an_ipv6_family_answers_eafnosupport() {
+        let network =
+            crate::network::Network::new("api", Arc::new(crate::network::Builder::default()))
+                .unwrap();
+        let net = Namespace::for_network(
+            &network,
+            Arc::new(super::super::family::testing::CountsDials::default()),
+            Arc::new(super::super::HyperOutbound::new()),
+        );
+        let cred = crate::security::prepare_creds_within(&[], None);
+        let answers = (
+            create_tcp_socket(&net, &cred, AddressFamily::Inet6).err(),
+            create_udp_socket(&net, &cred, AddressFamily::Inet6).err(),
+            create_tcp_socket(&net, &cred, AddressFamily::Inet).is_ok(),
+        );
+        assert_eq!(
+            answers,
+            (
+                Some(FilesystemError::AddressFamilyNotSupported),
+                Some(FilesystemError::AddressFamilyNotSupported),
+                true
+            ),
+            "a TCP or UDP socket asked for in the IPv6 family must answer EAFNOSUPPORT, as the \
+             guest carries IPv4 alone, while one in the IPv4 family is made"
         );
     }
 }

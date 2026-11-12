@@ -1541,8 +1541,9 @@ mod tests {
             Arc::new(RecordsSwaps::default()),
         );
         let cred = prepare_creds_within(&[], Some(2 * MAX_SOCKET_BUFFER));
-        let tcp = namespace.create_tcp_socket(&cred);
-        let udp = namespace.create_udp_socket(&cred).err();
+        let tcp = crate::net::create_tcp_socket(&namespace, &cred, crate::net::AddressFamily::Inet);
+        let udp =
+            crate::net::create_udp_socket(&namespace, &cred, crate::net::AddressFamily::Inet).err();
         let sent = namespace
             .send(
                 &cred,
@@ -1551,7 +1552,9 @@ mod tests {
             .err();
         let made = tcp.is_ok();
         drop(tcp);
-        let again = namespace.create_udp_socket(&cred).is_ok();
+        let again =
+            crate::net::create_udp_socket(&namespace, &cred, crate::net::AddressFamily::Inet)
+                .is_ok();
         assert_eq!(
             (made, udp, sent, again),
             (
