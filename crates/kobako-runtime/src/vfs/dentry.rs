@@ -771,14 +771,21 @@ impl Dentries {
         !dentry.is_root() && !dentry.hashed()
     }
 
-    /// Let go of `dentry`, which no longer names what stands at its name, and
-    /// of the names kept beneath it, as Linux's `d_invalidate` drops it and
-    /// shrinks what is below a positive one.
-    pub(crate) fn invalidate(&self, dentry: &Arc<Dentry>) {
-        if !dentry.hashed() {
-            return;
+    /// Let go of `dentry`, which no longer names what stood at its name when
+    /// `RENAME_LOCK` read `asked`, and of the names kept beneath it, as Linux's
+    /// `d_invalidate` drops it and shrinks what is below a positive one. One a
+    /// move carried elsewhere since stays where it went: every move takes this
+    /// table before it writes, so none lands between the check and the drop.
+    pub(crate) fn invalidate(&self, dentry: &Arc<Dentry>, asked: usize) {
+        {
+            let mut table = self.hashtables.dentry_hashtable();
+            if RENAME_LOCK.read_seqretry(asked) || !dentry.hashed() {
+                return;
+            }
+            drop_hashed(&mut table, dentry);
         }
-        self.unhash(dentry);
+        let kept = self.lru().pop(&(Arc::as_ptr(dentry) as usize));
+        drop(kept);
         if dentry.inode().is_some() {
             self.shrink_dcache_parent(dentry);
         }
@@ -1206,7 +1213,7 @@ mod tests {
             "leaf",
         ));
         let beside = kept(negative(&dentries, &root, "other"));
-        dentries.invalidate(&dir);
+        dentries.invalidate(&dir, super::RENAME_LOCK.read_seqbegin());
         assert_eq!(
             (beneath.upgrade().is_some(), beside.upgrade().is_some()),
             (false, true),

@@ -125,18 +125,21 @@ impl Nameidata {
 /// Whether `dentry`, which a lookup answered for, still names what stands at its
 /// name in `dir`, asked with or without `dir`'s lock as Linux's `lookup_fast`
 /// and `lookup_open` ask `d_revalidate`. One that does not is let go of with the
-/// names kept beneath it, as `d_invalidate` does.
+/// names kept beneath it, as `d_invalidate` does, unless a move landed while it
+/// was asked: the answer was about a name it no longer stands at, so the walk
+/// looks again, as `lookup_fast` retries once `d_seq` moved.
 pub(crate) fn d_revalidate(
     sb: &SuperBlock,
     dir: &Dentry,
     dentry: &Arc<Dentry>,
 ) -> Result<bool, Errno> {
+    let asked = RENAME_LOCK.read_seqbegin();
     let valid = match dentry.ops() {
         Some(ops) => ops.revalidate(dir.inode_ops()?.as_ref(), dentry)?,
         None => true,
     };
     if !valid {
-        sb.dentries().invalidate(dentry);
+        sb.dentries().invalidate(dentry, asked);
     }
     Ok(valid)
 }
@@ -4364,6 +4367,54 @@ mod tests {
             "a second walk reaching `f` over a Filesystem storing it as `F` must hold the \
              dentry of `F` without asking revalidate about it, as d_add_ci finds it through \
              d_hash_and_lookup"
+        );
+    }
+
+    /// A test's Filesystem whose revalidate of `d` lets a move of `d` to `c` land
+    /// and then finds `d` stale, as a walk holding no lock meets a rename ending.
+    #[derive(Default)]
+    struct MovesWhileAsked {
+        root: std::sync::OnceLock<Path>,
+        moved: std::sync::atomic::AtomicBool,
+    }
+
+    impl wrap::Hook for MovesWhileAsked {
+        fn revalidate(
+            &self,
+            ops: &dyn DentryOperations,
+            dir: &dyn InodeOperations,
+            dentry: &Dentry,
+        ) -> Result<bool, Errno> {
+            if dentry.name() != "d" || self.moved.swap(true, Ordering::SeqCst) {
+                return ops.revalidate(dir, dentry);
+            }
+            let root = self
+                .root
+                .get()
+                .expect("the test hands the root before any walk");
+            super::filename_renameat2(&Arc::default(), root, "d", root, "c")?;
+            Ok(false)
+        }
+    }
+
+    // A second dentry for the directory would let a move put it beneath itself,
+    // which no check on dentries could see.
+    // @behavior RT-391
+    #[test]
+    fn a_directory_moved_while_a_walk_finds_it_stale_keeps_its_one_dentry() {
+        let tmpfs: Tmpfs = [("d/.keep", "")].into_iter().collect();
+        let hook = Arc::new(MovesWhileAsked::default());
+        let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
+        let root = root_of(Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"));
+        let _ = hook.root.set(root.clone());
+        let held = reach(&root, "d").expect("d is reached");
+        let stale = reach(&root, "d").map(|_| ());
+        let moved = reach(&root, "c").expect("c is reached where d moved");
+        assert_eq!(
+            (stale, Arc::ptr_eq(&held, &moved)),
+            (Err(Errno::NotFound), true),
+            "vfs::filename_lookup of `d` finding it stale while vfs::filename_renameat2 moves it \
+             to `c` must leave its dentry at `c`, as lookup_fast retries once d_seq moved"
         );
     }
 
