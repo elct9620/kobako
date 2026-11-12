@@ -2234,3 +2234,15 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay over a Layer whose `permission` refuses |
 | When | a call through the Overlay finds a name in that Layer, opens or lists its entry, or copies it up |
 | Then | the call answers that refusal, as overlayfs asks `inode_permission` of the real inode |
+
+## `FS-207` An exclusive Bind keeps the directory it found
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RF-040` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind made exclusive, so only the guest changes its directory, and a directory a walk went through |
+| When | the host moves another directory into that name |
+| Then | a walk through the name still reaches the directory it found, as gVisor's exclusive mount skips revalidation |

@@ -514,3 +514,15 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `stat` answers the `ftype` of a link with a size |
 | When | the guest stats it without following, and reads it |
 | Then | the stat reports a link of no size, and the read raises `Errno::ELOOP` |
+
+## `RF-040` An exclusive Ruby Filesystem is asked about a name once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose `exclusive?` answers true, so only the guest changes it |
+| When | the guest reads a file three directories deep twice |
+| Then | the second read asks `stat` about no directory on the way, as gVisor's exclusive mount keeps the names it found |
