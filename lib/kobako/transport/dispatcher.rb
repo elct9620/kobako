@@ -68,9 +68,12 @@ module Kobako
       class << self
         private
 
+        # Routing reads only the target and the method, so a dispatch that
+        # cannot route answers before its arguments are read.
         def run(call, resolver, handles, yielder)
-          arguments, carried_handle = decode_arguments(call.payload)
           exposure = resolve_target(call.target, resolver, handles)
+          reject_unreachable(exposure, call.method_name.to_sym)
+          arguments, carried_handle = decode_arguments(call.payload)
           args, kwargs = resolve_call_args(arguments, handles, carried_handle)
           invoke(exposure, call.method_name, args, kwargs, yielder)
         end
@@ -111,7 +114,6 @@ module Kobako
         # unsplatted for methods that take no keywords.
         def invoke(exposure, method, args, kwargs, yielder)
           name = method.to_sym
-          reject_unreachable(exposure, name)
           target = exposure.object
           block = yielder&.to_proc
           if kwargs.empty?

@@ -579,6 +579,39 @@ mod tests {
         );
     }
 
+    // @behavior T-390
+    #[test]
+    fn a_call_it_cannot_route_answers_undefined_before_reading_the_payload() {
+        let mut catalog = Catalog::default();
+        catalog
+            .bind("MyService::Narrow", NarrowedEcho.into_receiver())
+            .expect("a constant path binds");
+        let handler = CatalogHandler::new(Arc::new(catalog), Arc::default(), Vec::new());
+        let types = [
+            (Target::Path("Nope::Nada"), "echo"),
+            (Target::Path("MyService::Narrow"), "explode"),
+        ]
+        .map(|(target, method)| {
+            let call = Call {
+                target,
+                method,
+                block_given: false,
+                payload: &[0xd9],
+            };
+            let reply = handler
+                .dispatch(call, &mut NoYield)
+                .expect("this handler never returns None");
+            fault_type(&answer(reply)).to_string()
+        });
+        assert_eq!(
+            types,
+            ["undefined", "undefined"],
+            "a Call to an unbound path, or to a method the Receiver does not expose, must fold \
+             into the undefined fault arm whatever its payload holds, since routing reads only \
+             the target and the method"
+        );
+    }
+
     fn block_request(method: &str, args: Vec<Value>) -> Sent {
         let mut req = request(Target::Path("MyService::KV"), method, args);
         req.block_given = true;

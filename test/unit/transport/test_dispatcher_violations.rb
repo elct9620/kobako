@@ -19,6 +19,13 @@ class TestTransportDispatchViolations < Minitest::Test
     "an Integer kwargs key" => { 42 => "v" }
   }.freeze
 
+  # The echo Service each malformed payload is sent to, so the dispatch
+  # routes and only the payload can refuse it.
+  def setup
+    super
+    @registry.bind("Logger::Echo", ->(arg) { arg })
+  end
+
   # A Call at the bound echo path carrying +payload+ verbatim, so a test
   # can hand the payload decode a shape the value object would refuse to
   # build.
