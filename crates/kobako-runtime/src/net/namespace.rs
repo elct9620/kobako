@@ -44,9 +44,9 @@ pub struct Namespace {
     resolver: Arc<dyn Resolver>,
     outbound: Arc<dyn Outbound>,
     open_connections: Arc<OpenConnections>,
-    /// How many more connections this Invocation may make; `None` makes no
-    /// count.
-    connections_left: Mutex<Option<usize>>,
+    /// How many more connections this Invocation may make, worked out from
+    /// its connection limit; `None` makes no count.
+    connection_budget: Mutex<Option<usize>>,
     translations: Mutex<Translations>,
     /// The virtual ports TCP sockets hold, and those UDP sockets hold, as
     /// each protocol keeps its own `bhash`.
@@ -115,7 +115,7 @@ impl Namespace {
             .map(|network| network.endpoints())
             .collect::<Vec<_>>();
         let ruleset = Ruleset::new(endpoints.iter().flatten().cloned())?;
-        let bound = networks
+        let bindings = networks
             .iter()
             .zip(&endpoints)
             .map(|(network, endpoints)| (endpoints, network.credentials()))
@@ -131,13 +131,13 @@ impl Namespace {
             resolve: policies.iter().filter_map(|p| p.resolve.clone()).collect(),
             egress: EgressProxy {
                 request: policies.iter().filter_map(|p| p.request.clone()).collect(),
-                bound,
+                bindings,
             },
             family,
             resolver,
             outbound,
             open_connections,
-            connections_left: Mutex::new(connection_limit),
+            connection_budget: Mutex::new(connection_limit),
             translations: Mutex::default(),
             tcp_ports: BindHash::new(),
             udp_ports: BindHash::new(),
@@ -198,15 +198,15 @@ impl Namespace {
             Scheme::Http => "http",
             Scheme::Https => "https",
         };
-        let sent = Request::new((&host, port), &method, scheme, path, &names);
+        let policy_request = Request::new((&host, port), &method, scheme, path, &names);
         let admitted = reachable
             && self.ruleset.admits_request(&host, port, &method, path)
-            && self.egress.admits(&sent);
+            && self.egress.admits(&policy_request);
         if !admitted {
             return Err(HttpError::Denied);
         }
         let swaps = match request.scheme {
-            Scheme::Https => self.egress.swaps_of(&sent, &request.headers),
+            Scheme::Https => self.egress.swaps_of(&policy_request, &request.headers),
             Scheme::Http => Vec::new(),
         };
         let mut request = request;
@@ -218,7 +218,7 @@ impl Namespace {
             self.family.clone(),
             self.resolver.clone(),
         );
-        self.within_connection_limit(HttpError::ConnectionLimitReached, || {
+        self.within_connection_budget(HttpError::ConnectionLimitReached, || {
             Exchange::start(
                 self.outbound.clone(),
                 request,
@@ -253,13 +253,13 @@ impl Namespace {
     /// `connect`, made only while the Invocation has a connection left and
     /// counted once it is, as a budget of subrequests is spent;
     /// `refused`, dialing nothing, once none is left.
-    pub(crate) fn within_connection_limit<T, E>(
+    pub(crate) fn within_connection_budget<T, E>(
         &self,
         refused: E,
         connect: impl FnOnce() -> Result<T, E>,
     ) -> Result<T, E> {
         let mut left = self
-            .connections_left
+            .connection_budget
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         if *left == Some(0) {

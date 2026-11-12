@@ -456,7 +456,7 @@ impl ProtoOps for TcpSock {
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
         self.check_state()?;
         let dest = connect4(net, addr)?;
-        net.within_connection_limit(FilesystemError::WouldBlock, || {
+        net.within_connection_budget(FilesystemError::WouldBlock, || {
             self.hold_port(net.ports_of(Protocol::Tcp))?;
             let real = filter(net, &dest, Protocol::Tcp).inspect_err(|_| {
                 self.state().inet.put_port();

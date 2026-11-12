@@ -233,7 +233,7 @@ impl ProtoOps for UdpSock {
     /// the connect answers, as an autobind does.
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
         let dest = connect4(net, addr)?;
-        net.within_connection_limit(FilesystemError::WouldBlock, || {
+        net.within_connection_budget(FilesystemError::WouldBlock, || {
             self.hold_port(net.ports_of(Protocol::Udp))
                 .map_err(|_| FilesystemError::WouldBlock)?;
             let real = filter(net, &dest, Protocol::Udp)?;

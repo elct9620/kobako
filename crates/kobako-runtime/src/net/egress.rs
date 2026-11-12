@@ -13,24 +13,28 @@ use crate::network::{Credential, Request, Ruleset};
 pub(crate) struct EgressProxy {
     pub(crate) request: Vec<Arc<dyn for<'a> Policy<Request<'a>>>>,
     /// Each entry's own endpoints and the credentials bound to them.
-    pub(crate) bound: Vec<(Ruleset, Vec<Credential>)>,
+    pub(crate) bindings: Vec<(Ruleset, Vec<Credential>)>,
 }
 
 impl EgressProxy {
-    /// Whether every request policy lets `sent` leave.
-    pub(crate) fn admits(&self, sent: &Request<'_>) -> bool {
-        self.request.iter().all(|policy| policy.allows(sent))
+    /// Whether every request policy lets `request` leave.
+    pub(crate) fn admits(&self, request: &Request<'_>) -> bool {
+        self.request.iter().all(|policy| policy.allows(request))
     }
 
-    /// The credentials bound to `sent`, a request over `https`: an entry's own
+    /// The credentials bound to `request`, one over `https`: an entry's own
     /// endpoint names its exact host and allows it, and the placement's header
     /// carries the placeholder. Each source answers here, on the guest thread,
     /// so its time counts against the deadline.
-    pub(crate) fn swaps_of(&self, sent: &Request<'_>, headers: &[(String, Vec<u8>)]) -> Vec<Swap> {
-        let (host, port) = sent.authority;
+    pub(crate) fn swaps_of(
+        &self,
+        request: &Request<'_>,
+        headers: &[(String, Vec<u8>)],
+    ) -> Vec<Swap> {
+        let (host, port) = request.authority;
         let mut swaps = Vec::new();
-        for (rules, credentials) in &self.bound {
-            if !rules.binds(host, port, sent.method, sent.path) {
+        for (rules, credentials) in &self.bindings {
+            if !rules.binds(host, port, request.method, request.path) {
                 continue;
             }
             for credential in credentials {
@@ -42,7 +46,7 @@ impl EgressProxy {
                 if !carried {
                     continue;
                 }
-                if let Some(secret) = credential.source.value(sent) {
+                if let Some(secret) = credential.source.value(request) {
                     swaps.push(Swap {
                         header: header.to_string(),
                         placeholder: placeholder.to_vec(),
