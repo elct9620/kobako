@@ -799,3 +799,15 @@ These rules let every other undefined value be a refusal. The extension point is
 | Given | an Unsupported carrying a field added after this reader was built |
 | When | it is read |
 | Then | its message arrives unchanged |
+
+## `WE-091` A reference id past the wire's range is refused in the target position
+
+| Attribute | Value |
+| --- | --- |
+| refines | `WE-015` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Call targeting a reference id above `0x7fff_ffff`, which no table issues |
+| When | it is read |
+| Then | it is refused |
