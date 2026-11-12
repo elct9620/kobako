@@ -15,10 +15,11 @@ experimental, so the runtime promises it nothing here.
 - `crates/kobako-runtime/src/grant.rs`
 - `crates/kobako-runtime/src/mount.rs`
 - `crates/kobako-runtime/src/profile.rs`
+- `crates/kobako-runtime/src/cred.rs`
+- `crates/kobako-runtime/src/security/hooks.rs`
 - `crates/kobako-runtime/src/snapshot.rs`
 - `crates/kobako-runtime/src/vfs.rs`
 - `crates/kobako-runtime/src/vfs/attr.rs`
-- `crates/kobako-runtime/src/vfs/cred.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
 - `crates/kobako-runtime/src/vfs/mount.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`

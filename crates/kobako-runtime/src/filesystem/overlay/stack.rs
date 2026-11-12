@@ -25,7 +25,8 @@ use super::inode::OverlayDirInode;
 use super::path::OverlayPath;
 
 use super::super::{Errno, FileOperations, FileType, Filesystem, Kiocb};
-use crate::vfs::{Cred, Dentry, Identity};
+use crate::cred::Cred;
+use crate::vfs::{Dentry, Identity};
 
 /// The directories of the upper Tmpfs holding the view's changes and the
 /// changes being built, as overlayfs's `upperdir` and `workdir`.

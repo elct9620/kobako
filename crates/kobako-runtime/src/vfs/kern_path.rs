@@ -8,7 +8,6 @@
 
 use std::sync::Arc;
 
-use super::cred::Cred;
 use super::dentry::Dentry;
 use super::namei::{
     atomic_open, do_file_open, filename_lookup, filename_parentat, lookup_one_qstr_excl,
@@ -19,6 +18,7 @@ use super::{
     build_open_flags, DirEntry, Errno, File, FileOperations, FileSystemType, FileType, Iattr,
     Kstat, OpenHow, SuperBlock,
 };
+use crate::cred::Cred;
 use crate::mount::{Access, Mount};
 
 /// Open `path` beneath `start` for `cred` as `how` asks, as kernel code opens a

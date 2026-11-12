@@ -21,8 +21,9 @@ use super::socket::{
     connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome, to_error,
     BindHash, Destination, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
+use crate::cred::Cred;
 use crate::network::{Protocol, Ruleset};
-use crate::vfs::{Cred, PollMask};
+use crate::vfs::PollMask;
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 use crate::Errno;
 

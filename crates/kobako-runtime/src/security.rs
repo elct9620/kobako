@@ -7,15 +7,20 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use crate::cred::Cred;
 use crate::grant::{Grant, Policy};
 use crate::memcg::MemoryBudget;
 use crate::mount::{Access, Mount, MountRequest};
 use crate::network::Connection;
 use crate::vfs::{
-    d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, MntNamespace, OpenHow, Path,
-    SecurityOperations, SecurityPath, VfsMount, PATH_MAX,
+    d_revalidate, Dentry, FMode, FileType, MntNamespace, OpenHow, Path, VfsMount, PATH_MAX,
 };
 use crate::Errno;
+
+mod hooks;
+
+pub(crate) use hooks::on_path;
+pub use hooks::{FileSecurity, SecurityOperations, SecurityPath};
 
 /// What a Mount's Policy allowed a file as it opened, kept on the open file, as
 /// Landlock's file blob keeps `allowed_access`.

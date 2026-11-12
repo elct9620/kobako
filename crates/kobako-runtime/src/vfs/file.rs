@@ -7,7 +7,6 @@ use std::ops::BitOr;
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::{on_path, Cred, FileSecurity, SecurityPath};
 use super::dentry::Dentry;
 use super::inode::{EmptyFops, Inode};
 use super::mount::VfsMount;
@@ -18,6 +17,8 @@ use super::readdir::DirContext;
 use super::readdir::{DirEmit, DirEntry};
 use super::stat::special_file;
 use super::{Errno, FileType, Iattr, Kstat};
+use crate::cred::Cred;
+use crate::security::{on_path, FileSecurity, SecurityPath};
 use crate::wait::PollTable;
 
 /// The largest offset a file holds, as Linux's `OFFSET_MAX` ends its signed
@@ -1339,10 +1340,10 @@ mod tests {
     /// A security module refusing to open any directory.
     struct RefusesDirectories;
 
-    impl crate::vfs::SecurityOperations for RefusesDirectories {
+    impl crate::security::SecurityOperations for RefusesDirectories {
         fn file_open(
             &self,
-            _path: crate::vfs::SecurityPath<'_>,
+            _path: crate::security::SecurityPath<'_>,
             kind: FileType,
             _mode: FMode,
             _how: &OpenHow,

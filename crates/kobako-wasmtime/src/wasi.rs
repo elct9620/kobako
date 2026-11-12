@@ -15,13 +15,14 @@ use kobako_runtime::error::{InvokeError, Trap};
 use kobako_runtime::snapshot::Capture;
 use std::sync::Arc;
 
+use kobako_runtime::cred::Cred;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::net::{HostInet, HyperOutbound, Namespace, OpenConnections};
 use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
-use kobako_runtime::vfs::{Cred, OpenFiles};
+use kobako_runtime::vfs::OpenFiles;
 
 /// The Cred an invocation's Mounts open as: kobako's own rules, then each
 /// module the Driver was built with, its Filesystems holding at most the

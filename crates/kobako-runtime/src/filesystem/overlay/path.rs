@@ -17,10 +17,11 @@ use super::super::{
     DirEntry, Errno, FileOperations, FileType, Filesystem, Iattr, InodeOperations, Kstat, Lookup,
     OpenHow, SetTime, Tmpfs,
 };
+use crate::cred::Cred;
 use crate::locking::RwSemaphoreGuard;
 use crate::vfs::{
     __start_renaming, inode_permission, lookup_one_unlocked, may_create_dentry, notify_change,
-    start_creating, start_removing, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink, Cred,
+    start_creating, start_removing, vfs_create, vfs_mkdir, vfs_rename, vfs_rmdir, vfs_unlink,
     Dentry, DirContext, DirEmit, Mask, RenameFlag,
 };
 

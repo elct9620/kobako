@@ -24,8 +24,9 @@ use super::reactor::{Reactor, Task};
 use super::socket::{to_error, MemoryCharge};
 use super::transport::Connector;
 use super::{new_platform_tls, MAX_SOCKET_BUFFER};
+use crate::cred::Cred;
 use crate::filesystem::anon_inode_getfile;
-use crate::vfs::{Cred, FMode, File, FileOperations, Kiocb, OpenHow, PollMask};
+use crate::vfs::{FMode, File, FileOperations, Kiocb, OpenHow, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 use crate::Errno;
 

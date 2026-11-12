@@ -604,7 +604,7 @@ mod tests {
     /// let change.
     struct RecordsChanges(Arc<Mutex<Vec<String>>>);
 
-    impl crate::vfs::SecurityOperations for RecordsChanges {
+    impl crate::security::SecurityOperations for RecordsChanges {
         fn inode_permission(&self, dentry: &Dentry, mask: crate::vfs::Mask) -> Result<(), Errno> {
             if mask.contains(crate::vfs::Mask::WRITE) {
                 self.0.lock().expect("never poisoned").push(dentry.name());
@@ -626,7 +626,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let asked = Arc::new(Mutex::new(Vec::new()));
-        let cred = crate::vfs::Cred::new(vec![Arc::new(RecordsChanges(asked.clone()))]);
+        let cred = crate::cred::Cred::new(vec![Arc::new(RecordsChanges(asked.clone()))]);
         let root = crate::vfs::Path::root(mount.mnt());
         let made = crate::vfs::filename_mkdirat(&cred, &root, "d");
         assert_eq!(

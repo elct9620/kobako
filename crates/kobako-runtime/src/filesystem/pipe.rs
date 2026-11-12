@@ -5,8 +5,9 @@
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use crate::cred::Cred;
 use crate::vfs::{
-    alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType, Inode,
+    alloc_file_pseudo, Dentry, FMode, File, FileOperations, FileSystemType, FileType, Inode,
     InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
 };
 use crate::wait::PollTable;

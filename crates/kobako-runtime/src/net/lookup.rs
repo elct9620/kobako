@@ -11,9 +11,10 @@ use std::thread;
 
 use super::connections::{open, OpenConnections, Place};
 use super::Namespace;
+use crate::cred::Cred;
 use crate::filesystem::anon_inode_getfile;
 use crate::network::Name;
-use crate::vfs::{Cred, FMode, File, FileOperations, OpenHow, PollMask};
+use crate::vfs::{FMode, File, FileOperations, OpenHow, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
 /// What answers a name, as userspace's `getaddrinfo` does in Linux, apart

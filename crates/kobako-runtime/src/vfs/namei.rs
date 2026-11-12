@@ -15,7 +15,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::{on_path, Cred, FileSecurity};
 use super::dentry::{Dentry, RENAME_LOCK};
 use super::file::{do_dentry_open, FMode, File, FileOperations};
 use super::inode::{Finish, Inode, Mask, RenameFlag};
@@ -24,7 +23,9 @@ use super::openat2::{OpenFlags, OpenHow};
 use super::path::{Path, Start};
 use super::super_block::SuperBlock;
 use super::{Errno, FileType, Iattr, Kstat};
+use crate::cred::Cred;
 use crate::locking::RwSemaphoreGuard;
+use crate::security::{on_path, FileSecurity};
 
 use super::PATH_MAX;
 
@@ -1495,6 +1496,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    use crate::cred::Cred;
     use crate::filesystem::wrap::{self, Wrap};
     use crate::filesystem::{
         DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, Finish,
@@ -1503,11 +1505,9 @@ mod tests {
     use crate::grant::Policy;
     use crate::mount::{Access, Mount, MountRequest};
     use crate::sched::testing::count_waits;
+    use crate::security::{FileSecurity, SecurityOperations, SecurityPath};
     use crate::vfs::kern_path::{kern_path, KernPath};
-    use crate::vfs::{
-        self, Cred, Dentry, FMode, FileSecurity, Inode, Mask, OpenHow, Path, RenameFlag,
-        SecurityOperations, SecurityPath,
-    };
+    use crate::vfs::{self, Dentry, FMode, Inode, Mask, OpenHow, Path, RenameFlag};
     use crate::Errno;
 
     type Hook = Box<dyn Fn() -> Result<(), Errno> + Send + Sync>;
@@ -1714,31 +1714,31 @@ mod tests {
         }
     }
 
-    impl vfs::SecurityOperations for RecordsHooks {
-        fn path_mknod(&self, _path: vfs::SecurityPath<'_>) -> Result<(), Errno> {
+    impl crate::security::SecurityOperations for RecordsHooks {
+        fn path_mknod(&self, _path: crate::security::SecurityPath<'_>) -> Result<(), Errno> {
             self.record("path_mknod");
             Ok(())
         }
 
-        fn path_mkdir(&self, _path: vfs::SecurityPath<'_>) -> Result<(), Errno> {
+        fn path_mkdir(&self, _path: crate::security::SecurityPath<'_>) -> Result<(), Errno> {
             self.record("path_mkdir");
             Ok(())
         }
 
-        fn path_rmdir(&self, _path: vfs::SecurityPath<'_>) -> Result<(), Errno> {
+        fn path_rmdir(&self, _path: crate::security::SecurityPath<'_>) -> Result<(), Errno> {
             self.record("path_rmdir");
             Ok(())
         }
 
-        fn path_unlink(&self, _path: vfs::SecurityPath<'_>) -> Result<(), Errno> {
+        fn path_unlink(&self, _path: crate::security::SecurityPath<'_>) -> Result<(), Errno> {
             self.record("path_unlink");
             Ok(())
         }
 
         fn path_rename(
             &self,
-            _old: vfs::SecurityPath<'_>,
-            _new: vfs::SecurityPath<'_>,
+            _old: crate::security::SecurityPath<'_>,
+            _new: crate::security::SecurityPath<'_>,
             _dentries: (&Arc<Dentry>, &Arc<Dentry>),
         ) -> Result<(), Errno> {
             self.record("path_rename");
@@ -1747,16 +1747,16 @@ mod tests {
 
         fn file_open(
             &self,
-            _path: vfs::SecurityPath<'_>,
+            _path: crate::security::SecurityPath<'_>,
             _kind: FileType,
             _mode: vfs::FMode,
             _how: &OpenHow,
-        ) -> Result<vfs::FileSecurity, Errno> {
+        ) -> Result<crate::security::FileSecurity, Errno> {
             self.record("file_open");
             Ok(None)
         }
 
-        fn file_truncate(&self, _kept: &vfs::FileSecurity) -> Result<(), Errno> {
+        fn file_truncate(&self, _kept: &crate::security::FileSecurity) -> Result<(), Errno> {
             self.record("file_truncate");
             Ok(())
         }
@@ -1766,7 +1766,7 @@ mod tests {
     #[test]
     fn each_call_reaches_the_hook_linux_names_for_it() {
         let hooks = Arc::new(RecordsHooks::default());
-        let cred = vfs::Cred::new(vec![hooks.clone()]);
+        let cred = crate::cred::Cred::new(vec![hooks.clone()]);
         let mount = Mount::new(
             "/data",
             Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand"),
@@ -1881,7 +1881,7 @@ mod tests {
     fn a_module_refusing_what_a_walk_asks_refuses_the_walk() {
         struct RefusesExec;
 
-        impl vfs::SecurityOperations for RefusesExec {
+        impl crate::security::SecurityOperations for RefusesExec {
             fn inode_permission(&self, dentry: &Dentry, mask: Mask) -> Result<(), Errno> {
                 match dentry.name() == "d" && mask.contains(Mask::EXEC) {
                     true => Err(Errno::PermissionDenied),
@@ -1898,7 +1898,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let root = Path::root(mount.mnt());
-        let cred = vfs::Cred::new(vec![Arc::new(RefusesExec)]);
+        let cred = crate::cred::Cred::new(vec![Arc::new(RefusesExec)]);
         assert_eq!(
             vfs::vfs_fstatat(&cred, &root, "d/f", false).err(),
             Some(Errno::PermissionDenied),
@@ -3042,7 +3042,7 @@ mod tests {
     /// A security module counting the changes it is asked about.
     struct CountsChanges(Arc<AtomicUsize>);
 
-    impl vfs::SecurityOperations for CountsChanges {
+    impl crate::security::SecurityOperations for CountsChanges {
         fn inode_permission(&self, _dentry: &Dentry, mask: Mask) -> Result<(), Errno> {
             if mask.contains(Mask::WRITE) {
                 self.0.fetch_add(1, Ordering::SeqCst);
@@ -3057,7 +3057,7 @@ mod tests {
         let hook = Arc::new(RecordsPermission::default());
         let root = permission_root(&hook);
         let asked = Arc::new(AtomicUsize::new(0));
-        let cred = vfs::Cred::new(vec![Arc::new(CountsChanges(asked.clone()))]);
+        let cred = crate::cred::Cred::new(vec![Arc::new(CountsChanges(asked.clone()))]);
         let how = OpenHow {
             write: true,
             create: true,
@@ -3283,7 +3283,7 @@ mod tests {
     /// A link at the name `l`, moving a directory the moment the walk follows it,
     /// when the walk holds no directory's lock, and leading back where it stands.
     struct MovesWhenFollowed {
-        cred: Arc<vfs::Cred>,
+        cred: Arc<crate::cred::Cred>,
         root: Arc<OnceLock<Path>>,
         from: &'static str,
         to: &'static str,

@@ -8,8 +8,9 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use kobako_runtime::cred::Cred;
 use kobako_runtime::filesystem::{FileType, Iattr, Kstat, SetTime};
-use kobako_runtime::vfs::{self, verify_dirent_name, Cred, DirContext, DirEmit, File, Whence};
+use kobako_runtime::vfs::{self, verify_dirent_name, DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};

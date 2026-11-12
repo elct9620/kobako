@@ -6,11 +6,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::cred::Cred;
 use super::inode::Identity;
 use super::namei::{filename_lookup, retry_estale};
 use super::path::Start;
 use super::Errno;
+use crate::cred::Cred;
 use crate::profile::Profile;
 
 /// What a path names, as Linux's file types `FT_*` name each kind.
@@ -196,8 +196,9 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{cp_new_stat, ino_of, FileType, Kstat};
+    use crate::cred::Cred;
     use crate::profile::Profile;
-    use crate::vfs::{Cred, Identity};
+    use crate::vfs::Identity;
 
     fn seen_by(profile: Profile, stat: Kstat) -> Kstat {
         cp_new_stat(&Cred::default().with_profile(profile), stat)

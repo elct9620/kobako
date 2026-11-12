@@ -8,7 +8,6 @@
 //! Filesystem of a third party's checks neither.
 
 mod attr;
-mod cred;
 mod dentry;
 mod file;
 mod inode;
@@ -32,7 +31,6 @@ pub(crate) use namei::{
 
 pub(crate) use attr::notify_change;
 pub use attr::{Iattr, SetTime};
-pub use cred::{Cred, FileSecurity, SecurityOperations, SecurityPath};
 pub use dentry::{Dentry, DentryOperations};
 pub(crate) use file::alloc_file_pseudo;
 pub use file::{

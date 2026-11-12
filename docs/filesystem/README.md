@@ -50,9 +50,10 @@ The Filesystems are built on the VFS, so the operation tables belong to `vfs`. T
 
 | Module | Holds |
 |---|---|
-| `kobako_runtime::vfs` | the VFS, the operation tables, the Cred |
+| `kobako_runtime::vfs` | the VFS, the operation tables |
+| `kobako_runtime::cred` | the Cred a call is made as |
 | `kobako_runtime::filesystem` | the shipped Filesystems, the tables re-exported |
-| `kobako_runtime::security` | kobako's rules, each Mount's Policy, `WalkGuard` |
+| `kobako_runtime::security` | the hooks, kobako's rules, each Mount's Policy, `WalkGuard` |
 
 ## Role Ownership
 

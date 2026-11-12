@@ -13,6 +13,7 @@
 //! (for the Ruby ext that is the error mapper in its runtime module),
 //! so the engine stays swappable.
 
+pub mod cred;
 pub mod dispatch;
 pub mod endpoint;
 mod errno;

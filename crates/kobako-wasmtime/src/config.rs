@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::SecurityOperations;
+use kobako_runtime::security::SecurityOperations;
 
 /// The caps and requested isolation profile for one `Driver`. `None` on
 /// any cap field disables that cap.

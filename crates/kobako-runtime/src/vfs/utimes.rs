@@ -5,10 +5,11 @@
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::cred::{on_path, Cred};
 use super::namei::{filename_lookup, retry_estale};
 use super::path::{Path, Start};
 use super::{Errno, Iattr};
+use crate::cred::Cred;
+use crate::security::on_path;
 
 /// Set `times` on what the descriptor at `path` names, as Linux's `do_utimes_fd`.
 pub fn do_utimes_fd(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Errno> {

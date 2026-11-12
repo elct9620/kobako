@@ -6,8 +6,9 @@
 
 use std::sync::{Arc, LazyLock};
 
+use crate::cred::Cred;
 use crate::vfs::{
-    alloc_file_pseudo, Cred, Dentry, File, FileOperations, FileSystemType, FileType, Inode,
+    alloc_file_pseudo, Dentry, File, FileOperations, FileSystemType, FileType, Inode,
     InodeOperations, Kstat, OpenHow, SuperBlock, VfsMount,
 };
 use crate::Errno;

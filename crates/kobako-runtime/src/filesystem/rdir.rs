@@ -4,7 +4,8 @@
 
 use std::sync::Arc;
 
-use crate::vfs::{Cred, Dentry, DirContext, DirEntry, FileType};
+use crate::cred::Cred;
+use crate::vfs::{Dentry, DirContext, DirEntry, FileType};
 use crate::Errno;
 
 /// The entries a listing began with, `.` and `..` first, on the open directory

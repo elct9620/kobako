@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
-use super::cred::Cred;
 use super::dentry::Dentry;
 use super::inode::Identity;
 use super::{Errno, FileType, Kstat, PATH_MAX};
+use crate::cred::Cred;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]

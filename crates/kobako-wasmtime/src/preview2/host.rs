@@ -11,12 +11,13 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use kobako_runtime::cred::Cred;
 use kobako_runtime::net::{
     create_tcp_socket, create_udp_socket, resolve, sock_alloc_file, sys_bind, sys_connect,
     sys_connect_datagram, AddressFamily, Namespace, ProtoOps, SockOpt, MAX_DATAGRAM,
     MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
-use kobako_runtime::vfs::{Cred, PollMask};
+use kobako_runtime::vfs::PollMask;
 use kobako_runtime::wait::{do_poll, PollTable};
 use kobako_runtime::Errno;
 

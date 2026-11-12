@@ -17,8 +17,8 @@ use kobako_runtime::filesystem::{
 use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::mount::{Access, Mount, MountRequest};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::security::prepare_creds_within;
-use kobako_runtime::vfs::{self, Dentry, Inode, Path, SecurityOperations, SecurityPath, PATH_MAX};
+use kobako_runtime::security::{prepare_creds_within, SecurityOperations, SecurityPath};
+use kobako_runtime::vfs::{self, Dentry, Inode, Path, PATH_MAX};
 use kobako_runtime::Errno;
 use wasmtime::{Instance, Module, Store};
 

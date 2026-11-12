@@ -21,8 +21,8 @@ use super::lookup::{NameLookup, Resolver};
 use super::namespace::TcpSockets;
 use super::socket::{BindHash, Destination};
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
+use crate::cred::Cred;
 use crate::network::{Protocol, Ruleset};
-use crate::vfs::Cred;
 use crate::Errno;
 
 /// The only dialer the outbound seam has: it reaches the one authority the

@@ -13,9 +13,9 @@ use super::http::Outbound;
 use super::lookup::{LookupError, NameLookup, Resolver};
 use super::socket::BindHash;
 use super::{MemoryCharge, OpenConnections, ProtocolFamily, TcpSock};
+use crate::cred::Cred;
 use crate::grant::Policy;
 use crate::network::{EntryError, Name, Network, Protocol, Ruleset};
-use crate::vfs::Cred;
 
 /// The bottom of the virtual range, `198.18.0.0/15`, inside the reserved set,
 /// so no real destination is ever in it.
@@ -363,8 +363,7 @@ mod tests {
     use crate::grant::Grant;
     use crate::network::Connection;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
-    use crate::security::{prepare_creds_within, restrict_self};
-    use crate::vfs::SecurityOperations;
+    use crate::security::{prepare_creds_within, restrict_self, SecurityOperations};
     use crate::Errno;
 
     /// Each connection a policy was asked about.

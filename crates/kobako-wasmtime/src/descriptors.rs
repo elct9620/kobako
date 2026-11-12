@@ -11,9 +11,10 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use kobako_runtime::cred::Cred;
 use kobako_runtime::grant::Grant;
 use kobako_runtime::security::{restrict_self, WalkGuard};
-use kobako_runtime::vfs::{Cred, File, OpenFiles};
+use kobako_runtime::vfs::{File, OpenFiles};
 use kobako_runtime::Errno;
 
 use crate::wasi::MAX_TABLE_ENTRIES;
