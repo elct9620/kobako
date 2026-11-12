@@ -46,14 +46,14 @@ fn string_to_codec(val: Value) -> Option<CodecValue> {
 
 /// The name rides as ext 0x00, which must be UTF-8; reading the bytes
 /// rather than rendering is what makes a non-UTF-8 name detectable at all.
-fn symbol_name(kobako: &Kobako, symbol: Symbol) -> Option<String> {
+fn name_of(kobako: &Kobako, symbol: Symbol) -> Option<String> {
     String::from_utf8(symbol.name_bytes(kobako.mrb()).ok()?).ok()
 }
 
 /// A name the wire cannot carry leaves the value unrepresentable, so the
 /// caller refuses it rather than interning a name the guest never wrote.
 fn symbol_to_codec(kobako: &Kobako, val: Value) -> Option<CodecValue> {
-    symbol_name(kobako, Symbol::from_value(val)?).map(CodecValue::Sym)
+    name_of(kobako, Symbol::from_value(val)?).map(CodecValue::Sym)
 }
 
 /// The unpacked form of a dispatch Call's argument list: positional args
@@ -98,7 +98,7 @@ impl Kobako {
             .try_codec_value(val)
             .ok_or_else(|| CodecError::unrepresentable(self, val))?;
         let name = self
-            .kwargs_key_name(key)
+            .key_name_of(key)
             .ok_or_else(|| CodecError::unrepresentable(self, key))?;
         Ok((name, encoded))
     }
@@ -108,9 +108,9 @@ impl Kobako {
     /// and a non-UTF-8 name has no representation. Any other key class
     /// renders, which loses nothing: only Symbol and String carry bytes a
     /// render could drop.
-    fn kwargs_key_name(&self, key: Value) -> Option<String> {
+    fn key_name_of(&self, key: Value) -> Option<String> {
         if let Some(symbol) = Symbol::from_value(key) {
-            return symbol_name(self, symbol);
+            return name_of(self, symbol);
         }
         match Vec::<u8>::from_value(key) {
             Some(bytes) => String::from_utf8(bytes).ok(),

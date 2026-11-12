@@ -492,7 +492,7 @@ fn socket_getsockopt(
     let socket = open_socket_of(mrb, self_)?;
     let level = level_of(mrb, level)?;
     let optname = optname_of(mrb, level, optname)?;
-    let read = socket.option(mrb, (level, optname))?;
+    let read = socket.option_of(mrb, (level, optname))?;
     let value = read.map_err(|refused| refused.into_error(mrb, level, "getsockopt(2)"))?;
     let option = SockOption {
         family: AF_INET,

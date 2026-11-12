@@ -125,7 +125,7 @@ impl SocketIo for Connection {
         self.with(mrb, |open| Ok(open.peer))
     }
 
-    fn option(&self, mrb: &Mrb, option: (i32, i32)) -> Result<Result<i32, Refusal>, Error> {
+    fn option_of(&self, mrb: &Mrb, option: (i32, i32)) -> Result<Result<i32, Refusal>, Error> {
         self.with(mrb, |open| Ok(tcp_option(&open.socket, option)))
     }
 

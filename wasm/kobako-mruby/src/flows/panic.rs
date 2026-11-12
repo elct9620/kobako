@@ -57,7 +57,7 @@ pub(super) fn value_outcome<G: crate::MrbGuest>(
 }
 
 /// The classes a dispatch raises when a Service call fails — the names
-/// `Kobako::class_for` picks from. Named rather than matched by shape:
+/// `Kobako::class_of` picks from. Named rather than matched by shape:
 /// a guest is free to define its own `ServiceError`, and what it calls
 /// its exceptions must not decide what the host attributes them to.
 const SERVICE_ERROR_CLASSES: [&str; 3] = [

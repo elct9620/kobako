@@ -153,7 +153,7 @@ pub(super) trait SocketIo {
 
     /// What `option`, a level and a name, reads on the socket, as the
     /// protocol's `getsockopt` answers it.
-    fn option(&self, mrb: &Mrb, option: (i32, i32)) -> Result<Result<i32, Refusal>, Error>;
+    fn option_of(&self, mrb: &Mrb, option: (i32, i32)) -> Result<Result<i32, Refusal>, Error>;
 
     /// Set `option` to `int` on the socket, as the protocol's `setsockopt`
     /// takes it.
@@ -316,7 +316,7 @@ pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
     for name in [c"rewind", c"pos", c"tell"] {
         basic.define_method(mrb, name, beni::method!(refuse_position, 0))?;
     }
-    basic.define_method(mrb, c"pos=", beni::method!(refuse_position_of_one, 1))?;
+    basic.define_method(mrb, c"pos=", beni::method!(refuse_set_position, 1))?;
     basic.define_method(mrb, c"seek", beni::method!(refuse_seek, -1))?;
     basic.define_method(mrb, c"pread", beni::method!(refuse_pread, -1))?;
     basic.define_method(mrb, c"pwrite", beni::method!(refuse_pwrite, 2))?;
@@ -760,7 +760,7 @@ fn refuse_position(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 /// `pos=(offset)`, refused as every position call is.
-fn refuse_position_of_one(mrb: &Mrb, self_: Value, _offset: Value) -> Result<Value, Error> {
+fn refuse_set_position(mrb: &Mrb, self_: Value, _offset: Value) -> Result<Value, Error> {
     refuse_position(mrb, self_)
 }
 

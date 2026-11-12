@@ -47,7 +47,7 @@ const REFLECTION_DENYLIST: &[&str] = &[
 
 /// `NoMethodError` for a reflection method the guest proxy refuses to
 /// forward, naming the method without leaking host detail.
-fn reflection_blocked(mrb: &Mrb, method_name: &str) -> beni::Error {
+fn blocked_reflection_error(mrb: &Mrb, method_name: &str) -> beni::Error {
     exception(
         mrb,
         mrb.exception_no_method_error(),
@@ -100,7 +100,7 @@ fn forward_to_dispatch(
     // refuse to forward an ambient reflection / eval name. Non-authoritative
     // — the host re-checks on the resolved method owner.
     if REFLECTION_DENYLIST.contains(&method_name.as_str()) {
-        return Err(reflection_blocked(kobako.mrb(), &method_name));
+        return Err(blocked_reflection_error(kobako.mrb(), &method_name));
     }
 
     // An argument (or kwargs value) with no representation in this guest's
