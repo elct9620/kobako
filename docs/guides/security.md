@@ -157,9 +157,12 @@ the delay.
 | about 10 ms | each call, with ten connections |
 | about 1.5 ms | nothing until many samples are averaged |
 
-`connection_limit` bounds the samples one run takes, but you decide how many runs
-a script gets. Keep a Service's run time independent of any secret it does not
-return, or give a script that holds a network entry few runs.
+kobako adds no jitter: noise only raises the samples an attacker averages, as
+Cloudflare Workers and the Lucky 13 authors found. The counts are your levers
+instead. `connection_limit` bounds the samples one run takes, so lower it for a
+script that needs few requests. You decide how many runs a script gets. Keep a
+Service's run time independent of any secret it does not return, or give a
+script that holds a network entry few runs.
 
 ### Trust Roots
 
