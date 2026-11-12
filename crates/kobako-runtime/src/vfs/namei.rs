@@ -1502,8 +1502,8 @@ mod tests {
         DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, Finish,
         InodeOperations, Kstat, Lookup, Tmpfs,
     };
-    use crate::grant::Policy;
     use crate::mount::{Access, Mount, MountRequest};
+    use crate::policy::Policy;
     use crate::sched::testing::count_waits;
     use crate::security::{FileSecurity, SecurityOperations, SecurityPath};
     use crate::vfs::kern_path::{kern_path, KernPath};

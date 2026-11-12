@@ -14,8 +14,9 @@ use kobako_runtime::filesystem::{
     FileOperations, FileSystemType, FileType, InodeOperations, Kiocb, Kstat, Lookup, OpenHow,
     Overlay, RenameFlag, Tmpfs,
 };
-use kobako_runtime::grant::{Grant, Policy};
+use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
+use kobako_runtime::policy::Policy;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::{prepare_creds_within, SecurityOperations, SecurityPath};
 use kobako_runtime::vfs::{self, Dentry, Inode, Path, PATH_MAX};

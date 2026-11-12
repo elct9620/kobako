@@ -7,7 +7,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::filesystem::Filesystem;
-use crate::grant::Policy;
+use crate::policy::Policy;
 use crate::vfs::VfsMount;
 
 /// What a Mount allows a guest beneath it, and what a Policy is asked to allow

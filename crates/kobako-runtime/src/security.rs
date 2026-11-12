@@ -8,10 +8,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::cred::Cred;
-use crate::grant::{Grant, Policy};
+use crate::grant::Grant;
 use crate::memcg::MemoryBudget;
 use crate::mount::{Access, Mount, MountRequest};
 use crate::network::Connection;
+use crate::policy::Policy;
 use crate::vfs::{
     d_revalidate, Dentry, FMode, FileType, MntNamespace, OpenHow, Path, VfsMount, PATH_MAX,
 };

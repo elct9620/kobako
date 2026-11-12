@@ -32,9 +32,9 @@ use crate::receiver::Receiver;
 use crate::snippet;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::GrantKind;
-use kobako_runtime::grant::Policy;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
 use kobako_runtime::network::{self, Network};
+use kobako_runtime::policy::Policy;
 
 mod context;
 mod options;

@@ -13,11 +13,12 @@ use magnus::{
     prelude::*, Error as MagnusError, RArray, RClass, RHash, RModule, RString, Ruby, Symbol, Value,
 };
 
-use kobako_runtime::grant::{Grant, Policy};
+use kobako_runtime::grant::Grant;
 use kobako_runtime::network::{
     Action, Addresses, Builder, Connection, Credential, CredentialSource, Endpoint, Entry,
     EntryError, HttpRule, Name, Network, Placement, Policies, Protocol, Request, Secret,
 };
+use kobako_runtime::policy::Policy;
 
 use super::pinned_value::PinnedValue;
 use super::{escape, gvl};

@@ -51,8 +51,8 @@ mod tests {
     use crate::filesystem::{
         FileSystemType, FileType, Filesystem, InodeOperations, Kstat, SetTime, Tmpfs,
     };
-    use crate::grant::Policy;
     use crate::mount::{Access as MountAccess, Mount, MountRequest};
+    use crate::policy::Policy;
     use crate::security::{prepare_creds_within, restrict_self};
     use crate::vfs::Dentry;
 

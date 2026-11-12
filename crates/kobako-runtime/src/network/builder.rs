@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use super::{Connection, Credential, Endpoint, Entry, Name, Policies, Request};
-use crate::grant::Policy;
+use crate::policy::Policy;
 
 /// An entry whose endpoints, credentials, and policies are the given entry's,
 /// then its own; `Builder::default()` is given none, as a Ruby block alone.

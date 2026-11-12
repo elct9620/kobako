@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::Filesystem;
-use kobako_runtime::grant::{Grant, Policy};
+use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
 use kobako_runtime::network::{Builder, Entry, Network};
+use kobako_runtime::policy::Policy;
 
 use crate::catalog::Catalog;
 use crate::dispatch::Resolutions;

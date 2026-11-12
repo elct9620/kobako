@@ -10,8 +10,8 @@ use std::sync::{Arc, PoisonError};
 use std::thread;
 
 use kobako_runtime::filesystem::Filesystem;
-use kobako_runtime::grant::Policy;
 use kobako_runtime::mount::{Access, MountRequest};
+use kobako_runtime::policy::Policy;
 
 use crate::calls::{Call, Rng};
 use crate::kobako::Kobako;

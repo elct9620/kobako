@@ -15,8 +15,8 @@ use super::lookup::{allows_lookup, normalize};
 use super::transport::Connector;
 use super::Namespace;
 use crate::cred::Cred;
-use crate::grant::Policy;
 use crate::network::{Connection, Credential, Protocol, Request, Ruleset};
+use crate::policy::Policy;
 use crate::Errno;
 
 /// Send an HTTP request in `net` as `cred`. The socket hooks judge the

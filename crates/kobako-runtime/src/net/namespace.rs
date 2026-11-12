@@ -14,8 +14,8 @@ use super::lookup::{LookupError, NameLookup, Resolver};
 use super::socket::BindHash;
 use super::{MemoryCharge, OpenConnections, ProtocolFamily, TcpSock};
 use crate::cred::Cred;
-use crate::grant::Policy;
 use crate::network::{EntryError, Name, Network, Protocol, Ruleset};
+use crate::policy::Policy;
 
 /// The bottom of the virtual range, `198.18.0.0/15`, inside the reserved set,
 /// so no real destination is ever in it.

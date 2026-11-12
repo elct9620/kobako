@@ -1227,7 +1227,7 @@ mod tests {
         /// Runs what it holds once, as a Policy is asked, then allows it.
         struct RunsWhenAsked(std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>);
 
-        impl crate::grant::Policy<crate::mount::MountRequest<'_>> for RunsWhenAsked {
+        impl crate::policy::Policy<crate::mount::MountRequest<'_>> for RunsWhenAsked {
             fn allows(&self, _request: &crate::mount::MountRequest<'_>) -> bool {
                 let run = self.0.lock().expect("never poisoned").take();
                 if let Some(run) = run {
@@ -1372,7 +1372,7 @@ mod tests {
     struct RefusesRefused;
 
     #[cfg(unix)]
-    impl crate::grant::Policy<crate::mount::MountRequest<'_>> for RefusesRefused {
+    impl crate::policy::Policy<crate::mount::MountRequest<'_>> for RefusesRefused {
         fn allows(&self, request: &crate::mount::MountRequest<'_>) -> bool {
             !request.path.starts_with("/data/refused")
         }

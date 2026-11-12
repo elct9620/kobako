@@ -16,7 +16,7 @@ pub use ruleset::{address_set_of, AddressSet, Ruleset};
 /// The process's open connection limit, which only a Rust Host App moves.
 pub use crate::net::{process_connections, OpenConnections};
 
-use crate::grant::Policy;
+use crate::policy::Policy;
 
 /// One named entry of the network, handed over for an Invocation.
 #[derive(Clone)]

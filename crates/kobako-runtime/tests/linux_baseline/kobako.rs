@@ -8,8 +8,8 @@ use std::time::{Duration, UNIX_EPOCH};
 use kobako_runtime::cred::Cred;
 use kobako_runtime::filesystem::{Filesystem, Iattr, SetTime};
 use kobako_runtime::grant::Grant;
-use kobako_runtime::grant::Policy;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
+use kobako_runtime::policy::Policy;
 use kobako_runtime::security::{prepare_creds_within, restrict_self};
 use kobako_runtime::vfs::{
     self, DirContext, DirEmit, File, FileType, OpenFlags, OpenHow, VfsMount, Whence,
