@@ -190,18 +190,24 @@ impl Cred {
         })
     }
 
-    /// This Cred with `more` modules registered after its own and `mnt_ns` as
-    /// its mount namespace, sharing the memory held on its behalf, as
-    /// `landlock_restrict_self` adds a domain to a task that unshared its mounts.
-    pub(crate) fn with_modules(
-        &self,
-        more: Vec<Arc<dyn SecurityOperations>>,
-        mnt_ns: MntNamespace,
-    ) -> Arc<Self> {
+    /// This Cred with `more` modules registered after its own, sharing the
+    /// memory held on its behalf, as `landlock_restrict_self` adds a domain.
+    pub(crate) fn with_modules(&self, more: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
         let mut security = self.security.clone();
         security.extend(more);
         Arc::new(Self {
             security,
+            memory: self.memory.clone(),
+            profile: self.profile,
+            mnt_ns: self.mnt_ns.clone(),
+        })
+    }
+
+    /// This Cred with `mnt_ns` as its mount namespace, as a task that unshared
+    /// its mounts holds a namespace of its own.
+    pub(crate) fn with_mnt_ns(&self, mnt_ns: MntNamespace) -> Arc<Self> {
+        Arc::new(Self {
+            security: self.security.clone(),
             memory: self.memory.clone(),
             profile: self.profile,
             mnt_ns: Arc::new(mnt_ns),

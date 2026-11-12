@@ -300,10 +300,8 @@ pub fn restrict_self<'a>(cred: &Cred, grants: impl IntoIterator<Item = &'a Grant
         Grant::Mount(mount) => Some((mount.at(), mount.mnt())),
         Grant::Network(_) => None,
     });
-    cred.with_modules(
-        policies_of(grants.iter().copied()),
-        MntNamespace::new(mounts),
-    )
+    cred.with_modules(policies_of(grants.iter().copied()))
+        .with_mnt_ns(MntNamespace::new(mounts))
 }
 
 fn policies_of<'a>(
