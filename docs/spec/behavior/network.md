@@ -2453,3 +2453,15 @@ endpoint "api.example.com", port: 443
 | Given | a guest given the network |
 | When | it looks up a name no A-label spells |
 | Then | the lookup is refused as `invalid-argument` before it starts, as WASI calls a syntactically invalid domain name |
+
+## `NW-198` A Net::HTTP verb given too many arguments names the count it takes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-120` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a script's `Net::HTTP` session |
+| When | it calls `get` with four arguments and `post` with five |
+| Then | each raises `ArgumentError` naming the count from its required arguments, `1..3` and `2..4`, as CRuby's does |
