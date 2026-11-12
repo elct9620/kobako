@@ -141,14 +141,35 @@ pub fn run_task<T>(deadline: Option<Instant>, run: impl FnOnce() -> T) -> T {
     run()
 }
 
+/// Why a run is to stop, as the fatal signal pending on a Linux task says
+/// what ended it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FatalSignal {
+    /// The run passed its deadline.
+    Deadline,
+    /// The run's frontend interrupted it.
+    Interrupt,
+}
+
+/// The fatal signal pending on the calling thread's run, its deadline read
+/// first; `None` while the run may go on waiting.
+pub fn pending_fatal_signal() -> Option<FatalSignal> {
+    TASK.with(|task| {
+        let running = task.borrow();
+        if running.deadline.is_some_and(|at| Instant::now() >= at) {
+            Some(FatalSignal::Deadline)
+        } else if running.task.interrupted.load(Ordering::SeqCst) {
+            Some(FatalSignal::Interrupt)
+        } else {
+            None
+        }
+    })
+}
+
 /// Whether the calling thread's run is to stop waiting, as Linux's
 /// `fatal_signal_pending(current)` answers.
 pub(crate) fn fatal_signal_pending() -> bool {
-    TASK.with(|task| {
-        let running = task.borrow();
-        running.task.interrupted.load(Ordering::SeqCst)
-            || running.deadline.is_some_and(|at| Instant::now() >= at)
-    })
+    pending_fatal_signal().is_some()
 }
 
 /// When the calling thread's run is to stop, once it has a deadline.

@@ -16,6 +16,7 @@ use kobako_runtime::net::{
     resolve, sock_alloc_file, sys_bind, sys_connect, AddressFamily, Namespace, ProtoOps, SockOpt,
     TcpSock, UdpSock, MAX_DATAGRAM, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
+use kobako_runtime::sched::{self, FatalSignal};
 use kobako_runtime::vfs::PollMask;
 use kobako_runtime::wait::{do_poll, PollTable};
 use kobako_runtime::Errno;
@@ -168,10 +169,12 @@ impl Invocation {
                         return Ok(answer);
                     }
                 }
-                Err(_) if self.deadline().is_some_and(|at| Instant::now() >= at) => {
-                    return Err(wasmtime::Error::new(TimeoutTrap));
+                Err(_) => {
+                    return Err(match sched::pending_fatal_signal() {
+                        Some(FatalSignal::Deadline) => wasmtime::Error::new(TimeoutTrap),
+                        _ => wasmtime::Error::new(Interrupted),
+                    })
                 }
-                Err(_) => return Err(wasmtime::Error::new(Interrupted)),
             }
         }
     }
