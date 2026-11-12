@@ -328,9 +328,12 @@ none of it while its own WASI host layer reshapes the runtime.
 |---|---|
 | Engine seams | `Runtime`, `DispatchHandler`, `Yielder` |
 | host ABI endpoint | `endpoint`, over a `GuestInstance` the Wasm Driver implements |
-| files | `vfs`, with `File` answering what a guest may do with an open file, and `cp_new_stat` what it sees of an entry under its Cred's profile |
+| files | `vfs`, with `File` and `cp_new_stat` |
 | declared Profile | `Profile`, with `clock_due` for a wait |
 | per-invocation types | `Snapshot`, `Completion`, `Capture`, `Usage`, `Trap` |
+
+`File` answers what a guest may do with an open file, and `cp_new_stat` what it sees
+of an entry under its Cred's profile.
 
 The Rust SDK takes a Wasm Driver at `Sandbox::with_runtime` and keeps the whole tier
 above it: Catalog, Handles, snippet replay, Extension composition. `Sandbox::new` is

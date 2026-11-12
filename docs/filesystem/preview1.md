@@ -79,7 +79,7 @@ These judgments encode preview1 or repeat a syscall entry's checks, so the Wasm 
 | Descriptor Table | 8 |
 | Directory Listing | 4 |
 | Error Order | 6 |
-| Formats and Waits | 4 |
+| Formats and Waits | 5 |
 
 ### Descriptor Table
 
@@ -136,6 +136,7 @@ The remaining judgments shape what a call writes or how long it waits.
 | Absolute link target refused | wasi-testsuite |
 | Waiting on a pipe's other end: BADF | preview1 only |
 | `poll_oneoff` clock wait | Wasm Driver deadline |
+| A read or write moves the first non-empty buffer only | wasmtime-wasi |
 
 `kobako-runtime` reports each error by POSIX name through `Errno::posix_name`, and the Wasm Driver turns the name into a WASI code. A pipe's end is never ready for what the other end does, so a wait on it answers BADF rather than never ending. A clock wait ends at the invocation's deadline, a Wasm mechanism the Wasm Driver owns.
 

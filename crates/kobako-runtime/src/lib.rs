@@ -3,8 +3,9 @@
 //! The surface where a wasm engine implementation and a host frontend
 //! meet: the `Runtime` trait, the isolation `Profile` a runtime
 //! declares, the Grants it presents to the guest and the Filesystem a
-//! Mount places, the neutral per-invocation value types, and the dispatch /
-//! yield re-entry traits a frontend supplies. The messages these carry
+//! Mount places, the socket layer a network Grant opens and the HTTP
+//! egress proxy above it, the neutral per-invocation value types, and the
+//! dispatch / yield re-entry traits a frontend supplies. The messages these carry
 //! are `kobako-transport`'s, which this crate takes as given.
 //! Nothing here depends on an engine or a frontend type — each engine
 //! hides its own machinery behind `Runtime`, and each frontend maps
