@@ -4119,7 +4119,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it waits on a one-second and a two-second clock together, through preview1 and through preview2 |
 | Then | each wait reports both clocks at once, since the frozen clocks never reach either |
 
-## `RT-373` A preview2 answer into a misaligned return area traps
+## `RT-373` A preview2 answer into a misplaced return area traps
 
 | Attribute | Value |
 | --- | --- |
@@ -4128,8 +4128,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a guest calling a preview2 import that answers through a return area |
-| When | it names the area off the answer's alignment, then on it |
-| Then | the misaligned call traps before any answer is written, as the Canonical ABI traps, and the aligned one answers |
+| When | it names the area off the answer's alignment, then running past its memory, then wholly inside |
+| Then | the first two trap before any part of the answer is written, as the Canonical ABI traps. The last one answers |
 
 ## `RT-374` A preview2 call lifting past its hostcall fuel traps
 
