@@ -15,6 +15,7 @@ use crate::vfs::{
 use crate::wait::PollTable;
 
 use super::connections::{open, OpenConnections, Place};
+use super::Namespace;
 
 /// How much a socket holds each way before it stops reading and refuses
 /// more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket and net core's
@@ -32,6 +33,12 @@ pub trait ProtoOps: Send + Sync {
     /// IPv6 address answers `AddressFamilyNotSupported`, and a socket bound
     /// or connected already `InvalidInput`, as `__inet_bind` refuses one.
     fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError>;
+    /// Connect to `addr`, the address the guest named, once the socket hooks
+    /// passed it, as `->connect` runs after `__sys_connect` asks
+    /// `security_socket_connect`: the socket's own state is checked first,
+    /// then `net` translates `addr` as cgroup `connect4` does and its ruleset
+    /// judges the real destination.
+    fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError>;
     /// Read what the socket holds and who sent it, as `->recvmsg` fills
     /// `msg_name`: a datagram's peer as the guest named it, none for a
     /// stream; `WouldBlock` while it holds nothing yet.

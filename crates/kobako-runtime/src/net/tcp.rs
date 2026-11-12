@@ -15,11 +15,13 @@ use socket2::{SockRef, TcpKeepalive};
 
 use super::connections::OpenConnections;
 use super::family::ProtocolFamily;
+use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
     ensure_within, set_hop_limit, take_connect_outcome, to_error, InetSock, MemoryCharge, ProtoOps,
     SockOpt, MAX_SOCKET_BUFFER,
 };
+use crate::network::Protocol;
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -145,40 +147,49 @@ impl TcpSock {
         }))
     }
 
-    /// Connect to the first of `addrs` that answers, in turn, the guest having
-    /// named `peer`; the connect goes on without blocking, so this returns at
-    /// once and a poll finds the socket writable once it settles. A socket
-    /// connecting answers `EALREADY` and one connected `EISCONN`, as
-    /// `__inet_stream_connect` does. The socket counts against
-    /// `open_connections` and the process until released, and a full count
-    /// answers `EAGAIN`, never a Trap, so one Sandbox cannot end another's run.
-    pub(crate) fn connect(
+    /// Whether the socket may begin a connect, as `__inet_stream_connect`
+    /// switches on its state before anything else: one connecting answers
+    /// `EALREADY`, one connected or reset `EISCONN`, and one a connect failed
+    /// answers that failure once and stands unconnected again.
+    fn check_connectable(&self) -> Result<(), FilesystemError> {
+        let mut state = self.state();
+        match state.phase {
+            Phase::Connecting => Err(FilesystemError::AlreadyInProgress),
+            Phase::Connected | Phase::Reset => Err(FilesystemError::AlreadyConnected),
+            Phase::Failed => {
+                let err = state
+                    .inet
+                    .error
+                    .take()
+                    .unwrap_or(FilesystemError::ConnectionAborted);
+                Self::disconnect(&mut state);
+                Err(err)
+            }
+            Phase::Unconnected => Ok(()),
+        }
+    }
+
+    /// Dial the first of `addrs` that answers, in turn, the guest having named
+    /// `peer`, as `tcp_v4_connect` sends the SYN; the connect goes on without
+    /// blocking, so this returns at once and a poll finds the socket writable
+    /// once it settles. The socket counts against `open_connections` and the
+    /// process until released, and a full count answers `EAGAIN`, never a
+    /// Trap, so one Sandbox cannot end another's run; the port it held goes
+    /// back then, as `tcp_v4_connect`'s failure puts it.
+    pub(crate) fn dial(
         &self,
         addrs: Vec<SocketAddr>,
         peer: SocketAddr,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<(), FilesystemError> {
-        {
-            let mut state = self.state();
-            match state.phase {
-                Phase::Connecting => return Err(FilesystemError::AlreadyInProgress),
-                Phase::Connected => return Err(FilesystemError::AlreadyConnected),
-                Phase::Reset => return Err(FilesystemError::AlreadyConnected),
-                Phase::Failed => {
-                    let err = state
-                        .inet
-                        .error
-                        .take()
-                        .unwrap_or(FilesystemError::ConnectionAborted);
-                    Self::disconnect(&mut state);
-                    return Err(err);
-                }
-                Phase::Unconnected => {}
-            }
-        }
         let mut state = self.state();
-        if let Some(place) = state.inet.open_place(open_connections)? {
-            state.inet.place = Some(place);
+        match state.inet.open_place(open_connections) {
+            Ok(Some(place)) => state.inet.place = Some(place),
+            Ok(None) => {}
+            Err(err) => {
+                state.inet.put_port();
+                return Err(err);
+            }
         }
         // A connect starts with no failure pending, as `tcp_connect_init`
         // clears `sk_err`.
@@ -401,11 +412,6 @@ impl TcpSock {
         }
     }
 
-    /// Whether the socket stands unconnected, so a connect would dial.
-    pub(crate) fn is_unconnected(&self) -> bool {
-        self.state().phase == Phase::Unconnected
-    }
-
     /// Whether a connect is under way, as a socket in `TCP_SYN_SENT` is.
     pub fn is_connecting(&self) -> bool {
         self.state().phase == Phase::Connecting
@@ -455,6 +461,20 @@ impl Ready for TcpSock {
 /// TCP's answers for its socket file, as `inet_stream_ops` hands each call to
 /// `tcp_prot`.
 impl ProtoOps for TcpSock {
+    /// The socket's state first, then `net`'s translation and ruleset, then
+    /// the dial within the connection caps, as `inet_stream_connect` runs
+    /// cgroup `connect4` only on a socket connected to nothing. A connect
+    /// that dials holds its port first, as `tcp_v4_connect` hashes one before
+    /// it sends the SYN.
+    fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
+        self.check_connectable()?;
+        let real = net.destinations_of(addr, Protocol::Tcp)?;
+        net.within_connection_limit(FilesystemError::WouldBlock, || {
+            self.hold_virtual_port(&mut || net.alloc_virtual_port());
+            self.dial(real, addr, net.open_connections())
+        })
+    }
+
     /// A socket connecting or connected holds its own end already, as
     /// `inet_hash_connect` binds one past `TCP_CLOSE`; one a failed connect or
     /// a reset closed is back in `TCP_CLOSE`.
@@ -670,9 +690,33 @@ mod tests {
     fn dial(addr: SocketAddr) -> Arc<TcpSock> {
         let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
             .expect("an unbounded socket is made");
-        sock.connect(vec![addr], addr, &OpenConnections::new(None))
+        sock.dial(vec![addr], addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         sock
+    }
+
+    /// A namespace whose ruleset admits 127.0.0.1 on `ports`, its sockets
+    /// counting against `open`.
+    fn loopback(ports: &[u16], open: Arc<OpenConnections>) -> Namespace {
+        use crate::net::HyperOutbound;
+        use crate::network::{Builder, Endpoint, Network};
+        let mut entry = Builder::default();
+        for port in ports {
+            entry.endpoint(
+                Endpoint::new("127.0.0.1", *port)
+                    .unwrap()
+                    .with_protocol(Protocol::Tcp),
+            );
+        }
+        let network = Network::new("loopback", Arc::new(entry)).unwrap();
+        Namespace::new(
+            [&network],
+            Arc::new(HostInet),
+            Arc::new(HyperOutbound::new()),
+            open,
+            None,
+        )
+        .expect("the endpoints compile")
     }
 
     /// A socket file connecting to a loopback listener, and the peer the
@@ -738,7 +782,7 @@ mod tests {
             .expect("an unconnected socket takes an option");
         let keepalive = |sock: &TcpSock| sock.getsockopt(SockOpt::KeepAlive).unwrap();
         let before = (keepalive(&sock), host_keepalive(&sock));
-        sock.connect(vec![addr], addr, &OpenConnections::new(None))
+        sock.dial(vec![addr], addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         let dialed = host_keepalive(&sock);
         sock.setsockopt(SockOpt::KeepAlive, 0)
@@ -781,7 +825,7 @@ mod tests {
             .expect("an interval Linux takes");
         sock.setsockopt(SockOpt::KeepCnt, 3)
             .expect("a count Linux takes");
-        sock.connect(vec![addr], addr, &OpenConnections::new(None))
+        sock.dial(vec![addr], addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         let host = sock.state().host.as_ref().map(|(stream, _)| {
             let host = SockRef::from(stream);
@@ -824,7 +868,7 @@ mod tests {
         ];
         sock.setsockopt(SockOpt::Ttl, 7)
             .expect("a hop limit Linux takes");
-        sock.connect(vec![addr], addr, &OpenConnections::new(None))
+        sock.dial(vec![addr], addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         let dialed = host_ttl(&sock);
         sock.setsockopt(SockOpt::Ttl, 9)
@@ -893,7 +937,7 @@ mod tests {
         let udp = crate::net::UdpSock::new(&cred).expect("an unbounded socket is made");
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         let at = udp_peer.local_addr().unwrap();
-        udp.connect(&family, at, at, &OpenConnections::new(None))
+        udp.dial(&family, at, at, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         assert_eq!(
             (first, second, ipv6, connected.bind(any), udp.bind(any)),
@@ -922,7 +966,7 @@ mod tests {
                 TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
             sock.bind(own.parse().unwrap())
                 .expect("a fresh socket binds");
-            sock.connect(vec![closed], closed, &OpenConnections::new(None))
+            sock.dial(vec![closed], closed, &OpenConnections::new(None))
                 .expect("an uncapped socket connects");
             let file = sock_alloc_file(sock.clone(), &Arc::default());
             wait_for(|table| file.poll(table), PollMask::ERR);
@@ -934,6 +978,24 @@ mod tests {
             "a TCP socket bound to port 0 must bind again once its connect to a closed port fails, \
              and one bound to a named port must still answer EINVAL, as tcp_set_state puts the \
              port on TCP_CLOSE unless SOCK_BINDPORT_LOCK keeps it"
+        );
+    }
+
+    // @behavior RT-389
+    #[test]
+    fn a_connect_refused_for_a_full_count_gives_back_its_port() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let at = listener.local_addr().unwrap();
+        let net = loopback(&[at.port()], OpenConnections::new(Some(0)));
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+            .expect("an unbounded socket is made");
+        let connected = ProtoOps::connect(&*sock, &net, at);
+        assert_eq!(
+            (connected, sock.bind("0.0.0.0:0".parse().unwrap())),
+            (Err(FilesystemError::WouldBlock), Ok(())),
+            "a TCP socket's connect under a full open connection count must answer EAGAIN and \
+             give back the port it held, so a bind to port 0 then succeeds, as tcp_v4_connect's \
+             failure puts the port it hashed"
         );
     }
 
@@ -977,15 +1039,24 @@ mod tests {
         sock.finish_connect().expect("the socket connected");
         let addr = sock.getpeername().expect("a connected socket has a peer");
         let (was_reset, _reset_file) = reset_socket();
-        let again = |sock: &TcpSock| sock.connect(vec![addr], addr, &OpenConnections::new(Some(1)));
+        // The ruleset admits the peer only, under a cap already spent.
+        let net = loopback(&[addr.port()], OpenConnections::new(Some(0)));
+        let refused = SocketAddr::from(([127, 0, 0, 1], 1));
+        let again = |sock: &TcpSock, to| ProtoOps::connect(sock, &net, to);
         assert_eq!(
-            [again(&sock), again(&was_reset)],
             [
+                again(&sock, addr),
+                again(&was_reset, addr),
+                again(&sock, refused)
+            ],
+            [
+                Err(FilesystemError::AlreadyConnected),
                 Err(FilesystemError::AlreadyConnected),
                 Err(FilesystemError::AlreadyConnected)
             ],
             "a TCP socket's connect on a connected socket, and on one connected then reset, must \
-             answer EISCONN, as __inet_stream_connect does, before taking another place"
+             answer EISCONN, as __inet_stream_connect does, before the ruleset judges the \
+             destination or the connection caps are asked"
         );
     }
 
@@ -997,16 +1068,18 @@ mod tests {
         drop(closed);
         // One place, which the failed socket still holds, so connecting
         // afresh must reuse it rather than ask the full cap for another.
-        let cap = OpenConnections::new(Some(1));
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
-            .expect("an unbounded socket is made");
-        sock.connect(vec![refused_at], refused_at, &cap)
-            .expect("a socket under a cap of one connects");
-        let file = sock_alloc_file(sock.clone(), &Arc::default());
-        wait_for(|table| file.poll(table), PollMask::ERR);
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let open_at = listener.local_addr().unwrap();
-        let connect = || sock.connect(vec![open_at], open_at, &cap);
+        let net = loopback(
+            &[refused_at.port(), open_at.port()],
+            OpenConnections::new(Some(1)),
+        );
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+            .expect("an unbounded socket is made");
+        ProtoOps::connect(&*sock, &net, refused_at).expect("a socket under a cap of one connects");
+        let file = sock_alloc_file(sock.clone(), &Arc::default());
+        wait_for(|table| file.poll(table), PollMask::ERR);
+        let connect = || ProtoOps::connect(&*sock, &net, open_at);
         let message = "a TCP socket's connect after its connect was refused must answer \
                        ECONNREFUSED and dial nothing, then connect afresh under a cap of one, on \
                        the place it holds, with none of the failure left, as Linux disconnects a \
@@ -1046,7 +1119,7 @@ mod tests {
         // The port is held before the dial, as the namespace holds it.
         sock.hold_virtual_port(&mut alloc);
         let before = sock.getsockname().port();
-        sock.connect(vec![closed], closed, &OpenConnections::new(None))
+        sock.dial(vec![closed], closed, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         wait_for(|table| file.poll(table), PollMask::ERR);
         let failed = sock.finish_connect();

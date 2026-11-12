@@ -247,7 +247,7 @@ impl Namespace {
     /// `connect`, made only while the Invocation has a connection left and
     /// counted once it is, as a budget of subrequests is spent;
     /// `refused`, dialing nothing, once none is left.
-    fn within_connection_limit<T, E>(
+    pub(crate) fn within_connection_limit<T, E>(
         &self,
         refused: E,
         connect: impl FnOnce() -> Result<T, E>,
@@ -268,7 +268,7 @@ impl Namespace {
 
     /// The next virtual port, as Linux's `inet_hash_connect` picks a source
     /// port as a connect begins.
-    fn alloc_virtual_port(&self) -> u16 {
+    pub(crate) fn alloc_virtual_port(&self) -> u16 {
         let mut next = self
             .next_port
             .lock()
@@ -342,47 +342,27 @@ impl Namespace {
             .cloned()
     }
 
-    /// A TCP socket connecting to `addr`, the address the guest named, as
-    /// `cred`. The socket hooks judge what the guest named first, in Linux's
-    /// order: the modules `cred` holds, then each entry's policy, any refusal
-    /// winning. A literal address then passes the ruleset as itself. A
-    /// virtual one is translated to its name's real
-    /// addresses, an unmapped one refused as any refused destination is; each
-    /// real address the ruleset lets the name lead to is dialed exactly, in
-    /// turn, until one answers, so a name answering `::1` first still reaches
-    /// `127.0.0.1`.
+    /// Connect the TCP socket `sock` to `addr`, the address the guest named,
+    /// as `cred`, as `__sys_connect` does: the socket hooks judge what the
+    /// guest named first, then the socket's `->connect` takes it.
     pub fn connect(
         &self,
         cred: &Cred,
         sock: &TcpSock,
         addr: SocketAddr,
     ) -> Result<(), FilesystemError> {
-        // A connect that dials holds its port first, as `tcp_v4_connect`
-        // hashes one before it sends the SYN, so a dial failing at once puts
-        // it back; one answering a pending failure dials nothing and holds
-        // none.
-        self.connect_through(cred, addr, Protocol::Tcp, |real, open| {
-            if sock.is_unconnected() {
-                sock.hold_virtual_port(&mut || self.alloc_virtual_port());
-            }
-            sock.connect(real, addr, open)
-        })
+        self.judge_named(cred, addr, Protocol::Tcp)?;
+        ProtoOps::connect(sock, self, addr)
     }
 
-    /// The steps every protocol's connect takes, as `inet_stream_connect`
-    /// and `udp_pre_connect` share `connect4`: judge and translate `addr`,
-    /// then let `connect` dial the real addresses within the connection caps.
-    fn connect_through(
-        &self,
-        cred: &Cred,
-        addr: SocketAddr,
-        protocol: Protocol,
-        connect: impl FnOnce(Vec<SocketAddr>, &Arc<OpenConnections>) -> Result<(), FilesystemError>,
-    ) -> Result<(), FilesystemError> {
-        let real = self.admit(cred, addr, protocol)?;
-        self.within_connection_limit(FilesystemError::WouldBlock, || {
-            connect(real, &self.open_connections)
-        })
+    /// The Protocol Family this namespace's sockets reach the host through.
+    pub(crate) fn family(&self) -> &Arc<dyn ProtocolFamily> {
+        &self.family
+    }
+
+    /// The open connections this namespace's sockets count against.
+    pub(crate) fn open_connections(&self) -> &Arc<OpenConnections> {
+        &self.open_connections
     }
 
     /// Create a TCP socket connected to nothing for `cred`, which connects
@@ -420,10 +400,8 @@ impl Namespace {
     }
 
     /// Connect a UDP socket to `addr`, the one peer the guest named, as
-    /// `cred`. It passes the same steps a TCP connect does, as
-    /// `udp_pre_connect` runs `connect4`; UDP opens no handshake, so the first
-    /// real address the ruleset admits is its peer. A socket naming no peer
-    /// would send each datagram anywhere, so it is refused.
+    /// `cred`, through the same socket hooks a TCP connect passes. A socket
+    /// naming no peer would send each datagram anywhere, so it is refused.
     pub fn connect_datagram(
         &self,
         cred: &Cred,
@@ -431,11 +409,8 @@ impl Namespace {
         addr: Option<SocketAddr>,
     ) -> Result<(), FilesystemError> {
         let addr = addr.ok_or(FilesystemError::PermissionDenied)?;
-        self.connect_through(cred, addr, Protocol::Udp, |real, open| {
-            sock.connect(&self.family, real[0], addr, open)
-        })?;
-        sock.hold_virtual_port(&mut || self.alloc_virtual_port());
-        Ok(())
+        self.judge_named(cred, addr, Protocol::Udp)?;
+        ProtoOps::connect(sock, self, addr)
     }
 
     /// Judge `connection`, what the guest named, through the socket hooks:
@@ -466,30 +441,44 @@ impl Namespace {
         self.ruleset.admit_literal(addr, protocol)
     }
 
-    /// The real addresses a `protocol` connection to `addr` may dial, once the
-    /// socket hooks and the ruleset pass it. The hooks judge what the guest
-    /// named first; only then does the address meet the guest's family, as
-    /// `inet_stream_connect` refuses an IPv6 address after
-    /// `security_socket_connect`, and the virtual range's translation, as
-    /// cgroup `connect4` runs inside the protocol's `connect`.
-    fn admit(
-        &self,
-        cred: &Cred,
-        addr: SocketAddr,
-        protocol: Protocol,
-    ) -> Result<Vec<SocketAddr>, FilesystemError> {
-        let translated = match addr.ip() {
+    /// What `addr` stands for when it lies in the virtual range: its name and
+    /// real addresses, or `None` inside the range when no name holds it.
+    fn translated(&self, addr: SocketAddr) -> Option<Option<(String, Vec<IpAddr>)>> {
+        match addr.ip() {
             IpAddr::V4(ip) if u32::from(ip) & !(VIRTUAL_SIZE - 1) == VIRTUAL_BASE => {
                 Some(self.translate(ip))
             }
             _ => None,
-        };
-        let host = match &translated {
-            Some(Some((name, _))) => name.clone(),
+        }
+    }
+
+    /// Judge a `protocol` connection to `addr` through the socket hooks, the
+    /// name a virtual address stands for in place of the address, as
+    /// `security_socket_connect` runs before the protocol's `connect`.
+    fn judge_named(
+        &self,
+        cred: &Cred,
+        addr: SocketAddr,
+        protocol: Protocol,
+    ) -> Result<(), FilesystemError> {
+        let host = match self.translated(addr) {
+            Some(Some((name, _))) => name,
             _ => addr.ip().to_string(),
         };
-        self.judge(cred, &Connection::new(&host, addr.port(), protocol))?;
-        match translated {
+        self.judge(cred, &Connection::new(&host, addr.port(), protocol))
+    }
+
+    /// The real addresses a `protocol` connection to `addr` may dial, once the
+    /// socket hooks and the socket's own state passed it: the address meets
+    /// the guest's family, as `inet_stream_connect` refuses an IPv6 address,
+    /// then the virtual range's translation, as cgroup `connect4` runs inside
+    /// the protocol's `connect`, then the ruleset.
+    pub(crate) fn destinations_of(
+        &self,
+        addr: SocketAddr,
+        protocol: Protocol,
+    ) -> Result<Vec<SocketAddr>, FilesystemError> {
+        match self.translated(addr) {
             None => {
                 self.admit_judged_literal(addr, protocol)?;
                 Ok(vec![addr])

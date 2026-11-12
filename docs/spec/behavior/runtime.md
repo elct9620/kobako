@@ -3979,7 +3979,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a socket that connected, and one that connected and was then reset |
 | When | a Wasm Driver asks each to connect again |
-| Then | each answers EISCONN and dials nothing, as Linux's `__inet_stream_connect` answers a socket that connected |
+| Then | each answers EISCONN and dials nothing, as Linux's `__inet_stream_connect` answers a socket that connected. It does so before the ruleset judges the destination or a connection cap is asked |
 
 ## `RT-357` A reset socket answers its error once, then as closed
 
@@ -4295,7 +4295,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it polls a list naming each of them twice |
 | Then | the poll answers both indices of the near clock. Each handle waits once, as wasmtime groups the list by handle |
 
-
 ## `RT-388` A socket whose connect failed takes a fresh virtual port
 
 | Attribute | Value |
@@ -4308,3 +4307,17 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a TCP socket holding a virtual port, whose connect to a closed port fails |
 | When | it reads its own end, then connects again |
 | Then | it reads the old port until the connect. The connect takes a fresh port, as a hash connect picks one once `__inet_put_port` cleared `inet_num` |
+
+
+## `RT-389` A connect refused for a full count gives back its port
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-386` |
+| relates | `NW-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP socket connected to nothing, under a full open connection count |
+| When | it connects, then binds to port 0 |
+| Then | the connect answers EAGAIN and the bind succeeds, as `tcp_v4_connect`'s failure puts back the port it hashed |
