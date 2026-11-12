@@ -35,7 +35,7 @@ The Context follows Linux's three layers: the Wasm Driver in the syscall's place
 ```
 
 - (a) `kobako-wasmtime`: decoding, errno, the fd table, rights, the Cred, syscall-entry checks.
-- (b) `kobako_runtime::vfs`: namei, dentries, inodes, vfsmounts, open files, the dentry cache.
+- (b) `kobako_runtime::vfs`: namei, dentries, inodes, vfsmounts and the mount namespace, open files, the dentry cache.
 - (c) In order: kobako's rules, which hold whatever a Mount allows; the modules in `kobako_wasmtime::Config::security`; each Mount's Policy.
 - (d) kobako ships Bind, Tmpfs, and Overlay. Ruby lets a Host App write its own in Ruby; pipe serves the standard streams and a Channel, behind no Mount.
 - (e) Beneath the VFS and every Filesystem: `rw_semaphore`, `seqlock`, `current`, and `schedule`, where a Frontend registers its way to wait.

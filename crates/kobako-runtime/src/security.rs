@@ -12,8 +12,8 @@ use crate::memcg::MemoryBudget;
 use crate::mount::{Access, Mount, MountRequest};
 use crate::network::Connection;
 use crate::vfs::{
-    d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, OpenHow, Path, SecurityOperations,
-    SecurityPath, VfsMount, PATH_MAX,
+    d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, MntNamespace, OpenHow, Path,
+    SecurityOperations, SecurityPath, VfsMount, PATH_MAX,
 };
 use crate::Errno;
 
@@ -291,9 +291,19 @@ impl SecurityOperations for EntryPolicy {
 /// `cred` with each Mount's Policy and each network entry's connect policy
 /// added, the modules it held and the memory held on its behalf shared, so
 /// what either Cred charges counts against one limit, as
-/// `landlock_restrict_self` adds a domain ruling both paths and ports.
+/// `landlock_restrict_self` adds a domain ruling both paths and ports. Its
+/// mount namespace holds the Mounts among `grants`, each beneath the one whose
+/// path holds it, so a walk reaching one by any spelling steps onto it.
 pub fn restrict_self<'a>(cred: &Cred, grants: impl IntoIterator<Item = &'a Grant>) -> Arc<Cred> {
-    cred.with_modules(policies_of(grants))
+    let grants: Vec<&Grant> = grants.into_iter().collect();
+    let mounts = grants.iter().filter_map(|grant| match grant {
+        Grant::Mount(mount) => Some((mount.at(), mount.mnt())),
+        Grant::Network(_) => None,
+    });
+    cred.with_modules(
+        policies_of(grants.iter().copied()),
+        MntNamespace::new(mounts),
+    )
 }
 
 fn policies_of<'a>(

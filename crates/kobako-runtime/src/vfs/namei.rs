@@ -53,6 +53,11 @@ pub(crate) struct Nameidata {
     r_seq: usize,
     /// The directory the walk stands in, which holds the last name.
     dir: Arc<Dentry>,
+    /// Where the walk stood each time it stepped onto a mount, innermost last,
+    /// so a `..` from that mount's root climbs back, as `choose_mountpoint`
+    /// follows `mnt_parent`. The walk keeps them itself: a mount may stand where
+    /// its parent holds no entry for it.
+    crossed: Vec<(Arc<VfsMount>, Arc<Dentry>)>,
     pending: VecDeque<String>,
     /// The links followed through every walk of one call, as Linux's
     /// `total_link_count` carries into a walk made again for ESTALE.
@@ -87,7 +92,10 @@ impl Nameidata {
     /// walk started, as `complete_walk` asks `path_is_under` once a move may have
     /// carried a directory out from under it.
     fn complete_walk(&self) -> Result<(), Errno> {
-        let ended = self.path.as_ref().unwrap_or(&self.dir);
+        let ended = match self.crossed.first() {
+            Some((_, below_start)) => below_start,
+            None => self.path.as_ref().unwrap_or(&self.dir),
+        };
         match ended.is_subdir(&self.root) {
             true => Ok(()),
             false => Err(Errno::Escape),
@@ -294,9 +302,57 @@ fn parts(path: &str) -> VecDeque<String> {
     path.split('/').map(str::to_string).collect()
 }
 
+/// Whether two dentries a lookup answered stand for one entry, as a host
+/// folding case answers two spellings with one inode.
+fn same_entry(one: &Arc<Dentry>, other: &Arc<Dentry>) -> bool {
+    match (one.inode(), other.inode()) {
+        (Some(one), Some(other)) => {
+            Arc::ptr_eq(&one, &other)
+                || one
+                    .identity()
+                    .is_some_and(|id| Some(id) == other.identity())
+        }
+        _ => false,
+    }
+}
+
 impl Nameidata {
-    /// Step into the directory `name` names, or follow the link standing there.
+    /// The mount standing on `name` in the directory the walk stands in, as
+    /// `__lookup_mnt` answers for a mount point: one standing on that very name,
+    /// or on another name the Filesystem answers with the same entry.
+    fn lookup_mnt(&self, name: &str) -> Result<Option<Arc<VfsMount>>, Errno> {
+        let mounted = self.cred.mnt_ns().mounted_in(&self.mnt, &self.dir);
+        if mounted.is_empty() {
+            return Ok(None);
+        }
+        if let Some((_, mnt)) = mounted.iter().find(|(at, _)| *at == name) {
+            return Ok(Some(Arc::clone(mnt)));
+        }
+        let sb = self.mnt.sb();
+        let found = lookup_dentry(sb, &self.dir, name)?;
+        for (at, mnt) in mounted {
+            if same_entry(&lookup_dentry(sb, &self.dir, at)?, &found) {
+                return Ok(Some(Arc::clone(mnt)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Step onto the root of `mnt`, keeping where the walk stood, as
+    /// `traverse_mounts` follows a mount point down to what is mounted there.
+    fn traverse_mounts(&mut self, mnt: Arc<VfsMount>) {
+        let dir = std::mem::replace(&mut self.dir, mnt.root().clone());
+        self.crossed
+            .push((std::mem::replace(&mut self.mnt, mnt), dir));
+    }
+
+    /// Step into the directory `name` names, or onto the mount standing there,
+    /// or follow the link standing there.
     fn walk_component(&mut self, name: &str) -> Result<(), Errno> {
+        if let Some(mnt) = self.lookup_mnt(name)? {
+            self.traverse_mounts(mnt);
+            return Ok(());
+        }
         let dentry = lookup_dentry(self.mnt.sb(), self.dentry(), name)?;
         let inode = dentry.inode().ok_or(Errno::NotFound)?;
         match inode.kind() {
@@ -333,12 +389,20 @@ impl Nameidata {
     }
 
     /// Step to the directory above the one the walk stands in, wherever that
-    /// one stands now, as `follow_dotdot` reads `d_parent`. Out of the one the
-    /// walk started from, or the mount's root, no `..` holds a capability, as
-    /// `RESOLVE_BENEATH` refuses a caller's and a link's alike.
+    /// one stands now, as `follow_dotdot` reads `d_parent`. From the root of a
+    /// mount the walk stepped onto, it climbs back to where the walk stood, as
+    /// `choose_mountpoint` leads to the mount point. Out of the one the walk
+    /// started from, or a mount's root it never stepped onto, no `..` holds a
+    /// capability, as `RESOLVE_BENEATH` refuses a caller's and a link's alike.
     fn follow_dotdot(&mut self) -> Result<(), Errno> {
-        if Arc::ptr_eq(&self.dir, &self.root) || self.dir.is_root() {
+        if Arc::ptr_eq(&self.dir, &self.root) {
             return Err(Errno::Escape);
+        }
+        if self.dir.is_root() {
+            let (mnt, dir) = self.crossed.pop().ok_or(Errno::Escape)?;
+            self.mnt = mnt;
+            self.dir = dir;
+            return Ok(());
         }
         self.dir = self.dir.parent();
         // A move along the way may have carried `..` above where the walk started,
@@ -387,6 +451,17 @@ impl Nameidata {
         self.trailing_slash = trailing_slash;
     }
 
+    /// Stand on the root of the mount standing on the last name, if one does,
+    /// as `step_into` answers a mount point with what is mounted there.
+    fn step_onto_last_mount(&mut self) -> Result<bool, Errno> {
+        let Some(mnt) = self.lookup_mnt(&self.last)? else {
+            return Ok(false);
+        };
+        self.traverse_mounts(mnt);
+        self.path = Some(self.dir.clone());
+        Ok(true)
+    }
+
     /// Stand where a last `.` or `..` leads, as Linux's `handle_dots` does.
     fn handle_dots(&mut self) -> Result<(), Errno> {
         if self.last_type == LastType::DotDot {
@@ -408,6 +483,9 @@ impl Nameidata {
             if self.trailing_slash {
                 follow = true;
                 self.lookup_directory = true;
+            }
+            if self.step_onto_last_mount()? {
+                return Ok(());
             }
             let child = lookup_dentry(self.mnt.sb(), self.dentry(), &self.last)?;
             self.path = Some(child.clone());
@@ -444,6 +522,12 @@ impl Nameidata {
                 }
                 follow = true;
                 self.lookup_directory = true;
+            }
+            if self.step_onto_last_mount()? {
+                if how.create && how.exclusive {
+                    return Err(Errno::AlreadyExists);
+                }
+                return Ok(Open { file: None, mode });
             }
             let (child, opened) = match self.lookup_fast_for_open(how)? {
                 Some(child) => {
@@ -635,6 +719,7 @@ fn set_nameidata(
         root: start.dentry().clone(),
         r_seq: RENAME_LOCK.read_seqbegin(),
         dir: start.dentry().clone(),
+        crossed: Vec::new(),
         pending: parts(path),
         total_link_count: total_link_count.clone(),
         last: String::new(),
@@ -917,7 +1002,7 @@ fn filename_create(
     nd: &mut Nameidata,
     want_dir: bool,
 ) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Errno> {
-    if nd.last_type != LastType::Norm {
+    if nd.last_type != LastType::Norm || nd.lookup_mnt(&nd.last)?.is_some() {
         return Err(Errno::AlreadyExists);
     }
     let write = nd.mnt.mnt_want_write();
@@ -972,6 +1057,9 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Resul
                 LastType::DotDot => return Err(Errno::DirectoryNotEmpty),
             }
             nd.mnt.mnt_want_write()?;
+            if nd.lookup_mnt(&nd.last)?.is_some() {
+                return Err(Errno::ResourceBusy);
+            }
             let (_held, child) = start_dirop(&mut nd)?;
             on_path(&nd.mnt, &child, |path| cred.security_path_rmdir(path))?;
             vfs_rmdir(cred, nd.mnt.sb(), nd.dentry(), &child)
@@ -990,6 +1078,9 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Re
                 return Err(Errno::IsADirectory);
             }
             nd.mnt.mnt_want_write()?;
+            if nd.lookup_mnt(&nd.last)?.is_some() {
+                return Err(Errno::IsADirectory);
+            }
             let (_held, child) = start_dirop(&mut nd)?;
             if nd.trailing_slash {
                 return Err(match child.kind() {
@@ -1026,6 +1117,10 @@ pub fn filename_renameat2(
             return Err(Errno::ResourceBusy);
         }
         source.mnt.mnt_want_write()?;
+        if source.lookup_mnt(&source.last)?.is_some() || target.lookup_mnt(&target.last)?.is_some()
+        {
+            return Err(Errno::ResourceBusy);
+        }
         let mnt = source.mnt.clone();
         let sb = mnt.sb();
         let rd = __start_renaming(

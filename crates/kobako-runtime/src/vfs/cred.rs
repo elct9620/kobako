@@ -10,6 +10,7 @@ use super::dentry::Dentry;
 use super::file::FMode;
 use super::inode::Mask;
 use super::mount::VfsMount;
+use super::namespace::MntNamespace;
 use super::openat2::OpenHow;
 use super::{Errno, FileType};
 use crate::memcg::MemoryBudget;
@@ -146,11 +147,13 @@ pub trait SecurityOperations: Send + Sync {
 /// charges what it holds on the caller's behalf to, which every Cred restricted
 /// from it shares, as a task's memory cgroup does. Its profile decides what the
 /// caller sees of an entry, as `cred->user_ns` decides the owner `cp_new_stat`
-/// reports.
+/// reports. Its mount namespace says which mount stands on which name, as a
+/// task's `nsproxy` holds one beside its credentials.
 pub struct Cred {
     security: Vec<Arc<dyn SecurityOperations>>,
     memory: Arc<MemoryBudget>,
     profile: Profile,
+    mnt_ns: Arc<MntNamespace>,
 }
 
 /// One no module is registered for, which this crate's tests make calls as.
@@ -161,6 +164,7 @@ impl Default for Cred {
             security: Vec::new(),
             memory: MemoryBudget::new(None),
             profile: Profile::Hermetic,
+            mnt_ns: Arc::default(),
         }
     }
 }
@@ -182,18 +186,25 @@ impl Cred {
             security,
             memory,
             profile: Profile::Hermetic,
+            mnt_ns: Arc::default(),
         })
     }
 
-    /// This Cred with `more` modules registered after its own, sharing the
-    /// memory held on its behalf, as `landlock_restrict_self` adds a domain.
-    pub(crate) fn with_modules(&self, more: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
+    /// This Cred with `more` modules registered after its own and `mnt_ns` as
+    /// its mount namespace, sharing the memory held on its behalf, as
+    /// `landlock_restrict_self` adds a domain to a task that unshared its mounts.
+    pub(crate) fn with_modules(
+        &self,
+        more: Vec<Arc<dyn SecurityOperations>>,
+        mnt_ns: MntNamespace,
+    ) -> Arc<Self> {
         let mut security = self.security.clone();
         security.extend(more);
         Arc::new(Self {
             security,
             memory: self.memory.clone(),
             profile: self.profile,
+            mnt_ns: Arc::new(mnt_ns),
         })
     }
 
@@ -204,7 +215,13 @@ impl Cred {
             security: self.security.clone(),
             memory: self.memory.clone(),
             profile,
+            mnt_ns: self.mnt_ns.clone(),
         })
+    }
+
+    /// Which mount stands on which name for the caller.
+    pub(crate) fn mnt_ns(&self) -> &MntNamespace {
+        &self.mnt_ns
     }
 
     /// The isolation profile the caller runs under.

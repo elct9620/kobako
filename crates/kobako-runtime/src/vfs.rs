@@ -16,6 +16,7 @@ mod inode;
 pub(crate) mod kern_path;
 mod mount;
 mod namei;
+mod namespace;
 mod open_files;
 mod openat2;
 mod path;
@@ -43,6 +44,7 @@ pub use namei::{
     do_file_open, filename_linkat, filename_mkdirat, filename_renameat2, filename_rmdir,
     filename_symlinkat, filename_unlinkat,
 };
+pub(crate) use namespace::MntNamespace;
 pub use open_files::OpenFiles;
 pub use openat2::{build_open_flags, OpenFlags, OpenHow};
 pub use path::{Path, Start};

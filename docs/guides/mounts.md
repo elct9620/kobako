@@ -37,7 +37,9 @@ end
 Every Invocation reaches the same Filesystem, so a run that must start empty
 replaces the mount with its own Tmpfs through `ctx.mount`. `ctx.mount` replaces
 only a path already mounted. Mounts seal with the Sandbox, and a mount may sit
-inside another; the guest reaches the innermost one.
+inside another; the guest reaches the innermost one however it spells the path.
+A nested mount hides what the outer one holds by its name, needs no directory
+there, and raises `Errno::EBUSY` on a removal or rename.
 
 ### Tmpfs Bounds
 
