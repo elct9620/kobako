@@ -200,10 +200,6 @@ pub fn is_authority(authority: &str) -> bool {
 /// `None` for one `is_authority` refuses. One parser reads every authority,
 /// so the authority a request is judged by is the one it reaches.
 pub(crate) fn split_authority(authority: &str, scheme: Scheme) -> Option<(String, u16)> {
-    let default = match scheme {
-        Scheme::Http => 80,
-        Scheme::Https => 443,
-    };
     if !is_authority(authority) {
         return None;
     }
@@ -212,9 +208,27 @@ pub(crate) fn split_authority(authority: &str, scheme: Scheme) -> Option<(String
     (!host.is_empty()).then(|| {
         (
             host.to_ascii_lowercase(),
-            parsed.port_u16().unwrap_or(default),
+            parsed.port_u16().unwrap_or(default_port(scheme)),
         )
     })
+}
+
+/// The authority a request names its server by, from the `host` and `port`
+/// it was judged for: the port only when it is not `scheme`'s default, as
+/// RFC 9110's `Host` field writes one.
+pub(crate) fn join_authority(host: &str, port: u16, scheme: Scheme) -> String {
+    match port == default_port(scheme) {
+        true => host.to_string(),
+        false => format!("{host}:{port}"),
+    }
+}
+
+/// The port `scheme` reaches when an authority names none.
+fn default_port(scheme: Scheme) -> u16 {
+    match scheme {
+        Scheme::Http => 80,
+        Scheme::Https => 443,
+    }
 }
 
 /// `path` as the request target sent in origin form, as wasmtime takes one:
@@ -1181,6 +1195,61 @@ mod tests {
                 && seen[0] == "GET /greeting?lang=en HTTP/1.1",
             "a guest's request to an http endpoint must send the request line and read back the \
              status, headers, and body, got {head:?} {body:?} after {seen:?}"
+        );
+    }
+
+    /// A seam recording the authority each request it is handed names, and
+    /// answering none.
+    #[derive(Default)]
+    struct RecordsAuthority(Mutex<Vec<String>>);
+
+    impl Outbound for RecordsAuthority {
+        fn send_request(&self, request: OutgoingRequest, _connector: Connector) -> ResponseFuture {
+            self.0.lock().unwrap().push(request.authority);
+            Box::pin(async { Err(HttpError::Internal) })
+        }
+    }
+
+    // @behavior NW-199
+    #[test]
+    fn a_request_names_its_server_as_the_endpoint_judged_it() {
+        let (port, server) = serve_once();
+        let namespace = namespace(vec![Endpoint::new("localhost", port)
+            .unwrap()
+            .with_addresses(vec![crate::network::Addresses::Local])]);
+        let cred = prepare_creds_within(&[], None);
+        let exchange = crate::net::send(
+            &namespace,
+            &cred,
+            greeting_request(&format!("LocalHost.:{port}")),
+        )
+        .expect("the endpoint names the authority");
+        read_response(&exchange).expect("the server answers");
+        let seen = server.join().unwrap();
+        let mut entry = Builder::default();
+        entry.endpoint(
+            Endpoint::new("localhost", 80)
+                .unwrap()
+                .with_addresses(vec![crate::network::Addresses::Local]),
+        );
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let recorded = Arc::new(RecordsAuthority::default());
+        let at_default = Namespace::for_network(&network, Arc::new(HostInet), recorded.clone());
+        let _ = crate::net::send(&at_default, &cred, greeting_request("LOCALHOST:80"));
+        assert_eq!(
+            (
+                seen.iter()
+                    .find(|line| line.to_ascii_lowercase().starts_with("host:"))
+                    .cloned(),
+                recorded.0.lock().unwrap().clone()
+            ),
+            (
+                Some(format!("host: localhost:{port}")),
+                vec!["localhost".to_string()]
+            ),
+            "a guest's request to an authority spelled in another case, with a trailing dot, or \
+             with its scheme's default port must name its server as the endpoint judged it: \
+             lowercase, no trailing dot, and no default port"
         );
     }
 

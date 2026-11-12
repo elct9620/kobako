@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use super::credential::{carries, Swap};
 use super::http::{
-    split_authority, to_field_name, to_field_value, to_origin_form, Exchange, HttpError,
-    OutgoingRequest, Scheme,
+    join_authority, split_authority, to_field_name, to_field_value, to_origin_form, Exchange,
+    HttpError, OutgoingRequest, Scheme,
 };
 use super::lookup::{allows_lookup, normalize};
 use super::transport::Connector;
@@ -83,6 +83,7 @@ pub fn send(
         Scheme::Http => Vec::new(),
     };
     let mut request = request;
+    request.authority = join_authority(&host, port, request.scheme);
     request.swaps = swaps;
     let connector = Connector::new(net, cred, host, port);
     net.within_connection_budget(HttpError::ConnectionLimitReached, || {
