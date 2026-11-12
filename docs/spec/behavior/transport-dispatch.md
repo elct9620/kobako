@@ -387,7 +387,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 
 | Step | Statement |
 | --- | --- |
-| Given | a dispatch nested past the depth the host accepts |
+| Given | a dispatch to a public method of a bound Service, nested past the depth the host accepts |
 | When | the host reads it |
 | Then | it answers on the fault arm as an internal failure |
 
@@ -1201,6 +1201,19 @@ Everything that answers on the fault arm rather than raising is here, since the 
 
 | Step | Statement |
 | --- | --- |
-| Given | a dispatch whose arguments hold more values than the memory cap allows |
+| Given | a dispatch to a public method of a bound Service, whose arguments hold more values than the memory cap allows |
 | When | the host reads it |
 | Then | it answers on the fault arm as an internal failure |
+
+## `T-390` A dispatch routes before it reads the arguments
+
+| Attribute | Value |
+| --- | --- |
+| refines | `T-075` |
+| relates | `T-043` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a dispatch the host cannot route, carrying arguments the host cannot read. It names no bound Service, or a method the Service does not expose |
+| When | both frontends read it |
+| Then | each answers on the fault arm as an undefined target. Routing reads only the target and the method, so the arguments stay unread |
