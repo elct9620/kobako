@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "tmpdir"
 
 # E2E — a Sandbox#mount nested inside another through the real Guest Binary:
 # reached however its path is spelled, hiding what its parent holds there,
@@ -27,7 +26,7 @@ class TestE2EMountNested < Minitest::Test
   # the inner note shows the nested mount hides it.
   # @behavior MT-033
   def test_a_nested_mount_is_reached_however_the_path_is_spelled
-    Dir.mktmpdir do |host|
+    TestPaths.host_directory do |host|
       sandbox = nested(hiding(host), Kobako::Filesystem::Tmpfs.new("note" => "inner"))
       script = '["/data/./inner/note", "/data/./inner/../inner/note"].map { |at| File.read(at) }'
 
@@ -39,7 +38,7 @@ class TestE2EMountNested < Minitest::Test
   # @behavior MT-033
   def test_a_nested_mount_is_reached_through_a_link_beside_it
     skip "this host makes no links" if Gem.win_platform?
-    Dir.mktmpdir do |host|
+    TestPaths.host_directory do |host|
       File.symlink("inner/note", File.join(host, "link"))
       sandbox = nested(hiding(host), Kobako::Filesystem::Tmpfs.new("note" => "inner"))
 
@@ -52,6 +51,7 @@ class TestE2EMountNested < Minitest::Test
   # stands on, so the read reaches the mount rather than what it hides.
   # @behavior MT-033
   def test_a_nested_mount_is_reached_by_a_spelling_its_folding_host_answers
+    skip "a Bind on this host refuses a spelling its listing lacks" if Gem.win_platform?
     TestPaths.host_directory do |host|
       outer = hiding(host)
       skip "the host directory matches names exactly" unless File.exist?(File.join(host, "INNER"))
