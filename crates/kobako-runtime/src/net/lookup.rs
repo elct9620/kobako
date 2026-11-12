@@ -6,7 +6,7 @@
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 use std::thread;
 
 use super::connections::{open, OpenConnections, Place};
@@ -46,8 +46,6 @@ pub struct NameLookup {
     name: String,
     answer: Mutex<Option<Result<Vec<IpAddr>, LookupError>>>,
     wait: Arc<WaitQueueHead>,
-    /// The task awaiting the answer on the reactor, if one is.
-    task: Mutex<Option<Waker>>,
 }
 
 impl NameLookup {
@@ -76,7 +74,6 @@ impl NameLookup {
             name,
             answer: Mutex::new(None),
             wait: Arc::default(),
-            task: Mutex::new(None),
         });
         let resolving = lookup.clone();
         // A thread the process cannot make answers as a resolver out of
@@ -98,14 +95,6 @@ impl NameLookup {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner) = Some(answer);
                 resolving.wait.wake_up();
-                if let Some(task) = resolving
-                    .task
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take()
-                {
-                    task.wake();
-                }
             });
         spawned.map_err(|_| LookupError::TemporaryFailure)?;
         Ok(lookup)
@@ -117,23 +106,23 @@ impl NameLookup {
             name,
             answer: Mutex::new(Some(answer)),
             wait: Arc::default(),
-            task: Mutex::new(None),
         })
     }
 
-    /// The answer for a task on the reactor, which is woken once it arrives;
-    /// the answer is read while the waker is held, so none arrives unseen.
+    /// The answer for a task on the reactor, which the lookup's wait queue
+    /// wakes once it arrives; the answer is read again once the task is
+    /// added, so none arrives unseen.
     pub(crate) fn poll_answer(
         &self,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Vec<IpAddr>, LookupError>> {
-        let mut task = self.task.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(answer) = self.answer() {
+            return Poll::Ready(answer);
+        }
+        self.wait.add(cx.waker());
         match self.answer() {
             Some(answer) => Poll::Ready(answer),
-            None => {
-                *task = Some(cx.waker().clone());
-                Poll::Pending
-            }
+            None => Poll::Pending,
         }
     }
 
