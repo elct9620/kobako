@@ -18,8 +18,8 @@ use super::family::ProtocolFamily;
 use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
-    ensure_within, set_hop_limit, take_connect_outcome, to_error, InetSock, MemoryCharge, ProtoOps,
-    SockOpt, MAX_SOCKET_BUFFER,
+    ensure_within, set_hop_limit, take_connect_outcome, to_error, BindHash, InetSock, MemoryCharge,
+    ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::network::Protocol;
 use crate::vfs::{Cred, FilesystemError, PollMask};
@@ -201,11 +201,9 @@ impl TcpSock {
         Ok(())
     }
 
-    /// Hold the port `alloc` gives as the guest's own, unless one is held,
-    /// as a cgroup hook keeps what `getsockname4` answers in the socket's
-    /// own storage.
-    pub(crate) fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16) {
-        self.state().inet.hold_virtual_port(alloc);
+    /// Hold a free port from `ports` as the guest's own, unless one is held.
+    pub(crate) fn hold_port(&self, ports: &Arc<BindHash>) -> Result<(), FilesystemError> {
+        self.state().inet.hold_port(ports)
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -461,16 +459,20 @@ impl Ready for TcpSock {
 /// TCP's answers for its socket file, as `inet_stream_ops` hands each call to
 /// `tcp_prot`.
 impl ProtoOps for TcpSock {
-    /// The socket's state first, then `net`'s translation and ruleset, then
-    /// the dial within the connection caps, as `inet_stream_connect` runs
-    /// cgroup `connect4` only on a socket connected to nothing. A connect
-    /// that dials holds its port first, as `tcp_v4_connect` hashes one before
-    /// it sends the SYN.
+    /// The socket's state first, then `net`'s `connect4`, then within the
+    /// connection caps a port, the ruleset, and the dial, as
+    /// `inet_stream_connect` runs `connect4` only on a socket connected to
+    /// nothing and `tcp_v4_connect` hashes a port before the SYN meets the
+    /// filter. A refused destination puts the port back, as that failure
+    /// does.
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
         self.check_connectable()?;
-        let real = net.destinations_of(addr, Protocol::Tcp)?;
+        let dest = net.connect4(addr)?;
         net.within_connection_limit(FilesystemError::WouldBlock, || {
-            self.hold_virtual_port(&mut || net.alloc_virtual_port());
+            self.hold_port(net.ports_of(Protocol::Tcp))?;
+            let real = net.filter(&dest, Protocol::Tcp).inspect_err(|_| {
+                self.state().inet.put_port();
+            })?;
             self.dial(real, addr, net.open_connections())
         })
     }
@@ -478,10 +480,12 @@ impl ProtoOps for TcpSock {
     /// A socket connecting or connected holds its own end already, as
     /// `inet_hash_connect` binds one past `TCP_CLOSE`; one a failed connect or
     /// a reset closed is back in `TCP_CLOSE`.
-    fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
+    fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
         let mut state = self.state();
         let connected = matches!(state.phase, Phase::Connecting | Phase::Connected);
-        state.inet.bind(addr, connected)
+        state
+            .inet
+            .bind(addr, connected, net.ports_of(Protocol::Tcp))
     }
 
     /// What the receive buffer holds, up to `buf`'s length, as
@@ -926,12 +930,13 @@ mod tests {
     #[test]
     fn a_socket_binds_once_and_not_after_its_connect() {
         let any: SocketAddr = "0.0.0.0:0".parse().unwrap();
+        let net = loopback(&[], OpenConnections::new(None));
         let cred = prepare_creds_within(&[], None);
         let fresh = TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
-        let (first, second) = (fresh.bind(any), fresh.bind(any));
+        let (first, second) = (fresh.bind(&net, any), fresh.bind(&net, any));
         let ipv6 = TcpSock::new(Arc::new(HostInet), &cred)
             .expect("an unbounded socket is made")
-            .bind("[::]:0".parse().unwrap());
+            .bind(&net, "[::]:0".parse().unwrap());
         let (connected, _file, _peer) = connected_socket();
         let udp_peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let udp = crate::net::UdpSock::new(&cred).expect("an unbounded socket is made");
@@ -940,7 +945,13 @@ mod tests {
         udp.dial(&family, at, at, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         assert_eq!(
-            (first, second, ipv6, connected.bind(any), udp.bind(any)),
+            (
+                first,
+                second,
+                ipv6,
+                connected.bind(&net, any),
+                udp.bind(&net, any)
+            ),
             (
                 Ok(()),
                 Err(FilesystemError::InvalidInput),
@@ -961,16 +972,17 @@ mod tests {
         // refused and no other socket is handed it meanwhile.
         let closed = SocketAddr::from(([127, 0, 0, 1], 1));
         let cred = prepare_creds_within(&[], None);
+        let net = loopback(&[], OpenConnections::new(None));
         let failed_after = |own: &str| {
             let sock =
                 TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
-            sock.bind(own.parse().unwrap())
+            sock.bind(&net, own.parse().unwrap())
                 .expect("a fresh socket binds");
             sock.dial(vec![closed], closed, &OpenConnections::new(None))
                 .expect("an uncapped socket connects");
             let file = sock_alloc_file(sock.clone(), &Arc::default());
             wait_for(|table| file.poll(table), PollMask::ERR);
-            sock.bind("0.0.0.0:0".parse().unwrap())
+            sock.bind(&net, "0.0.0.0:0".parse().unwrap())
         };
         assert_eq!(
             (failed_after("0.0.0.0:0"), failed_after("127.0.0.1:40000")),
@@ -981,21 +993,65 @@ mod tests {
         );
     }
 
+    // @behavior RT-390
+    #[test]
+    fn a_port_one_socket_holds_is_no_other_sockets() {
+        let net = loopback(&[], OpenConnections::new(None));
+        let cred = prepare_creds_within(&[], None);
+        let socket =
+            || TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
+        let (named, free, again) = (socket(), socket(), socket());
+        let answers = (
+            named.bind(&net, "0.0.0.0:32768".parse().unwrap()),
+            free.bind(&net, "0.0.0.0:0".parse().unwrap()),
+            again.bind(&net, "0.0.0.0:32768".parse().unwrap()),
+        );
+        let free_port = free.getsockname().port();
+        drop(named);
+        assert_eq!(
+            (
+                answers,
+                free_port,
+                again.bind(&net, "0.0.0.0:32768".parse().unwrap())
+            ),
+            (
+                (Ok(()), Ok(()), Err(FilesystemError::AddressInUse)),
+                32769,
+                Ok(())
+            ),
+            "a TCP socket's bind must pass over a port another socket holds for port 0, answer \
+             EADDRINUSE to it by name, and take it once the holder is gone, as \
+             inet_csk_get_port finds a bucket taken"
+        );
+    }
+
     // @behavior RT-389
     #[test]
-    fn a_connect_refused_for_a_full_count_gives_back_its_port() {
+    fn a_connect_refused_for_a_full_count_or_by_the_ruleset_gives_back_its_port() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let at = listener.local_addr().unwrap();
-        let net = loopback(&[at.port()], OpenConnections::new(Some(0)));
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
-            .expect("an unbounded socket is made");
-        let connected = ProtoOps::connect(&*sock, &net, at);
+        let cred = prepare_creds_within(&[], None);
+        let refused_after = |net: &Namespace, to: SocketAddr| {
+            let sock =
+                TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
+            let connected = ProtoOps::connect(&*sock, net, to);
+            (connected, sock.bind(net, "0.0.0.0:0".parse().unwrap()))
+        };
+        let full = loopback(&[at.port()], OpenConnections::new(Some(0)));
+        let filtered = loopback(&[at.port()], OpenConnections::new(None));
         assert_eq!(
-            (connected, sock.bind("0.0.0.0:0".parse().unwrap())),
-            (Err(FilesystemError::WouldBlock), Ok(())),
-            "a TCP socket's connect under a full open connection count must answer EAGAIN and \
-             give back the port it held, so a bind to port 0 then succeeds, as tcp_v4_connect's \
-             failure puts the port it hashed"
+            (
+                refused_after(&full, at),
+                refused_after(&filtered, SocketAddr::from(([127, 0, 0, 1], 1)))
+            ),
+            (
+                (Err(FilesystemError::WouldBlock), Ok(())),
+                (Err(FilesystemError::PermissionDenied), Ok(()))
+            ),
+            "a TCP socket's connect under a full open connection count, and one to a destination \
+             the ruleset refuses, must answer EAGAIN and EACCES and give back the port it held, \
+             so a bind to port 0 then succeeds, as tcp_v4_connect's failure puts the port it \
+             hashed"
         );
     }
 
@@ -1111,23 +1167,19 @@ mod tests {
         let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
             .expect("an unbounded socket is made");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
-        let mut next = 40000;
-        let mut alloc = || {
-            next += 1;
-            next
-        };
-        // The port is held before the dial, as the namespace holds it.
-        sock.hold_virtual_port(&mut alloc);
+        let ports = BindHash::new();
+        // The port is held before the dial, as a connect holds it.
+        sock.hold_port(&ports).expect("a port is free");
         let before = sock.getsockname().port();
         sock.dial(vec![closed], closed, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         wait_for(|table| file.poll(table), PollMask::ERR);
         let failed = sock.finish_connect();
         let kept = sock.getsockname().port();
-        sock.hold_virtual_port(&mut alloc);
+        sock.hold_port(&ports).expect("a port is free");
         assert_eq!(
             (failed, before, kept, sock.getsockname().port()),
-            (Err(FilesystemError::ConnectionRefused), 40001, 40001, 40002),
+            (Err(FilesystemError::ConnectionRefused), 32768, 32768, 32769),
             "a TCP socket whose connect failed must read its old virtual port until it connects \
              again, then take a fresh one, as a hash connect picks a port once __inet_put_port \
              cleared inet_num"

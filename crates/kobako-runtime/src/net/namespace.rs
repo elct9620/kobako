@@ -14,6 +14,7 @@ use super::http::{
     OutgoingRequest, Scheme,
 };
 use super::lookup::{normalize, LookupError, NameLookup};
+use super::socket::BindHash;
 use super::transport::Connector;
 use super::{MemoryCharge, OpenConnections, ProtoOps, ProtocolFamily, TcpSock, UdpSock};
 use crate::grant::Policy;
@@ -31,11 +32,6 @@ const VIRTUAL_SIZE: u32 = 1 << 17;
 /// `LOCAL_ADDRESS`, and the broadcast one above it.
 const NAMED_SIZE: u32 = VIRTUAL_SIZE - 2;
 
-/// The ports a connect gives the guest for its own end, Linux's default
-/// `ip_local_port_range`, taken in turn from the bottom and around again, so
-/// no host port reaches the guest and a script reads the same ports each run.
-const VIRTUAL_PORTS: std::ops::RangeInclusive<u16> = 32768..=60999;
-
 /// What the guest may reach, which policies judge each lookup and connect, the
 /// backend that dials it, the connections the Sandbox holds open and those
 /// left to this Invocation, and the virtual addresses handed out.
@@ -52,8 +48,10 @@ pub struct Namespace {
     /// count.
     connections_left: Mutex<Option<usize>>,
     translations: Mutex<Translations>,
-    /// The virtual port this Invocation's next connect takes.
-    next_port: Mutex<u16>,
+    /// The virtual ports TCP sockets hold, and those UDP sockets hold, as
+    /// each protocol keeps its own `bhash`.
+    tcp_ports: Arc<BindHash>,
+    udp_ports: Arc<BindHash>,
     /// Every TCP socket made here, so an orphan still sending ends with the
     /// Invocation.
     tcp_sockets: Mutex<Vec<Weak<TcpSock>>>,
@@ -128,7 +126,8 @@ impl Namespace {
             open_connections,
             connections_left: Mutex::new(connection_limit),
             translations: Mutex::default(),
-            next_port: Mutex::new(*VIRTUAL_PORTS.start()),
+            tcp_ports: BindHash::new(),
+            udp_ports: BindHash::new(),
             tcp_sockets: Mutex::new(Vec::new()),
         })
     }
@@ -266,19 +265,12 @@ impl Namespace {
         Ok(made)
     }
 
-    /// The next virtual port, as Linux's `inet_hash_connect` picks a source
-    /// port as a connect begins.
-    pub(crate) fn alloc_virtual_port(&self) -> u16 {
-        let mut next = self
-            .next_port
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let port = *next;
-        *next = match port == *VIRTUAL_PORTS.end() {
-            true => *VIRTUAL_PORTS.start(),
-            false => port + 1,
-        };
-        port
+    /// The virtual ports `protocol`'s sockets hold here.
+    pub(crate) fn ports_of(&self, protocol: Protocol) -> &Arc<BindHash> {
+        match protocol {
+            Protocol::Udp => &self.udp_ports,
+            Protocol::Tcp | Protocol::Http => &self.tcp_ports,
+        }
     }
 
     /// Allocate the virtual address `lookup`'s answer is handed out at, from
@@ -396,7 +388,7 @@ impl Namespace {
         addr: SocketAddr,
     ) -> Result<(), FilesystemError> {
         cred.security_socket_bind(addr)?;
-        sock.bind(addr)
+        sock.bind(self, addr)
     }
 
     /// Connect a UDP socket to `addr`, the one peer the guest named, as
@@ -425,11 +417,9 @@ impl Namespace {
         }
     }
 
-    /// Whether a `protocol` connection may reach `addr`, a literal the socket
-    /// hooks already passed, for a socket and a request alike: the guest has
-    /// no IPv6, so an IPv6 one answers `EAFNOSUPPORT`, as
-    /// `inet_stream_connect` refuses it after `security_socket_connect`; any
-    /// other meets the ruleset as itself.
+    /// Whether a request may reach `addr`, a literal the socket hooks already
+    /// passed: the guest has no IPv6, so an IPv6 one answers `EAFNOSUPPORT`,
+    /// as a socket's `connect4` does; any other meets the ruleset as itself.
     fn admit_judged_literal(
         &self,
         addr: SocketAddr,
@@ -468,29 +458,47 @@ impl Namespace {
         self.judge(cred, &Connection::new(&host, addr.port(), protocol))
     }
 
-    /// The real addresses a `protocol` connection to `addr` may dial, once the
-    /// socket hooks and the socket's own state passed it: the address meets
-    /// the guest's family, as `inet_stream_connect` refuses an IPv6 address,
-    /// then the virtual range's translation, as cgroup `connect4` runs inside
-    /// the protocol's `connect`, then the ruleset.
-    pub(crate) fn destinations_of(
+    /// What a socket's connect to `addr` reaches once its state check passed,
+    /// as cgroup `connect4` runs inside the protocol's `connect`: an IPv6
+    /// address answers `EAFNOSUPPORT`, as `inet_stream_connect` refuses one;
+    /// a virtual address turns into the name it stands for and that name's
+    /// real addresses, one no name holds answering `EACCES`; any other stands
+    /// as itself.
+    pub(crate) fn connect4(&self, addr: SocketAddr) -> Result<Destination, FilesystemError> {
+        if addr.is_ipv6() {
+            return Err(FilesystemError::AddressFamilyNotSupported);
+        }
+        match self.translated(addr) {
+            None => Ok(Destination::Literal(addr)),
+            Some(None) => Err(FilesystemError::PermissionDenied),
+            Some(Some((name, real))) => Ok(Destination::Named {
+                name,
+                real,
+                port: addr.port(),
+            }),
+        }
+    }
+
+    /// The real addresses the ruleset lets a `protocol` connection to `dest`
+    /// dial, as the filter judges what leaves after the socket took its port;
+    /// `EACCES` when it lets none.
+    pub(crate) fn filter(
         &self,
-        addr: SocketAddr,
+        dest: &Destination,
         protocol: Protocol,
     ) -> Result<Vec<SocketAddr>, FilesystemError> {
-        match self.translated(addr) {
-            None => {
-                self.admit_judged_literal(addr, protocol)?;
-                Ok(vec![addr])
+        match dest {
+            Destination::Literal(addr) => {
+                self.ruleset.admit_literal(*addr, protocol)?;
+                Ok(vec![*addr])
             }
-            Some(None) => Err(FilesystemError::PermissionDenied),
-            Some(Some((name, real))) => {
+            Destination::Named { name, real, port } => {
                 let admitted = admitted_addresses_of(
                     &*self.family,
                     &self.ruleset,
-                    &name,
-                    &real,
-                    addr.port(),
+                    name,
+                    real,
+                    *port,
                     protocol,
                 );
                 if admitted.is_empty() {
@@ -500,6 +508,18 @@ impl Namespace {
             }
         }
     }
+}
+
+/// Where a socket's connect leads once cgroup `connect4` ran: the literal
+/// address the guest named, or the name a virtual address stands for, its
+/// real addresses, and the port.
+pub(crate) enum Destination {
+    Literal(SocketAddr),
+    Named {
+        name: String,
+        real: Vec<IpAddr>,
+        port: u16,
+    },
 }
 
 #[cfg(test)]

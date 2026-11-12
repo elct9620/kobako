@@ -2,9 +2,10 @@
 //! stands on sockfs, and its file hands each call to the protocol's operations,
 //! as `socket_file_ops` hands them to `proto_ops`.
 
+use std::collections::HashSet;
 use std::io;
-use std::net::{Ipv4Addr, Shutdown, SocketAddr};
-use std::sync::{Arc, LazyLock};
+use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 
 use socket2::SockRef;
 
@@ -29,10 +30,12 @@ pub const MAX_SOCKET_BUFFER: usize = 64 * 1024;
 /// protocol stands behind.
 pub trait ProtoOps: Send + Sync {
     /// Take `addr` as the socket's own end once the socket hooks passed it,
-    /// as `->bind` runs after `__sys_bind` asks `security_socket_bind`: an
-    /// IPv6 address answers `AddressFamilyNotSupported`, and a socket bound
-    /// or connected already `InvalidInput`, as `__inet_bind` refuses one.
-    fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError>;
+    /// its port from `net`'s ports for the protocol, as `->bind` runs after
+    /// `__sys_bind` asks `security_socket_bind`: an IPv6 address answers
+    /// `AddressFamilyNotSupported`, a socket bound or connected already
+    /// `InvalidInput`, and a port held elsewhere `AddressInUse`, as
+    /// `__inet_bind` refuses one.
+    fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError>;
     /// Connect to `addr`, the address the guest named, once the socket hooks
     /// passed it, as `->connect` runs after `__sys_connect` asks
     /// `security_socket_connect`: the socket's own state is checked first,
@@ -98,12 +101,102 @@ pub enum SockOpt {
 /// address, the one a broadcast would take.
 pub(crate) const LOCAL_ADDRESS: Ipv4Addr = Ipv4Addr::new(198, 19, 255, 254);
 
+/// The ports a bind to port 0 or a connect gives the guest for its own end,
+/// Linux's default `ip_local_port_range`, taken in turn from the bottom and
+/// around again, so no host port reaches the guest and a script reads the
+/// same ports each run.
+const VIRTUAL_PORTS: std::ops::RangeInclusive<u16> = 32768..=60999;
+
+/// The ports one protocol's sockets hold in a namespace, as Linux's `bhash`
+/// keeps a bucket for each bound port: a port is held by one socket at a
+/// time, and goes back as that socket puts it.
+pub(crate) struct BindHash {
+    ports: Mutex<Ports>,
+}
+
+/// The ports held, and where the next search for a free one starts.
+struct Ports {
+    held: HashSet<u16>,
+    next: u16,
+}
+
+impl BindHash {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self {
+            ports: Mutex::new(Ports {
+                held: HashSet::new(),
+                next: *VIRTUAL_PORTS.start(),
+            }),
+        })
+    }
+
+    fn ports(&self) -> MutexGuard<'_, Ports> {
+        self.ports.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `port` held for one socket, or `EADDRINUSE` while another holds it,
+    /// as `inet_csk_get_port` finds its bucket taken.
+    fn claim(self: &Arc<Self>, port: u16) -> Result<BoundPort, FilesystemError> {
+        match self.ports().held.insert(port) {
+            true => Ok(BoundPort {
+                hash: self.clone(),
+                port,
+            }),
+            false => Err(FilesystemError::AddressInUse),
+        }
+    }
+
+    /// The first free port of `VIRTUAL_PORTS` from where the last search
+    /// left off, as `inet_hash_connect` walks `ip_local_port_range` past each
+    /// port held; `None` once every one is held.
+    fn claim_free(self: &Arc<Self>) -> Option<BoundPort> {
+        let mut ports = self.ports();
+        let start = ports.next;
+        let mut port = start;
+        loop {
+            let after = match port == *VIRTUAL_PORTS.end() {
+                true => *VIRTUAL_PORTS.start(),
+                false => port + 1,
+            };
+            if ports.held.insert(port) {
+                ports.next = after;
+                return Some(BoundPort {
+                    hash: self.clone(),
+                    port,
+                });
+            }
+            if after == start {
+                return None;
+            }
+            port = after;
+        }
+    }
+}
+
+/// One port a socket holds in its protocol's `BindHash`, given back as it is
+/// dropped, as `__inet_put_port` takes a socket off its bucket.
+pub(crate) struct BoundPort {
+    hash: Arc<BindHash>,
+    port: u16,
+}
+
+impl Drop for BoundPort {
+    fn drop(&mut self) {
+        self.hash.ports().held.remove(&self.port);
+    }
+}
+
 /// What every inet socket holds beside its protocol's own state, as Linux's
 /// `inet_sock` sits beneath `tcp_sock` and `udp_sock`.
 pub(crate) struct InetSock {
-    /// The port the guest reads for its own end, which its namespace gave as
-    /// the connect began, as a NAT's tuple pairs it with the host's.
-    pub(crate) virtual_port: Option<u16>,
+    /// The port the socket holds, as `inet_num`, which a bind or a connect
+    /// takes and closing puts back.
+    num: Option<BoundPort>,
+    /// The port the guest reads for its own end, as `inet_sport`, kept after
+    /// the port goes back until another is taken.
+    sport: Option<u16>,
+    /// The address a bind named, as `inet_rcv_saddr`.
+    rcv_saddr: Ipv4Addr,
     /// The peer as the guest named it, a virtual address standing for its
     /// name, as cgroup `getpeername4` maps a real peer back.
     pub(crate) peer: Option<SocketAddr>,
@@ -122,8 +215,6 @@ pub(crate) struct InetSock {
     /// The socket's place against its Sandbox's cap and the process's, given
     /// back as it is released.
     pub(crate) place: Option<Place>,
-    /// Whether a bind took the socket's own end, as `inet_num` records one.
-    bound: bool,
     /// Whether the bind named its port, which the socket then keeps once it
     /// closes, as `SOCK_BINDPORT_LOCK` does.
     port_locked: bool,
@@ -136,7 +227,9 @@ impl InetSock {
     /// A socket whose queues hold what `memory` reserved.
     pub(crate) fn new(memory: MemoryCharge) -> Self {
         Self {
-            virtual_port: None,
+            num: None,
+            sport: None,
+            rcv_saddr: Ipv4Addr::UNSPECIFIED,
             peer: None,
             buffers: Buffers::default(),
             ttl: IPDEFTTL,
@@ -144,57 +237,73 @@ impl InetSock {
             rcv_shut: false,
             send_shut: false,
             place: None,
-            bound: false,
             port_locked: false,
             memory: Some(memory),
         }
     }
 
-    /// Take `addr` as the socket's own end, as `inet_bind` does: an IPv6
-    /// address answers `EAFNOSUPPORT`, and a socket already bound, or
-    /// `connected` and so bound by its connect, `EINVAL`, as `__inet_bind`
-    /// refuses one past `TCP_CLOSE` or holding a port.
+    /// Take `addr` as the socket's own end, its port from `hash`, as
+    /// `__inet_bind` does: an IPv6 address answers `EAFNOSUPPORT`, and a
+    /// socket holding a port, or `connected` and so bound by its connect,
+    /// `EINVAL`. Port 0 takes a free virtual port, and a named port one no
+    /// other socket holds, either answering `EADDRINUSE` once none is left,
+    /// as `inet_csk_get_port` does.
     pub(crate) fn bind(
         &mut self,
         addr: SocketAddr,
         connected: bool,
+        hash: &Arc<BindHash>,
     ) -> Result<(), FilesystemError> {
-        if addr.is_ipv6() {
+        let IpAddr::V4(ip) = addr.ip() else {
             return Err(FilesystemError::AddressFamilyNotSupported);
-        }
-        if self.bound || connected {
+        };
+        if self.num.is_some() || connected {
             return Err(FilesystemError::InvalidInput);
         }
-        self.bound = true;
+        let bound = match addr.port() {
+            0 => hash.claim_free().ok_or(FilesystemError::AddressInUse)?,
+            port => hash.claim(port)?,
+        };
+        self.sport = Some(bound.port);
+        self.num = Some(bound);
         self.port_locked = addr.port() != 0;
+        self.rcv_saddr = ip;
         Ok(())
     }
 
-    /// Give back the end a bind took once the socket closes, unless the bind
-    /// named its port, as `tcp_set_state` puts the port on entering
-    /// `TCP_CLOSE` without `SOCK_BINDPORT_LOCK`.
+    /// Give back the port the socket holds once it closes, unless a bind
+    /// named it, as `tcp_set_state` puts the port on entering `TCP_CLOSE`
+    /// without `SOCK_BINDPORT_LOCK`.
     pub(crate) fn put_port(&mut self) {
-        self.bound &= self.port_locked;
+        if !self.port_locked {
+            self.num = None;
+        }
     }
 
-    /// The guest's own end, at its own virtual address once a port is held.
+    /// The guest's own end, as `inet_getname` reads `inet_rcv_saddr`, or the
+    /// guest's own virtual address once it names a peer, and `inet_sport`.
     pub(crate) fn getsockname(&self) -> SocketAddr {
-        match self.virtual_port {
-            Some(port) => SocketAddr::from((LOCAL_ADDRESS, port)),
-            None => SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
-        }
+        let ip = match (self.rcv_saddr.is_unspecified(), self.peer) {
+            (true, Some(_)) => LOCAL_ADDRESS,
+            _ => self.rcv_saddr,
+        };
+        SocketAddr::from((ip, self.sport.unwrap_or(0)))
     }
 
-    /// Hold the port `alloc` gives as a connect begins, unless the socket
-    /// still holds one, as a hash connect picks a port only when `inet_num`
-    /// is zero; a port put back once the socket closed is then replaced,
-    /// while reading the socket's own end still answers the old one until
-    /// then, as `inet_sport` keeps it.
-    pub(crate) fn hold_virtual_port(&mut self, alloc: &mut dyn FnMut() -> u16) {
-        if !self.bound || self.virtual_port.is_none() {
-            self.virtual_port = Some(alloc());
+    /// Hold a free port from `hash` as a connect begins, unless the socket
+    /// holds one, as `inet_hash_connect` picks a port only when `inet_num` is
+    /// zero, answering `EADDRNOTAVAIL` once none is left. A port put back once
+    /// the socket closed is then replaced, while reading the socket's own end
+    /// still answers the old one until then, as `inet_sport` keeps it.
+    pub(crate) fn hold_port(&mut self, hash: &Arc<BindHash>) -> Result<(), FilesystemError> {
+        if self.num.is_none() {
+            let bound = hash
+                .claim_free()
+                .ok_or(FilesystemError::AddressNotAvailable)?;
+            self.sport = Some(bound.port);
+            self.num = Some(bound);
         }
-        self.bound = true;
+        Ok(())
     }
 
     /// A new place against `open_connections` and the process, or `None`

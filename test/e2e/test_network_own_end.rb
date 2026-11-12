@@ -32,9 +32,9 @@ class TestE2ENetworkOwnEnd < Minitest::Test
       value = tcp_and_udp_sandbox(tcp, udp).eval(format(OWN_END, tcp: tcp, udp: udp)).value
 
       assert_equal [["AF_INET", 32_768, "198.19.255.254", "198.19.255.254"], ["AF_INET", 0, "0.0.0.0", "0.0.0.0"],
-                    ["AF_INET", 32_769, "198.19.255.254", "198.19.255.254"], true, :refused], value,
+                    ["AF_INET", 32_768, "198.19.255.254", "198.19.255.254"], true, :refused], value,
                    "TCPSocket#addr and a connected UDPSocket#addr must answer 198.19.255.254 and a port from " \
-                   "32768 up in connect order, kept as the UDPSocket connects again, an unconnected " \
+                   "32768 up for each protocol, kept as the UDPSocket connects again, an unconnected " \
                    "UDPSocket#addr 0.0.0.0 port 0, and a connect to that address Errno::EACCES"
     end
   end

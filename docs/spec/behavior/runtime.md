@@ -4309,7 +4309,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Then | it reads the old port until the connect. The connect takes a fresh port, as a hash connect picks one once `__inet_put_port` cleared `inet_num` |
 
 
-## `RT-389` A connect refused for a full count gives back its port
+## `RT-389` A connect refused for a full count or by the ruleset gives back its port
 
 | Attribute | Value |
 | --- | --- |
@@ -4318,6 +4318,18 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a TCP socket connected to nothing, under a full open connection count |
-| When | it connects, then binds to port 0 |
-| Then | the connect answers EAGAIN and the bind succeeds, as `tcp_v4_connect`'s failure puts back the port it hashed |
+| Given | two TCP sockets connected to nothing, one under a full open connection count |
+| When | it connects, the other connects where the ruleset refuses, and each then binds to port 0 |
+| Then | the connects answer EAGAIN and EACCES, and each bind succeeds. `tcp_v4_connect`'s failure puts back the port it hashed before the filter judged |
+
+## `RT-390` A port one socket holds is no other socket's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-385` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP socket bound to a named virtual port |
+| When | a second binds to port 0 and a third to that named port. The third binds again once the first is gone |
+| Then | the second takes the next free port and the third answers EADDRINUSE, then binds. `inet_csk_get_port` finds a held bucket taken |

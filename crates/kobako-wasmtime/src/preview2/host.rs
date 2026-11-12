@@ -1779,6 +1779,59 @@ mod tests {
         );
     }
 
+    // @behavior NW-194
+    #[test]
+    fn a_bind_to_port_zero_takes_a_free_virtual_port() {
+        let mut guest = network_guest(network::Endpoint::new("127.0.0.1", 9).unwrap());
+        let answers = (|| {
+            let network = guest.instance_network_instance_network()?;
+            // A TCP socket's local-address once bound to 0.0.0.0 port 0.
+            let bound_tcp = |guest: &mut Invocation| {
+                let tcp = guest
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()?
+                    .expect("a network makes a socket");
+                guest
+                    .tcp_tcp_socket_start_bind(tcp, network, ipv4((0, 0, 0, 0), 0))
+                    .into_answer()?
+                    .expect("a bind to port 0 takes a free port");
+                guest
+                    .tcp_tcp_socket_finish_bind(tcp)
+                    .into_answer()?
+                    .expect("the bind settles");
+                guest.tcp_tcp_socket_local_address(tcp).into_answer()
+            };
+            let tcp_end = bound_tcp(&mut guest)?;
+            let udp = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0))
+                .into_answer()?
+                .expect("a bind to port 0 takes a free port");
+            guest
+                .udp_udp_socket_finish_bind(udp)
+                .into_answer()?
+                .expect("the bind settles");
+            let udp_end = guest.udp_udp_socket_local_address(udp).into_answer()?;
+            let other_end = bound_tcp(&mut guest)?;
+            Ok::<_, wasmtime::Error>((tcp_end, udp_end, other_end))
+        })()
+        .unwrap();
+        assert_eq!(
+            answers,
+            (
+                Ok(ipv4((0, 0, 0, 0), 32768)),
+                Ok(ipv4((0, 0, 0, 0), 32768)),
+                Ok(ipv4((0, 0, 0, 0), 32769))
+            ),
+            "a TCP and a UDP socket bound to 0.0.0.0 port 0 must each read 0.0.0.0 and the first \
+             virtual port as their local-address, each protocol holding its own ports, and a \
+             second TCP socket the next port, as inet_csk_get_port takes a free one"
+        );
+    }
+
     // @behavior NW-153
     #[test]
     fn a_udp_socket_answers_bound_and_empty_sends_as_wasmtimes() {

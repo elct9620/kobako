@@ -18,7 +18,7 @@ use crate::network::Protocol;
 use socket2::SockRef;
 
 use super::socket::{
-    set_hop_limit, to_error, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+    set_hop_limit, to_error, BindHash, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -148,11 +148,9 @@ impl UdpSock {
         Ok(())
     }
 
-    /// Hold the port `alloc` gives as the guest's own, unless one is held,
-    /// as a cgroup hook keeps what `getsockname4` answers in the socket's
-    /// own storage.
-    pub(crate) fn hold_virtual_port(&self, alloc: &mut dyn FnMut() -> u16) {
-        self.state().inet.hold_virtual_port(alloc);
+    /// Hold a free port from `ports` as the guest's own, unless one is held.
+    pub(crate) fn hold_port(&self, ports: &Arc<BindHash>) -> Result<(), FilesystemError> {
+        self.state().inet.hold_port(ports)
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -226,26 +224,30 @@ impl Ready for UdpSock {
 /// UDP's answers for its socket file, as `inet_dgram_ops` hands each call to
 /// `udp_prot`.
 impl ProtoOps for UdpSock {
-    /// `net`'s translation and ruleset, then the host socket pointed at the
-    /// first real address they admit within the connection caps, as
-    /// `udp_pre_connect` runs `connect4`; UDP opens no handshake, so that
-    /// address is its peer. The socket then holds a port, as
-    /// `inet_dgram_connect` autobinds one.
+    /// `net`'s `connect4`, then within the connection caps a port, the
+    /// ruleset, and the host socket pointed at the first real address it
+    /// admits, as `inet_dgram_connect` runs `connect4` and then autobinds a
+    /// socket holding no port, answering `EAGAIN` once none is free. UDP opens
+    /// no handshake, so that address is its peer; the port stays held
+    /// whatever the connect answers, as an autobind does.
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
-        let real = net.destinations_of(addr, Protocol::Udp)?;
+        let dest = net.connect4(addr)?;
         net.within_connection_limit(FilesystemError::WouldBlock, || {
+            self.hold_port(net.ports_of(Protocol::Udp))
+                .map_err(|_| FilesystemError::WouldBlock)?;
+            let real = net.filter(&dest, Protocol::Udp)?;
             self.dial(net.family(), real[0], addr, net.open_connections())
-        })?;
-        self.hold_virtual_port(&mut || net.alloc_virtual_port());
-        Ok(())
+        })
     }
 
     /// A socket connected to a peer holds its own end already, as
     /// `inet_dgram_connect` autobinds one through `inet_autobind`.
-    fn bind(&self, addr: SocketAddr) -> Result<(), FilesystemError> {
+    fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
         let mut state = self.state();
         let connected = state.inet.peer.is_some();
-        state.inet.bind(addr, connected)
+        state
+            .inet
+            .bind(addr, connected, net.ports_of(Protocol::Udp))
     }
 
     /// One datagram, cut to `buf`, and the peer it came from as the guest

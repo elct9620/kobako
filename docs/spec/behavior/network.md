@@ -1396,7 +1396,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP and a UDP endpoint naming loopback peers |
 | When | the script reads `addr` on each socket, the UDP one before it connects, after, and after it connects again. Then it connects to that address |
-| Then | each connected socket answers `198.19.255.254` and a port from 32768 up in connect order, never the host's. A second connect keeps the port. The unconnected one answers `0.0.0.0` port 0, and the connect raises `Errno::EACCES` |
+| Then | each connected socket answers `198.19.255.254` and a port from 32768 up for its protocol, never the host's. A second connect keeps the port. The unconnected one answers `0.0.0.0` port 0, and the connect raises `Errno::EACCES` |
 
 ## `NW-113` A socket dropped while its streams live traps
 
@@ -2402,3 +2402,16 @@ endpoint "api.example.com", port: 443
 | Given | a request whose `trailer` header names a field, its body written and handed to `handle` |
 | When | the guest finishes the body with trailers holding that field |
 | Then | the request goes out chunked and ends in that trailer. wasmtime-wasi-http hands a body's trailers to hyper, which sends those the `trailer` header names |
+
+## `NW-194` A bind to port 0 takes a free virtual port
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-153` |
+| relates | `RT-390` |
+
+| Step | Statement |
+| --- | --- |
+| Given | the network granted |
+| When | the guest binds two TCP sockets and one UDP socket to `0.0.0.0` port 0, and asks each for `local-address` |
+| Then | each answers `0.0.0.0` and a virtual port from the bottom of `ip_local_port_range`, as `inet_csk_get_port` takes one. Each protocol holds its own ports, so the second TCP socket takes the next |
