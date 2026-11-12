@@ -1005,7 +1005,11 @@ mod tests {
     fn a_rule_judges_the_target_sent_with_no_fragment() {
         let endpoint = network::Endpoint::new("example.com", 80)
             .unwrap()
-            .with_rules(vec![network::HttpRule::deny(None, "/admin")]);
+            .with_rules(vec![network::HttpRule::new(
+                network::Action::Deny,
+                None,
+                "/admin",
+            )]);
         let mut guest = guest(Some(vec![endpoint]));
         let request = greeting_request(&mut guest, "example.com").unwrap();
         guest

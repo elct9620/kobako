@@ -144,7 +144,7 @@ impl EgressProxy {
                 if !carried {
                     continue;
                 }
-                if let Some(secret) = credential.source.value(request) {
+                if let Some(secret) = credential.source.value_of(request) {
                     swaps.push(Swap {
                         header: header.to_string(),
                         placeholder: placeholder.to_vec(),

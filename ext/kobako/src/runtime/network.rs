@@ -15,8 +15,8 @@ use magnus::{
 
 use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::network::{
-    Addresses, Builder, Connection, Credential, CredentialSource, Endpoint, Entry, EntryError,
-    HttpRule, Name, Network, Placement, Policies, Protocol, Request, Secret,
+    Action, Addresses, Builder, Connection, Credential, CredentialSource, Endpoint, Entry,
+    EntryError, HttpRule, Name, Network, Placement, Policies, Protocol, Request, Secret,
 };
 
 use super::pinned_value::PinnedValue;
@@ -117,7 +117,7 @@ struct RubyCredential {
 }
 
 impl CredentialSource for RubyCredential {
-    fn value(&self, request: &Request<'_>) -> Option<Secret> {
+    fn value_of(&self, request: &Request<'_>) -> Option<Secret> {
         gvl::reenter(|| {
             let ruby = Ruby::get().expect("Ruby handle unavailable in a credential's value");
             let credential: Value = ruby.get_inner(self.credential);
@@ -380,15 +380,15 @@ fn to_endpoint(ruby: &Ruby, object: Value) -> Result<Endpoint, MagnusError> {
 
 /// The rule a Ruby object answering `allow?`, `method`, and `path` stands for.
 fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
-    let allows: bool = rule.funcall::<_, _, Value>("allow?", ())?.to_bool();
+    let action = match rule.funcall::<_, _, Value>("allow?", ())?.to_bool() {
+        true => Action::Allow,
+        false => Action::Deny,
+    };
     let method: Option<String> = rule.funcall("method", ())?;
     let path: String = rule
         .funcall::<_, _, Value>("path", ())?
         .funcall("to_s", ())?;
-    Ok(match allows {
-        true => HttpRule::allow(method.as_deref(), path),
-        false => HttpRule::deny(method.as_deref(), path),
-    })
+    Ok(HttpRule::new(action, method.as_deref(), path))
 }
 
 /// An address set's symbol, a CIDR as `address/prefix`, or an `IPAddr`, which

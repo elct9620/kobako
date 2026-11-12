@@ -243,29 +243,30 @@ pattern. `*` stands for one segment, and `**` for any number.
 
 ```rust
 pub struct HttpRule {
-    pub allows: bool,
+    pub action: Action,
     pub method: Option<String>,
     pub path: String,
 }
 ```
 
-## `HttpRule::allow`
+## `HttpRule::new`
 
-A rule allowing a method, or any, on the paths a pattern matches.
+A rule taking an action on a method, or any, on the paths a pattern matches.
 
 ```rust
 impl HttpRule {
-    pub fn allow(method: Option<&str>, path: impl Into<String>) -> Self {}
+    pub fn new(action: Action, method: Option<&str>, path: impl Into<String>) -> Self {}
 }
 ```
 
-## `HttpRule::deny`
+## `Action`
 
-A rule denying a method, or any, on the paths a pattern matches.
+What an `HttpRule` does with a request it matches: allow it or deny it.
 
 ```rust
-impl HttpRule {
-    pub fn deny(method: Option<&str>, path: impl Into<String>) -> Self {}
+pub enum Action {
+    Allow,
+    Deny,
 }
 ```
 
@@ -364,13 +365,13 @@ What resolves a credential's value as a bound request leaves. A closure fits.
 pub trait CredentialSource: Send + Sync {}
 ```
 
-## `CredentialSource::value`
+## `CredentialSource::value_of`
 
 The value for a request, or `None` to send nothing.
 
 ```rust
 pub trait CredentialSource {
-    fn value(&self, request: &Request<'_>) -> Option<Secret>;
+    fn value_of(&self, request: &Request<'_>) -> Option<Secret>;
 }
 ```
 

@@ -132,11 +132,11 @@ impl Placement {
 /// What resolves a credential's value as a bound request leaves: the value, or
 /// `None` to send nothing. Caching and refresh are its own.
 pub trait CredentialSource: Send + Sync {
-    fn value(&self, request: &Request<'_>) -> Option<Secret>;
+    fn value_of(&self, request: &Request<'_>) -> Option<Secret>;
 }
 
 impl<F: Fn(&Request<'_>) -> Option<Secret> + Send + Sync> CredentialSource for F {
-    fn value(&self, request: &Request<'_>) -> Option<Secret> {
+    fn value_of(&self, request: &Request<'_>) -> Option<Secret> {
         self(request)
     }
 }
@@ -297,28 +297,27 @@ pub struct Endpoint {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct HttpRule {
-    /// Whether the rule allows what it matches, or denies it.
-    pub allows: bool,
+    /// What the rule does with a request it matches.
+    pub action: Action,
     /// Uppercase, or `None` for any method.
     pub method: Option<String>,
     pub path: String,
 }
 
+/// What an `HttpRule` does with a request it matches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Allow,
+    Deny,
+}
+
 impl HttpRule {
-    /// A rule allowing `method`, or any, on paths `path` matches.
-    pub fn allow(method: Option<&str>, path: impl Into<String>) -> Self {
+    /// A rule taking `action` on `method`, or any, on paths `path` matches.
+    pub fn new(action: Action, method: Option<&str>, path: impl Into<String>) -> Self {
         Self {
-            allows: true,
+            action,
             method: method.map(str::to_ascii_uppercase),
             path: path.into(),
-        }
-    }
-
-    /// A rule denying `method`, or any, on paths `path` matches.
-    pub fn deny(method: Option<&str>, path: impl Into<String>) -> Self {
-        Self {
-            allows: false,
-            ..Self::allow(method, path)
         }
     }
 
@@ -477,7 +476,7 @@ mod tests {
     // @behavior NW-157
     #[test]
     fn a_rule_of_several_wildcards_judges_a_long_path_at_once() {
-        let rule = HttpRule::allow(None, "/**/**/**/x");
+        let rule = HttpRule::new(Action::Allow, None, "/**/**/**/x");
         let path = "/a".repeat(32_767);
         let started = std::time::Instant::now();
         let fits = rule.matches("GET", &path);

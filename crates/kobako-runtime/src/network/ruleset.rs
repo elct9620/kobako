@@ -5,7 +5,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use super::{Addresses, Endpoint, EntryError, HttpRule, Protocol};
+use super::{Action, Addresses, Endpoint, EntryError, HttpRule, Protocol};
 use crate::Errno;
 
 /// Where an address falls, by IANA's special-purpose registries.
@@ -295,11 +295,10 @@ impl Rule {
                 && self
                     .rules
                     .iter()
-                    .any(|rule| rule.allows && rule.matches(method, path))
-                && !self
-                    .rules
-                    .iter()
-                    .any(|rule| !rule.allows && rule.matches_leniently(method, path)))
+                    .any(|rule| rule.action == Action::Allow && rule.matches(method, path))
+                && !self.rules.iter().any(|rule| {
+                    rule.action == Action::Deny && rule.matches_leniently(method, path)
+                }))
     }
 
     /// Whether this rule's host names `name`, exactly or beneath its wildcard
@@ -659,9 +658,9 @@ mod tests {
             Endpoint::new("api.example.com", 443)
                 .unwrap()
                 .with_rules(vec![
-                    HttpRule::allow(Some("get"), "/repos/**"),
-                    HttpRule::allow(None, "/status"),
-                    HttpRule::deny(None, "/repos/*/secrets"),
+                    HttpRule::new(Action::Allow, Some("get"), "/repos/**"),
+                    HttpRule::new(Action::Allow, None, "/status"),
+                    HttpRule::new(Action::Deny, None, "/repos/*/secrets"),
                 ]),
             Endpoint::new("open.example.com", 443).unwrap(),
         ])

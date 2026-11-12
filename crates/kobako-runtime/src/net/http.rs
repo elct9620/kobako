@@ -1471,7 +1471,8 @@ mod tests {
             .endpoint(
                 Endpoint::new("exact.example.com", 443)
                     .unwrap()
-                    .with_rules(vec![crate::network::HttpRule::allow(
+                    .with_rules(vec![crate::network::HttpRule::new(
+                        crate::network::Action::Allow,
                         Some("GET"),
                         "/api/**",
                     )]),
