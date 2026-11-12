@@ -13,6 +13,10 @@ use super::DecodeError;
 const KIND_PATH: u8 = 0;
 const KIND_HANDLE: u8 = 1;
 
+/// The most a Handle id may be: the wire pins ids to the positive i32 range,
+/// so no table issues one past it.
+const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
+
 /// The object a Call is addressed to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target<'a> {
@@ -41,10 +45,18 @@ impl<'a> Call<'a> {
             KIND_HANDLE => Target::Handle(reader.read_u32()?),
             _ => return Err(DecodeError::new("Call kind must be 0 (path) or 1 (handle)")),
         };
-        if let Target::Handle(0) = target {
-            return Err(DecodeError::new(
-                "Call target Handle id 0 is the invalid sentinel",
-            ));
+        match target {
+            Target::Handle(0) => {
+                return Err(DecodeError::new(
+                    "Call target Handle id 0 is the invalid sentinel",
+                ))
+            }
+            Target::Handle(id) if id > MAX_HANDLE_ID => {
+                return Err(DecodeError::new(
+                    "Call target Handle id must be at most 0x7fff_ffff",
+                ))
+            }
+            _ => {}
         }
         let method = reader.read_text()?;
         let block_given = match reader.read_u8()? {
@@ -202,6 +214,22 @@ mod tests {
         assert!(
             Call::decode(&call_bytes).is_err(),
             "the invalid-sentinel Handle id must be rejected in the target position"
+        );
+    }
+
+    // @behavior WE-091
+    #[test]
+    fn a_handle_id_past_the_wire_range_is_refused() {
+        let call_of = |id: u32| {
+            let mut w = Writer::new();
+            w.u8(KIND_HANDLE).u32(id).bytes(b"m").u8(0);
+            w.into_bytes()
+        };
+        assert!(
+            Call::decode(&call_of(0x7fff_ffff)).is_ok()
+                && Call::decode(&call_of(0x8000_0000)).is_err(),
+            "Call::decode must take a Handle id of 0x7fff_ffff in the target position and refuse \
+             0x8000_0000"
         );
     }
 
