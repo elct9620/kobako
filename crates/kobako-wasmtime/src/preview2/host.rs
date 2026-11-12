@@ -1476,16 +1476,27 @@ mod tests {
 
     // @behavior RT-373
     #[test]
-    fn an_answer_into_a_misaligned_return_area_traps() {
+    fn an_answer_into_a_misplaced_return_area_traps() {
         let (mut store, instance) = guest(Profile::Hermetic, None);
         let network = call::<(), i32>(&mut store, &instance, "network", ()).expect("a handle");
+        let memory = instance.get_memory(&mut store, "memory").expect("memory");
+        let last = memory.data_size(&store) - 4;
+        memory.data_mut(&mut store)[last..].fill(0xAA);
         let misaligned =
             call::<(i32, i32), ()>(&mut store, &instance, "resolve_into", (network, 33));
-        let aligned = call::<(i32, i32), ()>(&mut store, &instance, "resolve_into", (network, 32));
+        let past_memory = call::<(i32, i32), ()>(
+            &mut store,
+            &instance,
+            "resolve_into",
+            (network, last as i32),
+        );
+        let untouched = memory.data(&store)[last..] == [0xAA; 4];
+        let inside = call::<(i32, i32), ()>(&mut store, &instance, "resolve_into", (network, 32));
         assert!(
-            misaligned.is_err() && aligned.is_ok(),
-            "resolve-addresses answering into a return area off its 4-byte alignment must trap, \
-             as the Canonical ABI does, and answer into an aligned one"
+            misaligned.is_err() && past_memory.is_err() && untouched && inside.is_ok(),
+            "resolve-addresses answering into a return area off its 4-byte alignment, or running \
+             past the guest's memory, must trap before writing any part of the answer, as the \
+             Canonical ABI does, and answer into one wholly inside"
         );
     }
 

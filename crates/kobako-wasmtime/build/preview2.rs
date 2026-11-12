@@ -770,6 +770,16 @@ fn write_linker(
                 _ => unreachable!("a core import answers at most one value"),
             };
             let mut body = FunctionBody::new(resolve, sizes, *id, func);
+            // The answer lands in the return area the guest's last argument
+            // names, checked once the call returns, as the Canonical ABI does.
+            if let (Some(answer), true) = (&func.result, sig.retptr) {
+                body.return_area = Some(format!(
+                    "crate::preview2::abi::ensure_return_area(&mut caller, arg{}, {}, {})?;\n",
+                    sig.params.len() - 1,
+                    sizes.size(answer).size_wasm32(),
+                    sizes.align(answer).align_wasm32()
+                ));
+            }
             abi::call(
                 resolve,
                 abi::AbiVariant::GuestImport,
@@ -778,21 +788,11 @@ fn write_linker(
                 &mut body,
                 false,
             );
-            // The answer lands in the return area the guest's last argument
-            // names, which the Canonical ABI requires aligned to the answer.
-            let aligned = match (&func.result, sig.retptr) {
-                (Some(answer), true) => format!(
-                    "crate::preview2::abi::ensure_aligned(arg{}, {})?;\n",
-                    sig.params.len() - 1,
-                    sizes.align(answer).align_wasm32()
-                ),
-                _ => String::new(),
-            };
             let _ = writeln!(
                 out,
                 "linker.func_wrap({module:?}, {:?}, |mut caller: wasmtime::Caller<'_, T>{params}| \
                  -> wasmtime::Result<{result}> {{\n\
-                 let mut fuel = crate::preview2::abi::Fuel::new(&mut caller);\n{aligned}{}}})?;",
+                 let mut fuel = crate::preview2::abi::Fuel::new(&mut caller);\n{}}})?;",
                 func.name, body.src
             );
         }
@@ -819,6 +819,9 @@ struct FunctionBody<'a> {
     method: String,
     /// The `convert_<error>` method a trappable answer passes through.
     convert: Option<String>,
+    /// The check of the return area an answer lands in, made once the call
+    /// returns.
+    return_area: Option<String>,
     src: String,
     blocks: Vec<String>,
     stack: Vec<String>,
@@ -832,6 +835,7 @@ impl<'a> FunctionBody<'a> {
             sizes,
             method: to_method_name(resolve, id, func),
             convert: Trappable::of(resolve, func).map(|t| t.convert_method_of(resolve)),
+            return_area: None,
             src: String::new(),
             blocks: Vec::new(),
             stack: Vec::new(),
@@ -1180,6 +1184,9 @@ impl Bindgen for FunctionBody<'_> {
                 self.src.push_str(
                     "if let Some(trap) = caller.data().abandonment() { return Err(trap); }\n",
                 );
+                if let Some(check) = self.return_area.take() {
+                    self.src.push_str(&check);
+                }
                 results.extend(answered);
             }
             Instruction::Return { amt, .. } => match amt {
