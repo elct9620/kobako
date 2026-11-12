@@ -85,6 +85,11 @@ impl Connector {
             let sock = TcpSock::new(self.family.clone(), &self.cred)
                 .map_err(|err| HttpError::from_errno(&err))?;
             self.tcp_sockets.hold(&sock);
+            // Set before the dial, so the host socket takes it as it is
+            // made, as an HTTP client writes each request whole; a guest's
+            // own socket keeps Linux's default.
+            sock.setsockopt(SockOpt::NoDelay, 1)
+                .map_err(|err| HttpError::from_errno(&err))?;
             match sock.connect_upstream(&self.ports, &self.ruleset, dest) {
                 Err(FilesystemError::PermissionDenied) => continue,
                 Err(err) => {
@@ -93,7 +98,7 @@ impl Connector {
                 }
                 Ok(()) => {}
             }
-            let connection = Transport::new(sock)?;
+            let connection = Transport { sock };
             match connection.wait_for_connect().await {
                 Ok(()) => return Ok(connection),
                 Err(err) => last = HttpError::from_errno(&err),
@@ -132,15 +137,6 @@ pub struct Transport {
 }
 
 impl Transport {
-    /// The connection `sock` begins, sent without Nagle's delay, as an HTTP
-    /// client writes each request whole; a guest's own socket keeps Linux's
-    /// default.
-    fn new(sock: Arc<TcpSock>) -> Result<Self, HttpError> {
-        sock.setsockopt(SockOpt::NoDelay, 1)
-            .map_err(|err| HttpError::from_errno(&err))?;
-        Ok(Self { sock })
-    }
-
     /// Wait until the connect under way settles, as Linux's
     /// `inet_wait_for_connect` waits for.
     async fn wait_for_connect(&self) -> Result<(), FilesystemError> {

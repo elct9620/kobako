@@ -1143,7 +1143,6 @@ mod tests {
         .map(|exchange| read_response(&exchange).map(|(head, _)| head.status));
         let roomy = crate::net::send(&namespace, &cred_within(None), request())
             .map(|exchange| read_response(&exchange).map(|(head, _)| head.status));
-        server.join().unwrap();
         assert_eq!(
             (cramped, roomy, seen.lock().unwrap().clone()),
             (
@@ -1155,6 +1154,7 @@ mod tests {
              memory cannot hold its upstream socket's buffers, reach it with room, and show the \
              connect policy only the host the guest named, never an address it resolved to"
         );
+        server.join().unwrap();
     }
 
     // @behavior NW-037
