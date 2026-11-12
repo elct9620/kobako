@@ -93,6 +93,8 @@ The L7 proxy judges a request on the guest thread, where Ruby policies and crede
 
 `Swaps` are the credentials a request over `https` carries. The connector resolves the authority and tries each admitted address in turn, as hyper-util's `HttpConnector` does. Each dial passes the socket layer as the Invocation, so the ruleset and the connection limits judge it as they judge a guest socket. A Wasm Driver of one's own may replace the proxy, but not the socket layer beneath it.
 
+The request carries the authority the rules judged, so a server routing by `Host` reads what was admitted. The response head reaches the guest whole, where wasmtime strips its forbidden fields. The guest's `Net::HTTP` reads `transfer-encoding` to tell a sized body from a chunked one, as CRuby's does.
+
 ## Outbound Path
 
 Every outbound connection takes Linux's order: decide on what the guest named, translate, then filter what is really reached.
