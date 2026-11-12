@@ -478,10 +478,18 @@ guest: Authorization: Bearer <placeholder> -> wire: Bearer <secret>
 
 ### Protocol Family
 
-The backend that reaches the host network, as Linux's `net_proto_family`. It dials the exact address the ruleset passed, and resolves the names a lookup asks.
+The backend that reaches the host network, as Linux's `net_proto_family`. It dials the exact address the ruleset passed.
 
 ```
-Namespace -> Protocol Family -> host sockets, host resolver
+socket layer -> Protocol Family -> host sockets
+```
+
+### Resolver
+
+The backend that answers a name, as userspace's `getaddrinfo` does beside Linux's sockets. A guest's lookup and the L7 proxy both ask it, and it judges nothing.
+
+```
+lookup, L7 proxy -> Resolver -> host resolver
 ```
 
 ### Outbound Seam
@@ -494,7 +502,7 @@ L7 proxy -> outbound seam -> socket layer -> the server
 
 ### Namespace
 
-One invocation's network namespace, as Linux's `struct net`. It holds the ruleset, the virtual addresses, the Protocol Family, and the connection limits. The socket layer and the L7 proxy read them; it judges nothing itself.
+One invocation's network namespace, as Linux's `struct net`. It holds the ruleset, the virtual addresses, the ports, the Protocol Family, the Resolver, and the connection limits. The socket layer and the L7 proxy read them; it judges nothing itself.
 
 ```
 socket layer, L7 proxy -> read -> Namespace: ruleset, virtual addresses, limits
