@@ -151,7 +151,7 @@ impl TcpSock {
     /// switches on its state before anything else: one connecting answers
     /// `EALREADY`, one connected or reset `EISCONN`, and one a connect failed
     /// answers that failure once and stands unconnected again.
-    fn check_connectable(&self) -> Result<(), FilesystemError> {
+    fn check_state(&self) -> Result<(), FilesystemError> {
         let mut state = self.state();
         match state.phase {
             Phase::Connecting => Err(FilesystemError::AlreadyInProgress),
@@ -466,7 +466,7 @@ impl ProtoOps for TcpSock {
     /// filter. A refused destination puts the port back, as that failure
     /// does.
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
-        self.check_connectable()?;
+        self.check_state()?;
         let dest = net.connect4(addr)?;
         net.within_connection_limit(FilesystemError::WouldBlock, || {
             self.hold_port(net.ports_of(Protocol::Tcp))?;

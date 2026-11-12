@@ -149,7 +149,7 @@ impl BindHash {
     /// The first free port of `VIRTUAL_PORTS` from where the last search
     /// left off, as `inet_hash_connect` walks `ip_local_port_range` past each
     /// port held; `None` once every one is held.
-    fn claim_free(self: &Arc<Self>) -> Option<BoundPort> {
+    fn claim_free_port(self: &Arc<Self>) -> Option<BoundPort> {
         let mut ports = self.ports();
         let start = ports.next;
         let mut port = start;
@@ -261,7 +261,9 @@ impl InetSock {
             return Err(FilesystemError::InvalidInput);
         }
         let bound = match addr.port() {
-            0 => hash.claim_free().ok_or(FilesystemError::AddressInUse)?,
+            0 => hash
+                .claim_free_port()
+                .ok_or(FilesystemError::AddressInUse)?,
             port => hash.claim(port)?,
         };
         self.sport = Some(bound.port);
@@ -298,7 +300,7 @@ impl InetSock {
     pub(crate) fn hold_port(&mut self, hash: &Arc<BindHash>) -> Result<(), FilesystemError> {
         if self.num.is_none() {
             let bound = hash
-                .claim_free()
+                .claim_free_port()
                 .ok_or(FilesystemError::AddressNotAvailable)?;
             self.sport = Some(bound.port);
             self.num = Some(bound);

@@ -343,7 +343,7 @@ impl Namespace {
         sock: &TcpSock,
         addr: SocketAddr,
     ) -> Result<(), FilesystemError> {
-        self.judge_named(cred, addr, Protocol::Tcp)?;
+        self.judge_connection_to(cred, addr, Protocol::Tcp)?;
         ProtoOps::connect(sock, self, addr)
     }
 
@@ -401,7 +401,7 @@ impl Namespace {
         addr: Option<SocketAddr>,
     ) -> Result<(), FilesystemError> {
         let addr = addr.ok_or(FilesystemError::PermissionDenied)?;
-        self.judge_named(cred, addr, Protocol::Udp)?;
+        self.judge_connection_to(cred, addr, Protocol::Udp)?;
         ProtoOps::connect(sock, self, addr)
     }
 
@@ -445,7 +445,7 @@ impl Namespace {
     /// Judge a `protocol` connection to `addr` through the socket hooks, the
     /// name a virtual address stands for in place of the address, as
     /// `security_socket_connect` runs before the protocol's `connect`.
-    fn judge_named(
+    fn judge_connection_to(
         &self,
         cred: &Cred,
         addr: SocketAddr,
