@@ -2428,3 +2428,16 @@ endpoint "api.example.com", port: 443
 | Given | a name answering two addresses through a `udp` endpoint leading only to the second, with a peer there |
 | When | the script connects a `UDPSocket` to the name, then sends naming the name and port |
 | Then | the connect streams with the second after the first is refused. The send reaches that peer, as CRuby's `connect` and `send` try each address |
+
+## `NW-196` An HTTP request dials through a socket of the Invocation's own
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-018` |
+| relates | `NW-116` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a host, and an entry whose connect policy records what it sees. The Invocation's `memory_limit` holds a request, not one TCP socket's buffers |
+| When | the guest sends a request to the host, then sends it again with room for the socket |
+| Then | the first fails before it reaches the server, as the upstream's socket cannot hold its buffers. The second reaches it. The policy sees only the host the guest named, never an address it resolved to. The upstream passes only the socket layer's filter, as an egress proxy's does |

@@ -526,10 +526,10 @@ lookup "api.example.com" -> virtual address -> connect -> the real addresses
 
 ### Connector
 
-The dialer the runtime hands the outbound seam, so an HTTP request opens its connection through the Namespace. The seam is supplied one and never implements its own.
+The dialer the runtime hands the outbound seam. An HTTP request opens its connection through a socket of the Invocation's own. The seam is supplied one and never implements its own.
 
 ```
-outbound seam -> connector -> Namespace -> Protocol Family
+outbound seam -> connector -> socket layer -> Protocol Family
 ```
 
 ### Host-side Producer
