@@ -82,7 +82,7 @@ module Kobako
     end
 
     class Bind
-      def initialize: (String path) -> void
+      def initialize: (String path, ?exclusive: bool) -> void
     end
 
     class Overlay

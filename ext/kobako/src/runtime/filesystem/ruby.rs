@@ -40,15 +40,22 @@ pub(crate) struct RubyFilesystem {
     /// The device a stat without a `dev` names, the object's own, shared by
     /// every directory opened beneath it.
     dev: u64,
+    /// Whether the object's `exclusive?` answers true.
+    exclusive: bool,
 }
 
 impl RubyFilesystem {
     /// The object as a Filesystem, when it answers `open` and `stat`.
     pub(crate) fn from_value(value: Value) -> Option<Self> {
         let answers = |name| value.respond_to(name, false).unwrap_or(false);
+        let exclusive = answers("exclusive?")
+            && value
+                .funcall::<_, _, Value>("exclusive?", ())
+                .is_ok_and(|answer| answer.to_bool());
         (answers("open") && answers("stat")).then(|| Self {
             object: Opaque::from(value),
             dev: Kstat::unique_device(),
+            exclusive,
         })
     }
 
@@ -527,11 +534,19 @@ fn find_open_file(dentry: &Dentry) -> Option<Arc<PinnedValue>> {
 
 /// The backend changes outside the runtime, so a dentry someone holds is
 /// asked again, as FUSE compares what a fresh lookup finds, and one no longer
-/// naming what it recorded gets a new one. An open file answers for itself,
-/// so a walk finding a dentry one is open on takes one of its own.
+/// naming what it recorded gets a new one. An object whose `exclusive?` answers
+/// true vouches that only the guest changes it, so what was found stands, as
+/// gVisor's exclusive mount skips revalidation. An open file answers for
+/// itself, so a walk finding a dentry one is open on takes one of its own.
 impl DentryOperations for RubyFilesystem {
     fn revalidate(&self, _dir: &dyn InodeOperations, dentry: &Dentry) -> Result<bool, Errno> {
-        let Some(inode) = dentry.inode().filter(|_| find_open_file(dentry).is_none()) else {
+        if find_open_file(dentry).is_some() {
+            return Ok(false);
+        }
+        if self.exclusive {
+            return Ok(true);
+        }
+        let Some(inode) = dentry.inode() else {
             return Ok(false);
         };
         match self.stat(path_of(dentry)) {
@@ -544,9 +559,10 @@ impl DentryOperations for RubyFilesystem {
     }
 
     /// Answering whether a name holds costs a `stat`, as finding it does, so
-    /// nothing is gained by keeping it, as FUSE's `entry_timeout=0` keeps none.
+    /// nothing is gained by keeping it, as FUSE's `entry_timeout=0` keeps none;
+    /// an exclusive one keeps every name, as nothing asks again.
     fn delete(&self, _dentry: &Dentry) -> bool {
-        true
+        !self.exclusive
     }
 }
 

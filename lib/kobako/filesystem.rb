@@ -11,9 +11,12 @@ module Kobako
   #   Files held in memory for as long as the object lives, seeded from a
   #   Hash of path to contents. Every invocation shares them; one that
   #   should start empty mounts a new Tmpfs through Context#mount.
-  # [<tt>Bind.new(path)</tt>]
+  # [<tt>Bind.new(path, exclusive: false)</tt>]
   #   A host directory and everything beneath it. Nothing outside it is
-  #   reachable, a symbolic link pointing out included.
+  #   reachable, a symbolic link pointing out included. With +exclusive+
+  #   the Host App vouches that only the guest changes the directory, so a
+  #   name the guest found is not looked up on the host again; a change the
+  #   host makes meanwhile may go unseen.
   # [<tt>Overlay.new(lower: [filesystem, ...], upper: tmpfs)</tt>]
   #   Read-only lower Layers, topmost first, under an upper Tmpfs that
   #   takes every change, as Linux's overlayfs stacks them. Without
@@ -45,6 +48,10 @@ module Kobako
   # A +stat+ may also answer +dev+, else the Filesystem stands for one
   # device, and +ftype+, which says a FIFO, a socket, or a device is one
   # so the guest's open is refused without asking +open+.
+  #
+  # An object whose +exclusive?+ answers true vouches that only the guest
+  # changes it, so +stat+ is asked about a name once rather than again on
+  # each walk, as <tt>Bind.new(path, exclusive: true)</tt> does.
   #
   # The file +open+ answers takes the guest's reads and writes, each named
   # as +IO+ names it:

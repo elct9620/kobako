@@ -58,7 +58,7 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     let tmpfs = module.define_class("Tmpfs", ruby.class_object())?;
     tmpfs.define_singleton_method("new", function!(tmpfs_new, -1))?;
     let bind = module.define_class("Bind", ruby.class_object())?;
-    bind.define_singleton_method("new", function!(bind_new, 1))?;
+    bind.define_singleton_method("new", function!(bind_new, -1))?;
     let overlay = module.define_class("Overlay", ruby.class_object())?;
     overlay.define_singleton_method("new", function!(overlay_new, -1))?;
     TmpfsFs::class(ruby);
@@ -125,17 +125,24 @@ fn to_count(count: Value) -> Result<Option<usize>, MagnusError> {
     Option::<usize>::try_convert(count)
 }
 
-fn bind_new(path: String) -> Result<BindFs, MagnusError> {
+/// `Bind.new(path, exclusive: false)`.
+fn bind_new(args: &[Value]) -> Result<BindFs, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
+    let args = scan_args::<(String,), (), (), (), RHash, ()>(args)?;
+    let (path,) = args.required;
+    let kwargs = get_kwargs::<_, (), (Option<bool>,), ()>(args.keywords, &[], &["exclusive"])?;
+    let (exclusive,) = kwargs.optional;
     let directory = Bind::new(&path).map_err(|err| {
         MagnusError::new(
             ruby.exception_arg_error(),
             format!("cannot open host directory {path}: {err}"),
         )
     })?;
-    Filesystem::new(Arc::new(directory))
-        .map(BindFs)
-        .map_err(cannot_stand)
+    Filesystem::new(Arc::new(
+        directory.with_exclusive(exclusive.unwrap_or(false)),
+    ))
+    .map(BindFs)
+    .map_err(cannot_stand)
 }
 
 /// `Overlay.new(lower:, upper: nil)`: the Filesystems in `lower`, topmost

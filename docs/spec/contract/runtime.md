@@ -1563,6 +1563,17 @@ impl Bind {
 }
 ```
 
+## `Bind::with_exclusive`
+
+This Bind trusting the names it found, when only the guest changes its
+directory.
+
+```rust
+impl Bind {
+    pub fn with_exclusive(self, exclusive: bool) -> Self {}
+}
+```
+
 ## `Overlay`
 
 The Filesystem kobako ships that stacks read-only lower Layers under an

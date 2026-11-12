@@ -49,6 +49,25 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
                  "once about each name on the way, and again about the file once open"
   end
 
+  # A DeepFilesystem vouching that only the guest changes it.
+  class ExclusiveDeepFilesystem < DeepFilesystem
+    def exclusive? = true
+  end
+
+  # @behavior RF-040
+  def test_an_exclusive_filesystem_is_asked_about_a_directory_once
+    filesystem = ExclusiveDeepFilesystem.new
+    Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                   .mount("/data", filesystem, access: :read)
+                   .eval('2.times { File.read("/data/a/b/c/note.txt") }')
+
+    assert_equal %w[a a/b a/b/c], filesystem.asked & %w[a a/b a/b/c],
+                 "a file three directories deep read twice through Sandbox#mount of a Ruby Filesystem whose " \
+                 "exclusive? answers true must ask its stat about each directory once"
+    assert_equal 1, filesystem.asked.count("a/b"),
+                 "the second read through an exclusive Ruby Filesystem must ask its stat nothing about a/b again"
+  end
+
   # @behavior RF-026
   def test_a_directory_reports_the_size_its_stat_answers
     size = Kobako::Sandbox.new(wasm_path: REAL_WASM)

@@ -44,6 +44,9 @@ pub struct Bind {
     /// The host directory the Bind was made at.
     root: Arc<Dir>,
     fids: Arc<FidCache>,
+    /// Whether only the guest changes the directory, so a name it found
+    /// stays as found without asking the host again.
+    exclusive: bool,
 }
 
 impl Bind {
@@ -57,7 +60,16 @@ impl Bind {
         Ok(Self {
             root: Arc::new(root),
             fids: Arc::default(),
+            exclusive: false,
         })
+    }
+
+    /// This Bind trusting the names it found when `exclusive`, the Host App
+    /// vouching that only the guest changes the directory, as gVisor's
+    /// exclusive mount skips revalidation. A change made on the host meanwhile
+    /// may go unseen.
+    pub fn with_exclusive(self, exclusive: bool) -> Self {
+        Self { exclusive, ..self }
     }
 
     /// The host directory kept for `dentry`, if one is.
@@ -433,7 +445,10 @@ impl FileSystemType for Bind {
 
 impl DentryOperations for Bind {
     fn revalidate(&self, _dir: &dyn InodeOperations, dentry: &Dentry) -> Result<bool, Errno> {
-        self.stands_as_recorded(dentry)
+        match self.exclusive {
+            true => Ok(true),
+            false => self.stands_as_recorded(dentry),
+        }
     }
 
     fn delete(&self, dentry: &Dentry) -> bool {
@@ -996,6 +1011,37 @@ mod tests {
         fs::write(host.0.join(&path).join("f"), "x").expect("the host file must be written");
         let bind = Arc::new(Bind::new(&host.0).expect("the host directory must open"));
         (bind, format!("{path}/f"))
+    }
+
+    // The same move behind each Bind, so the one told apart is what each
+    // asks of the host again.
+    // @behavior FS-207
+    #[cfg(unix)]
+    #[test]
+    fn an_exclusive_bind_keeps_the_directory_it_found() {
+        let size_after_a_move = |name: &str, exclusive: bool| {
+            let host = HostDir::new(name);
+            fs::create_dir(host.0.join("d")).expect("the host directory must be made");
+            fs::write(host.0.join("d/f"), "x").expect("the host file must be written");
+            let bind = Bind::new(&host.0)
+                .expect("the host directory must open")
+                .with_exclusive(exclusive);
+            let root = kern_path(Arc::new(bind));
+            root.vfs_lstat("d/f").expect("the file must stand");
+            fs::rename(host.0.join("d"), host.0.join("moved")).expect("the host move must land");
+            fs::create_dir(host.0.join("d")).expect("the host directory must be made");
+            fs::write(host.0.join("d/f"), "xxxxx").expect("the host file must be written");
+            root.vfs_lstat("d/f").map(|stat| stat.size)
+        };
+        assert_eq!(
+            (
+                size_after_a_move("exclusive-moved", true),
+                size_after_a_move("plain-moved", false)
+            ),
+            (Ok(1), Ok(5)),
+            "a walk through d/f after the host moved another d into place must reach the d it found \
+             through an exclusive Bind, and the new d through one that is not"
+        );
     }
 
     // Counted on the Bind, as a count of the process's descriptors would see
