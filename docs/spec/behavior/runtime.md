@@ -4301,7 +4301,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it reads its own end, then connects again |
 | Then | it reads the old port until the connect. The connect takes a fresh port, as a hash connect picks one once `__inet_put_port` cleared `inet_num` |
 
-
 ## `RT-389` A connect refused for a full count or by the ruleset gives back its port
 
 | Attribute | Value |
