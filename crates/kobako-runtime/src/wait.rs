@@ -1,8 +1,9 @@
 //! Waiting for what another thread brings, as Linux's wait queues and
 //! `do_poll` are: a producer wakes the queue its event stands on, and a
 //! poller that registered on that queue looks again. A wait ends once its run
-//! is to stop, as a killable wait ends on a fatal signal, and it waits through
-//! the registered Blocking, as a lock's slow path does.
+//! is to stop, as `do_poll`'s interruptible sleep ends on a pending signal; the
+//! only signal a run receives is the one that stops it. It waits through the
+//! registered Blocking, as a lock's slow path does.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::task::Waker;

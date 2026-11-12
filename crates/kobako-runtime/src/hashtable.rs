@@ -1,5 +1,7 @@
-//! A table of objects held elsewhere, by key, as Linux's `hashtable.h`
-//! keeps the dentries and inodes in use.
+//! A table of objects held elsewhere, by key, as Linux's `dentry_hashtable`
+//! and `inode_hashtable` find the dentries and inodes in use. It holds each
+//! weakly, so one nothing else holds drops out, where Linux's stays until the
+//! shrinker prunes it.
 
 use std::collections::HashMap;
 use std::hash::Hash;
