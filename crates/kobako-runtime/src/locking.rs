@@ -9,6 +9,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::ThreadId;
 
 use crate::sched;
+use crate::Errno;
 
 /// Why a hold was not taken.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +21,15 @@ pub(crate) enum DownError {
     /// The wait's run was to stop, past its deadline or interrupted, as
     /// `down_read_killable` answers `-EINTR` on a fatal signal.
     Interrupted,
+}
+
+impl From<DownError> for Errno {
+    fn from(error: DownError) -> Self {
+        match error {
+            DownError::Deadlock => Self::Deadlock,
+            DownError::Interrupted => Self::Interrupted,
+        }
+    }
 }
 
 /// Held shared by any number of threads or exclusive by one. A thread

@@ -272,26 +272,7 @@ fn is_windows_alias(name: &str) -> bool {
 fn to_error(err: io::Error) -> Errno {
     match err.kind() {
         io::ErrorKind::PermissionDenied if err.raw_os_error().is_none() => Errno::NotFound,
-        io::ErrorKind::NotFound => Errno::NotFound,
-        io::ErrorKind::AlreadyExists => Errno::AlreadyExists,
-        io::ErrorKind::NotADirectory => Errno::NotADirectory,
-        io::ErrorKind::IsADirectory => Errno::IsADirectory,
-        io::ErrorKind::DirectoryNotEmpty => Errno::DirectoryNotEmpty,
-        io::ErrorKind::PermissionDenied => Errno::PermissionDenied,
-        io::ErrorKind::ReadOnlyFilesystem => Errno::ReadOnlyFilesystem,
-        io::ErrorKind::InvalidInput => Errno::InvalidInput,
-        io::ErrorKind::Unsupported => Errno::Unsupported,
-        io::ErrorKind::StorageFull => Errno::StorageFull,
-        io::ErrorKind::FileTooLarge => Errno::FileTooLarge,
-        io::ErrorKind::CrossesDevices => Errno::CrossesDevices,
-        io::ErrorKind::Deadlock => Errno::Deadlock,
-        io::ErrorKind::ResourceBusy => Errno::ResourceBusy,
-        io::ErrorKind::InvalidFilename => Errno::InvalidFilename,
-        io::ErrorKind::NotSeekable => Errno::NotSeekable,
-        io::ErrorKind::Interrupted => Errno::Interrupted,
-        io::ErrorKind::WouldBlock => Errno::WouldBlock,
-        io::ErrorKind::OutOfMemory => Errno::OutOfMemory,
-        _ => Errno::Other(err.to_string()),
+        kind => Errno::from_io_kind(kind).unwrap_or_else(|| Errno::Other(err.to_string())),
     }
 }
 

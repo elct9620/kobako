@@ -1,9 +1,9 @@
-//! Why a call on a Filesystem failed, under the POSIX name each failure
-//! stands for, as Linux's calls answer an errno.
+//! Why a call failed, under the POSIX name each failure stands for, as Linux's
+//! calls answer an errno, whether a Filesystem, a socket, or a wait refused it.
 
-use crate::locking::DownError;
+use std::io;
 
-/// Why a Filesystem call failed, for the ABI above to encode as its error code.
+/// Why a call failed, for the ABI above to encode as its error code.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Errno {
@@ -148,16 +148,48 @@ const POSIX_NAMES: [(&str, Errno); 48] = [
     ("ENOPROTOOPT", Errno::ProtocolNotAvailable),
 ];
 
-impl From<DownError> for Errno {
-    fn from(error: DownError) -> Self {
-        match error {
-            DownError::Deadlock => Self::Deadlock,
-            DownError::Interrupted => Self::Interrupted,
-        }
-    }
-}
-
 impl Errno {
+    /// The failure a host call's `kind` stands for, as std names the errno it
+    /// read; `None` for a kind std names no POSIX error for. A layer reading
+    /// the host's own errno first, or knowing what its host library means by a
+    /// kind, answers that before asking this.
+    pub(crate) fn from_io_kind(kind: io::ErrorKind) -> Option<Self> {
+        use io::ErrorKind as Kind;
+        Some(match kind {
+            Kind::NotFound => Self::NotFound,
+            Kind::AlreadyExists => Self::AlreadyExists,
+            Kind::NotADirectory => Self::NotADirectory,
+            Kind::IsADirectory => Self::IsADirectory,
+            Kind::DirectoryNotEmpty => Self::DirectoryNotEmpty,
+            Kind::PermissionDenied => Self::PermissionDenied,
+            Kind::ReadOnlyFilesystem => Self::ReadOnlyFilesystem,
+            Kind::InvalidInput => Self::InvalidInput,
+            Kind::Unsupported => Self::Unsupported,
+            Kind::StorageFull => Self::StorageFull,
+            Kind::FileTooLarge => Self::FileTooLarge,
+            Kind::CrossesDevices => Self::CrossesDevices,
+            Kind::Deadlock => Self::Deadlock,
+            Kind::ResourceBusy => Self::ResourceBusy,
+            Kind::InvalidFilename => Self::InvalidFilename,
+            Kind::NotSeekable => Self::NotSeekable,
+            Kind::Interrupted => Self::Interrupted,
+            Kind::WouldBlock => Self::WouldBlock,
+            Kind::OutOfMemory => Self::OutOfMemory,
+            Kind::NetworkDown => Self::NetworkDown,
+            Kind::ConnectionRefused => Self::ConnectionRefused,
+            Kind::ConnectionReset => Self::ConnectionReset,
+            Kind::ConnectionAborted => Self::ConnectionAborted,
+            Kind::TimedOut => Self::TimedOut,
+            Kind::HostUnreachable => Self::HostUnreachable,
+            Kind::NetworkUnreachable => Self::NetworkUnreachable,
+            Kind::AddrNotAvailable => Self::AddressNotAvailable,
+            Kind::AddrInUse => Self::AddressInUse,
+            Kind::BrokenPipe => Self::BrokenPipe,
+            Kind::NotConnected => Self::NotConnected,
+            _ => return None,
+        })
+    }
+
     /// The POSIX error name this failure stands for, as `ENOENT`. `Other`
     /// has none, and `Escape` shares `CrossesDevices`'s.
     pub fn posix_name(&self) -> Option<&'static str> {

@@ -537,21 +537,7 @@ pub(crate) fn to_error(err: &io::Error) -> Errno {
             _ => {}
         }
     }
-    match err.kind() {
-        io::ErrorKind::NetworkDown => Errno::NetworkDown,
-        io::ErrorKind::ConnectionRefused => Errno::ConnectionRefused,
-        io::ErrorKind::ConnectionReset => Errno::ConnectionReset,
-        io::ErrorKind::ConnectionAborted => Errno::ConnectionAborted,
-        io::ErrorKind::TimedOut => Errno::TimedOut,
-        io::ErrorKind::HostUnreachable => Errno::HostUnreachable,
-        io::ErrorKind::NetworkUnreachable => Errno::NetworkUnreachable,
-        io::ErrorKind::AddrNotAvailable => Errno::AddressNotAvailable,
-        io::ErrorKind::AddrInUse => Errno::AddressInUse,
-        io::ErrorKind::BrokenPipe => Errno::BrokenPipe,
-        io::ErrorKind::NotConnected => Errno::NotConnected,
-        io::ErrorKind::PermissionDenied => Errno::PermissionDenied,
-        kind => Errno::Other(format!("{kind:?}")),
-    }
+    Errno::from_io_kind(err.kind()).unwrap_or_else(|| Errno::Other(format!("{:?}", err.kind())))
 }
 
 /// The one Filesystem every socket stands on, as Linux's `sock_mnt`. No path
@@ -825,17 +811,26 @@ mod tests {
     #[test]
     fn a_host_socket_failure_answers_the_posix_name_its_errno_holds() {
         use rustix::io::Errno as HostErrno;
-        let answers = [HostErrno::NETDOWN, HostErrno::NOBUFS, HostErrno::HOSTDOWN]
-            .map(|errno| to_error(&io::Error::from_raw_os_error(errno.raw_os_error())));
+        let answers = [
+            HostErrno::NETDOWN,
+            HostErrno::NOBUFS,
+            HostErrno::HOSTDOWN,
+            HostErrno::AGAIN,
+            HostErrno::INVAL,
+        ]
+        .map(|errno| to_error(&io::Error::from_raw_os_error(errno.raw_os_error())));
         assert_eq!(
             answers,
             [
                 Errno::NetworkDown,
                 Errno::NoBufferSpace,
-                Errno::HostUnreachable
+                Errno::HostUnreachable,
+                Errno::WouldBlock,
+                Errno::InvalidInput
             ],
-            "a host socket failing with ENETDOWN, ENOBUFS, or EHOSTDOWN must answer ENETDOWN, \
-             ENOBUFS, and EHOSTUNREACH, read from its errno where std names no kind"
+            "a host socket failing with ENETDOWN, ENOBUFS, EHOSTDOWN, EAGAIN, or EINVAL must \
+             answer ENETDOWN, ENOBUFS, EHOSTUNREACH, EAGAIN, and EINVAL, read from its errno \
+             where std names no kind, as a file's failure is otherwise"
         );
     }
 
