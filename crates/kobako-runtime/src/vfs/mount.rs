@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::super_block::SuperBlock;
-use super::FilesystemError;
+use super::Errno;
 
 /// A Filesystem instance as the VFS walks it, as `vfsmount` holds its root,
 /// its super block, and `mnt_flags`.
@@ -50,9 +50,9 @@ impl VfsMount {
 
     /// Refuse a change beneath it where it allows only reads, as
     /// `mnt_want_write` does before any security hook is asked.
-    pub(crate) fn mnt_want_write(&self) -> Result<(), FilesystemError> {
+    pub(crate) fn mnt_want_write(&self) -> Result<(), Errno> {
         match self.is_readonly() {
-            true => Err(FilesystemError::ReadOnlyFilesystem),
+            true => Err(Errno::ReadOnlyFilesystem),
             false => Ok(()),
         }
     }

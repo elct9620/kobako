@@ -23,9 +23,8 @@ use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 
 use super::rdir::Rdir;
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Finish, Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag,
-    SetTime,
+    DentryOperations, DirEntry, Errno, FileOperations, FileSystemType, FileType, Filesystem,
+    Finish, Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag, SetTime,
 };
 use crate::vfs::{
     generic_file_llseek, generic_read_dir, Dentry, DirContext, Identity, Inode, Whence,
@@ -74,7 +73,7 @@ impl Bind {
     /// kept, read from the dentries as `build_path_from_dentry` reads them.
     /// 9p holds the rename lock through a walk; one here compares what it found
     /// with what the dentry recorded instead, as NFS compares a file handle.
-    fn fid_lookup(&self, dentry: &Dentry) -> Result<Arc<Dir>, FilesystemError> {
+    fn fid_lookup(&self, dentry: &Dentry) -> Result<Arc<Dir>, Errno> {
         if let Some(held) = self.find_fid(dentry) {
             return Ok(held);
         }
@@ -97,7 +96,7 @@ impl Bind {
         };
         let dir = walk::walk(&above, &names)?;
         if !stands(&dir) {
-            return Err(FilesystemError::NotFound);
+            return Err(Errno::NotFound);
         }
         let dir = Arc::new(dir);
         self.fids.put(dentry, &dir);
@@ -109,8 +108,8 @@ impl Bind {
     fn at<T>(
         &self,
         dentry: &Dentry,
-        call: impl FnOnce(&Dir, &str) -> Result<T, FilesystemError>,
-    ) -> Result<T, FilesystemError> {
+        call: impl FnOnce(&Dir, &str) -> Result<T, Errno>,
+    ) -> Result<T, Errno> {
         let (parent, name) = dentry.parent_and_name();
         call(&*self.fid_lookup(&parent)?, to_host_name(&name)?)
     }
@@ -124,7 +123,7 @@ impl Bind {
         dentry: &Dentry,
         how: &OpenHow,
         create: bool,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         let file = self.at(dentry, |dir, name| open_in(dir, name, how, create))?;
         let opened = to_kstat(cap_std::fs::Metadata::from_file(&file).map_err(to_error)?);
         match dentry.inode().map(|inode| inode.identity()) {
@@ -136,12 +135,12 @@ impl Bind {
             // which only what opened can tell, as NFS's open compares the file
             // handle it gets back.
             Some(Some(identity)) if Identity::of(&opened) != Some(identity) => {
-                return Err(FilesystemError::NotFound)
+                return Err(Errno::NotFound)
             }
             Some(_) => {}
         }
         let file = Arc::new(file);
-        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+        let inode = dentry.inode().ok_or(Errno::NotFound)?;
         let kept = inode
             .private()
             .get_or_init(|| Arc::new(OpenFids::default()))
@@ -158,7 +157,7 @@ impl Bind {
     /// directory above, as a walk asks each name once the one above it stood.
     /// A host may reuse an inode number for what it made in its place, so the
     /// kind must match too, as NFS compares a file handle's attributes.
-    fn stands_as_recorded(&self, dentry: &Dentry) -> Result<bool, FilesystemError> {
+    fn stands_as_recorded(&self, dentry: &Dentry) -> Result<bool, Errno> {
         let inode = dentry.inode();
         if inode
             .as_ref()
@@ -175,22 +174,15 @@ impl Bind {
                 Ok(Identity::of(&found) == inode.identity() && found.file_type == inode.kind())
             }
             (Ok(_), None) => Ok(false),
-            (Err(FilesystemError::NotFound), None) => Ok(true),
-            (
-                Err(
-                    FilesystemError::NotFound
-                    | FilesystemError::NotADirectory
-                    | FilesystemError::FilesystemLoop,
-                ),
-                _,
-            ) => Ok(false),
+            (Err(Errno::NotFound), None) => Ok(true),
+            (Err(Errno::NotFound | Errno::NotADirectory | Errno::FilesystemLoop), _) => Ok(false),
             (Err(err), _) => Err(err),
         }
     }
 }
 
 /// The names `dir` holds, each with the kind and the identity a listing gives.
-fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, FilesystemError> {
+fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, Errno> {
     #[cfg(unix)]
     let dev = {
         use cap_std::fs::MetadataExt;
@@ -203,7 +195,7 @@ fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, FilesystemError> {
             let name = entry
                 .file_name()
                 .into_string()
-                .map_err(|_| FilesystemError::IllegalSequence)?;
+                .map_err(|_| Errno::IllegalSequence)?;
             let listed = DirEntry::new(name, to_file_type(entry.file_type().map_err(to_error)?));
             #[cfg(unix)]
             let listed = {
@@ -218,7 +210,7 @@ fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, FilesystemError> {
 /// The directory `name` in `dir`, a link there refused as a loop, as
 /// Linux's `RESOLVE_NO_SYMLINKS` refuses one, where the host names it no
 /// directory.
-fn open_dir_nofollow(dir: &Dir, name: &str) -> Result<Dir, FilesystemError> {
+fn open_dir_nofollow(dir: &Dir, name: &str) -> Result<Dir, Errno> {
     dir.open_dir_nofollow(name)
         .map_err(|err| nofollow_error(dir, name, err))
 }
@@ -226,9 +218,9 @@ fn open_dir_nofollow(dir: &Dir, name: &str) -> Result<Dir, FilesystemError> {
 /// Why an open of `name` in `dir` that follows no link failed, a link there
 /// named a loop, as Linux's `O_NOFOLLOW` answers `ELOOP`, where the host
 /// names it otherwise.
-fn nofollow_error(dir: &Dir, name: &str, err: io::Error) -> FilesystemError {
+fn nofollow_error(dir: &Dir, name: &str, err: io::Error) -> Errno {
     match dir.symlink_metadata(name) {
-        Ok(metadata) if metadata.file_type().is_symlink() => FilesystemError::FilesystemLoop,
+        Ok(metadata) if metadata.file_type().is_symlink() => Errno::FilesystemLoop,
         _ => to_error(err),
     }
 }
@@ -236,9 +228,9 @@ fn nofollow_error(dir: &Dir, name: &str, err: io::Error) -> FilesystemError {
 /// `name` as `cap_std` takes it. Windows reads some names as other names or as
 /// devices, so there one is refused rather than reached as an entry a Mount's
 /// Policy never saw.
-fn to_host_name(name: &str) -> Result<&str, FilesystemError> {
+fn to_host_name(name: &str) -> Result<&str, Errno> {
     if cfg!(windows) && is_windows_alias(name) {
-        return Err(FilesystemError::InvalidInput);
+        return Err(Errno::InvalidInput);
     }
     Ok(name)
 }
@@ -259,37 +251,35 @@ fn is_windows_alias(name: &str) -> bool {
         || DEVICES.contains(&stem.to_uppercase().as_str())
 }
 
-/// The FilesystemError a host failure names. cap-std's own refusal of a path
+/// The Errno a host failure names. cap-std's own refusal of a path
 /// leading out of the directory carries no OS code. A Bind hands it one name and
 /// no `..`, so that refusal only says a move carried the name out of the
 /// directory as it was opened, as `complete_walk` answers EXDEV, and nothing
 /// stands at it now. A link loop stays unnamed until std's `FilesystemLoop` is
 /// stable.
-fn to_error(err: io::Error) -> FilesystemError {
+fn to_error(err: io::Error) -> Errno {
     match err.kind() {
-        io::ErrorKind::PermissionDenied if err.raw_os_error().is_none() => {
-            FilesystemError::NotFound
-        }
-        io::ErrorKind::NotFound => FilesystemError::NotFound,
-        io::ErrorKind::AlreadyExists => FilesystemError::AlreadyExists,
-        io::ErrorKind::NotADirectory => FilesystemError::NotADirectory,
-        io::ErrorKind::IsADirectory => FilesystemError::IsADirectory,
-        io::ErrorKind::DirectoryNotEmpty => FilesystemError::DirectoryNotEmpty,
-        io::ErrorKind::PermissionDenied => FilesystemError::PermissionDenied,
-        io::ErrorKind::ReadOnlyFilesystem => FilesystemError::ReadOnlyFilesystem,
-        io::ErrorKind::InvalidInput => FilesystemError::InvalidInput,
-        io::ErrorKind::Unsupported => FilesystemError::Unsupported,
-        io::ErrorKind::StorageFull => FilesystemError::StorageFull,
-        io::ErrorKind::FileTooLarge => FilesystemError::FileTooLarge,
-        io::ErrorKind::CrossesDevices => FilesystemError::CrossesDevices,
-        io::ErrorKind::Deadlock => FilesystemError::Deadlock,
-        io::ErrorKind::ResourceBusy => FilesystemError::ResourceBusy,
-        io::ErrorKind::InvalidFilename => FilesystemError::InvalidFilename,
-        io::ErrorKind::NotSeekable => FilesystemError::NotSeekable,
-        io::ErrorKind::Interrupted => FilesystemError::Interrupted,
-        io::ErrorKind::WouldBlock => FilesystemError::WouldBlock,
-        io::ErrorKind::OutOfMemory => FilesystemError::OutOfMemory,
-        _ => FilesystemError::Other(err.to_string()),
+        io::ErrorKind::PermissionDenied if err.raw_os_error().is_none() => Errno::NotFound,
+        io::ErrorKind::NotFound => Errno::NotFound,
+        io::ErrorKind::AlreadyExists => Errno::AlreadyExists,
+        io::ErrorKind::NotADirectory => Errno::NotADirectory,
+        io::ErrorKind::IsADirectory => Errno::IsADirectory,
+        io::ErrorKind::DirectoryNotEmpty => Errno::DirectoryNotEmpty,
+        io::ErrorKind::PermissionDenied => Errno::PermissionDenied,
+        io::ErrorKind::ReadOnlyFilesystem => Errno::ReadOnlyFilesystem,
+        io::ErrorKind::InvalidInput => Errno::InvalidInput,
+        io::ErrorKind::Unsupported => Errno::Unsupported,
+        io::ErrorKind::StorageFull => Errno::StorageFull,
+        io::ErrorKind::FileTooLarge => Errno::FileTooLarge,
+        io::ErrorKind::CrossesDevices => Errno::CrossesDevices,
+        io::ErrorKind::Deadlock => Errno::Deadlock,
+        io::ErrorKind::ResourceBusy => Errno::ResourceBusy,
+        io::ErrorKind::InvalidFilename => Errno::InvalidFilename,
+        io::ErrorKind::NotSeekable => Errno::NotSeekable,
+        io::ErrorKind::Interrupted => Errno::Interrupted,
+        io::ErrorKind::WouldBlock => Errno::WouldBlock,
+        io::ErrorKind::OutOfMemory => Errno::OutOfMemory,
+        _ => Errno::Other(err.to_string()),
     }
 }
 
@@ -386,12 +376,7 @@ fn v9fs_fid_find_inode(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::F
 
 /// Open `name` in `dir` as `how` asks, made first where `create` says,
 /// refusing one that already stands.
-fn open_in(
-    dir: &Dir,
-    name: &str,
-    how: &OpenHow,
-    create: bool,
-) -> Result<std::fs::File, FilesystemError> {
+fn open_in(dir: &Dir, name: &str, how: &OpenHow, create: bool) -> Result<std::fs::File, Errno> {
     let writes = how.write || how.truncate || create;
     let mut open = CapOpenOptions::new();
     // The host refuses one that creates or truncates without writing; the
@@ -414,8 +399,8 @@ fn open_in(
         .map_err(|err| nofollow_error(dir, name, err))?;
     match to_file_type(file.metadata().map_err(to_error)?.file_type()) {
         FileType::RegFile => {}
-        FileType::Dir => return Err(FilesystemError::IsADirectory),
-        _ => return Err(FilesystemError::PermissionDenied),
+        FileType::Dir => return Err(Errno::IsADirectory),
+        _ => return Err(Errno::PermissionDenied),
     }
     #[cfg(unix)]
     {
@@ -438,7 +423,7 @@ fn open_in(
 impl FileSystemType for Bind {
     /// Its root reports the host directory it holds, as 9p's `fill_super` asks of
     /// the attached fid, and a host that cannot answer makes no instance.
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.set_default_d_op(self.clone());
         let root = to_kstat(self.root.dir_metadata().map_err(to_error)?);
         sb.d_make_root(Inode::new(&root, self));
@@ -447,11 +432,7 @@ impl FileSystemType for Bind {
 }
 
 impl DentryOperations for Bind {
-    fn revalidate(
-        &self,
-        _dir: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<bool, FilesystemError> {
+    fn revalidate(&self, _dir: &dyn InodeOperations, dentry: &Dentry) -> Result<bool, Errno> {
         self.stands_as_recorded(dentry)
     }
 
@@ -470,7 +451,7 @@ struct BindRegular(Bind);
 struct BindLink(Bind);
 
 /// What an entry standing at its name in the directory above reports.
-fn stat_at(bind: &Bind, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+fn stat_at(bind: &Bind, dentry: &Dentry) -> Result<Kstat, Errno> {
     bind.at(dentry, |dir, name| {
         Ok(to_kstat(dir.symlink_metadata(name).map_err(to_error)?))
     })
@@ -479,7 +460,7 @@ fn stat_at(bind: &Bind, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
 impl InodeOperations for BindRegular {
     /// A file open anywhere answers from the descriptor that holds it, even
     /// once its name is gone.
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         match v9fs_fid_find_inode(dentry, false) {
             Some(file) => Ok(to_kstat(
                 cap_std::fs::Metadata::from_file(&file).map_err(to_error)?,
@@ -488,7 +469,7 @@ impl InodeOperations for BindRegular {
         }
     }
 
-    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
         if let Some(len) = attr.size {
             // A truncate made through an open takes that open's descriptor, as
             // 9p takes `ia_file`'s fid; one made by name, one open to write
@@ -499,7 +480,7 @@ impl InodeOperations for BindRegular {
                 .map(|opened| opened.file.clone());
             return match through.or_else(|| v9fs_fid_find_inode(dentry, true)) {
                 Some(file) => file.set_len(len).map_err(to_error),
-                None => Err(FilesystemError::InvalidInput),
+                None => Err(Errno::InvalidInput),
             };
         }
         // A file open anywhere takes them through what holds it, whatever stands
@@ -520,17 +501,13 @@ impl InodeOperations for BindRegular {
         })
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         self.0.open_file(dentry, how, false)
     }
 }
 
 impl InodeOperations for BindLink {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         stat_at(&self.0, dentry)
     }
 
@@ -538,13 +515,13 @@ impl InodeOperations for BindLink {
     /// as `->get_link` answers, since the walk judges what a link leads to. A
     /// target that is no valid UTF-8 answers `IllegalSequence`, as a guest path
     /// is one.
-    fn get_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
+    fn get_link(&self, dentry: &Dentry) -> Result<String, Errno> {
         self.0.at(dentry, |dir, name| {
             dir.read_link_contents(name)
                 .map_err(to_error)?
                 .into_os_string()
                 .into_string()
-                .map_err(|_| FilesystemError::IllegalSequence)
+                .map_err(|_| Errno::IllegalSequence)
         })
     }
 }
@@ -552,7 +529,7 @@ impl InodeOperations for BindLink {
 impl InodeOperations for Bind {
     /// A directory answers from its own descriptor, which follows it wherever
     /// it moves and keeps its inode taken while it is open.
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(to_kstat(
             self.fid_lookup(dentry)?.dir_metadata().map_err(to_error)?,
         ))
@@ -560,7 +537,7 @@ impl InodeOperations for Bind {
 
     /// A directory takes the times through the descriptor that holds it, as it
     /// answers for itself.
-    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
         let (atime, mtime) = (to_host_time(attr.atime), to_host_time(attr.mtime));
         self.fid_lookup(dentry)?
             .set_times(".", atime, mtime)
@@ -571,7 +548,7 @@ impl InodeOperations for Bind {
     /// it, as a lookup hands `d_splice_alias` the inode it found, so
     /// `revalidate` can tell a dentry the host replaced behind the
     /// runtime's back. That costs one host stat a name.
-    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
         self.at(dentry, |dir, name| {
             let stored_name = lookup::lookup(dir, name)?;
             match dir.symlink_metadata(&stored_name).map_err(to_error) {
@@ -591,17 +568,13 @@ impl InodeOperations for Bind {
                         }),
                     }
                 }
-                Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+                Err(Errno::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),
             }
         })
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         let fid = self.fid_lookup(dentry)?;
         if how.read {
             may_read_dir(&fid)?;
@@ -613,7 +586,7 @@ impl InodeOperations for Bind {
     /// A name still in lookup is looked up first, and any name is left to the
     /// VFS unless the open may make it and nothing stands there, as 9p's
     /// `v9fs_vfs_atomic_open_dotl` asks its server before it creates.
-    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, Errno> {
         if dentry.in_lookup() {
             let found = self.lookup(dentry)?;
             if !how.create || !matches!(found, Lookup::Absent) {
@@ -630,15 +603,15 @@ impl InodeOperations for Bind {
         })
     }
 
-    fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn mkdir(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.at(dentry, |dir, name| dir.create_dir(name).map_err(to_error))
     }
 
-    fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn rmdir(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.at(dentry, |dir, name| dir.remove_dir(name).map_err(to_error))
     }
 
-    fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn unlink(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.at(dentry, |dir, name| dir.remove_file(name).map_err(to_error))
     }
 
@@ -652,13 +625,13 @@ impl InodeOperations for Bind {
         to_dir: &dyn InodeOperations,
         to: &Dentry,
         flag: Option<RenameFlag>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         if flag.is_some() {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
-            .ok_or(FilesystemError::CrossesDevices)?;
+            .ok_or(Errno::CrossesDevices)?;
         self.at(from, |from_dir, from_name| {
             target.at(to, |to_dir, to_name| {
                 from_dir
@@ -681,28 +654,24 @@ impl FileOperations for BindDir {
         pos: u64,
         offset: i64,
         whence: Whence,
-    ) -> Result<u64, FilesystemError> {
+    ) -> Result<u64, Errno> {
         generic_file_llseek(dentry, pos, offset, whence)
     }
 
-    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, Errno> {
         generic_read_dir()
     }
 
     /// What a listing began with stays on the open directory until it ends, as
     /// 9p's `fid->rdir` holds what the server sent.
-    fn iterate_shared(
-        &mut self,
-        dentry: &Dentry,
-        ctx: &mut DirContext<'_>,
-    ) -> Result<(), FilesystemError> {
+    fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         let dir = self.0.clone();
         self.1.iterate(dentry, ctx, || entries_of(&dir))
     }
 
     /// Make the host directory's names durable. Windows syncs no directory, so
     /// there the host answers for them itself.
-    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
         sync_dir(&self.0)
     }
 }
@@ -710,7 +679,7 @@ impl FileOperations for BindDir {
 /// `dir` opened to read. cap-std holds a directory for its path alone on Linux,
 /// which reads and syncs nothing, so the host judges reading it only here.
 #[cfg(unix)]
-fn open_to_read(dir: &Dir) -> Result<rustix::fd::OwnedFd, FilesystemError> {
+fn open_to_read(dir: &Dir) -> Result<rustix::fd::OwnedFd, Errno> {
     use rustix::fs::{openat, Mode, OFlags};
 
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
@@ -718,12 +687,12 @@ fn open_to_read(dir: &Dir) -> Result<rustix::fd::OwnedFd, FilesystemError> {
 }
 
 #[cfg(unix)]
-fn sync_dir(dir: &Dir) -> Result<(), FilesystemError> {
+fn sync_dir(dir: &Dir) -> Result<(), Errno> {
     rustix::fs::fsync(open_to_read(dir)?).map_err(|err| to_error(io::Error::from(err)))
 }
 
 #[cfg(not(unix))]
-fn sync_dir(_dir: &Dir) -> Result<(), FilesystemError> {
+fn sync_dir(_dir: &Dir) -> Result<(), Errno> {
     Ok(())
 }
 
@@ -731,12 +700,12 @@ fn sync_dir(_dir: &Dir) -> Result<(), FilesystemError> {
 /// asks `inode_permission`. A file holds it for what it was opened for, so a
 /// directory reached only for its path answers no such question.
 #[cfg(unix)]
-fn may_read_dir(dir: &Dir) -> Result<(), FilesystemError> {
+fn may_read_dir(dir: &Dir) -> Result<(), Errno> {
     open_to_read(dir).map(drop)
 }
 
 #[cfg(not(unix))]
-fn may_read_dir(_dir: &Dir) -> Result<(), FilesystemError> {
+fn may_read_dir(_dir: &Dir) -> Result<(), Errno> {
     Ok(())
 }
 
@@ -750,14 +719,14 @@ impl BindFile {
     /// Windows has no append to switch one handle to for a single write,
     /// so an append that could land over another writer's is refused.
     #[cfg(not(unix))]
-    fn append(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
-        Err(FilesystemError::Unsupported)
+    fn append(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, Errno> {
+        Err(Errno::Unsupported)
     }
 
     /// The host places the write at the file's end as `O_APPEND` does, so
     /// another writer's append lands before or after it, never over it.
     #[cfg(unix)]
-    fn append(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn append(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
 
         let mut file = &*self.file;
@@ -785,11 +754,11 @@ impl FileOperations for BindFile {
         pos: u64,
         offset: i64,
         whence: Whence,
-    ) -> Result<u64, FilesystemError> {
+    ) -> Result<u64, Errno> {
         generic_file_llseek(dentry, pos, offset, whence)
     }
 
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         let mut file = &*self.file;
         file.seek(SeekFrom::Start(iocb.pos)).map_err(to_error)?;
         let read = file.read(buf).map_err(to_error)?;
@@ -797,7 +766,7 @@ impl FileOperations for BindFile {
         Ok(read)
     }
 
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         let written = match iocb.append {
             true => self.append(iocb, buf)?,
             false => {
@@ -811,7 +780,7 @@ impl FileOperations for BindFile {
         crate::vfs::generic_write_sync(self, iocb, written)
     }
 
-    fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, datasync: bool) -> Result<(), Errno> {
         match datasync {
             true => self.file.sync_data(),
             false => self.file.sync_all(),
@@ -823,7 +792,7 @@ impl FileOperations for BindFile {
     /// Linux grows a file in one step without shortening one a peer just grew, so
     /// elsewhere this refuses, as an append that cannot land in one step does.
     #[cfg(target_os = "linux")]
-    fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
+    fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), Errno> {
         let flags = rustix::fs::FallocateFlags::empty();
         rustix::fs::fallocate(&*self.file, flags, offset, len)
             .map_err(|err| to_error(io::Error::from(err)))
@@ -959,7 +928,7 @@ mod tests {
                     false,
                     &set_modified(),
                 ),
-                Err(FilesystemError::Unsupported),
+                Err(Errno::Unsupported),
                 "vfs::do_utimes_pathfollowing no link of a Bind's link must answer ENOTSUP"
             );
         }
@@ -1084,7 +1053,7 @@ mod tests {
             None,
         )
         .expect("the Overlay must stack");
-        let refused = Some(FilesystemError::IsADirectory);
+        let refused = Some(Errno::IsADirectory);
         for answer in [
             read(Arc::new(crate::filesystem::Tmpfs::new())),
             read(Arc::new(
@@ -1124,7 +1093,7 @@ mod tests {
         fs::write(host.0.join("x"), "x").expect("the host file must be written");
         assert_eq!(
             (before, stat()),
-            (Some(FilesystemError::NotFound), None),
+            (Some(Errno::NotFound), None),
             "vfs::vfs_fstatat of a name kept as absent, once the host made a file there, must \
              find the file"
         );
@@ -1153,7 +1122,7 @@ mod tests {
         let after = vfs::vfs_fstatat(&cred, &root, "made", false).map(|made| made.file_type);
         assert_eq!(
             (before, after),
-            (Some(FilesystemError::NotFound), Ok(FileType::Dir)),
+            (Some(Errno::NotFound), Ok(FileType::Dir)),
             "vfs::filename_mkdirat at a name kept as absent must leave the next walk finding \
              the directory, as d_drop leaves a dentry nothing recorded on"
         );
@@ -1194,7 +1163,7 @@ mod tests {
         fs::rename(host.0.join("m/x"), host.0.join("outside/x")).expect("the host must move it");
         assert_eq!(
             (before, open()),
-            (None, Some(FilesystemError::NotFound)),
+            (None, Some(Errno::NotFound)),
             "vfs::do_file_open through a name kept since the last walk, once the host moved it \
              out of the Mount, must answer ENOENT"
         );
@@ -1261,7 +1230,7 @@ mod tests {
         );
         assert_eq!(
             opened.err(),
-            Some(FilesystemError::NotFound),
+            Some(Errno::NotFound),
             "vfs::do_file_open of a file another writer replaced after the Policy judged it must \
              answer ENOENT rather than open what stands there now"
         );
@@ -1405,7 +1374,7 @@ mod tests {
         };
         assert_eq!(
             vfs::kern_path::filp_open(&cred, &root, "a/d/secret", &read).err(),
-            Some(FilesystemError::NotFound),
+            Some(Errno::NotFound),
             "vfs::do_file_open beneath a Bind Mount with a Policy, through a directory the host moved \
              beneath a refused path while a descriptor beneath it was held, must answer NotFound"
         );
@@ -1613,7 +1582,7 @@ mod tests {
             .open(&dir, &OpenHow::default());
         assert_eq!(
             answer.err(),
-            Some(FilesystemError::NotFound),
+            Some(Errno::NotFound),
             "InodeOperations::open of a Bind's directory the host removed must answer ENOENT"
         );
     }
@@ -1641,7 +1610,7 @@ mod tests {
         fs::create_dir(host.0.join("a")).expect("the host must make another");
         assert_eq!(
             dir.getattr().err(),
-            Some(FilesystemError::NotFound),
+            Some(Errno::NotFound),
             "InodeOperations::getattr of a Bind directory the host replaced must answer ENOENT \
              rather than what stands there now"
         );
@@ -1674,7 +1643,7 @@ mod tests {
         );
         assert_eq!(
             (answer, host.0.join("a").exists()),
-            (Err(FilesystemError::InvalidInput), true),
+            (Err(Errno::InvalidInput), true),
             "InodeOperations::rename of a Bind asked for a flag must answer EINVAL and move \
              nothing"
         );
@@ -1748,10 +1717,7 @@ mod tests {
         });
         assert_eq!(
             answered.recv_timeout(crate::sched::testing::MAX_WAIT),
-            Ok([
-                Some(FilesystemError::PermissionDenied),
-                Some(FilesystemError::PermissionDenied)
-            ]),
+            Ok([Some(Errno::PermissionDenied), Some(Errno::PermissionDenied)]),
             "a FIFO and a device opened through Bind::open must be refused as permission \
              denied without waiting"
         );
@@ -1873,7 +1839,7 @@ mod tests {
                 file.write_iter(&mut Kiocb::at(0).with_append(), b"y").err(),
                 fs::read(host.0.join("f")).expect("the host file must read")
             ),
-            (Some(FilesystemError::Unsupported), b"x".to_vec()),
+            (Some(Errno::Unsupported), b"x".to_vec()),
             "an append through a Bind file on Windows must be refused as unsupported and \
              leave the file as it was"
         );
@@ -1892,7 +1858,7 @@ mod tests {
         assert!(
             matches!(
                 directory.open(r"d\f", &OpenHow::default()),
-                Err(FilesystemError::InvalidInput)
+                Err(Errno::InvalidInput)
             ),
             "a path holding a backslash opened through a Bind on Windows must be refused as \
              invalid input"
@@ -1946,7 +1912,7 @@ mod tests {
                 .iter()
                 .all(|name| matches!(
                     directory.open(name, &OpenHow::default()),
-                    Err(FilesystemError::InvalidInput)
+                    Err(Errno::InvalidInput)
                 )),
             "a name Windows reads as another, opened through a Bind on Windows, must be refused \
              as invalid input"
@@ -1969,7 +1935,7 @@ mod tests {
         );
         assert_eq!(
             created.map(drop),
-            Err(FilesystemError::InvalidFilename),
+            Err(Errno::InvalidFilename),
             "a name past the host's limit created through Bind::open must fail as \
              InvalidFilename, not as an unnamed failure"
         );
@@ -1984,7 +1950,7 @@ mod tests {
     fn a_directory_answers_a_host_file_too_large_as_too_large() {
         assert_eq!(
             to_error(io::Error::from_raw_os_error(27)),
-            FilesystemError::FileTooLarge,
+            Errno::FileTooLarge,
             "a host EFBIG through Bind's error mapping must fail as FileTooLarge, \
              not as an unnamed failure"
         );
@@ -2024,7 +1990,7 @@ mod tests {
         let refused = io::Error::new(io::ErrorKind::PermissionDenied, "a path led outside");
         assert_eq!(
             to_error(refused),
-            FilesystemError::NotFound,
+            Errno::NotFound,
             "cap-std's refusal of a single name leading out of a Bind's directory must answer \
              ENOENT, as a move carried it away"
         );
@@ -2093,7 +2059,7 @@ mod tests {
         if enforced {
             assert_eq!(
                 answer,
-                Some(FilesystemError::PermissionDenied),
+                Some(Errno::PermissionDenied),
                 "vfs::do_file_open to read a host directory no one may read must answer EACCES"
             );
         }
@@ -2186,7 +2152,7 @@ mod tests {
         // Windows reports no inode, so nothing ties `A` to the stored `a` and
         // the spelling is refused rather than followed.
         let answered = match cfg!(windows) {
-            true => Err(FilesystemError::PermissionDenied),
+            true => Err(Errno::PermissionDenied),
             false => Ok(()),
         };
         assert_eq!(
@@ -2231,7 +2197,7 @@ mod tests {
         if enforced {
             assert_eq!(
                 found.err(),
-                Some(FilesystemError::PermissionDenied),
+                Some(Errno::PermissionDenied),
                 "vfs::vfs_fstatat of a file beneath a host directory only searchable must \
                  answer EACCES, as the Bind reads the directory to spell the name"
             );
@@ -2251,7 +2217,7 @@ mod tests {
         let directory = bind_host(&host.0);
         assert_eq!(
             directory.iterate_dir().map(drop),
-            Err(FilesystemError::IllegalSequence),
+            Err(Errno::IllegalSequence),
             "a host name that is not UTF-8 listed through iterate_dir must fail as \
              IllegalSequence, not as an unnamed failure"
         );
@@ -2305,7 +2271,7 @@ mod tests {
             .map(drop);
         assert_eq!(
             opened,
-            Err(FilesystemError::FilesystemLoop),
+            Err(Errno::FilesystemLoop),
             "a host link opened through a Bind must be refused as a link, its target unreached"
         );
     }
@@ -2326,7 +2292,7 @@ mod tests {
         };
         assert_eq!(
             open_in(&dir, "link", &read, false).map(drop),
-            Err(FilesystemError::FilesystemLoop),
+            Err(Errno::FilesystemLoop),
             "a host link standing where a Bind opens a file must be refused as a link, its \
              target unreached"
         );
@@ -2386,7 +2352,7 @@ mod tests {
         let directory = bind_host(&host.0);
         assert_eq!(
             directory.vfs_unlink("sub"),
-            Err(FilesystemError::IsADirectory),
+            Err(Errno::IsADirectory),
             "a host directory beneath a Bind removed through vfs_unlink must answer EISDIR"
         );
     }
@@ -2416,7 +2382,7 @@ mod tests {
         let dir = directory.open_dir("dir").expect("the directory must open");
         assert_eq!(
             dir.open_dir("in").map(drop),
-            Err(FilesystemError::FilesystemLoop),
+            Err(Errno::FilesystemLoop),
             "a link to a directory opened through Bind::open_dir must be a link loop"
         );
     }
@@ -2430,10 +2396,7 @@ mod tests {
         let dir = directory.open_dir("dir").expect("the directory must open");
         assert_eq!(
             (dir.vfs_readlink("up"), dir.vfs_readlink("sub")),
-            (
-                Ok("../secret".to_string()),
-                Err(FilesystemError::InvalidInput)
-            ),
+            (Ok("../secret".to_string()), Err(Errno::InvalidInput)),
             "vfs_readlink beneath a Bind must answer where a link points as stored, and refuse \
              a directory with EINVAL"
         );

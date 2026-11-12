@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use super::FilesystemError;
+use super::Errno;
 
 /// The files an Invocation holds, against its limit; each table holding one
 /// shares the count.
@@ -33,9 +33,9 @@ impl OpenFiles {
 
     /// Hold one more, refused as EMFILE at the limit, as `get_unused_fd_flags`
     /// refuses one past `RLIMIT_NOFILE`.
-    pub fn open(&self) -> Result<(), FilesystemError> {
+    pub fn open(&self) -> Result<(), Errno> {
         match self.is_full() {
-            true => Err(FilesystemError::TooManyOpenFiles),
+            true => Err(Errno::TooManyOpenFiles),
             false => {
                 self.held.fetch_add(1, Ordering::SeqCst);
                 Ok(())
@@ -61,10 +61,7 @@ mod tests {
         preview2.close();
         assert_eq!(
             (answers, preview1.open()),
-            (
-                (Ok(()), Ok(()), Err(FilesystemError::TooManyOpenFiles)),
-                Ok(())
-            ),
+            ((Ok(()), Ok(()), Err(Errno::TooManyOpenFiles)), Ok(())),
             "OpenFiles cloned for two tables must refuse the third file as EMFILE against a \
              limit of two, and take one again once either closes"
         );

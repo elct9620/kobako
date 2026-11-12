@@ -1,7 +1,7 @@
 //! What an open asks for, as Linux's `openat2` takes an `open_how`.
 
 use super::inode::Mask;
-use super::FilesystemError;
+use super::Errno;
 
 /// How to open a path, as Linux's `struct open_how` carries `openat2`'s
 /// flags.
@@ -78,7 +78,7 @@ impl OpenFlags {
 /// only `O_PATH_FLAGS` and asks nothing of the entry. An ABI asks it once,
 /// before it reserves a descriptor, and hands what it made to `do_file_open`,
 /// as `do_sys_openat2` does.
-pub fn build_open_flags(how: &OpenHow) -> Result<OpenFlags, FilesystemError> {
+pub fn build_open_flags(how: &OpenHow) -> Result<OpenFlags, Errno> {
     if !how.read && !how.write {
         return Ok(OpenFlags {
             open_flag: OpenHow {
@@ -92,7 +92,7 @@ pub fn build_open_flags(how: &OpenHow) -> Result<OpenFlags, FilesystemError> {
         });
     }
     if how.directory && how.create {
-        return Err(FilesystemError::InvalidInput);
+        return Err(Errno::InvalidInput);
     }
     let mut acc_mode = Mask::NONE;
     if how.read {

@@ -61,7 +61,7 @@ The rows run in the order one system call passes through them. The boundary row 
 +--------------------------------------+
 ```
 
-Errors follow the same split. `kobako-runtime` names each failure in POSIX terms through `FilesystemError::posix_name`, and the Wasm Driver turns that name into a WASI code. Where each preview1 judgment lands is in [`filesystem/preview1.md`](../filesystem/preview1.md).
+Errors follow the same split. `kobako-runtime` names each failure in POSIX terms through `Errno::posix_name`, and the Wasm Driver turns that name into a WASI code. Where each preview1 judgment lands is in [`filesystem/preview1.md`](../filesystem/preview1.md).
 
 ## Kernel Assembly
 

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use super::super::{FileOperations, FilesystemError, Kiocb, OpenHow};
+use super::super::{Errno, FileOperations, Kiocb, OpenHow};
 use super::inode::OverlayFileInode;
 use crate::vfs::{generic_file_llseek, Dentry, Whence};
 
@@ -36,7 +36,7 @@ struct OverlayFile {
 
 impl OverlayFile {
     /// The file holding the data now, as `ovl_real_file_path` finds it.
-    fn real_file(&mut self) -> Result<&mut dyn FileOperations, FilesystemError> {
+    fn real_file(&mut self) -> Result<&mut dyn FileOperations, Errno> {
         if self.upper.is_none() {
             let real = self.inode.path_real();
             if !Arc::ptr_eq(real.dentry(), &self.real) {
@@ -63,21 +63,21 @@ impl FileOperations for OverlayFile {
         pos: u64,
         offset: i64,
         whence: Whence,
-    ) -> Result<u64, FilesystemError> {
+    ) -> Result<u64, Errno> {
         generic_file_llseek(dentry, pos, offset, whence)
     }
 
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         self.real_file()?.read_iter(iocb, buf)
     }
 
     /// A file open to read flushes what it reads, as `ovl_fsync` syncs the
     /// real file.
-    fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, datasync: bool) -> Result<(), Errno> {
         self.real_file()?.fsync(datasync)
     }
 
-    fn flush(&mut self) -> Result<(), FilesystemError> {
+    fn flush(&mut self) -> Result<(), Errno> {
         self.file.flush()
     }
 

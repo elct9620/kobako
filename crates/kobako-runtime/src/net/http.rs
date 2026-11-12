@@ -25,8 +25,9 @@ use super::socket::{to_error, MemoryCharge};
 use super::transport::Connector;
 use super::{new_platform_tls, MAX_SOCKET_BUFFER};
 use crate::filesystem::anon_inode_getfile;
-use crate::vfs::{Cred, FMode, File, FileOperations, FilesystemError, Kiocb, OpenHow, PollMask};
+use crate::vfs::{Cred, FMode, File, FileOperations, Kiocb, OpenHow, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
+use crate::Errno;
 
 /// Whether a request travels in clear or over TLS.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -318,7 +319,7 @@ impl RequestBody {
     }
 
     /// Append `buf`, refused past the Invocation's memory as `ENOMEM`.
-    fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write(&self, buf: &[u8]) -> Result<usize, Errno> {
         let mut written = self.written();
         let grown = written.bytes.len() + buf.len();
         written.room.resize(grown)?;
@@ -340,7 +341,7 @@ impl RequestBody {
 struct RequestBodyFile(Arc<RequestBody>);
 
 impl FileOperations for RequestBodyFile {
-    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         self.0.write(buf)
     }
 
@@ -547,13 +548,13 @@ impl Exchange {
 
     /// Read what the body holds into `buf`: zero at its end, `WouldBlock`
     /// while it holds nothing yet, and `ConnectionReset` for a body cut short.
-    fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read(&self, buf: &mut [u8]) -> Result<usize, Errno> {
         let mut state = self.state();
         if state.body.is_empty() {
             return match (state.body_ended, state.body_failed) {
-                (_, true) => Err(FilesystemError::ConnectionReset),
+                (_, true) => Err(Errno::ConnectionReset),
                 (true, _) => Ok(0),
-                _ => Err(FilesystemError::WouldBlock),
+                _ => Err(Errno::WouldBlock),
             };
         }
         let n = buf.len().min(state.body.len());
@@ -616,7 +617,7 @@ impl FileOperations for ResponseFile {
 struct BodyFile(Arc<Exchange>);
 
 impl FileOperations for BodyFile {
-    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         self.0.read(buf)
     }
 
@@ -879,13 +880,11 @@ impl HttpError {
 
     /// The code a connection failing with `err` answers; memory the socket
     /// could not reserve is the seam's own failure.
-    pub(crate) fn from_errno(err: &FilesystemError) -> Self {
+    pub(crate) fn from_errno(err: &Errno) -> Self {
         match err {
-            FilesystemError::OutOfMemory => Self::Internal,
-            FilesystemError::TimedOut => Self::ConnectionTimeout,
-            FilesystemError::ConnectionReset | FilesystemError::ConnectionAborted => {
-                Self::ConnectionTerminated
-            }
+            Errno::OutOfMemory => Self::Internal,
+            Errno::TimedOut => Self::ConnectionTimeout,
+            Errno::ConnectionReset | Errno::ConnectionAborted => Self::ConnectionTerminated,
             _ => Self::ConnectionRefused,
         }
     }
@@ -1002,7 +1001,7 @@ mod tests {
             match exchange.read(&mut buf) {
                 Ok(0) => return Ok((head, body)),
                 Ok(n) => body.extend_from_slice(&buf[..n]),
-                Err(FilesystemError::WouldBlock) => thread::sleep(Duration::from_millis(1)),
+                Err(Errno::WouldBlock) => thread::sleep(Duration::from_millis(1)),
                 Err(_) => return Err(HttpError::ConnectionTerminated),
             }
         }
@@ -1624,7 +1623,7 @@ mod tests {
             (made, udp, sent, again),
             (
                 true,
-                Some(FilesystemError::OutOfMemory),
+                Some(Errno::OutOfMemory),
                 Some(HttpError::Internal),
                 true
             ),

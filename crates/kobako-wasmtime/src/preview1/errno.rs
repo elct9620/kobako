@@ -4,7 +4,6 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use kobako_runtime::filesystem::FilesystemError;
 use wiggle::GuestError;
 
 use super::types;
@@ -49,10 +48,10 @@ impl From<GuestError> for types::Error {
 /// stands for, or `IO` for a failure without one. A path escaping its
 /// descriptor is `NOTCAPABLE`, as preview1 names a capability the guest does
 /// not hold, where Linux answers EXDEV.
-impl From<FilesystemError> for types::Error {
-    fn from(error: FilesystemError) -> Self {
+impl From<kobako_runtime::Errno> for types::Error {
+    fn from(error: kobako_runtime::Errno) -> Self {
         match error {
-            FilesystemError::Escape => Errno::Notcapable,
+            kobako_runtime::Errno::Escape => Errno::Notcapable,
             error => error
                 .posix_name()
                 .and_then(from_posix_name)
@@ -69,42 +68,42 @@ mod tests {
     #[test]
     fn each_filesystem_failure_reaches_the_guest_as_its_own_code() {
         let cases = [
-            (FilesystemError::NotFound, 44),
-            (FilesystemError::AlreadyExists, 20),
-            (FilesystemError::NotADirectory, 54),
-            (FilesystemError::IsADirectory, 31),
-            (FilesystemError::DirectoryNotEmpty, 55),
-            (FilesystemError::PermissionDenied, 2),
-            (FilesystemError::ReadOnlyFilesystem, 69),
-            (FilesystemError::InvalidInput, 28),
-            (FilesystemError::Unsupported, 58),
-            (FilesystemError::StorageFull, 51),
-            (FilesystemError::FileTooLarge, 22),
-            (FilesystemError::CrossesDevices, 75),
-            (FilesystemError::Escape, 76),
-            (FilesystemError::Deadlock, 16),
-            (FilesystemError::FilesystemLoop, 32),
-            (FilesystemError::NotPermitted, 63),
-            (FilesystemError::BadDescriptor, 8),
-            (FilesystemError::ResourceBusy, 10),
-            (FilesystemError::IllegalSequence, 25),
-            (FilesystemError::Interrupted, 27),
-            (FilesystemError::WouldBlock, 6),
-            (FilesystemError::TooManyOpenFiles, 33),
-            (FilesystemError::InvalidFilename, 37),
-            (FilesystemError::OutOfMemory, 48),
-            (FilesystemError::NotASocket, 57),
-            (FilesystemError::ValueTooLarge, 61),
-            (FilesystemError::NotSeekable, 70),
-            (FilesystemError::NoSuchDevice, 43),
-            (FilesystemError::StaleNetworkFileHandle, 72),
-            (FilesystemError::MessageTooLong, 35),
-            (FilesystemError::AlreadyInProgress, 7),
-            (FilesystemError::ConnectionRefused, 14),
-            (FilesystemError::NoBufferSpace, 42),
-            (FilesystemError::ProtocolNotAvailable, 50),
-            (FilesystemError::AddressFamilyNotSupported, 5),
-            (FilesystemError::Other("x".into()), 29),
+            (kobako_runtime::Errno::NotFound, 44),
+            (kobako_runtime::Errno::AlreadyExists, 20),
+            (kobako_runtime::Errno::NotADirectory, 54),
+            (kobako_runtime::Errno::IsADirectory, 31),
+            (kobako_runtime::Errno::DirectoryNotEmpty, 55),
+            (kobako_runtime::Errno::PermissionDenied, 2),
+            (kobako_runtime::Errno::ReadOnlyFilesystem, 69),
+            (kobako_runtime::Errno::InvalidInput, 28),
+            (kobako_runtime::Errno::Unsupported, 58),
+            (kobako_runtime::Errno::StorageFull, 51),
+            (kobako_runtime::Errno::FileTooLarge, 22),
+            (kobako_runtime::Errno::CrossesDevices, 75),
+            (kobako_runtime::Errno::Escape, 76),
+            (kobako_runtime::Errno::Deadlock, 16),
+            (kobako_runtime::Errno::FilesystemLoop, 32),
+            (kobako_runtime::Errno::NotPermitted, 63),
+            (kobako_runtime::Errno::BadDescriptor, 8),
+            (kobako_runtime::Errno::ResourceBusy, 10),
+            (kobako_runtime::Errno::IllegalSequence, 25),
+            (kobako_runtime::Errno::Interrupted, 27),
+            (kobako_runtime::Errno::WouldBlock, 6),
+            (kobako_runtime::Errno::TooManyOpenFiles, 33),
+            (kobako_runtime::Errno::InvalidFilename, 37),
+            (kobako_runtime::Errno::OutOfMemory, 48),
+            (kobako_runtime::Errno::NotASocket, 57),
+            (kobako_runtime::Errno::ValueTooLarge, 61),
+            (kobako_runtime::Errno::NotSeekable, 70),
+            (kobako_runtime::Errno::NoSuchDevice, 43),
+            (kobako_runtime::Errno::StaleNetworkFileHandle, 72),
+            (kobako_runtime::Errno::MessageTooLong, 35),
+            (kobako_runtime::Errno::AlreadyInProgress, 7),
+            (kobako_runtime::Errno::ConnectionRefused, 14),
+            (kobako_runtime::Errno::NoBufferSpace, 42),
+            (kobako_runtime::Errno::ProtocolNotAvailable, 50),
+            (kobako_runtime::Errno::AddressFamilyNotSupported, 5),
+            (kobako_runtime::Errno::Other("x".into()), 29),
         ];
         for (error, code) in cases {
             let label = format!("{error:?}");

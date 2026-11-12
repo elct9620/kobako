@@ -16,7 +16,8 @@ use super::transport::Connector;
 use super::Namespace;
 use crate::grant::Policy;
 use crate::network::{Connection, Credential, Protocol, Request, Ruleset};
-use crate::vfs::{Cred, FilesystemError};
+use crate::vfs::Cred;
+use crate::Errno;
 
 /// Send an HTTP request in `net` as `cred`. The socket hooks judge the
 /// authority the guest named first, a name passing the `resolve` policies
@@ -98,9 +99,9 @@ pub fn send(
 /// Whether a request may reach `addr`, a literal the socket hooks already
 /// passed: the guest has no IPv6, so an IPv6 one answers `EAFNOSUPPORT`, as a
 /// socket's `connect4` does; any other meets `net`'s ruleset as itself.
-fn admit_literal(net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
+fn admit_literal(net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
     if addr.is_ipv6() {
-        return Err(FilesystemError::AddressFamilyNotSupported);
+        return Err(Errno::AddressFamilyNotSupported);
     }
     net.ruleset().admit_literal(addr, Protocol::Http)
 }

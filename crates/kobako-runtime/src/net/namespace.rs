@@ -364,8 +364,8 @@ mod tests {
     use crate::network::Connection;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
     use crate::security::{prepare_creds_within, restrict_self};
-    use crate::vfs::FilesystemError;
     use crate::vfs::SecurityOperations;
+    use crate::Errno;
 
     /// Each connection a policy was asked about.
     type AskedConnections = Arc<Mutex<Vec<(String, u16, Protocol)>>>;
@@ -527,7 +527,7 @@ mod tests {
         let (namespace, cred, family, _) = limited_namespace(&[true], Some(0), None, &[]);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
-            matches!(answer, Err(FilesystemError::WouldBlock)) && family.dials() == 0,
+            matches!(answer, Err(Errno::WouldBlock)) && family.dials() == 0,
             "a socket's connect past the Sandbox's cap must answer EAGAIN, dialing nothing"
         );
     }
@@ -558,7 +558,7 @@ mod tests {
         drop(made);
         let third = dial(&namespace, &cred, addr);
         assert!(
-            matches!(third, Err(FilesystemError::WouldBlock)),
+            matches!(third, Err(Errno::WouldBlock)),
             "a socket's connect past the Invocation's connection limit must answer EAGAIN even \
              once the earlier connections closed"
         );
@@ -622,7 +622,7 @@ mod tests {
         namespace: &Namespace,
         cred: &Arc<Cred>,
         addr: SocketAddr,
-    ) -> Result<Arc<TcpSock>, FilesystemError> {
+    ) -> Result<Arc<TcpSock>, Errno> {
         let sock = create_tcp_socket(namespace, cred, AddressFamily::Inet)?;
         sys_connect(namespace, cred, &sock, addr).map(|()| sock)
     }
@@ -632,13 +632,13 @@ mod tests {
         namespace: &Namespace,
         cred: &Arc<Cred>,
         addr: Option<SocketAddr>,
-    ) -> Result<Arc<UdpSock>, FilesystemError> {
+    ) -> Result<Arc<UdpSock>, Errno> {
         let sock = create_udp_socket(namespace, cred, AddressFamily::Inet)?;
         sys_connect_datagram(namespace, cred, &sock, addr).map(|()| sock)
     }
 
     fn settle(sock: &TcpSock) {
-        while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
+        while matches!(sock.finish_connect(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
@@ -649,7 +649,7 @@ mod tests {
         let (namespace, cred, family, seen) = namespace(&[true, false]);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
-            matches!(answer, Err(FilesystemError::PermissionDenied)) && family.dials() == 0,
+            matches!(answer, Err(Errno::PermissionDenied)) && family.dials() == 0,
             "a socket's connect must refuse with EACCES, dialing nothing, once any entry's \
              connect policy refuses"
         );
@@ -691,9 +691,9 @@ mod tests {
         assert_eq!(
             (ipv6, unmapped, bound, judged, family.dials()),
             (
-                Some(FilesystemError::AddressFamilyNotSupported),
-                Some(FilesystemError::PermissionDenied),
-                Some(FilesystemError::AddressFamilyNotSupported),
+                Some(Errno::AddressFamilyNotSupported),
+                Some(Errno::PermissionDenied),
+                Some(Errno::AddressFamilyNotSupported),
                 vec!["::1".to_string(), "198.18.5.5".to_string()],
                 0
             ),
@@ -707,8 +707,8 @@ mod tests {
     struct RefusesConnects;
 
     impl SecurityOperations for RefusesConnects {
-        fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), FilesystemError> {
-            Err(FilesystemError::PermissionDenied)
+        fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), Errno> {
+            Err(Errno::PermissionDenied)
         }
     }
 
@@ -719,7 +719,7 @@ mod tests {
             limited_namespace(&[true], None, None, &[Arc::new(RefusesConnects)]);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
-            matches!(answer, Err(FilesystemError::PermissionDenied))
+            matches!(answer, Err(Errno::PermissionDenied))
                 && seen.lock().unwrap().is_empty()
                 && family.dials() == 0,
             "a Wasm Driver's security module refusing socket_connect must refuse before any \
@@ -879,7 +879,7 @@ mod tests {
         let answer = dial(&namespace, &cred, at).err();
         assert_eq!(
             (answer, family.dials.lock().unwrap().len()),
-            (Some(FilesystemError::PermissionDenied), 0),
+            (Some(Errno::PermissionDenied), 0),
             "a socket's connect must refuse with EACCES, dialing nothing, when the Protocol \
              Family cannot read the host's own addresses, rather than judge the name's \
              addresses as if the host had none"
@@ -922,7 +922,7 @@ mod tests {
         let answer = dial(&namespace, &cred, at).err();
         assert_eq!(
             (answer, family.0.load(Ordering::SeqCst)),
-            (Some(FilesystemError::PermissionDenied), 0),
+            (Some(Errno::PermissionDenied), 0),
             "a socket's connect through a Protocol Family that leaves the host's own addresses \
              unsaid must refuse with EACCES, dialing nothing, as one that cannot read them does"
         );
@@ -1015,7 +1015,7 @@ mod tests {
         let second = resolve_virtual_addresses(&namespace, "cache.internal");
         let cred = prepare_creds_within(&[], None);
         let sock = dial(&namespace, &cred, second[1]).expect("the endpoint leads there");
-        while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
+        while matches!(sock.finish_connect(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
         refusing.store(true, Ordering::SeqCst);
@@ -1071,7 +1071,7 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         let at = resolve_virtual_addresses(&namespace, "Cache.Internal.");
         let sock = dial(&namespace, &cred, at[0]).expect("the endpoint leads there");
-        while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
+        while matches!(sock.finish_connect(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
         let private = dial(&namespace, &cred, at[1]).err();
@@ -1090,8 +1090,8 @@ mod tests {
                     "198.18.0.1:6379".parse().unwrap()
                 ],
                 vec!["127.0.0.1:6379".parse().unwrap()],
-                Some(FilesystemError::PermissionDenied),
-                Some(FilesystemError::PermissionDenied)
+                Some(Errno::PermissionDenied),
+                Some(Errno::PermissionDenied)
             ),
             "a name's lookup must hand out one virtual address for each real address, and a \
              connect to one must dial only the real address it stands for, refusing one its \
@@ -1108,7 +1108,7 @@ mod tests {
         assert!(
             matches!(
                 dial(&namespace, &cred, "198.18.0.9:6379".parse().unwrap()),
-                Err(FilesystemError::PermissionDenied)
+                Err(Errno::PermissionDenied)
             ),
             "a connect to a virtual address no lookup handed out must be refused as EACCES"
         );
@@ -1127,7 +1127,7 @@ mod tests {
         *family.answers.lock().unwrap() = vec!["127.0.0.1".parse().unwrap()];
         let cred = prepare_creds_within(&[], None);
         let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
-        while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
+        while matches!(sock.finish_connect(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
         assert_eq!(
@@ -1154,10 +1154,8 @@ mod tests {
         let at = resolve_virtual_address(&namespace, "api.example.com");
         let cred = prepare_creds_within(&[], None);
         assert!(
-            matches!(
-                dial(&namespace, &cred, at),
-                Err(FilesystemError::PermissionDenied)
-            ) && family.dials.lock().unwrap().is_empty(),
+            matches!(dial(&namespace, &cred, at), Err(Errno::PermissionDenied))
+                && family.dials.lock().unwrap().is_empty(),
             "a name resolving to the host's own public address must be refused by an endpoint \
              leading only to public addresses, since the host's addresses are local"
         );
@@ -1197,7 +1195,7 @@ mod tests {
             crate::net::ProtoOps::release(&**sock);
         }
         assert!(
-            admitted.is_ok() && matches!(refused, Err(FilesystemError::PermissionDenied)),
+            admitted.is_ok() && matches!(refused, Err(Errno::PermissionDenied)),
             "a UDP socket's connect must pass an address a udp endpoint names and refuse one \
              only a tcp endpoint names"
         );

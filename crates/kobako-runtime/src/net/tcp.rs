@@ -22,8 +22,9 @@ use super::socket::{
     BindHash, Destination, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::network::{Protocol, Ruleset};
-use crate::vfs::{Cred, FilesystemError, PollMask};
+use crate::vfs::{Cred, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
+use crate::Errno;
 
 /// The most one host read moves at once.
 const MAX_HOST_READ: usize = 16 * 1024;
@@ -122,7 +123,7 @@ impl TcpSock {
     pub(crate) fn new(
         family: Arc<dyn ProtocolFamily>,
         cred: &Arc<Cred>,
-    ) -> Result<Arc<Self>, FilesystemError> {
+    ) -> Result<Arc<Self>, Errno> {
         let memory = MemoryCharge::new(cred, 2 * MAX_SOCKET_BUFFER)?;
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
@@ -152,17 +153,13 @@ impl TcpSock {
     /// switches on its state before anything else: one connecting answers
     /// `EALREADY`, one connected or reset `EISCONN`, and one a connect failed
     /// answers that failure once and stands unconnected again.
-    fn check_state(&self) -> Result<(), FilesystemError> {
+    fn check_state(&self) -> Result<(), Errno> {
         let mut state = self.state();
         match state.phase {
-            Phase::Connecting => Err(FilesystemError::AlreadyInProgress),
-            Phase::Connected | Phase::Reset => Err(FilesystemError::AlreadyConnected),
+            Phase::Connecting => Err(Errno::AlreadyInProgress),
+            Phase::Connected | Phase::Reset => Err(Errno::AlreadyConnected),
             Phase::Failed => {
-                let err = state
-                    .inet
-                    .error
-                    .take()
-                    .unwrap_or(FilesystemError::ConnectionAborted);
+                let err = state.inet.error.take().unwrap_or(Errno::ConnectionAborted);
                 Self::disconnect(&mut state);
                 Err(err)
             }
@@ -182,7 +179,7 @@ impl TcpSock {
         addr: SocketAddr,
         peer: SocketAddr,
         open_connections: &Arc<OpenConnections>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         let mut state = self.state();
         match state.inet.open_place(open_connections) {
             Ok(Some(place)) => state.inet.place = Some(place),
@@ -207,7 +204,7 @@ impl TcpSock {
         ports: &Arc<BindHash>,
         ruleset: &Ruleset,
         dest: &Destination,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         self.check_state()?;
         self.hold_port(ports)?;
         let real = filter_with(ruleset, &*self.family, dest, Protocol::Http).inspect_err(|_| {
@@ -233,7 +230,7 @@ impl TcpSock {
     }
 
     /// Hold a free port from `ports` as the guest's own, unless one is held.
-    pub(crate) fn hold_port(&self, ports: &Arc<BindHash>) -> Result<(), FilesystemError> {
+    pub(crate) fn hold_port(&self, ports: &Arc<BindHash>) -> Result<(), Errno> {
         self.state().inet.hold_port(ports)
     }
 
@@ -273,7 +270,7 @@ impl TcpSock {
     /// End the socket on `err`, as `tcp_done_with_error` does after a failed
     /// connect or a reset: `TCP_CLOSE`, both sides shut down, the failure
     /// pending.
-    fn done_with_error(state: &mut State, err: FilesystemError) {
+    fn done_with_error(state: &mut State, err: Errno) {
         Self::close_host(state);
         state.inet.put_port();
         state.phase = match state.phase {
@@ -321,7 +318,7 @@ impl TcpSock {
 
     /// Read what arrived and write what is queued, until the host socket
     /// would block; a failure either way is the connection's end.
-    fn move_bytes(state: &mut State) -> Result<(), FilesystemError> {
+    fn move_bytes(state: &mut State) -> Result<(), Errno> {
         let Some((stream, _)) = state.host.as_mut() else {
             return Ok(());
         };
@@ -421,16 +418,14 @@ impl TcpSock {
     /// where Linux answers `EALREADY`; connected answers success; a failure
     /// pending answers once, as `sock_error` clears `sk_err`, and an
     /// unconnected socket with none answers `ENOTCONN`.
-    pub fn finish_connect(&self) -> Result<(), FilesystemError> {
+    pub fn finish_connect(&self) -> Result<(), Errno> {
         let mut state = self.state();
         match &state.phase {
-            Phase::Connecting => Err(FilesystemError::WouldBlock),
+            Phase::Connecting => Err(Errno::WouldBlock),
             Phase::Connected => Ok(()),
-            Phase::Unconnected | Phase::Failed | Phase::Reset => Err(state
-                .inet
-                .error
-                .take()
-                .unwrap_or(FilesystemError::NotConnected)),
+            Phase::Unconnected | Phase::Failed | Phase::Reset => {
+                Err(state.inet.error.take().unwrap_or(Errno::NotConnected))
+            }
         }
     }
 
@@ -458,7 +453,7 @@ impl TcpSock {
     /// Change what the host socket takes; a socket dialed already passes the
     /// change to its host socket at once, and keeps what it held should the
     /// host refuse, as a failed `setsockopt` changes nothing.
-    fn set_options_with(&self, change: impl FnOnce(&mut State)) -> Result<(), FilesystemError> {
+    fn set_options_with(&self, change: impl FnOnce(&mut State)) -> Result<(), Errno> {
         let mut state = self.state();
         let kept = (state.keepalive, state.nodelay, state.inet.ttl);
         change(&mut state);
@@ -489,10 +484,10 @@ impl ProtoOps for TcpSock {
     /// nothing and `tcp_v4_connect` hashes a port before the SYN meets the
     /// filter. A refused destination puts the port back, as that failure
     /// does.
-    fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
+    fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         self.check_state()?;
         let dest = connect4(net, addr)?;
-        net.within_connection_budget(FilesystemError::WouldBlock, || {
+        net.within_connection_budget(Errno::WouldBlock, || {
             self.hold_port(net.ports_of(Protocol::Tcp))?;
             let real = filter(net, &dest, Protocol::Tcp).inspect_err(|_| {
                 self.state().inet.put_port();
@@ -504,7 +499,7 @@ impl ProtoOps for TcpSock {
     /// A socket connecting or connected holds its own end already, as
     /// `inet_hash_connect` binds one past `TCP_CLOSE`; one a failed connect or
     /// a reset closed is back in `TCP_CLOSE`.
-    fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
+    fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         let mut state = self.state();
         let connected = matches!(state.phase, Phase::Connecting | Phase::Connected);
         state
@@ -517,7 +512,7 @@ impl ProtoOps for TcpSock {
     /// answers the peer's end as zero, ahead of any failure as `SOCK_DONE`
     /// is, then a pending failure once; it answers EAGAIN until either comes,
     /// and ENOTCONN on a socket that never connected.
-    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), FilesystemError> {
+    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), Errno> {
         let mut state = self.state();
         if !state.receive_queue.is_empty() {
             let take = state.receive_queue.len().min(buf.len());
@@ -536,8 +531,8 @@ impl ProtoOps for TcpSock {
         match state.phase {
             _ if state.inet.rcv_shut => Ok((0, None)),
             Phase::Failed | Phase::Reset => Ok((0, None)),
-            Phase::Unconnected => Err(FilesystemError::NotConnected),
-            Phase::Connecting | Phase::Connected => Err(FilesystemError::WouldBlock),
+            Phase::Unconnected => Err(Errno::NotConnected),
+            Phase::Connecting | Phase::Connected => Err(Errno::WouldBlock),
         }
     }
 
@@ -547,18 +542,12 @@ impl ProtoOps for TcpSock {
     /// failure once, then EPIPE. A connected one past its failure or its
     /// writing side's shutdown answers as `sk_stream_error`: the failure
     /// once, then EPIPE.
-    fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn sendmsg(&self, buf: &[u8]) -> Result<usize, Errno> {
         let mut state = self.state();
         match state.phase {
-            Phase::Connecting => return Err(FilesystemError::WouldBlock),
+            Phase::Connecting => return Err(Errno::WouldBlock),
             Phase::Connected if !state.inet.send_shut && state.inet.error.is_none() => {}
-            _ => {
-                return Err(state
-                    .inet
-                    .error
-                    .take()
-                    .unwrap_or(FilesystemError::BrokenPipe))
-            }
+            _ => return Err(state.inet.error.take().unwrap_or(Errno::BrokenPipe)),
         }
         let take = buf.len().min(
             state
@@ -568,7 +557,7 @@ impl ProtoOps for TcpSock {
                 .saturating_sub(state.write_queue.len()),
         );
         if take == 0 && !buf.is_empty() {
-            return Err(FilesystemError::WouldBlock);
+            return Err(Errno::WouldBlock);
         }
         state.write_queue.extend(&buf[..take]);
         self.pump_and_wake(state);
@@ -611,12 +600,12 @@ impl ProtoOps for TcpSock {
     /// back to unconnected with nothing marked and `ECONNRESET` pending, as
     /// `inet_shutdown` disconnects one in `TCP_SYN_SENT` and
     /// `tcp_disconnect` sets `sk_err`; it keeps its place until released.
-    fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
+    fn shutdown(&self, how: Shutdown) -> Result<(), Errno> {
         let mut state = self.state();
         if state.phase == Phase::Connecting {
             Self::close_host(&mut state);
             Self::disconnect(&mut state);
-            state.inet.error = Some(FilesystemError::ConnectionReset);
+            state.inet.error = Some(Errno::ConnectionReset);
             drop(state);
             self.wait.wake_up();
             return Ok(());
@@ -641,7 +630,7 @@ impl ProtoOps for TcpSock {
 
     /// Its own keepalive flag and probes, never the host's, beside the
     /// buffers and the hop limit.
-    fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError> {
+    fn getsockopt(&self, opt: SockOpt) -> Result<u32, Errno> {
         let state = self.state();
         match opt {
             SockOpt::KeepAlive => Ok(u32::from(state.keepalive.on)),
@@ -656,7 +645,7 @@ impl ProtoOps for TcpSock {
     /// The probes and the hop limit reach a host socket already dialed at
     /// once; each probe bound is Linux's, as `tcp_sock_set_keepidle` and its
     /// kin refuse past it with EINVAL.
-    fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), FilesystemError> {
+    fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), Errno> {
         match opt {
             SockOpt::KeepAlive => self.set_options_with(|state| state.keepalive.on = value != 0),
             SockOpt::KeepIdle => {
@@ -769,7 +758,7 @@ mod tests {
         let read = crate::sched::testing::within_max_wait(|| file.read(&mut [0; 8]));
         assert_eq!(
             (read, started.elapsed() < Duration::from_secs(1)),
-            (Err(FilesystemError::WouldBlock), true),
+            (Err(Errno::WouldBlock), true),
             "File::read of a connected socket whose peer sent nothing must answer EAGAIN at \
              once, its non-blocking flag cleared or not, since WASI's sockets never block"
         );
@@ -887,7 +876,7 @@ mod tests {
             (defaults, refused, host),
             (
                 (7200, 75, 9),
-                [(); 4].map(|()| Err(FilesystemError::InvalidInput)),
+                [(); 4].map(|()| Err(Errno::InvalidInput)),
                 Some((Duration::from_secs(30), Duration::from_secs(10), 3))
             ),
             "a socket must read Linux's keepalive defaults, refuse with EINVAL an idle time or \
@@ -931,7 +920,7 @@ mod tests {
             ),
             (
                 Ok(64),
-                [(); 2].map(|()| Err(FilesystemError::InvalidInput)),
+                [(); 2].map(|()| Err(Errno::InvalidInput)),
                 Some(7),
                 Ok(9),
                 Some(9)
@@ -998,10 +987,10 @@ mod tests {
             ),
             (
                 Ok(()),
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::AddressFamilyNotSupported),
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::InvalidInput)
+                Err(Errno::InvalidInput),
+                Err(Errno::AddressFamilyNotSupported),
+                Err(Errno::InvalidInput),
+                Err(Errno::InvalidInput)
             ),
             "a socket's bind must take its own end once, answer EINVAL to a second bind and to a \
              bind after a TCP or UDP connect bound it, and EAFNOSUPPORT to IPv6, as Linux's \
@@ -1030,7 +1019,7 @@ mod tests {
         };
         assert_eq!(
             (failed_after("0.0.0.0:0"), failed_after("127.0.0.1:40000")),
-            (Ok(()), Err(FilesystemError::InvalidInput)),
+            (Ok(()), Err(Errno::InvalidInput)),
             "a TCP socket bound to port 0 must bind again once its connect to a closed port fails, \
              and one bound to a named port must still answer EINVAL, as tcp_set_state puts the \
              port on TCP_CLOSE unless SOCK_BINDPORT_LOCK keeps it"
@@ -1058,11 +1047,7 @@ mod tests {
                 free_port,
                 again.bind(&net, "0.0.0.0:32768".parse().unwrap())
             ),
-            (
-                (Ok(()), Ok(()), Err(FilesystemError::AddressInUse)),
-                32769,
-                Ok(())
-            ),
+            ((Ok(()), Ok(()), Err(Errno::AddressInUse)), 32769, Ok(())),
             "a TCP socket's bind must pass over a port another socket holds for port 0, answer \
              EADDRINUSE to it by name, and take it once the holder is gone, as \
              inet_csk_get_port finds a bucket taken"
@@ -1089,8 +1074,8 @@ mod tests {
                 refused_after(&filtered, SocketAddr::from(([127, 0, 0, 1], 1)))
             ),
             (
-                (Err(FilesystemError::WouldBlock), Ok(())),
-                (Err(FilesystemError::PermissionDenied), Ok(()))
+                (Err(Errno::WouldBlock), Ok(())),
+                (Err(Errno::PermissionDenied), Ok(()))
             ),
             "a TCP socket's connect under a full open connection count, and one to a destination \
              the ruleset refuses, must answer EAGAIN and EACCES and give back the port it held, \
@@ -1150,9 +1135,9 @@ mod tests {
                 again(&sock, refused)
             ],
             [
-                Err(FilesystemError::AlreadyConnected),
-                Err(FilesystemError::AlreadyConnected),
-                Err(FilesystemError::AlreadyConnected)
+                Err(Errno::AlreadyConnected),
+                Err(Errno::AlreadyConnected),
+                Err(Errno::AlreadyConnected)
             ],
             "a TCP socket's connect on a connected socket, and on one connected then reset, must \
              answer EISCONN, as __inet_stream_connect does, before the ruleset judges the \
@@ -1185,11 +1170,7 @@ mod tests {
                        the place it holds, with none of the failure left, as Linux disconnects a \
                        failed socket";
         let tries = (connect(), connect());
-        assert_eq!(
-            tries,
-            (Err(FilesystemError::ConnectionRefused), Ok(())),
-            "{message}"
-        );
+        assert_eq!(tries, (Err(Errno::ConnectionRefused), Ok(())), "{message}");
         listener
             .accept()
             .expect("the listener accepts the fresh connect");
@@ -1223,7 +1204,7 @@ mod tests {
         sock.hold_port(&ports).expect("a port is free");
         assert_eq!(
             (failed, before, kept, sock.getsockname().port()),
-            (Err(FilesystemError::ConnectionRefused), 32768, 32768, 32769),
+            (Err(Errno::ConnectionRefused), 32768, 32768, 32769),
             "a TCP socket whose connect failed must read its old virtual port until it connects \
              again, then take a fresh one, as a hash connect picks a port once __inet_put_port \
              cleared inet_num"
@@ -1249,7 +1230,7 @@ mod tests {
         }
         assert_eq!(
             (before, got),
-            (Err(FilesystemError::WouldBlock), b"hello".to_vec()),
+            (Err(Errno::WouldBlock), b"hello".to_vec()),
             "File::read of a socket file must answer EAGAIN before anything arrived, then the \
              peer's bytes, then zero once it closed"
         );
@@ -1266,7 +1247,7 @@ mod tests {
         wait_for(|table| file.poll(table), PollMask::ERR);
         assert_eq!(
             file.read(&mut [0; 8]),
-            Err(FilesystemError::ConnectionReset),
+            Err(Errno::ConnectionReset),
             "a socket file's poll after the peer reset must find ERR, as tcp_poll reads sk_err, \
              and its read must answer ECONNRESET"
         );
@@ -1289,11 +1270,7 @@ mod tests {
         let mut buf = [0; 8];
         assert_eq!(
             (file.read(&mut buf), file.read(&mut buf), file.write(b"x")),
-            (
-                Err(FilesystemError::ConnectionReset),
-                Ok(0),
-                Err(FilesystemError::BrokenPipe)
-            ),
+            (Err(Errno::ConnectionReset), Ok(0), Err(Errno::BrokenPipe)),
             "File::read of a reset socket must answer ECONNRESET once and then zero, and \
              File::write then EPIPE, as sock_error clears sk_err"
         );
@@ -1344,8 +1321,8 @@ mod tests {
             (
                 Ok(()),
                 true,
-                Err(FilesystemError::ConnectionReset),
-                Err(FilesystemError::NotConnected),
+                Err(Errno::ConnectionReset),
+                Err(Errno::NotConnected),
                 (false, false),
                 true
             ),
@@ -1364,7 +1341,7 @@ mod tests {
         loop {
             match file.write(&[7; 16 * 1024]) {
                 Ok(n) => sent += n,
-                Err(FilesystemError::WouldBlock) => return sent,
+                Err(Errno::WouldBlock) => return sent,
                 Err(err) => panic!("a connected socket takes bytes until full: {err:?}"),
             }
         }
@@ -1511,7 +1488,7 @@ mod tests {
         wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
             sock.finish_connect(),
-            Err(FilesystemError::ConnectionRefused),
+            Err(Errno::ConnectionRefused),
             "TcpSock::finish_connect to a port no peer listens on must answer ECONNREFUSED"
         );
     }

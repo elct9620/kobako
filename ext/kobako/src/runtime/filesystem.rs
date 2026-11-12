@@ -19,7 +19,8 @@ use magnus::{
 
 use ruby::RubyFilesystem;
 
-use kobako_runtime::filesystem::{Bind, Filesystem, FilesystemError, Overlay, Tmpfs};
+use kobako_runtime::filesystem::{Bind, Filesystem, Overlay, Tmpfs};
+use kobako_runtime::Errno;
 
 pub(super) use grants::{to_grants, validate_mount};
 
@@ -111,7 +112,7 @@ fn tmpfs_new(args: &[Value]) -> Result<TmpfsFs, MagnusError> {
 
 /// A Filesystem whose instance cannot stand, an `ArgumentError` the Host App
 /// can rescue.
-fn cannot_stand(error: FilesystemError) -> MagnusError {
+fn cannot_stand(error: Errno) -> MagnusError {
     let ruby = Ruby::get().expect("Ruby thread");
     MagnusError::new(
         ruby.exception_arg_error(),

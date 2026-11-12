@@ -10,7 +10,6 @@
 mod attr;
 mod cred;
 mod dentry;
-mod errno;
 mod file;
 mod inode;
 #[cfg(test)]
@@ -35,7 +34,6 @@ pub use attr::{Iattr, SetTime};
 pub(crate) use cred::VmCommitted;
 pub use cred::{Cred, FileSecurity, SecurityOperations, SecurityPath};
 pub use dentry::{Dentry, DentryOperations};
-pub use errno::FilesystemError;
 pub(crate) use file::alloc_file_pseudo;
 pub use file::{
     generic_file_llseek, generic_write_sync, FMode, File, FileOperations, Kiocb, PollMask, Whence,
@@ -55,6 +53,8 @@ pub use readdir::{
 pub use stat::{do_readlinkat, vfs_fstatat, FileType, Kstat};
 pub use super_block::{FileSystemType, SuperBlock};
 pub use utimes::{do_utimes_fd, do_utimes_path};
+
+use crate::Errno;
 
 /// Linux's limits on a path, its terminating NUL counted, and on one name
 /// within it.

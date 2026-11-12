@@ -4,7 +4,8 @@
 
 use std::sync::Arc;
 
-use crate::vfs::{Cred, Dentry, DirContext, DirEntry, FileType, FilesystemError};
+use crate::vfs::{Cred, Dentry, DirContext, DirEntry, FileType};
+use crate::Errno;
 
 /// The entries a listing began with, `.` and `..` first, on the open directory
 /// until it reaches its end, counted against who holds them.
@@ -25,7 +26,7 @@ struct Charge {
 }
 
 impl Charge {
-    fn account(cred: &Arc<Cred>, entries: &[DirEntry]) -> Result<Self, FilesystemError> {
+    fn account(cred: &Arc<Cred>, entries: &[DirEntry]) -> Result<Self, Errno> {
         let names: usize = entries.iter().map(|entry| entry.name.capacity()).sum();
         let bytes = size_of_val(entries) + names;
         cred.security_vm_enough_memory(bytes)?;
@@ -56,8 +57,8 @@ impl Rdir {
         &mut self,
         dentry: &Dentry,
         ctx: &mut DirContext<'_>,
-        read: impl FnOnce() -> Result<Vec<DirEntry>, FilesystemError>,
-    ) -> Result<(), FilesystemError> {
+        read: impl FnOnce() -> Result<Vec<DirEntry>, Errno>,
+    ) -> Result<(), Errno> {
         let listing = match self.0.take().filter(|_| ctx.pos() != 0) {
             Some(held) => held,
             None => {
@@ -78,7 +79,7 @@ impl Rdir {
 
 /// `.` and `..` as a stat of `dentry` and of what stands above it reports them,
 /// `..` naming `dentry` itself at the root.
-fn dots(dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+fn dots(dentry: &Dentry) -> Result<Vec<DirEntry>, Errno> {
     let dot = dentry.getattr()?;
     let dotdot = dentry.parent().getattr()?;
     Ok(vec![

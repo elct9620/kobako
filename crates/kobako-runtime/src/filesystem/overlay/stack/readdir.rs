@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use super::super::super::{DirEntry, FileType, FilesystemError};
+use super::super::super::{DirEntry, Errno, FileType};
 use super::{Level, OverlayFs, UPPER};
 use crate::vfs::Dentry;
 
@@ -16,7 +16,7 @@ struct MergedEntries {
 
 /// Each Layer's entries topmost first, a name a Layer above shows or whites
 /// out taken once.
-fn read_merged(level: &Level) -> Result<MergedEntries, FilesystemError> {
+fn read_merged(level: &Level) -> Result<MergedEntries, Errno> {
     let mut merged = MergedEntries {
         entries: Vec::new(),
         upper_whiteouts: false,
@@ -40,17 +40,14 @@ fn read_merged(level: &Level) -> Result<MergedEntries, FilesystemError> {
 impl OverlayFs {
     /// Each Layer's entries topmost first, a name a Layer above shows or
     /// whites out taken once. A lookup left out what an opaque directory hides.
-    pub(in super::super) fn dir_read_merged(
-        &self,
-        level: &Level,
-    ) -> Result<Vec<DirEntry>, FilesystemError> {
+    pub(in super::super) fn dir_read_merged(&self, level: &Level) -> Result<Vec<DirEntry>, Errno> {
         Ok(read_merged(level)?.entries)
     }
 
     /// Whether the directory `dentry` names shows no entry, `None` where it
     /// shows one, and otherwise whether its upper holds whiteouts to clear
     /// first, as `ovl_check_empty_dir` hands `ovl_clear_empty` its list.
-    pub(super) fn check_empty_dir(&self, dentry: &Dentry) -> Result<Option<bool>, FilesystemError> {
+    pub(super) fn check_empty_dir(&self, dentry: &Dentry) -> Result<Option<bool>, Errno> {
         let merged = read_merged(&self.dir(dentry)?.level())?;
         Ok(merged.entries.is_empty().then_some(merged.upper_whiteouts))
     }

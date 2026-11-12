@@ -23,6 +23,8 @@ pub use tmpfs::{SeedError, Tmpfs};
 
 pub use crate::vfs::{
     Dentry, DentryOperations, DirContext, DirEntry, FMode, FileOperations, FileSystemType,
-    FileType, FilesystemError, Finish, Iattr, Inode, InodeOperations, Kiocb, Kstat, Lookup, Mask,
-    OpenHow, PollMask, RenameFlag, SetTime, SuperBlock as Filesystem, Whence,
+    FileType, Finish, Iattr, Inode, InodeOperations, Kiocb, Kstat, Lookup, Mask, OpenHow, PollMask,
+    RenameFlag, SetTime, SuperBlock as Filesystem, Whence,
 };
+
+use crate::Errno;

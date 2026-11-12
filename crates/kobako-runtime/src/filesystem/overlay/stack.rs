@@ -24,7 +24,7 @@ use std::sync::Arc;
 use super::inode::OverlayDirInode;
 use super::path::OverlayPath;
 
-use super::super::{FileOperations, FileType, Filesystem, FilesystemError, Kiocb};
+use super::super::{Errno, FileOperations, FileType, Filesystem, Kiocb};
 use crate::vfs::{Cred, Dentry, Identity};
 
 /// The directories of the upper Tmpfs holding the view's changes and the
@@ -82,7 +82,7 @@ impl LayerEntry {
     }
 
     /// What kind of entry it is, as its lookup recorded it.
-    fn kind(&self) -> Result<FileType, FilesystemError> {
+    fn kind(&self) -> Result<FileType, Errno> {
         self.dentry.kind()
     }
 }
@@ -95,16 +95,14 @@ impl Presence {
 
 /// What `dir` shows at `name`, read from one lookup, as `ovl_lookup_single` reads
 /// `ovl_is_whiteout` and `d_is_dir` from the dentry it found.
-fn entry(dir: &OverlayPath, name: &str) -> Result<Presence, FilesystemError> {
+fn entry(dir: &OverlayPath, name: &str) -> Result<Presence, Errno> {
     match dir.lookup_single(name) {
         Ok(Some((_, dentry))) if dir.is_whiteout_dentry(&dentry) => Ok(Presence::Whiteout),
         Ok(Some((stored_name, dentry))) => Ok(Presence::Entry(LayerEntry {
             stored_name,
             dentry,
         })),
-        Ok(None) | Err(FilesystemError::NotFound | FilesystemError::InvalidFilename) => {
-            Ok(Presence::Nothing)
-        }
+        Ok(None) | Err(Errno::NotFound | Errno::InvalidFilename) => Ok(Presence::Nothing),
         Err(err) => Err(err),
     }
 }
@@ -126,7 +124,7 @@ fn ovl_lower_positive(level: &Level, name: &str) -> bool {
 fn copy_whole(
     source: &mut dyn FileOperations,
     target: &mut dyn FileOperations,
-) -> Result<(), FilesystemError> {
+) -> Result<(), Errno> {
     let mut buf = vec![0; 64 * 1024];
     let (mut from, mut to) = (Kiocb::at(0), Kiocb::at(0));
     loop {
@@ -137,11 +135,7 @@ fn copy_whole(
         let mut written = 0;
         while written < read {
             match target.write_iter(&mut to, &buf[written..read])? {
-                0 => {
-                    return Err(FilesystemError::Other(
-                        "a copy up's write wrote nothing".to_string(),
-                    ))
-                }
+                0 => return Err(Errno::Other("a copy up's write wrote nothing".to_string())),
                 wrote => written += wrote,
             }
         }
@@ -150,15 +144,15 @@ fn copy_whole(
 
 /// The Layer's directory a level holds, which it holds wherever it shows
 /// a name.
-fn layer_dir(dir: &Option<OverlayPath>) -> Result<&OverlayPath, FilesystemError> {
-    dir.as_ref().ok_or(FilesystemError::NotFound)
+fn layer_dir(dir: &Option<OverlayPath>) -> Result<&OverlayPath, Errno> {
+    dir.as_ref().ok_or(Errno::NotFound)
 }
 
 /// The directory `name` in `root`, made there first if it stands nowhere, as
 /// overlayfs's `ovl_workdir_create` makes its upperdir's sibling.
-fn ovl_workdir_create(root: &OverlayPath, name: &str) -> Result<OverlayPath, FilesystemError> {
+fn ovl_workdir_create(root: &OverlayPath, name: &str) -> Result<OverlayPath, Errno> {
     match root.do_mkdir(name) {
-        Ok(()) | Err(FilesystemError::AlreadyExists) => root.open_dir(name),
+        Ok(()) | Err(Errno::AlreadyExists) => root.open_dir(name),
         Err(err) => Err(err),
     }
 }
@@ -166,7 +160,7 @@ fn ovl_workdir_create(root: &OverlayPath, name: &str) -> Result<OverlayPath, Fil
 /// Take `name` out of `dir`, a directory only once it is empty, as
 /// overlayfs's `ovl_cleanup` takes away what a change left in its
 /// workdir, so whatever another writer made in it meanwhile stays.
-fn ovl_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+fn ovl_cleanup(dir: &OverlayPath, name: &str) -> Result<(), Errno> {
     match dir.getattr_at(name)?.file_type {
         FileType::Dir => dir.do_rmdir(name),
         _ => dir.do_unlink(name),
@@ -176,7 +170,7 @@ fn ovl_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
 /// Take the whiteouts out of the directory `name` in `dir`, and nothing
 /// else, as overlayfs's `ovl_cleanup_whiteouts` does before it removes
 /// one; anything else stands there leaves it holding that.
-fn ovl_cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+fn ovl_cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), Errno> {
     if dir.getattr_at(name)?.file_type != FileType::Dir {
         return Ok(());
     }
@@ -191,7 +185,7 @@ fn ovl_cleanup_whiteouts(dir: &OverlayPath, name: &str) -> Result<(), Filesystem
 
 /// Take `name` out of the workdir with all it holds, as overlayfs's
 /// `ovl_workdir_cleanup` empties it of what an earlier mount left.
-fn ovl_workdir_cleanup(dir: &OverlayPath, name: &str) -> Result<(), FilesystemError> {
+fn ovl_workdir_cleanup(dir: &OverlayPath, name: &str) -> Result<(), Errno> {
     let mut pending = vec![(dir.clone(), name.to_string())];
     while let Some((dir, name)) = pending.last().cloned() {
         if dir.getattr_at(&name)?.file_type != FileType::Dir {
@@ -230,7 +224,7 @@ impl OverlayFs {
     pub(super) fn new(
         lower: Vec<Arc<Filesystem>>,
         upper: Option<Arc<Filesystem>>,
-    ) -> Result<Self, FilesystemError> {
+    ) -> Result<Self, Errno> {
         let mut roots = vec![None];
         let mut work = None;
         let creator_cred = Cred::new(Vec::new());
@@ -274,9 +268,9 @@ impl OverlayFs {
 
     /// The directory of the view `dentry` names, its state found on the inode
     /// its lookup, or the mount for the root, recorded.
-    pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
-        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
-        let inode = OverlayDirInode::of(&inode).ok_or(FilesystemError::NotADirectory)?;
+    pub(super) fn dir(&self, dentry: &Dentry) -> Result<ViewDir, Errno> {
+        let inode = dentry.inode().ok_or(Errno::NotFound)?;
+        let inode = OverlayDirInode::of(&inode).ok_or(Errno::NotADirectory)?;
         Ok(ViewDir {
             dentry: dentry.get(),
             inode,
@@ -284,17 +278,14 @@ impl OverlayFs {
     }
 
     /// The directory holding the entry `dentry` names.
-    pub(super) fn parent(&self, dentry: &Dentry) -> Result<ViewDir, FilesystemError> {
+    pub(super) fn parent(&self, dentry: &Dentry) -> Result<ViewDir, Errno> {
         self.dir(&dentry.parent())
     }
 
     /// The workdir and a name in it no change has taken, as overlayfs's
     /// `ovl_tempname` names one.
-    fn tempname(&self) -> Result<(&OverlayPath, String), FilesystemError> {
-        let work = self
-            .work
-            .as_ref()
-            .ok_or(FilesystemError::ReadOnlyFilesystem)?;
+    fn tempname(&self) -> Result<(&OverlayPath, String), Errno> {
+        let work = self.work.as_ref().ok_or(Errno::ReadOnlyFilesystem)?;
         let next = self.temp.fetch_add(1, Ordering::Relaxed);
         Ok((work, format!("#{next:x}")))
     }

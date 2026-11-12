@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use kobako_runtime::filesystem::{Filesystem, FilesystemError, Iattr, SetTime};
+use kobako_runtime::filesystem::{Filesystem, Iattr, SetTime};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::grant::Policy;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
@@ -13,21 +13,22 @@ use kobako_runtime::security::{prepare_creds_within, restrict_self};
 use kobako_runtime::vfs::{
     self, Cred, DirContext, DirEmit, File, FileType, OpenFlags, OpenHow, VfsMount, Whence,
 };
+use kobako_runtime::Errno;
 
 use crate::calls::{payload, Call, SLOTS, UTIME_SECONDS};
 use crate::{describe, Snapshot, Times};
 
-fn errno(error: &FilesystemError) -> String {
+fn errno(error: &Errno) -> String {
     error
         .posix_name()
         .map_or_else(|| format!("EIO({error:?})"), str::to_string)
 }
 
-fn answer<T>(result: Result<T, FilesystemError>, ok: impl FnOnce(T) -> String) -> String {
+fn answer<T>(result: Result<T, Errno>, ok: impl FnOnce(T) -> String) -> String {
     result.map_or_else(|error| errno(&error), ok)
 }
 
-fn ok_or_errno<T: Debug>(result: Result<T, FilesystemError>) -> String {
+fn ok_or_errno<T: Debug>(result: Result<T, Errno>) -> String {
     answer(result, |_| "ok".to_string())
 }
 
@@ -49,7 +50,7 @@ fn directory_flags() -> OpenFlags {
 
 /// The names `file` lists from its start, kinds included, `.` and `..` among
 /// them, as the Linux side seeks a directory back before `getdents64`.
-fn entries(file: &mut File) -> Result<Vec<(String, FileType)>, FilesystemError> {
+fn entries(file: &mut File) -> Result<Vec<(String, FileType)>, Errno> {
     if file.is_directory() {
         file.llseek(0, Whence::Set)?;
     }

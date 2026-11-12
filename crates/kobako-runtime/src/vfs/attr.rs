@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use super::dentry::Dentry;
 use super::file::FileOperations;
-use super::FilesystemError;
+use super::Errno;
 use crate::locking::RwSemaphoreGuard;
 
 /// Apply `attr` to what `dentry` names, as Linux's `notify_change` reaches
@@ -18,7 +18,7 @@ pub(crate) fn notify_change(
     dentry: &Dentry,
     held: &RwSemaphoreGuard,
     attr: &Iattr,
-) -> Result<(), FilesystemError> {
+) -> Result<(), Errno> {
     let inode = dentry
         .inode()
         .expect("a dentry whose entry is locked names it");

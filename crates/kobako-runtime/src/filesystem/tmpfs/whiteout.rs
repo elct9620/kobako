@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use super::super::FilesystemError;
+use super::super::Errno;
 use super::{Node, Space, Tmpfs};
 use crate::vfs::RenameFlag;
 
@@ -22,7 +22,7 @@ impl Drop for Whiteout {
 }
 
 impl Tmpfs {
-    fn new_whiteout(&self) -> Result<Node, FilesystemError> {
+    fn new_whiteout(&self) -> Result<Node, Errno> {
         self.tree.space.inodes.take(1)?;
         Ok(Node::Whiteout {
             _inode: Arc::new(Whiteout {
@@ -39,7 +39,7 @@ impl Tmpfs {
 
     /// Make a whiteout at `name`, as `shmem_mknod` makes the character
     /// device 0:0 `vfs_whiteout` asks for.
-    pub(crate) fn whiteout(&self, name: &str) -> Result<(), FilesystemError> {
+    pub(crate) fn whiteout(&self, name: &str) -> Result<(), Errno> {
         let whiteout = self.new_whiteout()?;
         self.dir.state().insert(name, whiteout);
         Ok(())
@@ -56,19 +56,19 @@ impl Tmpfs {
         target: &Tmpfs,
         to: &str,
         flag: Option<RenameFlag>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         let (from_dir, to_dir) = (&self.dir, &target.dir);
         let moving = from_dir.get(from)?;
         let replaced = to_dir.get(to).ok();
         if flag == Some(RenameFlag::Exchange) {
-            let replaced = replaced.ok_or(FilesystemError::NotFound)?;
+            let replaced = replaced.ok_or(Errno::NotFound)?;
             from_dir.state().exchange(from, replaced);
             to_dir.state().exchange(to, moving);
             return Ok(());
         }
         if let Some(Node::Directory(dir)) = &replaced {
             if !dir.state().entries.is_empty() {
-                return Err(FilesystemError::DirectoryNotEmpty);
+                return Err(Errno::DirectoryNotEmpty);
             }
         }
         let left = match flag {

@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use super::dentry::{Dentries, Dentry, DentryOperations};
-use super::errno::FilesystemError;
 use super::inode::Inode;
 use crate::locking::RwSemaphore;
+use crate::Errno;
 
 /// What makes an instance of a Filesystem, as Linux's `file_system_type`.
 /// Every lock beneath it waits through the one `Blocking` its process
@@ -18,7 +18,7 @@ pub trait FileSystemType: Send + Sync + 'static {
     /// Filesystem changed outside the runtime, whether nothing beneath it
     /// changes, and whether a name goes once unused. An instance that cannot
     /// stand answers why, and none is made.
-    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError>;
+    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), Errno>;
 }
 
 /// One Filesystem instance, with the directories of it a walk reaches. Every
@@ -44,7 +44,7 @@ pub struct SuperBlock {
 impl SuperBlock {
     /// The instance `fs` makes, set up as its `fill_super` asks, or why it cannot
     /// stand. One whose `fill_super` made no root answers EINVAL.
-    pub fn new(fs: Arc<dyn FileSystemType>) -> Result<Arc<Self>, FilesystemError> {
+    pub fn new(fs: Arc<dyn FileSystemType>) -> Result<Arc<Self>, Errno> {
         let mut sb = Self {
             root: None,
             dentries: Dentries::new(None),
@@ -53,7 +53,7 @@ impl SuperBlock {
             dontcache: false,
         };
         fs.fill_super(&mut sb)?;
-        sb.root.as_ref().ok_or(FilesystemError::InvalidInput)?;
+        sb.root.as_ref().ok_or(Errno::InvalidInput)?;
         Ok(Arc::new(sb))
     }
 

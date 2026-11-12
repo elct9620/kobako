@@ -7,9 +7,10 @@
 use std::sync::{Arc, LazyLock};
 
 use crate::vfs::{
-    alloc_file_pseudo, Cred, Dentry, File, FileOperations, FileSystemType, FileType,
-    FilesystemError, Inode, InodeOperations, Kstat, OpenHow, SuperBlock, VfsMount,
+    alloc_file_pseudo, Cred, Dentry, File, FileOperations, FileSystemType, FileType, Inode,
+    InodeOperations, Kstat, OpenHow, SuperBlock, VfsMount,
 };
+use crate::Errno;
 
 /// The one Filesystem every anonymous file stands on, as Linux's
 /// `anon_inode_mnt`.
@@ -28,14 +29,14 @@ static ANON_INODE_INODE: LazyLock<Arc<Inode>> =
 struct AnonInodeFs;
 
 impl FileSystemType for AnonInodeFs {
-    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), Errno> {
         sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
         Ok(())
     }
 }
 
 impl InodeOperations for AnonInodeFs {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(Kstat::new(FileType::Unknown, 0))
     }
 }

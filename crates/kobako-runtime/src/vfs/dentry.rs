@@ -15,7 +15,7 @@ use lru::LruCache;
 
 use super::file::FileOperations;
 use super::inode::{Inode, InodeOperations, Lookup};
-use super::{FileType, FilesystemError, Kstat, OpenHow, SuperBlock};
+use super::{Errno, FileType, Kstat, OpenHow, SuperBlock};
 use crate::hashtable::Hashtable;
 use crate::locking::seqlock::SeqLock;
 use crate::locking::RwSemaphoreGuard;
@@ -28,11 +28,7 @@ pub trait DentryOperations: Send + Sync {
     /// Whether `dentry`, a name the runtime still holds in `dir`, names what
     /// it recorded, as `d_revalidate` answers; `false` has the runtime drop
     /// it and take the name afresh.
-    fn revalidate(
-        &self,
-        dir: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<bool, FilesystemError>;
+    fn revalidate(&self, dir: &dyn InodeOperations, dentry: &Dentry) -> Result<bool, Errno>;
 
     /// Whether `dentry` goes once nothing holds it, rather than stay for the
     /// next walk, as `d_delete` answers. A name whose `revalidate` cannot tell
@@ -205,14 +201,14 @@ impl Dentry {
 
     /// Hold the directory this names shared, as
     /// `inode_lock_shared(d_inode(dentry))`.
-    pub(crate) fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
-        self.inode().ok_or(FilesystemError::NotFound)?.lock_shared()
+    pub(crate) fn inode_lock_shared(&self) -> Result<RwSemaphoreGuard, Errno> {
+        self.inode().ok_or(Errno::NotFound)?.lock_shared()
     }
 
     /// Hold the directory this names exclusive, as
     /// `inode_lock(d_inode(dentry))`.
-    pub(crate) fn inode_lock(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
-        self.inode().ok_or(FilesystemError::NotFound)?.lock()
+    pub(crate) fn inode_lock(&self) -> Result<RwSemaphoreGuard, Errno> {
+        self.inode().ok_or(Errno::NotFound)?.lock()
     }
 
     /// Whether the directory this names was removed or replaced, as
@@ -235,10 +231,10 @@ impl Dentry {
     }
 
     /// What answers for the entry this names, as `d_inode(dentry)->i_op`.
-    pub(crate) fn inode_ops(&self) -> Result<Arc<dyn InodeOperations>, FilesystemError> {
+    pub(crate) fn inode_ops(&self) -> Result<Arc<dyn InodeOperations>, Errno> {
         match self.inode() {
             Some(inode) => Ok(inode.ops().clone()),
-            None => Err(FilesystemError::NotFound),
+            None => Err(Errno::NotFound),
         }
     }
 
@@ -346,7 +342,7 @@ impl Dentry {
         &self,
         sb: &SuperBlock,
         dir: &Dentry,
-    ) -> Result<Option<Arc<Dentry>>, FilesystemError> {
+    ) -> Result<Option<Arc<Dentry>>, Errno> {
         let asked = self.ask_in_lookup(|| {
             let found = dir.inode_ops()?.lookup(self)?;
             self.splice_alias(sb, found)
@@ -359,8 +355,8 @@ impl Dentry {
     /// holds the dentry in lookup, and `d_lookup_done` ends that.
     pub(crate) fn ask_in_lookup<T>(
         &self,
-        ask: impl FnOnce() -> Result<T, FilesystemError>,
-    ) -> Result<Option<T>, FilesystemError> {
+        ask: impl FnOnce() -> Result<T, Errno>,
+    ) -> Result<Option<T>, Errno> {
         let ends = match self.begin_lookup()? {
             InLookup::Answered => return Ok(None),
             InLookup::Begun => true,
@@ -385,7 +381,7 @@ impl Dentry {
         &self,
         sb: &SuperBlock,
         found: Lookup,
-    ) -> Result<Option<Arc<Dentry>>, FilesystemError> {
+    ) -> Result<Option<Arc<Dentry>>, Errno> {
         let inode = match found {
             Lookup::Found(inode) => inode,
             Lookup::Absent => {
@@ -413,7 +409,7 @@ impl Dentry {
         sb: &SuperBlock,
         name: &str,
         inode: Arc<Inode>,
-    ) -> Result<Arc<Dentry>, FilesystemError> {
+    ) -> Result<Arc<Dentry>, Errno> {
         let found = sb.dentries().alloc_parallel(&self.parent(), name)?;
         let spliced = found.ask_in_lookup(|| found.splice_alias(sb, Lookup::Found(inode)))?;
         Ok(spliced.flatten().unwrap_or(found))
@@ -427,22 +423,18 @@ impl Dentry {
     /// directory's lock and the instance's `rename_mutex` without waiting,
     /// since the caller holds the lock of the one it looks the name up in,
     /// and answers ESTALE where another call holds either.
-    fn unalias(
-        self: &Arc<Self>,
-        sb: &SuperBlock,
-        alias: &Arc<Dentry>,
-    ) -> Result<(), FilesystemError> {
+    fn unalias(self: &Arc<Self>, sb: &SuperBlock, alias: &Arc<Dentry>) -> Result<(), Errno> {
         let (parent, name) = self.parent_and_name();
         let mut table = self.hashtables.dentry_hashtable();
         RENAME_LOCK.write(|| {
             if d_ancestor(alias, self) || alias.is_root() {
-                return Err(FilesystemError::FilesystemLoop);
+                return Err(Errno::FilesystemLoop);
             }
             let (old_parent, old_name) = alias.parent_and_name();
             let _held = match Arc::ptr_eq(&old_parent, &parent) {
                 true => None,
                 false => {
-                    let stale = || FilesystemError::StaleNetworkFileHandle;
+                    let stale = || Errno::StaleNetworkFileHandle;
                     let rename = sb.rename_mutex().down_write_trylock().ok_or_else(stale)?;
                     let dir = old_parent
                         .inode()
@@ -467,7 +459,7 @@ impl Dentry {
     /// nobody asked yet, once no other walk holds it. A Filesystem asking the
     /// runtime about the name its own lookup is answering asks it again within
     /// that lookup, as it would otherwise wait on itself.
-    fn begin_lookup(&self) -> Result<InLookup, FilesystemError> {
+    fn begin_lookup(&self) -> Result<InLookup, Errno> {
         self.wait_lookup()?;
         let mut state = self.state();
         Ok(match state.asked {
@@ -483,7 +475,7 @@ impl Dentry {
     /// Wait while another walk holds this name in lookup, until the walk's run
     /// is to stop, as Linux's `d_wait_lookup` does, answering whether the
     /// calling walk holds it in lookup itself.
-    fn wait_lookup(&self) -> Result<bool, FilesystemError> {
+    fn wait_lookup(&self) -> Result<bool, Errno> {
         let current = sched::current();
         loop {
             let state = self.state();
@@ -494,7 +486,7 @@ impl Dentry {
                 LookupState::Allocated(_) | LookupState::Asking(_)
                     if sched::fatal_signal_pending() =>
                 {
-                    return Err(FilesystemError::Interrupted)
+                    return Err(Errno::Interrupted)
                 }
                 LookupState::Allocated(_) | LookupState::Asking(_) => {
                     drop(state);
@@ -544,36 +536,36 @@ impl Dentry {
 
     /// What kind of entry this records, `NotFound` where it records none, as
     /// Linux's `d_is_*` read a dentry without asking its filesystem.
-    pub(crate) fn kind(&self) -> Result<FileType, FilesystemError> {
+    pub(crate) fn kind(&self) -> Result<FileType, Errno> {
         self.inode()
             .map(|inode| inode.kind())
-            .ok_or(FilesystemError::NotFound)
+            .ok_or(Errno::NotFound)
     }
 
     /// What the entry this records reports of itself, `NotFound` where it
     /// records none, as `vfs_getattr` asks the inode a dentry holds.
-    pub(crate) fn getattr(&self) -> Result<Kstat, FilesystemError> {
+    pub(crate) fn getattr(&self) -> Result<Kstat, Errno> {
         match self.inode() {
             Some(inode) => inode.ops().getattr(self),
-            None => Err(FilesystemError::NotFound),
+            None => Err(Errno::NotFound),
         }
     }
 
     /// Open the file this records as `how` asks, as `vfs_open` finds
     /// `f_op->open` on the inode a dentry holds.
-    pub(crate) fn open(&self, how: &OpenHow) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    pub(crate) fn open(&self, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         match self.inode() {
             Some(inode) => inode.ops().open(self, how),
-            None => Err(FilesystemError::NotFound),
+            None => Err(Errno::NotFound),
         }
     }
 
     /// Where the link this records points, as `vfs_readlink` asks the inode a
     /// dentry holds; anything else refuses as `readlinkat` does.
-    pub(crate) fn get_link(&self) -> Result<String, FilesystemError> {
+    pub(crate) fn get_link(&self) -> Result<String, Errno> {
         match self.inode() {
             Some(inode) => inode.ops().get_link(self),
-            None => Err(FilesystemError::NotFound),
+            None => Err(Errno::NotFound),
         }
     }
 
@@ -733,7 +725,7 @@ impl Dentries {
         &self,
         parent: &Arc<Dentry>,
         name: &str,
-    ) -> Result<Arc<Dentry>, FilesystemError> {
+    ) -> Result<Arc<Dentry>, Errno> {
         let at = key(parent, name);
         loop {
             let waited = {
@@ -883,12 +875,12 @@ mod tests {
 
     use super::{Dentries, Dentry};
     use crate::filesystem::{
-        FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Kstat, Lookup,
-        Tmpfs,
+        FileOperations, FileType, Filesystem, InodeOperations, Kstat, Lookup, Tmpfs,
     };
     use crate::mount::{Access, Mount};
     use crate::vfs::kern_path::{kern_path, KernPath};
     use crate::vfs::{self, File, Finish, Identity, Inode, OpenHow, Path};
+    use crate::Errno;
 
     /// A root of `dentries` standing for a directory, as `d_make_root` makes one.
     fn make_dir_root(dentries: &Dentries) -> Arc<Dentry> {
@@ -923,17 +915,13 @@ mod tests {
     /// A name it recorded nothing for is looked up again, as a Ruby Filesystem's
     /// `revalidate` answers, so one it made is found where the make left it.
     impl super::DentryOperations for ByPath {
-        fn revalidate(
-            &self,
-            _dir: &dyn InodeOperations,
-            dentry: &Dentry,
-        ) -> Result<bool, FilesystemError> {
+        fn revalidate(&self, _dir: &dyn InodeOperations, dentry: &Dentry) -> Result<bool, Errno> {
             Ok(dentry.inode().is_some())
         }
     }
 
     impl crate::vfs::FileSystemType for ByPath {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.set_default_d_op(self.clone());
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
@@ -941,11 +929,11 @@ mod tests {
     }
 
     impl InodeOperations for ByPath {
-        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
             self.root.vfs_lstat(&at(dentry))
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
             match self.root.vfs_lstat(&at(dentry)) {
                 Ok(found) => Ok(Lookup::Found(Inode::new(
                     &found,
@@ -953,23 +941,19 @@ mod tests {
                         root: self.root.clone(),
                     }),
                 ))),
-                Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+                Err(Errno::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),
             }
         }
 
-        fn open(
-            &self,
-            dentry: &Dentry,
-            how: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
             if dentry.kind() == Ok(FileType::Dir) {
                 return Ok(Box::new(ByPathDir(self.root.clone())));
             }
             self.root.open(&at(dentry), how)
         }
 
-        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, Errno> {
             if dentry.in_lookup() {
                 let found = self.lookup(dentry)?;
                 if !how.create || !matches!(found, Lookup::Absent) {
@@ -986,15 +970,15 @@ mod tests {
             })
         }
 
-        fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        fn mkdir(&self, dentry: &Dentry) -> Result<(), Errno> {
             self.root.vfs_mkdir(&at(dentry))
         }
 
-        fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        fn rmdir(&self, dentry: &Dentry) -> Result<(), Errno> {
             self.root.vfs_rmdir(&at(dentry))
         }
 
-        fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        fn unlink(&self, dentry: &Dentry) -> Result<(), Errno> {
             self.root.vfs_unlink(&at(dentry))
         }
 
@@ -1004,10 +988,10 @@ mod tests {
             to_dir: &dyn InodeOperations,
             to: &Dentry,
             _flag: Option<crate::vfs::RenameFlag>,
-        ) -> Result<(), FilesystemError> {
+        ) -> Result<(), Errno> {
             (to_dir as &dyn Any)
                 .downcast_ref::<Self>()
-                .ok_or(FilesystemError::CrossesDevices)?;
+                .ok_or(Errno::CrossesDevices)?;
             self.root.rename(&at(from), &self.root, &at(to))
         }
     }
@@ -1020,7 +1004,7 @@ mod tests {
             &mut self,
             dentry: &Dentry,
             ctx: &mut vfs::DirContext<'_>,
-        ) -> Result<(), FilesystemError> {
+        ) -> Result<(), Errno> {
             let entries = match at(dentry).as_str() {
                 "" => self.0.iterate_dir(),
                 at => self.0.open_dir(at)?.iterate_dir(),
@@ -1148,9 +1132,9 @@ mod tests {
                 kern_path(tmpfs.clone()).vfs_lstat("dir/made").err()
             ),
             (
-                Err(FilesystemError::NotFound),
-                Err(FilesystemError::NotFound),
-                Some(FilesystemError::NotFound)
+                Err(Errno::NotFound),
+                Err(Errno::NotFound),
+                Some(Errno::NotFound)
             ),
             "vfs::filename_mkdirat and File::iterate_dir through a directory vfs::filename_rmdir removed, over \
              a Filesystem answering by path, must each answer NotFound, as Linux asks \
@@ -1171,7 +1155,7 @@ mod tests {
             .expect("another directory must be made");
         assert_eq!(
             vfs::filename_mkdirat(&Arc::default(), &dir, "made"),
-            Err(FilesystemError::NotFound),
+            Err(Errno::NotFound),
             "vfs::filename_mkdirat through a directory opened beneath one Mount, once vfs::filename_rmdir \
              removed it beneath another Mount of the same Filesystem, must answer NotFound"
         );

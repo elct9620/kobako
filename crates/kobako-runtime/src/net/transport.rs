@@ -22,7 +22,8 @@ use super::namespace::TcpSockets;
 use super::socket::{BindHash, Destination};
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
 use crate::network::{Protocol, Ruleset};
-use crate::vfs::{Cred, FilesystemError};
+use crate::vfs::Cred;
+use crate::Errno;
 
 /// The only dialer the outbound seam has: it reaches the one authority the
 /// request named, resolving a name on the host and dialing each real address
@@ -91,7 +92,7 @@ impl Connector {
             sock.setsockopt(SockOpt::NoDelay, 1)
                 .map_err(|err| HttpError::from_errno(&err))?;
             match sock.connect_upstream(&self.ports, &self.ruleset, dest) {
-                Err(FilesystemError::PermissionDenied) => continue,
+                Err(Errno::PermissionDenied) => continue,
                 Err(err) => {
                     last = HttpError::from_errno(&err);
                     continue;
@@ -139,7 +140,7 @@ pub struct Transport {
 impl Transport {
     /// Wait until the connect under way settles, as Linux's
     /// `inet_wait_for_connect` waits for.
-    async fn wait_for_connect(&self) -> Result<(), FilesystemError> {
+    async fn wait_for_connect(&self) -> Result<(), Errno> {
         poll_fn(|cx| self.attempt(cx, || self.sock.finish_connect())).await
     }
 
@@ -148,15 +149,15 @@ impl Transport {
     fn attempt<T>(
         &self,
         cx: &mut Context<'_>,
-        mut op: impl FnMut() -> Result<T, FilesystemError>,
-    ) -> Poll<Result<T, FilesystemError>> {
+        mut op: impl FnMut() -> Result<T, Errno>,
+    ) -> Poll<Result<T, Errno>> {
         match op() {
-            Err(FilesystemError::WouldBlock) => {}
+            Err(Errno::WouldBlock) => {}
             done => return Poll::Ready(done),
         }
         self.sock.sk_sleep().add(cx.waker());
         match op() {
-            Err(FilesystemError::WouldBlock) => Poll::Pending,
+            Err(Errno::WouldBlock) => Poll::Pending,
             done => Poll::Ready(done),
         }
     }
@@ -164,14 +165,14 @@ impl Transport {
 
 /// `err` as the I/O error tokio-rustls and hyper carry, of the kind
 /// `to_error` reads back.
-fn to_io(err: FilesystemError) -> io::Error {
+fn to_io(err: Errno) -> io::Error {
     let kind = match err {
-        FilesystemError::ConnectionRefused => io::ErrorKind::ConnectionRefused,
-        FilesystemError::ConnectionReset => io::ErrorKind::ConnectionReset,
-        FilesystemError::ConnectionAborted => io::ErrorKind::ConnectionAborted,
-        FilesystemError::TimedOut => io::ErrorKind::TimedOut,
-        FilesystemError::BrokenPipe => io::ErrorKind::BrokenPipe,
-        FilesystemError::NotConnected => io::ErrorKind::NotConnected,
+        Errno::ConnectionRefused => io::ErrorKind::ConnectionRefused,
+        Errno::ConnectionReset => io::ErrorKind::ConnectionReset,
+        Errno::ConnectionAborted => io::ErrorKind::ConnectionAborted,
+        Errno::TimedOut => io::ErrorKind::TimedOut,
+        Errno::BrokenPipe => io::ErrorKind::BrokenPipe,
+        Errno::NotConnected => io::ErrorKind::NotConnected,
         _ => io::ErrorKind::Other,
     };
     kind.into()

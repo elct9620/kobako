@@ -5,7 +5,7 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use kobako_runtime::net::LookupError;
-use kobako_runtime::vfs::FilesystemError;
+use kobako_runtime::Errno;
 
 use super::bindings::wasi_sockets_network_0_2_12::{ErrorCode, IpSocketAddress, Ipv4SocketAddress};
 
@@ -100,31 +100,29 @@ pub(crate) fn to_lookup_error_code(err: LookupError, handed_over: bool) -> Error
 }
 
 /// The error code a failure's POSIX name maps to.
-pub(crate) fn to_error_code(err: &FilesystemError) -> ErrorCode {
+pub(crate) fn to_error_code(err: &Errno) -> ErrorCode {
     match err {
-        FilesystemError::PermissionDenied | FilesystemError::NotPermitted => {
-            ErrorCode::AccessDenied
+        Errno::PermissionDenied | Errno::NotPermitted => ErrorCode::AccessDenied,
+        Errno::Unsupported | Errno::AddressFamilyNotSupported | Errno::ProtocolNotAvailable => {
+            ErrorCode::NotSupported
         }
-        FilesystemError::Unsupported
-        | FilesystemError::AddressFamilyNotSupported
-        | FilesystemError::ProtocolNotAvailable => ErrorCode::NotSupported,
-        FilesystemError::InvalidInput => ErrorCode::InvalidArgument,
-        FilesystemError::OutOfMemory | FilesystemError::NoBufferSpace => ErrorCode::OutOfMemory,
-        FilesystemError::TimedOut => ErrorCode::Timeout,
-        FilesystemError::WouldBlock => ErrorCode::WouldBlock,
-        FilesystemError::TooManyOpenFiles => ErrorCode::NewSocketLimit,
-        FilesystemError::AddressNotAvailable => ErrorCode::AddressNotBindable,
-        FilesystemError::AddressInUse => ErrorCode::AddressInUse,
-        FilesystemError::HostUnreachable
-        | FilesystemError::NetworkUnreachable
-        | FilesystemError::NetworkDown => ErrorCode::RemoteUnreachable,
-        FilesystemError::ConnectionRefused => ErrorCode::ConnectionRefused,
-        FilesystemError::ConnectionReset => ErrorCode::ConnectionReset,
-        FilesystemError::ConnectionAborted => ErrorCode::ConnectionAborted,
-        FilesystemError::NotConnected
-        | FilesystemError::AlreadyConnected
-        | FilesystemError::DestinationAddressRequired => ErrorCode::InvalidState,
-        FilesystemError::MessageTooLong => ErrorCode::DatagramTooLarge,
+        Errno::InvalidInput => ErrorCode::InvalidArgument,
+        Errno::OutOfMemory | Errno::NoBufferSpace => ErrorCode::OutOfMemory,
+        Errno::TimedOut => ErrorCode::Timeout,
+        Errno::WouldBlock => ErrorCode::WouldBlock,
+        Errno::TooManyOpenFiles => ErrorCode::NewSocketLimit,
+        Errno::AddressNotAvailable => ErrorCode::AddressNotBindable,
+        Errno::AddressInUse => ErrorCode::AddressInUse,
+        Errno::HostUnreachable | Errno::NetworkUnreachable | Errno::NetworkDown => {
+            ErrorCode::RemoteUnreachable
+        }
+        Errno::ConnectionRefused => ErrorCode::ConnectionRefused,
+        Errno::ConnectionReset => ErrorCode::ConnectionReset,
+        Errno::ConnectionAborted => ErrorCode::ConnectionAborted,
+        Errno::NotConnected | Errno::AlreadyConnected | Errno::DestinationAddressRequired => {
+            ErrorCode::InvalidState
+        }
+        Errno::MessageTooLong => ErrorCode::DatagramTooLarge,
         // WASI 0.2 names no broken pipe, so EPIPE answers `unknown`, as
         // wasmtime-wasi's preview2 does.
         _ => ErrorCode::Unknown,
@@ -140,13 +138,13 @@ mod tests {
     fn a_host_failure_answers_the_code_wasmtime_wasi_gives_it() {
         assert_eq!(
             [
-                FilesystemError::BrokenPipe,
-                FilesystemError::AddressInUse,
-                FilesystemError::ConnectionReset,
-                FilesystemError::NetworkDown,
-                FilesystemError::NoBufferSpace,
-                FilesystemError::DestinationAddressRequired,
-                FilesystemError::ProtocolNotAvailable,
+                Errno::BrokenPipe,
+                Errno::AddressInUse,
+                Errno::ConnectionReset,
+                Errno::NetworkDown,
+                Errno::NoBufferSpace,
+                Errno::DestinationAddressRequired,
+                Errno::ProtocolNotAvailable,
             ]
             .map(|err| to_error_code(&err)),
             [

@@ -14,6 +14,7 @@
 
 pub mod dispatch;
 pub mod endpoint;
+mod errno;
 pub mod error;
 pub mod filesystem;
 pub mod grant;
@@ -36,8 +37,9 @@ pub mod yielder;
 // a reader of `kobako_runtime::Runtime` was missing.
 pub use dispatch::DispatchHandler;
 pub use endpoint::{Calls, GuestInstance};
+pub use errno::Errno;
 pub use error::{InvokeError, SetupError, Trap};
-pub use filesystem::{Bind, DirEntry, FileType, FilesystemError, Kstat, Overlay, SeedError, Tmpfs};
+pub use filesystem::{Bind, DirEntry, FileType, Kstat, Overlay, SeedError, Tmpfs};
 pub use grant::{Grant, GrantKind, Policy};
 pub use mount::{Access, Mount, MountPathError, MountRequest};
 pub use profile::Profile;

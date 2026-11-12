@@ -6,6 +6,7 @@ experimental, so the runtime promises it nothing here.
 
 ## Includes
 
+- `crates/kobako-runtime/src/errno.rs`
 - `crates/kobako-runtime/src/error.rs`
 - `crates/kobako-runtime/src/filesystem/bind.rs`
 - `crates/kobako-runtime/src/filesystem/overlay.rs`
@@ -19,7 +20,6 @@ experimental, so the runtime promises it nothing here.
 - `crates/kobako-runtime/src/vfs/attr.rs`
 - `crates/kobako-runtime/src/vfs/cred.rs`
 - `crates/kobako-runtime/src/vfs/dentry.rs`
-- `crates/kobako-runtime/src/vfs/errno.rs`
 - `crates/kobako-runtime/src/vfs/mount.rs`
 - `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-runtime/src/vfs/super_block.rs`
@@ -70,7 +70,7 @@ The instance a Filesystem makes, set up as its `fill_super` asks, or why it cann
 
 ```rust
 impl SuperBlock {
-    pub fn new(fs: Arc<dyn FileSystemType>) -> Result<Arc<Self>, FilesystemError> {}
+    pub fn new(fs: Arc<dyn FileSystemType>) -> Result<Arc<Self>, Errno> {}
 }
 ```
 
@@ -347,7 +347,7 @@ Whether a call may do what a `Mask` asks of an entry, once the entry allowed it.
 
 ```rust
 pub trait SecurityOperations {
-    fn inode_permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), FilesystemError>;
+    fn inode_permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), Errno>;
 }
 ```
 
@@ -357,7 +357,7 @@ Whether a file may be made at a path.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_mknod(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+    fn path_mknod(&self, _path: SecurityPath<'_>) -> Result<(), Errno>;
 }
 ```
 
@@ -367,7 +367,7 @@ Whether a directory may be made at a path.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_mkdir(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+    fn path_mkdir(&self, _path: SecurityPath<'_>) -> Result<(), Errno>;
 }
 ```
 
@@ -377,7 +377,7 @@ Whether the directory at a path may go.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_rmdir(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+    fn path_rmdir(&self, _path: SecurityPath<'_>) -> Result<(), Errno>;
 }
 ```
 
@@ -387,7 +387,7 @@ Whether the file at a path may go.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_unlink(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+    fn path_unlink(&self, _path: SecurityPath<'_>) -> Result<(), Errno>;
 }
 ```
 
@@ -397,7 +397,7 @@ Whether a link may be made at a path.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_symlink(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+    fn path_symlink(&self, _path: SecurityPath<'_>) -> Result<(), Errno>;
 }
 ```
 
@@ -407,7 +407,7 @@ Whether what one path names may also go by another.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_link(&self, _old: SecurityPath<'_>, _new: SecurityPath<'_>) -> Result<(), FilesystemError>;
+    fn path_link(&self, _old: SecurityPath<'_>, _new: SecurityPath<'_>) -> Result<(), Errno>;
 }
 ```
 
@@ -418,7 +418,7 @@ included. What the module answers it keeps on the open file.
 
 ```rust
 pub trait SecurityOperations {
-    fn file_open(&self, _path: SecurityPath<'_>, _kind: FileType, _mode: FMode, _how: &OpenHow) -> Result<FileSecurity, FilesystemError>;
+    fn file_open(&self, _path: SecurityPath<'_>, _kind: FileType, _mode: FMode, _how: &OpenHow) -> Result<FileSecurity, Errno>;
 }
 ```
 
@@ -429,7 +429,7 @@ as it opened.
 
 ```rust
 pub trait SecurityOperations {
-    fn file_truncate(&self, _kept: &FileSecurity) -> Result<(), FilesystemError>;
+    fn file_truncate(&self, _kept: &FileSecurity) -> Result<(), Errno>;
 }
 ```
 
@@ -439,7 +439,7 @@ Whether times may be set on the entry at a path.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_utimes(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError>;
+    fn path_utimes(&self, _path: SecurityPath<'_>) -> Result<(), Errno>;
 }
 ```
 
@@ -449,7 +449,7 @@ Whether where the link a Dentry names points may be read.
 
 ```rust
 pub trait SecurityOperations {
-    fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
+    fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), Errno>;
 }
 ```
 
@@ -460,7 +460,7 @@ named.
 
 ```rust
 pub trait SecurityOperations {
-    fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), FilesystemError>;
+    fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), Errno>;
 }
 ```
 
@@ -470,7 +470,7 @@ Whether a socket may bind an address.
 
 ```rust
 pub trait SecurityOperations {
-    fn socket_bind(&self, _address: SocketAddr) -> Result<(), FilesystemError>;
+    fn socket_bind(&self, _address: SocketAddr) -> Result<(), Errno>;
 }
 ```
 
@@ -480,7 +480,7 @@ Whether what one path names may move to another, the dentries of each given.
 
 ```rust
 pub trait SecurityOperations {
-    fn path_rename(&self, _old: SecurityPath<'_>, _new: SecurityPath<'_>, _dentries: (&Arc<Dentry>, &Arc<Dentry>)) -> Result<(), FilesystemError>;
+    fn path_rename(&self, _old: SecurityPath<'_>, _new: SecurityPath<'_>, _dentries: (&Arc<Dentry>, &Arc<Dentry>)) -> Result<(), Errno>;
 }
 ```
 
@@ -503,7 +503,7 @@ as any file does answers through `generic_file_llseek`.
 
 ```rust
 pub trait FileOperations {
-    fn llseek(&mut self, _dentry: &Dentry, _pos: u64, _offset: i64, _whence: Whence) -> Result<u64, FilesystemError>;
+    fn llseek(&mut self, _dentry: &Dentry, _pos: u64, _offset: i64, _whence: Whence) -> Result<u64, Errno>;
 }
 ```
 
@@ -513,7 +513,7 @@ Where a seek leaves a file. It counts from the start, the position, or the repor
 end, and refuses a place past the largest offset.
 
 ```rust
-pub fn generic_file_llseek(dentry: &Dentry, pos: u64, offset: i64, whence: Whence) -> Result<u64, FilesystemError> {}
+pub fn generic_file_llseek(dentry: &Dentry, pos: u64, offset: i64, whence: Whence) -> Result<u64, Errno> {}
 ```
 
 ## `PollMask`
@@ -724,7 +724,7 @@ Give an entry another name in this directory. Without it the runtime answers
 
 ```rust
 pub trait InodeOperations {
-    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Option<Result<(), FilesystemError>>;
+    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Option<Result<(), Errno>>;
 }
 ```
 
@@ -734,7 +734,7 @@ Make a link in this directory. Without it the runtime answers `NotPermitted`.
 
 ```rust
 pub trait InodeOperations {
-    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Option<Result<(), FilesystemError>>;
+    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Option<Result<(), Errno>>;
 }
 ```
 
@@ -833,7 +833,7 @@ What this entry reports of itself. A link reports itself.
 
 ```rust
 pub trait InodeOperations {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError>;
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno>;
 }
 ```
 
@@ -844,7 +844,7 @@ it is no directory to walk through.
 
 ```rust
 pub trait InodeOperations {
-    fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError>;
+    fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, Errno>;
 }
 ```
 
@@ -855,7 +855,7 @@ the call, and its backend answers once the call is made.
 
 ```rust
 pub trait InodeOperations {
-    fn permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), FilesystemError>;
+    fn permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), Errno>;
 }
 ```
 
@@ -944,7 +944,7 @@ cannot stand.
 
 ```rust
 pub trait FileSystemType {
-    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError>;
+    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), Errno>;
 }
 ```
 
@@ -968,7 +968,7 @@ pub trait DentryOperations {
         &self,
         dir: &dyn InodeOperations,
         dentry: &Dentry,
-    ) -> Result<bool, FilesystemError>;
+    ) -> Result<bool, Errno>;
 }
 ```
 
@@ -990,7 +990,7 @@ invalid input.
 
 ```rust
 pub trait InodeOperations {
-    fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError>;
+    fn get_link(&self, _dentry: &Dentry) -> Result<String, Errno>;
 }
 ```
 
@@ -1002,7 +1002,7 @@ it opens with no operations.
 
 ```rust
 pub trait InodeOperations {
-    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, FilesystemError>;
+    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno>;
 }
 ```
 
@@ -1013,7 +1013,7 @@ directory without it answers permission denied.
 
 ```rust
 pub trait InodeOperations {
-    fn create(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
+    fn create(&self, _dentry: &Dentry) -> Result<(), Errno>;
 }
 ```
 
@@ -1029,7 +1029,7 @@ runtime asks its security modules before it opens the file.
 
 ```rust
 pub trait InodeOperations {
-    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError>;
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, Errno>;
 }
 ```
 
@@ -1040,7 +1040,7 @@ not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn mkdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
+    fn mkdir(&self, _dentry: &Dentry) -> Result<(), Errno>;
 }
 ```
 
@@ -1051,7 +1051,7 @@ answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn rmdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
+    fn rmdir(&self, _dentry: &Dentry) -> Result<(), Errno>;
 }
 ```
 
@@ -1062,7 +1062,7 @@ answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn unlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError>;
+    fn unlink(&self, _dentry: &Dentry) -> Result<(), Errno>;
 }
 ```
 
@@ -1092,7 +1092,7 @@ without it refuses a size as invalid input and a time as unsupported.
 
 ```rust
 pub trait InodeOperations {
-    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError>;
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), Errno>;
 }
 ```
 
@@ -1106,7 +1106,7 @@ without it answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn rename(&self, _from: &Dentry, _to_dir: &dyn InodeOperations, _to: &Dentry, _flag: Option<RenameFlag>) -> Result<(), FilesystemError>;
+    fn rename(&self, _from: &Dentry, _to_dir: &dyn InodeOperations, _to: &Dentry, _flag: Option<RenameFlag>) -> Result<(), Errno>;
 }
 ```
 
@@ -1173,7 +1173,7 @@ Make what a write changed durable through the file where the call asks. A
 Filesystem's write calls it once the write landed.
 
 ```rust
-pub fn generic_write_sync<F: FileOperations + ?Sized>(file: &mut F, iocb: &Kiocb, written: usize) -> Result<usize, FilesystemError> {}
+pub fn generic_write_sync<F: FileOperations + ?Sized>(file: &mut F, iocb: &Kiocb, written: usize) -> Result<usize, Errno> {}
 ```
 
 ## `FileOperations::read_iter`
@@ -1183,7 +1183,7 @@ moves the position past what it read, unless the file has no positions.
 
 ```rust
 pub trait FileOperations {
-    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError>;
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, Errno>;
 }
 ```
 
@@ -1195,7 +1195,7 @@ at the end that the file cannot take as one step answers `Unsupported`.
 
 ```rust
 pub trait FileOperations {
-    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError>;
+    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, Errno>;
 }
 ```
 
@@ -1206,7 +1206,7 @@ first, until its actor stops. A file without it answers not a directory.
 
 ```rust
 pub trait FileOperations {
-    fn iterate_shared(&mut self, _dentry: &Dentry, _ctx: &mut DirContext<'_>) -> Result<(), FilesystemError>;
+    fn iterate_shared(&mut self, _dentry: &Dentry, _ctx: &mut DirContext<'_>) -> Result<(), Errno>;
 }
 ```
 
@@ -1276,7 +1276,7 @@ pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {}
 What a directory's read answers.
 
 ```rust
-pub fn generic_read_dir() -> Result<usize, FilesystemError> {}
+pub fn generic_read_dir() -> Result<usize, Errno> {}
 ```
 
 ## `Rdir`
@@ -1297,7 +1297,7 @@ with.
 
 ```rust
 impl Rdir {
-    pub fn iterate(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>, read: impl FnOnce() -> Result<Vec<DirEntry>, FilesystemError>) -> Result<(), FilesystemError> {}
+    pub fn iterate(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>, read: impl FnOnce() -> Result<Vec<DirEntry>, Errno>) -> Result<(), Errno> {}
 }
 ```
 
@@ -1307,7 +1307,7 @@ Reserve a range. A file without it answers `Unsupported`, as `vfs_fallocate` doe
 
 ```rust
 pub trait FileOperations {
-    fn fallocate(&mut self, _offset: u64, _len: u64) -> Result<(), FilesystemError>;
+    fn fallocate(&mut self, _offset: u64, _len: u64) -> Result<(), Errno>;
 }
 ```
 
@@ -1330,7 +1330,7 @@ itself; one without it refuses as invalid input.
 
 ```rust
 pub trait FileOperations {
-    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError>;
+    fn fsync(&mut self, _datasync: bool) -> Result<(), Errno>;
 }
 ```
 
@@ -1341,7 +1341,7 @@ has nothing to flush. Whatever else the file holds goes when it is dropped.
 
 ```rust
 pub trait FileOperations {
-    fn flush(&mut self) -> Result<(), FilesystemError>;
+    fn flush(&mut self) -> Result<(), Errno>;
 }
 ```
 
@@ -1443,13 +1443,13 @@ impl DirEntry {
 }
 ```
 
-## `FilesystemError`
+## `Errno`
 
-Why a Filesystem call failed. The engine hands the Guest the matching error
-code.
+Why a call failed, under the POSIX name Linux answers it with. The engine
+hands the Guest the matching error code.
 
 ```rust
-pub enum FilesystemError {}
+pub enum Errno {}
 ```
 
 ## `Tmpfs`
@@ -1582,7 +1582,7 @@ impl Overlay {
     pub fn new(
         lower: Vec<Arc<Filesystem>>,
         upper: Option<Arc<Filesystem>>,
-    ) -> Result<Self, FilesystemError> {}
+    ) -> Result<Self, Errno> {}
 }
 ```
 

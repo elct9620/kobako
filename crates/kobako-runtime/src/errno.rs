@@ -6,7 +6,7 @@ use crate::locking::DownError;
 /// Why a Filesystem call failed, for the ABI above to encode as its error code.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum FilesystemError {
+pub enum Errno {
     NotFound,
     AlreadyExists,
     NotADirectory,
@@ -97,58 +97,58 @@ pub enum FilesystemError {
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, FilesystemError); 48] = [
-    ("EAGAIN", FilesystemError::WouldBlock),
-    ("ENOENT", FilesystemError::NotFound),
-    ("EEXIST", FilesystemError::AlreadyExists),
-    ("ENOTDIR", FilesystemError::NotADirectory),
-    ("EISDIR", FilesystemError::IsADirectory),
-    ("ENOTEMPTY", FilesystemError::DirectoryNotEmpty),
-    ("EACCES", FilesystemError::PermissionDenied),
-    ("EROFS", FilesystemError::ReadOnlyFilesystem),
-    ("EINVAL", FilesystemError::InvalidInput),
-    ("ENOTSUP", FilesystemError::Unsupported),
-    ("EOPNOTSUPP", FilesystemError::Unsupported),
-    ("ENOSPC", FilesystemError::StorageFull),
-    ("EFBIG", FilesystemError::FileTooLarge),
-    ("EXDEV", FilesystemError::CrossesDevices),
-    ("EDEADLK", FilesystemError::Deadlock),
-    ("ELOOP", FilesystemError::FilesystemLoop),
-    ("EPERM", FilesystemError::NotPermitted),
-    ("EBADF", FilesystemError::BadDescriptor),
-    ("EBUSY", FilesystemError::ResourceBusy),
-    ("EILSEQ", FilesystemError::IllegalSequence),
-    ("EINTR", FilesystemError::Interrupted),
-    ("EMFILE", FilesystemError::TooManyOpenFiles),
-    ("ENAMETOOLONG", FilesystemError::InvalidFilename),
-    ("ENOMEM", FilesystemError::OutOfMemory),
-    ("ENOTSOCK", FilesystemError::NotASocket),
-    ("EOVERFLOW", FilesystemError::ValueTooLarge),
-    ("ESPIPE", FilesystemError::NotSeekable),
-    ("ENODEV", FilesystemError::NoSuchDevice),
-    ("ESTALE", FilesystemError::StaleNetworkFileHandle),
-    ("ECONNREFUSED", FilesystemError::ConnectionRefused),
-    ("ECONNRESET", FilesystemError::ConnectionReset),
-    ("ECONNABORTED", FilesystemError::ConnectionAborted),
-    ("ETIMEDOUT", FilesystemError::TimedOut),
-    ("EHOSTUNREACH", FilesystemError::HostUnreachable),
-    ("ENETUNREACH", FilesystemError::NetworkUnreachable),
-    ("ENETDOWN", FilesystemError::NetworkDown),
-    ("ENOBUFS", FilesystemError::NoBufferSpace),
-    ("EADDRNOTAVAIL", FilesystemError::AddressNotAvailable),
-    ("EADDRINUSE", FilesystemError::AddressInUse),
-    ("EPIPE", FilesystemError::BrokenPipe),
-    ("ENOTCONN", FilesystemError::NotConnected),
-    ("EDESTADDRREQ", FilesystemError::DestinationAddressRequired),
-    ("EMSGSIZE", FilesystemError::MessageTooLong),
-    ("EISCONN", FilesystemError::AlreadyConnected),
-    ("EINPROGRESS", FilesystemError::InProgress),
-    ("EALREADY", FilesystemError::AlreadyInProgress),
-    ("EAFNOSUPPORT", FilesystemError::AddressFamilyNotSupported),
-    ("ENOPROTOOPT", FilesystemError::ProtocolNotAvailable),
+const POSIX_NAMES: [(&str, Errno); 48] = [
+    ("EAGAIN", Errno::WouldBlock),
+    ("ENOENT", Errno::NotFound),
+    ("EEXIST", Errno::AlreadyExists),
+    ("ENOTDIR", Errno::NotADirectory),
+    ("EISDIR", Errno::IsADirectory),
+    ("ENOTEMPTY", Errno::DirectoryNotEmpty),
+    ("EACCES", Errno::PermissionDenied),
+    ("EROFS", Errno::ReadOnlyFilesystem),
+    ("EINVAL", Errno::InvalidInput),
+    ("ENOTSUP", Errno::Unsupported),
+    ("EOPNOTSUPP", Errno::Unsupported),
+    ("ENOSPC", Errno::StorageFull),
+    ("EFBIG", Errno::FileTooLarge),
+    ("EXDEV", Errno::CrossesDevices),
+    ("EDEADLK", Errno::Deadlock),
+    ("ELOOP", Errno::FilesystemLoop),
+    ("EPERM", Errno::NotPermitted),
+    ("EBADF", Errno::BadDescriptor),
+    ("EBUSY", Errno::ResourceBusy),
+    ("EILSEQ", Errno::IllegalSequence),
+    ("EINTR", Errno::Interrupted),
+    ("EMFILE", Errno::TooManyOpenFiles),
+    ("ENAMETOOLONG", Errno::InvalidFilename),
+    ("ENOMEM", Errno::OutOfMemory),
+    ("ENOTSOCK", Errno::NotASocket),
+    ("EOVERFLOW", Errno::ValueTooLarge),
+    ("ESPIPE", Errno::NotSeekable),
+    ("ENODEV", Errno::NoSuchDevice),
+    ("ESTALE", Errno::StaleNetworkFileHandle),
+    ("ECONNREFUSED", Errno::ConnectionRefused),
+    ("ECONNRESET", Errno::ConnectionReset),
+    ("ECONNABORTED", Errno::ConnectionAborted),
+    ("ETIMEDOUT", Errno::TimedOut),
+    ("EHOSTUNREACH", Errno::HostUnreachable),
+    ("ENETUNREACH", Errno::NetworkUnreachable),
+    ("ENETDOWN", Errno::NetworkDown),
+    ("ENOBUFS", Errno::NoBufferSpace),
+    ("EADDRNOTAVAIL", Errno::AddressNotAvailable),
+    ("EADDRINUSE", Errno::AddressInUse),
+    ("EPIPE", Errno::BrokenPipe),
+    ("ENOTCONN", Errno::NotConnected),
+    ("EDESTADDRREQ", Errno::DestinationAddressRequired),
+    ("EMSGSIZE", Errno::MessageTooLong),
+    ("EISCONN", Errno::AlreadyConnected),
+    ("EINPROGRESS", Errno::InProgress),
+    ("EALREADY", Errno::AlreadyInProgress),
+    ("EAFNOSUPPORT", Errno::AddressFamilyNotSupported),
+    ("ENOPROTOOPT", Errno::ProtocolNotAvailable),
 ];
 
-impl From<DownError> for FilesystemError {
+impl From<DownError> for Errno {
     fn from(error: DownError) -> Self {
         match error {
             DownError::Deadlock => Self::Deadlock,
@@ -157,7 +157,7 @@ impl From<DownError> for FilesystemError {
     }
 }
 
-impl FilesystemError {
+impl Errno {
     /// The POSIX error name this failure stands for, as `ENOENT`. `Other`
     /// has none, and `Escape` shares `CrossesDevices`'s.
     pub fn posix_name(&self) -> Option<&'static str> {
@@ -187,21 +187,21 @@ mod tests {
     fn every_posix_name_answers_back_to_its_failure() {
         for (name, error) in &POSIX_NAMES {
             assert_eq!(
-                FilesystemError::from_posix_name(name)
+                Errno::from_posix_name(name)
                     .as_ref()
-                    .and_then(FilesystemError::posix_name)
-                    .and_then(FilesystemError::from_posix_name),
+                    .and_then(Errno::posix_name)
+                    .and_then(Errno::from_posix_name),
                 Some(error.clone()),
-                "{name} through FilesystemError::from_posix_name and posix_name must name {error:?} again"
+                "{name} through Errno::from_posix_name and posix_name must name {error:?} again"
             );
         }
         assert_eq!(
             (
-                FilesystemError::Unsupported.posix_name(),
-                FilesystemError::Other("x".into()).posix_name()
+                Errno::Unsupported.posix_name(),
+                Errno::Other("x".into()).posix_name()
             ),
             (Some("ENOTSUP"), None),
-            "Unsupported through FilesystemError::posix_name must answer ENOTSUP, and Other none"
+            "Unsupported through Errno::posix_name must answer ENOTSUP, and Other none"
         );
     }
 }

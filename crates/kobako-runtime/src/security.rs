@@ -11,9 +11,10 @@ use crate::grant::{Grant, Policy};
 use crate::mount::{Access, Mount, MountRequest};
 use crate::network::Connection;
 use crate::vfs::{
-    d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, FilesystemError, OpenHow, Path,
-    SecurityOperations, SecurityPath, VfsMount, VmCommitted, PATH_MAX,
+    d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, OpenHow, Path, SecurityOperations,
+    SecurityPath, VfsMount, VmCommitted, PATH_MAX,
 };
+use crate::Errno;
 
 /// What a Mount's Policy allowed a file as it opened, kept on the open file, as
 /// Landlock's file blob keeps `allowed_access`.
@@ -24,7 +25,7 @@ struct AllowedAccess(Access);
 /// passes through, so a `WalkGuard` asks this of where a call starts. A name moved
 /// while it was asked answers EAGAIN, as a scoped walk's `..` answers a move it
 /// met, and the caller makes the call again.
-fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
+fn revalidate_path(path: &Path) -> Result<bool, Errno> {
     let mut chain = vec![path.dentry().clone()];
     while let Some(at) = chain.last().filter(|at| !at.is_root()) {
         let above = at.parent();
@@ -34,7 +35,7 @@ fn revalidate_path(path: &Path) -> Result<bool, FilesystemError> {
         let [name, above] = pair else { continue };
         let _held = above.inode_lock_shared()?;
         if !Arc::ptr_eq(&name.parent(), above) {
-            return Err(FilesystemError::WouldBlock);
+            return Err(Errno::WouldBlock);
         }
         if !d_revalidate(path.mnt().sb(), above, name)? {
             return Ok(false);
@@ -55,25 +56,25 @@ impl SecurityOperations for KobakoSecurity {
         kind: FileType,
         _mode: FMode,
         _how: &OpenHow,
-    ) -> Result<FileSecurity, FilesystemError> {
+    ) -> Result<FileSecurity, Errno> {
         match kind {
             FileType::RegFile | FileType::Dir => Ok(None),
-            _ => Err(FilesystemError::PermissionDenied),
+            _ => Err(Errno::PermissionDenied),
         }
     }
 
     /// A guest never reads where a link points.
-    fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
-        Err(FilesystemError::Unsupported)
+    fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), Errno> {
+        Err(Errno::Unsupported)
     }
 
     /// A guest only reaches out, so it binds the unspecified address and port
     /// 0 alone, as Landlock's `hook_socket_bind` refuses a bind no
     /// `BIND_TCP` right allows.
-    fn socket_bind(&self, address: SocketAddr) -> Result<(), FilesystemError> {
+    fn socket_bind(&self, address: SocketAddr) -> Result<(), Errno> {
         match address.ip().is_unspecified() && address.port() == 0 {
             true => Ok(()),
-            false => Err(FilesystemError::PermissionDenied),
+            false => Err(Errno::PermissionDenied),
         }
     }
 }
@@ -105,50 +106,46 @@ impl MountPolicy {
     /// hand it one spelling of an entry it refuses by another. One a Policy could
     /// not be handed within `PATH_MAX` is refused as too long, as AppArmor's
     /// `aa_path_name` refuses one past its buffer.
-    fn path_perm(&self, path: SecurityPath<'_>, access: Access) -> Result<(), FilesystemError> {
+    fn path_perm(&self, path: SecurityPath<'_>, access: Access) -> Result<(), Errno> {
         if !self.guards(path.mnt) {
             return Ok(());
         }
         let path = self.guest_path(&(path.name)());
         if path.len() >= PATH_MAX {
-            return Err(FilesystemError::InvalidFilename);
+            return Err(Errno::InvalidFilename);
         }
         match self.policy.allows(&MountRequest {
             path: &path,
             access,
         }) {
             true => Ok(()),
-            false => Err(FilesystemError::PermissionDenied),
+            false => Err(Errno::PermissionDenied),
         }
     }
 }
 
 impl SecurityOperations for MountPolicy {
-    fn path_mknod(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_mknod(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.path_perm(path, Access::ReadWrite)
     }
 
-    fn path_mkdir(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_mkdir(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.path_perm(path, Access::ReadWrite)
     }
 
-    fn path_rmdir(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_rmdir(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.path_perm(path, Access::ReadWrite)
     }
 
-    fn path_unlink(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_unlink(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.path_perm(path, Access::ReadWrite)
     }
 
-    fn path_symlink(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_symlink(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.path_perm(path, Access::ReadWrite)
     }
 
-    fn path_link(
-        &self,
-        old: SecurityPath<'_>,
-        new: SecurityPath<'_>,
-    ) -> Result<(), FilesystemError> {
+    fn path_link(&self, old: SecurityPath<'_>, new: SecurityPath<'_>) -> Result<(), Errno> {
         self.path_perm(old, Access::ReadWrite)?;
         self.path_perm(new, Access::ReadWrite)
     }
@@ -162,7 +159,7 @@ impl SecurityOperations for MountPolicy {
         _kind: FileType,
         mode: FMode,
         how: &OpenHow,
-    ) -> Result<FileSecurity, FilesystemError> {
+    ) -> Result<FileSecurity, Errno> {
         if !self.guards(path.mnt) {
             return Ok(None);
         }
@@ -180,17 +177,17 @@ impl SecurityOperations for MountPolicy {
     /// A truncate follows what the Policy allowed as the file opened, wherever
     /// the file stands now, as Landlock's `hook_file_truncate` reads the file's
     /// rights.
-    fn file_truncate(&self, kept: &FileSecurity) -> Result<(), FilesystemError> {
+    fn file_truncate(&self, kept: &FileSecurity) -> Result<(), Errno> {
         match kept
             .as_deref()
             .and_then(|kept| kept.downcast_ref::<AllowedAccess>())
         {
-            Some(AllowedAccess(Access::Read)) => Err(FilesystemError::PermissionDenied),
+            Some(AllowedAccess(Access::Read)) => Err(Errno::PermissionDenied),
             _ => Ok(()),
         }
     }
 
-    fn path_utimes(&self, path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_utimes(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.path_perm(path, Access::ReadWrite)
     }
 
@@ -204,13 +201,13 @@ impl SecurityOperations for MountPolicy {
         old: SecurityPath<'_>,
         new: SecurityPath<'_>,
         (old_dentry, new_dentry): (&Arc<Dentry>, &Arc<Dentry>),
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         self.path_perm(old, Access::ReadWrite)?;
         self.path_perm(new, Access::ReadWrite)?;
         let moves_dir =
             old_dentry.kind() == Ok(FileType::Dir) && !Arc::ptr_eq(old_dentry, new_dentry);
         match moves_dir && self.guards(old.mnt) {
-            true => Err(FilesystemError::CrossesDevices),
+            true => Err(Errno::CrossesDevices),
             false => Ok(()),
         }
     }
@@ -243,7 +240,7 @@ impl WalkGuard {
     /// so it is refused too. This keeps a host or another Filesystem instance moving
     /// a directory behind the runtime's back from having a Policy judge a path it no
     /// longer stands at.
-    pub fn check(&self, path: &Path) -> Result<(), FilesystemError> {
+    pub fn check(&self, path: &Path) -> Result<(), Errno> {
         if !self.guarded.iter().any(|mnt| Arc::ptr_eq(mnt, path.mnt())) {
             return Ok(());
         }
@@ -255,7 +252,7 @@ impl WalkGuard {
             .inode()
             .is_some_and(|inode| inode.identity().is_some());
         if path.mnt().sb().dentries().unlinked(dentry) || !told_apart || !revalidate_path(path)? {
-            return Err(FilesystemError::NotFound);
+            return Err(Errno::NotFound);
         }
         Ok(())
     }
@@ -281,10 +278,10 @@ pub fn prepare_creds_within(
 struct EntryPolicy(Arc<dyn for<'a> Policy<Connection<'a>>>);
 
 impl SecurityOperations for EntryPolicy {
-    fn socket_connect(&self, connection: &Connection<'_>) -> Result<(), FilesystemError> {
+    fn socket_connect(&self, connection: &Connection<'_>) -> Result<(), Errno> {
         match self.0.allows(connection) {
             true => Ok(()),
-            false => Err(FilesystemError::PermissionDenied),
+            false => Err(Errno::PermissionDenied),
         }
     }
 }
@@ -425,7 +422,7 @@ mod tests {
 
     /// What making an entry answers through a directory moved past
     /// `PATH_MAX`, beneath a mount `prepare` finishes.
-    fn made_past_the_limit(prepare: impl FnOnce(Mount) -> Mount) -> Result<(), FilesystemError> {
+    fn made_past_the_limit(prepare: impl FnOnce(Mount) -> Mount) -> Result<(), Errno> {
         let (deep, seed) = (vec!["a"; 2000].join("/"), "x");
         let tmpfs: Tmpfs = [
             (format!("c0/{deep}/file"), seed),
@@ -485,7 +482,7 @@ mod tests {
         let asked_past_the_limit = asked.0.load(std::sync::atomic::Ordering::SeqCst);
         assert_eq!(
             (made, asked_past_the_limit),
-            (Err(FilesystemError::InvalidFilename), 1),
+            (Err(Errno::InvalidFilename), 1),
             "vfs::filename_mkdirat through a directory moved past PATH_MAX, beneath a Policy, \
              must answer ENAMETOOLONG, the Policy asked only of the open before the move"
         );
@@ -502,7 +499,7 @@ mod tests {
             ops: &dyn DentryOperations,
             dir: &dyn InodeOperations,
             dentry: &Dentry,
-        ) -> Result<bool, FilesystemError> {
+        ) -> Result<bool, Errno> {
             let reached = match dentry.name() == "d" {
                 true => self.0.lock().expect("the sender").take(),
                 false => None,
@@ -599,7 +596,7 @@ mod tests {
             ops: &dyn crate::vfs::DentryOperations,
             dir: &dyn crate::filesystem::InodeOperations,
             dentry: &Dentry,
-        ) -> Result<bool, FilesystemError> {
+        ) -> Result<bool, Errno> {
             use std::sync::atomic::Ordering;
             let guarding = self.guarding.get() == Some(&std::thread::current().id());
             let from = dentry.name();
@@ -648,7 +645,7 @@ mod tests {
         hook.guarding.set(std::thread::current().id()).ok();
         assert_eq!(
             (guard.check(held.path()), hook.moved.load(Ordering::SeqCst)),
-            (Err(FilesystemError::WouldBlock), 1),
+            (Err(Errno::WouldBlock), 1),
             "WalkGuard::check of a directory another Mount moves while it is asked, beneath a \
              Policy, must answer EAGAIN from the pass that met the move"
         );
@@ -691,7 +688,7 @@ mod tests {
                     crate::vfs::vfs_fstatat(&cred, &start, "f", false)
                 };
                 let refused = (0..200_000)
-                    .filter(|_| call().is_err_and(|error| error != FilesystemError::WouldBlock))
+                    .filter(|_| call().is_err_and(|error| error != Errno::WouldBlock))
                     .count();
                 stop.store(true, Ordering::SeqCst);
                 refused

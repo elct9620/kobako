@@ -15,8 +15,9 @@ use kobako_runtime::net::{
     sys_connect_datagram, AddressFamily, Namespace, ProtoOps, SockOpt, MAX_DATAGRAM,
     MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
-use kobako_runtime::vfs::{Cred, FilesystemError, PollMask};
+use kobako_runtime::vfs::{Cred, PollMask};
 use kobako_runtime::wait::{do_poll, PollTable};
+use kobako_runtime::Errno;
 
 use super::bindings::wasi_clocks_monotonic_clock_0_2_12 as monotonic_clock;
 use super::bindings::wasi_io_error_0_2_12::Error;
@@ -190,7 +191,7 @@ impl Invocation {
     fn create_socket<S: ProtoOps + 'static, H: table::Handle>(
         &mut self,
         family: IpAddressFamily,
-        create: impl FnOnce(&Namespace, &Arc<Cred>, AddressFamily) -> Result<Arc<S>, FilesystemError>,
+        create: impl FnOnce(&Namespace, &Arc<Cred>, AddressFamily) -> Result<Arc<S>, Errno>,
         resource: impl FnOnce(SocketFile<S>) -> H::Host,
     ) -> Result<H, SocketError> {
         if self.wasi().network().is_none() {
@@ -441,7 +442,7 @@ impl SocketsHost for Invocation {
         // `finish-connect` would read as a connect still under way.
         self.tcp_mut(this)?.state = match sys_connect(self.network(), cred, &sock, addr) {
             Ok(()) => TcpState::Connecting,
-            Err(FilesystemError::WouldBlock) => {
+            Err(Errno::WouldBlock) => {
                 self.tcp_mut(this)?.state = TcpState::Closed(ErrorCode::WouldBlock);
                 return Err(ErrorCode::WouldBlock.into());
             }
@@ -480,7 +481,7 @@ impl SocketsHost for Invocation {
                     .push_child(table::OutputStream::new(stream), this)?;
                 Ok((input, output))
             }
-            Err(FilesystemError::WouldBlock) => Err(ErrorCode::WouldBlock.into()),
+            Err(Errno::WouldBlock) => Err(ErrorCode::WouldBlock.into()),
             Err(err) => {
                 let code = to_error_code(&err);
                 self.tcp_mut(this)?.state = TcpState::Closed(code);
@@ -827,7 +828,7 @@ impl SocketsHost for Invocation {
                     });
                 }
                 Ok((_, None)) => unreachable!("a UDP socket names each datagram's sender"),
-                Err(FilesystemError::WouldBlock) => break,
+                Err(Errno::WouldBlock) => break,
                 Err(err) if received.is_empty() => return Err(err.into()),
                 Err(_) => break,
             }
@@ -900,7 +901,7 @@ impl SocketsHost for Invocation {
             } else {
                 match socket_file.file().write(&datagram.data) {
                     Ok(_) => None,
-                    Err(FilesystemError::WouldBlock) => break,
+                    Err(Errno::WouldBlock) => break,
                     Err(err) => Some(to_error_code(&err)),
                 }
             };
@@ -961,7 +962,7 @@ impl IoHost for Invocation {
                     buf.truncate(n);
                     Ok(buf)
                 }
-                Err(FilesystemError::WouldBlock) => Ok(Vec::new()),
+                Err(Errno::WouldBlock) => Ok(Vec::new()),
                 Err(err) => Err(err.into()),
             }
         })
@@ -1000,7 +1001,7 @@ impl IoHost for Invocation {
                 host.wait_on(&stream, PollMask::OUT)?;
                 match stream.write(rest) {
                     Ok(n) => rest = &rest[n..],
-                    Err(FilesystemError::WouldBlock) => {}
+                    Err(Errno::WouldBlock) => {}
                     Err(err) => return Err(err.into()),
                 }
             }
@@ -1011,7 +1012,7 @@ impl IoHost for Invocation {
                 (failed || stream.is_drained()).then_some(())
             })?;
             match stream.write(&[]) {
-                Err(FilesystemError::BrokenPipe) if !contents.is_empty() => Ok(()),
+                Err(Errno::BrokenPipe) if !contents.is_empty() => Ok(()),
                 Ok(_) => Ok(()),
                 Err(err) => Err(err.into()),
             }
@@ -1065,7 +1066,7 @@ impl IoHost for Invocation {
             // grows until the write, as the reactor only drains.
             let stream = output.stream.clone();
             if stream.room() < contents.len() {
-                return Err(FilesystemError::NoBufferSpace.into());
+                return Err(Errno::NoBufferSpace.into());
             }
             stream.write(&contents)?;
             Ok(())

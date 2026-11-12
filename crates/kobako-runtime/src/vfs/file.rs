@@ -17,7 +17,7 @@ use super::readdir::DirContext;
 #[cfg(test)]
 use super::readdir::{DirEmit, DirEntry};
 use super::stat::special_file;
-use super::{FileType, FilesystemError, Iattr, Kstat};
+use super::{Errno, FileType, Iattr, Kstat};
 use crate::wait::PollTable;
 
 /// The largest offset a file holds, as Linux's `OFFSET_MAX` ends its signed
@@ -74,7 +74,7 @@ pub fn generic_write_sync<F: FileOperations + ?Sized>(
     file: &mut F,
     iocb: &Kiocb,
     written: usize,
-) -> Result<usize, FilesystemError> {
+) -> Result<usize, Errno> {
     if iocb.dsync && written > 0 {
         file.fsync(!iocb.sync)?;
     }
@@ -96,16 +96,16 @@ pub trait FileOperations: Any + Send + Sync {
         _pos: u64,
         _offset: i64,
         _whence: Whence,
-    ) -> Result<u64, FilesystemError> {
-        Err(FilesystemError::NotSeekable)
+    ) -> Result<u64, Errno> {
+        Err(Errno::NotSeekable)
     }
 
     /// Read into `buf` from where `iocb` lands, moving it past what was read
     /// unless the file has no positions. A file without it refuses as Linux's
     /// `vfs_read` refuses one without `f_op->read_iter`. A directory answers
     /// through `generic_read_dir`, so its read is refused as a directory's.
-    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        Err(FilesystemError::InvalidInput)
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, Errno> {
+        Err(Errno::InvalidInput)
     }
 
     /// Write `buf` where `iocb` lands, moving it past what was written unless
@@ -116,8 +116,8 @@ pub trait FileOperations: Any + Send + Sync {
     /// writer's from landing over it, as `generic_file_write_iter` reads the
     /// end under the inode's lock, so a file that cannot read its end and
     /// write there in one step answers `Unsupported`.
-    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
-        Err(FilesystemError::InvalidInput)
+    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, Errno> {
+        Err(Errno::InvalidInput)
     }
 
     /// Hand `ctx` the entries of this directory, which `dentry` names, from
@@ -125,18 +125,14 @@ pub trait FileOperations: Any + Send + Sync {
     /// `dir_emit_dots` and `dir_emit`. One reading the whole directory at once
     /// answers through the `Rdir` that `filesystem` provides. A file without
     /// it answers `NotADirectory`, as Linux's `iterate_dir` does.
-    fn iterate_shared(
-        &mut self,
-        _dentry: &Dentry,
-        _ctx: &mut DirContext<'_>,
-    ) -> Result<(), FilesystemError> {
-        Err(FilesystemError::NotADirectory)
+    fn iterate_shared(&mut self, _dentry: &Dentry, _ctx: &mut DirContext<'_>) -> Result<(), Errno> {
+        Err(Errno::NotADirectory)
     }
 
     /// Reserve `len` bytes from `offset`, as `f_op->fallocate` does. A file
     /// without it refuses as Linux's `vfs_fallocate` refuses one without it.
-    fn fallocate(&mut self, _offset: u64, _len: u64) -> Result<(), FilesystemError> {
-        Err(FilesystemError::Unsupported)
+    fn fallocate(&mut self, _offset: u64, _len: u64) -> Result<(), Errno> {
+        Err(Errno::Unsupported)
     }
 
     /// What a call would find ready on this end, opened for `mode`, as
@@ -151,15 +147,15 @@ pub trait FileOperations: Any + Send + Sync {
     /// `datasync` asks, as `f_op->fsync` takes it. A file with nothing to flush
     /// answers success itself, as tmpfs names `noop_fsync`; one without it refuses
     /// as Linux's `vfs_fsync_range` refuses one without `f_op->fsync`.
-    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
-        Err(FilesystemError::InvalidInput)
+    fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
+        Err(Errno::InvalidInput)
     }
 
     /// Answer, as the file is closed, whether what it held was kept, as
     /// `f_op->flush` answers `close(2)`. The default has nothing to flush.
     /// What the file holds goes when it is dropped, as `->release` runs and
     /// no caller reads its answer, so a file never closed still lets go of it.
-    fn flush(&mut self) -> Result<(), FilesystemError> {
+    fn flush(&mut self) -> Result<(), Errno> {
         Ok(())
     }
 
@@ -179,7 +175,7 @@ pub fn generic_file_llseek(
     pos: u64,
     offset: i64,
     whence: Whence,
-) -> Result<u64, FilesystemError> {
+) -> Result<u64, Errno> {
     let base = match whence {
         Whence::Set => 0,
         Whence::Cur => pos,
@@ -187,7 +183,7 @@ pub fn generic_file_llseek(
     };
     base.checked_add_signed(offset)
         .filter(|pos| *pos <= OFFSET_MAX)
-        .ok_or(FilesystemError::InvalidInput)
+        .ok_or(Errno::InvalidInput)
 }
 
 /// What an open file was opened for and what it can do, as Linux's `fmode_t`.
@@ -308,8 +304,8 @@ pub(super) fn do_dentry_open(
     kind: FileType,
     mode: FMode,
     how: &OpenHow,
-    open: impl FnOnce() -> Result<Box<dyn FileOperations>, FilesystemError>,
-) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), FilesystemError> {
+    open: impl FnOnce() -> Result<Box<dyn FileOperations>, Errno>,
+) -> Result<(Box<dyn FileOperations>, Vec<FileSecurity>), Errno> {
     if mode.contains(FMode::PATH) {
         return Ok((Box::new(EmptyFops), cred.security_file_alloc()));
     }
@@ -430,11 +426,7 @@ impl File {
     /// What stands at `path`, opened as `how` asks for `cred`, as Linux's
     /// `dentry_open` asks the security modules before `f_op->open` and walks no
     /// path.
-    pub(super) fn dentry_open(
-        path: Path,
-        how: &OpenHow,
-        cred: &Arc<Cred>,
-    ) -> Result<Self, FilesystemError> {
+    pub(super) fn dentry_open(path: Path, how: &OpenHow, cred: &Arc<Cred>) -> Result<Self, Errno> {
         let kind = path.dentry().kind()?;
         let mode = FMode::of(how);
         let (ops, security) = on_path(path.mnt(), path.dentry(), |at| {
@@ -446,7 +438,7 @@ impl File {
     /// The root of `mnt` opened as a directory for `cred`. A Wasm Driver opens each
     /// Mount's root with the Cred its Policies are added to afterwards, as a
     /// Linux task opens what it keeps before `landlock_restrict_self`.
-    pub fn root(mnt: &Arc<VfsMount>, cred: &Arc<Cred>) -> Result<Self, FilesystemError> {
+    pub fn root(mnt: &Arc<VfsMount>, cred: &Arc<Cred>) -> Result<Self, Errno> {
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -526,9 +518,9 @@ impl File {
 
     /// Move its position, answering where it now stands, as `vfs_llseek` refuses
     /// a file with no position and asks `f_op->llseek` of the rest.
-    pub fn llseek(&mut self, offset: i64, whence: Whence) -> Result<u64, FilesystemError> {
+    pub fn llseek(&mut self, offset: i64, whence: Whence) -> Result<u64, Errno> {
         if !self.mode.contains(FMode::LSEEK) {
-            return Err(FilesystemError::NotSeekable);
+            return Err(Errno::NotSeekable);
         }
         let dentry = self.path.dentry().clone();
         self.pos = self.ops.llseek(&dentry, self.pos, offset, whence)?;
@@ -538,12 +530,12 @@ impl File {
     /// Take a hint about `len` bytes from `offset`, as `generic_fadvise`
     /// refuses a FIFO, then a negative offset or length, and ignores the rest.
     /// Every Filesystem is still correct without one.
-    pub fn fadvise(&self, offset: u64, len: u64) -> Result<(), FilesystemError> {
+    pub fn fadvise(&self, offset: u64, len: u64) -> Result<(), Errno> {
         if self.kind() == FileType::Fifo {
-            return Err(FilesystemError::NotSeekable);
+            return Err(Errno::NotSeekable);
         }
         match offset > OFFSET_MAX || len > OFFSET_MAX {
-            true => Err(FilesystemError::InvalidInput),
+            true => Err(Errno::InvalidInput),
             false => Ok(()),
         }
     }
@@ -552,19 +544,19 @@ impl File {
     /// order before it asks `f_op->fallocate`: what the call asks, the open's
     /// mode, a FIFO, a directory, and then anything but a regular file or a
     /// block device.
-    pub fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
+    pub fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), Errno> {
         if offset > OFFSET_MAX || len == 0 || len > OFFSET_MAX {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         self.may_write()?;
         match self.kind() {
-            FileType::Fifo => return Err(FilesystemError::NotSeekable),
-            FileType::Dir => return Err(FilesystemError::IsADirectory),
+            FileType::Fifo => return Err(Errno::NotSeekable),
+            FileType::Dir => return Err(Errno::IsADirectory),
             FileType::RegFile | FileType::Blkdev => {}
-            _ => return Err(FilesystemError::NoSuchDevice),
+            _ => return Err(Errno::NoSuchDevice),
         }
         if offset + len > OFFSET_MAX {
-            return Err(FilesystemError::FileTooLarge);
+            return Err(Errno::FileTooLarge);
         }
         self.ops.fallocate(offset, len)
     }
@@ -597,43 +589,43 @@ impl File {
 
     /// Whether a read may reach it, as `vfs_read` asks of `f_mode` before it
     /// touches the caller's buffer.
-    pub fn may_read(&self) -> Result<(), FilesystemError> {
+    pub fn may_read(&self) -> Result<(), Errno> {
         match self.readable() {
             true => Ok(()),
-            false => Err(FilesystemError::BadDescriptor),
+            false => Err(Errno::BadDescriptor),
         }
     }
 
     /// Whether a write may reach it, as `vfs_write` asks of `f_mode` before
     /// it touches the caller's buffer.
-    pub fn may_write(&self) -> Result<(), FilesystemError> {
+    pub fn may_write(&self) -> Result<(), Errno> {
         match self.writable() {
             true => Ok(()),
-            false => Err(FilesystemError::BadDescriptor),
+            false => Err(Errno::BadDescriptor),
         }
     }
 
     /// Whether a read from `pos` may reach it, as `pread` refuses a negative
     /// offset, then a file without one.
-    pub fn may_pread(&self, pos: u64) -> Result<(), FilesystemError> {
+    pub fn may_pread(&self, pos: u64) -> Result<(), Errno> {
         self.may_at(pos, FMode::PREAD)?;
         self.may_read()
     }
 
     /// Whether a write at `pos` may reach it, as `pwrite` refuses a negative
     /// offset, then a file without one.
-    pub fn may_pwrite(&self, pos: u64) -> Result<(), FilesystemError> {
+    pub fn may_pwrite(&self, pos: u64) -> Result<(), Errno> {
         self.may_at(pos, FMode::PWRITE)?;
         self.may_write()
     }
 
-    fn may_at(&self, pos: u64, mode: FMode) -> Result<(), FilesystemError> {
+    fn may_at(&self, pos: u64, mode: FMode) -> Result<(), Errno> {
         if pos > OFFSET_MAX {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         match self.mode.contains(mode) {
             true => Ok(()),
-            false => Err(FilesystemError::NotSeekable),
+            false => Err(Errno::NotSeekable),
         }
     }
 
@@ -645,20 +637,20 @@ impl File {
 
     /// Refuse a call of `count` bytes from `ppos` if it would end past the
     /// largest offset, as `rw_verify_area` does; a call landing nowhere passes.
-    fn rw_verify_area(&self, ppos: Option<u64>, count: usize) -> Result<(), FilesystemError> {
+    fn rw_verify_area(&self, ppos: Option<u64>, count: usize) -> Result<(), Errno> {
         let Some(pos) = ppos else {
             return Ok(());
         };
         match pos.checked_add(count as u64) {
             Some(end) if end <= OFFSET_MAX => Ok(()),
-            _ => Err(FilesystemError::InvalidInput),
+            _ => Err(Errno::InvalidInput),
         }
     }
 
     /// Read from its position, moving it past what was read, as `vfs_read`
     /// does; a stream starts from no position and keeps none, as
     /// `new_sync_read` hands it `ki_pos` 0.
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, Errno> {
         self.may_read()?;
         let ppos = self.file_ppos();
         self.rw_verify_area(ppos, buf.len())?;
@@ -672,7 +664,7 @@ impl File {
     }
 
     /// Read from `pos`, leaving its position, as `pread` does.
-    pub fn pread(&mut self, buf: &mut [u8], pos: u64) -> Result<usize, FilesystemError> {
+    pub fn pread(&mut self, buf: &mut [u8], pos: u64) -> Result<usize, Errno> {
         self.may_pread(pos)?;
         self.rw_verify_area(Some(pos), buf.len())?;
         let count = buf.len().min(MAX_RW_COUNT);
@@ -682,7 +674,7 @@ impl File {
     /// Write at its position, moving it past what was written, as `vfs_write`
     /// does; a stream starts from no position and keeps none, as
     /// `new_sync_write` hands it `ki_pos` 0.
-    pub fn write(&mut self, buf: &[u8]) -> Result<usize, FilesystemError> {
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize, Errno> {
         self.may_write()?;
         let ppos = self.file_ppos();
         self.rw_verify_area(ppos, buf.len())?;
@@ -698,7 +690,7 @@ impl File {
 
     /// Write at `pos`, leaving its position, as `pwrite` does. Opened to
     /// append, it lands at the end whatever `pos` says.
-    pub fn pwrite(&mut self, buf: &[u8], pos: u64) -> Result<usize, FilesystemError> {
+    pub fn pwrite(&mut self, buf: &[u8], pos: u64) -> Result<usize, Errno> {
         self.may_pwrite(pos)?;
         self.rw_verify_area(Some(pos), buf.len())?;
         self.ops
@@ -707,20 +699,20 @@ impl File {
 
     /// Make what was written durable, as `vfs_fsync` does, and `vfs_fsync_range`
     /// passes `datasync` through.
-    pub fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {
+    pub fn fsync(&mut self, datasync: bool) -> Result<(), Errno> {
         self.ops.fsync(datasync)
     }
 
     /// What it reports of itself, as `vfs_getattr` answers.
-    pub fn getattr(&self) -> Result<Kstat, FilesystemError> {
+    pub fn getattr(&self) -> Result<Kstat, Errno> {
         self.path.dentry().getattr()
     }
 
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
     /// refuses anything but a file open to write, and reaches `->setattr`.
-    pub fn truncate(&mut self, len: u64) -> Result<(), FilesystemError> {
+    pub fn truncate(&mut self, len: u64) -> Result<(), Errno> {
         if self.kind() != FileType::RegFile || !self.writable() || len > OFFSET_MAX {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         self.cred.security_file_truncate(&self.security)?;
         let dentry = self.path.dentry();
@@ -733,11 +725,11 @@ impl File {
     /// holds the directory's lock shared, so a removal through the VFS lands
     /// before or after, and a removed directory answers not found, as it asks
     /// `IS_DEADDIR`.
-    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), FilesystemError> {
+    pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         let dentry = self.path.dentry().clone();
         let _held = dentry.inode_lock_shared()?;
         if dentry.is_deaddir() {
-            return Err(FilesystemError::NotFound);
+            return Err(Errno::NotFound);
         }
         ctx.pos = self.pos;
         ctx.cred = self.cred.clone();
@@ -749,7 +741,7 @@ impl File {
     /// What its Filesystem lists past `.` and `..`, for a test of what the
     /// Filesystem answers beneath the VFS.
     #[cfg(test)]
-    pub(crate) fn iterate_shared(&mut self) -> Result<Vec<DirEntry>, FilesystemError> {
+    pub(crate) fn iterate_shared(&mut self) -> Result<Vec<DirEntry>, Errno> {
         let dentry = self.path.dentry().clone();
         let mut entries = Vec::new();
         let mut actor = |emit: &DirEmit<'_>| {
@@ -763,7 +755,7 @@ impl File {
 
     /// Close it once the last descriptor goes, answering what its flush
     /// answers, as `filp_close` does; dropping it is what `->release` does.
-    pub fn close(mut self) -> Result<(), FilesystemError> {
+    pub fn close(mut self) -> Result<(), Errno> {
         self.ops.flush()
     }
 }
@@ -790,7 +782,7 @@ mod tests {
             _pos: u64,
             _offset: i64,
             _whence: Whence,
-        ) -> Result<u64, FilesystemError> {
+        ) -> Result<u64, Errno> {
             Ok(9)
         }
     }
@@ -800,18 +792,18 @@ mod tests {
     struct Opens(fn() -> Box<dyn FileOperations>);
 
     impl crate::vfs::FileSystemType for Opens {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for Opens {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(Kstat::new(FileType::RegFile, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, Errno> {
             let found = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(Self(self.0)))))
         }
@@ -820,7 +812,7 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok((self.0)())
         }
     }
@@ -850,11 +842,7 @@ mod tests {
             true
         }
 
-        fn read_iter(
-            &mut self,
-            iocb: &mut Kiocb,
-            buf: &mut [u8],
-        ) -> Result<usize, FilesystemError> {
+        fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
             buf[0] = iocb.pos as u8;
             iocb.pos += buf.len() as u64;
             Ok(buf.len())
@@ -893,11 +881,7 @@ mod tests {
                 file.pread(&mut [0], 0),
                 file.is_stream()
             ),
-            (
-                Err(FilesystemError::NotSeekable),
-                Err(FilesystemError::NotSeekable),
-                true
-            ),
+            (Err(Errno::NotSeekable), Err(Errno::NotSeekable), true),
             "File::llseek and File::pread on a file its Filesystem's open marks a stream must \
              answer ESPIPE, as stream_open clears FMODE_LSEEK and FMODE_PREAD"
         );
@@ -930,7 +914,7 @@ mod tests {
         let mut file = open_one(|| Box::new(NoSeek));
         assert_eq!(
             (file.llseek(0, Whence::Set), file.pos()),
-            (Err(FilesystemError::NotSeekable), 0),
+            (Err(Errno::NotSeekable), 0),
             "File::llseek of a file whose Filesystem answers no llseek must answer ESPIPE and \
              leave its position, as Linux clears FMODE_LSEEK for one"
         );
@@ -952,21 +936,21 @@ mod tests {
     struct OpensNothing;
 
     impl crate::vfs::FileSystemType for OpensNothing {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for OpensNothing {
-        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(match dentry.is_root() {
                 false => Kstat::new(FileType::RegFile, 0),
                 true => Kstat::new(FileType::Dir, 0),
             })
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, Errno> {
             let found = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(Self))))
         }
@@ -993,7 +977,7 @@ mod tests {
         };
         assert_eq!(
             dir.read(&mut [0; 1]),
-            Err(FilesystemError::BadDescriptor),
+            Err(Errno::BadDescriptor),
             "File::read of a directory opened for neither reading nor writing must answer EBADF"
         );
     }
@@ -1050,7 +1034,7 @@ mod tests {
             .map(|mut file| file.read(&mut [0; 1]));
         assert_eq!(
             read,
-            Ok(Err(FilesystemError::InvalidInput)),
+            Ok(Err(Errno::InvalidInput)),
             "vfs::do_file_open of a file whose Filesystem has no open must succeed, and File::read \
              of it must answer EINVAL, as Linux's opens with no f_op->open"
         );
@@ -1100,7 +1084,7 @@ mod tests {
             .clone();
         assert_eq!(
             File::dentry_open(path, &write, &Arc::default()).err(),
-            Some(FilesystemError::ReadOnlyFilesystem),
+            Some(Errno::ReadOnlyFilesystem),
             "File::dentry_open to write a file beneath a read-only Mount must answer EROFS"
         );
     }
@@ -1119,10 +1103,10 @@ mod tests {
                 open(false, true).pread(&mut buf, 0),
             ),
             (
-                Err(FilesystemError::BadDescriptor),
-                Err(FilesystemError::BadDescriptor),
-                Err(FilesystemError::BadDescriptor),
-                Err(FilesystemError::BadDescriptor),
+                Err(Errno::BadDescriptor),
+                Err(Errno::BadDescriptor),
+                Err(Errno::BadDescriptor),
+                Err(Errno::BadDescriptor),
             ),
             "File::write and pwrite on a file opened to read, and File::read and pread on one \
              opened to write, must answer EBADF, as vfs_read and vfs_write do"
@@ -1160,7 +1144,7 @@ mod tests {
             pos: u64,
             offset: i64,
             whence: Whence,
-        ) -> Result<u64, FilesystemError> {
+        ) -> Result<u64, Errno> {
             generic_file_llseek(dentry, pos, offset, whence)
         }
 
@@ -1168,7 +1152,7 @@ mod tests {
             &mut self,
             dentry: &Dentry,
             ctx: &mut DirContext<'_>,
-        ) -> Result<(), FilesystemError> {
+        ) -> Result<(), Errno> {
             self.0.iterate(dentry, ctx, || {
                 Ok(vec![
                     DirEntry::new("a", FileType::RegFile),
@@ -1179,14 +1163,14 @@ mod tests {
     }
 
     impl crate::vfs::FileSystemType for ReadsWhole {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for ReadsWhole {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(Kstat::new(FileType::Dir, 0))
         }
 
@@ -1194,7 +1178,7 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(ReadsWholeDir(crate::filesystem::Rdir::default())))
         }
     }
@@ -1203,22 +1187,22 @@ mod tests {
     struct CannotStat;
 
     impl crate::vfs::FileSystemType for CannotStat {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for CannotStat {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-            Err(FilesystemError::Other("no stat".into()))
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
+            Err(Errno::Other("no stat".into()))
         }
 
         fn open(
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(ReadsWholeDir(crate::filesystem::Rdir::default())))
         }
     }
@@ -1227,14 +1211,14 @@ mod tests {
     struct StatsAsOne;
 
     impl crate::vfs::FileSystemType for StatsAsOne {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for StatsAsOne {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(Kstat::new(FileType::Dir, 0).with_identity(7, 9))
         }
 
@@ -1242,7 +1226,7 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(ReadsWholeDir(crate::filesystem::Rdir::default())))
         }
     }
@@ -1336,7 +1320,7 @@ mod tests {
         }));
         assert_eq!(
             (answer, seen),
-            (Err(FilesystemError::Other("no stat".into())), 0),
+            (Err(Errno::Other("no stat".into())), 0),
             "File::iterate_dir through Rdir of a directory its Filesystem cannot stat must answer \
              that failure and hand no entry, as ovl_cache_update fails the listing"
         );
@@ -1344,7 +1328,7 @@ mod tests {
 
     /// A listing of `file` from the start, its actor stopping after `room`
     /// entries.
-    fn begin_listing(file: &mut File, room: usize) -> Result<(), FilesystemError> {
+    fn begin_listing(file: &mut File, room: usize) -> Result<(), Errno> {
         let mut seen = 0;
         file.iterate_dir(&mut DirContext::new(0, &mut |_| {
             seen += 1;
@@ -1362,9 +1346,9 @@ mod tests {
             kind: FileType,
             _mode: FMode,
             _how: &OpenHow,
-        ) -> Result<FileSecurity, FilesystemError> {
+        ) -> Result<FileSecurity, Errno> {
             match kind {
-                FileType::Dir => Err(FilesystemError::PermissionDenied),
+                FileType::Dir => Err(Errno::PermissionDenied),
                 _ => Ok(None),
             }
         }
@@ -1384,7 +1368,7 @@ mod tests {
         let cred = Cred::new(vec![Arc::new(RefusesDirectories)]);
         assert_eq!(
             File::root(mount.mnt(), &cred).err(),
-            Some(FilesystemError::PermissionDenied),
+            Some(Errno::PermissionDenied),
             "File::root under a security module refusing to open a directory must answer as \
              the module refuses, as dentry_open asks security_file_open"
         );
@@ -1421,8 +1405,8 @@ mod tests {
             (held, refused, read_whole, after_close),
             (
                 Ok(()),
-                Err(FilesystemError::OutOfMemory),
-                Err(FilesystemError::OutOfMemory),
+                Err(Errno::OutOfMemory),
+                Err(Errno::OutOfMemory),
                 Ok(())
             ),
             "File::iterate_dir of a second listing past its caller's memory limit, stopped part \
@@ -1562,11 +1546,11 @@ mod tests {
     struct CountsSyncs(Arc<AtomicUsize>);
 
     impl FileOperations for CountsSyncs {
-        fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
             generic_write_sync(self, iocb, buf.len())
         }
 
-        fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
+        fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
@@ -1580,42 +1564,38 @@ mod tests {
     }
 
     impl FileOperations for RecordsCalls {
-        fn read_iter(
-            &mut self,
-            _iocb: &mut Kiocb,
-            buf: &mut [u8],
-        ) -> Result<usize, FilesystemError> {
+        fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
             self.taken.store(buf.len(), Ordering::SeqCst);
             Ok(0)
         }
 
-        fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+        fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
             self.taken.store(buf.len(), Ordering::SeqCst);
             generic_write_sync(self, iocb, buf.len())
         }
 
-        fn fsync(&mut self, datasync: bool) -> Result<(), FilesystemError> {
+        fn fsync(&mut self, datasync: bool) -> Result<(), Errno> {
             self.syncs.lock().expect("never poisoned").push(datasync);
             Ok(())
         }
     }
 
     impl crate::vfs::FileSystemType for RecordsCalls {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for RecordsCalls {
-        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(match dentry.is_root() {
                 false => Kstat::new(FileType::RegFile, 0),
                 true => Kstat::new(FileType::Dir, 0),
             })
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, Errno> {
             let found = Kstat::new(FileType::RegFile, 0);
             Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone()))))
         }
@@ -1624,7 +1604,7 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(self.clone()))
         }
     }
@@ -1705,18 +1685,18 @@ mod tests {
     struct HoldsCountsSyncs(Arc<AtomicUsize>);
 
     impl crate::vfs::FileSystemType for HoldsCountsSyncs {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for HoldsCountsSyncs {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(Kstat::new(FileType::Dir, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, Errno> {
             let found = Kstat::new(FileType::RegFile, 0);
             let ops = Arc::new(Self(self.0.clone()));
             Ok(Lookup::Found(Inode::new(&found, ops)))
@@ -1726,7 +1706,7 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(CountsSyncs(self.0.clone())))
         }
     }
@@ -1819,12 +1799,12 @@ mod tests {
                 dir.fadvise(0, 0),
             ),
             (
-                Err(FilesystemError::IsADirectory),
-                Err(FilesystemError::IsADirectory),
-                Err(FilesystemError::BadDescriptor),
-                Err(FilesystemError::BadDescriptor),
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::BadDescriptor),
+                Err(Errno::IsADirectory),
+                Err(Errno::IsADirectory),
+                Err(Errno::BadDescriptor),
+                Err(Errno::BadDescriptor),
+                Err(Errno::InvalidInput),
+                Err(Errno::BadDescriptor),
                 Ok(()),
                 Ok(()),
             ),
@@ -1850,10 +1830,7 @@ mod tests {
             alloc_file_pseudo(inode, &mnt, &how, Box::new(NoOperations), &Arc::default());
         assert_eq!(
             (file.pread(&mut [0], 0), file.pwrite(b"x", 0)),
-            (
-                Err(FilesystemError::NotSeekable),
-                Err(FilesystemError::NotSeekable)
-            ),
+            (Err(Errno::NotSeekable), Err(Errno::NotSeekable)),
             "File::pread and File::pwrite on a file alloc_file_pseudo made must answer ESPIPE, \
              as file_init_path gives no FMODE_PREAD or FMODE_PWRITE"
         );
@@ -1886,10 +1863,10 @@ mod tests {
                 pipe.fallocate(0, 1),
             ),
             (
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::BadDescriptor),
-                Err(FilesystemError::Unsupported),
-                Err(FilesystemError::NotSeekable),
+                Err(Errno::InvalidInput),
+                Err(Errno::BadDescriptor),
+                Err(Errno::Unsupported),
+                Err(Errno::NotSeekable),
             ),
             "File::fallocate must answer an empty range EINVAL, a file not open to write EBADF, \
              a file without fallocate ENOTSUP, and a pipe ESPIPE, as vfs_fallocate does"
@@ -1915,13 +1892,13 @@ mod tests {
                 file.pwrite(b"", OFFSET_MAX),
             ),
             (
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::InvalidInput),
-                Err(FilesystemError::InvalidInput),
+                Err(Errno::InvalidInput),
+                Err(Errno::InvalidInput),
+                Err(Errno::InvalidInput),
+                Err(Errno::InvalidInput),
+                Err(Errno::InvalidInput),
+                Err(Errno::InvalidInput),
+                Err(Errno::InvalidInput),
                 Ok(0),
             ),
             "File calls ending past the largest signed offset must answer EINVAL, as \

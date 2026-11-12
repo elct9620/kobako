@@ -21,8 +21,9 @@ use super::socket::{
     connect4, filter, set_hop_limit, to_error, BindHash, InetSock, MemoryCharge, ProtoOps, SockOpt,
     MAX_SOCKET_BUFFER,
 };
-use crate::vfs::{Cred, FilesystemError, PollMask};
+use crate::vfs::{Cred, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
+use crate::Errno;
 
 /// The most one IPv4 datagram carries.
 pub const MAX_DATAGRAM: usize = 65_507;
@@ -72,7 +73,7 @@ impl UdpSock {
     /// queue is reserved against `cred`'s memory, and past it the socket
     /// answers `ENOMEM`. The reserve holds the whole buffer, or one datagram
     /// of the most size, which an empty queue takes past the buffer.
-    pub(crate) fn new(cred: &Arc<Cred>) -> Result<Arc<Self>, FilesystemError> {
+    pub(crate) fn new(cred: &Arc<Cred>) -> Result<Arc<Self>, Errno> {
         let reserve = MAX_SOCKET_BUFFER.max(truesize_of(MAX_DATAGRAM));
         let memory = MemoryCharge::new(cred, reserve)?;
         Ok(Arc::new_cyclic(|this| Self {
@@ -100,7 +101,7 @@ impl UdpSock {
         addr: SocketAddr,
         peer: SocketAddr,
         open_connections: &Arc<OpenConnections>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         {
             let mut state = self.state();
             let same_family = state.host.as_ref().is_some_and(|(socket, _)| {
@@ -150,7 +151,7 @@ impl UdpSock {
     }
 
     /// Hold a free port from `ports` as the guest's own, unless one is held.
-    pub(crate) fn hold_port(&self, ports: &Arc<BindHash>) -> Result<(), FilesystemError> {
+    pub(crate) fn hold_port(&self, ports: &Arc<BindHash>) -> Result<(), Errno> {
         self.state().inet.hold_port(ports)
     }
 
@@ -231,11 +232,11 @@ impl ProtoOps for UdpSock {
     /// holding no port, answering `EAGAIN` once none is free. UDP opens no
     /// handshake, so that address is its peer; the port stays held whatever
     /// the connect answers, as an autobind does.
-    fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
+    fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         let dest = connect4(net, addr)?;
-        net.within_connection_budget(FilesystemError::WouldBlock, || {
+        net.within_connection_budget(Errno::WouldBlock, || {
             self.hold_port(net.ports_of(Protocol::Udp))
-                .map_err(|_| FilesystemError::WouldBlock)?;
+                .map_err(|_| Errno::WouldBlock)?;
             let real = filter(net, &dest, Protocol::Udp)?;
             self.dial(net.family(), real, addr, net.open_connections())
         })
@@ -243,7 +244,7 @@ impl ProtoOps for UdpSock {
 
     /// A socket connected to a peer holds its own end already, as
     /// `inet_dgram_connect` autobinds one through `inet_autobind`.
-    fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
+    fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         let mut state = self.state();
         let connected = state.inet.peer.is_some();
         state
@@ -260,13 +261,13 @@ impl ProtoOps for UdpSock {
     /// only a blocking wait ends on `RCV_SHUTDOWN`. A read takes only what the
     /// queue holds, as `__skb_recv_udp` reads the socket's own queue; what a
     /// bounded turn left in the host socket comes with the reactor's next.
-    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), FilesystemError> {
+    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), Errno> {
         let mut state = self.state();
         if let Some(err) = state.inet.error.take() {
             return Err(err);
         }
         let Some((datagram, from)) = state.receive_queue.pop_front() else {
-            return Err(FilesystemError::WouldBlock);
+            return Err(Errno::WouldBlock);
         };
         state.rmem_alloc -= truesize_of(datagram.len());
         let n = buf.len().min(datagram.len());
@@ -281,22 +282,22 @@ impl ProtoOps for UdpSock {
     /// refuses on `SEND_SHUTDOWN`. A host socket with no room answers
     /// `WouldBlock` and sends nothing, so no datagram is taken that a release
     /// could lose.
-    fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn sendmsg(&self, buf: &[u8]) -> Result<usize, Errno> {
         if buf.len() > MAX_DATAGRAM {
-            return Err(FilesystemError::MessageTooLong);
+            return Err(Errno::MessageTooLong);
         }
         let mut state = self.state();
         if let Some(err) = state.inet.error.take() {
             return Err(err);
         }
         if state.inet.peer.is_none() {
-            return Err(FilesystemError::DestinationAddressRequired);
+            return Err(Errno::DestinationAddressRequired);
         }
         if state.inet.send_shut {
-            return Err(FilesystemError::BrokenPipe);
+            return Err(Errno::BrokenPipe);
         }
         let Some((socket, _)) = state.host.as_ref() else {
-            return Err(FilesystemError::WouldBlock);
+            return Err(Errno::WouldBlock);
         };
         let sent = loop {
             match socket.send(buf) {
@@ -308,7 +309,7 @@ impl ProtoOps for UdpSock {
             Ok(_) => Ok(buf.len()),
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                 state.writable = false;
-                Err(FilesystemError::WouldBlock)
+                Err(Errno::WouldBlock)
             }
             Err(err) => Err(to_udp_error(&err)),
         }
@@ -339,7 +340,7 @@ impl ProtoOps for UdpSock {
 
     /// Mark the sides `how` names shut, as `inet_shutdown` does; a socket
     /// connected to no peer marks them and answers `ENOTCONN`.
-    fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError> {
+    fn shutdown(&self, how: Shutdown) -> Result<(), Errno> {
         let mut state = self.state();
         let connected = state.inet.peer.is_some();
         let shut = state.inet.shutdown(how, connected);
@@ -357,14 +358,14 @@ impl ProtoOps for UdpSock {
     }
 
     /// The buffers and the hop limit; UDP has no TCP option.
-    fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError> {
+    fn getsockopt(&self, opt: SockOpt) -> Result<u32, Errno> {
         self.state().inet.getsockopt(opt)
     }
 
     /// A buffer past it drops a datagram, as a full `sk_rcvbuf` does; a send
     /// goes to the host at once, so `SO_SNDBUF` only reads back. A hop limit
     /// reaches a host socket already there at once.
-    fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), FilesystemError> {
+    fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), Errno> {
         let mut guard = self.state();
         let state = &mut *guard;
         let host = state.host.as_ref().map(|(socket, _)| SockRef::from(socket));
@@ -388,9 +389,9 @@ impl ProtoOps for UdpSock {
 /// A host failure as Linux's UDP answers it. Windows reports an ICMP port
 /// unreachable as `WSAECONNRESET`, where Linux's `__udp4_lib_err` sets
 /// `ECONNREFUSED`, and a datagram socket has no connection to reset.
-fn to_udp_error(err: &io::Error) -> FilesystemError {
+fn to_udp_error(err: &io::Error) -> Errno {
     match to_error(err) {
-        FilesystemError::ConnectionReset => FilesystemError::ConnectionRefused,
+        Errno::ConnectionReset => Errno::ConnectionRefused,
         other => other,
     }
 }
@@ -482,7 +483,7 @@ mod tests {
             ),
             (
                 (64, MAX_SOCKET_BUFFER, MAX_SOCKET_BUFFER),
-                Err(FilesystemError::InvalidInput),
+                Err(Errno::InvalidInput),
                 9,
                 2304,
                 4608,
@@ -598,11 +599,11 @@ mod tests {
                 unconnected.shutdown(Shutdown::Both)
             ),
             (
-                Err(FilesystemError::WouldBlock),
-                (Err(FilesystemError::WouldBlock), true),
-                Err(FilesystemError::BrokenPipe),
+                Err(Errno::WouldBlock),
+                (Err(Errno::WouldBlock), true),
+                Err(Errno::BrokenPipe),
                 true,
-                Err(FilesystemError::NotConnected)
+                Err(Errno::NotConnected)
             ),
             "a non-blocking UDP socket whose reading side is shut must poll readable yet still \
              answer EAGAIN on an empty queue, answer EPIPE to a send once its writing side is \
@@ -631,7 +632,7 @@ mod tests {
     #[test]
     fn a_failure_answers_before_the_datagram_it_holds() {
         let (sock, _peer) = readable_socket();
-        sock.state().inet.error = Some(FilesystemError::ConnectionRefused);
+        sock.state().inet.error = Some(Errno::ConnectionRefused);
         let polled = sock.poll(None);
         let mut buf = [0; 8];
         let first = sock.recvmsg(&mut buf);
@@ -640,7 +641,7 @@ mod tests {
             (polled, first, second),
             (
                 PollMask::IN | PollMask::OUT | PollMask::ERR,
-                Err(FilesystemError::ConnectionRefused),
+                Err(Errno::ConnectionRefused),
                 Ok(b"hello".to_vec())
             ),
             "a UDP socket holding a datagram and a failure must poll IN and ERR, then answer the \
@@ -849,7 +850,7 @@ mod tests {
         sock.release();
         assert_eq!(
             (&heard[..n], &answer[..read], rest),
-            (&b"ping"[..], &b"PO"[..], Err(FilesystemError::WouldBlock)),
+            (&b"ping"[..], &b"PO"[..], Err(Errno::WouldBlock)),
             "a UDP socket must send a datagram to its peer and read one back per read, cut to the \
              buffer, with the rest of it gone"
         );
@@ -861,7 +862,7 @@ mod tests {
         let reset = io::Error::from(io::ErrorKind::ConnectionReset);
         assert_eq!(
             to_udp_error(&reset),
-            FilesystemError::ConnectionRefused,
+            Errno::ConnectionRefused,
             "a UDP socket's failure the host reports as a reset, as Windows reports an ICMP port \
              unreachable, must answer ECONNREFUSED, as Linux's does"
         );
@@ -882,10 +883,7 @@ mod tests {
         sock.release();
         assert_eq!(
             (first, again),
-            (
-                Err(FilesystemError::ConnectionRefused),
-                Err(FilesystemError::WouldBlock)
-            ),
+            (Err(Errno::ConnectionRefused), Err(Errno::WouldBlock)),
             "a UDP socket's read after a datagram to a closed port must answer ECONNREFUSED once \
              and then read on, as sock_error clears sk_err"
         );
@@ -900,7 +898,7 @@ mod tests {
         sock.release();
         assert_eq!(
             answer,
-            Err(FilesystemError::MessageTooLong),
+            Err(Errno::MessageTooLong),
             "UdpSock::sendmsg of a datagram past what IPv4 UDP carries must answer EMSGSIZE, as \
              udp_sendmsg does"
         );

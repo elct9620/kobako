@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
 use super::dentry::Dentry;
 use super::file::FileOperations;
-use super::{FileType, FilesystemError, Iattr, Kstat, OpenHow};
+use super::{Errno, FileType, Iattr, Kstat, OpenHow};
 use crate::locking::{RwSemaphore, RwSemaphoreGuard};
 
 /// What an `atomic_open` did with the name it was asked to open, as Linux's
@@ -78,7 +78,7 @@ pub trait InodeOperations: Any + Send + Sync {
     /// Linux does and holds no mode to judge by, so an entry without it allows
     /// the call, and the backend answers once it is made, as FUSE leaves a
     /// server to without `default_permissions`.
-    fn permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), FilesystemError> {
+    fn permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), Errno> {
         Ok(())
     }
 
@@ -87,17 +87,17 @@ pub trait InodeOperations: Any + Send + Sync {
     /// gone and only an open file holds it, as `fstat` asks the same. A
     /// Filesystem keeps what that answer takes on the `Inode`. A link reports
     /// itself.
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError>;
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno>;
 
     /// Apply `attr` to this entry, even once its name is gone and only an
     /// open file holds it, as `ftruncate`, `open` with `O_TRUNC`, and
     /// `utimensat` reach `->setattr`. One whose `open` already truncated
     /// answers success where `attr.open` says so. An entry without it refuses a
     /// size as invalid input and times as unsupported.
-    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
         match attr.size {
-            Some(_) => Err(FilesystemError::InvalidInput),
-            None => Err(FilesystemError::Unsupported),
+            Some(_) => Err(Errno::InvalidInput),
+            None => Err(Errno::Unsupported),
         }
     }
 
@@ -106,14 +106,14 @@ pub trait InodeOperations: Any + Send + Sync {
     /// without it is no directory to walk through. A directory found answers as
     /// an `Inode::new` carrying its identity, or a Policy cannot tell it from
     /// one made in its place.
-    fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
-        Err(FilesystemError::NotADirectory)
+    fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, Errno> {
+        Err(Errno::NotADirectory)
     }
 
     /// Where this link, which `dentry` names, points, as `get_link` answers,
     /// for the VFS to follow. Anything else refuses as `readlinkat` does.
-    fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
-        Err(FilesystemError::InvalidInput)
+    fn get_link(&self, _dentry: &Dentry) -> Result<String, Errno> {
+        Err(Errno::InvalidInput)
     }
 
     /// Open this entry, which `dentry` names, as `how` asks, as `f_op->open`
@@ -122,19 +122,15 @@ pub trait InodeOperations: Any + Send + Sync {
     /// before it asks. An entry without it opens as Linux's opens with no
     /// `f_op->open`, answering each call on the open file as `FileOperations`
     /// does by default.
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(EmptyFops))
     }
 
     /// Make the file `dentry` names in this directory and record it on `dentry`,
     /// as `->create` calls `d_instantiate`. A directory without it answers
     /// EACCES, as Linux's VFS does.
-    fn create(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
-        Err(FilesystemError::PermissionDenied)
+    fn create(&self, _dentry: &Dentry) -> Result<(), Errno> {
+        Err(Errno::PermissionDenied)
     }
 
     /// Look up, make, and open the last name of an open in one step, as
@@ -146,7 +142,7 @@ pub trait InodeOperations: Any + Send + Sync {
     /// the file through `create` and leaves the open to the VFS, which asks
     /// `may_open` and the security modules first, as Linux's `lookup_open` calls
     /// `->lookup`, then `->create`, and `do_open` opens what it made.
-    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, Errno> {
         if dentry.in_lookup() {
             let found = self.lookup(dentry)?;
             if !how.create || !matches!(found, Lookup::Absent) {
@@ -166,33 +162,33 @@ pub trait InodeOperations: Any + Send + Sync {
     /// keeping no name, as Linux leaves a negative dentry to its Filesystem. A
     /// directory without it, or without any change below, answers EPERM, as
     /// Linux's VFS does.
-    fn mkdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
-        Err(FilesystemError::NotPermitted)
+    fn mkdir(&self, _dentry: &Dentry) -> Result<(), Errno> {
+        Err(Errno::NotPermitted)
     }
 
     /// Give the entry `old` names another name, the one `dentry` carries in
     /// this directory. A directory without it answers EPERM, as Linux's VFS
     /// does.
-    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Result<(), FilesystemError> {
-        Err(FilesystemError::NotPermitted)
+    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Result<(), Errno> {
+        Err(Errno::NotPermitted)
     }
 
     /// Make the link `dentry` names in this directory, pointing at `target`.
     /// A directory without it answers EPERM, as Linux's VFS does.
-    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Result<(), FilesystemError> {
-        Err(FilesystemError::NotPermitted)
+    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Result<(), Errno> {
+        Err(Errno::NotPermitted)
     }
 
     /// Remove the empty directory `dentry` names in this one. A directory
     /// without it answers EPERM, as Linux's VFS does.
-    fn rmdir(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
-        Err(FilesystemError::NotPermitted)
+    fn rmdir(&self, _dentry: &Dentry) -> Result<(), Errno> {
+        Err(Errno::NotPermitted)
     }
 
     /// Remove the file `dentry` names in this directory. A directory without
     /// it answers EPERM, as Linux's VFS does.
-    fn unlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
-        Err(FilesystemError::NotPermitted)
+    fn unlink(&self, _dentry: &Dentry) -> Result<(), Errno> {
+        Err(Errno::NotPermitted)
     }
 
     /// Move the entry `from` names in this directory to `to` in `to_dir`,
@@ -210,8 +206,8 @@ pub trait InodeOperations: Any + Send + Sync {
         _to_dir: &dyn InodeOperations,
         _to: &Dentry,
         _flag: Option<RenameFlag>,
-    ) -> Result<(), FilesystemError> {
-        Err(FilesystemError::NotPermitted)
+    ) -> Result<(), Errno> {
+        Err(Errno::NotPermitted)
     }
 }
 
@@ -382,13 +378,13 @@ impl Inode {
     /// Hold it shared, as Linux's `inode_lock_shared` holds the directory it
     /// looks a name up in, so no change through the VFS lands between the
     /// name's dentry and what the Filesystem answers for it.
-    pub(super) fn lock_shared(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+    pub(super) fn lock_shared(&self) -> Result<RwSemaphoreGuard, Errno> {
         Ok(self.rwsem.down_read()?)
     }
 
     /// Hold it exclusive, as Linux's `inode_lock` holds a directory while a
     /// name in it is made, removed, or moved.
-    pub(super) fn lock(&self) -> Result<RwSemaphoreGuard, FilesystemError> {
+    pub(super) fn lock(&self) -> Result<RwSemaphoreGuard, Errno> {
         Ok(self.rwsem.down_write()?)
     }
 

@@ -1,7 +1,7 @@
 //! A directory's extended attributes, as tmpfs keeps the `trusted.*`
 //! ones overlayfs marks a directory opaque with.
 
-use super::super::FilesystemError;
+use super::super::Errno;
 use super::Tmpfs;
 
 impl Tmpfs {
@@ -12,7 +12,7 @@ impl Tmpfs {
     }
 
     /// Set the attribute `name` on this directory, as `setxattr` does.
-    pub(crate) fn setxattr(&self, name: &str, value: &[u8]) -> Result<(), FilesystemError> {
+    pub(crate) fn setxattr(&self, name: &str, value: &[u8]) -> Result<(), Errno> {
         self.dir
             .state()
             .xattrs

@@ -68,6 +68,7 @@ pub use kobako_runtime::filesystem;
 /// crate but this.
 pub use kobako_runtime::network;
 pub use kobako_runtime::profile::Profile;
+pub use kobako_runtime::Errno;
 pub use payload::RunPayload;
 pub use receiver::{Fault, FaultKind, Receiver};
 pub use sandbox::{Context, Options, Sandbox};

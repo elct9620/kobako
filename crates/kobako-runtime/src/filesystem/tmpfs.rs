@@ -9,8 +9,8 @@ use std::time::SystemTime;
 
 use super::path::{ancestors, name, normalize_seed};
 use super::{
-    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag, SetTime,
+    DentryOperations, DirEntry, Errno, FileOperations, FileSystemType, FileType, Filesystem, Iattr,
+    InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag, SetTime,
 };
 use crate::vfs::{dir_emit_dots, generic_file_llseek, generic_read_dir, DirContext, Whence};
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
@@ -287,12 +287,12 @@ impl Dir {
     }
 
     /// What stands at `name` in this directory.
-    fn get(&self, name: &str) -> Result<Node, FilesystemError> {
+    fn get(&self, name: &str) -> Result<Node, Errno> {
         self.state()
             .entries
             .get(name)
             .cloned()
-            .ok_or(FilesystemError::NotFound)
+            .ok_or(Errno::NotFound)
     }
 
     /// Hand `nested` every directory this one holds, leaving it holding
@@ -353,14 +353,14 @@ impl Budget {
     }
 
     /// Count `amount` more, refusing when it would pass the limit.
-    fn take(&self, amount: usize) -> Result<(), FilesystemError> {
+    fn take(&self, amount: usize) -> Result<(), Errno> {
         let limit = self.limit.load(Ordering::Relaxed);
         self.used
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
                 used.checked_add(amount).filter(|&total| total <= limit)
             })
             .map(drop)
-            .map_err(|_| FilesystemError::StorageFull)
+            .map_err(|_| Errno::StorageFull)
     }
 
     /// Count `amount` more without refusing, for what the Host App seeds.
@@ -395,7 +395,7 @@ impl Content {
     }
 
     /// An empty file the guest creates, refused once no inode is left.
-    fn create(tree: &Tree) -> Result<Arc<Mutex<Self>>, FilesystemError> {
+    fn create(tree: &Tree) -> Result<Arc<Mutex<Self>>, Errno> {
         tree.space.inodes.take(1)?;
         Ok(Self::new(Vec::new(), tree))
     }
@@ -421,13 +421,13 @@ impl Content {
 
     /// Resize to `len`, refusing a growth past the space left or past what
     /// can be allocated, rather than aborting the host process.
-    fn resize(&mut self, len: usize) -> Result<(), FilesystemError> {
+    fn resize(&mut self, len: usize) -> Result<(), Errno> {
         let growth = len.saturating_sub(self.bytes.len());
         if growth > 0 {
             self.space.bytes.take(growth)?;
             if self.bytes.try_reserve_exact(growth).is_err() {
                 self.space.bytes.give(growth);
-                return Err(FilesystemError::StorageFull);
+                return Err(Errno::StorageFull);
             }
         }
         self.space.bytes.give(self.bytes.len().saturating_sub(len));
@@ -642,7 +642,7 @@ impl Tmpfs {
 
     /// Put `node` at the name `dentry` carries and record it there, as
     /// `shmem_mknod` calls `d_make_persistent`.
-    fn make(&self, dentry: &Dentry, node: Node) -> Result<(), FilesystemError> {
+    fn make(&self, dentry: &Dentry, node: Node) -> Result<(), Errno> {
         self.dir.state().insert(&dentry.name(), node.clone());
         dentry.add(Some(self.inode_of(node)));
         Ok(())
@@ -650,7 +650,7 @@ impl Tmpfs {
 }
 
 impl FileSystemType for Tmpfs {
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.set_default_d_op(Arc::new(TmpfsDentry));
         sb.set_dontcache();
         sb.d_make_root(Inode::new(&self.dir.getattr(self.tree.dev), self));
@@ -662,59 +662,55 @@ impl FileSystemType for Tmpfs {
 /// through `TmpfsRegular`, and a whiteout, a character device 0:0 with no
 /// driver to open it, through `TmpfsWhiteout`.
 impl InodeOperations for Tmpfs {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(self.dir.getattr(self.tree.dev))
     }
 
-    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
         self.dir.state().times.apply(attr);
         Ok(())
     }
 
     /// A Tmpfs matches names byte for byte and holds no links, and refuses a
     /// name past `NAME_MAX`, as `simple_lookup` does.
-    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
         let name = dentry.name();
         if name.len() > NAME_MAX {
-            return Err(FilesystemError::InvalidFilename);
+            return Err(Errno::InvalidFilename);
         }
         let node = match self.dir.get(&name) {
             Ok(node) => node,
-            Err(FilesystemError::NotFound) => return Ok(Lookup::Absent),
+            Err(Errno::NotFound) => return Ok(Lookup::Absent),
             Err(err) => return Err(err),
         };
         Ok(Lookup::Found(self.inode_of(node)))
     }
 
-    fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn create(&self, dentry: &Dentry) -> Result<(), Errno> {
         let data = Content::create(&self.tree)?;
         self.make(dentry, Node::File(data))
     }
 
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(TmpfsDir {
             dir: self.dir.clone(),
             dev: self.tree.dev,
         }))
     }
 
-    fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn mkdir(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.tree.space.inodes.take(1)?;
         self.make(dentry, Node::Directory(self.new_directory()))
     }
 
     /// The VFS found a directory at the name, as `shmem_rmdir` leaves it to,
     /// so only whether it holds anything is left to answer.
-    fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn rmdir(&self, dentry: &Dentry) -> Result<(), Errno> {
         let name = dentry.name();
         let mut state = self.dir.state();
         if let Some(Node::Directory(removed)) = state.entries.get(&name) {
             if !removed.state().entries.is_empty() {
-                return Err(FilesystemError::DirectoryNotEmpty);
+                return Err(Errno::DirectoryNotEmpty);
             }
         }
         state.remove(&name);
@@ -722,7 +718,7 @@ impl InodeOperations for Tmpfs {
     }
 
     /// The VFS found no directory at the name, as `shmem_unlink` leaves it to.
-    fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn unlink(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.dir.state().remove(&dentry.name());
         Ok(())
     }
@@ -733,10 +729,10 @@ impl InodeOperations for Tmpfs {
         to_dir: &dyn InodeOperations,
         to: &Dentry,
         flag: Option<RenameFlag>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         let target = (to_dir as &dyn Any)
             .downcast_ref::<Self>()
-            .ok_or(FilesystemError::CrossesDevices)?;
+            .ok_or(Errno::CrossesDevices)?;
         self.rename_at(&from.name(), target, &to.name(), flag)
     }
 }
@@ -754,21 +750,17 @@ impl FileOperations for TmpfsDir {
         pos: u64,
         offset: i64,
         whence: Whence,
-    ) -> Result<u64, FilesystemError> {
+    ) -> Result<u64, Errno> {
         generic_file_llseek(dentry, pos, offset, whence)
     }
 
-    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, Errno> {
         generic_read_dir()
     }
 
     /// Reads on from each name's stable position, as `offset_readdir` does, so
     /// nothing is held between two calls.
-    fn iterate_shared(
-        &mut self,
-        dentry: &Dentry,
-        ctx: &mut DirContext<'_>,
-    ) -> Result<(), FilesystemError> {
+    fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         if !dir_emit_dots(dentry, ctx) {
             return Ok(());
         }
@@ -792,7 +784,7 @@ impl FileOperations for TmpfsDir {
 
     /// A Tmpfs holds nothing to make durable, as tmpfs names `noop_fsync` for
     /// its directories too.
-    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
         Ok(())
     }
 }
@@ -805,11 +797,7 @@ impl FileOperations for TmpfsDir {
 pub(super) struct TmpfsDentry;
 
 impl DentryOperations for TmpfsDentry {
-    fn revalidate(
-        &self,
-        dir: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<bool, FilesystemError> {
+    fn revalidate(&self, dir: &dyn InodeOperations, dentry: &Dentry) -> Result<bool, Errno> {
         let Some(dir) = (dir as &dyn Any).downcast_ref::<Tmpfs>() else {
             return Ok(true);
         };
@@ -830,25 +818,21 @@ struct TmpfsRegular {
 }
 
 impl InodeOperations for TmpfsRegular {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(lock(&self.data).getattr())
     }
 
-    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
         let mut data = lock(&self.data);
         if let Some(len) = attr.size {
-            let len = usize::try_from(len).map_err(|_| FilesystemError::InvalidInput)?;
+            let len = usize::try_from(len).map_err(|_| Errno::InvalidInput)?;
             data.resize(len)?;
         }
         data.times.apply(attr);
         Ok(())
     }
 
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(TmpfsFile {
             data: self.data.clone(),
         }))
@@ -859,7 +843,7 @@ impl InodeOperations for TmpfsRegular {
 struct TmpfsWhiteout;
 
 impl InodeOperations for TmpfsWhiteout {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(Kstat::new(FileType::Chrdev, 0))
     }
 }
@@ -868,13 +852,11 @@ fn lock(data: &Mutex<Content>) -> MutexGuard<'_, Content> {
     data.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn write(data: &mut Content, buf: &[u8], start: usize) -> Result<usize, FilesystemError> {
+fn write(data: &mut Content, buf: &[u8], start: usize) -> Result<usize, Errno> {
     if buf.is_empty() {
         return Ok(0);
     }
-    let end = start
-        .checked_add(buf.len())
-        .ok_or(FilesystemError::InvalidInput)?;
+    let end = start.checked_add(buf.len()).ok_or(Errno::InvalidInput)?;
     if data.bytes.len() < end {
         data.resize(end)?;
     }
@@ -896,11 +878,11 @@ impl FileOperations for TmpfsFile {
         pos: u64,
         offset: i64,
         whence: Whence,
-    ) -> Result<u64, FilesystemError> {
+    ) -> Result<u64, Errno> {
         generic_file_llseek(dentry, pos, offset, whence)
     }
 
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         let data = &lock(&self.data).bytes;
         let start = usize::try_from(iocb.pos)
             .unwrap_or(usize::MAX)
@@ -913,11 +895,11 @@ impl FileOperations for TmpfsFile {
 
     /// The end is read and written under one lock, so another handle's
     /// append lands before or after this one, never over it.
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         let mut data = lock(&self.data);
         let start = match iocb.append {
             true => data.bytes.len(),
-            false => usize::try_from(iocb.pos).map_err(|_| FilesystemError::InvalidInput)?,
+            false => usize::try_from(iocb.pos).map_err(|_| Errno::InvalidInput)?,
         };
         let written = write(&mut data, buf, start)?;
         iocb.pos = (start + written) as u64;
@@ -927,15 +909,15 @@ impl FileOperations for TmpfsFile {
 
     /// Nothing outlives the Tmpfs, so there is nothing to flush, as shmem's
     /// `noop_fsync`.
-    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Grow the file to where the room ends, as `shmem_fallocate` moves `i_size`
     /// past it. A Tmpfs holds every byte up to its end, so the room is taken from
     /// its size or refused as out of space.
-    fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), FilesystemError> {
-        let end = usize::try_from(offset + len).map_err(|_| FilesystemError::StorageFull)?;
+    fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), Errno> {
+        let end = usize::try_from(offset + len).map_err(|_| Errno::StorageFull)?;
         let mut data = lock(&self.data);
         if data.bytes.len() < end {
             data.resize(end)?;
@@ -954,11 +936,7 @@ mod tests {
     struct CountsLookups(std::sync::atomic::AtomicUsize);
 
     impl crate::filesystem::wrap::Hook for CountsLookups {
-        fn lookup(
-            &self,
-            inner: &dyn InodeOperations,
-            dentry: &Dentry,
-        ) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Lookup, Errno> {
             self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             inner.lookup(dentry)
         }
@@ -1091,7 +1069,7 @@ mod tests {
             fs.create(&"x".repeat(NAME_MAX), &how).is_ok()
                 && matches!(
                     fs.vfs_lstat(&"x".repeat(NAME_MAX + 1)),
-                    Err(FilesystemError::InvalidFilename)
+                    Err(Errno::InvalidFilename)
                 ),
             "a name of NAME_MAX bytes must land in a Tmpfs, and one past it answer ENAMETOOLONG"
         );
@@ -1278,13 +1256,10 @@ mod tests {
     #[test]
     fn a_directory_with_entries_is_not_removed() {
         let tmpfs = at([("dir/file", "x")].into_iter().collect());
-        assert_eq!(
-            tmpfs.vfs_rmdir("dir"),
-            Err(FilesystemError::DirectoryNotEmpty)
-        );
+        assert_eq!(tmpfs.vfs_rmdir("dir"), Err(Errno::DirectoryNotEmpty));
         assert_eq!(tmpfs.vfs_unlink("dir/file"), Ok(()));
         assert_eq!(tmpfs.vfs_rmdir("dir"), Ok(()));
-        assert_eq!(tmpfs.vfs_lstat("dir"), Err(FilesystemError::NotFound));
+        assert_eq!(tmpfs.vfs_lstat("dir"), Err(Errno::NotFound));
     }
 
     #[test]
@@ -1294,7 +1269,7 @@ mod tests {
             .rename("old", &tmpfs, "new")
             .expect("the rename must succeed");
         assert_eq!(read_all(&tmpfs, "new/inner/file"), b"x");
-        assert_eq!(tmpfs.vfs_lstat("old"), Err(FilesystemError::NotFound));
+        assert_eq!(tmpfs.vfs_lstat("old"), Err(Errno::NotFound));
     }
 
     fn writable(fs: &KernPath, path: &str) -> Box<dyn FileOperations> {
@@ -1318,7 +1293,7 @@ mod tests {
                 writable(&tmpfs, "file").write_iter(&mut Kiocb::at(1), b"four"),
                 read_all(&tmpfs, "file")
             ),
-            (Err(FilesystemError::StorageFull), b"x".to_vec()),
+            (Err(Errno::StorageFull), b"x".to_vec()),
             "a write growing a Tmpfs's files past its limit through TmpfsFile::write_iter must \
              answer StorageFull and leave the file as it was"
         );
@@ -1350,7 +1325,7 @@ mod tests {
                 tmpfs.truncate("file", mib_64),
                 tmpfs.truncate("file", mib_64 + 1)
             ),
-            (Ok(()), Err(FilesystemError::StorageFull)),
+            (Ok(()), Err(Errno::StorageFull)),
             "a Tmpfs given no limit through Tmpfs::new must hold 64 MiB and refuse a byte more"
         );
     }
@@ -1398,8 +1373,8 @@ mod tests {
                 read_all(&tmpfs, "file")
             ),
             (
-                Err(FilesystemError::StorageFull),
-                Err(FilesystemError::StorageFull),
+                Err(Errno::StorageFull),
+                Err(Errno::StorageFull),
                 b"x".to_vec()
             ),
             "a length no allocator can hand out through TmpfsRegular::setattr and TmpfsFile::write_iter must \
@@ -1410,13 +1385,10 @@ mod tests {
     #[test]
     fn a_path_beneath_a_file_is_not_a_directory() {
         let tmpfs = at([("file", "x")].into_iter().collect());
-        assert_eq!(
-            tmpfs.vfs_lstat("file/inner"),
-            Err(FilesystemError::NotADirectory)
-        );
+        assert_eq!(tmpfs.vfs_lstat("file/inner"), Err(Errno::NotADirectory));
     }
 
-    fn create(fs: &KernPath, path: &str) -> Result<(), FilesystemError> {
+    fn create(fs: &KernPath, path: &str) -> Result<(), Errno> {
         fs.open_or_create(
             path,
             &OpenHow {
@@ -1443,8 +1415,8 @@ mod tests {
             (
                 Ok(()),
                 Ok(()),
-                Err(FilesystemError::StorageFull),
-                Err(FilesystemError::StorageFull)
+                Err(Errno::StorageFull),
+                Err(Errno::StorageFull)
             ),
             "a Tmpfs given inodes through Tmpfs::with_nr_inodes must refuse a file or directory \
              past them, the root counted, as out of space"
@@ -1461,7 +1433,7 @@ mod tests {
                 create(&tmpfs, "b"),
                 create(&tmpfs, "c")
             ),
-            (Ok(()), Ok(()), Err(FilesystemError::StorageFull)),
+            (Ok(()), Ok(()), Err(Errno::StorageFull)),
             "a Tmpfs given only a limit through Tmpfs::with_size must hold one entry for each \
              4 KiB of it and the root"
         );
@@ -1520,10 +1492,10 @@ mod tests {
             (moves, standing),
             (
                 [
-                    Some(FilesystemError::IsADirectory),
-                    Some(FilesystemError::IsADirectory),
-                    Some(FilesystemError::NotADirectory),
-                    Some(FilesystemError::DirectoryNotEmpty),
+                    Some(Errno::IsADirectory),
+                    Some(Errno::IsADirectory),
+                    Some(Errno::NotADirectory),
+                    Some(Errno::DirectoryNotEmpty),
                 ],
                 vec!["empty".to_string(), "file".to_string(), "full".to_string()]
             ),
@@ -1565,7 +1537,7 @@ mod tests {
         drop(handle);
         assert_eq!(
             (while_open, create(&tmpfs, "second")),
-            (Err(FilesystemError::StorageFull), Ok(())),
+            (Err(Errno::StorageFull), Ok(())),
             "the inode of a file removed through vfs_unlink must stay taken while a \
              handle holds it, and be free once it closes"
         );
@@ -1652,7 +1624,7 @@ mod tests {
                 tmpfs.vfs_lstat("moved/made").map(|m| m.file_type),
                 tmpfs.vfs_lstat("dir/made").map(|m| m.file_type)
             ),
-            (Ok(FileType::RegFile), Err(FilesystemError::NotFound)),
+            (Ok(FileType::RegFile), Err(Errno::NotFound)),
             "a file made through a directory Tmpfs::open_dir opened before Tmpfs::rename moved \
              it must stand beneath the directory's new path"
         );
@@ -1673,8 +1645,8 @@ mod tests {
                 dir.vfs_lstat("").map(|m| m.file_type)
             ),
             (
-                Err(FilesystemError::NotFound),
-                Err(FilesystemError::NotFound),
+                Err(Errno::NotFound),
+                Err(Errno::NotFound),
                 Ok(0),
                 Ok(FileType::Dir)
             ),
@@ -1697,7 +1669,7 @@ mod tests {
                 tmpfs.rename("a", &inner, "a"),
                 tmpfs.vfs_lstat("a/b").map(|m| m.file_type)
             ),
-            (Err(FilesystemError::InvalidInput), Ok(FileType::Dir)),
+            (Err(Errno::InvalidInput), Ok(FileType::Dir)),
             "Tmpfs::rename of a directory into one opened beneath it must answer InvalidInput \
              and move nothing"
         );
@@ -1779,7 +1751,7 @@ mod tests {
                 while_open,
                 crate::vfs::filename_mkdirat(&cred, &root, "next")
             ),
-            (Err(FilesystemError::StorageFull), Ok(())),
+            (Err(Errno::StorageFull), Ok(())),
             "vfs::filename_mkdirat in a Tmpfs out of inodes must answer ENOSPC while a removed \
              directory stays open, and succeed once it closes"
         );
@@ -1807,7 +1779,7 @@ mod tests {
                 crate::vfs::filename_renameat2(&cred, &root(&from), "file", &root(&to), "file"),
                 crate::vfs::vfs_fstatat(&cred, &root(&from), "file", false).map(|found| found.size),
             ),
-            (Err(FilesystemError::CrossesDevices), Ok(1)),
+            (Err(Errno::CrossesDevices), Ok(1)),
             "vfs::filename_renameat2 into a directory of another Tmpfs must answer EXDEV and \
              leave the file"
         );

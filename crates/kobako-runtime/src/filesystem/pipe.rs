@@ -6,10 +6,11 @@
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::vfs::{
-    alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
-    FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
+    alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType, Inode,
+    InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
 };
 use crate::wait::PollTable;
+use crate::Errno;
 
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No path
 /// reaches it: a pipe is only ever open.
@@ -22,14 +23,14 @@ static PIPE_MNT: LazyLock<Arc<VfsMount>> = LazyLock::new(|| {
 struct PipeFs;
 
 impl FileSystemType for PipeFs {
-    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), Errno> {
         sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
         Ok(())
     }
 }
 
 impl InodeOperations for PipeFs {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(Kstat::new(FileType::Fifo, 0))
     }
 }
@@ -83,7 +84,7 @@ impl FileOperations for AnonPipe {
     /// A pipe has no offsets, so a read takes what comes next. A drained pipe
     /// reads nothing, as a closed writer's does, and so does a read into no
     /// room, as `pipe_read` answers one.
-    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         let mut state = self.0.state();
         let start = state.read;
         let rest = &state.bytes[start..];
@@ -96,12 +97,12 @@ impl FileOperations for AnonPipe {
     /// A pipe has no offsets, so a write lands after the last. A write past
     /// the capacity keeps what fit and answers a failure, which is how a
     /// capture one past its limit learns it was truncated.
-    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         let mut state = self.0.state();
         let take = buf.len().min(self.0.capacity - state.bytes.len());
         state.bytes.extend_from_slice(&buf[..take]);
         if take < buf.len() {
-            return Err(FilesystemError::Other("the pipe is full".to_string()));
+            return Err(Errno::Other("the pipe is full".to_string()));
         }
         Ok(take)
     }

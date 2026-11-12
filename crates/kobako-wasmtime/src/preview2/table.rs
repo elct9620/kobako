@@ -11,8 +11,9 @@ use std::time::Instant;
 
 use kobako_runtime::net::{NameLookup, TcpSock, UdpSock};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{File, FilesystemError, OpenFiles, PollMask};
+use kobako_runtime::vfs::{File, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
+use kobako_runtime::Errno;
 
 use super::bindings::wasi_sockets_network_0_2_12::ErrorCode;
 use super::MAX_READ_SIZE_ALLOC;
@@ -84,12 +85,12 @@ impl Stream {
 
     /// Read what the stream holds now; `WouldBlock` while it holds nothing
     /// yet, as `io.wit` makes a read non-blocking.
-    pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, Errno> {
         lock(&self.shared_file()).read(buf)
     }
 
     /// Write what the stream takes now, never waiting.
-    pub(crate) fn write(&self, buf: &[u8]) -> Result<usize, FilesystemError> {
+    pub(crate) fn write(&self, buf: &[u8]) -> Result<usize, Errno> {
         lock(&self.shared_file()).write(buf)
     }
 
@@ -224,7 +225,7 @@ impl OutputStream {
 }
 
 /// A stream's failure, as `wasi:io/error` hands one out.
-pub(crate) struct Error(pub(crate) FilesystemError);
+pub(crate) struct Error(pub(crate) Errno);
 
 /// A lookup, the file made for it as it starts, and how many of its
 /// addresses were handed out.

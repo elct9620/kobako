@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use super::super::super::{FileType, FilesystemError, OpenHow};
+use super::super::super::{Errno, FileType, OpenHow};
 use super::super::inode::OverlayFileInode;
 use super::super::path::{timestamps, OverlayPath};
 use super::{copy_whole, OverlayFs, ViewDir, UPPER};
@@ -16,10 +16,7 @@ impl OverlayFs {
     /// above it that so far shows only from another Layer, as overlayfs's
     /// `ovl_copy_up_flags` climbs the dentry's parents in a loop to copy up the
     /// topmost first, however deep the Layer's tree is.
-    pub(in super::super) fn upper_dir(
-        &self,
-        dir: &ViewDir,
-    ) -> Result<OverlayPath, FilesystemError> {
+    pub(in super::super) fn upper_dir(&self, dir: &ViewDir) -> Result<OverlayPath, Errno> {
         let mut unmade = Vec::new();
         let mut at = dir.clone();
         let mut made = loop {
@@ -41,11 +38,7 @@ impl OverlayFs {
     /// `ovl_copy_up_workdir` does. Another call may have copied it up while this
     /// one waited, as `ovl_already_copied_up_locked` checks; what else stands at
     /// the name is no copy of this directory, and refuses the move.
-    fn copy_up_dir(
-        &self,
-        dir: &ViewDir,
-        parent: &OverlayPath,
-    ) -> Result<OverlayPath, FilesystemError> {
+    fn copy_up_dir(&self, dir: &ViewDir, parent: &OverlayPath) -> Result<OverlayPath, Errno> {
         let name = dir.dentry.name();
         let _held = dir.inode.lock.down_write()?;
         let level = dir.level();
@@ -56,7 +49,7 @@ impl OverlayFs {
             .iter()
             .flatten()
             .next()
-            .ok_or(FilesystemError::NotFound)?
+            .ok_or(Errno::NotFound)?
             .getattr()?;
         let (work, temp) = self.tempname()?;
         work.do_mkdir(&temp)?;
@@ -98,14 +91,14 @@ impl OverlayFs {
         dir: &ViewDir,
         child: &Dentry,
         truncate: bool,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         let name = child.name();
         let target_dir = self.upper_dir(dir)?;
         let inode = child
             .inode()
             .as_deref()
             .and_then(OverlayFileInode::of)
-            .ok_or(FilesystemError::NotFound)?;
+            .ok_or(Errno::NotFound)?;
         let _held = inode.lock.down_write()?;
         let real = inode.path_real();
         // Another call may have copied it up while this one waited, as
@@ -115,7 +108,7 @@ impl OverlayFs {
         }
         let lower = real.getattr()?;
         if lower.file_type != FileType::RegFile {
-            return Err(FilesystemError::PermissionDenied);
+            return Err(Errno::PermissionDenied);
         }
         let mut copy = target_dir.do_tmpfile()?;
         if !truncate {

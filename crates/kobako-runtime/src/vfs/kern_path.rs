@@ -16,8 +16,8 @@ use super::namei::{
 };
 use super::path::{Path, Start};
 use super::{
-    build_open_flags, DirEntry, File, FileOperations, FileSystemType, FileType, FilesystemError,
-    Iattr, Kstat, OpenHow, SuperBlock,
+    build_open_flags, DirEntry, Errno, File, FileOperations, FileSystemType, FileType, Iattr,
+    Kstat, OpenHow, SuperBlock,
 };
 use crate::mount::{Access, Mount};
 
@@ -29,7 +29,7 @@ pub(crate) fn filp_open(
     start: &impl Start,
     path: &str,
     how: &OpenHow,
-) -> Result<File, FilesystemError> {
+) -> Result<File, Errno> {
     do_file_open(cred, start, path, &build_open_flags(how)?)
 }
 
@@ -47,33 +47,29 @@ pub(crate) fn kern_path(filesystem: Arc<dyn FileSystemType>) -> KernPath {
 impl KernPath {
     /// `path` resolved beneath this directory, a link at its end left as
     /// it stands.
-    fn resolve(&self, path: &str) -> Result<Nameidata, FilesystemError> {
+    fn resolve(&self, path: &str) -> Result<Nameidata, Errno> {
         filename_lookup(&Arc::default(), &self.0, path, false)
     }
 
     /// The directory holding the last name of `path`, and that name's dentry,
     /// whether or not anything stands there.
-    fn parent(&self, path: &str) -> Result<(Nameidata, Arc<Dentry>), FilesystemError> {
+    fn parent(&self, path: &str) -> Result<(Nameidata, Arc<Dentry>), Errno> {
         let nd = filename_parentat(&Arc::default(), &self.0, path)?;
         let child = lookup_one_qstr_excl(nd.mnt.sb(), nd.dentry(), &nd.last)?;
         Ok((nd, child))
     }
 
-    pub(crate) fn open(
-        &self,
-        path: &str,
-        how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    pub(crate) fn open(&self, path: &str, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         let child = self.resolve(path)?.path()?;
         // A link opens as itself nowhere, as `may_open` refuses one first.
         if child.kind() == Ok(FileType::Symlink) {
-            return Err(FilesystemError::FilesystemLoop);
+            return Err(Errno::FilesystemLoop);
         }
         let file = child.open(how)?;
         if how.truncate {
             child
                 .inode()
-                .ok_or(FilesystemError::NotFound)?
+                .ok_or(Errno::NotFound)?
                 .ops()
                 .setattr(&child, &Iattr::open_truncate())?;
         }
@@ -85,9 +81,9 @@ impl KernPath {
         &self,
         path: &str,
         how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         match self.vfs_lstat(path) {
-            Err(FilesystemError::NotFound) => self.create(path, how),
+            Err(Errno::NotFound) => self.create(path, how),
             _ => self.open(path, how),
         }
     }
@@ -97,7 +93,7 @@ impl KernPath {
         &self,
         path: &str,
         how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         let (nd, child) = self.parent(path)?;
         may_create_dentry(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)?;
         let how = OpenHow {
@@ -112,57 +108,57 @@ impl KernPath {
     }
 
     /// Truncate or extend the file at `path`, as `->setattr` is asked.
-    pub(crate) fn truncate(&self, path: &str, len: u64) -> Result<(), FilesystemError> {
+    pub(crate) fn truncate(&self, path: &str, len: u64) -> Result<(), Errno> {
         self.setattr(path, &Iattr::size(len))
     }
 
     /// Hand `attr` to what `path` names, as `->setattr` is asked.
-    pub(crate) fn setattr(&self, path: &str, attr: &Iattr) -> Result<(), FilesystemError> {
+    pub(crate) fn setattr(&self, path: &str, attr: &Iattr) -> Result<(), Errno> {
         let child = self.resolve(path)?.path()?;
         child
             .inode()
-            .ok_or(FilesystemError::NotFound)?
+            .ok_or(Errno::NotFound)?
             .ops()
             .setattr(&child, attr)
     }
 
-    pub(crate) fn open_dir(&self, path: &str) -> Result<Self, FilesystemError> {
+    pub(crate) fn open_dir(&self, path: &str) -> Result<Self, Errno> {
         let dentry = self.resolve(path)?.path()?;
         match dentry.kind()? {
-            FileType::Symlink => Err(FilesystemError::FilesystemLoop),
+            FileType::Symlink => Err(Errno::FilesystemLoop),
             FileType::Dir => {
                 dentry.getattr()?;
                 Ok(Self(self.0.with_dentry(dentry)))
             }
-            _ => Err(FilesystemError::NotADirectory),
+            _ => Err(Errno::NotADirectory),
         }
     }
 
     /// What the directory reports of itself, as `vfs_getattr`.
-    pub(crate) fn vfs_getattr(&self) -> Result<Kstat, FilesystemError> {
+    pub(crate) fn vfs_getattr(&self) -> Result<Kstat, Errno> {
         self.0.dentry().getattr()
     }
 
     /// What `path` names, a link reported as itself, as `vfs_lstat`; the
     /// directory itself for the empty path.
-    pub(crate) fn vfs_lstat(&self, path: &str) -> Result<Kstat, FilesystemError> {
+    pub(crate) fn vfs_lstat(&self, path: &str) -> Result<Kstat, Errno> {
         if path.is_empty() {
             return self.vfs_getattr();
         }
         self.resolve(path)?.getattr()
     }
 
-    pub(crate) fn lookup(&self, path: &str) -> Result<String, FilesystemError> {
+    pub(crate) fn lookup(&self, path: &str) -> Result<String, Errno> {
         let nd = filename_parentat(&Arc::default(), &self.0, path)?;
         Ok(lookup_one_qstr_excl(nd.mnt.sb(), nd.dentry(), &nd.last)?.name())
     }
 
     #[cfg(unix)]
-    pub(crate) fn vfs_readlink(&self, path: &str) -> Result<String, FilesystemError> {
+    pub(crate) fn vfs_readlink(&self, path: &str) -> Result<String, Errno> {
         self.resolve(path)?.path()?.get_link()
     }
 
-    pub(crate) fn iterate_dir(&self) -> Result<Vec<DirEntry>, FilesystemError> {
+    pub(crate) fn iterate_dir(&self) -> Result<Vec<DirEntry>, Errno> {
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -170,17 +166,17 @@ impl KernPath {
         File::dentry_open(self.0.clone(), &read, &Arc::default())?.iterate_shared()
     }
 
-    pub(crate) fn vfs_mkdir(&self, path: &str) -> Result<(), FilesystemError> {
+    pub(crate) fn vfs_mkdir(&self, path: &str) -> Result<(), Errno> {
         let (nd, child) = self.parent(path)?;
         vfs_mkdir(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
 
-    pub(crate) fn vfs_rmdir(&self, path: &str) -> Result<(), FilesystemError> {
+    pub(crate) fn vfs_rmdir(&self, path: &str) -> Result<(), Errno> {
         let (nd, child) = self.parent(path)?;
         vfs_rmdir(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
 
-    pub(crate) fn vfs_unlink(&self, path: &str) -> Result<(), FilesystemError> {
+    pub(crate) fn vfs_unlink(&self, path: &str) -> Result<(), Errno> {
         let (nd, child) = self.parent(path)?;
         vfs_unlink(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
@@ -188,18 +184,13 @@ impl KernPath {
     /// Move `from` beneath this directory to `to` beneath `to_dir`,
     /// refused where the source stands above the target's directory, as
     /// `start_renaming` refuses it.
-    pub(crate) fn rename(
-        &self,
-        from: &str,
-        to_dir: &Self,
-        to: &str,
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn rename(&self, from: &str, to_dir: &Self, to: &str) -> Result<(), Errno> {
         let ((source, old), (target, new)) = (self.parent(from)?, to_dir.parent(to)?);
         if target.dentry().is_subdir(&old) {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         if source.dentry().is_subdir(&new) {
-            return Err(FilesystemError::DirectoryNotEmpty);
+            return Err(Errno::DirectoryNotEmpty);
         }
         vfs_rename(
             &source.cred,

@@ -5,24 +5,24 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::mount::VfsMount;
-use super::FilesystemError;
+use super::Errno;
 
 /// Where a walk starts, found once the call has taken its name, as Linux's
 /// `path_init` takes the directory a descriptor names only after the name. A
 /// caller holding a table of descriptors hands how to find it, so a call with
 /// two names answers for the first before it looks at the second's start.
 pub trait Start {
-    fn path_init(&self) -> Result<Path, FilesystemError>;
+    fn path_init(&self) -> Result<Path, Errno>;
 }
 
 impl Start for Path {
-    fn path_init(&self) -> Result<Path, FilesystemError> {
+    fn path_init(&self) -> Result<Path, Errno> {
         Ok(self.clone())
     }
 }
 
-impl<F: Fn() -> Result<Path, FilesystemError>> Start for F {
-    fn path_init(&self) -> Result<Path, FilesystemError> {
+impl<F: Fn() -> Result<Path, Errno>> Start for F {
+    fn path_init(&self) -> Result<Path, Errno> {
         self()
     }
 }

@@ -12,11 +12,11 @@ use std::io;
 
 use cap_std::fs::Dir;
 
-use super::{to_error, FilesystemError};
+use super::{to_error, Errno};
 
 /// The name `parent` stores for the entry `name` reaches, a link reached
 /// as itself; `name` as given when nothing is there.
-pub(super) fn lookup(parent: &Dir, name: &str) -> Result<String, FilesystemError> {
+pub(super) fn lookup(parent: &Dir, name: &str) -> Result<String, Errno> {
     #[cfg(target_os = "macos")]
     {
         macos::lookup(parent, name).map_err(to_error)
@@ -35,7 +35,7 @@ pub(super) fn lookup(parent: &Dir, name: &str) -> Result<String, FilesystemError
 /// else the entry sharing its inode. A spelling the listing lacks and no
 /// inode ties to a listed name is refused as `EACCES`.
 #[cfg(not(target_os = "macos"))]
-fn lookup_by_listing(parent: &Dir, name: &str) -> Result<String, FilesystemError> {
+fn lookup_by_listing(parent: &Dir, name: &str) -> Result<String, Errno> {
     let found = match parent.symlink_metadata(name) {
         Ok(found) => found,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(name.to_string()),
@@ -57,13 +57,13 @@ fn lookup_by_listing(parent: &Dir, name: &str) -> Result<String, FilesystemError
 fn stored_by_inode(
     names: Vec<cap_std::fs::DirEntry>,
     found: &cap_std::fs::Metadata,
-) -> Result<String, FilesystemError> {
+) -> Result<String, Errno> {
     use cap_std::fs::MetadataExt;
     use std::os::unix::fs::DirEntryExt;
     names
         .into_iter()
         .find(|entry| entry.ino() == found.ino())
-        .ok_or(FilesystemError::PermissionDenied)?
+        .ok_or(Errno::PermissionDenied)?
         .file_name()
         .into_string()
         .map_err(|_| to_error(io::ErrorKind::InvalidData.into()))
@@ -74,8 +74,8 @@ fn stored_by_inode(
 fn stored_by_inode(
     _names: Vec<cap_std::fs::DirEntry>,
     _found: &cap_std::fs::Metadata,
-) -> Result<String, FilesystemError> {
-    Err(FilesystemError::PermissionDenied)
+) -> Result<String, Errno> {
+    Err(Errno::PermissionDenied)
 }
 
 #[cfg(target_os = "macos")]

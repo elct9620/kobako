@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::cred::Cred;
 use super::dentry::Dentry;
 use super::inode::Identity;
-use super::{FileType, FilesystemError, Kstat, PATH_MAX};
+use super::{Errno, FileType, Kstat, PATH_MAX};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -145,17 +145,17 @@ pub fn dir_emit_dots(dentry: &Dentry, ctx: &mut DirContext<'_>) -> bool {
 
 /// What a directory's read answers, as Linux's `generic_read_dir` is every
 /// directory's `f_op->read`.
-pub fn generic_read_dir() -> Result<usize, FilesystemError> {
-    Err(FilesystemError::IsADirectory)
+pub fn generic_read_dir() -> Result<usize, Errno> {
+    Err(Errno::IsADirectory)
 }
 
 /// Refuse a name no directory can hold, as Linux's `verify_dirent_name` refuses
 /// what a Filesystem hands it, so whoever walks a listing is never handed a
 /// path where it was promised one name. A Filesystem that asks about each name
 /// before it lists them asks this first.
-pub fn verify_dirent_name(name: &str) -> Result<(), FilesystemError> {
+pub fn verify_dirent_name(name: &str) -> Result<(), Errno> {
     if name.is_empty() || name.len() >= PATH_MAX || name.contains('/') {
-        return Err(FilesystemError::Other(
+        return Err(Errno::Other(
             "a Filesystem listed a name no directory can hold".to_string(),
         ));
     }

@@ -11,14 +11,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::filesystem::{
-    FileOperations, FileSystemType, FileType, FilesystemError, InodeOperations, Kiocb, Kstat,
-    Lookup, OpenHow, Overlay, RenameFlag, Tmpfs,
+    FileOperations, FileSystemType, FileType, InodeOperations, Kiocb, Kstat, Lookup, OpenHow,
+    Overlay, RenameFlag, Tmpfs,
 };
 use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::mount::{Access, Mount, MountRequest};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{self, Dentry, Inode, Path, SecurityOperations, SecurityPath, PATH_MAX};
+use kobako_runtime::Errno;
 use wasmtime::{Instance, Module, Store};
 
 use crate::cache::load_engine;
@@ -42,7 +43,7 @@ fn host<F: FileSystemType>(filesystem: &Arc<F>) -> Path {
 }
 
 /// The names `filesystem`'s root holds, as the host lists them.
-fn host_entries<F: FileSystemType>(filesystem: &Arc<F>) -> Result<Vec<String>, FilesystemError> {
+fn host_entries<F: FileSystemType>(filesystem: &Arc<F>) -> Result<Vec<String>, Errno> {
     let mount = Mount::new(
         "/data",
         Filesystem::new(filesystem.clone()).expect("the instance must stand"),
@@ -780,7 +781,7 @@ impl StoresUpperCase {
 }
 
 impl FileSystemType for StoresUpperCase {
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.d_make_root(vfs::Inode::new(
             &vfs::Kstat::new(vfs::FileType::Dir, 0),
             self,
@@ -790,12 +791,11 @@ impl FileSystemType for StoresUpperCase {
 }
 
 impl InodeOperations for StoresUpperCase {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        self.stat(&dentry.path_raw()[1..])
-            .ok_or(FilesystemError::NotFound)
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
+        self.stat(&dentry.path_raw()[1..]).ok_or(Errno::NotFound)
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
         let Some(found) = self.stat(&dentry.path_raw()[1..]) else {
             return Ok(Lookup::Absent);
         };
@@ -1032,30 +1032,26 @@ impl FileOperations for FailsPastTheDotsDir {
         &mut self,
         dentry: &Dentry,
         ctx: &mut vfs::DirContext<'_>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         if !vfs::dir_emit_dots(dentry, ctx) {
             return Ok(());
         }
-        Err(FilesystemError::Other("the host read failed".into()))
+        Err(Errno::Other("the host read failed".into()))
     }
 }
 
 impl InodeOperations for FailsPastTheDots {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(Kstat::new(FileType::Dir, 0))
     }
 
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(FailsPastTheDotsDir))
     }
 }
 
 impl FileSystemType for FailsPastTheDots {
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.d_make_root(vfs::Inode::new(
             &vfs::Kstat::new(vfs::FileType::Dir, 0),
             self,
@@ -1352,11 +1348,7 @@ impl ReusesInodes {
 }
 
 impl Hook for ReusesInodes {
-    fn getattr(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Kstat, Errno> {
         let found = inner.getattr(dentry)?;
         Ok(match dentry.name().as_str() {
             "dir" => self.dir_kstat(found),
@@ -1364,11 +1356,7 @@ impl Hook for ReusesInodes {
         })
     }
 
-    fn lookup(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Lookup, Errno> {
         Ok(match inner.lookup(dentry)? {
             Lookup::Found(inode) if dentry.name() == "dir" => {
                 self.found.lock().unwrap().push(Arc::downgrade(inode.ops()));
@@ -1380,16 +1368,12 @@ impl Hook for ReusesInodes {
     }
 
     /// Its root answers as the Filesystem's and sets up nothing of it.
-    fn fill_super(
-        &self,
-        fs: Arc<dyn FileSystemType>,
-        sb: &mut Filesystem,
-    ) -> Result<(), FilesystemError> {
+    fn fill_super(&self, fs: Arc<dyn FileSystemType>, sb: &mut Filesystem) -> Result<(), Errno> {
         let beneath = Filesystem::new(fs)?;
         let root = beneath
             .root()
             .and_then(|root| root.inode())
-            .ok_or(FilesystemError::NotFound)?;
+            .ok_or(Errno::NotFound)?;
         sb.d_make_root(vfs::Inode::new(
             &vfs::Kstat::new(vfs::FileType::Dir, 0),
             root.ops().clone(),
@@ -1399,7 +1383,7 @@ impl Hook for ReusesInodes {
 
     /// The call removing it holds what it looked up, so `dir` is open
     /// beyond that only where a descriptor holds it too.
-    fn rmdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn rmdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), Errno> {
         let removed = inner.rmdir(dentry);
         let held = self
             .found
@@ -1453,11 +1437,7 @@ fn a_directory_descriptor_holds_its_directory_while_open() {
 struct NamesNoIdentity;
 
 impl Hook for NamesNoIdentity {
-    fn lookup(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Lookup, Errno> {
         Ok(match inner.lookup(dentry)? {
             Lookup::Found(inode) => {
                 let found = inode.ops().getattr(dentry)?;
@@ -1662,17 +1642,17 @@ impl ChangeCounter {
 }
 
 impl Hook for ChangeCounter {
-    fn mkdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn mkdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), Errno> {
         self.change();
         inner.mkdir(dentry)
     }
 
-    fn rmdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn rmdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), Errno> {
         self.change();
         inner.rmdir(dentry)
     }
 
-    fn unlink(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn unlink(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), Errno> {
         self.change();
         inner.unlink(dentry)
     }
@@ -1684,7 +1664,7 @@ impl Hook for ChangeCounter {
         to_dir: &dyn InodeOperations,
         to: &Dentry,
         flag: Option<RenameFlag>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         self.change();
         inner.rename(from, to_dir, to, flag)
     }
@@ -1726,7 +1706,7 @@ struct AppendedMeanwhileFile {
 }
 
 impl AppendedMeanwhileFile {
-    fn other_appends(&self) -> Result<(), FilesystemError> {
+    fn other_appends(&self) -> Result<(), Errno> {
         self.other
             .lock()
             .expect("the other writer's lock must not be poisoned")
@@ -1736,11 +1716,11 @@ impl AppendedMeanwhileFile {
 }
 
 impl FileOperations for AppendedMeanwhileFile {
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         self.file.read_iter(iocb, buf)
     }
 
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         if iocb.append {
             self.other_appends()?;
         }
@@ -1754,7 +1734,7 @@ impl Hook for AppendedMeanwhile {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         let writes = build_how(|how| how.write = true);
         let file = inner.open(dentry, how)?;
         let other = inner.open(dentry, &writes)?;
@@ -2118,11 +2098,11 @@ fn a_name_no_filesystem_makes_is_answered_by_what_stands() {
             symlink("new"),
         ),
         (
-            refused(FilesystemError::NotFound),
-            refused(FilesystemError::AlreadyExists),
-            refused(FilesystemError::NotPermitted),
-            refused(FilesystemError::AlreadyExists),
-            refused(FilesystemError::NotPermitted),
+            refused(Errno::NotFound),
+            refused(Errno::AlreadyExists),
+            refused(Errno::NotPermitted),
+            refused(Errno::AlreadyExists),
+            refused(Errno::NotPermitted),
         ),
         "vfs::filename_linkat and filename_symlinkat over a Filesystem making no links must \
          answer ENOENT for a missing source, EEXIST for a name that stands, and otherwise EPERM"
@@ -2357,13 +2337,9 @@ fn a_lookup_that_fails_fails_the_call_beneath_a_policy() {
 struct FailsLookingUpDir;
 
 impl Hook for FailsLookingUpDir {
-    fn lookup(
-        &self,
-        inner: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Lookup, Errno> {
         match dentry.name().as_str() {
-            "dir" => Err(FilesystemError::Other("unreadable".into())),
+            "dir" => Err(Errno::Other("unreadable".into())),
             _ => inner.lookup(dentry),
         }
     }
@@ -2407,8 +2383,8 @@ fn file_and_directory() -> Arc<Tmpfs> {
 struct RefusesMkdir;
 
 impl SecurityOperations for RefusesMkdir {
-    fn path_mkdir(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
-        Err(FilesystemError::PermissionDenied)
+    fn path_mkdir(&self, _path: SecurityPath<'_>) -> Result<(), Errno> {
+        Err(Errno::PermissionDenied)
     }
 }
 
@@ -2668,7 +2644,7 @@ fn an_exclusive_create_follows_no_link_at_the_end() {
     );
     assert_eq!(
         (answer.err(), host.0.join("nowhere").exists()),
-        (Some(FilesystemError::AlreadyExists), false),
+        (Some(Errno::AlreadyExists), false),
         "vfs::do_file_open with create and exclusive of a link to nothing, asking to follow it, \
          must answer EEXIST, as Linux's O_EXCL does, and make nothing"
     );
@@ -2688,7 +2664,7 @@ fn a_trailing_slash_on_a_link_to_a_directory_reads_no_link() {
             "dir/"
         )
         .err(),
-        Some(FilesystemError::InvalidInput),
+        Some(Errno::InvalidInput),
         "vfs::do_readlinkat of dir/, dir a host link to a directory beneath a Bind Mount, must \
          answer EINVAL, as Linux's does"
     );
@@ -3002,7 +2978,7 @@ const ERRNO_PERM: i32 = 63;
 struct ChangesNothing(Arc<dyn InodeOperations>);
 
 impl FileSystemType for ChangesNothing {
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.d_make_root(vfs::Inode::new(
             &vfs::Kstat::new(vfs::FileType::Dir, 0),
             self,
@@ -3012,11 +2988,11 @@ impl FileSystemType for ChangesNothing {
 }
 
 impl InodeOperations for ChangesNothing {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         self.0.getattr(dentry)
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
         Ok(match self.0.lookup(dentry)? {
             Lookup::Found(inode) => {
                 Lookup::Found(inode.with_ops(Arc::new(Self(inode.ops().clone()))))
@@ -3025,11 +3001,7 @@ impl InodeOperations for ChangesNothing {
         })
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         self.0.open(dentry, how)
     }
 }

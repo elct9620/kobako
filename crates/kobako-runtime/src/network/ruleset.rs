@@ -6,7 +6,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use super::{Addresses, Endpoint, EntryError, HttpRule, Protocol};
-use crate::vfs::FilesystemError;
+use crate::Errno;
 
 /// Where an address falls, by IANA's special-purpose registries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -444,19 +444,15 @@ impl Ruleset {
     /// unless an endpoint with an address host holds it, and refused in the
     /// fixed sets whatever an endpoint says. An `http` endpoint never admits
     /// raw TCP, so its rules cannot be framed around.
-    pub fn admit_literal(
-        &self,
-        addr: SocketAddr,
-        protocol: Protocol,
-    ) -> Result<(), FilesystemError> {
-        let ip = to_screened(addr.ip()).ok_or(FilesystemError::PermissionDenied)?;
+    pub fn admit_literal(&self, addr: SocketAddr, protocol: Protocol) -> Result<(), Errno> {
+        let ip = to_screened(addr.ip()).ok_or(Errno::PermissionDenied)?;
         let matched = self.rules.iter().any(|rule| {
             rule.serves(addr.port(), protocol)
                 && matches!(rule.host, Host::Cidr(net, prefix) if is_within_net(ip, net, prefix))
         });
         match matched {
             true => Ok(()),
-            false => Err(FilesystemError::PermissionDenied),
+            false => Err(Errno::PermissionDenied),
         }
     }
 }

@@ -8,17 +8,17 @@ use super::attr::notify_change;
 use super::cred::{on_path, Cred};
 use super::namei::{filename_lookup, retry_estale};
 use super::path::{Path, Start};
-use super::{FilesystemError, Iattr};
+use super::{Errno, Iattr};
 
 /// Set `times` on what the descriptor at `path` names, as Linux's `do_utimes_fd`.
-pub fn do_utimes_fd(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
+pub fn do_utimes_fd(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Errno> {
     vfs_utimes(cred, path, times)
 }
 
 /// Set `times` on what `path` names, as Linux's `vfs_utimes` asks the mount,
 /// then the security hook, then `setattr` under the entry's lock. An entry
 /// without `setattr` keeps no time to set, as this VFS holds none on an inode.
-fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), FilesystemError> {
+fn vfs_utimes(cred: &Arc<Cred>, path: &Path, times: &Iattr) -> Result<(), Errno> {
     path.mnt().mnt_want_write()?;
     let dentry = path.dentry();
     on_path(path.mnt(), dentry, |at| cred.security_path_utimes(at))?;
@@ -34,7 +34,7 @@ pub fn do_utimes_path(
     path: &str,
     follow: bool,
     times: &Iattr,
-) -> Result<(), FilesystemError> {
+) -> Result<(), Errno> {
     retry_estale(
         || filename_lookup(cred, start, path, follow),
         |nd| vfs_utimes(cred, &nd.path_to(nd.path()?), times),
@@ -78,7 +78,7 @@ mod tests {
         let _held = root.dentry().inode_lock().expect("the lock must be free");
         assert_eq!(
             vfs_utimes(&Arc::default(), &root, &times()),
-            Err(FilesystemError::Deadlock),
+            Err(Errno::Deadlock),
             "vfs::vfs_utimes on an entry whose lock its own thread holds must answer EDEADLK"
         );
     }
@@ -102,7 +102,7 @@ mod tests {
         let _held = dentry.inode_lock().expect("the lock must be free");
         assert_eq!(
             file.truncate(0),
-            Err(FilesystemError::Deadlock),
+            Err(Errno::Deadlock),
             "vfs::File::truncate on a file whose lock its own thread holds must answer EDEADLK, \
              as do_ftruncate holds the inode's lock around notify_change"
         );
@@ -128,8 +128,8 @@ mod tests {
                 set(MountAccess::ReadWrite, "file.txt"),
             ),
             (
-                Err(FilesystemError::NotFound),
-                Err(FilesystemError::ReadOnlyFilesystem),
+                Err(Errno::NotFound),
+                Err(Errno::ReadOnlyFilesystem),
                 Ok(()),
             ),
             "vfs::do_utimes_path must answer what is not there ENOENT, a read-only Mount EROFS, and \
@@ -141,7 +141,7 @@ mod tests {
     struct NoSetattr;
 
     impl FileSystemType for NoSetattr {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(crate::vfs::Inode::new(
                 &crate::vfs::Kstat::new(crate::vfs::FileType::Dir, 0),
                 self,
@@ -151,7 +151,7 @@ mod tests {
     }
 
     impl InodeOperations for NoSetattr {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(Kstat::new(FileType::Dir, 0))
         }
     }
@@ -162,7 +162,7 @@ mod tests {
         let mount = mount_of(Arc::new(NoSetattr), MountAccess::ReadWrite);
         assert_eq!(
             vfs_utimes(&Arc::default(), &Path::root(mount.mnt()), &times()),
-            Err(FilesystemError::Unsupported),
+            Err(Errno::Unsupported),
             "vfs::vfs_utimes on an entry without setattr must answer ENOTSUP"
         );
     }
@@ -172,7 +172,7 @@ mod tests {
     struct KeepsTimes(Mutex<Option<Iattr<'static>>>);
 
     impl FileSystemType for KeepsTimes {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(crate::vfs::Inode::new(
                 &crate::vfs::Kstat::new(crate::vfs::FileType::Dir, 0),
                 self,
@@ -182,11 +182,11 @@ mod tests {
     }
 
     impl InodeOperations for KeepsTimes {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(Kstat::new(FileType::Dir, 0))
         }
 
-        fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+        fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
             *self.0.lock().unwrap() = Some(Iattr {
                 size: attr.size,
                 atime: attr.atime,
@@ -254,7 +254,7 @@ mod tests {
                 crate::security::WalkGuard::new([&mount]).check(file.path()),
                 policy.0.lock().unwrap().clone()
             ),
-            (Err(FilesystemError::NotFound), Vec::new()),
+            (Err(Errno::NotFound), Vec::new()),
             "WalkGuard::check of a descriptor of a file whose name is gone, beneath a Policy, \
              must answer ENOENT without asking the Policy about the path it stood at"
         );
@@ -288,7 +288,7 @@ mod tests {
                 ),
                 *filesystem.0.lock().unwrap(),
             ),
-            (Err(FilesystemError::PermissionDenied), None),
+            (Err(Errno::PermissionDenied), None),
             "vfs::vfs_utimes beneath a Policy refusing the path must answer EACCES and leave the \
              Filesystem unasked"
         );

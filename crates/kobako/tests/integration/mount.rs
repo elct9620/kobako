@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::filesystem::{
-    Dentry, DirContext, DirEntry, FileOperations, FileSystemType, FileType, FilesystemError, Inode,
-    InodeOperations, Kiocb, Kstat, Lookup, OpenHow, Tmpfs,
+    Dentry, DirContext, DirEntry, FileOperations, FileSystemType, FileType, Inode, InodeOperations,
+    Kiocb, Kstat, Lookup, OpenHow, Tmpfs,
 };
 use kobako::msgpack::Value;
-use kobako::{Access, Error, Filesystem, MountRequest, Profile, Sandbox};
+use kobako::{Access, Errno, Error, Filesystem, MountRequest, Profile, Sandbox};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
 use kobako_runtime::grant::Grant;
@@ -227,7 +227,7 @@ struct OneNote(&'static [u8]);
 struct NoteFile(&'static [u8]);
 
 impl FileOperations for NoteFile {
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         let rest = self.0.get(iocb.pos as usize..).unwrap_or_default();
         let read = rest.len().min(buf.len());
         buf[..read].copy_from_slice(&rest[..read]);
@@ -235,25 +235,25 @@ impl FileOperations for NoteFile {
         Ok(read)
     }
 
-    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, FilesystemError> {
-        Err(FilesystemError::ReadOnlyFilesystem)
+    fn write_iter(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, Errno> {
+        Err(Errno::ReadOnlyFilesystem)
     }
 }
 
 /// The directory holding `note.txt`.
 impl FileSystemType for OneNote {
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
         Ok(())
     }
 }
 
 impl InodeOperations for OneNote {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(Kstat::new(FileType::Dir, 0))
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
         Ok(match dentry.name().as_str() {
             "note.txt" => {
                 let found = Kstat::new(FileType::RegFile, self.0.len() as u64);
@@ -263,11 +263,7 @@ impl InodeOperations for OneNote {
         })
     }
 
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _options: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, _dentry: &Dentry, _options: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(NoteDir))
     }
 }
@@ -276,11 +272,7 @@ impl InodeOperations for OneNote {
 struct NoteDir;
 
 impl FileOperations for NoteDir {
-    fn iterate_shared(
-        &mut self,
-        dentry: &Dentry,
-        ctx: &mut DirContext<'_>,
-    ) -> Result<(), FilesystemError> {
+    fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         if kobako_runtime::vfs::dir_emit_dots(dentry, ctx)
             && ctx.pos() == 2
             && ctx.dir_emit(&DirEntry::new("note.txt", FileType::RegFile))
@@ -295,15 +287,11 @@ impl FileOperations for NoteDir {
 struct Note(&'static [u8]);
 
 impl InodeOperations for Note {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(Kstat::new(FileType::RegFile, self.0.len() as u64))
     }
 
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _options: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, _dentry: &Dentry, _options: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(NoteFile(self.0)))
     }
 }

@@ -137,7 +137,7 @@ The remaining judgments shape what a call writes or how long it waits.
 | Waiting on a pipe's other end: BADF | preview1 only |
 | `poll_oneoff` clock wait | Wasm Driver deadline |
 
-`kobako-runtime` reports each error by POSIX name through `FilesystemError::posix_name`, and the Wasm Driver turns the name into a WASI code. A pipe's end is never ready for what the other end does, so a wait on it answers BADF rather than never ending. A clock wait ends at the invocation's deadline, a Wasm mechanism the Wasm Driver owns.
+`kobako-runtime` reports each error by POSIX name through `Errno::posix_name`, and the Wasm Driver turns the name into a WASI code. A pipe's end is never ready for what the other end does, so a wait on it answers BADF rather than never ending. A clock wait ends at the invocation's deadline, a Wasm mechanism the Wasm Driver owns.
 
 ## Call Mapping
 

@@ -3,7 +3,7 @@
 //! syscall entry checks before the VFS stays here, such as the order of an
 //! open's errors.
 
-use kobako_runtime::filesystem::{FilesystemError, Iattr};
+use kobako_runtime::filesystem::Iattr;
 use kobako_runtime::vfs::{self, OpenHow, Start};
 use wiggle::GuestPtr;
 
@@ -31,11 +31,11 @@ const MAX_ATTEMPTS: usize = 4;
 /// What `call` answers once no move landed during its walk, made again at most
 /// `MAX_ATTEMPTS` times in all, as cap-std retries `openat2` on EAGAIN.
 pub(super) fn retry_eagain<T>(
-    mut call: impl FnMut() -> Result<T, FilesystemError>,
-) -> Result<T, FilesystemError> {
+    mut call: impl FnMut() -> Result<T, kobako_runtime::Errno>,
+) -> Result<T, kobako_runtime::Errno> {
     let mut answer = call();
     for _ in 1..MAX_ATTEMPTS {
-        if !matches!(answer, Err(FilesystemError::WouldBlock)) {
+        if !matches!(answer, Err(kobako_runtime::Errno::WouldBlock)) {
             break;
         }
         answer = call();
@@ -50,7 +50,10 @@ pub(super) fn retry_eagain<T>(
 /// makes the call again.
 fn start_of(table: &Descriptors, fd: u32) -> impl vfs::Start + '_ {
     move || {
-        let file = &table.get(fd).ok_or(FilesystemError::BadDescriptor)?.file;
+        let file = &table
+            .get(fd)
+            .ok_or(kobako_runtime::Errno::BadDescriptor)?
+            .file;
         if file.is_directory() {
             table.walk_guard().check(file.path())?;
         }
@@ -219,10 +222,10 @@ pub(crate) fn symlink(
     // wasi-testsuite's symlink_create has a guest make no link to an absolute
     // path, where Linux would make one; a guest walks none of them anyway. It
     // is refused once the start is found, where the link would be made.
-    let start = || -> Result<vfs::Path, FilesystemError> {
+    let start = || -> Result<vfs::Path, kobako_runtime::Errno> {
         let start = start_of(table, fd).path_init()?;
         match target.starts_with('/') {
-            true => Err(FilesystemError::NotPermitted),
+            true => Err(kobako_runtime::Errno::NotPermitted),
             false => Ok(start),
         }
     };
@@ -267,12 +270,12 @@ mod tests {
 
     /// What `retry_eagain` answers when the first `moves` calls each had a move
     /// land in them, and how many calls it made.
-    fn retry_after_moves(moves: usize) -> (Result<(), FilesystemError>, usize) {
+    fn retry_after_moves(moves: usize) -> (Result<(), kobako_runtime::Errno>, usize) {
         let mut made = 0;
         let answer = retry_eagain(|| {
             made += 1;
             match made <= moves {
-                true => Err(FilesystemError::WouldBlock),
+                true => Err(kobako_runtime::Errno::WouldBlock),
                 false => Ok(()),
             }
         });
@@ -293,7 +296,7 @@ mod tests {
             [
                 (Ok(()), 1),
                 (Ok(()), 4),
-                (Err(FilesystemError::WouldBlock), 4),
+                (Err(kobako_runtime::Errno::WouldBlock), 4),
             ],
             "a path_* call answered EAGAIN must be made again until it answers otherwise, four \
              times in all at most, as cap-std makes openat2"

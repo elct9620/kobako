@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use super::super::super::{FileType, FilesystemError, InodeOperations, Kstat};
+use super::super::super::{Errno, FileType, InodeOperations, Kstat};
 use super::super::inode::{ovl_inode_init, OverlayDirInode, OverlayFileInode};
 use super::{entry, layer_dir, LayerEntry, Level, OverlayFs, Presence, UPPER};
 use crate::vfs::{Dentry, Inode};
@@ -15,7 +15,7 @@ impl OverlayFs {
         &self,
         level: &Level,
         name: &str,
-    ) -> Result<Option<(usize, LayerEntry)>, FilesystemError> {
+    ) -> Result<Option<(usize, LayerEntry)>, Errno> {
         for (index, dir) in level.iter().enumerate() {
             let Some(dir) = dir else {
                 continue;
@@ -38,7 +38,7 @@ impl OverlayFs {
         level: &Level,
         name: &str,
         (at, top): (usize, LayerEntry),
-    ) -> Result<Level, FilesystemError> {
+    ) -> Result<Level, Errno> {
         let mut merged = vec![None; level.len()];
         let top = layer_dir(&level[at])?.beneath(top.dentry);
         let opaque = top.is_opaque();
@@ -70,9 +70,9 @@ impl OverlayFs {
     /// reports a merged one: what its topmost Layer reports, under the identity
     /// of the topmost lower Layer showing it, as `ovl_path_lower` finds it, so
     /// copying it up leaves the identity as it was, and one name.
-    pub(in super::super) fn dir_getattr(&self, level: &Level) -> Result<Kstat, FilesystemError> {
+    pub(in super::super) fn dir_getattr(&self, level: &Level) -> Result<Kstat, Errno> {
         let mut shown = level.iter().flatten();
-        let topmost = shown.next().ok_or(FilesystemError::NotFound)?.getattr()?;
+        let topmost = shown.next().ok_or(Errno::NotFound)?.getattr()?;
         Ok(match shown.next() {
             Some(lower) => {
                 let lower = lower.getattr()?;
@@ -93,7 +93,7 @@ impl OverlayFs {
         name: &str,
         (index, found): (usize, LayerEntry),
         ops_of: impl Fn(FileType) -> Arc<dyn InodeOperations>,
-    ) -> Result<Arc<Inode>, FilesystemError> {
+    ) -> Result<Arc<Inode>, Errno> {
         let kind = found.kind()?;
         let ops = ops_of(kind);
         if kind != FileType::Dir {
@@ -106,7 +106,7 @@ impl OverlayFs {
         let inode = match merged.iter().flatten().count() {
             1 => {
                 let real = layer_dir(&merged[index])?.dentry();
-                let found = real.inode().ok_or(FilesystemError::NotFound)?;
+                let found = real.inode().ok_or(Errno::NotFound)?;
                 found.with_ops(ops)
             }
             _ => Inode::new(&self.dir_getattr(&merged)?, ops),
@@ -124,8 +124,8 @@ impl OverlayFs {
         index: usize,
         real: &Dentry,
         ops: Arc<dyn InodeOperations>,
-    ) -> Result<Arc<Inode>, FilesystemError> {
-        let found = real.inode().ok_or(FilesystemError::NotFound)?;
+    ) -> Result<Arc<Inode>, Errno> {
+        let found = real.inode().ok_or(Errno::NotFound)?;
         let breaks = self.has_upper() && index != UPPER && real.getattr()?.nlink > 1;
         Ok(match breaks {
             true => Inode::new(&Kstat::new(found.kind(), 0), ops),

@@ -8,7 +8,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use kobako_runtime::filesystem::{FileType, FilesystemError, Iattr, Kstat, SetTime};
+use kobako_runtime::filesystem::{FileType, Iattr, Kstat, SetTime};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{self, verify_dirent_name, DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
@@ -412,7 +412,7 @@ pub(crate) fn readdir(
     // `seekdir` moves a directory's position before `getdents`; a listing going
     // on from where the last one stopped needs no seek.
     if cookie != dir.pos() {
-        let cookie = i64::try_from(cookie).map_err(|_| FilesystemError::InvalidInput)?;
+        let cookie = i64::try_from(cookie).map_err(|_| kobako_runtime::Errno::InvalidInput)?;
         dir.llseek(cookie, Whence::Set)?;
     }
     let mut used: u32 = 0;
@@ -550,7 +550,7 @@ mod tests {
     use crate::preview1::types::{self, Rights, Whence};
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
     use kobako_runtime::filesystem::{
-        FileOperations, FileType, Filesystem, FilesystemError, InodeOperations, Kstat, Lookup,
+        FileOperations, FileType, Filesystem, InodeOperations, Kstat, Lookup,
     };
     use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::profile::Profile;
@@ -565,7 +565,10 @@ mod tests {
 
     /// A table holding the three standard streams and `mounts`, at most `limit`
     /// descriptors open, as a Driver makes one.
-    fn table_of(mounts: Vec<Mount>, limit: Option<usize>) -> Result<Descriptors, FilesystemError> {
+    fn table_of(
+        mounts: Vec<Mount>,
+        limit: Option<usize>,
+    ) -> Result<Descriptors, kobako_runtime::Errno> {
         let cred = prepare_creds_within(&[], None);
         let ends = |pipe| create_pipe_files(&pipe, &cred);
         Descriptors::new(
@@ -618,8 +621,8 @@ mod tests {
     struct RefusesClose;
 
     impl FileOperations for RefusesClose {
-        fn flush(&mut self) -> Result<(), FilesystemError> {
-            Err(FilesystemError::PermissionDenied)
+        fn flush(&mut self) -> Result<(), kobako_runtime::Errno> {
+            Err(kobako_runtime::Errno::PermissionDenied)
         }
     }
 
@@ -640,7 +643,7 @@ mod tests {
     const HOLDS_REFUSES_CLOSE: Holds = Holds(FileType::RegFile, || Box::new(RefusesClose));
 
     impl kobako_runtime::filesystem::FileSystemType for Holds {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), kobako_runtime::Errno> {
             sb.d_make_root(kobako_runtime::vfs::Inode::new(
                 &kobako_runtime::Kstat::new(kobako_runtime::FileType::Dir, 0),
                 self,
@@ -650,11 +653,11 @@ mod tests {
     }
 
     impl InodeOperations for Holds {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, kobako_runtime::Errno> {
             Ok(Kstat::new(FileType::Dir, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, kobako_runtime::Errno> {
             let found = Kstat::new(self.0, 0);
             Ok(Lookup::Found(Inode::new(
                 &found,
@@ -666,7 +669,7 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, kobako_runtime::Errno> {
             Ok((self.1)())
         }
     }
@@ -1193,7 +1196,7 @@ mod tests {
     struct ListsNames(&'static str);
 
     impl kobako_runtime::filesystem::FileSystemType for ListsNames {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), kobako_runtime::Errno> {
             sb.d_make_root(kobako_runtime::vfs::Inode::new(
                 &kobako_runtime::Kstat::new(kobako_runtime::FileType::Dir, 0),
                 self,
@@ -1203,7 +1206,7 @@ mod tests {
     }
 
     impl InodeOperations for ListsNames {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, kobako_runtime::Errno> {
             Ok(Kstat::new(FileType::Dir, 0))
         }
 
@@ -1211,7 +1214,7 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, kobako_runtime::Errno> {
             Ok(Box::new(Self(self.0)))
         }
     }
@@ -1221,7 +1224,7 @@ mod tests {
             &mut self,
             dentry: &Dentry,
             ctx: &mut vfs::DirContext<'_>,
-        ) -> Result<(), FilesystemError> {
+        ) -> Result<(), kobako_runtime::Errno> {
             let entries = vec![
                 vfs::DirEntry::new("ok", FileType::RegFile),
                 vfs::DirEntry::new(self.0, FileType::RegFile),
@@ -1335,7 +1338,7 @@ mod tests {
     struct MakesLinks;
 
     impl kobako_runtime::filesystem::FileSystemType for MakesLinks {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), kobako_runtime::Errno> {
             sb.d_make_root(kobako_runtime::vfs::Inode::new(
                 &kobako_runtime::Kstat::new(kobako_runtime::FileType::Dir, 0),
                 self,
@@ -1345,15 +1348,15 @@ mod tests {
     }
 
     impl InodeOperations for MakesLinks {
-        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, kobako_runtime::Errno> {
             Ok(Kstat::new(FileType::Dir, 0))
         }
 
-        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, _dentry: &Dentry) -> Result<Lookup, kobako_runtime::Errno> {
             Ok(Lookup::Absent)
         }
 
-        fn symlink(&self, _dentry: &Dentry, _target: &str) -> Result<(), FilesystemError> {
+        fn symlink(&self, _dentry: &Dentry, _target: &str) -> Result<(), kobako_runtime::Errno> {
             Ok(())
         }
     }

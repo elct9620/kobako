@@ -8,15 +8,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{
-    FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, Finish, InodeOperations,
-    Kiocb, Kstat, Lookup, OpenHow, Tmpfs,
+    FileOperations, FileSystemType, FileType, Filesystem, Finish, InodeOperations, Kiocb, Kstat,
+    Lookup, OpenHow, Tmpfs,
 };
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount};
 use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::Inode;
 use kobako_runtime::vfs::{self, Dentry, Path};
-use kobako_runtime::{Completion, Entry, Runtime};
+use kobako_runtime::{Completion, Entry, Errno, Runtime};
 use kobako_transport::envelope::{Flag, Outcome, Preamble};
 
 /// What one script left: its printed output, or the class of the
@@ -615,7 +615,7 @@ where
     W: Fn(Box<dyn FileOperations>) -> F + Send + Sync + 'static,
     F: FileOperations + 'static,
 {
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
         Ok(())
     }
@@ -626,7 +626,7 @@ where
     W: Fn(Box<dyn FileOperations>) -> F + Send + Sync + 'static,
     F: FileOperations + 'static,
 {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         self.inner.getattr(dentry)
     }
 
@@ -634,19 +634,15 @@ where
         &self,
         dentry: &Dentry,
         attr: &kobako_runtime::filesystem::Iattr,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         self.inner.setattr(dentry, attr)
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
         Ok(self.wrap_found(self.inner.lookup(dentry)?))
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         let opened = self.inner.open(dentry, how)?;
         if dentry
             .inode()
@@ -659,7 +655,7 @@ where
 
     /// Opens what it made, as a Filesystem ending in `finish_open` does, so the
     /// new file is wrapped too; what it only looked up is handed back wrapped.
-    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, Errno> {
         let (made, created) = match self.inner.atomic_open(dentry, how)? {
             Finish::Open { file, created } => (file, created),
             Finish::NoOpen { created } => (self.inner.open(dentry, how)?, created),
@@ -686,12 +682,12 @@ struct CountedFile {
 }
 
 impl FileOperations for CountedFile {
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         self.reads.fetch_add(1, Ordering::Relaxed);
         self.file.read_iter(iocb, buf)
     }
 
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         self.file.write_iter(iocb, buf)
     }
 }
@@ -727,16 +723,16 @@ fn a_read_of_a_length_asks_the_filesystem_once() {
 struct RefusesClose(Box<dyn FileOperations>);
 
 impl FileOperations for RefusesClose {
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         self.0.read_iter(iocb, buf)
     }
 
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         self.0.write_iter(iocb, buf)
     }
 
-    fn flush(&mut self) -> Result<(), FilesystemError> {
-        Err(FilesystemError::PermissionDenied)
+    fn flush(&mut self) -> Result<(), Errno> {
+        Err(Errno::PermissionDenied)
     }
 }
 
@@ -745,12 +741,12 @@ impl FileOperations for RefusesClose {
 struct RefusesCloseAsUnheld(Box<dyn FileOperations>);
 
 impl FileOperations for RefusesCloseAsUnheld {
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         self.0.read_iter(iocb, buf)
     }
 
-    fn flush(&mut self) -> Result<(), FilesystemError> {
-        Err(FilesystemError::BadDescriptor)
+    fn flush(&mut self) -> Result<(), Errno> {
+        Err(Errno::BadDescriptor)
     }
 }
 
@@ -758,11 +754,11 @@ impl FileOperations for RefusesCloseAsUnheld {
 struct FailsReads(Box<dyn FileOperations>);
 
 impl FileOperations for FailsReads {
-    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
-        Err(FilesystemError::Other("the disk went away".to_string()))
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, Errno> {
+        Err(Errno::Other("the disk went away".to_string()))
     }
 
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         self.0.write_iter(iocb, buf)
     }
 }
@@ -821,11 +817,11 @@ fn a_close_the_filesystem_refuses_fails_the_scripts_close() {
 struct WritesInParts(Box<dyn FileOperations>);
 
 impl FileOperations for WritesInParts {
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         self.0.read_iter(iocb, buf)
     }
 
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         self.0.write_iter(iocb, &buf[..buf.len().min(3)])
     }
 }
@@ -989,14 +985,14 @@ fn a_write_lands_whole_when_the_filesystem_takes_it_in_parts() {
 struct ReportsLen(Arc<dyn InodeOperations>, u64);
 
 impl FileSystemType for ReportsLen {
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
         Ok(())
     }
 }
 
 impl InodeOperations for ReportsLen {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         let mut stat = self.0.getattr(dentry)?;
         if stat.file_type == FileType::RegFile {
             stat.size = self.1;
@@ -1004,7 +1000,7 @@ impl InodeOperations for ReportsLen {
         Ok(stat)
     }
 
-    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
         Ok(match self.0.lookup(dentry)? {
             Lookup::Found(inode) => {
                 Lookup::Found(inode.with_ops(Arc::new(Self(inode.ops().clone(), self.1))))
@@ -1013,11 +1009,7 @@ impl InodeOperations for ReportsLen {
         })
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         self.0.open(dentry, how)
     }
 }

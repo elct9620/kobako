@@ -12,7 +12,7 @@ use super::file::FMode;
 use super::inode::Mask;
 use super::mount::VfsMount;
 use super::openat2::OpenHow;
-use super::{FileType, FilesystemError};
+use super::{Errno, FileType};
 use crate::network::Connection;
 
 /// What one security module keeps on an open file, as Linux's `f_security`
@@ -48,41 +48,37 @@ pub(crate) fn on_path<T>(
 pub trait SecurityOperations: Send + Sync {
     /// Whether a call may do what `mask` asks of what `dentry` names, as
     /// `security_inode_permission` is asked once the entry itself allowed it.
-    fn inode_permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), FilesystemError> {
+    fn inode_permission(&self, _dentry: &Dentry, _mask: Mask) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether a file may be made at `path`, as `security_path_mknod`.
-    fn path_mknod(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_mknod(&self, _path: SecurityPath<'_>) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether a directory may be made at `path`, as `security_path_mkdir`.
-    fn path_mkdir(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_mkdir(&self, _path: SecurityPath<'_>) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether the directory at `path` may go, as `security_path_rmdir`.
-    fn path_rmdir(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_rmdir(&self, _path: SecurityPath<'_>) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether the file at `path` may go, as `security_path_unlink`.
-    fn path_unlink(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_unlink(&self, _path: SecurityPath<'_>) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether a link may be made at `path`, as `security_path_symlink`.
-    fn path_symlink(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_symlink(&self, _path: SecurityPath<'_>) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether what `old` names may also go by `new`, as `security_path_link`.
-    fn path_link(
-        &self,
-        _old: SecurityPath<'_>,
-        _new: SecurityPath<'_>,
-    ) -> Result<(), FilesystemError> {
+    fn path_link(&self, _old: SecurityPath<'_>, _new: SecurityPath<'_>) -> Result<(), Errno> {
         Ok(())
     }
 
@@ -93,7 +89,7 @@ pub trait SecurityOperations: Send + Sync {
         _old: SecurityPath<'_>,
         _new: SecurityPath<'_>,
         _dentries: (&Arc<Dentry>, &Arc<Dentry>),
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         Ok(())
     }
 
@@ -108,38 +104,38 @@ pub trait SecurityOperations: Send + Sync {
         _kind: FileType,
         _mode: FMode,
         _how: &OpenHow,
-    ) -> Result<FileSecurity, FilesystemError> {
+    ) -> Result<FileSecurity, Errno> {
         Ok(None)
     }
 
     /// Whether the open file may be truncated, judged from what this module kept
     /// on it as it opened, as Landlock's `hook_file_truncate` reads the file's
     /// blob.
-    fn file_truncate(&self, _kept: &FileSecurity) -> Result<(), FilesystemError> {
+    fn file_truncate(&self, _kept: &FileSecurity) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether times may be set on the entry at `path`. Linux has no path hook
     /// for times, so this is kobako's own, beside `path_truncate` and
     /// `path_chmod` in kind, letting a module judge the path a call names.
-    fn path_utimes(&self, _path: SecurityPath<'_>) -> Result<(), FilesystemError> {
+    fn path_utimes(&self, _path: SecurityPath<'_>) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether where the link `dentry` names points may be read, as
     /// `security_inode_readlink` is handed the link.
-    fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn inode_readlink(&self, _dentry: &Dentry) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether a socket may connect where `connection` names, judged on what
     /// the guest named, as `security_socket_connect`.
-    fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), FilesystemError> {
+    fn socket_connect(&self, _connection: &Connection<'_>) -> Result<(), Errno> {
         Ok(())
     }
 
     /// Whether a socket may bind `address`, as `security_socket_bind`.
-    fn socket_bind(&self, _address: SocketAddr) -> Result<(), FilesystemError> {
+    fn socket_bind(&self, _address: SocketAddr) -> Result<(), Errno> {
         Ok(())
     }
 }
@@ -210,8 +206,8 @@ impl Cred {
     /// Ask each module in turn, the first refusal answering, as `call_int_hook`.
     fn call_int_hook(
         &self,
-        hook: impl Fn(&dyn SecurityOperations) -> Result<(), FilesystemError>,
-    ) -> Result<(), FilesystemError> {
+        hook: impl Fn(&dyn SecurityOperations) -> Result<(), Errno>,
+    ) -> Result<(), Errno> {
         self.security
             .iter()
             .try_for_each(|module| hook(module.as_ref()))
@@ -221,42 +217,27 @@ impl Cred {
         &self,
         dentry: &Dentry,
         mask: Mask,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         self.call_int_hook(|module| module.inode_permission(dentry, mask))
     }
 
-    pub(crate) fn security_path_mknod(
-        &self,
-        path: SecurityPath<'_>,
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn security_path_mknod(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.call_int_hook(|module| module.path_mknod(path))
     }
 
-    pub(crate) fn security_path_mkdir(
-        &self,
-        path: SecurityPath<'_>,
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn security_path_mkdir(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.call_int_hook(|module| module.path_mkdir(path))
     }
 
-    pub(crate) fn security_path_rmdir(
-        &self,
-        path: SecurityPath<'_>,
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn security_path_rmdir(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.call_int_hook(|module| module.path_rmdir(path))
     }
 
-    pub(crate) fn security_path_unlink(
-        &self,
-        path: SecurityPath<'_>,
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn security_path_unlink(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.call_int_hook(|module| module.path_unlink(path))
     }
 
-    pub(crate) fn security_path_symlink(
-        &self,
-        path: SecurityPath<'_>,
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn security_path_symlink(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.call_int_hook(|module| module.path_symlink(path))
     }
 
@@ -264,7 +245,7 @@ impl Cred {
         &self,
         old: SecurityPath<'_>,
         new: SecurityPath<'_>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         self.call_int_hook(|module| module.path_link(old, new))
     }
 
@@ -273,7 +254,7 @@ impl Cred {
         old: SecurityPath<'_>,
         new: SecurityPath<'_>,
         dentries: (&Arc<Dentry>, &Arc<Dentry>),
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         self.call_int_hook(|module| module.path_rename(old, new, dentries))
     }
 
@@ -291,7 +272,7 @@ impl Cred {
         kind: FileType,
         mode: FMode,
         how: &OpenHow,
-    ) -> Result<Vec<FileSecurity>, FilesystemError> {
+    ) -> Result<Vec<FileSecurity>, Errno> {
         self.security
             .iter()
             .map(|module| module.file_open(path, kind, mode, how))
@@ -300,41 +281,32 @@ impl Cred {
 
     /// Ask each module whether the file may be truncated, handing each what it
     /// kept on the file as it opened.
-    pub(crate) fn security_file_truncate(
-        &self,
-        kept: &[FileSecurity],
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn security_file_truncate(&self, kept: &[FileSecurity]) -> Result<(), Errno> {
         self.security
             .iter()
             .zip(kept)
             .try_for_each(|(module, kept)| module.file_truncate(kept))
     }
 
-    pub(crate) fn security_path_utimes(
-        &self,
-        path: SecurityPath<'_>,
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn security_path_utimes(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
         self.call_int_hook(|module| module.path_utimes(path))
     }
 
-    pub(crate) fn security_inode_readlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    pub(crate) fn security_inode_readlink(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.call_int_hook(|module| module.inode_readlink(dentry))
     }
 
-    pub(crate) fn security_socket_connect(
-        &self,
-        connection: &Connection<'_>,
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn security_socket_connect(&self, connection: &Connection<'_>) -> Result<(), Errno> {
         self.call_int_hook(|module| module.socket_connect(connection))
     }
 
-    pub(crate) fn security_socket_bind(&self, address: SocketAddr) -> Result<(), FilesystemError> {
+    pub(crate) fn security_socket_bind(&self, address: SocketAddr) -> Result<(), Errno> {
         self.call_int_hook(|module| module.socket_bind(address))
     }
 
     /// Count `bytes` more held on this caller's behalf, refusing them past its
     /// limit, as `security_vm_enough_memory_mm` ends in `__vm_enough_memory`.
-    pub(crate) fn security_vm_enough_memory(&self, bytes: usize) -> Result<(), FilesystemError> {
+    pub(crate) fn security_vm_enough_memory(&self, bytes: usize) -> Result<(), Errno> {
         let Some(committed) = &self.committed else {
             return Ok(());
         };
@@ -345,7 +317,7 @@ impl Cred {
                     .filter(|&total| total <= committed.limit)
             })
             .map(|_| ())
-            .map_err(|_| FilesystemError::OutOfMemory)
+            .map_err(|_| Errno::OutOfMemory)
     }
 
     /// `bytes` counted earlier are held no more, as `vm_unacct_memory` gives

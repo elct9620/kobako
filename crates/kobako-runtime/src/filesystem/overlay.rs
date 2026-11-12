@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use super::rdir::Rdir;
 use super::{
-    DentryOperations, FileOperations, FileSystemType, FileType, Filesystem, FilesystemError, Iattr,
+    DentryOperations, Errno, FileOperations, FileSystemType, FileType, Filesystem, Iattr,
     InodeOperations, Kstat, Lookup, OpenHow, RenameFlag, Tmpfs,
 };
 use crate::vfs::{
@@ -64,17 +64,14 @@ impl Overlay {
     /// Layers, a stack too deep, and one instance as two Layers, as
     /// overlayfs answers overlapping layers; as gVisor's does, it refuses an
     /// upper that is no Tmpfs.
-    pub fn new(
-        lower: Vec<Arc<Filesystem>>,
-        upper: Option<Arc<Filesystem>>,
-    ) -> Result<Self, FilesystemError> {
+    pub fn new(lower: Vec<Arc<Filesystem>>, upper: Option<Arc<Filesystem>>) -> Result<Self, Errno> {
         let layers: Vec<_> = lower.iter().chain(&upper).collect();
         let overlapping = layers
             .iter()
             .enumerate()
             .any(|(at, layer)| layers[..at].iter().any(|seen| Arc::ptr_eq(seen, layer)));
         if overlapping {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         let too_few = if upper.is_some() { 1 } else { 2 };
         let upper_tmpfs = upper.as_ref().is_none_or(|upper| {
@@ -96,7 +93,7 @@ impl Overlay {
             || !upper_tmpfs
             || stack_depth > MAX_STACK_DEPTH
         {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         Ok(Self {
             fs: OverlayFs::new(lower, upper)?,
@@ -115,7 +112,7 @@ fn real_of(dentry: &Dentry) -> Option<(Arc<Dentry>, Arc<Inode>)> {
 
 /// Whether `real`, a Layer's dentry, still names what it recorded, as
 /// `ovl_revalidate_real` asks it.
-fn ovl_revalidate_real(real: &Dentry) -> Result<bool, FilesystemError> {
+fn ovl_revalidate_real(real: &Dentry) -> Result<bool, Errno> {
     match real.ops() {
         Some(ops) => ops.revalidate(real.parent().inode_ops()?.as_ref(), real),
         None => Ok(true),
@@ -127,11 +124,7 @@ fn ovl_revalidate_real(real: &Dentry) -> Result<bool, FilesystemError> {
 /// stands for what each Layer holds there, as `ovl_clear_empty` drops a dentry
 /// whose upper no longer matches.
 impl DentryOperations for Overlay {
-    fn revalidate(
-        &self,
-        _dir: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<bool, FilesystemError> {
+    fn revalidate(&self, _dir: &dyn InodeOperations, dentry: &Dentry) -> Result<bool, Errno> {
         let Some(inode) = dentry.inode() else {
             return Ok(matches!(self.lookup(dentry)?, Lookup::Absent));
         };
@@ -192,8 +185,8 @@ impl Overlay {
 
     /// What the Layer the entry's name is found in reports, under the identity
     /// the view recorded.
-    fn real_getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
-        let (real, inode) = real_of(dentry).ok_or(FilesystemError::NotFound)?;
+    fn real_getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
+        let (real, inode) = real_of(dentry).ok_or(Errno::NotFound)?;
         let found = real.getattr()?;
         Ok(match inode.identity() {
             Some(identity) => identity.onto(found),
@@ -203,18 +196,18 @@ impl Overlay {
 }
 
 impl InodeOperations for OverlayRegular {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         self.0.real_getattr(dentry)
     }
 
     /// Copied up first, as `ovl_setattr` does, so a lower Layer stays as it
     /// was whatever its Filesystem would keep.
-    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
         let overlay = &self.0;
         overlay
             .fs
             .copy_up_file(&overlay.fs.parent(dentry)?, dentry, false)?;
-        let (real, _) = real_of(dentry).ok_or(FilesystemError::NotFound)?;
+        let (real, _) = real_of(dentry).ok_or(Errno::NotFound)?;
         // The open's truncate never reached the upper's open, so the upper must
         // empty the file itself, and the view's open file is none of the upper's,
         // as `ovl_setattr` clears `ATTR_OPEN` and `ATTR_FILE`.
@@ -230,24 +223,20 @@ impl InodeOperations for OverlayRegular {
         )
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         let fs = &self.0.fs;
         fs.open(&fs.parent(dentry)?, dentry, how)
     }
 }
 
 impl InodeOperations for OverlayLink {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         self.0.real_getattr(dentry)
     }
 
     /// Where the link points, as `ovl_get_link` asks the real dentry.
-    fn get_link(&self, dentry: &Dentry) -> Result<String, FilesystemError> {
-        let (real, _) = real_of(dentry).ok_or(FilesystemError::NotFound)?;
+    fn get_link(&self, dentry: &Dentry) -> Result<String, Errno> {
+        let (real, _) = real_of(dentry).ok_or(Errno::NotFound)?;
         real.get_link()
     }
 }
@@ -257,7 +246,7 @@ impl FileSystemType for Overlay {
     /// Its root takes the identity its topmost Layer's root recorded, as
     /// `ovl_get_root` reads a real root's `i_ino`, so making the view asks no
     /// Layer anything.
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.set_default_d_op(self.clone());
         if !self.fs.has_upper() {
             sb.set_rdonly();
@@ -279,13 +268,13 @@ impl FileSystemType for Overlay {
 /// is handed, as `ovl_dir_inode_operations` answers for one.
 impl InodeOperations for Overlay {
     /// It reports its merged Layers.
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         self.fs.dir_getattr(&self.fs.dir(dentry)?.level())
     }
 
     /// Copied up first, as `ovl_setattr` does for any entry, so a lower Layer
     /// stays as it was.
-    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
         let upper = self.fs.upper_dir(&self.fs.dir(dentry)?)?;
         let held = upper.dentry().inode_lock()?;
         notify_change(upper.dentry(), &held, attr)
@@ -294,11 +283,11 @@ impl InodeOperations for Overlay {
     /// The entry as a Layer spells it, as `ovl_lookup` hands
     /// `d_splice_alias` the inode it made, a name no Layer could hold refused
     /// before any is asked, as it compares `namelen`.
-    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
         let level = self.fs.parent(dentry)?.level();
         let name = dentry.name();
         if name.len() > NAME_MAX {
-            return Err(FilesystemError::InvalidFilename);
+            return Err(Errno::InvalidFilename);
         }
         let Some(found) = self.fs.lookup_layer(&level, &name)? else {
             return Ok(Lookup::Absent);
@@ -316,11 +305,7 @@ impl InodeOperations for Overlay {
         }
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        _how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         let _real = self
             .fs
             .dir(dentry)?
@@ -339,24 +324,24 @@ impl InodeOperations for Overlay {
 
     /// What was made is found through the view's own lookup, as `ovl_instantiate`
     /// records the inode for the real dentry.
-    fn create(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn create(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.fs.create(&self.fs.parent(dentry)?, &dentry.name())?;
         match self.lookup(dentry)? {
             Lookup::Found(inode) => dentry.add(Some(inode)),
-            _ => return Err(FilesystemError::NotFound),
+            _ => return Err(Errno::NotFound),
         }
         Ok(())
     }
 
-    fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn mkdir(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.fs.mkdir(&self.fs.parent(dentry)?, &dentry.name())
     }
 
-    fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn rmdir(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.fs.rmdir(&self.fs.parent(dentry)?, dentry)
     }
 
-    fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn unlink(&self, dentry: &Dentry) -> Result<(), Errno> {
         self.fs.unlink(&self.fs.parent(dentry)?, dentry)
     }
 
@@ -368,9 +353,9 @@ impl InodeOperations for Overlay {
         _to_dir: &dyn InodeOperations,
         to: &Dentry,
         flag: Option<RenameFlag>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         if flag.is_some() {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         self.fs
             .rename(&self.fs.parent(from)?, from, &self.fs.parent(to)?, to)
@@ -394,23 +379,15 @@ impl FileOperations for OverlayDir {
         pos: u64,
         offset: i64,
         whence: Whence,
-    ) -> Result<u64, FilesystemError> {
+    ) -> Result<u64, Errno> {
         generic_file_llseek(dentry, pos, offset, whence)
     }
 
-    fn read_iter(
-        &mut self,
-        _iocb: &mut super::Kiocb,
-        _buf: &mut [u8],
-    ) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut super::Kiocb, _buf: &mut [u8]) -> Result<usize, Errno> {
         generic_read_dir()
     }
 
-    fn iterate_shared(
-        &mut self,
-        dentry: &Dentry,
-        ctx: &mut DirContext<'_>,
-    ) -> Result<(), FilesystemError> {
+    fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         let (fs, cache) = (&self.fs, &mut self.cache);
         cache.iterate(dentry, ctx, || fs.dir_read_merged(&fs.dir(dentry)?.level()))
     }
@@ -418,7 +395,7 @@ impl FileOperations for OverlayDir {
     /// Its Layers answer for what they hold, and its upper is a Tmpfs, so
     /// nothing is left to make durable, as `ovl_dir_fsync` finds with no upper
     /// of its own to sync.
-    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
         Ok(())
     }
 }
@@ -451,11 +428,7 @@ mod tests {
     struct CountsLookups(AtomicUsize);
 
     impl Hook for CountsLookups {
-        fn lookup(
-            &self,
-            inner: &dyn InodeOperations,
-            dentry: &Dentry,
-        ) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Lookup, Errno> {
             self.0.fetch_add(1, Ordering::SeqCst);
             inner.lookup(dentry)
         }
@@ -505,9 +478,9 @@ mod tests {
                 on(&upper).vfs_lstat("upper/dir").err(),
             ),
             (
-                Some(FilesystemError::InvalidFilename),
-                Some(FilesystemError::InvalidFilename),
-                Some(FilesystemError::NotFound),
+                Some(Errno::InvalidFilename),
+                Some(Errno::InvalidFilename),
+                Some(Errno::NotFound),
             ),
             "a stat and a make of a name past NAME_MAX in a lower directory, through an Overlay, \
              must answer ENAMETOOLONG and leave that directory uncopied"
@@ -562,7 +535,7 @@ mod tests {
         read_from(open_to_read(fs, path).as_mut())
     }
 
-    fn write(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
+    fn write(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), Errno> {
         fs.open_or_create(
             path,
             &OpenHow {
@@ -577,7 +550,7 @@ mod tests {
 
     /// Write at the start of what stands at `path`, so a copy up brings its
     /// bytes along.
-    fn write_over(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), FilesystemError> {
+    fn write_over(fs: &KernPath, path: &str, contents: &[u8]) -> Result<(), Errno> {
         let how = OpenHow {
             write: true,
             ..OpenHow::default()
@@ -621,10 +594,7 @@ mod tests {
                 overlay.vfs_mkdir("made").err(),
                 on(&top).vfs_lstat("made").err()
             ),
-            (
-                Some(FilesystemError::ReadOnlyFilesystem),
-                Some(FilesystemError::NotFound)
-            ),
+            (Some(Errno::ReadOnlyFilesystem), Some(Errno::NotFound)),
             "OverlayFs::mkdir with no upper, reached beneath the VFS's read-only answer, must \
              answer EROFS and make nothing in its topmost lower Layer"
         );
@@ -635,11 +605,7 @@ mod tests {
     struct RecordsChanges(Arc<Mutex<Vec<String>>>);
 
     impl crate::vfs::SecurityOperations for RecordsChanges {
-        fn inode_permission(
-            &self,
-            dentry: &Dentry,
-            mask: crate::vfs::Mask,
-        ) -> Result<(), FilesystemError> {
+        fn inode_permission(&self, dentry: &Dentry, mask: crate::vfs::Mask) -> Result<(), Errno> {
             if mask.contains(crate::vfs::Mask::WRITE) {
                 self.0.lock().expect("never poisoned").push(dentry.name());
             }
@@ -748,7 +714,7 @@ mod tests {
                 kind(&overlay, "dirlink/inner"),
                 names(&overlay, "dirlink").len()
             ),
-            (Err(FilesystemError::NotFound), 0),
+            (Err(Errno::NotFound), 0),
             "a name beneath a directory an upper Layer holds, where a lower Layer holds a link, \
              through vfs_lstat and its listing must show nothing the link leads to"
         );
@@ -774,7 +740,7 @@ mod tests {
                 overlay.open_dir("dirlink").map(drop),
                 overlay.vfs_readlink("dirlink")
             ),
-            (Err(FilesystemError::FilesystemLoop), Ok("dir".to_string())),
+            (Err(Errno::FilesystemLoop), Ok("dir".to_string())),
             "a link a Bind Layer holds, opened through Overlay::open_dir, must be a \
              link loop, and through vfs_readlink must answer where it points"
         );
@@ -817,9 +783,9 @@ mod tests {
                 host.0.join("dirlink").is_symlink()
             ),
             (
-                (Err(FilesystemError::NotADirectory), Ok(()), Ok(())),
-                Some(FilesystemError::NotFound),
-                Some(FilesystemError::NotFound),
+                (Err(Errno::NotADirectory), Ok(()), Ok(())),
+                Some(Errno::NotFound),
+                Some(Errno::NotFound),
                 true
             ),
             "a link a read-only Bind Layer holds, removed through vfs_rmdir and \
@@ -847,10 +813,7 @@ mod tests {
                 write(&overlay, "pipe", b"upper"),
                 overlay.rename("pipe", &overlay, "moved")
             ),
-            (
-                Err(FilesystemError::PermissionDenied),
-                Err(FilesystemError::CrossesDevices)
-            ),
+            (Err(Errno::PermissionDenied), Err(Errno::CrossesDevices)),
             "a FIFO a read-only Bind Layer holds, written or renamed through an Overlay, must \
              be refused as permission denied and as crossing devices"
         );
@@ -882,8 +845,8 @@ mod tests {
                 file_type("made"),
             ),
             (
-                Err(FilesystemError::IsADirectory),
-                Err(FilesystemError::NotADirectory),
+                Err(Errno::IsADirectory),
+                Err(Errno::NotADirectory),
                 Ok(FileType::Fifo),
                 Ok(FileType::Dir)
             ),
@@ -897,21 +860,21 @@ mod tests {
     struct KeepsTimes(Arc<AtomicUsize>);
 
     impl FileSystemType for KeepsTimes {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for KeepsTimes {
-        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(match dentry.name().as_str() {
                 "file" => Kstat::new(FileType::RegFile, 0).with_identity(1, 2),
                 _ => Kstat::new(FileType::Dir, 0).with_identity(1, 1),
             })
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
             Ok(match dentry.name().as_str() {
                 "file" => Lookup::Found(Inode::new(
                     &Kstat::new(FileType::RegFile, 0).with_identity(1, 2),
@@ -921,23 +884,19 @@ mod tests {
             })
         }
 
-        fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Result<(), FilesystemError> {
+        fn setattr(&self, _dentry: &Dentry, _attr: &Iattr) -> Result<(), Errno> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
 
-        fn open(
-            &self,
-            _dentry: &Dentry,
-            _how: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
             struct Empty;
             impl FileOperations for Empty {
                 fn read_iter(
                     &mut self,
                     _iocb: &mut Kiocb,
                     _buf: &mut [u8],
-                ) -> Result<usize, FilesystemError> {
+                ) -> Result<usize, Errno> {
                     Ok(0)
                 }
             }
@@ -1025,7 +984,7 @@ mod tests {
                 overlay.rename("link", &overlay, "moved"),
                 read(&overlay, "target")
             ),
-            (Err(FilesystemError::CrossesDevices), b"lower".to_vec()),
+            (Err(Errno::CrossesDevices), b"lower".to_vec()),
             "a rename of a link a read-only Bind Layer holds, through an Overlay, must be refused \
              as crossing devices and leave the target as it was"
         );
@@ -1052,7 +1011,7 @@ mod tests {
                     }
                 )
                 .map(drop),
-            Err(FilesystemError::FilesystemLoop),
+            Err(Errno::FilesystemLoop),
             "a lower file beneath a dangling link a higher Bind Layer holds at its path, \
              opened through Overlay::open, must be refused as the link, the file unreached"
         );
@@ -1076,7 +1035,7 @@ mod tests {
                     .map(|metadata| metadata.file_type),
                 overlay.open_dir("dirlink").map(drop)
             ),
-            (Ok(FileType::Symlink), Err(FilesystemError::FilesystemLoop)),
+            (Ok(FileType::Symlink), Err(Errno::FilesystemLoop)),
             "a directory a higher Bind Layer holds as a link, looked up and opened through an \
              Overlay, must stand as the link, so none of a lower Layer's entries beneath it show"
         );
@@ -1096,7 +1055,7 @@ mod tests {
                 overlay.vfs_lstat("f").err(),
                 on(&lower).vfs_lstat("f/g").is_ok()
             ),
-            (Ok(()), Some(FilesystemError::NotFound), true),
+            (Ok(()), Some(Errno::NotFound), true),
             "a file a higher Layer holds over a lower Layer's directory, removed through \
              vfs_unlink, must leave the path gone from the view and the lower \
              directory as it was"
@@ -1150,7 +1109,7 @@ mod tests {
                     .and_then(|dir| dir.iterate_dir())
                     .map(|entries| entries.len())
             ),
-            (Ok(()), Some(FilesystemError::NotFound), Ok(0)),
+            (Ok(()), Some(Errno::NotFound), Ok(0)),
             "a directory made again through an Overlay where a lower Layer's one was removed, \
              renamed through Overlay::rename, must move and leave nothing of the lower one behind"
         );
@@ -1162,7 +1121,7 @@ mod tests {
         let (overlay, _) = overlay_on(Arc::new(Tmpfs::new()));
         assert_eq!(
             overlay.rename("dir/file", &overlay, "dir/file/x"),
-            Err(FilesystemError::NotADirectory),
+            Err(Errno::NotADirectory),
             "a file renamed through Overlay::rename to a path beneath itself must be refused as \
              no directory, as rename(2) refuses it"
         );
@@ -1185,10 +1144,7 @@ mod tests {
                 overlay.create("dangling", &exclusive).map(drop),
                 overlay.vfs_mkdir("dangling")
             ),
-            (
-                Err(FilesystemError::AlreadyExists),
-                Err(FilesystemError::AlreadyExists)
-            ),
+            (Err(Errno::AlreadyExists), Err(Errno::AlreadyExists)),
             "an exclusive create and a create_dir at a dangling link a lower Bind Layer \
              holds, through an Overlay, must find it already there"
         );
@@ -1242,7 +1198,7 @@ mod tests {
             .expect("the file must be removed");
         assert_eq!(
             overlay.vfs_lstat("dir/file"),
-            Err(FilesystemError::NotFound),
+            Err(Errno::NotFound),
             "a lower file removed through vfs_unlink must no longer be found there"
         );
     }
@@ -1283,7 +1239,7 @@ mod tests {
         overwrite(&overlay, "new", b"made");
         assert_eq!(
             (read(&on(&upper), "upper/new"), on(&lower).vfs_lstat("new")),
-            (b"made".to_vec(), Err(FilesystemError::NotFound)),
+            (b"made".to_vec(), Err(Errno::NotFound)),
             "a file created through Overlay::open must land in the upper alone"
         );
     }
@@ -1398,7 +1354,7 @@ mod tests {
         let rebuilt = at(over(lower, upper));
         assert_eq!(
             rebuilt.vfs_lstat("dir/file"),
-            Err(FilesystemError::NotFound),
+            Err(Errno::NotFound),
             "a lower file removed through an Overlay over a Tmpfs must stay gone from a new Overlay over the same Layers"
         );
     }
@@ -1460,7 +1416,7 @@ mod tests {
         });
         assert_ne!(
             answered,
-            Some(FilesystemError::Interrupted),
+            Some(Errno::Interrupted),
             "vfs::filename_renameat2 through an Overlay whose upper another Mount changed must \
              answer within its bound"
         );
@@ -1526,7 +1482,7 @@ mod tests {
         let written = crate::vfs::kern_path::filp_open(&Arc::default(), &root, "dir/file", &how);
         assert_eq!(
             (written.err(), mount.mnt().is_readonly()),
-            (Some(FilesystemError::ReadOnlyFilesystem), true),
+            (Some(Errno::ReadOnlyFilesystem), true),
             "a file opened to write through an Overlay with no upper on a read-write Mount must \
              be refused as read-only"
         );
@@ -1537,13 +1493,9 @@ mod tests {
     struct RefusesLongName;
 
     impl crate::filesystem::wrap::Hook for RefusesLongName {
-        fn lookup(
-            &self,
-            inner: &dyn InodeOperations,
-            dentry: &Dentry,
-        ) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Lookup, Errno> {
             match dentry.name().as_str() {
-                "long" => Err(FilesystemError::InvalidFilename),
+                "long" => Err(Errno::InvalidFilename),
                 _ => inner.lookup(dentry),
             }
         }
@@ -1633,11 +1585,7 @@ mod tests {
                 read(&overlay, "b"),
                 std::fs::read(host.0.join("b")).expect("the host file must be read"),
             ),
-            (
-                Err(FilesystemError::NotFound),
-                b"two".to_vec(),
-                b"one".to_vec()
-            ),
+            (Err(Errno::NotFound), b"two".to_vec(), b"one".to_vec()),
             "a hard link in a lower Layer written and moved onto its other name through an \
              Overlay must leave only the new name, holding what was written, and the lower Layer \
              as it was"
@@ -1652,7 +1600,7 @@ mod tests {
         use crate::vfs::{filename_renameat2, filename_rmdir, filename_unlinkat};
         let (_mount, root) = mounted_with_no_upper();
         let cred = Arc::default();
-        let read_only = || Err(FilesystemError::ReadOnlyFilesystem);
+        let read_only = || Err(Errno::ReadOnlyFilesystem);
         assert_eq!(
             (
                 filename_renameat2(&cred, &root, "dir/file", &root, "dir/file"),
@@ -1669,7 +1617,7 @@ mod tests {
     fn refusal(
         lower: Vec<Arc<dyn FileSystemType>>,
         upper: Option<Arc<dyn FileSystemType>>,
-    ) -> Option<FilesystemError> {
+    ) -> Option<Errno> {
         let instance = |fs| Filesystem::new(fs).expect("the instance must stand");
         Overlay::new(
             lower.into_iter().map(instance).collect(),
@@ -1687,7 +1635,7 @@ mod tests {
         let bind = super::super::Bind::new(&host).expect("the host directory must open");
         assert_eq!(
             refusal(vec![Arc::new(Tmpfs::new())], Some(Arc::new(bind))),
-            Some(FilesystemError::InvalidInput),
+            Some(Errno::InvalidInput),
             "Overlay::new with a Bind as its upper must be refused as invalid input"
         );
     }
@@ -1704,10 +1652,7 @@ mod tests {
                 Overlay::new(vec![shared.clone()], Some(shared)).err(),
                 Overlay::new(vec![doubled.clone(), doubled, instance()], None).err(),
             ),
-            (
-                Some(FilesystemError::InvalidInput),
-                Some(FilesystemError::InvalidInput),
-            ),
+            (Some(Errno::InvalidInput), Some(Errno::InvalidInput),),
             "Overlay::new with one instance as its upper and a lower Layer, or as two lower \
              Layers, must be refused as invalid input"
         );
@@ -1718,7 +1663,7 @@ mod tests {
     fn an_overlay_without_an_upper_needs_two_lower_layers() {
         assert_eq!(
             refusal(vec![Arc::new(Tmpfs::new())], None),
-            Some(FilesystemError::InvalidInput),
+            Some(Errno::InvalidInput),
             "Overlay::new with one lower Layer and no upper must be refused as invalid input"
         );
     }
@@ -1735,7 +1680,7 @@ mod tests {
                 refusal(vec![first], Some(Arc::new(Tmpfs::new()))),
                 refusal(vec![second], Some(Arc::new(Tmpfs::new())))
             ),
-            (None, Some(FilesystemError::InvalidInput)),
+            (None, Some(Errno::InvalidInput)),
             "Overlay::new over an Overlay must make a view, and over an Overlay over an Overlay \
              must be refused as invalid input"
         );
@@ -1751,7 +1696,7 @@ mod tests {
         };
         assert_eq!(
             (refusal(layers(500), None), refusal(layers(501), None)),
-            (None, Some(FilesystemError::InvalidInput)),
+            (None, Some(Errno::InvalidInput)),
             "Overlay::new must take 500 lower Layers and refuse 501 as invalid input"
         );
     }
@@ -1761,7 +1706,7 @@ mod tests {
     fn an_overlay_needs_a_lower_layer() {
         assert_eq!(
             refusal(Vec::new(), Some(Arc::new(Tmpfs::new()))),
-            Some(FilesystemError::InvalidInput),
+            Some(Errno::InvalidInput),
             "Overlay::new with an upper and no lower Layer must be refused as invalid input"
         );
     }
@@ -1786,11 +1731,7 @@ mod tests {
                 overlay.vfs_lstat("dir/file"),
                 read(&on(&lower), "dir/file"),
             ),
-            (
-                b"lower".to_vec(),
-                Err(FilesystemError::NotFound),
-                b"lower".to_vec()
-            ),
+            (b"lower".to_vec(), Err(Errno::NotFound), b"lower".to_vec()),
         );
     }
 
@@ -1838,7 +1779,7 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             if dentry.kind() == Ok(FileType::Dir) && !dentry.is_root() {
                 self.start();
             }
@@ -1892,7 +1833,7 @@ mod tests {
     // @behavior FS-038
     #[test]
     fn a_change_through_an_overlay_from_inside_one_answers_a_deadlock() {
-        type Answers = (bool, Result<(), FilesystemError>);
+        type Answers = (bool, Result<(), Errno>);
 
         struct Reenters {
             overlay: Mutex<Option<crate::vfs::Path>>,
@@ -1904,7 +1845,7 @@ mod tests {
                 &self,
                 inner: &dyn InodeOperations,
                 dentry: &Dentry,
-            ) -> Result<Kstat, FilesystemError> {
+            ) -> Result<Kstat, Errno> {
                 let reentering = self.overlay.lock().unwrap().take();
                 if let Some(overlay) = reentering {
                     *self.answer.lock().unwrap() = Some((
@@ -1939,7 +1880,7 @@ mod tests {
         let answers = layer.answer.lock().unwrap().take();
         assert_eq!(
             answers,
-            Some((true, Err(FilesystemError::Deadlock))),
+            Some((true, Err(Errno::Deadlock))),
             "a read through an Overlay made from inside one of its own reads on the same thread \
              must answer, and a change must answer Deadlock rather than wait forever"
         );
@@ -1968,7 +1909,7 @@ mod tests {
         let (overlay, _) = full_over_lower(&[("dir/file", "upper")], 2);
         assert_eq!(
             (overlay.vfs_unlink("dir/file"), read(&overlay, "dir/file")),
-            (Err(FilesystemError::StorageFull), b"upper".to_vec()),
+            (Err(Errno::StorageFull), b"upper".to_vec()),
             "a file removed through vfs_unlink whose whiteout finds no room must stay as \
              it was"
         );
@@ -1990,10 +1931,7 @@ mod tests {
             .expect("the directory must be removed");
         assert_eq!(
             (overlay.vfs_mkdir("gone"), overlay.vfs_lstat("gone")),
-            (
-                Err(FilesystemError::StorageFull),
-                Err(FilesystemError::NotFound)
-            ),
+            (Err(Errno::StorageFull), Err(Errno::NotFound)),
             "a directory made through vfs_mkdir over a whiteout, with no room left, \
              must be refused as out of space and leave the name hidden"
         );
@@ -2012,8 +1950,8 @@ mod tests {
                 read(&overlay, "dir/file")
             ),
             (
-                Err(FilesystemError::StorageFull),
-                Err(FilesystemError::NotFound),
+                Err(Errno::StorageFull),
+                Err(Errno::NotFound),
                 b"lower".to_vec()
             ),
             "a file renamed through Overlay::rename whose whiteout finds no room must stay where \
@@ -2030,10 +1968,7 @@ mod tests {
                 overlay.rename("dir", &overlay, "moved"),
                 overlay.vfs_lstat("moved")
             ),
-            (
-                Err(FilesystemError::CrossesDevices),
-                Err(FilesystemError::NotFound)
-            ),
+            (Err(Errno::CrossesDevices), Err(Errno::NotFound)),
             "a directory a lower Layer holds renamed through Overlay::rename must be refused \
              as crossing devices, as overlayfs refuses it"
         );
@@ -2057,8 +1992,8 @@ mod tests {
                 read(&overlay, "dir/file")
             ),
             (
-                Err(FilesystemError::IsADirectory),
-                Err(FilesystemError::DirectoryNotEmpty),
+                Err(Errno::IsADirectory),
+                Err(Errno::DirectoryNotEmpty),
                 b"lower".to_vec()
             ),
             "a rename through Overlay::rename onto a directory only a lower Layer shows must \
@@ -2129,7 +2064,7 @@ mod tests {
             .expect("the emptied directory must be removed");
         assert_eq!(
             (names(&on(&upper), "work"), kind(&overlay, "dir")),
-            (Vec::<String>::new(), Err(FilesystemError::NotFound)),
+            (Vec::<String>::new(), Err(Errno::NotFound)),
             "vfs_rmdir of a lower directory whose file vfs_unlink removed \
              must leave the upper Tmpfs's work empty and the directory gone"
         );
@@ -2273,8 +2208,8 @@ mod tests {
                 read(&overlay, "dir/file")
             ),
             (
-                Err(FilesystemError::StorageFull),
-                Err(FilesystemError::NotFound),
+                Err(Errno::StorageFull),
+                Err(Errno::NotFound),
                 b"lower".to_vec()
             ),
             "a write through Overlay::open whose copy up runs out of room must leave no partial \
@@ -2287,13 +2222,9 @@ mod tests {
     struct StatsNoDir;
 
     impl Hook for StatsNoDir {
-        fn getattr(
-            &self,
-            inner: &dyn InodeOperations,
-            dentry: &Dentry,
-        ) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Kstat, Errno> {
             if dentry.name() == "dir" {
-                return Err(FilesystemError::Other("dir has no stat".to_string()));
+                return Err(Errno::Other("dir has no stat".to_string()));
             }
             inner.getattr(dentry)
         }
@@ -2307,13 +2238,9 @@ mod tests {
     }
 
     impl Hook for Vanishes {
-        fn getattr(
-            &self,
-            inner: &dyn InodeOperations,
-            dentry: &Dentry,
-        ) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Kstat, Errno> {
             if dentry.name() == "file" && self.seen.swap(true, Ordering::SeqCst) {
-                return Err(FilesystemError::NotFound);
+                return Err(Errno::NotFound);
             }
             inner.getattr(dentry)
         }
@@ -2346,7 +2273,7 @@ mod tests {
             &mut self,
             dentry: &Dentry,
             ctx: &mut DirContext<'_>,
-        ) -> Result<(), FilesystemError> {
+        ) -> Result<(), Errno> {
             let entries = match folded_path_of(dentry).as_str() {
                 "" => self.0.iterate_dir(),
                 at => self.0.open_dir(at)?.iterate_dir(),
@@ -2356,18 +2283,18 @@ mod tests {
     }
 
     impl FileSystemType for FoldsCase {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for FoldsCase {
-        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
             self.root.vfs_lstat(&folded_path_of(dentry))
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
             let name = dentry.name();
             let lower = name.to_lowercase();
             match self.root.vfs_lstat(&folded_path_of(dentry)) {
@@ -2376,23 +2303,19 @@ mod tests {
                     inode: Inode::new(&found, Arc::new(self.clone())),
                 }),
                 Ok(found) => Ok(Lookup::Found(Inode::new(&found, Arc::new(self.clone())))),
-                Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+                Err(Errno::NotFound) => Ok(Lookup::Absent),
                 Err(err) => Err(err),
             }
         }
 
-        fn open(
-            &self,
-            dentry: &Dentry,
-            how: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
             if dentry.kind() == Ok(FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
             self.root.open(&folded_path_of(dentry), how)
         }
 
-        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+        fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, Errno> {
             if dentry.in_lookup() {
                 let found = self.lookup(dentry)?;
                 if !how.create || !matches!(found, Lookup::Absent) {
@@ -2409,15 +2332,15 @@ mod tests {
             })
         }
 
-        fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        fn mkdir(&self, dentry: &Dentry) -> Result<(), Errno> {
             self.root.vfs_mkdir(&folded_path_of(dentry))
         }
 
-        fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        fn rmdir(&self, dentry: &Dentry) -> Result<(), Errno> {
             self.root.vfs_rmdir(&folded_path_of(dentry))
         }
 
-        fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+        fn unlink(&self, dentry: &Dentry) -> Result<(), Errno> {
             self.root.vfs_unlink(&folded_path_of(dentry))
         }
 
@@ -2427,14 +2350,14 @@ mod tests {
             _to_dir: &dyn InodeOperations,
             to: &Dentry,
             _flag: Option<RenameFlag>,
-        ) -> Result<(), FilesystemError> {
+        ) -> Result<(), Errno> {
             self.root
                 .rename(&folded_path_of(from), &self.root, &folded_path_of(to))
         }
     }
 
     /// What `path` names through `fs`, or why it names nothing.
-    fn kind(fs: &KernPath, path: &str) -> Result<FileType, FilesystemError> {
+    fn kind(fs: &KernPath, path: &str) -> Result<FileType, Errno> {
         fs.vfs_lstat(path).map(|metadata| metadata.file_type)
     }
 
@@ -2464,7 +2387,7 @@ mod tests {
             (
                 Ok(FileType::RegFile),
                 Ok(FileType::RegFile),
-                Err(FilesystemError::NotFound)
+                Err(Errno::NotFound)
             ),
             "files made through directories Overlay::open_dir opened before Overlay::rename moved \
              the outer one must stand beneath its new path"
@@ -2485,7 +2408,7 @@ mod tests {
                 dir.iterate_dir().map(|entries| entries.len()),
                 names(&overlay, "dir").len()
             ),
-            (Err(FilesystemError::NotFound), Ok(0), 0),
+            (Err(Errno::NotFound), Ok(0), 0),
             "a directory Overlay::open_dir opened, once vfs_rmdir removed it and another \
              was made in its place, must make nothing, list nothing, and leave the new one empty"
         );
@@ -2529,7 +2452,7 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             let opened = inner.open(dentry, how);
             let run = self.0.lock().expect("never poisoned").take();
             if let Some(run) = run {
@@ -2605,7 +2528,7 @@ mod tests {
         );
         assert_eq!(
             (answer, asked.load(Ordering::SeqCst)),
-            (Err(FilesystemError::AlreadyExists), 0),
+            (Err(Errno::AlreadyExists), 0),
             "vfs::do_utimes_fd on a held lower file whose name another entry took must answer \
              EEXIST and leave the lower Layer unasked"
         );
@@ -2651,10 +2574,7 @@ mod tests {
                 answer,
                 vfs::vfs_fstatat(&cred, &root, "d/f", false).map(|_| ())
             ),
-            (
-                Err(FilesystemError::NotFound),
-                Err(FilesystemError::NotFound)
-            ),
+            (Err(Errno::NotFound), Err(Errno::NotFound)),
             "vfs::do_utimes_fd on a held lower file whose directory was removed and made again \
              must answer ENOENT and leave the file out of the view"
         );
@@ -2665,11 +2585,7 @@ mod tests {
     struct SlowsDirectory(AtomicBool);
 
     impl Hook for SlowsDirectory {
-        fn getattr(
-            &self,
-            inner: &dyn InodeOperations,
-            dentry: &Dentry,
-        ) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Kstat, Errno> {
             if dentry.name() == "e" && self.0.swap(false, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }
@@ -2736,10 +2652,7 @@ mod tests {
 
         /// What a removal and an open to write answer racing over one lower file,
         /// with what the descriptor the open made reports of itself.
-        fn race_removal_with_a_write() -> (
-            Result<(), FilesystemError>,
-            Option<Result<FileType, FilesystemError>>,
-        ) {
+        fn race_removal_with_a_write() -> (Result<(), Errno>, Option<Result<FileType, Errno>>) {
             let lower: Tmpfs = [("d/f", "lower")].into_iter().collect();
             let overlay = Overlay::new(
                 vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
@@ -2860,21 +2773,21 @@ mod tests {
     struct HoldsFifo(Arc<AtomicUsize>);
 
     impl FileSystemType for HoldsFifo {
-        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
             sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
             Ok(())
         }
     }
 
     impl InodeOperations for HoldsFifo {
-        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+        fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(match dentry.name().as_str() {
                 "pipe" => Kstat::new(FileType::Fifo, 0).with_identity(1, 2),
                 _ => Kstat::new(FileType::Dir, 0).with_identity(1, 1),
             })
         }
 
-        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
             Ok(match dentry.name().as_str() {
                 "pipe" => Lookup::Found(Inode::new(
                     &Kstat::new(FileType::Fifo, 0).with_identity(1, 2),
@@ -2884,13 +2797,9 @@ mod tests {
             })
         }
 
-        fn open(
-            &self,
-            _dentry: &Dentry,
-            _how: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
             self.0.fetch_add(1, Ordering::SeqCst);
-            Err(FilesystemError::Interrupted)
+            Err(Errno::Interrupted)
         }
     }
 
@@ -2923,7 +2832,7 @@ mod tests {
         );
         assert_eq!(
             (answer, opened.load(Ordering::SeqCst)),
-            (Err(FilesystemError::PermissionDenied), 0),
+            (Err(Errno::PermissionDenied), 0),
             "vfs::do_utimes_pathon a FIFO a lower Layer holds through an Overlay must answer EACCES \
              and open nothing"
         );
@@ -2952,7 +2861,7 @@ mod tests {
         .expect("the Overlay must stack"));
         assert_eq!(
             second.vfs_lstat("upper/file").err(),
-            Some(FilesystemError::NotFound),
+            Some(Errno::NotFound),
             "a stat through an Overlay of a whiteout in a directory one Layer shows must answer \
              ENOENT, as the listing shows nothing there"
         );
@@ -2969,7 +2878,7 @@ mod tests {
         let overlay = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
         assert_eq!(
             overlay.rename("dir", &overlay, "full"),
-            Err(FilesystemError::CrossesDevices),
+            Err(Errno::CrossesDevices),
             "a rename through an Overlay of a lower Layer's directory onto one holding entries \
              must answer EXDEV, as ovl_rename_start asks whether it can move first"
         );
@@ -3160,8 +3069,8 @@ mod tests {
             _inner: &dyn InodeOperations,
             _dentry: &Dentry,
             _how: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
-            Err(FilesystemError::PermissionDenied)
+        ) -> Result<Box<dyn FileOperations>, Errno> {
+            Err(Errno::PermissionDenied)
         }
     }
 
@@ -3196,7 +3105,7 @@ mod tests {
         );
         assert_eq!(
             answer.err(),
-            Some(FilesystemError::PermissionDenied),
+            Some(Errno::PermissionDenied),
             "vfs::do_file_open of an Overlay's directory whose Layer refuses its open must answer \
              what the Layer answered"
         );
@@ -3210,7 +3119,7 @@ mod tests {
         let overlay = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
         assert_eq!(
             overlay.rename("file", &overlay, "moved"),
-            Err(FilesystemError::NotFound),
+            Err(Errno::NotFound),
             "a file renamed through Overlay::rename that its Layer loses during the call must \
              answer not found"
         );
@@ -3302,7 +3211,7 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
-        ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             if !self.opening.swap(true, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }
@@ -3394,7 +3303,7 @@ mod tests {
             tmpfs_with("dir/lower", "x"),
             tmpfs_with("upper/dir/upper", "x"),
         ));
-        let identity = |metadata: Result<Kstat, FilesystemError>| {
+        let identity = |metadata: Result<Kstat, Errno>| {
             let metadata = metadata.expect("the directory must stand");
             (metadata.dev, metadata.ino)
         };
@@ -3418,15 +3327,15 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             mask: Mask,
-        ) -> Result<(), FilesystemError> {
+        ) -> Result<(), Errno> {
             if dentry.name() == self.name && mask.contains(self.mask) {
-                return Err(FilesystemError::PermissionDenied);
+                return Err(Errno::PermissionDenied);
             }
             inner.permission(dentry, mask)
         }
     }
 
-    type LayerCall = fn(&KernPath) -> Result<(), FilesystemError>;
+    type LayerCall = fn(&KernPath) -> Result<(), Errno>;
 
     // Only a Layer of the Host App's own answers `permission`, so each call is
     // made over a lower Layer refusing just the one ask that call makes of it.
@@ -3459,7 +3368,7 @@ mod tests {
             let view = at(over(Arc::new(lower), Arc::new(Tmpfs::new())));
             assert_eq!(
                 run(&view),
-                Err(FilesystemError::PermissionDenied),
+                Err(Errno::PermissionDenied),
                 "{call} through an Overlay over a Layer whose permission refuses {mask:?} of \
                  `{name}` must answer that refusal, as overlayfs asks inode_permission of the \
                  real inode"

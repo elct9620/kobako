@@ -10,10 +10,11 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use socket2::SockRef;
 
 use crate::vfs::{
-    alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType,
-    FilesystemError, Inode, InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
+    alloc_file_pseudo, Cred, Dentry, FMode, File, FileOperations, FileSystemType, FileType, Inode,
+    InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
 };
 use crate::wait::PollTable;
+use crate::Errno;
 
 use super::connections::{open, OpenConnections, Place};
 use super::family::admitted_addresses_of;
@@ -37,26 +38,26 @@ pub trait ProtoOps: Send + Sync {
     /// `AddressFamilyNotSupported`, a socket bound or connected already
     /// `InvalidInput`, and a port held elsewhere `AddressInUse`, as
     /// `__inet_bind` refuses one.
-    fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError>;
+    fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno>;
     /// Connect to `addr`, the address the guest named, once the socket hooks
     /// passed it, as `->connect` runs after `__sys_connect` asks
     /// `security_socket_connect`: the socket's own state is checked first,
     /// then `net` translates `addr` as cgroup `connect4` does and its ruleset
     /// judges the real destination.
-    fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError>;
+    fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno>;
     /// Read what the socket holds and who sent it, as `->recvmsg` fills
     /// `msg_name`: a datagram's peer as the guest named it, none for a
     /// stream; `WouldBlock` while it holds nothing yet.
-    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), FilesystemError>;
+    fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), Errno>;
     /// Write what the socket takes now; `WouldBlock` while it takes nothing.
-    fn sendmsg(&self, buf: &[u8]) -> Result<usize, FilesystemError>;
+    fn sendmsg(&self, buf: &[u8]) -> Result<usize, Errno>;
     /// What a call would find ready, the socket's wait queue registered on
     /// `table`, as a protocol's `->poll` calls `sock_poll_wait`.
     fn poll(&self, table: Option<&mut PollTable>) -> PollMask;
     /// Shut the reading side, the writing side, or both down, as
     /// `inet_shutdown` marks `sk_shutdown`; a socket connected to nothing
     /// answers `ENOTCONN`.
-    fn shutdown(&self, how: Shutdown) -> Result<(), FilesystemError>;
+    fn shutdown(&self, how: Shutdown) -> Result<(), Errno>;
     /// The peer as the guest named it, once connected, as `->getname` maps
     /// the real peer back through cgroup `getpeername4`.
     fn getpeername(&self) -> Option<SocketAddr>;
@@ -67,10 +68,10 @@ pub trait ProtoOps: Send + Sync {
     fn getsockname(&self) -> SocketAddr;
     /// The value `opt` holds on this socket, never the host's; one the
     /// protocol has not answers `ProtocolNotAvailable`.
-    fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError>;
+    fn getsockopt(&self, opt: SockOpt) -> Result<u32, Errno>;
     /// Set `opt` to `value`, as `setsockopt` does, refusing what Linux
     /// refuses; a host socket already dialed takes it at once.
-    fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), FilesystemError>;
+    fn setsockopt(&self, opt: SockOpt, value: u32) -> Result<(), Errno>;
     /// Close the socket once every view is gone, as `sock_close` runs on the
     /// last `fput`; a protocol may finish sending before its host socket goes.
     fn release(&self);
@@ -140,13 +141,13 @@ impl BindHash {
 
     /// `port` held for one socket, or `EADDRINUSE` while another holds it,
     /// as `inet_csk_get_port` finds its bucket taken.
-    fn claim(self: &Arc<Self>, port: u16) -> Result<BoundPort, FilesystemError> {
+    fn claim(self: &Arc<Self>, port: u16) -> Result<BoundPort, Errno> {
         match self.ports().held.insert(port) {
             true => Ok(BoundPort {
                 hash: self.clone(),
                 port,
             }),
-            false => Err(FilesystemError::AddressInUse),
+            false => Err(Errno::AddressInUse),
         }
     }
 
@@ -210,7 +211,7 @@ pub(crate) struct InetSock {
     pub(crate) ttl: u8,
     /// The socket's pending failure, as `sk_err`: answered once, then
     /// cleared, as `sock_error` swaps it with zero.
-    pub(crate) error: Option<FilesystemError>,
+    pub(crate) error: Option<Errno>,
     /// The guest shut its reading side down, as `sk_shutdown`'s
     /// `RCV_SHUTDOWN`.
     pub(crate) rcv_shut: bool,
@@ -257,17 +258,15 @@ impl InetSock {
         addr: SocketAddr,
         connected: bool,
         hash: &Arc<BindHash>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         let IpAddr::V4(ip) = addr.ip() else {
-            return Err(FilesystemError::AddressFamilyNotSupported);
+            return Err(Errno::AddressFamilyNotSupported);
         };
         if self.num.is_some() || connected {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         let bound = match addr.port() {
-            0 => hash
-                .claim_free_port()
-                .ok_or(FilesystemError::AddressInUse)?,
+            0 => hash.claim_free_port().ok_or(Errno::AddressInUse)?,
             port => hash.claim(port)?,
         };
         self.sport = Some(bound.port);
@@ -301,11 +300,9 @@ impl InetSock {
     /// zero, answering `EADDRNOTAVAIL` once none is left. A port put back once
     /// the socket closed is then replaced, while reading the socket's own end
     /// still answers the old one until then, as `inet_sport` keeps it.
-    pub(crate) fn hold_port(&mut self, hash: &Arc<BindHash>) -> Result<(), FilesystemError> {
+    pub(crate) fn hold_port(&mut self, hash: &Arc<BindHash>) -> Result<(), Errno> {
         if self.num.is_none() {
-            let bound = hash
-                .claim_free_port()
-                .ok_or(FilesystemError::AddressNotAvailable)?;
+            let bound = hash.claim_free_port().ok_or(Errno::AddressNotAvailable)?;
             self.sport = Some(bound.port);
             self.num = Some(bound);
         }
@@ -318,12 +315,10 @@ impl InetSock {
     pub(crate) fn open_place(
         &self,
         open_connections: &Arc<OpenConnections>,
-    ) -> Result<Option<Place>, FilesystemError> {
+    ) -> Result<Option<Place>, Errno> {
         match self.place {
             Some(_) => Ok(None),
-            None => open(open_connections)
-                .map(Some)
-                .ok_or(FilesystemError::WouldBlock),
+            None => open(open_connections).map(Some).ok_or(Errno::WouldBlock),
         }
     }
 
@@ -337,15 +332,11 @@ impl InetSock {
     /// Shut the sides `how` names, as `inet_shutdown` does for TCP and UDP
     /// alike: a socket not `connected` marks them still and answers
     /// `ENOTCONN`.
-    pub(crate) fn shutdown(
-        &mut self,
-        how: Shutdown,
-        connected: bool,
-    ) -> Result<(), FilesystemError> {
+    pub(crate) fn shutdown(&mut self, how: Shutdown, connected: bool) -> Result<(), Errno> {
         self.mark_shutdown(how);
         match connected {
             true => Ok(()),
-            false => Err(FilesystemError::NotConnected),
+            false => Err(Errno::NotConnected),
         }
     }
 
@@ -358,12 +349,12 @@ impl InetSock {
 
     /// What `opt` reads at the socket and IP levels, as `sk_getsockopt` and
     /// `do_ip_getsockopt` answer; a TCP option answers `ProtocolNotAvailable`.
-    pub(crate) fn getsockopt(&self, opt: SockOpt) -> Result<u32, FilesystemError> {
+    pub(crate) fn getsockopt(&self, opt: SockOpt) -> Result<u32, Errno> {
         let value = match opt {
             SockOpt::RcvBuf => self.buffers.rcvbuf,
             SockOpt::SndBuf => self.buffers.sndbuf,
             SockOpt::Ttl => usize::from(self.ttl),
-            _ => return Err(FilesystemError::ProtocolNotAvailable),
+            _ => return Err(Errno::ProtocolNotAvailable),
         };
         Ok(u32::try_from(value).unwrap_or(u32::MAX))
     }
@@ -379,7 +370,7 @@ impl InetSock {
         opt: SockOpt,
         value: u32,
         host: Option<SockRef<'_>>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         let bytes = usize::try_from(value).unwrap_or(usize::MAX);
         match opt {
             SockOpt::RcvBuf => self.buffers.set_rcvbuf(bytes),
@@ -391,7 +382,7 @@ impl InetSock {
                 }
                 self.ttl = ttl;
             }
-            _ => return Err(FilesystemError::ProtocolNotAvailable),
+            _ => return Err(Errno::ProtocolNotAvailable),
         }
         Ok(())
     }
@@ -441,9 +432,9 @@ pub(crate) const IPDEFTTL: u8 = 64;
 
 /// `ttl` as a hop limit Linux takes, 1 to 255, refusing the rest with EINVAL
 /// as `do_ip_setsockopt` does.
-pub(crate) fn to_ttl(ttl: u32) -> Result<u8, FilesystemError> {
+pub(crate) fn to_ttl(ttl: u32) -> Result<u8, Errno> {
     match u8::try_from(ttl) {
-        Ok(0) | Err(_) => Err(FilesystemError::InvalidInput),
+        Ok(0) | Err(_) => Err(Errno::InvalidInput),
         Ok(ttl) => Ok(ttl),
     }
 }
@@ -459,10 +450,10 @@ pub(crate) fn set_hop_limit(socket: SockRef<'_>, ttl: u8) -> io::Result<()> {
 }
 
 /// `value` within 1 to `max`, else EINVAL, as Linux bounds a TCP option.
-pub(crate) fn ensure_within(value: u32, max: u32) -> Result<(), FilesystemError> {
+pub(crate) fn ensure_within(value: u32, max: u32) -> Result<(), Errno> {
     match (1..=max).contains(&value) {
         true => Ok(()),
-        false => Err(FilesystemError::InvalidInput),
+        false => Err(Errno::InvalidInput),
     }
 }
 
@@ -477,7 +468,7 @@ pub struct MemoryCharge {
 
 impl MemoryCharge {
     /// Reserve `bytes` for `cred`, refused past its memory as `ENOMEM`.
-    pub fn new(cred: &Arc<Cred>, bytes: usize) -> Result<Self, FilesystemError> {
+    pub fn new(cred: &Arc<Cred>, bytes: usize) -> Result<Self, Errno> {
         cred.security_vm_enough_memory(bytes)?;
         Ok(Self {
             cred: cred.clone(),
@@ -501,7 +492,7 @@ impl MemoryCharge {
     /// Reserve `bytes` in place of what it held, taking only the growth and
     /// giving back the rest; refused past its memory as `ENOMEM`, keeping what
     /// it held.
-    pub fn resize(&mut self, bytes: usize) -> Result<(), FilesystemError> {
+    pub fn resize(&mut self, bytes: usize) -> Result<(), Errno> {
         match bytes.checked_sub(self.bytes) {
             Some(growth) => self.cred.security_vm_enough_memory(growth)?,
             None => self.cred.vm_unacct_memory(self.bytes - bytes),
@@ -533,32 +524,32 @@ pub(crate) fn take_connect_outcome(stream: &mio::net::TcpStream) -> Option<io::R
 /// The POSIX name a host socket's failure stands for, read from its errno
 /// first where std names no kind for it; one with none carries only its kind,
 /// so no host address reaches the guest.
-pub(crate) fn to_error(err: &io::Error) -> FilesystemError {
+pub(crate) fn to_error(err: &io::Error) -> Errno {
     #[cfg(unix)]
     {
-        use rustix::io::Errno;
-        match Errno::from_io_error(err) {
-            Some(Errno::NOBUFS) => return FilesystemError::NoBufferSpace,
-            Some(Errno::HOSTDOWN) => return FilesystemError::HostUnreachable,
+        use rustix::io::Errno as HostErrno;
+        match HostErrno::from_io_error(err) {
+            Some(HostErrno::NOBUFS) => return Errno::NoBufferSpace,
+            Some(HostErrno::HOSTDOWN) => return Errno::HostUnreachable,
             #[cfg(target_os = "linux")]
-            Some(Errno::NONET) => return FilesystemError::NetworkUnreachable,
+            Some(HostErrno::NONET) => return Errno::NetworkUnreachable,
             _ => {}
         }
     }
     match err.kind() {
-        io::ErrorKind::NetworkDown => FilesystemError::NetworkDown,
-        io::ErrorKind::ConnectionRefused => FilesystemError::ConnectionRefused,
-        io::ErrorKind::ConnectionReset => FilesystemError::ConnectionReset,
-        io::ErrorKind::ConnectionAborted => FilesystemError::ConnectionAborted,
-        io::ErrorKind::TimedOut => FilesystemError::TimedOut,
-        io::ErrorKind::HostUnreachable => FilesystemError::HostUnreachable,
-        io::ErrorKind::NetworkUnreachable => FilesystemError::NetworkUnreachable,
-        io::ErrorKind::AddrNotAvailable => FilesystemError::AddressNotAvailable,
-        io::ErrorKind::AddrInUse => FilesystemError::AddressInUse,
-        io::ErrorKind::BrokenPipe => FilesystemError::BrokenPipe,
-        io::ErrorKind::NotConnected => FilesystemError::NotConnected,
-        io::ErrorKind::PermissionDenied => FilesystemError::PermissionDenied,
-        kind => FilesystemError::Other(format!("{kind:?}")),
+        io::ErrorKind::NetworkDown => Errno::NetworkDown,
+        io::ErrorKind::ConnectionRefused => Errno::ConnectionRefused,
+        io::ErrorKind::ConnectionReset => Errno::ConnectionReset,
+        io::ErrorKind::ConnectionAborted => Errno::ConnectionAborted,
+        io::ErrorKind::TimedOut => Errno::TimedOut,
+        io::ErrorKind::HostUnreachable => Errno::HostUnreachable,
+        io::ErrorKind::NetworkUnreachable => Errno::NetworkUnreachable,
+        io::ErrorKind::AddrNotAvailable => Errno::AddressNotAvailable,
+        io::ErrorKind::AddrInUse => Errno::AddressInUse,
+        io::ErrorKind::BrokenPipe => Errno::BrokenPipe,
+        io::ErrorKind::NotConnected => Errno::NotConnected,
+        io::ErrorKind::PermissionDenied => Errno::PermissionDenied,
+        kind => Errno::Other(format!("{kind:?}")),
     }
 }
 
@@ -573,14 +564,14 @@ static SOCK_MNT: LazyLock<Arc<VfsMount>> = LazyLock::new(|| {
 struct SockFs;
 
 impl FileSystemType for SockFs {
-    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), Errno> {
         sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
         Ok(())
     }
 }
 
 impl InodeOperations for SockFs {
-    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
         Ok(Kstat::new(FileType::Sock, 0))
     }
 }
@@ -596,14 +587,14 @@ struct SocketFile {
 impl FileOperations for SocketFile {
     /// A read of nothing answers zero before the socket is asked, as
     /// `sock_read_iter` does, so it takes no datagram.
-    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         if buf.is_empty() {
             return Ok(0);
         }
         self.ops.recvmsg(buf).map(|(n, _)| n)
     }
 
-    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, _iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         self.ops.sendmsg(buf)
     }
 
@@ -652,10 +643,10 @@ pub enum AddressFamily {
 
 /// Refuse a family the guest has no socket of, as `__sock_create` answers
 /// `EAFNOSUPPORT` for a family no `net_proto_family` registered.
-fn check_family(family: AddressFamily) -> Result<(), FilesystemError> {
+fn check_family(family: AddressFamily) -> Result<(), Errno> {
     match family {
         AddressFamily::Inet => Ok(()),
-        AddressFamily::Inet6 => Err(FilesystemError::AddressFamilyNotSupported),
+        AddressFamily::Inet6 => Err(Errno::AddressFamilyNotSupported),
     }
 }
 
@@ -667,7 +658,7 @@ pub fn create_tcp_socket(
     net: &Namespace,
     cred: &Arc<Cred>,
     family: AddressFamily,
-) -> Result<Arc<TcpSock>, FilesystemError> {
+) -> Result<Arc<TcpSock>, Errno> {
     check_family(family)?;
     let sock = TcpSock::new(net.family().clone(), cred)?;
     net.tcp_sockets().hold(&sock);
@@ -681,7 +672,7 @@ pub fn create_udp_socket(
     _net: &Namespace,
     cred: &Arc<Cred>,
     family: AddressFamily,
-) -> Result<Arc<UdpSock>, FilesystemError> {
+) -> Result<Arc<UdpSock>, Errno> {
     check_family(family)?;
     UdpSock::new(cred)
 }
@@ -694,7 +685,7 @@ pub fn sys_bind(
     cred: &Cred,
     sock: &dyn ProtoOps,
     addr: SocketAddr,
-) -> Result<(), FilesystemError> {
+) -> Result<(), Errno> {
     cred.security_socket_bind(addr)?;
     sock.bind(net, addr)
 }
@@ -707,7 +698,7 @@ pub fn sys_connect(
     cred: &Cred,
     sock: &TcpSock,
     addr: SocketAddr,
-) -> Result<(), FilesystemError> {
+) -> Result<(), Errno> {
     security_socket_connect(net, cred, addr, Protocol::Tcp)?;
     ProtoOps::connect(sock, net, addr)
 }
@@ -720,8 +711,8 @@ pub fn sys_connect_datagram(
     cred: &Cred,
     sock: &UdpSock,
     addr: Option<SocketAddr>,
-) -> Result<(), FilesystemError> {
-    let addr = addr.ok_or(FilesystemError::PermissionDenied)?;
+) -> Result<(), Errno> {
+    let addr = addr.ok_or(Errno::PermissionDenied)?;
     security_socket_connect(net, cred, addr, Protocol::Udp)?;
     ProtoOps::connect(sock, net, addr)
 }
@@ -735,7 +726,7 @@ fn security_socket_connect(
     cred: &Cred,
     addr: SocketAddr,
     protocol: Protocol,
-) -> Result<(), FilesystemError> {
+) -> Result<(), Errno> {
     let host = match net.translation_of(addr) {
         Some(Some((name, _))) => name,
         _ => addr.ip().to_string(),
@@ -761,13 +752,13 @@ pub(crate) enum Destination {
 /// virtual address turns into the name it stands for and the one real
 /// address it stands for, one no name holds answering `EACCES`; any other
 /// stands as itself.
-pub(crate) fn connect4(net: &Namespace, addr: SocketAddr) -> Result<Destination, FilesystemError> {
+pub(crate) fn connect4(net: &Namespace, addr: SocketAddr) -> Result<Destination, Errno> {
     if addr.is_ipv6() {
-        return Err(FilesystemError::AddressFamilyNotSupported);
+        return Err(Errno::AddressFamilyNotSupported);
     }
     match net.translation_of(addr) {
         None => Ok(Destination::Literal(addr)),
-        Some(None) => Err(FilesystemError::PermissionDenied),
+        Some(None) => Err(Errno::PermissionDenied),
         Some(Some((name, real))) => Ok(Destination::Named {
             name,
             real,
@@ -783,7 +774,7 @@ pub(crate) fn filter(
     net: &Namespace,
     dest: &Destination,
     protocol: Protocol,
-) -> Result<SocketAddr, FilesystemError> {
+) -> Result<SocketAddr, Errno> {
     filter_with(net.ruleset(), &**net.family(), dest, protocol)
 }
 
@@ -795,7 +786,7 @@ pub(crate) fn filter_with(
     family: &dyn ProtocolFamily,
     dest: &Destination,
     protocol: Protocol,
-) -> Result<SocketAddr, FilesystemError> {
+) -> Result<SocketAddr, Errno> {
     match dest {
         Destination::Literal(addr) => {
             ruleset.admit_literal(*addr, protocol)?;
@@ -804,7 +795,7 @@ pub(crate) fn filter_with(
         Destination::Named { name, real, port } => {
             admitted_addresses_of(family, ruleset, name, &[*real], *port, protocol)
                 .pop()
-                .ok_or(FilesystemError::PermissionDenied)
+                .ok_or(Errno::PermissionDenied)
         }
     }
 }
@@ -832,15 +823,15 @@ mod tests {
     // @behavior NW-074
     #[test]
     fn a_host_socket_failure_answers_the_posix_name_its_errno_holds() {
-        use rustix::io::Errno;
-        let answers = [Errno::NETDOWN, Errno::NOBUFS, Errno::HOSTDOWN]
+        use rustix::io::Errno as HostErrno;
+        let answers = [HostErrno::NETDOWN, HostErrno::NOBUFS, HostErrno::HOSTDOWN]
             .map(|errno| to_error(&io::Error::from_raw_os_error(errno.raw_os_error())));
         assert_eq!(
             answers,
             [
-                FilesystemError::NetworkDown,
-                FilesystemError::NoBufferSpace,
-                FilesystemError::HostUnreachable
+                Errno::NetworkDown,
+                Errno::NoBufferSpace,
+                Errno::HostUnreachable
             ],
             "a host socket failing with ENETDOWN, ENOBUFS, or EHOSTDOWN must answer ENETDOWN, \
              ENOBUFS, and EHOSTUNREACH, read from its errno where std names no kind"
@@ -867,8 +858,8 @@ mod tests {
         assert_eq!(
             answers,
             (
-                Some(FilesystemError::AddressFamilyNotSupported),
-                Some(FilesystemError::AddressFamilyNotSupported),
+                Some(Errno::AddressFamilyNotSupported),
+                Some(Errno::AddressFamilyNotSupported),
                 true
             ),
             "a TCP or UDP socket asked for in the IPv6 family must answer EAFNOSUPPORT, as the \

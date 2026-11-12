@@ -16,13 +16,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::Rdir;
 use kobako_runtime::filesystem::{
-    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem,
-    FilesystemError, Finish, Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag,
+    DentryOperations, DirEntry, FileOperations, FileSystemType, FileType, Filesystem, Finish,
+    Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag,
 };
 use kobako_runtime::vfs::{
     generic_file_llseek, generic_read_dir, generic_write_sync, verify_dirent_name, Dentry,
     DirContext, Identity, Inode, Whence, NAME_MAX,
 };
+use kobako_runtime::Errno;
 
 use crate::runtime::pinned_value::PinnedValue;
 use crate::runtime::{escape, gvl};
@@ -52,26 +53,21 @@ impl RubyFilesystem {
     }
 
     /// What the object's `stat` answers for `path`.
-    fn stat(&self, path: String) -> Result<Kstat, FilesystemError> {
+    fn stat(&self, path: String) -> Result<Kstat, Errno> {
         let own_dev = self.dev;
-        ask(
-            self.object,
-            "stat",
-            FilesystemError::Unsupported,
-            |_, fs| {
-                let stat: Value = fs.funcall("stat", (path,))?;
-                let kstat = Kstat::new(kind_of(stat)?, stat.funcall("size", ())?);
-                // A stat names its identity as `File::Stat` does; without a
-                // `dev` the Filesystem stands for a device of its own, so it
-                // shares an identity with no other Filesystem.
-                let dev = if stat.respond_to("dev", false)? {
-                    stat.funcall("dev", ())?
-                } else {
-                    own_dev
-                };
-                with_stat_record(stat, kstat.with_identity(dev, stat.funcall("ino", ())?))
-            },
-        )
+        ask(self.object, "stat", Errno::Unsupported, |_, fs| {
+            let stat: Value = fs.funcall("stat", (path,))?;
+            let kstat = Kstat::new(kind_of(stat)?, stat.funcall("size", ())?);
+            // A stat names its identity as `File::Stat` does; without a
+            // `dev` the Filesystem stands for a device of its own, so it
+            // shares an identity with no other Filesystem.
+            let dev = if stat.respond_to("dev", false)? {
+                stat.funcall("dev", ())?
+            } else {
+                own_dev
+            };
+            with_stat_record(stat, kstat.with_identity(dev, stat.funcall("ino", ())?))
+        })
     }
 }
 
@@ -115,9 +111,9 @@ fn with_stat_record(stat: Value, kstat: Kstat) -> Result<Kstat, MagnusError> {
 fn ask<T>(
     object: Opaque<Value>,
     name: &str,
-    missing: FilesystemError,
+    missing: Errno,
     answer: impl FnOnce(&Ruby, Value) -> Result<T, MagnusError>,
-) -> Result<T, FilesystemError> {
+) -> Result<T, Errno> {
     ask_or(object, name, Err(missing), answer)
 }
 
@@ -125,9 +121,9 @@ fn ask<T>(
 fn ask_or<T>(
     object: Opaque<Value>,
     name: &str,
-    missing: Result<T, FilesystemError>,
+    missing: Result<T, Errno>,
     answer: impl FnOnce(&Ruby, Value) -> Result<T, MagnusError>,
-) -> Result<T, FilesystemError> {
+) -> Result<T, Errno> {
     gvl::reenter(|| {
         let ruby = Ruby::get().expect("Ruby handle unavailable in a Filesystem call");
         let object: Value = ruby.get_inner(object);
@@ -137,7 +133,7 @@ fn ask_or<T>(
         answer(&ruby, object).map_err(|err| match escape::hold(&ruby, err) {
             Err(err) => to_error(err),
             // The invocation ends before the guest reads this.
-            Ok(()) => FilesystemError::Other(String::new()),
+            Ok(()) => Errno::Other(String::new()),
         })
     })
 }
@@ -147,8 +143,8 @@ fn change(
     object: Opaque<Value>,
     name: &str,
     args: impl magnus::ArgList,
-    missing: FilesystemError,
-) -> Result<(), FilesystemError> {
+    missing: Errno,
+) -> Result<(), Errno> {
     ask(object, name, missing, |_, object| {
         object.funcall::<_, _, Value>(name, args).map(drop)
     })
@@ -157,16 +153,15 @@ fn change(
 /// Ask `object` a change it may lack, an object lacking `name` having
 /// nothing of its own to change, while one that answers and refuses still
 /// fails, whatever `Errno` it raises.
-fn change_if_answered(object: Opaque<Value>, name: &str) -> Result<(), FilesystemError> {
+fn change_if_answered(object: Opaque<Value>, name: &str) -> Result<(), Errno> {
     ask_or(object, name, Ok(()), |_, object| {
         object.funcall::<_, _, Value>(name, ()).map(drop)
     })
 }
 
-/// The FilesystemError the nearest `Errno` class of `err` stands for, by
-/// its POSIX name; anything else is `Other`, which reaches the guest as
+/// What the nearest Ruby `Errno` class of `err` stands for, by its POSIX name; anything else is `Other`, which reaches the guest as
 /// `EIO`.
-fn to_error(err: MagnusError) -> FilesystemError {
+fn to_error(err: MagnusError) -> Errno {
     let named = err.value().and_then(|exception| {
         exception
             .class()
@@ -174,10 +169,10 @@ fn to_error(err: MagnusError) -> FilesystemError {
             .into_iter()
             .find_map(|module| {
                 let name: Option<String> = module.funcall("name", ()).ok()?;
-                FilesystemError::from_posix_name(name?.strip_prefix("Errno::")?)
+                Errno::from_posix_name(name?.strip_prefix("Errno::")?)
             })
     });
-    named.unwrap_or_else(|| FilesystemError::Other(err.to_string()))
+    named.unwrap_or_else(|| Errno::Other(err.to_string()))
 }
 
 /// `File::Constants` flags for `how`, read from Ruby since their
@@ -245,17 +240,12 @@ impl RubyFilesystem {
         dentry: &Dentry,
         how: &OpenHow,
         create: bool,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         let path = path_of(dentry);
-        let file = ask(
-            self.object,
-            "open",
-            FilesystemError::Unsupported,
-            |ruby, fs| {
-                let file: Value = fs.funcall("open", (path, to_flags(ruby, how, create)?))?;
-                Ok(RubyFile::pin(ruby, file))
-            },
-        )?;
+        let file = ask(self.object, "open", Errno::Unsupported, |ruby, fs| {
+            let file: Value = fs.funcall("open", (path, to_flags(ruby, how, create)?))?;
+            Ok(RubyFile::pin(ruby, file))
+        })?;
         match dentry.inode().map(|inode| inode.identity()) {
             None => {
                 let made = self.stat(path_of(dentry))?;
@@ -265,12 +255,12 @@ impl RubyFilesystem {
             // another entry than the one judged, as `Bind::open_file` finds.
             Some(Some(identity)) => {
                 if Identity::of(&self.stat(path_of(dentry))?) != Some(identity) {
-                    return Err(FilesystemError::NotFound);
+                    return Err(Errno::NotFound);
                 }
             }
             Some(None) => {}
         }
-        let inode = dentry.inode().ok_or(FilesystemError::NotFound)?;
+        let inode = dentry.inode().ok_or(Errno::NotFound)?;
         let kept = inode
             .private()
             .get_or_init(|| Arc::new(OpenRubyFile::default()))
@@ -285,21 +275,18 @@ impl RubyFilesystem {
     /// about, as it could name a path the object would answer for, and a name
     /// gone by the time it is asked about is one the listing no longer holds, as
     /// any listing is a moment that may have passed.
-    fn entries_at(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, FilesystemError> {
+    fn entries_at(&self, dentry: &Dentry) -> Result<Vec<DirEntry>, Errno> {
         let at = path_of(dentry);
-        let names: Vec<String> = ask(
-            self.object,
-            "children",
-            FilesystemError::Unsupported,
-            |_, fs| fs.funcall("children", (at.as_str(),)),
-        )?;
+        let names: Vec<String> = ask(self.object, "children", Errno::Unsupported, |_, fs| {
+            fs.funcall("children", (at.as_str(),))
+        })?;
         names.iter().try_for_each(|name| verify_dirent_name(name))?;
         let mut entries = Vec::with_capacity(names.len());
         for name in names {
             match self.stat(join(&at, &name)) {
                 Ok(stat) => entries
                     .push(DirEntry::new(name, stat.file_type).with_identity(stat.dev, stat.ino)),
-                Err(FilesystemError::NotFound) => {}
+                Err(Errno::NotFound) => {}
                 Err(err) => return Err(err),
             }
         }
@@ -312,12 +299,12 @@ impl RubyFilesystem {
 struct RubyLink(RubyFilesystem);
 
 impl InodeOperations for RubyLink {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         self.0.stat(path_of(dentry))
     }
 
-    fn get_link(&self, _dentry: &Dentry) -> Result<String, FilesystemError> {
-        Err(FilesystemError::FilesystemLoop)
+    fn get_link(&self, _dentry: &Dentry) -> Result<String, Errno> {
+        Err(Errno::FilesystemLoop)
     }
 }
 
@@ -328,23 +315,18 @@ impl InodeOperations for RubyRegular {
     /// A file open here answers for itself even once its name is gone, as 9p
     /// asks an open fid: its `size`, and its `stat` where it has one. It stays
     /// the entry its lookup recorded; anything else is asked by its path.
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         let Some(file) = find_open_file(dentry) else {
             return self.0.stat(path_of(dentry));
         };
-        let metadata = ask(
-            file.get(),
-            "size",
-            FilesystemError::Unsupported,
-            |_, file| {
-                let metadata = Kstat::new(FileType::RegFile, file.funcall("size", ())?);
-                if file.respond_to("stat", false)? {
-                    with_stat_record(file.funcall("stat", ())?, metadata)
-                } else {
-                    Ok(metadata)
-                }
-            },
-        )?;
+        let metadata = ask(file.get(), "size", Errno::Unsupported, |_, file| {
+            let metadata = Kstat::new(FileType::RegFile, file.funcall("size", ())?);
+            if file.respond_to("stat", false)? {
+                with_stat_record(file.funcall("stat", ())?, metadata)
+            } else {
+                Ok(metadata)
+            }
+        })?;
         Ok(match dentry.inode().and_then(|inode| inode.identity()) {
             Some(identity) => identity.onto(metadata),
             None => metadata,
@@ -354,27 +336,18 @@ impl InodeOperations for RubyRegular {
     /// A Ruby object was handed `TRUNC` as it opened the file, so an open asking
     /// to truncate has nothing left to ask, as `fuse_do_setattr` finds with
     /// `atomic_o_trunc`.
-    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), FilesystemError> {
+    fn setattr(&self, dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
         let Some(len) = attr.size else {
-            return Err(FilesystemError::Unsupported);
+            return Err(Errno::Unsupported);
         };
         if attr.open {
             return Ok(());
         }
-        let file = find_open_file(dentry).ok_or(FilesystemError::InvalidInput)?;
-        change(
-            file.get(),
-            "truncate",
-            (len,),
-            FilesystemError::ReadOnlyFilesystem,
-        )
+        let file = find_open_file(dentry).ok_or(Errno::InvalidInput)?;
+        change(file.get(), "truncate", (len,), Errno::ReadOnlyFilesystem)
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         self.0.open_at(dentry, how, false)
     }
 }
@@ -382,7 +355,7 @@ impl InodeOperations for RubyRegular {
 /// Its root reports no identity without asking the Ruby object, as FUSE makes its
 /// root from fixed attributes rather than ask the server.
 impl FileSystemType for RubyFilesystem {
-    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), FilesystemError> {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
         sb.set_default_d_op(self.clone());
         sb.d_make_root(Inode::new(&Kstat::new(FileType::Dir, 0), self));
         Ok(())
@@ -392,15 +365,15 @@ impl FileSystemType for RubyFilesystem {
 /// A directory of a Ruby Filesystem, asked by the path a dentry stands at, the
 /// path a Policy judges.
 impl InodeOperations for RubyFilesystem {
-    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, FilesystemError> {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
         self.stat(path_of(dentry))
     }
 
     /// A Ruby object matches names exactly, as its contract asks. A lookup
     /// asks its `stat` what stands at the name, as FUSE asks its daemon.
-    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, FilesystemError> {
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
         if dentry.name().len() > NAME_MAX {
-            return Err(FilesystemError::InvalidFilename);
+            return Err(Errno::InvalidFilename);
         }
         match self.stat(path_of(dentry)) {
             Ok(found) => {
@@ -411,18 +384,14 @@ impl InodeOperations for RubyFilesystem {
                 };
                 Ok(Lookup::Found(Inode::new(&found, ops)))
             }
-            Err(FilesystemError::NotFound) => Ok(Lookup::Absent),
+            Err(Errno::NotFound) => Ok(Lookup::Absent),
             Err(err) => Err(err),
         }
     }
 
     /// A directory opens without asking the object anything; it is asked
     /// for the names only when the guest lists them.
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _how: &OpenHow,
-    ) -> Result<Box<dyn FileOperations>, FilesystemError> {
+    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(RubyDir(*self, Rdir::default())))
     }
 
@@ -430,7 +399,7 @@ impl InodeOperations for RubyFilesystem {
     /// name is left to the runtime unless the open may make it and nothing
     /// stands there, as FUSE's `fuse_atomic_open` looks the name up before it
     /// creates.
-    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, FilesystemError> {
+    fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, Errno> {
         if dentry.in_lookup() {
             let found = self.lookup(dentry)?;
             if !how.create || !matches!(found, Lookup::Absent) {
@@ -447,30 +416,30 @@ impl InodeOperations for RubyFilesystem {
         })
     }
 
-    fn mkdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn mkdir(&self, dentry: &Dentry) -> Result<(), Errno> {
         change(
             self.object,
             "mkdir",
             (path_of(dentry),),
-            FilesystemError::ReadOnlyFilesystem,
+            Errno::ReadOnlyFilesystem,
         )
     }
 
-    fn rmdir(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn rmdir(&self, dentry: &Dentry) -> Result<(), Errno> {
         change(
             self.object,
             "rmdir",
             (path_of(dentry),),
-            FilesystemError::ReadOnlyFilesystem,
+            Errno::ReadOnlyFilesystem,
         )
     }
 
-    fn unlink(&self, dentry: &Dentry) -> Result<(), FilesystemError> {
+    fn unlink(&self, dentry: &Dentry) -> Result<(), Errno> {
         change(
             self.object,
             "unlink",
             (path_of(dentry),),
-            FilesystemError::ReadOnlyFilesystem,
+            Errno::ReadOnlyFilesystem,
         )
     }
 
@@ -483,15 +452,15 @@ impl InodeOperations for RubyFilesystem {
         _to_dir: &dyn InodeOperations,
         to: &Dentry,
         flag: Option<RenameFlag>,
-    ) -> Result<(), FilesystemError> {
+    ) -> Result<(), Errno> {
         if flag.is_some() {
-            return Err(FilesystemError::InvalidInput);
+            return Err(Errno::InvalidInput);
         }
         change(
             self.object,
             "rename",
             (path_of(from), path_of(to)),
-            FilesystemError::ReadOnlyFilesystem,
+            Errno::ReadOnlyFilesystem,
         )
     }
 }
@@ -507,22 +476,18 @@ impl FileOperations for RubyDir {
         pos: u64,
         offset: i64,
         whence: Whence,
-    ) -> Result<u64, FilesystemError> {
+    ) -> Result<u64, Errno> {
         generic_file_llseek(dentry, pos, offset, whence)
     }
 
-    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, _iocb: &mut Kiocb, _buf: &mut [u8]) -> Result<usize, Errno> {
         generic_read_dir()
     }
 
     /// What a listing began with stays on the open directory until it ends, so
     /// a caller reading in small steps asks the object once, as FUSE's readdir
     /// cache spares asking the server each time.
-    fn iterate_shared(
-        &mut self,
-        dentry: &Dentry,
-        ctx: &mut DirContext<'_>,
-    ) -> Result<(), FilesystemError> {
+    fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         let filesystem = self.0;
         self.1
             .iterate(dentry, ctx, || filesystem.entries_at(dentry))
@@ -530,7 +495,7 @@ impl FileOperations for RubyDir {
 
     /// The object has nothing of a directory's own to flush, as FUSE's
     /// `fuse_dir_fsync` answers for a server without `fsyncdir`.
-    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
         Ok(())
     }
 }
@@ -565,11 +530,7 @@ fn find_open_file(dentry: &Dentry) -> Option<Arc<PinnedValue>> {
 /// naming what it recorded gets a new one. An open file answers for itself,
 /// so a walk finding a dentry one is open on takes one of its own.
 impl DentryOperations for RubyFilesystem {
-    fn revalidate(
-        &self,
-        _dir: &dyn InodeOperations,
-        dentry: &Dentry,
-    ) -> Result<bool, FilesystemError> {
+    fn revalidate(&self, _dir: &dyn InodeOperations, dentry: &Dentry) -> Result<bool, Errno> {
         let Some(inode) = dentry.inode().filter(|_| find_open_file(dentry).is_none()) else {
             return Ok(false);
         };
@@ -577,7 +538,7 @@ impl DentryOperations for RubyFilesystem {
             Ok(found) => {
                 Ok(Identity::of(&found) == inode.identity() && found.file_type == inode.kind())
             }
-            Err(FilesystemError::NotFound | FilesystemError::NotADirectory) => Ok(false),
+            Err(Errno::NotFound | Errno::NotADirectory) => Ok(false),
             Err(err) => Err(err),
         }
     }
@@ -601,17 +562,17 @@ impl RubyFile {
     /// answers where the file then ends, as `IO#pos` does after a write to
     /// a file opened to append. A file lacking it cannot append, since its
     /// `size` and `pwrite` are two steps another writer can land between.
-    fn pwrite(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn pwrite(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         let pos = iocb.pos;
         let written = ask(
             self.file.get(),
             "pwrite",
-            FilesystemError::ReadOnlyFilesystem,
+            Errno::ReadOnlyFilesystem,
             |ruby, file| file.funcall("pwrite", (ruby.str_from_slice(buf), pos)),
         )
         .and_then(|written: usize| match written {
             written if written <= buf.len() => Ok(written),
-            written => Err(FilesystemError::Other(format!(
+            written => Err(Errno::Other(format!(
                 "pwrite answered {written} bytes written of the {} it was handed",
                 buf.len()
             ))),
@@ -620,15 +581,15 @@ impl RubyFile {
         Ok(written)
     }
 
-    fn append(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn append(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         let end: u64 = ask(
             self.file.get(),
             "append",
-            FilesystemError::Unsupported,
+            Errno::Unsupported,
             |ruby, file| file.funcall("append", (ruby.str_from_slice(buf),)),
         )?;
         if end < buf.len() as u64 {
-            return Err(FilesystemError::Other(format!(
+            return Err(Errno::Other(format!(
                 "append answered the file ending at {end}, before the {} bytes it wrote",
                 buf.len()
             )));
@@ -639,7 +600,7 @@ impl RubyFile {
 
     /// Ask the file to close, a file lacking `close` having nothing to
     /// release.
-    fn close(&mut self) -> Result<(), FilesystemError> {
+    fn close(&mut self) -> Result<(), Errno> {
         self.closed = true;
         change_if_answered(self.file.get(), "close")
     }
@@ -652,16 +613,16 @@ impl FileOperations for RubyFile {
         pos: u64,
         offset: i64,
         whence: Whence,
-    ) -> Result<u64, FilesystemError> {
+    ) -> Result<u64, Errno> {
         generic_file_llseek(dentry, pos, offset, whence)
     }
 
-    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, FilesystemError> {
+    fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
         let pos = iocb.pos;
         let read = ask(
             self.file.get(),
             "pread",
-            FilesystemError::Unsupported,
+            Errno::Unsupported,
             |ruby, file| {
                 // `IO#pread` raises `EOFError` at the end of a file, which reads as nothing.
                 let read: Option<RString> = match file.funcall("pread", (buf.len(), pos)) {
@@ -680,7 +641,7 @@ impl FileOperations for RubyFile {
         Ok(read)
     }
 
-    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, FilesystemError> {
+    fn write_iter(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
         let written = match iocb.append {
             true => self.append(iocb, buf)?,
             false => self.pwrite(iocb, buf)?,
@@ -689,11 +650,11 @@ impl FileOperations for RubyFile {
     }
 
     /// A file lacking `fsync` has nothing of its own to flush.
-    fn fsync(&mut self, _datasync: bool) -> Result<(), FilesystemError> {
+    fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
         change_if_answered(self.file.get(), "fsync")
     }
 
-    fn flush(&mut self) -> Result<(), FilesystemError> {
+    fn flush(&mut self) -> Result<(), Errno> {
         self.close()
     }
 }

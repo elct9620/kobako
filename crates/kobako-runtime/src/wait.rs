@@ -9,7 +9,7 @@ use std::task::Waker;
 use std::time::{Duration, Instant};
 
 use crate::sched;
-use crate::vfs::FilesystemError;
+use crate::Errno;
 
 /// Where the waiters for one event stand, as Linux's `wait_queue_head_t`.
 #[derive(Default)]
@@ -125,7 +125,7 @@ pub fn poll_wait(queue: &Arc<WaitQueueHead>, table: Option<&mut PollTable>) {
 pub fn do_poll<T>(
     timeout: Option<Duration>,
     mut poll: impl FnMut(Option<&mut PollTable>) -> Option<T>,
-) -> Result<Option<T>, FilesystemError> {
+) -> Result<Option<T>, Errno> {
     let end = timeout.map(|timeout| Instant::now() + timeout);
     let mut table = PollTable {
         waiter: Arc::default(),
@@ -138,7 +138,7 @@ pub fn do_poll<T>(
     sched::sleep_on(&table.waiter, || {
         sched::schedule(&mut || loop {
             if sched::fatal_signal_pending() {
-                answer = Err(FilesystemError::Interrupted);
+                answer = Err(Errno::Interrupted);
                 return;
             }
             if end.is_some_and(|end| Instant::now() >= end) {
@@ -268,8 +268,7 @@ mod tests {
         let started = Instant::now();
         let answer = join("the interrupted poll", poller);
         assert!(
-            answer == Err(FilesystemError::Interrupted)
-                && started.elapsed() < Duration::from_secs(1),
+            answer == Err(Errno::Interrupted) && started.elapsed() < Duration::from_secs(1),
             "do_poll with no timeout, its thread interrupted, must answer EINTR without waiting \
              for its deadline, got {answer:?} after {:?}",
             started.elapsed()
@@ -284,7 +283,7 @@ mod tests {
         });
         assert_eq!(
             answer,
-            Err(FilesystemError::Interrupted),
+            Err(Errno::Interrupted),
             "do_poll with no timeout, past its run's deadline, must answer EINTR"
         );
     }

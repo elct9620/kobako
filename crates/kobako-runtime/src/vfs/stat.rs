@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use super::cred::Cred;
 use super::namei::{filename_lookup, retry_estale};
 use super::path::Start;
-use super::FilesystemError;
+use super::Errno;
 
 /// What a path names, as Linux's file types `FT_*` name each kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,7 +120,7 @@ pub fn vfs_fstatat(
     start: &impl Start,
     path: &str,
     follow: bool,
-) -> Result<Kstat, FilesystemError> {
+) -> Result<Kstat, Errno> {
     retry_estale(
         || filename_lookup(cred, start, path, follow),
         |nd| nd.getattr(),
@@ -132,19 +132,12 @@ pub fn vfs_fstatat(
 /// It takes the name with `LOOKUP_EMPTY`, so an empty one names `start`
 /// itself, and anything but a link there is not found. The caller's buffer is
 /// the ABI's to judge, as only its syscall has one.
-pub fn do_readlinkat(
-    cred: &Arc<Cred>,
-    start: &impl Start,
-    path: &str,
-) -> Result<String, FilesystemError> {
+pub fn do_readlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result<String, Errno> {
     let walk = || match path.is_empty() {
-        true => Ok((
-            start.path_init()?.dentry().clone(),
-            FilesystemError::NotFound,
-        )),
+        true => Ok((start.path_init()?.dentry().clone(), Errno::NotFound)),
         false => Ok((
             filename_lookup(cred, start, path, false)?.path()?,
-            FilesystemError::InvalidInput,
+            Errno::InvalidInput,
         )),
     };
     retry_estale(walk, |(target, refusal)| {

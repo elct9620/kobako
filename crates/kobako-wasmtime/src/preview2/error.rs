@@ -3,7 +3,7 @@
 //! traps through one `?`, and the generated glue turns it back into the WIT
 //! error.
 
-use kobako_runtime::vfs::FilesystemError;
+use kobako_runtime::Errno;
 
 use super::bindings::wasi_http_types_0_2_12 as http;
 use super::bindings::wasi_sockets_network_0_2_12 as network;
@@ -45,8 +45,8 @@ impl From<network::ErrorCode> for SocketError {
 
 /// A socket's failure, by the code its POSIX name maps to, as wasmtime-wasi's
 /// `SocketError` takes an `io::Error`.
-impl From<FilesystemError> for SocketError {
-    fn from(err: FilesystemError) -> Self {
+impl From<Errno> for SocketError {
+    fn from(err: Errno) -> Self {
         Self::Error(to_error_code(&err))
     }
 }
@@ -68,7 +68,7 @@ impl From<http::HeaderError> for HeaderError {
 #[derive(Debug)]
 pub(crate) enum StreamError {
     Closed,
-    LastOperationFailed(FilesystemError),
+    LastOperationFailed(Errno),
     Trap(wasmtime::Error),
 }
 
@@ -80,10 +80,10 @@ impl From<wasmtime::Error> for StreamError {
 
 /// A broken pipe is the stream's end; anything else is an error the guest may
 /// read.
-impl From<FilesystemError> for StreamError {
-    fn from(err: FilesystemError) -> Self {
+impl From<Errno> for StreamError {
+    fn from(err: Errno) -> Self {
         match err {
-            FilesystemError::BrokenPipe => Self::Closed,
+            Errno::BrokenPipe => Self::Closed,
             err => Self::LastOperationFailed(err),
         }
     }
