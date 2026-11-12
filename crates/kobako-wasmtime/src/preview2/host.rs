@@ -321,27 +321,28 @@ impl SocketsHost for Invocation {
         Ok(self.table_mut().push_file(table::ResolveAddressStream {
             lookup,
             file: Arc::new(Mutex::new(file)),
-            handed: false,
+            handed: 0,
         })?)
     }
 
-    /// The name's one virtual address, then the end; a lookup still under way
-    /// answers `would-block`.
+    /// The name's virtual addresses one by one, in the order its lookup
+    /// answered, then the end; a lookup still under way answers
+    /// `would-block`.
     fn ip_name_lookup_resolve_address_stream_resolve_next_address(
         &mut self,
         this: ResolveAddressStream,
     ) -> Result<Option<IpAddress>, SocketError> {
         let stream = self.table_mut().get(this)?;
-        if stream.handed {
-            return Ok(None);
-        }
-        let lookup = stream.lookup.clone();
+        let (lookup, handed) = (stream.lookup.clone(), stream.handed);
         let cred = self.wasi().cred();
-        let at = match self.network().alloc_virtual_address(cred, &lookup) {
+        let all = match self.network().alloc_virtual_addresses(cred, &lookup) {
             None => return Err(ErrorCode::WouldBlock.into()),
             Some(answer) => answer.map_err(|err| to_lookup_error_code(err, false))?,
         };
-        self.table_mut().get_mut(this)?.handed = true;
+        let Some(at) = all.get(handed) else {
+            return Ok(None);
+        };
+        self.table_mut().get_mut(this)?.handed = handed + 1;
         let [a, b, c, d] = at.octets();
         Ok(Some(IpAddress::Ipv4((a, b, c, d))))
     }
@@ -1618,7 +1619,7 @@ mod tests {
                 .with_addresses(vec![network::Addresses::Local]),
         );
         let started = Instant::now();
-        let (handed, end, remote) = run_task(Some(started + Duration::from_secs(10)), || {
+        let (handed, connected) = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let stream = guest
                 .ip_name_lookup_resolve_addresses(network, "localhost".to_string())
@@ -1626,50 +1627,55 @@ mod tests {
                 .expect("an endpoint names the name");
             let answered = guest.ip_name_lookup_resolve_address_stream_subscribe(stream)?;
             guest.poll_pollable_block(answered)?;
-            let handed = guest
+            let mut handed = Vec::new();
+            while let Some(IpAddress::Ipv4(address)) = guest
                 .ip_name_lookup_resolve_address_stream_resolve_next_address(stream)
                 .into_answer()?
-                .expect("localhost resolves");
-            let end = guest
-                .ip_name_lookup_resolve_address_stream_resolve_next_address(stream)
-                .into_answer()?;
-            let Some(IpAddress::Ipv4(address)) = handed else {
-                return Err(wasmtime::Error::msg("no IPv4 address handed out"));
-            };
-            let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
-                .into_answer()?
-                .expect("a network makes a socket");
-            let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress { port, address });
-            guest
-                .tcp_tcp_socket_start_connect(socket, network, remote)
-                .into_answer()?
-                .expect("the endpoint leads to loopback");
-            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
-            guest.poll_pollable_block(connecting)?;
-            guest
-                .tcp_tcp_socket_finish_connect(socket)
-                .into_answer()?
-                .expect("the listener accepts");
-            Ok((
-                handed,
-                end,
-                guest.tcp_tcp_socket_remote_address(socket).into_answer()?,
-            ))
+                .expect("localhost resolves")
+            {
+                handed.push(address);
+            }
+            // Each virtual address in turn, as a guest tries them, until one
+            // reaches the IPv4 listener.
+            for address in handed.clone() {
+                let socket = guest
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()?
+                    .expect("a network makes a socket");
+                let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress { port, address });
+                if guest
+                    .tcp_tcp_socket_start_connect(socket, network, remote)
+                    .into_answer()?
+                    .is_err()
+                {
+                    continue;
+                }
+                let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+                guest.poll_pollable_block(connecting)?;
+                if guest
+                    .tcp_tcp_socket_finish_connect(socket)
+                    .into_answer()?
+                    .is_ok()
+                {
+                    let peer = guest.tcp_tcp_socket_remote_address(socket).into_answer()?;
+                    return Ok((handed, Some((address, peer))));
+                }
+            }
+            Ok::<_, wasmtime::Error>((handed, None))
         })
-        .expect("the lookup and the connect answer");
+        .expect("the lookup and the connects answer");
+        let Some((through, peer)) = connected else {
+            panic!("no virtual address localhost answered reached the IPv4 listener: {handed:?}");
+        };
         assert!(
-            matches!(handed, Some(IpAddress::Ipv4((198, 18, 0, 0))))
-                && matches!(end, Ok(None))
+            handed.first() == Some(&(198, 18, 0, 0))
                 && matches!(
-                    remote,
-                    Ok(IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                        address: (198, 18, 0, 0),
-                        ..
-                    }))
+                    peer,
+                    Ok(IpSocketAddress::Ipv4(Ipv4SocketAddress { address, .. })) if address == through
                 ),
-            "a lookup of a name an endpoint names must hand out one virtual address then end, and \
-             a socket connected through it must read that virtual address back as its peer"
+            "a lookup of a name an endpoint names must hand out its virtual addresses from the \
+             bottom of the range, and a socket connected through one must read that virtual \
+             address back as its peer"
         );
     }
 

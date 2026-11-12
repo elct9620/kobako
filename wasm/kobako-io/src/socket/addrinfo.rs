@@ -232,9 +232,9 @@ struct Hints {
 
 /// The `Addrinfo`s `node` and `service` lead to, as glibc's `getaddrinfo`
 /// answers: one per kind the hints leave open, for the address a literal
-/// spells or a name leads to, the canonical name on the first when asked.
-/// A name leads to its virtual address, and `nil` to the loopback, or to any
-/// address with `AI_PASSIVE`.
+/// spells or each a name leads to, the canonical name on the first when
+/// asked. A name leads to its virtual addresses, and `nil` to the loopback,
+/// or to any address with `AI_PASSIVE`.
 fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<Addrinfo>, Error> {
     let (port, service_text) = port_of(mrb, service)?;
     let passive = hints.flags & AI_PASSIVE != 0;

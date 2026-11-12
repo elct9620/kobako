@@ -31,6 +31,34 @@ module NetworkSandboxes
     net.endpoint "127.0.0.1", port: port, protocol: :tcp, addresses: [:local]
   end
 
+  # The addresses the host's resolver answers for `localhost`, in its order,
+  # asked as the runtime asks it, with a trailing dot. A lookup in the guest
+  # hands out one virtual address for each, from the bottom of 198.18.0.0/15.
+  def localhost_answers
+    Addrinfo.getaddrinfo("localhost.", nil, nil, :STREAM).map(&:ip_address).uniq
+  end
+
+  # A Sandbox whose one entry reaches `localhost` at +port+ over +protocol+,
+  # leading only to 127.0.0.1, so each address the host answers before it is
+  # refused. Fails unless the host answers another address first, since only
+  # then does a guest have an address to try past.
+  def localhost_ipv4_only_sandbox(port, protocol:)
+    unless localhost_answers.index("127.0.0.1").to_i.positive?
+      flunk "the host's resolver must answer another address for localhost before 127.0.0.1, " \
+            "got #{localhost_answers.inspect}"
+    end
+    Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM).network(:local) do |net|
+      net.endpoint "localhost", port: port, protocol: protocol, addresses: ["127.0.0.1/32"]
+    end
+  end
+
+  # The virtual address a guest's lookup of `localhost` hands out for +real+.
+  def localhost_virtual_address(real)
+    index = localhost_answers.index(real) or
+      flunk "the host's resolver answers #{localhost_answers.inspect} for localhost, without #{real}"
+    "198.18.0.#{index}"
+  end
+
   # A port other than +port+, within the 16 bits a port holds whichever port
   # the server was given.
   def other_port(port)

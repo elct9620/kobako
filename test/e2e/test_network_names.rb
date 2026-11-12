@@ -7,6 +7,7 @@ require "test_helper"
 class TestE2ENetworkNames < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
+  include UdpLoopback
 
   NAMED_CONNECT = <<~RUBY
     socket = TCPSocket.new("localhost", %<port>d)
@@ -30,8 +31,46 @@ class TestE2ENetworkNames < Minitest::Test
     with_upcase_server do |port|
       value = localhost_sandbox(port).eval(format(NAMED_CONNECT, port: port)).value
 
-      assert_equal ["PING", "198.18.0.0"], value,
+      assert_equal ["PING", localhost_virtual_address("127.0.0.1")], value,
                    "TCPSocket to a name an endpoint names must reach it and show the virtual address as its peer"
+    end
+  end
+
+  TRIED_IN_TURN = <<~RUBY
+    socket = TCPSocket.new("localhost", %<port>d)
+    socket.write("ping")
+    socket.close_write
+    [socket.read, socket.peeraddr[3]]
+  RUBY
+
+  # @behavior NW-032
+  def test_a_tcp_socket_tries_each_address_a_name_leads_to_in_turn
+    with_upcase_server do |port|
+      sandbox = localhost_ipv4_only_sandbox(port, protocol: :tcp)
+      value = sandbox.eval(format(TRIED_IN_TURN, port: port)).value
+
+      assert_equal ["PING", localhost_virtual_address("127.0.0.1")], value,
+                   "TCPSocket to a name whose first addresses an endpoint refuses must try each in turn and " \
+                   "connect through the virtual address standing for the one it leads to"
+    end
+  end
+
+  DATAGRAM_TRIED_IN_TURN = <<~RUBY
+    socket = UDPSocket.new
+    socket.connect("localhost", %<port>d)
+    socket.send("ping", 0, "localhost", %<port>d)
+    [socket.recv(16), socket.peeraddr[3]]
+  RUBY
+
+  # @behavior NW-195
+  def test_a_udp_socket_tries_each_address_a_name_leads_to_in_turn
+    with_hello_peer do |port|
+      sandbox = localhost_ipv4_only_sandbox(port, protocol: :udp)
+      value = sandbox.eval(format(DATAGRAM_TRIED_IN_TURN, port: port)).value
+
+      assert_equal ["hello", localhost_virtual_address("127.0.0.1")], value,
+                   "UDPSocket#connect to a name whose first addresses an endpoint refuses must stream with the one " \
+                   "it leads to, and a send naming the name must reach that peer, as CRuby's try each address"
     end
   end
 

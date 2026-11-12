@@ -225,18 +225,18 @@ impl Ready for UdpSock {
 /// `udp_prot`.
 impl ProtoOps for UdpSock {
     /// `net`'s `connect4`, then within the connection caps a port, the
-    /// ruleset, and the host socket pointed at the first real address it
-    /// admits, as `inet_dgram_connect` runs `connect4` and then autobinds a
-    /// socket holding no port, answering `EAGAIN` once none is free. UDP opens
-    /// no handshake, so that address is its peer; the port stays held
-    /// whatever the connect answers, as an autobind does.
+    /// ruleset, and the host socket pointed at the real address it admits, as
+    /// `inet_dgram_connect` runs `connect4` and then autobinds a socket
+    /// holding no port, answering `EAGAIN` once none is free. UDP opens no
+    /// handshake, so that address is its peer; the port stays held whatever
+    /// the connect answers, as an autobind does.
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), FilesystemError> {
         let dest = net.connect4(addr)?;
         net.within_connection_limit(FilesystemError::WouldBlock, || {
             self.hold_port(net.ports_of(Protocol::Udp))
                 .map_err(|_| FilesystemError::WouldBlock)?;
             let real = net.filter(&dest, Protocol::Udp)?;
-            self.dial(net.family(), real[0], addr, net.open_connections())
+            self.dial(net.family(), real, addr, net.open_connections())
         })
     }
 

@@ -1,8 +1,9 @@
 //! The network one Invocation's entries make, as Linux's `struct net` holds the
 //! rules every socket of a namespace passes and the families that dial it. The
-//! guest sees only virtual addresses: a lookup hands out one, and a connect to
-//! it is translated to the real addresses the name resolved to, as cgroup
-//! `connect4` rewrites a destination, so no name is ever resolved twice.
+//! guest sees only virtual addresses: a lookup hands out one for each real
+//! address the name resolved to, and a connect to one is translated to the
+//! real address it stands for, as cgroup `connect4` rewrites one destination,
+//! so no name is ever resolved twice.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -28,9 +29,9 @@ const VIRTUAL_BASE: u32 = u32::from_be_bytes([198, 18, 0, 0]);
 /// How many virtual addresses the range holds.
 const VIRTUAL_SIZE: u32 = 1 << 17;
 
-/// How many virtual addresses a lookup may take: all but the guest's own,
+/// How many virtual addresses lookups may take: all but the guest's own,
 /// `LOCAL_ADDRESS`, and the broadcast one above it.
-const NAMED_SIZE: u32 = VIRTUAL_SIZE - 2;
+const MAX_NAMED_ADDRESSES: u32 = VIRTUAL_SIZE - 2;
 
 /// What the guest may reach, which policies judge each lookup and connect, the
 /// backend that dials it, the connections the Sandbox holds open and those
@@ -57,13 +58,24 @@ pub struct Namespace {
     tcp_sockets: Mutex<Vec<Weak<TcpSock>>>,
 }
 
-/// Each name looked up and its real addresses, at its virtual address's
-/// offset from the bottom of the range, and the memory they hold against
-/// the Invocation's, given back as the namespace goes.
+/// Each real address a name looked up resolved to, with the name, at its
+/// virtual address's offset from the bottom of the range, and the memory
+/// they hold against the Invocation's, given back as the namespace goes.
 #[derive(Default)]
 struct Translations {
-    entries: Vec<(String, Vec<IpAddr>)>,
+    entries: Vec<(String, IpAddr)>,
     memory: Option<MemoryCharge>,
+}
+
+impl Translations {
+    /// The offsets of `name`'s entries and the real addresses they hold, in
+    /// the order its lookup answered them.
+    fn of_name<'a>(&'a self, name: &'a str) -> impl Iterator<Item = (u32, IpAddr)> + 'a {
+        (0u32..)
+            .zip(&self.entries)
+            .filter(move |(_, (known, _))| known == name)
+            .map(|(offset, (_, real))| (offset, *real))
+    }
 }
 
 /// The Invocation's end lets go of every orphan still sending, so nothing it
@@ -227,13 +239,12 @@ impl Namespace {
             .translations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .entries
-            .iter()
-            .find(|(known, _)| *known == name)
-            .map(|(_, real)| real.clone());
-        match translated {
-            Some(real) => Ok(NameLookup::with_answer(name, Ok(real))),
-            None => NameLookup::start(self.family.clone(), name, &self.open_connections),
+            .of_name(&name)
+            .map(|(_, real)| real)
+            .collect::<Vec<_>>();
+        match translated.is_empty() {
+            false => Ok(NameLookup::with_answer(name, Ok(translated))),
+            true => NameLookup::start(self.family.clone(), name, &self.open_connections),
         }
     }
 
@@ -273,43 +284,49 @@ impl Namespace {
         }
     }
 
-    /// Allocate the virtual address `lookup`'s answer is handed out at, from
-    /// the bottom of the range, never reused for a second name; a name
-    /// already handed one keeps it, as a fake-IP pool answers a known host.
-    /// `None` while the lookup is under way, its failure once it failed, and
-    /// `TemporaryFailure` once the range is spent or `cred`'s memory cannot
-    /// hold the entry, which the table keeps until the Invocation ends.
-    pub fn alloc_virtual_address(
+    /// Allocate the virtual addresses `lookup`'s answer is handed out at, one
+    /// for each real address in the order it answered, from the bottom of the
+    /// range and never reused; a name already handed them keeps them, as a
+    /// fake-IP pool answers a known host. `None` while the lookup is under
+    /// way, its failure once it failed, and `TemporaryFailure` once the range
+    /// cannot hold them all or `cred`'s memory cannot hold the entries, which
+    /// the table keeps until the Invocation ends.
+    pub fn alloc_virtual_addresses(
         &self,
         cred: &Arc<Cred>,
         lookup: &NameLookup,
-    ) -> Option<Result<Ipv4Addr, LookupError>> {
+    ) -> Option<Result<Vec<Ipv4Addr>, LookupError>> {
         let real = match lookup.answer()? {
             Ok(real) => real,
             Err(err) => return Some(Err(err)),
         };
+        let to_virtual = |offset: u32| Ipv4Addr::from(VIRTUAL_BASE + offset);
         let mut translations = self
             .translations
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        if let Some(offset) = translations
-            .entries
-            .iter()
-            .position(|(known, _)| known == lookup.name())
-            .and_then(|offset| u32::try_from(offset).ok())
-        {
-            return Some(Ok(Ipv4Addr::from(VIRTUAL_BASE + offset)));
+        let known = translations
+            .of_name(lookup.name())
+            .map(|(offset, _)| to_virtual(offset))
+            .collect::<Vec<_>>();
+        if !known.is_empty() {
+            return Some(Ok(known));
         }
-        let Some(offset) = u32::try_from(translations.entries.len())
+        let first = translations.entries.len();
+        let Some(end) = u32::try_from(first + real.len())
             .ok()
-            .filter(|o| *o < NAMED_SIZE)
+            .filter(|end| *end <= MAX_NAMED_ADDRESSES)
         else {
             return Some(Err(LookupError::TemporaryFailure));
         };
-        let entry = (lookup.name().to_string(), real);
-        let held = std::mem::size_of_val(&entry)
-            + entry.0.len()
-            + entry.1.len() * std::mem::size_of::<IpAddr>();
+        let entries = real
+            .into_iter()
+            .map(|ip| (lookup.name().to_string(), ip))
+            .collect::<Vec<_>>();
+        let held = entries
+            .iter()
+            .map(|entry| std::mem::size_of_val(entry) + entry.0.len())
+            .sum::<usize>();
         let charged = match &mut translations.memory {
             Some(memory) => memory.resize(memory.bytes() + held),
             None => MemoryCharge::new(cred, held).map(|memory| {
@@ -319,12 +336,14 @@ impl Namespace {
         if charged.is_err() {
             return Some(Err(LookupError::TemporaryFailure));
         }
-        translations.entries.push(entry);
-        Some(Ok(Ipv4Addr::from(VIRTUAL_BASE + offset)))
+        translations.entries.extend(entries);
+        let first = u32::try_from(first).expect("below the end of the range");
+        Some(Ok((first..end).map(to_virtual).collect()))
     }
 
-    /// The name a virtual address stands for and its real addresses.
-    fn translate(&self, ip: Ipv4Addr) -> Option<(String, Vec<IpAddr>)> {
+    /// The name a virtual address stands for and the real address it stands
+    /// for.
+    fn translate(&self, ip: Ipv4Addr) -> Option<(String, IpAddr)> {
         let offset = u32::from(ip).checked_sub(VIRTUAL_BASE)?;
         self.translations
             .lock()
@@ -432,8 +451,8 @@ impl Namespace {
     }
 
     /// What `addr` stands for when it lies in the virtual range: its name and
-    /// real addresses, or `None` inside the range when no name holds it.
-    fn translated(&self, addr: SocketAddr) -> Option<Option<(String, Vec<IpAddr>)>> {
+    /// real address, or `None` inside the range when no name holds it.
+    fn translated(&self, addr: SocketAddr) -> Option<Option<(String, IpAddr)>> {
         match addr.ip() {
             IpAddr::V4(ip) if u32::from(ip) & !(VIRTUAL_SIZE - 1) == VIRTUAL_BASE => {
                 Some(self.translate(ip))
@@ -461,9 +480,9 @@ impl Namespace {
     /// What a socket's connect to `addr` reaches once its state check passed,
     /// as cgroup `connect4` runs inside the protocol's `connect`: an IPv6
     /// address answers `EAFNOSUPPORT`, as `inet_stream_connect` refuses one;
-    /// a virtual address turns into the name it stands for and that name's
-    /// real addresses, one no name holds answering `EACCES`; any other stands
-    /// as itself.
+    /// a virtual address turns into the name it stands for and the one real
+    /// address it stands for, one no name holds answering `EACCES`; any other
+    /// stands as itself.
     pub(crate) fn connect4(&self, addr: SocketAddr) -> Result<Destination, FilesystemError> {
         if addr.is_ipv6() {
             return Err(FilesystemError::AddressFamilyNotSupported);
@@ -479,45 +498,41 @@ impl Namespace {
         }
     }
 
-    /// The real addresses the ruleset lets a `protocol` connection to `dest`
-    /// dial, as the filter judges what leaves after the socket took its port;
-    /// `EACCES` when it lets none.
+    /// The real address a `protocol` connection to `dest` dials, once the
+    /// ruleset lets it, as the filter judges what leaves after the socket took
+    /// its port; `EACCES` when it does not.
     pub(crate) fn filter(
         &self,
         dest: &Destination,
         protocol: Protocol,
-    ) -> Result<Vec<SocketAddr>, FilesystemError> {
+    ) -> Result<SocketAddr, FilesystemError> {
         match dest {
             Destination::Literal(addr) => {
                 self.ruleset.admit_literal(*addr, protocol)?;
-                Ok(vec![*addr])
+                Ok(*addr)
             }
-            Destination::Named { name, real, port } => {
-                let admitted = admitted_addresses_of(
-                    &*self.family,
-                    &self.ruleset,
-                    name,
-                    real,
-                    *port,
-                    protocol,
-                );
-                if admitted.is_empty() {
-                    return Err(FilesystemError::PermissionDenied);
-                }
-                Ok(admitted)
-            }
+            Destination::Named { name, real, port } => admitted_addresses_of(
+                &*self.family,
+                &self.ruleset,
+                name,
+                &[*real],
+                *port,
+                protocol,
+            )
+            .pop()
+            .ok_or(FilesystemError::PermissionDenied),
         }
     }
 }
 
 /// Where a socket's connect leads once cgroup `connect4` ran: the literal
-/// address the guest named, or the name a virtual address stands for, its
-/// real addresses, and the port.
+/// address the guest named, or the name a virtual address stands for, the
+/// real address it stands for, and the port.
 pub(crate) enum Destination {
     Literal(SocketAddr),
     Named {
         name: String,
-        real: Vec<IpAddr>,
+        real: IpAddr,
         port: u16,
     },
 }
@@ -976,15 +991,26 @@ mod tests {
         }
     }
 
-    /// The virtual address a lookup of `name` hands out.
-    fn resolve_virtual_address(namespace: &Namespace, name: &str) -> SocketAddr {
+    /// The virtual addresses a lookup of `name` hands out, at port 6379.
+    fn resolve_virtual_addresses(namespace: &Namespace, name: &str) -> Vec<SocketAddr> {
         let lookup = namespace.resolve(name).expect("the lookup starts");
         wait_for_answer(&lookup).expect("the name resolves");
-        let ip = namespace
-            .alloc_virtual_address(&prepare_creds_within(&[], None), &lookup)
+        namespace
+            .alloc_virtual_addresses(&prepare_creds_within(&[], None), &lookup)
             .expect("the lookup settled")
-            .expect("the range has room");
-        SocketAddr::new(IpAddr::V4(ip), 6379)
+            .expect("the range has room")
+            .into_iter()
+            .map(|ip| SocketAddr::new(IpAddr::V4(ip), 6379))
+            .collect()
+    }
+
+    /// The one virtual address a lookup of `name`, answering one address,
+    /// hands out.
+    fn resolve_virtual_address(namespace: &Namespace, name: &str) -> SocketAddr {
+        let [at] = resolve_virtual_addresses(namespace, name)[..] else {
+            panic!("a lookup answering one address hands out one virtual address");
+        };
+        at
     }
 
     // @behavior NW-024
@@ -1119,30 +1145,32 @@ mod tests {
             .resolve("cache.internal")
             .expect("the lookup starts");
         wait_for_answer(&lookup).expect("the name resolves");
-        let full = namespace.alloc_virtual_address(&prepare_creds_within(&[], Some(0)), &lookup);
-        let roomy = namespace.alloc_virtual_address(&prepare_creds_within(&[], None), &lookup);
+        let full = namespace.alloc_virtual_addresses(&prepare_creds_within(&[], Some(0)), &lookup);
+        let roomy = namespace.alloc_virtual_addresses(&prepare_creds_within(&[], None), &lookup);
         assert_eq!(
             (full, roomy),
             (
                 Some(Err(LookupError::TemporaryFailure)),
-                Some(Ok("198.18.0.0".parse().unwrap()))
+                Some(Ok(vec!["198.18.0.0".parse().unwrap()]))
             ),
-            "Namespace::alloc_virtual_address must answer temporary-failure when the \
-             Invocation's memory cannot hold the name's entry, and hand out the bottom of the \
-             range once it can"
+            "a lookup must answer temporary-failure when the Invocation's memory cannot hold \
+             the name's entry, and hand out the bottom of the range once it can"
         );
     }
 
     // @behavior NW-175
     #[test]
-    fn a_name_keeps_its_virtual_address_and_first_answer_for_the_invocation() {
+    fn a_name_keeps_its_virtual_addresses_and_first_answer_for_the_invocation() {
         let family = Arc::new(ResolvesNames {
-            answers: Mutex::new(vec!["127.0.0.1".parse().unwrap()]),
+            answers: Mutex::new(vec![
+                "127.0.0.1".parse().unwrap(),
+                "127.0.0.2".parse().unwrap(),
+            ]),
             ..ResolvesNames::default()
         });
         let refusing = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mut entry = crate::network::Builder::default();
-        entry.endpoint(tcp("cache.internal", 6379));
+        entry.endpoint(tcp("cache.internal", 6379).with_addresses(vec![Addresses::Local]));
         let refuses = refusing.clone();
         entry.resolve_policy(move |_: &Name<'_>| !refuses.load(Ordering::SeqCst));
         let network = Network::new("names", Arc::new(entry)).unwrap();
@@ -1151,13 +1179,18 @@ mod tests {
             family.clone(),
             Arc::new(crate::net::HyperOutbound::new()),
         );
-        let first = resolve_virtual_address(&namespace, "cache.internal");
+        let first = resolve_virtual_addresses(&namespace, "cache.internal");
         *family.answers.lock().unwrap() = vec!["10.0.0.1".parse().unwrap()];
         let again = namespace
             .resolve("Cache.Internal.")
             .expect("the lookup starts");
         let answer = wait_for_answer(&again);
-        let second = resolve_virtual_address(&namespace, "cache.internal");
+        let second = resolve_virtual_addresses(&namespace, "cache.internal");
+        let cred = prepare_creds_within(&[], None);
+        let sock = dial(&namespace, &cred, second[1]).expect("the endpoint leads there");
+        while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         refusing.store(true, Ordering::SeqCst);
         let refused = wait_for_answer(&namespace.resolve("cache.internal").expect("it answers"));
         assert_eq!(
@@ -1167,20 +1200,31 @@ mod tests {
                 answer,
                 refused,
                 family.lookups.load(Ordering::SeqCst),
-                namespace.translations.lock().unwrap().entries.len()
+                namespace.translations.lock().unwrap().entries.len(),
+                family.dials.lock().unwrap().clone()
             ),
             (
-                "198.18.0.0:6379".parse().unwrap(),
-                "198.18.0.0:6379".parse().unwrap(),
-                Ok(vec!["127.0.0.1".parse().unwrap()]),
+                vec![
+                    "198.18.0.0:6379".parse().unwrap(),
+                    "198.18.0.1:6379".parse().unwrap()
+                ],
+                vec![
+                    "198.18.0.0:6379".parse().unwrap(),
+                    "198.18.0.1:6379".parse().unwrap()
+                ],
+                Ok(vec![
+                    "127.0.0.1".parse().unwrap(),
+                    "127.0.0.2".parse().unwrap()
+                ]),
                 Err(LookupError::NameUnresolvable),
                 1,
-                1
+                2,
+                vec!["127.0.0.2:6379".parse().unwrap()]
             ),
-            "a name looked up again in one Invocation, in any spelling of it, must keep its \
-             virtual address and its first real addresses, query the resolver once, and take no \
-             second entry, so a resolver cannot rebind it, while a resolve policy that refuses \
-             it later still answers NXDOMAIN"
+            "a name looked up again in one Invocation, in any spelling of it, must answer the \
+             same virtual addresses, each standing for the same first real address, query the \
+             resolver once, and take no second entries, so a resolver cannot rebind it, while a \
+             resolve policy that refuses it later still answers NXDOMAIN"
         );
     }
 
@@ -1188,29 +1232,44 @@ mod tests {
     #[test]
     fn a_name_connects_through_its_virtual_address_to_where_its_endpoint_leads() {
         let family = Arc::new(ResolvesNames {
-            answers: Mutex::new(vec!["127.0.0.1".parse().unwrap()]),
+            answers: Mutex::new(vec![
+                "127.0.0.1".parse().unwrap(),
+                "10.0.0.1".parse().unwrap(),
+            ]),
             ..ResolvesNames::default()
         });
         let local = tcp("cache.internal", 6379).with_addresses(vec![Addresses::Local]);
         let namespace =
             resolving_namespace(vec![local, tcp("api.internal", 6379)], "", family.clone());
         let cred = prepare_creds_within(&[], None);
-        let at = resolve_virtual_address(&namespace, "Cache.Internal.");
-        let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
+        let at = resolve_virtual_addresses(&namespace, "Cache.Internal.");
+        let sock = dial(&namespace, &cred, at[0]).expect("the endpoint leads there");
         while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
-        let public_only = resolve_virtual_address(&namespace, "api.internal");
-        assert!(
-            at.ip().to_string() == "198.18.0.0"
-                && *family.dials.lock().unwrap() == vec!["127.0.0.1:6379".parse().unwrap()]
-                && matches!(
-                    dial(&namespace, &cred, public_only),
-                    Err(FilesystemError::PermissionDenied)
-                ),
-            "a connect to a name's virtual address must dial the real address its endpoint's \
-             addresses lead to, and refuse one an endpoint leading only to public addresses \
-             does not reach"
+        let private = dial(&namespace, &cred, at[1]).err();
+        let public_only = resolve_virtual_addresses(&namespace, "api.internal");
+        let local_refused = dial(&namespace, &cred, public_only[0]).err();
+        assert_eq!(
+            (
+                at,
+                family.dials.lock().unwrap().clone(),
+                private,
+                local_refused
+            ),
+            (
+                vec![
+                    "198.18.0.0:6379".parse().unwrap(),
+                    "198.18.0.1:6379".parse().unwrap()
+                ],
+                vec!["127.0.0.1:6379".parse().unwrap()],
+                Some(FilesystemError::PermissionDenied),
+                Some(FilesystemError::PermissionDenied)
+            ),
+            "a name's lookup must hand out one virtual address for each real address, and a \
+             connect to one must dial only the real address it stands for, refusing one its \
+             endpoint's addresses do not lead to, as an endpoint leading only to public \
+             addresses refuses a local one"
         );
     }
 
@@ -1274,32 +1333,6 @@ mod tests {
             ) && family.dials.lock().unwrap().is_empty(),
             "a name resolving to the host's own public address must be refused by an endpoint \
              leading only to public addresses, since the host's addresses are local"
-        );
-    }
-
-    // @behavior NW-032
-    #[test]
-    fn each_address_a_name_may_lead_to_is_dialed_in_turn() {
-        let family = Arc::new(ResolvesNames {
-            answers: Mutex::new(vec!["::1".parse().unwrap(), "127.0.0.1".parse().unwrap()]),
-            ..ResolvesNames::default()
-        });
-        let local = tcp("localhost", 6379).with_addresses(vec![Addresses::Local]);
-        let namespace = resolving_namespace(vec![local], "", family.clone());
-        let at = resolve_virtual_address(&namespace, "localhost");
-        let cred = prepare_creds_within(&[], None);
-        let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
-        while matches!(sock.finish_connect(), Err(FilesystemError::WouldBlock)) {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(
-            *family.dials.lock().unwrap(),
-            vec![
-                "[::1]:6379".parse::<SocketAddr>().unwrap(),
-                "127.0.0.1:6379".parse().unwrap()
-            ],
-            "a connect to a name answering ::1 first must dial 127.0.0.1 once ::1 refuses, as \
-             each address the endpoint leads to is dialed in turn"
         );
     }
 

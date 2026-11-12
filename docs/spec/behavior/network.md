@@ -440,9 +440,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a name answering two IPv4 addresses through an endpoint leading to `local`, the first of them refusing |
+| Given | a name answering two addresses through a `tcp` endpoint leading only to the second, with a server there |
 | When | the script opens a `TCPSocket` to the name |
-| Then | the lookup hands out a virtual address for each. The socket connects through the second after the first refuses, as CRuby's `TCPSocket.new` tries each address. A single connect dials one destination, as Linux's does |
+| Then | the lookup hands out a virtual address for each. The socket connects through the second after the first is refused, as CRuby's `TCPSocket.new` tries each address. A single connect dials one destination, as Linux's does |
 
 ## `NW-033` A TCPSocket reaches a name and shows its virtual address
 
@@ -2415,3 +2415,16 @@ endpoint "api.example.com", port: 443
 | Given | the network granted |
 | When | the guest binds two TCP sockets and one UDP socket to `0.0.0.0` port 0, and asks each for `local-address` |
 | Then | each answers `0.0.0.0` and a virtual port from the bottom of `ip_local_port_range`, as `inet_csk_get_port` takes one. Each protocol holds its own ports, so the second TCP socket takes the next |
+
+## `NW-195` A UDPSocket tries each address a name leads to in turn
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-025` |
+| relates | `NW-032` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a name answering two addresses through a `udp` endpoint leading only to the second, with a peer there |
+| When | the script connects a `UDPSocket` to the name, then sends naming the name and port |
+| Then | the connect streams with the second after the first is refused. The send reaches that peer, as CRuby's `connect` and `send` try each address |

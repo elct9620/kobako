@@ -75,22 +75,33 @@ class TestE2ENetworkAddrinfo < Minitest::Test
      refusal.call { Addrinfo.getaddrinfo("127.0.0.1", 80, :INET6) }, refusal.call { Addrinfo.getaddrinfo("unnamed.test", 80) }]
   RUBY
 
-  LOOKUPS = [
+  LITERAL_LOOKUPS = [
     ["#<Addrinfo: 127.0.0.1:80 TCP>", "#<Addrinfo: 127.0.0.1:80 UDP>", "#<Addrinfo: 127.0.0.1:80 SOCK_RAW>"],
     ["#<Addrinfo: 127.0.0.1:80 TCP>"],
     ["#<Addrinfo: 10.0.0.1:53 UDP>", "#<Addrinfo: 10.0.0.1:53 SOCK_RAW IPPROTO_UDP>"],
-    ["#<Addrinfo: 0.0.0.0:80 TCP>"],
-    [["#<Addrinfo: 198.18.0.0:80 TCP localhost (localhost)>", "localhost"]],
-    [["AF_INET", 80, "198.18.0.0", "198.18.0.0", 2, 1, 6]],
+    ["#<Addrinfo: 0.0.0.0:80 TCP>"]
+  ].freeze
+
+  REFUSALS = [
     ["Socket::ResolutionError", "getaddrinfo: Address family for hostname not supported"],
     ["Socket::ResolutionError", "getaddrinfo: Name or service not known"]
   ].freeze
 
+  # What the lookups of `localhost` answer, one virtual address for each of
+  # the host's +answers+, only the first carrying the canonical name.
+  def named_lookups(answers)
+    virtual = answers.each_index.map { |index| "198.18.0.#{index}" }
+    addrinfos = virtual.map { |ip| ["#<Addrinfo: #{ip}:80 TCP (localhost)>", nil] }
+    addrinfos[0] = ["#<Addrinfo: #{virtual[0]}:80 TCP localhost (localhost)>", "localhost"]
+    [addrinfos, virtual.map { |ip| ["AF_INET", 80, ip, ip, 2, 1, 6] }]
+  end
+
   # @behavior NW-141
   def test_a_script_looks_up_a_names_addrinfos_as_crubys
-    assert_equal LOOKUPS, localhost_sandbox(80).eval(LOOKUP_CALLS).value,
-                 "Addrinfo.getaddrinfo and Socket.getaddrinfo must answer one entry per kind CRuby's does, a name's " \
-                 "virtual address, the canonical name on the first entry, and Socket::ResolutionError for a family " \
-                 "the address lacks and a name no entry names"
+    expected = LITERAL_LOOKUPS + named_lookups(localhost_answers) + REFUSALS
+    assert_equal expected, localhost_sandbox(80).eval(LOOKUP_CALLS).value,
+                 "Addrinfo.getaddrinfo and Socket.getaddrinfo must answer one entry per kind and address CRuby's " \
+                 "does, a virtual address for each address a name leads to, the canonical name on the first entry, " \
+                 "and Socket::ResolutionError for a family the address lacks and a name no entry names"
   end
 end

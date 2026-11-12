@@ -226,12 +226,12 @@ impl OutputStream {
 /// A stream's failure, as `wasi:io/error` hands one out.
 pub(crate) struct Error(pub(crate) FilesystemError);
 
-/// A lookup, the file made for it as it starts, and whether its one address
-/// was handed out.
+/// A lookup, the file made for it as it starts, and how many of its
+/// addresses were handed out.
 pub(crate) struct ResolveAddressStream {
     pub(crate) lookup: Arc<NameLookup>,
     pub(crate) file: SharedFile,
-    pub(crate) handed: bool,
+    pub(crate) handed: usize,
 }
 
 pub(crate) struct IncomingDatagramStream(pub(crate) SocketFile<UdpSock>);

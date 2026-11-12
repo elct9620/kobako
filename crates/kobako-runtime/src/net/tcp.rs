@@ -84,8 +84,6 @@ struct State {
     phase: Phase,
     /// The host socket, and its place in the reactor.
     host: Option<(mio::net::TcpStream, Registration)>,
-    /// The addresses still to try, should the one connecting fail.
-    untried: VecDeque<SocketAddr>,
     /// What arrived and the guest has not read, as `sk_receive_queue`.
     receive_queue: VecDeque<u8>,
     /// The peer ended its side, as a read of zero answers.
@@ -127,7 +125,6 @@ impl TcpSock {
             state: Mutex::new(State {
                 phase: Phase::Unconnected,
                 host: None,
-                untried: VecDeque::new(),
                 receive_queue: VecDeque::new(),
                 received_end: false,
                 write_queue: VecDeque::new(),
@@ -169,16 +166,16 @@ impl TcpSock {
         }
     }
 
-    /// Dial the first of `addrs` that answers, in turn, the guest having named
-    /// `peer`, as `tcp_v4_connect` sends the SYN; the connect goes on without
-    /// blocking, so this returns at once and a poll finds the socket writable
-    /// once it settles. The socket counts against `open_connections` and the
-    /// process until released, and a full count answers `EAGAIN`, never a
-    /// Trap, so one Sandbox cannot end another's run; the port it held goes
-    /// back then, as `tcp_v4_connect`'s failure puts it.
+    /// Dial `addr`, the guest having named `peer`, as `tcp_v4_connect` sends
+    /// the SYN to one destination; the connect goes on without blocking, so
+    /// this returns at once and a poll finds the socket writable once it
+    /// settles. The socket counts against `open_connections` and the process
+    /// until released, and a full count answers `EAGAIN`, never a Trap, so one
+    /// Sandbox cannot end another's run; the port it held goes back then, as
+    /// `tcp_v4_connect`'s failure puts it.
     pub(crate) fn dial(
         &self,
-        addrs: Vec<SocketAddr>,
+        addr: SocketAddr,
         peer: SocketAddr,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<(), FilesystemError> {
@@ -194,10 +191,9 @@ impl TcpSock {
         // A connect starts with no failure pending, as `tcp_connect_init`
         // clears `sk_err`.
         state.inet.error = None;
-        state.untried = addrs.into();
         state.inet.peer = Some(peer);
         state.phase = Phase::Connecting;
-        self.dial_next(&mut state, FilesystemError::InvalidInput);
+        self.dial_host(&mut state, addr);
         Ok(())
     }
 
@@ -210,31 +206,25 @@ impl TcpSock {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Start connecting to the next address left, or fail with `last` once
-    /// none is. Each dial registers on the reactor running as it dials, so a
-    /// reactor whose poll failed meanwhile is replaced, not waited on.
-    fn dial_next(&self, state: &mut State, mut last: FilesystemError) {
-        while let Some(addr) = state.untried.pop_front() {
-            let dialed = Reactor::current().and_then(|reactor| {
-                let stream = self.family.connect(addr)?;
-                // The guest's own setsockopt already took each option, so one
-                // the host socket refuses as it dials is no part of the
-                // connect's outcome, which is what the guest reads.
-                let _ = Self::set_options(SockRef::from(&stream), state);
-                let mut stream = mio::net::TcpStream::from_std(stream);
-                let ready: Weak<dyn Ready> = self.this.clone();
-                let registration = reactor.register(&mut stream, ready)?;
-                Ok((stream, registration))
-            });
-            match dialed {
-                Ok(host) => {
-                    state.host = Some(host);
-                    return;
-                }
-                Err(err) => last = to_error(&err),
-            }
+    /// Start connecting the host socket to `addr`, or fail the connect. The
+    /// dial registers on the reactor running as it dials, so a reactor whose
+    /// poll failed meanwhile is replaced, not waited on.
+    fn dial_host(&self, state: &mut State, addr: SocketAddr) {
+        let dialed = Reactor::current().and_then(|reactor| {
+            let stream = self.family.connect(addr)?;
+            // The guest's own setsockopt already took each option, so one the
+            // host socket refuses as it dials is no part of the connect's
+            // outcome, which is what the guest reads.
+            let _ = Self::set_options(SockRef::from(&stream), state);
+            let mut stream = mio::net::TcpStream::from_std(stream);
+            let ready: Weak<dyn Ready> = self.this.clone();
+            let registration = reactor.register(&mut stream, ready)?;
+            Ok((stream, registration))
+        });
+        match dialed {
+            Ok(host) => state.host = Some(host),
+            Err(err) => Self::done_with_error(state, to_error(&err)),
         }
-        Self::done_with_error(state, last);
     }
 
     /// Give the host socket `socket` the options the guest set.
@@ -261,7 +251,6 @@ impl TcpSock {
     /// connected, as `tcp_disconnect` clears what the connect left.
     fn disconnect(state: &mut State) {
         state.phase = Phase::Unconnected;
-        state.untried.clear();
         state.receive_queue.clear();
         state.received_end = false;
         state.inet.rcv_shut = false;
@@ -330,7 +319,7 @@ impl TcpSock {
     }
 
     /// Settle the connect under way once it finished, as `SO_ERROR` settles a
-    /// non-blocking `connect`: connected, or on to the next address.
+    /// non-blocking `connect`: connected, or failed with what the host saw.
     fn settle_connect(&self, state: &mut State) {
         let Some((stream, _)) = state.host.as_ref() else {
             return;
@@ -343,8 +332,7 @@ impl TcpSock {
             }
             Some(Err(err)) => err,
         };
-        Self::close_host(state);
-        self.dial_next(state, to_error(&failure));
+        Self::done_with_error(state, to_error(&failure));
     }
 
     /// Move what can move, then wake every poller, since what a poll finds
@@ -661,7 +649,6 @@ impl ProtoOps for TcpSock {
     /// and bytes that arrived unread reset the connection instead.
     fn release(&self) {
         let mut state = self.state();
-        state.untried.clear();
         let unread = !std::mem::take(&mut state.receive_queue).is_empty();
         if unread {
             Self::reset_host(&mut state);
@@ -694,7 +681,7 @@ mod tests {
     fn dial(addr: SocketAddr) -> Arc<TcpSock> {
         let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
             .expect("an unbounded socket is made");
-        sock.dial(vec![addr], addr, &OpenConnections::new(None))
+        sock.dial(addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         sock
     }
@@ -786,7 +773,7 @@ mod tests {
             .expect("an unconnected socket takes an option");
         let keepalive = |sock: &TcpSock| sock.getsockopt(SockOpt::KeepAlive).unwrap();
         let before = (keepalive(&sock), host_keepalive(&sock));
-        sock.dial(vec![addr], addr, &OpenConnections::new(None))
+        sock.dial(addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         let dialed = host_keepalive(&sock);
         sock.setsockopt(SockOpt::KeepAlive, 0)
@@ -829,7 +816,7 @@ mod tests {
             .expect("an interval Linux takes");
         sock.setsockopt(SockOpt::KeepCnt, 3)
             .expect("a count Linux takes");
-        sock.dial(vec![addr], addr, &OpenConnections::new(None))
+        sock.dial(addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         let host = sock.state().host.as_ref().map(|(stream, _)| {
             let host = SockRef::from(stream);
@@ -872,7 +859,7 @@ mod tests {
         ];
         sock.setsockopt(SockOpt::Ttl, 7)
             .expect("a hop limit Linux takes");
-        sock.dial(vec![addr], addr, &OpenConnections::new(None))
+        sock.dial(addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         let dialed = host_ttl(&sock);
         sock.setsockopt(SockOpt::Ttl, 9)
@@ -978,7 +965,7 @@ mod tests {
                 TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
             sock.bind(&net, own.parse().unwrap())
                 .expect("a fresh socket binds");
-            sock.dial(vec![closed], closed, &OpenConnections::new(None))
+            sock.dial(closed, closed, &OpenConnections::new(None))
                 .expect("an uncapped socket connects");
             let file = sock_alloc_file(sock.clone(), &Arc::default());
             wait_for(|table| file.poll(table), PollMask::ERR);
@@ -1171,7 +1158,7 @@ mod tests {
         // The port is held before the dial, as a connect holds it.
         sock.hold_port(&ports).expect("a port is free");
         let before = sock.getsockname().port();
-        sock.dial(vec![closed], closed, &OpenConnections::new(None))
+        sock.dial(closed, closed, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         wait_for(|table| file.poll(table), PollMask::ERR);
         let failed = sock.finish_connect();
