@@ -50,6 +50,7 @@ pub use readdir::{
     dir_emit_dots, generic_read_dir, verify_dirent_name, DirContext, DirEmit, DirEntry,
 };
 pub use stat::{cp_new_stat, do_readlinkat, ino_of, vfs_fstatat, FileType, Kstat};
+pub(crate) use super_block::MADE_ROOT;
 pub use super_block::{FileSystemType, SuperBlock};
 pub use utimes::{do_utimes_fd, do_utimes_path};
 

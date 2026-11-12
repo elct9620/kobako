@@ -7,6 +7,9 @@ use super::inode::Inode;
 use crate::locking::RwSemaphore;
 use crate::Errno;
 
+/// Why an instance `new` made has its root: `new` refuses one without.
+pub(crate) const MADE_ROOT: &str = "SuperBlock::new refuses an instance with no root";
+
 /// What makes an instance of a Filesystem, as Linux's `file_system_type`.
 /// Every lock beneath it waits through the one `Blocking` its process
 /// registers, so a Filesystem says nothing about waiting.
@@ -26,7 +29,7 @@ pub trait FileSystemType: Send + Sync + 'static {
 /// block, so a directory moved or removed beneath one is moved or removed
 /// beneath every other.
 pub struct SuperBlock {
-    /// The root dentry `fill_super` made, as `s_root`.
+    /// The root dentry `fill_super` made, as Linux's `s_root`.
     root: Option<Arc<Dentry>>,
     dentries: Dentries,
     /// Held by a move between two directories, as Linux's
@@ -61,13 +64,6 @@ impl SuperBlock {
     /// driver's `fill_super` sets `s_root` to what `d_make_root` makes.
     pub fn d_make_root(&mut self, root: Arc<Inode>) {
         self.root = Some(self.dentries.make_root(root));
-    }
-
-    /// This instance's root dentry, which `new` refuses an instance without.
-    pub(crate) fn s_root(&self) -> Arc<Dentry> {
-        self.root
-            .clone()
-            .expect("SuperBlock::new refuses an instance with no root")
     }
 
     /// Have every dentry of this instance made from now on answer through

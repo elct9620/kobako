@@ -48,7 +48,7 @@ impl OverlayPath {
     /// The root of the Layer `filesystem` stands for.
     pub(super) fn root(filesystem: &Arc<Filesystem>, creator_cred: &Arc<Cred>) -> Self {
         Self {
-            dentry: filesystem.s_root(),
+            dentry: filesystem.root().expect(crate::vfs::MADE_ROOT).clone(),
             filesystem: filesystem.clone(),
             creator_cred: creator_cred.clone(),
         }

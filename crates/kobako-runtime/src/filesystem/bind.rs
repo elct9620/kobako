@@ -1615,7 +1615,7 @@ mod tests {
         ))
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
-        let root = filesystem.s_root();
+        let root = filesystem.root().expect(crate::vfs::MADE_ROOT).clone();
         let dir = dentries
             .alloc_parallel(&root, "a")
             .expect("no other walk holds the name");
@@ -1646,7 +1646,7 @@ mod tests {
         ))
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
-        let root = filesystem.s_root();
+        let root = filesystem.root().expect(crate::vfs::MADE_ROOT).clone();
         let dir = dentries
             .alloc_parallel(&root, "a")
             .expect("no other walk holds the name");
@@ -1674,7 +1674,7 @@ mod tests {
         ))
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
-        let root = filesystem.s_root();
+        let root = filesystem.root().expect(crate::vfs::MADE_ROOT).clone();
         let dir = root.inode().expect("the root stands").ops().clone();
         let at = |name| {
             dentries
@@ -1708,7 +1708,7 @@ mod tests {
         ))
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
-        let root = filesystem.s_root();
+        let root = filesystem.root().expect(crate::vfs::MADE_ROOT).clone();
         let at = |dir: &Arc<Dentry>, name| {
             dentries
                 .alloc_parallel(dir, name)

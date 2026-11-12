@@ -1031,7 +1031,7 @@ mod tests {
         ))
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
-        let root = filesystem.s_root();
+        let root = filesystem.root().expect(crate::vfs::MADE_ROOT).clone();
         let at = |name| {
             dentries
                 .alloc_parallel(&root, name)

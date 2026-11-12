@@ -1272,7 +1272,7 @@ mod tests {
         let lower = Arc::new([("dir/old", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower.clone(), Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
-        let root = filesystem.s_root();
+        let root = filesystem.root().expect(crate::vfs::MADE_ROOT).clone();
         let dir = lookup_one_unlocked(&Default::default(), &filesystem, &root, "dir")
             .expect("the directory must be found");
         let layer = on(&lower);
@@ -1312,7 +1312,7 @@ mod tests {
         let lower = Arc::new([("dir/file", "x")].into_iter().collect::<Tmpfs>());
         let overlay = Arc::new(over(lower, Arc::new(Tmpfs::new())));
         let filesystem = Filesystem::new(overlay.clone()).expect("the instance must stand");
-        let root = filesystem.s_root();
+        let root = filesystem.root().expect(crate::vfs::MADE_ROOT).clone();
         let dir = lookup_one_unlocked(&Default::default(), &filesystem, &root, "dir")
             .expect("the directory must be found");
         let file = lookup_one_unlocked(&Default::default(), &filesystem, &dir, "file")

@@ -4,14 +4,15 @@
 use std::sync::Arc;
 
 use super::dentry::Dentry;
-use super::super_block::SuperBlock;
+use super::super_block::{SuperBlock, MADE_ROOT};
 use super::Errno;
 
 /// A Filesystem instance as the VFS walks it, as `vfsmount` holds its root,
 /// its super block, and `mnt_flags`.
 pub struct VfsMount {
-    /// Where every walk on it starts, as `mnt_root` holds `s_root`.
-    mnt_root: Arc<Dentry>,
+    /// Where every walk on it starts, as `mnt_root` holds the super block's
+    /// root.
+    root: Arc<Dentry>,
     sb: Arc<SuperBlock>,
     read_only: bool,
 }
@@ -20,15 +21,15 @@ impl VfsMount {
     /// `sb` mounted at its root, allowing only reads where `read_only` says.
     pub(crate) fn new(sb: Arc<SuperBlock>, read_only: bool) -> Arc<Self> {
         Arc::new(Self {
-            mnt_root: sb.s_root(),
+            root: sb.root().expect(MADE_ROOT).clone(),
             sb,
             read_only,
         })
     }
 
     /// The dentry this mount stands on, as `mnt_root`.
-    pub(crate) fn mnt_root(&self) -> &Arc<Dentry> {
-        &self.mnt_root
+    pub(crate) fn root(&self) -> &Arc<Dentry> {
+        &self.root
     }
 
     /// `sb` mounted for the runtime's own use, as `kern_mount` mounts one no
