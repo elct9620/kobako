@@ -2441,3 +2441,15 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a host, and an entry whose connect policy records what it sees. The Invocation's `memory_limit` holds a request, not one TCP socket's buffers |
 | When | the guest sends a request to the host, then sends it again with room for the socket |
 | Then | the first fails before it reaches the server, as the upstream's socket cannot hold its buffers. The second reaches it. The policy sees only the host the guest named, never an address it resolved to. The upstream passes only the socket layer's filter, as an egress proxy's does |
+
+## `NW-197` A name no A-label spells is refused as an invalid argument
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-075` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest given the network |
+| When | it looks up a name no A-label spells |
+| Then | the lookup is refused as `invalid-argument` before it starts, as WASI calls a syntactically invalid domain name |
