@@ -15,7 +15,7 @@ use std::task::{Context, Poll, Waker};
 use bytes::Bytes;
 use http_body::Body;
 use http_body_util::combinators::UnsyncBoxBody;
-use http_body_util::{BodyExt, Full};
+use http_body_util::BodyExt;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::{open, OpenConnections, Place};
@@ -233,7 +233,7 @@ pub fn to_origin_form(path: &str) -> Option<String> {
 }
 
 /// One request the guest sends: its method, scheme, authority, path with its
-/// query, headers, and body.
+/// query, headers, body, and the trailers its body ended with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct OutgoingRequest {
@@ -243,6 +243,7 @@ pub struct OutgoingRequest {
     pub path_with_query: String,
     pub headers: Vec<(String, Vec<u8>)>,
     pub body: Vec<u8>,
+    pub trailers: Vec<(String, Vec<u8>)>,
     /// The credentials bound to this request, swapped in only by the default
     /// outbound seam and only on the way out, so no other seam reads a secret.
     pub(crate) swaps: Vec<Swap>,
@@ -257,12 +258,13 @@ impl OutgoingRequest {
             path_with_query: "/".to_string(),
             headers: Vec::new(),
             body: Vec::new(),
+            trailers: Vec::new(),
             swaps: Vec::new(),
         }
     }
 
-    /// The bytes its method, authority, path, and headers hold, as a header
-    /// list counts its entries.
+    /// The bytes its method, authority, path, headers, and trailers hold, as
+    /// a header list counts its entries.
     fn room(&self) -> usize {
         self.method.len()
             + self.authority.len()
@@ -270,6 +272,7 @@ impl OutgoingRequest {
             + self
                 .headers
                 .iter()
+                .chain(&self.trailers)
                 .map(|(name, value)| room_of(name, value))
                 .sum::<usize>()
     }
@@ -726,9 +729,10 @@ impl Outbound for HyperOutbound {
 }
 
 /// `request` as hyper sends it: the path with its query as the target, a
-/// `host` header naming the authority, and each header with its credentials
-/// swapped in.
-fn to_hyper_request(request: OutgoingRequest) -> Result<hyper::Request<Full<Bytes>>, HttpError> {
+/// `host` header naming the authority, each header with its credentials
+/// swapped in, and its body ending in its trailers.
+fn to_hyper_request(request: OutgoingRequest) -> Result<hyper::Request<FramedBody>, HttpError> {
+    let body = FramedBody::new(request.body, &request.trailers)?;
     let mut builder = hyper::Request::builder()
         .method(request.method.as_str())
         .uri(request.path_with_query.as_str())
@@ -740,16 +744,78 @@ fn to_hyper_request(request: OutgoingRequest) -> Result<hyper::Request<Full<Byte
             .fold(value.clone(), |value, swap| swap.apply(name, &value));
         builder = builder.header(name.as_str(), value);
     }
-    builder
-        .body(Full::new(Bytes::from(request.body)))
-        .map_err(|_| HttpError::ProtocolError)
+    builder.body(body).map_err(|_| HttpError::ProtocolError)
+}
+
+/// A request's body as hyper sends it: its bytes, then its trailers. A body
+/// with trailers states no length, so hyper frames it chunked, and sends the
+/// trailers the request's `trailer` header names, as wasmtime-wasi-http hands
+/// a guest's trailers to hyper.
+struct FramedBody {
+    data: Option<Bytes>,
+    trailers: Option<hyper::HeaderMap>,
+}
+
+impl FramedBody {
+    fn new(data: Vec<u8>, trailers: &[(String, Vec<u8>)]) -> Result<Self, HttpError> {
+        let trailers = match trailers.is_empty() {
+            true => None,
+            false => Some(to_header_map(trailers)?),
+        };
+        Ok(Self {
+            data: (!data.is_empty()).then(|| Bytes::from(data)),
+            trailers,
+        })
+    }
+}
+
+fn to_header_map(entries: &[(String, Vec<u8>)]) -> Result<hyper::HeaderMap, HttpError> {
+    let mut map = hyper::HeaderMap::new();
+    for (name, value) in entries {
+        let name = hyper::header::HeaderName::from_bytes(name.as_bytes())
+            .map_err(|_| HttpError::ProtocolError)?;
+        let value =
+            hyper::header::HeaderValue::from_bytes(value).map_err(|_| HttpError::ProtocolError)?;
+        map.append(name, value);
+    }
+    Ok(map)
+}
+
+impl Body for FramedBody {
+    type Data = Bytes;
+    type Error = std::convert::Infallible;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Bytes>, Self::Error>>> {
+        let this = self.get_mut();
+        let frame = match this.data.take() {
+            Some(data) => Some(http_body::Frame::data(data)),
+            None => this.trailers.take().map(http_body::Frame::trailers),
+        };
+        Poll::Ready(frame.map(Ok))
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.data.is_none() && self.trailers.is_none()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        match &self.trailers {
+            Some(_) => http_body::SizeHint::default(),
+            None => {
+                http_body::SizeHint::with_exact(self.data.as_ref().map_or(0, |d| d.len() as u64))
+            }
+        }
+    }
 }
 
 /// Send `request` over `wire` as HTTP/1, driving the connection beside it, and
 /// answer its response, whose body drives the connection on until it ends.
 async fn send_over<T>(
     wire: Wire<T>,
-    request: hyper::Request<Full<Bytes>>,
+    request: hyper::Request<FramedBody>,
 ) -> Result<Response, HttpError>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static,

@@ -2389,3 +2389,16 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a loopback server that answers `hello` |
 | When | the script gets and posts with a `dest`, and reads a body with `read_body(dest)`. It gives a `dest` beside a block, and starts with `use_ssl:` and a proxy |
 | Then | each body is appended to its `dest`, which stands as the body. A `dest` beside a block raises `ArgumentError`. The proxy raises `NotImplementedError`, as no `use_ssl:` drops it |
+
+## `NW-193` An outgoing body finished with trailers sends them
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+| relates | `NW-071` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a request whose `trailer` header names a field, its body written and handed to `handle` |
+| When | the guest finishes the body with trailers holding that field |
+| Then | the request goes out chunked and ends in that trailer. wasmtime-wasi-http hands a body's trailers to hyper, which sends those the `trailer` header names |
