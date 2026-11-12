@@ -58,20 +58,6 @@ class TestRuntime < Minitest::Test
     assert_match(/failed to compile/, err.message, "a non-wasm file through from_path must name the compile")
   end
 
-  # @behavior RT-032
-  # An unusable option is the Host App's own mistake, so it is refused
-  # before any engine work rather than surfacing as a construction
-  # failure. +Kobako::Sandbox+ validates through +SandboxOptions+; this
-  # exercises the ext's own guard on a direct +from_path+ call.
-  def test_from_path_raises_argument_error_for_invalid_timeout
-    err = assert_raises(ArgumentError,
-                        "a negative timeout through from_path must raise ArgumentError before any engine work") do
-      Kobako::Runtime.from_path(Kobako::Runtime.default_path, **runtime_options(timeout: -1.0))
-    end
-    assert_match(/timeout must be > 0/, err.message,
-                 "a negative timeout through from_path must name the rule it broke")
-  end
-
   # @behavior RT-016
   # The runtime builds the requested isolation profile and declares the
   # profile it built, so the request round-trips through construction to

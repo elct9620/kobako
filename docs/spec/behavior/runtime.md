@@ -331,14 +331,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | each Thread resolves the identity it was given |
 | Then | each resolves only its own |
 
-## `RT-032` An option value the runtime cannot build with
-
-| Step | Statement |
-| --- | --- |
-| Given | a runtime path and a timeout that is not positive |
-| When | a runtime is built from that path |
-| Then | the refusal names the deadline's constraint |
-
 ## `RT-033` A profile kobako does not name
 
 | Step | Statement |

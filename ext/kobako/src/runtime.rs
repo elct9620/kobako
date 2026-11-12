@@ -211,24 +211,12 @@ impl Runtime {
             profile,
             gvl,
         ) = options.required;
-        // An invalid cap argument is a Host App programming error and
-        // raises `ArgumentError`, outside the construction-failure
-        // `SetupError` branch. `SandboxOptions` is the primary guard (it
-        // never lets a bad timeout reach here); this is defence-in-depth
-        // for direct `from_path` calls.
-        let to_duration = |seconds: Option<f64>, name: &str| match seconds {
-            None => Ok(None),
-            Some(secs) if secs.is_finite() && secs > 0.0 => Ok(Some(Duration::from_secs_f64(secs))),
-            Some(secs) => Err(MagnusError::new(
-                ruby.exception_arg_error(),
-                format!("{name} must be > 0 and finite, got {secs} seconds"),
-            )),
-        };
-        let timeout = to_duration(timeout_seconds, "timeout")?;
-        let setup_timeout = to_duration(setup_timeout_seconds, "setup_timeout")?;
-        // Fail closed on an unknown profile: it must never fall back to a
-        // weaker one. Same defence in depth as the
-        // timeout guard above — `SandboxOptions` is the primary validator.
+        // `SandboxOptions` hands over each deadline already positive and
+        // finite.
+        let timeout = timeout_seconds.map(Duration::from_secs_f64);
+        let setup_timeout = setup_timeout_seconds.map(Duration::from_secs_f64);
+        // A name kobako does not give a profile has no profile to stand for,
+        // so it is refused rather than read as a weaker one.
         let profile = match profile.name()?.as_ref() {
             "hermetic" => Profile::Hermetic,
             "permissive" => Profile::Permissive,
@@ -239,9 +227,7 @@ impl Runtime {
                 ));
             }
         };
-        // Fail closed as `profile` does: an unrecognized mode raises
-        // rather than defaulting. `SandboxOptions` is the primary validator;
-        // this guards direct `from_path` calls.
+        // A mode kobako does not name is refused as a profile is.
         let release_gvl = match gvl.name()?.as_ref() {
             "hold" => false,
             "release" => true,
