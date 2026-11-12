@@ -145,6 +145,22 @@ the guest. Bind a credential only to an endpoint that never echoes it.
 | an API that only authenticates the header | yes |
 | a debug, echo, or proxy endpoint | no |
 
+### Timing Reference
+
+A network entry hands the guest a clock. A script sends a request the endpoint
+answers after a known delay, calls a Service, then asks with a zero timeout
+whether the answer arrived. That tells it whether the Service ran longer than
+the delay.
+
+| Service time difference | What one run tells apart |
+|---|---|
+| about 10 ms | each call, with ten connections |
+| about 1.5 ms | nothing until many samples are averaged |
+
+`connection_limit` bounds the samples one run takes, but you decide how many runs
+a script gets. Keep a Service's run time independent of any secret it does not
+return, or give a script that holds a network entry few runs.
+
 ### Trust Roots
 
 TLS trusts the OS's own store, so a revoked or added root follows the host's
