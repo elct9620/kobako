@@ -414,12 +414,11 @@ impl TcpSock {
         drop(orphan);
     }
 
-    /// How the connect ended, as a non-blocking socket's repeated `connect`
-    /// answers in `__inet_stream_connect`: still under way answers EAGAIN
-    /// where Linux answers `EALREADY`; connected answers success; a failure
-    /// pending answers once, as `sock_error` clears `sk_err`, and an
-    /// unconnected socket with none answers `ENOTCONN`.
-    pub fn finish_connect(&self) -> Result<(), Errno> {
+    /// How the connect under way ended, as `__inet_stream_connect` settles it
+    /// once `inet_wait_for_connect` returns: `EAGAIN` while it is under way;
+    /// success once connected; otherwise the failure pending, taken once as
+    /// `sock_error` takes `sk_err`, or `ENOTCONN` when none is.
+    pub fn connect_outcome(&self) -> Result<(), Errno> {
         let mut state = self.state();
         match &state.phase {
             Phase::Connecting => Err(Errno::WouldBlock),
@@ -617,16 +616,17 @@ impl ProtoOps for TcpSock {
         shut
     }
 
-    fn getpeername(&self) -> Option<SocketAddr> {
-        let state = self.state();
-        match state.phase {
-            Phase::Connected => state.inet.peer,
-            _ => None,
-        }
+    fn protocol(&self) -> Protocol {
+        Protocol::Tcp
     }
 
-    fn getsockname(&self) -> SocketAddr {
-        self.state().inet.getsockname()
+    fn getname(&self, peer: bool) -> Result<SocketAddr, Errno> {
+        let state = self.state();
+        match (peer, &state.phase) {
+            (false, _) => Ok(state.inet.getsockname()),
+            (true, Phase::Connected) => state.inet.peer.ok_or(Errno::NotConnected),
+            (true, _) => Err(Errno::NotConnected),
+        }
     }
 
     /// Its own keepalive flag and probes, never the host's, beside the
@@ -1040,7 +1040,7 @@ mod tests {
             free.bind(&net, "0.0.0.0:0".parse().unwrap()),
             again.bind(&net, "0.0.0.0:32768".parse().unwrap()),
         );
-        let free_port = free.getsockname().port();
+        let free_port = free.getname(false).unwrap().port();
         drop(named);
         assert_eq!(
             (
@@ -1112,9 +1112,10 @@ mod tests {
     fn a_socket_connects_without_blocking_and_its_poll_wakes() {
         let (sock, _file, _peer) = connected_socket();
         assert_eq!(
-            sock.finish_connect(),
+            sock.connect_outcome(),
             Ok(()),
-            "TcpSock::finish_connect once the socket file's poll found it writable must succeed"
+            "a non-blocking connect to a listening peer must settle as connected once the \
+             socket's poll finds it writable"
         );
     }
 
@@ -1122,8 +1123,8 @@ mod tests {
     #[test]
     fn a_connected_socket_asked_to_connect_again_answers_eisconn() {
         let (sock, _file, _peer) = connected_socket();
-        sock.finish_connect().expect("the socket connected");
-        let addr = sock.getpeername().expect("a connected socket has a peer");
+        sock.connect_outcome().expect("the socket connected");
+        let addr = sock.getname(true).expect("a connected socket has a peer");
         let (was_reset, _reset_file) = reset_socket();
         // The ruleset admits the peer only, under a cap already spent.
         let net = loopback(&[addr.port()], OpenConnections::new(Some(0)));
@@ -1178,7 +1179,7 @@ mod tests {
         wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
             (
-                sock.finish_connect(),
+                sock.connect_outcome(),
                 file.poll(None).contains(PollMask::ERR)
             ),
             (Ok(()), false),
@@ -1196,15 +1197,15 @@ mod tests {
         let ports = BindHash::new();
         // The port is held before the dial, as a connect holds it.
         sock.hold_port(&ports).expect("a port is free");
-        let before = sock.getsockname().port();
+        let before = sock.getname(false).unwrap().port();
         sock.dial(closed, closed, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         wait_for(|table| file.poll(table), PollMask::ERR);
-        let failed = sock.finish_connect();
-        let kept = sock.getsockname().port();
+        let failed = sock.connect_outcome();
+        let kept = sock.getname(false).unwrap().port();
         sock.hold_port(&ports).expect("a port is free");
         assert_eq!(
-            (failed, before, kept, sock.getsockname().port()),
+            (failed, before, kept, sock.getname(false).unwrap().port()),
             (Err(Errno::ConnectionRefused), 32768, 32768, 32769),
             "a TCP socket whose connect failed must read its old virtual port until it connects \
              again, then take a fresh one, as a hash connect picks a port once __inet_put_port \
@@ -1309,7 +1310,7 @@ mod tests {
         sock.state().phase = Phase::Connecting;
         let shut = sock.shutdown(Shutdown::Both);
         let errored = sock.poll(None).contains(PollMask::ERR);
-        let (first, second) = (sock.finish_connect(), sock.finish_connect());
+        let (first, second) = (sock.connect_outcome(), sock.connect_outcome());
         let (marked, placed) = {
             let state = sock.state();
             (
@@ -1488,9 +1489,9 @@ mod tests {
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
-            sock.finish_connect(),
+            sock.connect_outcome(),
             Err(Errno::ConnectionRefused),
-            "TcpSock::finish_connect to a port no peer listens on must answer ECONNREFUSED"
+            "a non-blocking connect to a port no peer listens on must settle as ECONNREFUSED"
         );
     }
 

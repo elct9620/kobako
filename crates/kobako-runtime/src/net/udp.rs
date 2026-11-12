@@ -350,12 +350,16 @@ impl ProtoOps for UdpSock {
         shut
     }
 
-    fn getpeername(&self) -> Option<SocketAddr> {
-        self.state().inet.peer
+    fn protocol(&self) -> Protocol {
+        Protocol::Udp
     }
 
-    fn getsockname(&self) -> SocketAddr {
-        self.state().inet.getsockname()
+    fn getname(&self, peer: bool) -> Result<SocketAddr, Errno> {
+        let state = self.state();
+        match peer {
+            false => Ok(state.inet.getsockname()),
+            true => state.inet.peer.ok_or(Errno::NotConnected),
+        }
     }
 
     /// The buffers and the hop limit; UDP has no TCP option.

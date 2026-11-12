@@ -141,7 +141,7 @@ impl Transport {
     /// Wait until the connect under way settles, as Linux's
     /// `inet_wait_for_connect` waits for.
     async fn wait_for_connect(&self) -> Result<(), Errno> {
-        poll_fn(|cx| self.attempt(cx, || self.sock.finish_connect())).await
+        poll_fn(|cx| self.attempt(cx, || self.sock.connect_outcome())).await
     }
 
     /// `op` once it stops answering `WouldBlock`, the task added to the

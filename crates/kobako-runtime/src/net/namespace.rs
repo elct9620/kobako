@@ -354,10 +354,7 @@ mod tests {
     use super::super::family::testing::CountsDials;
     use super::super::http::{HttpError, OutgoingRequest, Scheme};
     use super::super::lookup::resolve;
-    use super::super::socket::{
-        create_tcp_socket, create_udp_socket, sys_bind, sys_connect, sys_connect_datagram,
-        AddressFamily,
-    };
+    use super::super::socket::{sys_bind, sys_connect, AddressFamily};
     use super::super::UdpSock;
     use super::*;
     use crate::grant::Grant;
@@ -622,8 +619,8 @@ mod tests {
         cred: &Arc<Cred>,
         addr: SocketAddr,
     ) -> Result<Arc<TcpSock>, Errno> {
-        let sock = create_tcp_socket(namespace, cred, AddressFamily::Inet)?;
-        sys_connect(namespace, cred, &sock, addr).map(|()| sock)
+        let sock = TcpSock::create(namespace, cred, AddressFamily::Inet)?;
+        sys_connect(namespace, cred, sock.as_ref(), Some(addr)).map(|()| sock)
     }
 
     /// A new UDP socket `namespace` connects to `addr` as `cred`.
@@ -632,12 +629,12 @@ mod tests {
         cred: &Arc<Cred>,
         addr: Option<SocketAddr>,
     ) -> Result<Arc<UdpSock>, Errno> {
-        let sock = create_udp_socket(namespace, cred, AddressFamily::Inet)?;
-        sys_connect_datagram(namespace, cred, &sock, addr).map(|()| sock)
+        let sock = UdpSock::create(namespace, cred, AddressFamily::Inet)?;
+        sys_connect(namespace, cred, sock.as_ref(), addr).map(|()| sock)
     }
 
     fn settle(sock: &TcpSock) {
-        while matches!(sock.finish_connect(), Err(Errno::WouldBlock)) {
+        while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
@@ -647,15 +644,23 @@ mod tests {
     fn a_connect_policy_refuses_what_the_endpoints_allow() {
         let (namespace, cred, family, seen) = namespace(&[true, false]);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
+        let datagram = dial_datagram(&namespace, &cred, Some("127.0.0.1:4568".parse().unwrap()));
         assert!(
-            matches!(answer, Err(Errno::PermissionDenied)) && family.dials() == 0,
-            "a socket's connect must refuse with EACCES, dialing nothing, once any entry's \
-             connect policy refuses"
+            matches!(answer, Err(Errno::PermissionDenied))
+                && matches!(datagram, Err(Errno::PermissionDenied))
+                && family.dials() == 0,
+            "a TCP or UDP socket's connect must refuse with EACCES, dialing nothing, once any \
+             entry's connect policy refuses"
         );
+        let seen = seen.lock().unwrap();
         assert_eq!(
-            seen.lock().unwrap()[0],
-            ("127.0.0.1".to_string(), 4567, Protocol::Tcp),
-            "a connect policy must see the host the guest named, its port, and its protocol"
+            (seen[0].clone(), seen.last().cloned()),
+            (
+                ("127.0.0.1".to_string(), 4567, Protocol::Tcp),
+                Some(("127.0.0.1".to_string(), 4568, Protocol::Udp))
+            ),
+            "a connect policy must see the host the guest named, its port, and its protocol, \
+             TCP or UDP"
         );
     }
 
@@ -1014,7 +1019,7 @@ mod tests {
         let second = resolve_virtual_addresses(&namespace, "cache.internal");
         let cred = prepare_creds_within(&[], None);
         let sock = dial(&namespace, &cred, second[1]).expect("the endpoint leads there");
-        while matches!(sock.finish_connect(), Err(Errno::WouldBlock)) {
+        while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
         refusing.store(true, Ordering::SeqCst);
@@ -1070,7 +1075,7 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         let at = resolve_virtual_addresses(&namespace, "Cache.Internal.");
         let sock = dial(&namespace, &cred, at[0]).expect("the endpoint leads there");
-        while matches!(sock.finish_connect(), Err(Errno::WouldBlock)) {
+        while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
         let private = dial(&namespace, &cred, at[1]).err();
@@ -1126,7 +1131,7 @@ mod tests {
         *family.answers.lock().unwrap() = vec!["127.0.0.1".parse().unwrap()];
         let cred = prepare_creds_within(&[], None);
         let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
-        while matches!(sock.finish_connect(), Err(Errno::WouldBlock)) {
+        while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
         assert_eq!(

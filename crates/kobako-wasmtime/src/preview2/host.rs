@@ -13,9 +13,8 @@ use std::time::{Duration, Instant};
 
 use kobako_runtime::cred::Cred;
 use kobako_runtime::net::{
-    create_tcp_socket, create_udp_socket, resolve, sock_alloc_file, sys_bind, sys_connect,
-    sys_connect_datagram, AddressFamily, Namespace, ProtoOps, SockOpt, MAX_DATAGRAM,
-    MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
+    resolve, sock_alloc_file, sys_bind, sys_connect, AddressFamily, Namespace, ProtoOps, SockOpt,
+    TcpSock, UdpSock, MAX_DATAGRAM, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
 use kobako_runtime::vfs::PollMask;
 use kobako_runtime::wait::{do_poll, PollTable};
@@ -375,12 +374,10 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<TcpSocket, SocketError> {
-        self.create_socket(address_family, create_tcp_socket, |socket| {
-            table::TcpSocket {
-                socket,
-                state: TcpState::Unbound,
-                input_closed: Arc::default(),
-            }
+        self.create_socket(address_family, TcpSock::create, |socket| table::TcpSocket {
+            socket,
+            state: TcpState::Unbound,
+            input_closed: Arc::default(),
         })
     }
 
@@ -445,14 +442,15 @@ impl SocketsHost for Invocation {
         // checks permission and dials, and then closes the socket. A full
         // connection count is refused at once, as `would-block` from
         // `finish-connect` would read as a connect still under way.
-        self.tcp_mut(this)?.state = match sys_connect(self.network(), cred, &sock, addr) {
-            Ok(()) => TcpState::Connecting,
-            Err(Errno::WouldBlock) => {
-                self.tcp_mut(this)?.state = TcpState::Closed(ErrorCode::WouldBlock);
-                return Err(ErrorCode::WouldBlock.into());
-            }
-            Err(err) => TcpState::ConnectFailed(to_error_code(&err)),
-        };
+        self.tcp_mut(this)?.state =
+            match sys_connect(self.network(), cred, sock.as_ref(), Some(addr)) {
+                Ok(()) => TcpState::Connecting,
+                Err(Errno::WouldBlock) => {
+                    self.tcp_mut(this)?.state = TcpState::Closed(ErrorCode::WouldBlock);
+                    return Err(ErrorCode::WouldBlock.into());
+                }
+                Err(err) => TcpState::ConnectFailed(to_error_code(&err)),
+            };
         Ok(())
     }
 
@@ -465,7 +463,7 @@ impl SocketsHost for Invocation {
     ) -> Result<(InputStream, OutputStream), SocketError> {
         let socket = self.tcp_mut(this)?;
         let finished = match socket.state {
-            TcpState::Connecting => socket.socket.sock.finish_connect(),
+            TcpState::Connecting => socket.socket.sock.connect_outcome(),
             TcpState::ConnectFailed(code) => {
                 socket.state = TcpState::Closed(code);
                 return Err(code.into());
@@ -537,7 +535,7 @@ impl SocketsHost for Invocation {
         let socket = self.tcp_mut(this)?;
         match socket.state {
             TcpState::Connected | TcpState::Binding | TcpState::Bound => {
-                Ok(from_socket_addr(socket.socket.sock.getsockname()))
+                Ok(from_socket_addr(socket.socket.sock.getname(false)?))
             }
             TcpState::Closed(code) => Err(code.into()),
             TcpState::Unbound | TcpState::Connecting | TcpState::ConnectFailed(_) => {
@@ -552,8 +550,8 @@ impl SocketsHost for Invocation {
         this: TcpSocket,
     ) -> Result<IpSocketAddress, SocketError> {
         let socket = self.tcp_mut(this)?;
-        match (socket.state, socket.socket.sock.getpeername()) {
-            (TcpState::Connected, Some(peer)) => Ok(from_socket_addr(peer)),
+        match (socket.state, socket.socket.sock.getname(true)) {
+            (TcpState::Connected, Ok(peer)) => Ok(from_socket_addr(peer)),
             (TcpState::Closed(code), _) => Err(code.into()),
             _ => Err(ErrorCode::InvalidState.into()),
         }
@@ -666,11 +664,9 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<UdpSocket, SocketError> {
-        self.create_socket(address_family, create_udp_socket, |socket| {
-            table::UdpSocket {
-                socket,
-                state: UdpState::Unbound,
-            }
+        self.create_socket(address_family, UdpSock::create, |socket| table::UdpSocket {
+            socket,
+            state: UdpState::Unbound,
         })
     }
 
@@ -717,7 +713,7 @@ impl SocketsHost for Invocation {
         if !socket.state.is_bound() {
             return Err(ErrorCode::InvalidState.into());
         }
-        Ok(from_socket_addr(socket.socket.sock.getsockname()))
+        Ok(from_socket_addr(socket.socket.sock.getname(false)?))
     }
 
     /// The hop limit, from the socket's own setting; a UDP socket takes an
@@ -789,7 +785,7 @@ impl SocketsHost for Invocation {
             None => None,
         };
         let cred = self.wasi().cred();
-        sys_connect_datagram(self.network(), cred, &socket_file.sock, peer)?;
+        sys_connect(self.network(), cred, socket_file.sock.as_ref(), peer)?;
         let incoming = self
             .table_mut()
             .push_child(table::IncomingDatagramStream(socket_file.clone()), this)?;
@@ -907,7 +903,7 @@ impl SocketsHost for Invocation {
             // Its size is judged before its address, as wasmtime's send asks.
             let refused = if datagram.data.len() > MAX_DATAGRAM {
                 Some(ErrorCode::DatagramTooLarge)
-            } else if addressed.is_some_and(|addr| addr != socket_file.sock.getpeername()) {
+            } else if addressed.is_some_and(|addr| addr != socket_file.sock.getname(true).ok()) {
                 Some(ErrorCode::InvalidArgument)
             } else {
                 match socket_file.file().write(&datagram.data) {

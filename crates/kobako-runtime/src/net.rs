@@ -27,8 +27,8 @@ pub use http::{
 pub use lookup::{resolve, LookupError, NameLookup, Resolver};
 pub use namespace::Namespace;
 pub use socket::{
-    create_tcp_socket, create_udp_socket, sock_alloc_file, sys_bind, sys_connect,
-    sys_connect_datagram, AddressFamily, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+    sock_alloc_file, sys_bind, sys_connect, AddressFamily, MemoryCharge, ProtoOps, SockOpt,
+    MAX_SOCKET_BUFFER,
 };
 pub use tcp::{TcpSock, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL};
 pub use tls::new_platform_tls;

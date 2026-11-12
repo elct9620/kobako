@@ -59,14 +59,17 @@ pub trait ProtoOps: Send + Sync {
     /// `inet_shutdown` marks `sk_shutdown`; a socket connected to nothing
     /// answers `ENOTCONN`.
     fn shutdown(&self, how: Shutdown) -> Result<(), Errno>;
-    /// The peer as the guest named it, once connected, as `->getname` maps
-    /// the real peer back through cgroup `getpeername4`.
-    fn getpeername(&self) -> Option<SocketAddr>;
-    /// The guest's own end, as `->getname` answers `getsockname` through
-    /// cgroup `getsockname4`: the guest's own virtual address and the port its
-    /// namespace gave as the connect began, or the unspecified address
-    /// before then, as Linux answers an unbound socket.
-    fn getsockname(&self) -> SocketAddr;
+    /// The `peer` end, or the guest's own, as `->getname` answers each. The
+    /// peer is the address the guest named, mapped back from the real one
+    /// through cgroup `getpeername4`; a socket connected to nothing answers
+    /// `ENOTCONN`. The own end passes cgroup `getsockname4`: the guest's own
+    /// virtual address and the port its namespace gave as the connect began,
+    /// or the unspecified address before then, as Linux answers an unbound
+    /// socket.
+    fn getname(&self, peer: bool) -> Result<SocketAddr, Errno>;
+    /// The protocol the socket speaks, as `sk_protocol` names it, which the
+    /// socket hooks judge a connect by.
+    fn protocol(&self) -> Protocol;
     /// The value `opt` holds on this socket, never the host's; one the
     /// protocol has not answers `ProtocolNotAvailable`.
     fn getsockopt(&self, opt: SockOpt) -> Result<u32, Errno>;
@@ -648,31 +651,35 @@ pub(crate) fn check_family(family: AddressFamily) -> Result<(), Errno> {
     }
 }
 
-/// Create a TCP socket of `family`, connected to nothing, in `net` for
-/// `cred`, as `__sock_create` does; it connects through `net`'s Protocol
-/// Family, and its buffers count against `cred`'s memory, as a socket's do
-/// against its creator's memory cgroup.
-pub fn create_tcp_socket(
-    net: &Namespace,
-    cred: &Arc<Cred>,
-    family: AddressFamily,
-) -> Result<Arc<TcpSock>, Errno> {
-    check_family(family)?;
-    let sock = TcpSock::new(net.family().clone(), cred)?;
-    net.tcp_sockets().hold(&sock);
-    Ok(sock)
+impl TcpSock {
+    /// A TCP socket of `family`, connected to nothing, in `net` for `cred`,
+    /// as `__sock_create` makes one; it connects through `net`'s Protocol
+    /// Family, and its buffers count against `cred`'s memory, as a socket's
+    /// do against its creator's memory cgroup.
+    pub fn create(
+        net: &Namespace,
+        cred: &Arc<Cred>,
+        family: AddressFamily,
+    ) -> Result<Arc<Self>, Errno> {
+        check_family(family)?;
+        let sock = Self::new(net.family().clone(), cred)?;
+        net.tcp_sockets().hold(&sock);
+        Ok(sock)
+    }
 }
 
-/// Create a UDP socket of `family`, connected to nothing, in `net` for
-/// `cred`, as `__sock_create` does; its receive queue counts against `cred`'s
-/// memory.
-pub fn create_udp_socket(
-    _net: &Namespace,
-    cred: &Arc<Cred>,
-    family: AddressFamily,
-) -> Result<Arc<UdpSock>, Errno> {
-    check_family(family)?;
-    UdpSock::new(cred)
+impl UdpSock {
+    /// A UDP socket of `family`, connected to nothing, in `net` for `cred`,
+    /// as `__sock_create` makes one; its receive queue counts against
+    /// `cred`'s memory.
+    pub fn create(
+        _net: &Namespace,
+        cred: &Arc<Cred>,
+        family: AddressFamily,
+    ) -> Result<Arc<Self>, Errno> {
+        check_family(family)?;
+        Self::new(cred)
+    }
 }
 
 /// Bind `sock` to `addr` in `net` as `cred`, as `__sys_bind` asks
@@ -688,31 +695,20 @@ pub fn sys_bind(
     sock.bind(net, addr)
 }
 
-/// Connect the TCP socket `sock` in `net` to `addr`, the address the guest
-/// named, as `cred`, as `__sys_connect` does: the socket hooks judge what the
-/// guest named first, then the socket's `->connect` takes it.
+/// Connect `sock` in `net` to `addr`, the address the guest named, as `cred`,
+/// as `__sys_connect` does: the socket hooks judge what the guest named
+/// first, then the socket's `->connect` takes it. `None` stands for
+/// `AF_UNSPEC`, which Linux takes as a disconnect; a socket naming no peer
+/// would send each datagram anywhere, so it is refused.
 pub fn sys_connect(
     net: &Namespace,
     cred: &Cred,
-    sock: &TcpSock,
-    addr: SocketAddr,
-) -> Result<(), Errno> {
-    security_socket_connect(net, cred, addr, Protocol::Tcp)?;
-    ProtoOps::connect(sock, net, addr)
-}
-
-/// Connect the UDP socket `sock` in `net` to `addr`, the one peer the guest
-/// named, as `cred`, through the same socket hooks a TCP connect passes. A
-/// socket naming no peer would send each datagram anywhere, so it is refused.
-pub fn sys_connect_datagram(
-    net: &Namespace,
-    cred: &Cred,
-    sock: &UdpSock,
+    sock: &dyn ProtoOps,
     addr: Option<SocketAddr>,
 ) -> Result<(), Errno> {
     let addr = addr.ok_or(Errno::PermissionDenied)?;
-    security_socket_connect(net, cred, addr, Protocol::Udp)?;
-    ProtoOps::connect(sock, net, addr)
+    security_socket_connect(net, cred, addr, sock.protocol())?;
+    sock.connect(net, addr)
 }
 
 /// Judge a `protocol` connection to `addr` through the socket hooks `cred`
@@ -856,9 +852,9 @@ mod tests {
         );
         let cred = crate::security::prepare_creds_within(&[], None);
         let answers = (
-            create_tcp_socket(&net, &cred, AddressFamily::Inet6).err(),
-            create_udp_socket(&net, &cred, AddressFamily::Inet6).err(),
-            create_tcp_socket(&net, &cred, AddressFamily::Inet).is_ok(),
+            TcpSock::create(&net, &cred, AddressFamily::Inet6).err(),
+            UdpSock::create(&net, &cred, AddressFamily::Inet6).err(),
+            TcpSock::create(&net, &cred, AddressFamily::Inet).is_ok(),
         );
         assert_eq!(
             answers,
