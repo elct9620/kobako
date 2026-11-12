@@ -87,6 +87,7 @@ pub(super) fn to_magnus(ruby: &Ruby, err: InvokeError) -> MagnusError {
     match err {
         InvokeError::Trap(trap) => trap_to_magnus(ruby, trap),
         InvokeError::Setup(err) => setup_to_magnus(ruby, err),
+        InvokeError::Entry(err) => MagnusError::new(ruby.exception_arg_error(), err.to_string()),
         // A failure this frontend does not know is still a run that never
         // started, which the taxonomy attributes to the engine.
         other => trap_err(ruby, other.to_string()),

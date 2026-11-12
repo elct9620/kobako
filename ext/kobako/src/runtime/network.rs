@@ -16,7 +16,7 @@ use magnus::{
 use kobako_runtime::grant::{Grant, Policy};
 use kobako_runtime::network::{
     Addresses, Builder, Connection, Credential, CredentialSource, Endpoint, Entry, EntryError,
-    HttpRule, Name, Network, Placement, Policies, Protocol, Request, Ruleset, Secret,
+    HttpRule, Name, Network, Placement, Policies, Protocol, Request, Secret,
 };
 
 use super::pinned_value::PinnedValue;
@@ -238,10 +238,6 @@ pub(super) fn to_grants(
         let pair: RArray = entries.entry(index)?;
         let name = RString::try_convert(pair.entry(0)?)?.to_string()?;
         let entry = to_entry(ruby, pair.entry(1)?, &mut pins)?;
-        // Every endpoint is judged as the ruleset compiles it, so one the
-        // runtime refuses raises ArgumentError here, as its Rust peer
-        // answers an `EntryError`.
-        Ruleset::new(entry.endpoints()).map_err(to_arg_error)?;
         grants.push(Grant::Network(
             Network::new(name, entry).map_err(to_arg_error)?,
         ));

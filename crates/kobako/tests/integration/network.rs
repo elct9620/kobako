@@ -241,3 +241,39 @@ fn an_entry_with_an_empty_name_is_refused() {
         "Sandbox::network with an empty name must be refused"
     );
 }
+
+/// An entry reaching any name beneath `example.com`, led only to private
+/// addresses.
+#[cfg(feature = "wasmtime")]
+struct WildcardToPrivate;
+
+#[cfg(feature = "wasmtime")]
+impl Entry for WildcardToPrivate {
+    fn endpoints(&self) -> Vec<Endpoint> {
+        vec![Endpoint::new("*.example.com", 443)
+            .expect("a host and a port stand")
+            .with_addresses(vec![kobako::network::Addresses::Private])]
+    }
+}
+
+// @behavior NW-029
+#[cfg(feature = "wasmtime")]
+#[test]
+fn a_wildcard_endpoint_leading_to_private_addresses_is_an_argument_error() {
+    let Some(mut sandbox) = crate::common::real_sandbox() else {
+        return;
+    };
+    sandbox
+        .network("api", Arc::new(WildcardToPrivate))
+        .expect("the entry registers; its endpoints compile per invocation");
+
+    let err = sandbox
+        .eval("1 + 1")
+        .expect_err("a wildcard endpoint leading to private addresses must fail the invocation");
+
+    assert!(
+        matches!(err, Error::Argument(_)),
+        "Sandbox::eval with a wildcard endpoint whose addresses name private must answer \
+         Error::Argument, never a trap, got {err:?}"
+    );
+}

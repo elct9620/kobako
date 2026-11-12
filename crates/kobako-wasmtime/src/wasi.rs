@@ -12,13 +12,14 @@ use crate::config::Config;
 use crate::descriptors::Descriptors;
 use crate::preview2;
 use kobako_runtime::endpoint;
-use kobako_runtime::error::Trap;
+use kobako_runtime::error::{InvokeError, Trap};
 use std::sync::Arc;
 
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::net::{HostInet, HyperOutbound, Namespace, OpenConnections};
+use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::prepare_creds_within;
 use kobako_runtime::vfs::{Cred, OpenFiles};
@@ -59,13 +60,14 @@ pub(crate) struct Wasi {
 impl Wasi {
     /// An invocation's context, granting the profile the Sandbox requested
     /// and presenting each of the invocation's Mounts as a preopen, from
-    /// descriptor 3 in order.
+    /// descriptor 3 in order. A network entry whose endpoints the ruleset
+    /// refuses answers `InvokeError::Entry`, the Host App's argument.
     pub(crate) fn for_invocation(
         config: &Config,
         stdin: Vec<u8>,
         grants: &[Grant],
         open_connections: &Arc<OpenConnections>,
-    ) -> Result<Self, Trap> {
+    ) -> Result<Self, InvokeError> {
         let mut wasi = Self::new(
             stdin,
             config.stdout_limit,
@@ -242,7 +244,7 @@ fn to_network(
     grants: &[Grant],
     open_connections: &Arc<OpenConnections>,
     connection_limit: Option<usize>,
-) -> Result<Option<Namespace>, Trap> {
+) -> Result<Option<Namespace>, EntryError> {
     let entries = grants
         .iter()
         .filter_map(|grant| match grant {
@@ -261,7 +263,6 @@ fn to_network(
         connection_limit,
     )
     .map(Some)
-    .map_err(|err| Trap::Other(format!("a network entry did not compile: {err}")))
 }
 
 /// A Mount as this invocation presents it. A kind this driver does not

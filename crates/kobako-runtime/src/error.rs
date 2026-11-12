@@ -8,6 +8,8 @@
 
 use std::fmt;
 
+use crate::network::EntryError;
+
 /// A guest invocation that faulted in the wasm engine, or a host-detected
 /// runtime corruption during invocation, classified into the host-facing
 /// kinds a frontend surfaces distinctly: the wall-clock cap (`Timeout`),
@@ -42,7 +44,9 @@ pub enum SetupError {
 }
 
 /// A failure that prevented the invocation from starting — a pre-call
-/// engine fault (`Trap`) or a host-side setup fault (`Setup`) — unified so
+/// engine fault (`Trap`), a host-side setup fault (`Setup`), or a network
+/// entry whose endpoints the ruleset refused (`Entry`), which each frontend
+/// answers as the Host App's argument error — unified so
 /// the run mechanics can propagate both with `?`; a frontend destructures
 /// it back into the two. Faults after the guest export starts
 /// ride in `Completion::Trap` instead, so captures and usage survive them.
@@ -57,6 +61,13 @@ pub enum SetupError {
 pub enum InvokeError {
     Trap(Trap),
     Setup(SetupError),
+    Entry(EntryError),
+}
+
+impl From<EntryError> for InvokeError {
+    fn from(err: EntryError) -> Self {
+        InvokeError::Entry(err)
+    }
 }
 
 impl From<Trap> for InvokeError {
@@ -76,6 +87,7 @@ impl fmt::Display for InvokeError {
         match self {
             InvokeError::Trap(trap) => trap.fmt(f),
             InvokeError::Setup(err) => err.fmt(f),
+            InvokeError::Entry(err) => err.fmt(f),
         }
     }
 }

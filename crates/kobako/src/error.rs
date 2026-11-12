@@ -125,6 +125,7 @@ impl From<kobako_runtime::error::InvokeError> for Error {
         match err {
             kobako_runtime::error::InvokeError::Trap(trap) => trap.into(),
             kobako_runtime::error::InvokeError::Setup(setup) => Error::Setup(setup),
+            kobako_runtime::error::InvokeError::Entry(err) => err.into(),
             // A failure this frontend does not know is still a run that
             // never started, which the taxonomy attributes to the engine.
             other => Error::Trap(other.to_string()),
