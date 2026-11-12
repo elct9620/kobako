@@ -23,7 +23,7 @@ pub use http::{
     FieldError, Fields, HttpError, HyperOutbound, Outbound, OutgoingRequest, RequestBody, Response,
     ResponseBody, ResponseFuture, ResponseHead, Scheme, MAX_FIELD_SIZE,
 };
-pub use lookup::{LookupError, NameLookup};
+pub use lookup::{resolve, LookupError, NameLookup, Resolver};
 pub use namespace::Namespace;
 pub use socket::{
     create_tcp_socket, create_udp_socket, sock_alloc_file, sys_bind, sys_connect,

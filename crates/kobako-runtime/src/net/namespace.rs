@@ -13,7 +13,7 @@ use super::http::{
     split_authority, to_field_name, to_field_value, to_origin_form, Exchange, HttpError, Outbound,
     OutgoingRequest, Scheme,
 };
-use super::lookup::{normalize, LookupError, NameLookup};
+use super::lookup::{allows_lookup, normalize, LookupError, NameLookup, Resolver};
 use super::socket::BindHash;
 use super::transport::Connector;
 use super::{MemoryCharge, OpenConnections, ProtocolFamily, TcpSock};
@@ -41,6 +41,7 @@ pub struct Namespace {
     /// The HTTP layer's request policies and bound credentials.
     egress: EgressProxy,
     family: Arc<dyn ProtocolFamily>,
+    resolver: Arc<dyn Resolver>,
     outbound: Arc<dyn Outbound>,
     open_connections: Arc<OpenConnections>,
     /// How many more connections this Invocation may make; `None` makes no
@@ -93,13 +94,15 @@ impl Drop for Namespace {
 
 impl Namespace {
     /// The namespace every entry of `networks` makes together, dialing through
-    /// `family` and sending HTTP through `outbound`, refused for an endpoint
-    /// the ruleset cannot compile. Each socket, request, and lookup counts
-    /// against `open_connections` while open, and the Invocation makes at
-    /// most `connection_limit` connections in all.
+    /// `family`, looking names up through `resolver`, and sending HTTP
+    /// through `outbound`, refused for an endpoint the ruleset cannot
+    /// compile. Each socket, request, and lookup counts against
+    /// `open_connections` while open, and the Invocation makes at most
+    /// `connection_limit` connections in all.
     pub fn new<'a>(
         networks: impl IntoIterator<Item = &'a Network>,
         family: Arc<dyn ProtocolFamily>,
+        resolver: Arc<dyn Resolver>,
         outbound: Arc<dyn Outbound>,
         open_connections: Arc<OpenConnections>,
         connection_limit: Option<usize>,
@@ -131,6 +134,7 @@ impl Namespace {
                 bound,
             },
             family,
+            resolver,
             outbound,
             open_connections,
             connections_left: Mutex::new(connection_limit),
@@ -178,7 +182,7 @@ impl Namespace {
             Some(ip) => self
                 .admit_judged_literal(SocketAddr::new(ip, port), Protocol::Http)
                 .is_ok(),
-            None => self.allows_lookup(&host),
+            None => allows_lookup(self, &host),
         };
         let path = request
             .path_with_query
@@ -207,7 +211,13 @@ impl Namespace {
         };
         let mut request = request;
         request.swaps = swaps;
-        let connector = Connector::new(host, port, self.ruleset.clone(), self.family.clone());
+        let connector = Connector::new(
+            host,
+            port,
+            self.ruleset.clone(),
+            self.family.clone(),
+            self.resolver.clone(),
+        );
         self.within_connection_limit(HttpError::ConnectionLimitReached, || {
             Exchange::start(
                 self.outbound.clone(),
@@ -219,36 +229,25 @@ impl Namespace {
         })
     }
 
-    /// A lookup of `name`. The name is normalized, then each entry's `resolve`
-    /// policy and the endpoints judge it; a refused or unmatched name answers
-    /// as NXDOMAIN before any query, as a real one would. A name the
-    /// Invocation already translated answers its first real addresses again,
-    /// with no query, so a resolver cannot rebind it.
-    pub fn resolve(&self, name: &str) -> Result<Arc<NameLookup>, LookupError> {
-        let name = normalize(name)?;
-        if !self.allows_lookup(&name) || !self.ruleset.admits_name(&name) {
-            return Ok(NameLookup::with_answer(
-                name,
-                Err(LookupError::NameUnresolvable),
-            ));
-        }
-        let translated = self
-            .translations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entries_by_name(&name)
-            .map(|(_, real)| real)
-            .collect::<Vec<_>>();
-        match translated.is_empty() {
-            false => Ok(NameLookup::with_answer(name, Ok(translated))),
-            true => NameLookup::start(self.family.clone(), name, &self.open_connections),
-        }
+    /// The entries' `resolve` policies, which judge each lookup.
+    pub(crate) fn resolve_policies(&self) -> &[Arc<dyn for<'a> Policy<Name<'a>>>] {
+        &self.resolve
     }
 
-    /// Whether every `resolve` policy lets `name`, normalized, be looked up.
-    fn allows_lookup(&self, name: &str) -> bool {
-        let request = Name::new(name);
-        self.resolve.iter().all(|policy| policy.allows(&request))
+    /// The Resolver this namespace's lookups ask.
+    pub(crate) fn resolver(&self) -> &Arc<dyn Resolver> {
+        &self.resolver
+    }
+
+    /// The real addresses `name` was translated to, in the order its lookup
+    /// answered; none for a name never looked up here.
+    pub(crate) fn translations_of(&self, name: &str) -> Vec<IpAddr> {
+        self.translations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entries_by_name(name)
+            .map(|(_, real)| real)
+            .collect()
     }
 
     /// `connect`, made only while the Invocation has a connection left and
@@ -404,16 +403,17 @@ impl Namespace {
 
 #[cfg(test)]
 impl Namespace {
-    /// The namespace `network` alone makes, dialing through `family` and
-    /// sending through `outbound`, with no connection limit; its endpoints
-    /// must compile.
-    pub(crate) fn for_network(
+    /// The namespace `network` alone makes, dialing through `family`, which
+    /// also looks names up, and sending through `outbound`, with no
+    /// connection limit; its endpoints must compile.
+    pub(crate) fn for_network<F: ProtocolFamily + Resolver + 'static>(
         network: &Network,
-        family: Arc<dyn ProtocolFamily>,
+        family: Arc<F>,
         outbound: Arc<dyn Outbound>,
     ) -> Self {
         Self::new(
             [network],
+            family.clone(),
             family,
             outbound,
             OpenConnections::new(None),
@@ -431,6 +431,7 @@ mod tests {
     use std::time::Duration;
 
     use super::super::family::testing::CountsDials;
+    use super::super::lookup::resolve;
     use super::super::socket::{
         create_tcp_socket, create_udp_socket, sys_bind, sys_connect, sys_connect_datagram,
         AddressFamily,
@@ -503,6 +504,7 @@ mod tests {
         let family = Arc::new(CountsDials::default());
         let namespace = Namespace::new(
             &networks,
+            family.clone(),
             family.clone(),
             Arc::new(crate::net::HyperOutbound::new()),
             OpenConnections::new(open),
@@ -620,6 +622,7 @@ mod tests {
         let namespace = Namespace::new(
             [&network],
             Arc::new(crate::net::HostInet),
+            Arc::new(crate::net::HostInet),
             Arc::new(crate::net::HyperOutbound::new()),
             OpenConnections::new(None),
             Some(2),
@@ -650,6 +653,7 @@ mod tests {
         let network = Network::new("db", Arc::new(entry)).unwrap();
         let namespace = Namespace::new(
             [&network],
+            Arc::new(crate::net::HostInet),
             Arc::new(crate::net::HostInet),
             Arc::new(crate::net::HyperOutbound::new()),
             OpenConnections::new(None),
@@ -818,16 +822,18 @@ mod tests {
             Err(io::ErrorKind::ConnectionRefused.into())
         }
 
-        fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
-            self.lookups.fetch_add(1, Ordering::SeqCst);
-            Ok(self.answers.lock().unwrap().clone())
-        }
-
         fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {
             match self.local_unreadable {
                 true => Err(io::ErrorKind::PermissionDenied.into()),
                 false => Ok(self.local.clone()),
             }
+        }
+    }
+
+    impl Resolver for ResolvesNames {
+        fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
+            self.lookups.fetch_add(1, Ordering::SeqCst);
+            Ok(self.answers.lock().unwrap().clone())
         }
     }
 
@@ -863,9 +869,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_lookup_asks_the_resolver_the_namespace_was_handed_apart_from_its_family() {
+        let resolver = Arc::new(ResolvesNames {
+            answers: Mutex::new(vec!["10.0.0.1".parse().unwrap()]),
+            ..ResolvesNames::default()
+        });
+        let mut entry = crate::network::Builder::default();
+        entry.endpoint(tcp("cache.internal", 6379));
+        let network = Network::new("names", Arc::new(entry)).unwrap();
+        let namespace = Namespace::new(
+            [&network],
+            Arc::new(CountsDials::default()),
+            resolver.clone(),
+            Arc::new(crate::net::HyperOutbound::new()),
+            OpenConnections::new(None),
+            None,
+        )
+        .expect("the endpoints compile");
+        let answer = wait_for_answer(&resolve(&namespace, "cache.internal").unwrap());
+        assert_eq!(
+            (answer, resolver.lookups.load(Ordering::SeqCst)),
+            (Ok(vec!["10.0.0.1".parse().unwrap()]), 1),
+            "a guest's lookup must ask the Resolver its network was made with, apart from the \
+             Protocol Family that dials, and answer what that Resolver answered"
+        );
+    }
+
     /// The virtual addresses a lookup of `name` hands out, at port 6379.
     fn resolve_virtual_addresses(namespace: &Namespace, name: &str) -> Vec<SocketAddr> {
-        let lookup = namespace.resolve(name).expect("the lookup starts");
+        let lookup = resolve(namespace, name).expect("the lookup starts");
         wait_for_answer(&lookup).expect("the name resolves");
         namespace
             .alloc_virtual_addresses(&prepare_creds_within(&[], None), &lookup)
@@ -895,7 +928,7 @@ mod tests {
             family.clone(),
         );
         let answers = ["other.internal", "blocked.example.com", "example.com"]
-            .map(|name| wait_for_answer(&namespace.resolve(name).unwrap()));
+            .map(|name| wait_for_answer(&resolve(&namespace, name).unwrap()));
         assert!(
             answers
                 .iter()
@@ -939,7 +972,9 @@ mod tests {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(io::ErrorKind::ConnectionRefused.into())
         }
+    }
 
+    impl Resolver for SaysNoLocalAddresses {
         fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
             Ok(vec!["8.8.8.8".parse().unwrap()])
         }
@@ -1013,9 +1048,7 @@ mod tests {
             ..ResolvesNames::default()
         });
         let namespace = resolving_namespace(vec![tcp("cache.internal", 6379)], "", family);
-        let lookup = namespace
-            .resolve("cache.internal")
-            .expect("the lookup starts");
+        let lookup = resolve(&namespace, "cache.internal").expect("the lookup starts");
         wait_for_answer(&lookup).expect("the name resolves");
         let full = namespace.alloc_virtual_addresses(&prepare_creds_within(&[], Some(0)), &lookup);
         let roomy = namespace.alloc_virtual_addresses(&prepare_creds_within(&[], None), &lookup);
@@ -1053,9 +1086,7 @@ mod tests {
         );
         let first = resolve_virtual_addresses(&namespace, "cache.internal");
         *family.answers.lock().unwrap() = vec!["10.0.0.1".parse().unwrap()];
-        let again = namespace
-            .resolve("Cache.Internal.")
-            .expect("the lookup starts");
+        let again = resolve(&namespace, "Cache.Internal.").expect("the lookup starts");
         let answer = wait_for_answer(&again);
         let second = resolve_virtual_addresses(&namespace, "cache.internal");
         let cred = prepare_creds_within(&[], None);
@@ -1064,7 +1095,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(1));
         }
         refusing.store(true, Ordering::SeqCst);
-        let refused = wait_for_answer(&namespace.resolve("cache.internal").expect("it answers"));
+        let refused = wait_for_answer(&resolve(&namespace, "cache.internal").expect("it answers"));
         assert_eq!(
             (
                 first,

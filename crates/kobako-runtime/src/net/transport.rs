@@ -15,7 +15,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::Place;
 use super::family::admitted_addresses_of;
 use super::http::HttpError;
-use super::lookup::NameLookup;
+use super::lookup::{NameLookup, Resolver};
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::take_connect_outcome;
 use super::ProtocolFamily;
@@ -29,6 +29,7 @@ pub struct Connector {
     port: u16,
     ruleset: Arc<Ruleset>,
     family: Arc<dyn ProtocolFamily>,
+    resolver: Arc<dyn Resolver>,
     /// The request's place, which a lookup of the authority holds too.
     pub(crate) place: Option<Arc<Place>>,
 }
@@ -39,12 +40,14 @@ impl Connector {
         port: u16,
         ruleset: Arc<Ruleset>,
         family: Arc<dyn ProtocolFamily>,
+        resolver: Arc<dyn Resolver>,
     ) -> Self {
         Self {
             host,
             port,
             ruleset,
             family,
+            resolver,
             place: None,
         }
     }
@@ -98,7 +101,7 @@ impl Connector {
     /// counts against the caps until the resolver returns.
     async fn resolve(&self) -> Result<Vec<IpAddr>, HttpError> {
         let place = self.place.clone().ok_or(HttpError::Internal)?;
-        let lookup = NameLookup::start_holding(self.family.clone(), self.host.clone(), place)
+        let lookup = NameLookup::start_holding(self.resolver.clone(), self.host.clone(), place)
             .map_err(|_| HttpError::ConnectionLimitReached)?;
         poll_fn(|cx| lookup.poll_answer(cx))
             .await

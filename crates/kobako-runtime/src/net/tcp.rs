@@ -703,6 +703,7 @@ mod tests {
         Namespace::new(
             [&network],
             Arc::new(HostInet),
+            Arc::new(HostInet),
             Arc::new(HyperOutbound::new()),
             open,
             None,

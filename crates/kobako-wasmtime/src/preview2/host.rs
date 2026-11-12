@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kobako_runtime::net::{
-    create_tcp_socket, create_udp_socket, sock_alloc_file, sys_bind, sys_connect,
+    create_tcp_socket, create_udp_socket, resolve, sock_alloc_file, sys_bind, sys_connect,
     sys_connect_datagram, AddressFamily, Namespace, ProtoOps, SockOpt, MAX_DATAGRAM,
     MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
 };
@@ -317,9 +317,7 @@ impl SocketsHost for Invocation {
         if self.wasi().table().is_full() {
             return Err(ErrorCode::NewSocketLimit.into());
         }
-        let lookup = namespace
-            .resolve(&name)
-            .map_err(|err| to_lookup_error_code(err, true))?;
+        let lookup = resolve(namespace, &name).map_err(|err| to_lookup_error_code(err, true))?;
         let file = lookup.alloc_file(self.wasi().cred());
         Ok(self.table_mut().push_file(table::ResolveAddressStream {
             lookup,
@@ -2953,10 +2951,7 @@ mod tests {
         let mut guest = network_guest(network::Endpoint::new("127.0.0.1", 80).unwrap());
         // A refused lookup's file never polls writable, so only the stream's
         // own closed state can make its pollable ready.
-        let lookup = guest
-            .network()
-            .resolve("unnamed.test")
-            .expect("the lookup answers");
+        let lookup = resolve(guest.network(), "unnamed.test").expect("the lookup answers");
         let file = Arc::new(Mutex::new(lookup.alloc_file(guest.wasi().cred())));
         let output: OutputStream = guest
             .table_mut()

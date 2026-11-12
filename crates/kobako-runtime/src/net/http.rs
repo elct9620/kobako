@@ -1011,7 +1011,9 @@ mod tests {
         fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
             Err(io::ErrorKind::ConnectionRefused.into())
         }
+    }
 
+    impl crate::net::Resolver for StallsLookups {
         fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
             let _ = self.starts.lock().unwrap().send(());
             let _ = self.releases.lock().unwrap().recv();
@@ -1062,9 +1064,11 @@ mod tests {
             starts: Mutex::new(started),
             releases: Mutex::new(released),
         };
+        let family = Arc::new(family);
         let namespace = Namespace::new(
             [&network],
-            Arc::new(family),
+            family.clone(),
+            family,
             Arc::new(HyperOutbound::new()),
             OpenConnections::new(Some(1)),
             None,
@@ -1138,8 +1142,10 @@ mod tests {
                 self.0.lock().unwrap().push(stream.try_clone()?);
                 Ok(stream)
             }
+        }
+        impl crate::net::Resolver for KeepsStreams {
             fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
-                HostInet.resolve(name)
+                crate::net::Resolver::resolve(&HostInet, name)
             }
         }
         let (port, server) = serve_once();

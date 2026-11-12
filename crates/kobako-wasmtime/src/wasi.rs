@@ -236,7 +236,8 @@ pub(crate) fn sandbox_connections() -> Arc<OpenConnections> {
 }
 
 /// The network an invocation's Grants make, one namespace for every entry,
-/// dialed through the host's own TCP, each connection counted against the
+/// dialed through the host's own TCP and looked up through the host's
+/// resolver, each connection counted against the
 /// Sandbox's `open_connections` while open and the run's `connection_limit`
 /// in all. No network Grant makes none.
 fn to_network(
@@ -256,6 +257,7 @@ fn to_network(
     }
     Namespace::new(
         entries,
+        Arc::new(HostInet),
         Arc::new(HostInet),
         Arc::new(HyperOutbound::new()),
         open_connections.clone(),

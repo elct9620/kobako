@@ -7,6 +7,7 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 
+use super::lookup::Resolver;
 use crate::network::{Protocol, Ruleset};
 
 /// What dials the host network.
@@ -14,12 +15,6 @@ pub trait ProtocolFamily: Send + Sync {
     /// A non-blocking stream to `addr`, whose connect may still be under way,
     /// as a non-blocking `connect` answers `EINPROGRESS`.
     fn connect(&self, addr: SocketAddr) -> io::Result<TcpStream>;
-
-    /// The addresses `name`, a fully qualified name, resolves to. A family
-    /// that resolves nothing answers `Unsupported`.
-    fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
-        Err(io::ErrorKind::Unsupported.into())
-    }
 
     /// The host's own addresses, as Linux's `local` routing table holds them,
     /// read at each connect. A family with none answers an empty list; one
@@ -37,26 +32,14 @@ pub trait ProtocolFamily: Send + Sync {
     }
 }
 
-/// The host's own network: its TCP and UDP sockets and its resolver, as
-/// gVisor's `hostinet` hands a sandbox the host's sockets.
+/// The host's own network: its TCP and UDP sockets, as gVisor's `hostinet`
+/// hands a sandbox the host's sockets, and the host's resolver.
 #[derive(Default)]
 pub struct HostInet;
 
 impl ProtocolFamily for HostInet {
     fn connect(&self, addr: SocketAddr) -> io::Result<TcpStream> {
         Ok(mio::net::TcpStream::connect(addr)?.into())
-    }
-
-    /// The host's resolver, asked for `name` with its trailing dot, so no
-    /// search domain lengthens it.
-    fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
-        let mut addresses = Vec::new();
-        for addr in (format!("{name}."), 0).to_socket_addrs()? {
-            if !addresses.contains(&addr.ip()) {
-                addresses.push(addr.ip());
-            }
-        }
-        Ok(addresses)
     }
 
     /// The host's own UDP, bound to an ephemeral port of `addr`'s family.
@@ -73,6 +56,20 @@ impl ProtocolFamily for HostInet {
 
     fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {
         if_addrs::get_if_addrs().map(|interfaces| interfaces.into_iter().map(|i| i.ip()).collect())
+    }
+}
+
+impl Resolver for HostInet {
+    /// The host's resolver, asked for `name` with its trailing dot, so no
+    /// search domain lengthens it.
+    fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
+        let mut addresses = Vec::new();
+        for addr in (format!("{name}."), 0).to_socket_addrs()? {
+            if !addresses.contains(&addr.ip()) {
+                addresses.push(addr.ip());
+            }
+        }
+        Ok(addresses)
     }
 }
 
@@ -102,9 +99,10 @@ pub(crate) mod testing {
     use std::net::{SocketAddr, TcpStream};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::ProtocolFamily;
+    use super::{ProtocolFamily, Resolver};
 
-    /// A family refusing every dial, counting how often it is asked.
+    /// A family refusing every dial, counting how often it is asked, beside a
+    /// resolver that resolves nothing.
     #[derive(Default)]
     pub(crate) struct CountsDials(AtomicUsize);
 
@@ -119,6 +117,12 @@ pub(crate) mod testing {
         fn connect(&self, _addr: SocketAddr) -> io::Result<TcpStream> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(io::ErrorKind::ConnectionRefused.into())
+        }
+    }
+
+    impl Resolver for CountsDials {
+        fn resolve(&self, _name: &str) -> io::Result<Vec<std::net::IpAddr>> {
+            Err(io::ErrorKind::Unsupported.into())
         }
     }
 }

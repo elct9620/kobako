@@ -182,7 +182,7 @@ A socket's own port is virtual too. The protocol takes it as it binds or connect
 `wasi:sockets` looks a name up and connects in two calls, so a virtual address carries the name from one to the other.
 
 ```
-TCPSocket                 Namespace                 Protocol Family
+TCPSocket                 kobako-runtime            Resolver, Family
     |  resolve name           |                           |
     |------------------------>|  resolve name             |
     |                         |-------------------------->|
