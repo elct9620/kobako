@@ -1251,9 +1251,33 @@ fn response_body(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn response_read_body(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let block = current_block(mrb)?;
     match dest_of(mrb, args, (0, 0), block.is_some())? {
-        Some(dest) => read_body_to(mrb, self_, dest),
+        Some(dest) => read_body_once_to(mrb, self_, dest),
         None => read_body_into(mrb, self_, block),
     }
+}
+
+/// `read_body(dest)` as a script calls it: the body appended to `dest` once,
+/// and `IOError` once it was read, as net-http's `@read` refuses a second
+/// `dest`. With no body, `dest` stays as it was and the answer is `nil`.
+fn read_body_once_to(mrb: &Mrb, response: Value, dest: Value) -> Result<Value, Error> {
+    let Some(mut unread) = take_streaming_body(response.object_id()) else {
+        return Err(called_twice(mrb, response)?);
+    };
+    let Some(bytes) = unread.read_body(mrb)? else {
+        ivar_set(mrb, response, c"@body", qnil().as_value())?;
+        return Ok(qnil().as_value());
+    };
+    dest.funcall::<_, _, Value>(mrb, c"<<", [mrb.str_new(&bytes).as_value()])?;
+    ivar_set(mrb, response, c"@body", dest)?;
+    Ok(dest)
+}
+
+/// The `IOError` net-http raises when a read of a body already read names
+/// somewhere to put it.
+fn called_twice(mrb: &Mrb, response: Value) -> Result<Error, Error> {
+    let class: Value = response.funcall(mrb, c"class", ())?;
+    let message = format!("{}#read_body called twice", to_text(mrb, class)?);
+    Ok(errno::io_error(mrb, &message))
 }
 
 /// The `dest` at `at` among `args`, the last a call takes past its
@@ -1284,7 +1308,8 @@ fn dest_of(
 }
 
 /// Append `response`'s body to `dest` with `<<`, which then stands as the
-/// body, as net-http's `read_body(dest)` does.
+/// body, as a verb given `dest` has net-http's `read_body(dest)` do once the
+/// response came.
 fn read_body_to(mrb: &Mrb, response: Value, dest: Value) -> Result<Value, Error> {
     let body = read_body_into(mrb, response, None)?;
     if !body.is_nil() {
@@ -1299,9 +1324,7 @@ fn read_body_to(mrb: &Mrb, response: Value, dest: Value) -> Result<Value, Error>
 fn read_body_into(mrb: &Mrb, response: Value, block: Option<Proc>) -> Result<Value, Error> {
     let Some(mut unread) = take_streaming_body(response.object_id()) else {
         if block.is_some() {
-            let class: Value = response.funcall(mrb, c"class", ())?;
-            let message = format!("{}#read_body called twice", to_text(mrb, class)?);
-            return Err(errno::io_error(mrb, &message));
+            return Err(called_twice(mrb, response)?);
         }
         return ivar_get(mrb, response, c"@body");
     };
