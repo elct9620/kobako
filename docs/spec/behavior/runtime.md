@@ -4325,3 +4325,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a TCP socket bound to a named virtual port |
 | When | a second binds to port 0 and a third to that named port. The third binds again once the first is gone |
 | Then | the second takes the next free port and the third answers EADDRINUSE, then binds. `inet_csk_get_port` finds a held bucket taken |
+
+## `RT-391` A directory a move carries while a lookup finds it stale keeps its one dentry
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-164` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a walk asking a directory's dentry whether it still names its entry |
+| When | a move carries the directory to another name before the walk drops the dentry |
+| Then | the dentry stays where the move put it, so a move beneath itself is still refused. `lookup_fast` retries once `d_seq` moved |
