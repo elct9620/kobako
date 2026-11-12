@@ -2387,8 +2387,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | an `http` endpoint naming a loopback server that answers `hello` |
-| When | the script gets and posts with a `dest`, and reads a body with `read_body(dest)`. It gives a `dest` beside a block, and starts with `use_ssl:` and a proxy |
-| Then | each body is appended to its `dest`, which stands as the body. A `dest` beside a block raises `ArgumentError`. The proxy raises `NotImplementedError`, as no `use_ssl:` drops it |
+| When | the script gets and posts with a `dest`, and reads a body with `read_body(dest)`, then again, and a `HEAD` answer's. It gives a `dest` beside a block, and starts with `use_ssl:` and a proxy |
+| Then | each body is appended to its `dest`, which stands as the body. A second `read_body(dest)` raises `IOError`, and a `HEAD` answer's answers `nil` and leaves `dest` alone. A `dest` beside a block raises `ArgumentError`. The proxy raises `NotImplementedError`, as no `use_ssl:` drops it |
 
 ## `NW-193` An outgoing body finished with trailers is refused
 
