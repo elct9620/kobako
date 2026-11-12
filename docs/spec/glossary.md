@@ -494,7 +494,7 @@ L7 proxy -> outbound seam -> socket layer -> the server
 
 ### Namespace
 
-One invocation's view of the network, as Linux's `struct net`. It holds the ruleset, the virtual addresses, the Protocol Family, and the connection limits. The socket layer and the L7 proxy read them; it judges nothing itself.
+One invocation's network namespace, as Linux's `struct net`. It holds the ruleset, the virtual addresses, the Protocol Family, and the connection limits. The socket layer and the L7 proxy read them; it judges nothing itself.
 
 ```
 socket layer, L7 proxy -> read -> Namespace: ruleset, virtual addresses, limits
