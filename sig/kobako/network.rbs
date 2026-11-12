@@ -92,6 +92,8 @@ module Kobako
       def endpoint: (untyped host, port: untyped, ?protocol: untyped, ?addresses: untyped) ?{ (Rules) -> void } -> self
 
       def policy: (Symbol hook) ?{ (untyped) -> boolish } -> self
+
+      def to_native: () -> [untyped, Array[Endpoint], Array[Credential], Hash[Symbol, Array[^(untyped) -> boolish]]]
     end
   end
 end

@@ -194,6 +194,8 @@ module Kobako
         @credentials << Credential.new(placement, placeholder: placeholder, &source)
         self
       end
+
+      def to_native = [@entry, @endpoints, @credentials, @policies] # :nodoc:
     end
   end
 end

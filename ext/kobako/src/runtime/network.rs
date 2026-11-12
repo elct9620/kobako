@@ -259,23 +259,20 @@ fn to_entry(
     if !entry.is_kind_of(builder_class) {
         return to_ruby_entry(ruby, entry, pins).map(|entry| Arc::new(entry) as Arc<dyn Entry>);
     }
-    let held = |name: &str| entry.funcall::<_, _, Value>("instance_variable_get", (name,));
-    let given = held("@entry")?;
+    let (given, endpoints, credentials, policies): (Value, RArray, RArray, RHash) =
+        entry.funcall("to_native", ())?;
     let mut builder = match given.is_nil() {
         true => Builder::default(),
         false => Builder::new(to_entry(ruby, given, pins)?),
     };
-    for endpoint in each_of(RArray::try_convert(held("@endpoints")?)?, |endpoint| {
-        to_endpoint(ruby, endpoint)
-    })? {
+    for endpoint in each_of(endpoints, |endpoint| to_endpoint(ruby, endpoint))? {
         builder.endpoint(endpoint);
     }
-    for credential in each_of(RArray::try_convert(held("@credentials")?)?, |credential| {
+    for credential in each_of(credentials, |credential| {
         to_credential(ruby, credential, pins)
     })? {
         builder.credential(credential);
     }
-    let policies = RHash::try_convert(held("@policies")?)?;
     let blocks_of = |hook: &str| -> Result<RArray, MagnusError> {
         RArray::try_convert(policies.aref::<_, Value>(ruby.to_symbol(hook))?)
     };
