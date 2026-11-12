@@ -176,11 +176,17 @@ namespace :crates do
       abort "docker not on PATH; install Docker to run crates:linux_baseline"
     end
     root = File.expand_path("..", __dir__)
-    sh "docker", "run", "--rm", "--privileged", "-v", "#{root}:/src",
-       "-v", "kobako-linux-target:/target", "-v", "kobako-linux-cargo:/usr/local/cargo/registry",
-       "-e", "CARGO_TARGET_DIR=/target", "-w", "/src/crates", "rust:1.98-slim",
-       "cargo", "test", "-p", "kobako-runtime", "--release", "--test", "linux_baseline", "--",
-       "--ignored"
+    name = "kobako-linux-baseline-#{Process.pid}"
+    begin
+      sh "docker", "run", "--rm", "--name", name, "--privileged", "-v", "#{root}:/src",
+         "-v", "kobako-linux-target:/target", "-v", "kobako-linux-cargo:/usr/local/cargo/registry",
+         "-e", "CARGO_TARGET_DIR=/target", "-w", "/src/crates", "rust:1.98-slim",
+         "cargo", "test", "-p", "kobako-runtime", "--release", "--test", "linux_baseline", "--",
+         "--ignored"
+    ensure
+      # The container belongs to dockerd, so a run interrupted here would leave it going.
+      system("docker", "rm", "--force", name, out: File::NULL, err: File::NULL)
+    end
   end
 
   desc "Check each published host crate's build graph leaves out what its seam promises to"
