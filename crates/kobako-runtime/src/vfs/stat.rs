@@ -1,14 +1,17 @@
 //! Looking at what stands at a path, as Linux's `fstatat` and
 //! `readlinkat` do.
 
+use std::hash::{BuildHasher, RandomState};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::sync::{Arc, LazyLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::cred::Cred;
+use super::inode::Identity;
 use super::namei::{filename_lookup, retry_estale};
 use super::path::Start;
 use super::Errno;
+use crate::profile::Profile;
 
 /// What a path names, as Linux's file types `FT_*` name each kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,4 +150,142 @@ pub fn do_readlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result
         cred.security_inode_readlink(&target)?;
         target.get_link()
     })
+}
+
+/// `stat` as the caller `cred` is made for sees it, whichever ABI a Wasm
+/// Driver encodes it into, as Linux's `cp_new_stat` reports an owner in the
+/// caller's user namespace. A Filesystem records the host's real time whatever
+/// the invocation writing to it runs under, so one shared across invocations
+/// keeps one record; a hermetic caller sees every time at the Unix epoch,
+/// where its wall clock stands, so a time a write left behind is no clock it
+/// can read. A link reports no size, so nothing of where it points reaches the
+/// caller, and an entry is told apart only by what `ino_of` answers.
+pub fn cp_new_stat(cred: &Cred, stat: Kstat) -> Kstat {
+    let ino = ino_of(cred, Identity::of(&stat));
+    let masked = match cred.profile() {
+        Profile::Permissive => stat,
+        Profile::Hermetic => {
+            let epoch = |time: Option<SystemTime>| time.map(|_| UNIX_EPOCH);
+            stat.with_times(epoch(stat.atime), epoch(stat.mtime), epoch(stat.ctime))
+        }
+    };
+    Kstat {
+        size: match masked.file_type {
+            FileType::Symlink => 0,
+            _ => masked.size,
+        },
+        ..masked.with_identity(0, ino)
+    }
+}
+
+/// The inode number the caller `cred` is made for sees for `identity`, in a
+/// stat or a listing. A hermetic caller sees none, as a Filesystem's device
+/// number depends on how many were made before it in the process. Any other
+/// sees a hash of it under a key the process draws once, so it can tell
+/// entries apart and cannot work back to a host's inode number.
+pub fn ino_of(cred: &Cred, identity: Option<Identity>) -> u64 {
+    static KEY: LazyLock<RandomState> = LazyLock::new(RandomState::new);
+    match (cred.profile(), identity) {
+        (Profile::Hermetic, _) | (_, None) => 0,
+        (Profile::Permissive, Some(identity)) => KEY.hash_one(identity),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{cp_new_stat, ino_of, FileType, Kstat};
+    use crate::profile::Profile;
+    use crate::vfs::{Cred, Identity};
+
+    fn seen_by(profile: Profile, stat: Kstat) -> Kstat {
+        cp_new_stat(&Cred::default().with_profile(profile), stat)
+    }
+
+    // The Wasm Driver only encodes this, so another one shows the same, and a
+    // guest reads a link's size and a time here or nowhere.
+    // @behavior RT-173 RT-183
+    #[test]
+    fn a_guest_sees_no_size_for_a_link_and_only_what_its_profile_allows() {
+        let reported = Kstat::new(FileType::Symlink, 42)
+            .with_identity(7, 9)
+            .with_times(Some(SystemTime::now()), None, None);
+        let (hermetic, permissive) = (
+            seen_by(Profile::Hermetic, reported),
+            seen_by(Profile::Permissive, reported),
+        );
+        assert_eq!(
+            (hermetic.size, permissive.size, hermetic.ino, hermetic.atime),
+            (0, 0, 0, Some(UNIX_EPOCH)),
+            "a link's stat through cp_new_stat must report no size on any profile, and on the \
+             hermetic profile no inode number and every time at the Unix epoch"
+        );
+        assert!(
+            permissive.ino != 0 && permissive.ino != 9 && permissive.atime == reported.atime,
+            "a stat through cp_new_stat on the permissive profile must hash the inode number and \
+             keep the time"
+        );
+    }
+
+    // A device number depends on how many Filesystems the process made before,
+    // so the inode number a guest reads folds it in and the device stays out.
+    // @behavior RT-283
+    #[test]
+    fn a_guest_sees_one_device_for_every_entry() {
+        let reported = Kstat::new(FileType::RegFile, 1).with_identity(7, 9);
+        assert_eq!(
+            [Profile::Hermetic, Profile::Permissive].map(|profile| seen_by(profile, reported).dev),
+            [0, 0],
+            "the stat through cp_new_stat of an entry a Filesystem reports on device 7 must \
+             report device 0 on either profile"
+        );
+    }
+
+    // An unkeyed hash answers what anyone can compute from a host's numbers,
+    // so the hash a guest reads must differ from it.
+    // @behavior RT-194
+    #[test]
+    fn a_guest_cannot_compute_the_inode_number_it_reads() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let reported = Kstat::new(FileType::RegFile, 0).with_identity(7, 9);
+        let identity = Identity::of(&reported);
+        let mut unkeyed = DefaultHasher::new();
+        identity
+            .expect("an inode number names an identity")
+            .hash(&mut unkeyed);
+        let permissive = Cred::default().with_profile(Profile::Permissive);
+        let seen = ino_of(&permissive, identity);
+        assert_eq!(
+            seen,
+            ino_of(&permissive, identity),
+            "ino_of one identity must answer one number within a process"
+        );
+        assert_ne!(
+            seen,
+            unkeyed.finish(),
+            "ino_of on the permissive profile must not answer a hash anyone can compute from the \
+             device and inode numbers"
+        );
+    }
+
+    // A guest reads the count on any ABI, so the count starts in the runtime
+    // rather than in what a Wasm Driver encodes.
+    // @behavior RT-193
+    #[test]
+    fn an_entry_whose_filesystem_keeps_no_count_is_named_once() {
+        let reported = Kstat::new(FileType::RegFile, 0);
+        assert_eq!(
+            (
+                seen_by(Profile::Hermetic, reported).nlink,
+                seen_by(Profile::Permissive, reported).nlink,
+                seen_by(Profile::Permissive, reported.with_nlink(3)).nlink,
+            ),
+            (1, 1, 3),
+            "the stat through cp_new_stat of an entry reporting no count must show one name on \
+             each profile, and of one reporting three must show three"
+        );
+    }
 }

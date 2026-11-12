@@ -6,11 +6,7 @@
 //! built, and the frontend refuses a declaration below the request — so
 //! the request is also the floor.
 
-use std::hash::{BuildHasher, RandomState};
-use std::sync::LazyLock;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
-
-use crate::vfs::{FileType, Identity, Kstat};
+use std::time::Instant;
 
 /// The ordered isolation profiles a runtime builds one of.
 ///
@@ -37,45 +33,6 @@ pub enum Profile {
 }
 
 impl Profile {
-    /// The inode number a guest on this profile sees for `identity`. A
-    /// hermetic guest sees none, as a Filesystem's device number depends on
-    /// how many were made before it in the process. Any other sees a hash of
-    /// it under a key the process draws once, so it can tell entries apart
-    /// and cannot work back to a host's inode number.
-    pub fn guest_ino(self, identity: Option<Identity>) -> u64 {
-        static KEY: LazyLock<RandomState> = LazyLock::new(RandomState::new);
-        match (self, identity) {
-            (Self::Hermetic, _) | (_, None) => 0,
-            (Self::Permissive, Some(identity)) => KEY.hash_one(identity),
-        }
-    }
-
-    /// `stat` as a guest on this profile sees it, whichever ABI a Wasm
-    /// Driver encodes it into. A Filesystem records the host's real time whatever
-    /// the invocation writing to it runs under, so one shared across
-    /// invocations keeps one record; a hermetic guest sees every time at the
-    /// Unix epoch, where its wall clock stands, so a time a write left behind
-    /// is no clock it can read. A link reports no size, so nothing of where it
-    /// points reaches the guest, and an entry is told apart only by what
-    /// `guest_ino` answers.
-    pub fn guest_kstat(self, stat: Kstat) -> Kstat {
-        let ino = self.guest_ino(Identity::of(&stat));
-        let masked = match self {
-            Self::Permissive => stat,
-            Self::Hermetic => {
-                let epoch = |time: Option<SystemTime>| time.map(|_| UNIX_EPOCH);
-                stat.with_times(epoch(stat.atime), epoch(stat.mtime), epoch(stat.ctime))
-            }
-        };
-        Kstat {
-            size: match masked.file_type {
-                FileType::Symlink => 0,
-                _ => masked.size,
-            },
-            ..masked.with_identity(0, ino)
-        }
-    }
-
     /// When a guest's clock, due `at` in host time, is due in a wait on this
     /// profile, whichever ABI a Wasm Driver encodes the wait into. A hermetic
     /// guest's clocks never advance, so a wait on them alone is due at once;
@@ -92,94 +49,6 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // The Wasm Driver only encodes this, so another one shows the same, and a
-    // guest reads a link's size and a time here or nowhere.
-    // @behavior RT-173 RT-183
-    #[test]
-    fn a_guest_sees_no_size_for_a_link_and_only_what_its_profile_allows() {
-        let reported = Kstat::new(FileType::Symlink, 42)
-            .with_identity(7, 9)
-            .with_times(Some(SystemTime::now()), None, None);
-        let (hermetic, permissive) = (
-            Profile::Hermetic.guest_kstat(reported),
-            Profile::Permissive.guest_kstat(reported),
-        );
-        assert_eq!(
-            (hermetic.size, permissive.size, hermetic.ino, hermetic.atime),
-            (0, 0, 0, Some(UNIX_EPOCH)),
-            "Profile::guest_kstat of a link must report no size on any profile, and on the \
-             hermetic profile no inode number and every time at the Unix epoch"
-        );
-        assert!(
-            permissive.ino != 0 && permissive.ino != 9 && permissive.atime == reported.atime,
-            "Profile::guest_kstat on the permissive profile must hash the inode number and keep \
-             the time"
-        );
-    }
-
-    // A device number depends on how many Filesystems the process made before,
-    // so the inode number a guest reads folds it in and the device stays out.
-    // @behavior RT-283
-    #[test]
-    fn a_guest_sees_one_device_for_every_entry() {
-        let reported = Kstat::new(FileType::RegFile, 1).with_identity(7, 9);
-        assert_eq!(
-            [Profile::Hermetic, Profile::Permissive]
-                .map(|profile| profile.guest_kstat(reported).dev),
-            [0, 0],
-            "Profile::guest_kstat of an entry a Filesystem reports on device 7 must report \
-             device 0 on either profile"
-        );
-    }
-
-    // An unkeyed hash answers what anyone can compute from a host's numbers,
-    // so the hash a guest reads must differ from it.
-    // @behavior RT-194
-    #[test]
-    fn a_guest_cannot_compute_the_inode_number_it_reads() {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let reported = Kstat::new(FileType::RegFile, 0).with_identity(7, 9);
-        let identity = Identity::of(&reported);
-        let mut unkeyed = DefaultHasher::new();
-        identity
-            .expect("an inode number names an identity")
-            .hash(&mut unkeyed);
-        let seen = Profile::Permissive.guest_ino(identity);
-        assert_eq!(
-            seen,
-            Profile::Permissive.guest_ino(identity),
-            "Profile::guest_ino of one identity must answer one number within a process"
-        );
-        assert_ne!(
-            seen,
-            unkeyed.finish(),
-            "Profile::guest_ino on the permissive profile must not answer a hash anyone can compute \
-             from the device and inode numbers"
-        );
-    }
-
-    // A guest reads the count on any ABI, so the count starts in the runtime
-    // rather than in what a Wasm Driver encodes.
-    // @behavior RT-193
-    #[test]
-    fn an_entry_whose_filesystem_keeps_no_count_is_named_once() {
-        let reported = Kstat::new(FileType::RegFile, 0);
-        assert_eq!(
-            (
-                Profile::Hermetic.guest_kstat(reported).nlink,
-                Profile::Permissive.guest_kstat(reported).nlink,
-                Profile::Permissive
-                    .guest_kstat(reported.with_nlink(3))
-                    .nlink,
-            ),
-            (1, 1, 3),
-            "Profile::guest_kstat of an entry reporting no count must show one name on each \
-             profile, and of one reporting three must show three"
-        );
-    }
 
     // @behavior RT-014
     #[test]

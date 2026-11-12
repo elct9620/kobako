@@ -9,8 +9,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{FileType, Iattr, Kstat, SetTime};
-use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{self, verify_dirent_name, DirContext, DirEmit, File, Whence};
+use kobako_runtime::vfs::{self, verify_dirent_name, Cred, DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
@@ -119,7 +118,7 @@ fn to_filetype(file_type: FileType) -> Filetype {
 /// A `filestat` for what a Filesystem reports a path names, as the guest
 /// holding `table` sees it, at time zero where it keeps no time.
 pub(crate) fn to_filestat(table: &Descriptors, stat: Kstat) -> types::Filestat {
-    let stat = table.profile().guest_kstat(stat);
+    let stat = vfs::cp_new_stat(table.cred(), stat);
     types::Filestat {
         dev: stat.dev,
         ino: stat.ino,
@@ -364,12 +363,12 @@ fn write_dirent(
     mem: &mut GuestMemory<'_, '_>,
     buf: (GuestPtr<u8>, u32),
     used: &mut u32,
-    profile: Profile,
+    cred: &Cred,
     emit: &DirEmit<'_>,
 ) -> Answer<Option<u32>> {
     let (start, capacity) = buf;
     let at = *used;
-    let header = to_dirent_header(emit, profile.guest_ino(emit.identity))?;
+    let header = to_dirent_header(emit, vfs::ino_of(cred, emit.identity))?;
     let mut whole = true;
     for part in [&header[..], emit.name.as_bytes()] {
         let room = (capacity - *used) as usize;
@@ -406,7 +405,7 @@ pub(crate) fn readdir(
     capacity: u32,
     cookie: u64,
 ) -> Answer<types::Size> {
-    let profile = table.profile();
+    let cred = table.cred().clone();
     let dir = file_mut(table, fd)?;
     // preview1 names where a listing goes on by its cookie, as wasi-libc's
     // `seekdir` moves a directory's position before `getdents`; a listing going
@@ -425,7 +424,7 @@ pub(crate) fn readdir(
                 Some(at) => write_d_next(mem, start, at, emit.offset),
                 None => Ok(()),
             })
-            .and_then(|()| write_dirent(mem, (start, capacity), &mut used, profile, emit));
+            .and_then(|()| write_dirent(mem, (start, capacity), &mut used, &cred, emit));
         match written {
             Ok(whole) => {
                 last_whole = whole;
@@ -553,7 +552,6 @@ mod tests {
         FileOperations, FileType, Filesystem, InodeOperations, Kstat, Lookup,
     };
     use kobako_runtime::mount::{Access, Mount};
-    use kobako_runtime::profile::Profile;
     use kobako_runtime::security::prepare_creds_within;
     use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path, PATH_MAX};
     use wiggle::{GuestPtr, GuestType};
@@ -581,7 +579,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             kobako_runtime::vfs::OpenFiles::new(limit),
             cred.clone(),
-            Profile::Hermetic,
         )
     }
 

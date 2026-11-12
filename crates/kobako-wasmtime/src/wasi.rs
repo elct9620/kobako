@@ -42,10 +42,8 @@ pub(crate) const MAX_TABLE_ENTRIES: usize = 1_000_000;
 pub(crate) struct Wasi {
     ctx: WasiP1Ctx,
     /// Who the guest's calls are made for, through either encoding, as a
-    /// task holds its `cred`.
+    /// task holds its `cred`, and the isolation it runs under.
     cred: Arc<Cred>,
-    /// The isolation the guest runs under, through either encoding.
-    profile: Profile,
     descriptors: Descriptors,
     table: preview2::Table,
     /// The network the Invocation's Grants make, where every socket and
@@ -122,6 +120,9 @@ impl Wasi {
         profile: Profile,
         grants: &[Grant],
     ) -> Result<Self, Trap> {
+        // The guest sees entries as its profile allows, through whichever
+        // encoding asks.
+        let opener = opener.with_profile(profile);
         let stdout = PipeInodeInfo::new(Capture::pipe_capacity_of(stdout_limit));
         let stderr = PipeInodeInfo::new(Capture::pipe_capacity_of(stderr_limit));
 
@@ -138,7 +139,6 @@ impl Wasi {
             grants,
             open_files,
             opener,
-            profile,
         )
         .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?;
         // The Cred the Grants' policies restrict, which preview1's table and
@@ -173,7 +173,6 @@ impl Wasi {
         Ok(Self {
             ctx: builder.build_p1(),
             cred,
-            profile,
             descriptors,
             table,
             network: None,
@@ -192,7 +191,7 @@ impl Wasi {
     }
 
     pub(crate) fn profile(&self) -> Profile {
-        self.profile
+        self.cred.profile()
     }
 
     pub(crate) fn descriptors(&self) -> &Descriptors {

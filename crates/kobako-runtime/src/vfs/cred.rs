@@ -14,6 +14,7 @@ use super::openat2::OpenHow;
 use super::{Errno, FileType};
 use crate::memcg::MemoryBudget;
 use crate::network::Connection;
+use crate::profile::Profile;
 
 /// What one security module keeps on an open file, as Linux's `f_security`
 /// blob holds each module's part; `None` where it keeps nothing.
@@ -143,10 +144,13 @@ pub trait SecurityOperations: Send + Sync {
 /// Who a call is made for, holding the security modules registered for it, as
 /// `cred->security` holds a Landlock domain, and the memory budget the host
 /// charges what it holds on the caller's behalf to, which every Cred restricted
-/// from it shares, as a task's memory cgroup does.
+/// from it shares, as a task's memory cgroup does. Its profile decides what the
+/// caller sees of an entry, as `cred->user_ns` decides the owner `cp_new_stat`
+/// reports.
 pub struct Cred {
     security: Vec<Arc<dyn SecurityOperations>>,
     memory: Arc<MemoryBudget>,
+    profile: Profile,
 }
 
 /// One no module is registered for, which this crate's tests make calls as.
@@ -156,6 +160,7 @@ impl Default for Cred {
         Self {
             security: Vec::new(),
             memory: MemoryBudget::new(None),
+            profile: Profile::Hermetic,
         }
     }
 }
@@ -167,12 +172,17 @@ impl Cred {
     }
 
     /// One with `security` registered, charging what is held on its behalf to
-    /// `memory`.
+    /// `memory`, seeing entries as the hermetic profile does until told
+    /// otherwise.
     pub(crate) fn within(
         security: Vec<Arc<dyn SecurityOperations>>,
         memory: Arc<MemoryBudget>,
     ) -> Arc<Self> {
-        Arc::new(Self { security, memory })
+        Arc::new(Self {
+            security,
+            memory,
+            profile: Profile::Hermetic,
+        })
     }
 
     /// This Cred with `more` modules registered after its own, sharing the
@@ -180,7 +190,26 @@ impl Cred {
     pub(crate) fn with_modules(&self, more: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
         let mut security = self.security.clone();
         security.extend(more);
-        Self::within(security, self.memory.clone())
+        Arc::new(Self {
+            security,
+            memory: self.memory.clone(),
+            profile: self.profile,
+        })
+    }
+
+    /// This Cred seeing entries as `profile` does, as a task's credentials
+    /// carry the user namespace its stat is reported in.
+    pub fn with_profile(&self, profile: Profile) -> Arc<Self> {
+        Arc::new(Self {
+            security: self.security.clone(),
+            memory: self.memory.clone(),
+            profile,
+        })
+    }
+
+    /// The isolation profile the caller runs under.
+    pub fn profile(&self) -> Profile {
+        self.profile
     }
 
     /// The budget the caller's memory is charged to, which a Wasm Driver also

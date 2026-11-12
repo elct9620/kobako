@@ -60,7 +60,7 @@ These judgments decide an answer, so `kobako-runtime` holds them whichever ABI a
 | Position, append, access, offset limit | `vfs::File` | `struct file` |
 | Listing lock and position | `File::iterate_dir` | `iterate_dir` |
 | `.` and `..` | Filesystem: `dir_emit_dots` or `Rdir` | libfs, 9p, FUSE |
-| Profile mask | `Profile::guest_kstat` | kobako's Profile |
+| Profile mask | `vfs::cp_new_stat`, `vfs::ino_of` | `cp_new_stat` reporting in the caller's user namespace |
 | Read-only, set times, link | `vfs` | Linux VFS |
 | Sync and nonblock accepted | `vfs::File` | Linux accepts both |
 | Start is not a directory | `set_nameidata` | `set_nameidata` |

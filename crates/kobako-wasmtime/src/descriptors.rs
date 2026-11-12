@@ -12,7 +12,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use kobako_runtime::grant::Grant;
-use kobako_runtime::profile::Profile;
 use kobako_runtime::security::{restrict_self, WalkGuard};
 use kobako_runtime::vfs::{Cred, File, OpenFiles};
 use kobako_runtime::Errno;
@@ -46,9 +45,6 @@ pub(crate) struct Descriptors {
     cred: Arc<Cred>,
     /// What a descriptor's call asks before it starts.
     walk_guard: WalkGuard,
-    /// The isolation the guest runs under, which decides what it sees of
-    /// the times a Filesystem reports.
-    profile: Profile,
 }
 
 impl Descriptors {
@@ -65,7 +61,6 @@ impl Descriptors {
         grants: &[Grant],
         open_files: OpenFiles,
         opener: Arc<Cred>,
-        profile: Profile,
     ) -> Result<Self, Errno> {
         let mut used = BTreeMap::from([
             (0, Descriptor::for_file(stdin)),
@@ -102,7 +97,6 @@ impl Descriptors {
             open_files,
             cred,
             walk_guard,
-            profile,
         })
     }
 
@@ -115,11 +109,6 @@ impl Descriptors {
     /// path it stands at.
     pub(crate) fn walk_guard(&self) -> &WalkGuard {
         &self.walk_guard
-    }
-
-    /// The isolation the guest runs under.
-    pub(crate) fn profile(&self) -> Profile {
-        self.profile
     }
 
     pub(crate) fn get(&self, fd: u32) -> Option<&Descriptor> {
@@ -193,7 +182,6 @@ mod tests {
             &[],
             OpenFiles::new(None),
             prepare_creds_within(&[], None),
-            Profile::Hermetic,
         )
         .unwrap_or_else(|_| panic!("a table holding no Mount must make"));
         let mut open = || {
