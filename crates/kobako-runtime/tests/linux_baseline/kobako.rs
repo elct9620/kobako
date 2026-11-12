@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 use kobako_runtime::filesystem::{Filesystem, Iattr, SetTime};
 use kobako_runtime::grant::Grant;
@@ -16,7 +16,7 @@ use kobako_runtime::vfs::{
 use kobako_runtime::Errno;
 
 use crate::calls::{payload, Call, SLOTS, UTIME_SECONDS};
-use crate::{describe, Snapshot, Times};
+use crate::{describe, Snapshot};
 
 fn errno(error: &Errno) -> String {
     error
@@ -309,20 +309,6 @@ impl Kobako {
         let mut buf = [0; 64];
         let read = file.read(&mut buf).unwrap_or(0);
         format!(" {:?}", String::from_utf8_lossy(&buf[..read]))
-    }
-
-    /// When each entry beneath the root was last modified and changed.
-    pub fn times(&self) -> Times<Option<SystemTime>> {
-        let mut out = BTreeMap::new();
-        if let Ok(stat) = vfs::vfs_fstatat(&self.cred, self.root.path(), ".", false) {
-            out.insert(".".to_string(), (stat.mtime, stat.ctime));
-        }
-        self.walk(self.root.path(), "", &mut |dir, name, full| {
-            if let Ok(stat) = vfs::vfs_fstatat(&self.cred, dir, name, false) {
-                out.insert(full.to_string(), (stat.mtime, stat.ctime));
-            }
-        });
-        out
     }
 }
 

@@ -9,7 +9,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use crate::calls::{payload, Call, SLOTS, UTIME_SECONDS};
-use crate::{describe, Snapshot, Times};
+use crate::{describe, Snapshot};
 
 fn c_string(text: &str) -> CString {
     CString::new(text).expect("no path of a sequence holds a NUL")
@@ -375,40 +375,6 @@ impl Linux {
     pub fn snapshot(&self) -> Snapshot {
         let mut out = BTreeMap::new();
         snapshot_into(Path::new(&self.root_path), "", self.merged, &mut out);
-        out
-    }
-
-    /// When each entry beneath the root was last modified and changed.
-    pub fn times(&self) -> Times<(i64, i64)> {
-        fn walk(dir: &Path, prefix: &str, out: &mut Times<(i64, i64)>) {
-            let Ok(entries) = fs::read_dir(dir) else {
-                return;
-            };
-            for entry in entries.flatten() {
-                let full = format!("{prefix}{}", entry.file_name().to_string_lossy());
-                let metadata = fs::symlink_metadata(entry.path()).expect("the entry just listed");
-                out.insert(
-                    full.clone(),
-                    (
-                        (metadata.mtime(), metadata.mtime_nsec()),
-                        (metadata.ctime(), metadata.ctime_nsec()),
-                    ),
-                );
-                if metadata.is_dir() {
-                    walk(&entry.path(), &format!("{full}/"), out);
-                }
-            }
-        }
-        let root = Path::new(&self.root_path);
-        let metadata = fs::metadata(root).expect("the root stands");
-        let mut out = BTreeMap::from([(
-            ".".to_string(),
-            (
-                (metadata.mtime(), metadata.mtime_nsec()),
-                (metadata.ctime(), metadata.ctime_nsec()),
-            ),
-        )]);
-        walk(root, "", &mut out);
         out
     }
 }

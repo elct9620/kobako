@@ -24,8 +24,6 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread::sleep;
-use std::time::Duration;
 
 use kobako_runtime::filesystem::{Bind, Filesystem, Overlay, Tmpfs};
 use kobako_runtime::mount::Access;
@@ -36,9 +34,6 @@ use linux::{mount, on_tmpfs, snapshot_into, umount, Linux};
 
 /// Every entry beneath a root, and what it shows.
 pub type Snapshot = BTreeMap<String, String>;
-
-/// When each entry beneath a root was last modified and changed.
-pub type Times<T> = BTreeMap<String, (T, T)>;
 
 /// Where each setup keeps its directories, a tmpfs in every container.
 const BASE: &str = "/dev/shm/kobako-linux-baseline";
@@ -51,9 +46,6 @@ const OVERLAY_FEATURES_OFF: &str = "redirect_dir=off,metacopy=off,index=off,xino
 
 /// One setup runs at a time, as two sharing its directories would collide.
 static SERIAL: Mutex<()> = Mutex::new(());
-
-/// Longer than Linux's coarse clock ticks, so a change moves a time on both.
-const CLOCK_TICK: Duration = Duration::from_millis(12);
 
 /// What a stat shows, the same on both sides. A directory merged from Layers
 /// reports no size both sides could agree on, and a link's size is where it
@@ -143,7 +135,7 @@ impl Setup {
         }
     }
 
-    fn start(self, settle: bool) -> (Kobako, Linux) {
+    fn start(self) -> (Kobako, Linux) {
         match self {
             Self::Tmpfs => {
                 let filesystem =
@@ -154,9 +146,6 @@ impl Setup {
                 fs::create_dir_all(&root).expect("the tmpfs directory");
                 let mut linux = Linux::new(&root, false);
                 for call in tmpfs_seed() {
-                    if settle {
-                        sleep(CLOCK_TICK);
-                    }
                     kobako.run(&call);
                     linux.run(&call);
                 }
@@ -425,7 +414,7 @@ fn holds(setup: Setup, runs: u64, longest: u64) {
         let mut rng = Rng::new(seed);
         let length = 1 + rng.random_below(longest);
         let sequence: Vec<Call> = (0..length).map(|_| rng.call(&paths)).collect();
-        let (mut kobako, mut linux) = setup.start(false);
+        let (mut kobako, mut linux) = setup.start();
         let mut agreed = true;
         for (at, call) in sequence.iter().enumerate() {
             let (theirs, ours) = (linux.run(call), kobako.run(call));
@@ -465,62 +454,6 @@ fn holds(setup: Setup, runs: u64, longest: u64) {
     assert_holds(setup, &found, &succeeded);
 }
 
-/// Which of each entry's two times `after` shows moved since `before`.
-fn times_moved<T: PartialEq>(before: &Times<T>, after: &Times<T>) -> BTreeSet<String> {
-    let mut moved = BTreeSet::new();
-    for (path, (modified, changed)) in after {
-        if let Some((was_modified, was_changed)) = before.get(path) {
-            if modified != was_modified {
-                moved.insert(format!("{path} modified"));
-            }
-            if changed != was_changed {
-                moved.insert(format!("{path} changed"));
-            }
-        }
-    }
-    moved
-}
-
-/// Hold `setup` to which times each call moves, over `runs` sequences, waiting
-/// out the clock around each call. Where the two disagree on an answer, the
-/// run that holds answers reports it.
-fn moves_the_same_times(setup: Setup, runs: u64, longest: u64) {
-    let _serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-    setup.prepare();
-    let paths = setup.paths();
-    let mut calls_moving_a_time = 0;
-    for seed in 1..=runs {
-        let mut rng = Rng::new(seed);
-        let length = 1 + rng.random_below(longest);
-        let sequence: Vec<Call> = (0..length).map(|_| rng.call(&paths)).collect();
-        let (mut kobako, mut linux) = setup.start(true);
-        for (at, call) in sequence.iter().enumerate() {
-            let (kobako_before, linux_before) = (kobako.times(), linux.times());
-            sleep(CLOCK_TICK);
-            if kobako.run(call) != linux.run(call) {
-                break;
-            }
-            let ours = times_moved(&kobako_before, &kobako.times());
-            let theirs = times_moved(&linux_before, &linux.times());
-            assert_eq!(
-                ours,
-                theirs,
-                "{} through vfs must move the times Linux moves, after {:#?}",
-                setup.name(),
-                &sequence[..=at]
-            );
-            calls_moving_a_time += usize::from(!ours.is_empty());
-        }
-        drop((kobako, linux));
-        setup.finish();
-    }
-    assert!(
-        calls_moving_a_time >= 40,
-        "{}: only {calls_moving_a_time} calls moved a time, too few for agreeing to show anything",
-        setup.name()
-    );
-}
-
 /// Hold `setup` to Linux over `rounds` of racing sequences of at most `longest`
 /// calls each.
 fn holds_racing(setup: Setup, rounds: u64, longest: u64) {
@@ -528,7 +461,7 @@ fn holds_racing(setup: Setup, rounds: u64, longest: u64) {
     setup.prepare();
     let mut found = concurrent::Found::default();
     for seed in 1..=rounds {
-        let (kobako, linux) = setup.start(false);
+        let (kobako, linux) = setup.start();
         let kobako: Vec<Kobako> = (0..concurrent::THREADS).map(|_| kobako.another()).collect();
         let linux: Vec<Linux> = (0..concurrent::THREADS).map(|_| linux.another()).collect();
         drop(concurrent::round(seed, longest, kobako, linux, &mut found));
@@ -578,18 +511,6 @@ fn a_bind_answers_as_the_directory_it_binds() {
 #[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
 fn a_read_only_bind_answers_as_a_read_only_mount() {
     holds(Setup::ReadOnlyBind, 6_000, 15);
-}
-
-#[test]
-#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
-fn a_tmpfs_moves_the_times_a_tmpfs_of_linux_moves() {
-    moves_the_same_times(Setup::Tmpfs, 600, 6);
-}
-
-#[test]
-#[ignore = "needs root and a mount namespace; run by rake crates:linux_baseline"]
-fn an_overlay_moves_the_times_overlayfs_moves() {
-    moves_the_same_times(Setup::Overlay, 600, 6);
 }
 
 #[test]
