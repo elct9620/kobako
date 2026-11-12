@@ -1,7 +1,8 @@
-//! A name lookup the guest asked for, resolved on a thread of its own since a
-//! resolver blocks, its waiter woken through the lookup's wait queue so the deadline
-//! ends the wait. Linux leaves resolution to userspace; this resolver is the
-//! only one the guest has.
+//! A name lookup the guest asked for, judged as a DNS proxy judges a query,
+//! then resolved on a thread of its own since a Resolver blocks, its waiter
+//! woken through the lookup's wait queue so the deadline ends the wait. Linux
+//! leaves resolution to userspace, so the Resolver is a backend beside the
+//! Protocol Family.
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -197,7 +198,7 @@ pub fn resolve(net: &Namespace, name: &str) -> Result<Arc<NameLookup>, LookupErr
             Err(LookupError::NameUnresolvable),
         ));
     }
-    let translated = net.translations_of(&name);
+    let translated = net.real_addresses_of(&name);
     match translated.is_empty() {
         false => Ok(NameLookup::with_answer(name, Ok(translated))),
         true => NameLookup::start(net.resolver().clone(), name, net.open_connections()),

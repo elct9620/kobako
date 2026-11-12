@@ -32,9 +32,10 @@ const VIRTUAL_SIZE: u32 = 1 << 17;
 /// `LOCAL_ADDRESS`, and the broadcast one above it.
 const MAX_NAMED_ADDRESSES: u32 = VIRTUAL_SIZE - 2;
 
-/// What the guest may reach, which policies judge each lookup, the backend
-/// that dials it, the connections the Sandbox holds open and those left to
-/// this Invocation, and the virtual addresses handed out.
+/// What the guest may reach, which policies judge each lookup, the backends
+/// that dial and resolve, the connections the Sandbox holds open and those
+/// left to this Invocation, the ports its sockets hold, and the virtual
+/// addresses handed out.
 pub struct Namespace {
     ruleset: Arc<Ruleset>,
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
@@ -241,7 +242,7 @@ impl Namespace {
 
     /// The real addresses `name` was translated to, in the order its lookup
     /// answered; none for a name never looked up here.
-    pub(crate) fn translations_of(&self, name: &str) -> Vec<IpAddr> {
+    pub(crate) fn real_addresses_of(&self, name: &str) -> Vec<IpAddr> {
         self.translations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
