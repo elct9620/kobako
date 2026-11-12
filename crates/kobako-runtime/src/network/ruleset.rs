@@ -279,11 +279,17 @@ impl Rule {
     /// Whether this rule's host holds `host`, a name or a literal address.
     fn holds(&self, host: &str) -> bool {
         match host.parse::<IpAddr>() {
-            Ok(ip) => {
-                matches!(self.host, Host::Cidr(net, prefix) if is_within_net(ip, net, prefix))
-            }
+            Ok(ip) => self.holds_address(ip),
             Err(_) => self.names(host),
         }
+    }
+
+    /// Whether this rule's address host holds `ip`, a literal the guest named,
+    /// judged as the address it stands for and never in the fixed sets.
+    fn holds_address(&self, ip: IpAddr) -> bool {
+        to_screened(ip).is_some_and(
+            |ip| matches!(self.host, Host::Cidr(net, prefix) if is_within_net(ip, net, prefix)),
+        )
     }
 
     /// Whether this endpoint's rules allow `method` on `path`: with none,
@@ -444,11 +450,10 @@ impl Ruleset {
     /// fixed sets whatever an endpoint says. An `http` endpoint never admits
     /// raw TCP, so its rules cannot be framed around.
     pub fn admit_literal(&self, addr: SocketAddr, protocol: Protocol) -> Result<(), Errno> {
-        let ip = to_screened(addr.ip()).ok_or(Errno::PermissionDenied)?;
-        let matched = self.rules.iter().any(|rule| {
-            rule.serves(addr.port(), protocol)
-                && matches!(rule.host, Host::Cidr(net, prefix) if is_within_net(ip, net, prefix))
-        });
+        let matched = self
+            .rules
+            .iter()
+            .any(|rule| rule.serves(addr.port(), protocol) && rule.holds_address(addr.ip()));
         match matched {
             true => Ok(()),
             false => Err(Errno::PermissionDenied),
