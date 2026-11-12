@@ -2,7 +2,7 @@
 //! the error code each POSIX name maps to, as the WIT's "typical errors"
 //! lists pair them.
 
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use kobako_runtime::net::LookupError;
 use kobako_runtime::Errno;
@@ -45,9 +45,9 @@ pub(crate) fn to_buffer_size(value: u64) -> Option<u32> {
 }
 
 /// The address the guest named for a socket of `family`, once it is of that
-/// family, as wasmtime's `is_valid_address_family` asks: an IPv6 socket takes
-/// no IPv4-mapped or IPv4-compatible address, and an address of the other
-/// family has no answer.
+/// family, as wasmtime's `is_valid_address_family` asks; an address of the
+/// other family has no answer. The runtime makes no IPv6 socket, so an IPv4
+/// one is the only socket an address reaches.
 pub(crate) fn to_socket_addr(
     addr: &IpSocketAddress,
     family: IpAddressFamily,
@@ -63,22 +63,6 @@ pub(crate) fn to_socket_addr(
             Ipv4Addr::new(*a, *b, *c, *d),
             *port,
         ))),
-        (
-            IpAddressFamily::Ipv6,
-            IpSocketAddress::Ipv6(Ipv6SocketAddress {
-                port,
-                flow_info,
-                address: (a, b, c, d, e, f, g, h),
-                scope_id,
-            }),
-        ) => {
-            let ip = Ipv6Addr::new(*a, *b, *c, *d, *e, *f, *g, *h);
-            let ipv4_compatible = matches!(ip.segments(), [0, 0, 0, 0, 0, 0, _, _])
-                && ip != Ipv6Addr::UNSPECIFIED
-                && ip != Ipv6Addr::LOCALHOST;
-            (!ipv4_compatible && ip.to_ipv4_mapped().is_none())
-                .then(|| SocketAddr::V6(SocketAddrV6::new(ip, *port, *flow_info, *scope_id)))
-        }
         _ => None,
     }
 }
