@@ -183,7 +183,8 @@ fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
     Ok(Family::Named(bare.to_string()))
 }
 
-/// The `Errno` a WASI error code stands for, from `call`.
+/// The `Errno` a WASI error code stands for, from `call`, as wasi-libc's
+/// `__wasilibc_map_socket_error` maps each.
 fn to_error(mrb: &Mrb, code: ErrorCode, call: &str) -> Error {
     let name = match code {
         ErrorCode::NotSupported => c"ENOTSUP",
@@ -200,7 +201,8 @@ fn to_error(mrb: &Mrb, code: ErrorCode, call: &str) -> Error {
         ErrorCode::WouldBlock => c"EAGAIN",
         ErrorCode::InvalidArgument => c"EINVAL",
         ErrorCode::OutOfMemory => c"ENOMEM",
-        ErrorCode::InvalidState => c"ENOTCONN",
+        ErrorCode::InvalidState | ErrorCode::NotInProgress => c"ENOTCONN",
+        ErrorCode::ConcurrencyConflict => c"EALREADY",
         _ => c"EIO",
     };
     errno::error_by_name(mrb, name, call)
