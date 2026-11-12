@@ -2478,3 +2478,16 @@ endpoint "api.example.com", port: 443
 | Given | an HTTP endpoint naming a loopback server |
 | When | the guest spells a request's authority in another case, with a trailing dot, or with the default port |
 | Then | the server reads the host as the rules judged it. It is lowercase with no trailing dot, and a default port is left out |
+
+## `NW-200` An address of another family answers invalid-argument
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-089` |
+| relates | `NW-066` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a network Grant and IPv4 TCP and UDP sockets |
+| When | it binds, connects, or streams either socket to an IPv6 address |
+| Then | each answers `invalid-argument` before the socket hooks are asked, as WIT names an address of the wrong family |
