@@ -17,6 +17,7 @@ mod transport;
 mod udp;
 
 pub use connections::{process_connections, OpenConnections};
+pub use egress::send;
 pub use family::{HostInet, ProtocolFamily};
 pub use http::{
     is_authority, is_scheme, is_token, to_field_name, to_field_value, to_origin_form, Exchange,

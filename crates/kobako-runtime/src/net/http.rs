@@ -1035,9 +1035,8 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         let mut request = OutgoingRequest::new("GET", Scheme::Https, "127.0.0.1:443");
         request.path_with_query = "/".to_string();
-        let exchange = namespace
-            .send(&cred, request)
-            .expect("the endpoint admits it");
+        let exchange =
+            crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
         let answer = loop {
             match exchange.response() {
                 Some(answer) => break answer,
@@ -1075,20 +1074,18 @@ mod tests {
         )
         .expect("the endpoints compile");
         let cred = prepare_creds_within(&[], None);
-        let first = namespace
-            .send(&cred, greeting_request("api.example.com"))
+        let first = crate::net::send(&namespace, &cred, greeting_request("api.example.com"))
             .expect("the first request has a place");
         resolving
             .recv_timeout(Duration::from_secs(5))
             .expect("the request's lookup starts");
         first.release();
-        let while_resolving = namespace
-            .send(&cred, greeting_request("api.example.com"))
-            .err();
+        let while_resolving =
+            crate::net::send(&namespace, &cred, greeting_request("api.example.com")).err();
         release.send(()).unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let once_returned = loop {
-            match namespace.send(&cred, greeting_request("api.example.com")) {
+            match crate::net::send(&namespace, &cred, greeting_request("api.example.com")) {
                 Ok(_) => break true,
                 Err(_) if std::time::Instant::now() < deadline => {
                     thread::sleep(Duration::from_millis(1))
@@ -1099,7 +1096,7 @@ mod tests {
         assert_eq!(
             (while_resolving, once_returned),
             (Some(HttpError::ConnectionLimitReached), true),
-            "Namespace::send past an open_connection_limit of 1 must answer \
+            "a guest's request past an open_connection_limit of 1 must answer \
              ConnectionLimitReached while a released request's lookup still resolves, and send \
              once the resolver returned"
         );
@@ -1113,9 +1110,12 @@ mod tests {
             .unwrap()
             .with_addresses(vec![crate::network::Addresses::Local])]);
         let cred = prepare_creds_within(&[], None);
-        let exchange = namespace
-            .send(&cred, greeting_request(&format!("LocalHost:{port}")))
-            .expect("the endpoint names the authority");
+        let exchange = crate::net::send(
+            &namespace,
+            &cred,
+            greeting_request(&format!("LocalHost:{port}")),
+        )
+        .expect("the endpoint names the authority");
         let (head, body) = read_response(&exchange).expect("the server answers");
         let seen = server.join().unwrap();
         assert!(
@@ -1125,7 +1125,7 @@ mod tests {
                     .contains(&("x-kind".to_string(), b"test".to_vec()))
                 && body == b"hello"
                 && seen[0] == "GET /greeting?lang=en HTTP/1.1",
-            "Namespace::send to an http endpoint must send the request line and read back the \
+            "a guest's request to an http endpoint must send the request line and read back the \
              status, headers, and body, got {head:?} {body:?} after {seen:?}"
         );
     }
@@ -1160,9 +1160,12 @@ mod tests {
         let namespace =
             Namespace::for_network(&network, family.clone(), Arc::new(HyperOutbound::new()));
         let cred = prepare_creds_within(&[], None);
-        let exchange = namespace
-            .send(&cred, greeting_request(&format!("127.0.0.1:{port}")))
-            .expect("the endpoint names the authority");
+        let exchange = crate::net::send(
+            &namespace,
+            &cred,
+            greeting_request(&format!("127.0.0.1:{port}")),
+        )
+        .expect("the endpoint names the authority");
         read_response(&exchange).expect("the server answers");
         server.join().unwrap();
         let nodelay = family
@@ -1197,9 +1200,12 @@ mod tests {
         });
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds_within(&[], None);
-        let exchange = namespace
-            .send(&cred, greeting_request(&format!("127.0.0.1:{port}")))
-            .expect("an endpoint names the authority");
+        let exchange = crate::net::send(
+            &namespace,
+            &cred,
+            greeting_request(&format!("127.0.0.1:{port}")),
+        )
+        .expect("an endpoint names the authority");
         let mut held = 0;
         let mut body = Vec::new();
         let mut buf = [0; 4096];
@@ -1238,14 +1244,14 @@ mod tests {
             format!("elsewhere.example:{port}"),
             format!("198.18.0.0:{port}"),
         ]
-        .map(|authority| namespace.send(&cred, greeting_request(&authority)).err());
+        .map(|authority| crate::net::send(&namespace, &cred, greeting_request(&authority)).err());
         thread::sleep(Duration::from_millis(20));
         assert!(
             answers
                 .iter()
                 .all(|answer| *answer == Some(HttpError::Denied))
                 && listener.accept().is_err(),
-            "Namespace::send to an authority only a tcp endpoint names, one no endpoint names, \
+            "a guest's request to an authority only a tcp endpoint names, one no endpoint names, \
              or a virtual address must answer Denied, sending nothing, got {answers:?}"
         );
     }
@@ -1261,7 +1267,7 @@ mod tests {
         let answers = ["Host", "content-length", "bad name"].map(|name| {
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.headers.push((name.to_string(), b"x".to_vec()));
-            namespace.send(&cred, request).err()
+            crate::net::send(&namespace, &cred, request).err()
         });
         thread::sleep(Duration::from_millis(20));
         assert!(
@@ -1269,7 +1275,7 @@ mod tests {
                 .iter()
                 .all(|answer| *answer == Some(HttpError::Denied))
                 && listener.accept().is_err(),
-            "Namespace::send of a request carrying host, content-length, or a name that is no \
+            "a guest's request carrying host, content-length, or a name that is no \
              token must answer Denied, sending nothing, got {answers:?}"
         );
     }
@@ -1285,7 +1291,7 @@ mod tests {
         let answers = ["http://other.example/x", "*", "", "/a#b"].map(|target| {
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.path_with_query = target.to_string();
-            namespace.send(&cred, request).err()
+            crate::net::send(&namespace, &cred, request).err()
         });
         thread::sleep(Duration::from_millis(20));
         assert!(
@@ -1293,7 +1299,7 @@ mod tests {
                 .iter()
                 .all(|answer| *answer == Some(HttpError::Denied))
                 && listener.accept().is_err(),
-            "Namespace::send of a request whose target is absolute-form, asterisk-form, empty, or \
+            "a guest's request whose target is absolute-form, asterisk-form, empty, or \
              carries a fragment must answer Denied, sending nothing, got {answers:?}"
         );
     }
@@ -1323,9 +1329,8 @@ mod tests {
         let cred = prepare_creds_within(&[], None);
         let mut request = greeting_request(&format!("127.0.0.1:{port}"));
         request.scheme = Scheme::Https;
-        let exchange = namespace
-            .send(&cred, request)
-            .expect("an endpoint names the authority");
+        let exchange =
+            crate::net::send(&namespace, &cred, request).expect("an endpoint names the authority");
         let answer = read_response(&exchange).map(|(head, _)| head.status);
         assert_eq!(
             (server.join().unwrap(), answer),
@@ -1367,7 +1372,7 @@ mod tests {
             .headers
             .push(("x-probe".to_string(), b"secret".to_vec()));
         let cred = prepare_creds_within(&[], None);
-        let answer = namespace.send(&cred, request).err();
+        let answer = crate::net::send(&namespace, &cred, request).err();
         thread::sleep(Duration::from_millis(20));
         assert_eq!(
             (
@@ -1432,8 +1437,7 @@ mod tests {
         let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));
         request.path_with_query = path.to_string();
         request.headers.push((header.to_string(), value.to_vec()));
-        let exchange = namespace
-            .send(&prepare_creds_within(&[], None), request)
+        let exchange = crate::net::send(&namespace, &prepare_creds_within(&[], None), request)
             .expect("an endpoint names the authority");
         let _ = read_response(&exchange);
         let recorded = seam.0.lock().unwrap().pop().unwrap_or_default();
@@ -1550,12 +1554,12 @@ mod tests {
         let tcp = crate::net::create_tcp_socket(&namespace, &cred, crate::net::AddressFamily::Inet);
         let udp =
             crate::net::create_udp_socket(&namespace, &cred, crate::net::AddressFamily::Inet).err();
-        let sent = namespace
-            .send(
-                &cred,
-                OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
-            )
-            .err();
+        let sent = crate::net::send(
+            &namespace,
+            &cred,
+            OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+        )
+        .err();
         let made = tcp.is_ok();
         drop(tcp);
         let again =
@@ -1609,12 +1613,12 @@ mod tests {
                 Arc::new(AnswersHeader(size)),
             );
             let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 16 * 1024));
-            let exchange = namespace
-                .send(
-                    &cred,
-                    OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
-                )
-                .expect("an endpoint names the authority");
+            let exchange = crate::net::send(
+                &namespace,
+                &cred,
+                OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+            )
+            .expect("an endpoint names the authority");
             read_response(&exchange).map(|(head, _)| head.status)
         };
         assert_eq!(
@@ -1651,9 +1655,8 @@ mod tests {
         let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 40 * 1024));
         let mut request = OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80");
         request.path_with_query = format!("/{}", "p".repeat(30 * 1024));
-        let exchange = namespace
-            .send(&cred, request)
-            .expect("an endpoint names the authority");
+        let exchange =
+            crate::net::send(&namespace, &cred, request).expect("an endpoint names the authority");
         let while_sent = MemoryCharge::new(&cred, 20 * 1024).is_ok();
         exchange.release();
         let after = MemoryCharge::new(&cred, 20 * 1024).is_ok();
@@ -1722,12 +1725,12 @@ mod tests {
             );
             let cred = prepare_creds_within(&[], None);
             let send = || {
-                namespace
-                    .send(
-                        &cred,
-                        OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
-                    )
-                    .expect("an endpoint names the authority")
+                crate::net::send(
+                    &namespace,
+                    &cred,
+                    OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+                )
+                .expect("an endpoint names the authority")
             };
             for _ in 0..20_000 {
                 let exchange = send();

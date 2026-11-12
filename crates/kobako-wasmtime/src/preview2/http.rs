@@ -236,7 +236,7 @@ impl Invocation {
             return FutureState::Refused(ErrorCode::HTTPRequestDenied);
         };
         let cred = self.wasi().cred();
-        match namespace.send(cred, outgoing) {
+        match net::send(namespace, cred, outgoing) {
             Ok(exchange) => {
                 let file = Arc::new(Mutex::new(exchange.alloc_response_file(cred)));
                 FutureState::Sent(exchange, file)

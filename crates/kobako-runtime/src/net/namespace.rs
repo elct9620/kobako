@@ -9,17 +9,13 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use super::egress::EgressProxy;
-use super::http::{
-    split_authority, to_field_name, to_field_value, to_origin_form, Exchange, HttpError, Outbound,
-    OutgoingRequest, Scheme,
-};
-use super::lookup::{allows_lookup, normalize, LookupError, NameLookup, Resolver};
+use super::http::Outbound;
+use super::lookup::{LookupError, NameLookup, Resolver};
 use super::socket::BindHash;
-use super::transport::Connector;
 use super::{MemoryCharge, OpenConnections, ProtocolFamily, TcpSock};
 use crate::grant::Policy;
-use crate::network::{Connection, EntryError, Name, Network, Protocol, Request, Ruleset};
-use crate::vfs::{Cred, FilesystemError};
+use crate::network::{EntryError, Name, Network, Protocol, Ruleset};
+use crate::vfs::Cred;
 
 /// The bottom of the virtual range, `198.18.0.0/15`, inside the reserved set,
 /// so no real destination is ever in it.
@@ -146,88 +142,15 @@ impl Namespace {
         })
     }
 
-    /// An HTTP request in flight, as `cred`. The socket hooks judge the
-    /// authority the guest named first, a name passing the `resolve` policies
-    /// too, and an `http` endpoint must name it at its port; a literal address
-    /// passes the ruleset as itself, so a virtual one is refused, and an IPv6
-    /// one reaches nothing. A header the guest may not set is refused too, so
-    /// the seam frames every request itself, and so is a target not in origin
-    /// form, which a proxy would forward past the judged authority. Any
-    /// refusal answers `Denied`, and nothing is sent.
-    pub fn send(
-        &self,
-        cred: &Arc<Cred>,
-        request: OutgoingRequest,
-    ) -> Result<Arc<Exchange>, HttpError> {
-        let in_origin_form = to_origin_form(&request.path_with_query).as_deref()
-            == Some(request.path_with_query.as_str());
-        if !in_origin_form
-            || request.headers.iter().any(|(name, value)| {
-                to_field_name(name).is_err() || to_field_value(value.clone()).is_err()
-            })
-        {
-            return Err(HttpError::Denied);
-        }
-        let (host, port) =
-            split_authority(&request.authority, request.scheme).ok_or(HttpError::Denied)?;
-        let literal = host.parse::<IpAddr>().ok();
-        let host = match literal {
-            Some(_) => host,
-            None => normalize(&host).map_err(|_| HttpError::Denied)?,
-        };
-        let connection = Connection::new(&host, port, Protocol::Http);
-        if cred.security_socket_connect(&connection).is_err() {
-            return Err(HttpError::Denied);
-        }
-        let reachable = match literal {
-            Some(ip) => self
-                .admit_judged_literal(SocketAddr::new(ip, port), Protocol::Http)
-                .is_ok(),
-            None => allows_lookup(self, &host),
-        };
-        let path = request
-            .path_with_query
-            .split_once('?')
-            .map_or(request.path_with_query.as_str(), |(path, _)| path);
-        let method = request.method.to_ascii_uppercase();
-        let names = request
-            .headers
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<Vec<_>>();
-        let scheme = match request.scheme {
-            Scheme::Http => "http",
-            Scheme::Https => "https",
-        };
-        let policy_request = Request::new((&host, port), &method, scheme, path, &names);
-        let admitted = reachable
-            && self.ruleset.admits_request(&host, port, &method, path)
-            && self.egress.admits(&policy_request);
-        if !admitted {
-            return Err(HttpError::Denied);
-        }
-        let swaps = match request.scheme {
-            Scheme::Https => self.egress.swaps_of(&policy_request, &request.headers),
-            Scheme::Http => Vec::new(),
-        };
-        let mut request = request;
-        request.swaps = swaps;
-        let connector = Connector::new(
-            host,
-            port,
-            self.ruleset.clone(),
-            self.family.clone(),
-            self.resolver.clone(),
-        );
-        self.within_connection_budget(HttpError::ConnectionLimitReached, || {
-            Exchange::start(
-                self.outbound.clone(),
-                request,
-                connector,
-                &self.open_connections,
-                cred,
-            )
-        })
+    /// The entries' request policies and bound credentials, which the L7
+    /// proxy judges each request by.
+    pub(crate) fn egress(&self) -> &EgressProxy {
+        &self.egress
+    }
+
+    /// The seam every HTTP request this namespace admits is sent through.
+    pub(crate) fn outbound(&self) -> &Arc<dyn Outbound> {
+        &self.outbound
     }
 
     /// The entries' `resolve` policies, which judge each lookup.
@@ -361,7 +284,7 @@ impl Namespace {
     }
 
     /// The rules every connection made here passes.
-    pub(crate) fn ruleset(&self) -> &Ruleset {
+    pub(crate) fn ruleset(&self) -> &Arc<Ruleset> {
         &self.ruleset
     }
 
@@ -374,20 +297,6 @@ impl Namespace {
             .unwrap_or_else(PoisonError::into_inner);
         sockets.retain(|sock| sock.strong_count() > 0);
         sockets.push(Arc::downgrade(sock));
-    }
-
-    /// Whether a request may reach `addr`, a literal the socket hooks already
-    /// passed: the guest has no IPv6, so an IPv6 one answers `EAFNOSUPPORT`,
-    /// as a socket's `connect4` does; any other meets the ruleset as itself.
-    fn admit_judged_literal(
-        &self,
-        addr: SocketAddr,
-        protocol: Protocol,
-    ) -> Result<(), FilesystemError> {
-        if addr.is_ipv6() {
-            return Err(FilesystemError::AddressFamilyNotSupported);
-        }
-        self.ruleset.admit_literal(addr, protocol)
     }
 
     /// What `addr` stands for when it lies in the virtual range: its name and
@@ -432,6 +341,7 @@ mod tests {
     use std::time::Duration;
 
     use super::super::family::testing::CountsDials;
+    use super::super::http::{HttpError, OutgoingRequest, Scheme};
     use super::super::lookup::resolve;
     use super::super::socket::{
         create_tcp_socket, create_udp_socket, sys_bind, sys_connect, sys_connect_datagram,
@@ -440,8 +350,10 @@ mod tests {
     use super::super::UdpSock;
     use super::*;
     use crate::grant::Grant;
+    use crate::network::Connection;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
     use crate::security::{prepare_creds_within, restrict_self};
+    use crate::vfs::FilesystemError;
     use crate::vfs::SecurityOperations;
 
     /// Each connection a policy was asked about.
@@ -575,8 +487,8 @@ mod tests {
         );
         let cred = restrict_self(&prepare_creds_within(&[], None), [&Grant::Network(network)]);
         let get = |authority: &str| OutgoingRequest::new("GET", Scheme::Http, authority);
-        let hooked = namespace.send(&cred, get("refused.example:4567")).err();
-        let ipv6 = namespace.send(&cred, get("[::1]:4567")).err();
+        let hooked = crate::net::send(&namespace, &cred, get("refused.example:4567")).err();
+        let ipv6 = crate::net::send(&namespace, &cred, get("[::1]:4567")).err();
         assert_eq!(
             (
                 entry.reads.load(Ordering::SeqCst),
@@ -592,7 +504,7 @@ mod tests {
                 Some(HttpError::Denied),
                 vec!["refused.example".to_string(), "::1".to_string()]
             ),
-            "Namespace::new must read an entry's endpoints once, Namespace::send must ask no \
+            "a network must read an entry's endpoints once, a guest's request must ask no \
              resolve policy once a connect hook refused, and must let the connect hook judge an \
              IPv6 authority an endpoint names before refusing it, as a socket's connect does"
         );
@@ -935,7 +847,7 @@ mod tests {
                 .iter()
                 .all(|answer| *answer == Err(LookupError::NameUnresolvable))
                 && family.lookups.load(Ordering::SeqCst) == 0,
-            "Namespace::resolve of a name no endpoint names, one a resolve policy refuses, or a \
+            "a guest's lookup of a name no endpoint names, one a resolve policy refuses, or a \
              wildcard's own apex must answer name-unresolvable without asking the resolver, got \
              {answers:?}"
         );
@@ -1016,12 +928,12 @@ mod tests {
         let endpoint = Endpoint::new("api.example.com", 80).unwrap();
         let namespace = resolving_namespace(vec![endpoint], "", family.clone());
         let cred = prepare_creds_within(&[], None);
-        let exchange = namespace
-            .send(
-                &cred,
-                OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
-            )
-            .expect("the endpoint names the authority");
+        let exchange = crate::net::send(
+            &namespace,
+            &cred,
+            OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+        )
+        .expect("the endpoint names the authority");
         let started = std::time::Instant::now();
         let answer = loop {
             if let Some(answer) = exchange.response() {
