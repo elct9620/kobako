@@ -91,4 +91,20 @@ class TestE2ENetworkNames < Minitest::Test
                  "TCPSocket to a name a net.policy(:resolve) block refuses, in any case or with a trailing dot, " \
                  "must raise Socket::ResolutionError"
   end
+
+  # An entry object naming `localhost` whose +resolve?+ refuses it.
+  RefusingEntry = Struct.new(:endpoints) do
+    def resolve?(name) = name != "localhost"
+  end
+
+  # @behavior NW-036
+  def test_an_entrys_resolve_refuses_a_name_an_endpoint_names
+    endpoint = Kobako::Network::Endpoint.new(host: "localhost", port: 4567, protocol: :tcp, addresses: [:local])
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:local, RefusingEntry.new([endpoint]))
+    value = sandbox.eval(format(UNRESOLVED_NAME, name: "LocalHost.")).value
+
+    assert_equal "Socket::ResolutionError", value&.first,
+                 "TCPSocket to a name an entry's resolve? refuses, in any case or with a trailing dot, must raise " \
+                 "Socket::ResolutionError"
+  end
 end
