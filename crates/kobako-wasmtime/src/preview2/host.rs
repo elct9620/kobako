@@ -200,15 +200,15 @@ impl Invocation {
             return Err(ErrorCode::AccessDenied.into());
         }
         let cred = self.wasi().cred().clone();
-        let family = match family {
+        let address_family = match family {
             IpAddressFamily::Ipv4 => AddressFamily::Inet,
             IpAddressFamily::Ipv6 => AddressFamily::Inet6,
         };
-        let sock = create(self.network(), &cred, family)?;
+        let sock = create(self.network(), &cred, address_family)?;
         if self.wasi().table().is_full() {
             return Err(ErrorCode::NewSocketLimit.into());
         }
-        let socket = SocketFile::new(sock.clone(), sock_alloc_file(sock, &cred));
+        let socket = SocketFile::new(sock.clone(), family, sock_alloc_file(sock, &cred));
         Ok(self.table_mut().push_file(resource(socket))?)
     }
 
@@ -227,11 +227,13 @@ impl Invocation {
     /// Start a bind of `sock`, standing at `standing`, to `local_address`, as
     /// both sockets' `start-bind` do in wasmtime's order, the network handle
     /// checked as it was lifted: a bind or connect under way, then any other
-    /// state, then the address as WASI takes it and the protocol finds
-    /// `is_valid`, through the socket hooks to the socket's own bind.
+    /// state, then the address as WASI takes it for a socket of `family` and
+    /// the protocol finds `is_valid`, through the socket hooks to the socket's
+    /// own bind.
     fn start_bind(
         &mut self,
         sock: &dyn ProtoOps,
+        family: IpAddressFamily,
         local_address: &IpSocketAddress,
         standing: BindStanding,
         is_valid: fn(SocketAddr) -> bool,
@@ -241,7 +243,7 @@ impl Invocation {
             BindStanding::Busy => return Err(ErrorCode::ConcurrencyConflict.into()),
             BindStanding::Settled => return Err(ErrorCode::InvalidState.into()),
         }
-        let addr = to_socket_addr(local_address)
+        let addr = to_socket_addr(local_address, family)
             .filter(|addr| is_valid(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().cred().clone();
@@ -397,9 +399,10 @@ impl SocketsHost for Invocation {
             state if state.is_in_progress() => BindStanding::Busy,
             _ => BindStanding::Settled,
         };
-        let sock = socket.socket.sock.clone();
+        let (sock, family) = (socket.socket.sock.clone(), socket.socket.family);
         self.start_bind(
             sock.as_ref(),
+            family,
             &local_address,
             standing,
             is_valid_unicast_address,
@@ -433,7 +436,7 @@ impl SocketsHost for Invocation {
             _ => return Err(ErrorCode::InvalidState.into()),
         }
         let sock = socket.socket.sock.clone();
-        let addr = to_remote_addr(&remote_address)
+        let addr = to_remote_addr(&remote_address, socket.socket.family)
             .filter(|addr| is_valid_unicast_address(*addr))
             .ok_or(ErrorCode::InvalidArgument)?;
         let cred = self.wasi().cred();
@@ -686,10 +689,10 @@ impl SocketsHost for Invocation {
             UdpState::Binding => BindStanding::Busy,
             _ => BindStanding::Settled,
         };
-        let sock = socket.socket.sock.clone();
+        let (sock, family) = (socket.socket.sock.clone(), socket.socket.family);
         // UDP binds any address WASI takes, as wasmtime asks UDP of its family
         // alone; the socket hooks refuse all but the implicit one.
-        self.start_bind(sock.as_ref(), &local_address, standing, |_| true)?;
+        self.start_bind(sock.as_ref(), family, &local_address, standing, |_| true)?;
         self.udp_mut(this)?.state = UdpState::Binding;
         Ok(())
     }
@@ -776,7 +779,11 @@ impl SocketsHost for Invocation {
             return Err(ErrorCode::InvalidState.into());
         }
         let socket_file = socket.socket.clone();
-        let peer = match remote_address.as_ref().map(to_remote_addr) {
+        let family = socket_file.family;
+        let peer = match remote_address
+            .as_ref()
+            .map(|addr| to_remote_addr(addr, family))
+        {
             Some(Some(addr)) => Some(addr),
             Some(None) => return Err(ErrorCode::InvalidArgument.into()),
             None => None,
@@ -893,7 +900,10 @@ impl SocketsHost for Invocation {
         let socket_file = self.table_mut().get(this)?.socket.clone();
         let mut sent = 0;
         for datagram in datagrams {
-            let addressed = datagram.remote_address.as_ref().map(to_socket_addr);
+            let addressed = datagram
+                .remote_address
+                .as_ref()
+                .map(|addr| to_socket_addr(addr, socket_file.family));
             // Its size is judged before its address, as wasmtime's send asks.
             let refused = if datagram.data.len() > MAX_DATAGRAM {
                 Some(ErrorCode::DatagramTooLarge)
@@ -1179,7 +1189,9 @@ mod tests {
     use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
     use std::sync::Arc;
 
-    use super::super::bindings::wasi_sockets_network_0_2_12::Ipv4SocketAddress;
+    use super::super::bindings::wasi_sockets_network_0_2_12::{
+        Ipv4SocketAddress, Ipv6SocketAddress,
+    };
     use super::super::bindings::{Host as _, HttpHost};
     use super::super::error::IntoAnswer;
     use super::*;
@@ -2590,6 +2602,70 @@ mod tests {
              start-bind to a multicast address, must answer invalid-argument; a UDP socket \
              checks only the unspecified address and port 0 that way, as wasmtime's, so its \
              multicast bind and broadcast or multicast stream answer access-denied"
+        );
+    }
+
+    // @behavior NW-200
+    #[test]
+    fn an_address_of_another_family_answers_invalid_argument() {
+        let (mut guest, _listener) = guest_and_listener();
+        let network = guest.instance_network_instance_network().unwrap();
+        let loopback = || {
+            IpSocketAddress::Ipv6(Ipv6SocketAddress {
+                port: 80,
+                flow_info: 0,
+                address: (0, 0, 0, 0, 0, 0, 0, 1),
+                scope_id: 0,
+            })
+        };
+        let mut tcp = || {
+            guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()
+                .unwrap()
+                .expect("a network makes a socket")
+        };
+        let (bound, connected) = (tcp(), tcp());
+        let tcp_bind = guest
+            .tcp_tcp_socket_start_bind(bound, network, loopback())
+            .into_answer()
+            .unwrap();
+        let tcp_connect = guest
+            .tcp_tcp_socket_start_connect(connected, network, loopback())
+            .into_answer()
+            .unwrap();
+        let mut udp = || {
+            guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()
+                .unwrap()
+                .expect("a network makes a socket")
+        };
+        let (unbound, streaming) = (udp(), udp());
+        let udp_bind = guest
+            .udp_udp_socket_start_bind(unbound, network, loopback())
+            .into_answer()
+            .unwrap();
+        guest
+            .udp_udp_socket_start_bind(streaming, network, ipv4((0, 0, 0, 0), 0))
+            .into_answer()
+            .unwrap()
+            .expect("an ephemeral bind is the implicit one");
+        guest
+            .udp_udp_socket_finish_bind(streaming)
+            .into_answer()
+            .unwrap()
+            .expect("the bind settles");
+        let udp_stream = guest
+            .udp_udp_socket_stream(streaming, Some(loopback()))
+            .into_answer()
+            .unwrap()
+            .map(drop);
+        assert_eq!(
+            [tcp_bind, tcp_connect, udp_bind, udp_stream],
+            [Err(ErrorCode::InvalidArgument); 4],
+            "an IPv4 socket's start-bind, start-connect, or stream to an IPv6 address must answer \
+             invalid-argument, as WIT names an address of the wrong family"
         );
     }
 

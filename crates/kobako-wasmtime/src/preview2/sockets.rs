@@ -2,13 +2,13 @@
 //! the error code each POSIX name maps to, as the WIT's "typical errors"
 //! lists pair them.
 
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 use kobako_runtime::net::LookupError;
 use kobako_runtime::Errno;
 
 use super::bindings::wasi_sockets_network_0_2_12::{
-    ErrorCode, IpSocketAddress, Ipv4SocketAddress, Ipv6SocketAddress,
+    ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress, Ipv6SocketAddress,
 };
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
@@ -44,18 +44,42 @@ pub(crate) fn to_buffer_size(value: u64) -> Option<u32> {
     (value != 0).then(|| u32::try_from(value).unwrap_or(u32::MAX))
 }
 
-/// The IPv4 address the guest named; an IPv6 one has no answer, since the
-/// guest is IPv4-only.
-pub(crate) fn to_socket_addr(addr: &IpSocketAddress) -> Option<SocketAddr> {
-    match addr {
-        IpSocketAddress::Ipv4(Ipv4SocketAddress {
-            port,
-            address: (a, b, c, d),
-        }) => Some(SocketAddr::V4(SocketAddrV4::new(
+/// The address the guest named for a socket of `family`, once it is of that
+/// family, as wasmtime's `is_valid_address_family` asks: an IPv6 socket takes
+/// no IPv4-mapped or IPv4-compatible address, and an address of the other
+/// family has no answer.
+pub(crate) fn to_socket_addr(
+    addr: &IpSocketAddress,
+    family: IpAddressFamily,
+) -> Option<SocketAddr> {
+    match (family, addr) {
+        (
+            IpAddressFamily::Ipv4,
+            IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port,
+                address: (a, b, c, d),
+            }),
+        ) => Some(SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::new(*a, *b, *c, *d),
             *port,
         ))),
-        IpSocketAddress::Ipv6(_) => None,
+        (
+            IpAddressFamily::Ipv6,
+            IpSocketAddress::Ipv6(Ipv6SocketAddress {
+                port,
+                flow_info,
+                address: (a, b, c, d, e, f, g, h),
+                scope_id,
+            }),
+        ) => {
+            let ip = Ipv6Addr::new(*a, *b, *c, *d, *e, *f, *g, *h);
+            let ipv4_compatible = matches!(ip.segments(), [0, 0, 0, 0, 0, 0, _, _])
+                && ip != Ipv6Addr::UNSPECIFIED
+                && ip != Ipv6Addr::LOCALHOST;
+            (!ipv4_compatible && ip.to_ipv4_mapped().is_none())
+                .then(|| SocketAddr::V6(SocketAddrV6::new(ip, *port, *flow_info, *scope_id)))
+        }
+        _ => None,
     }
 }
 
@@ -71,8 +95,11 @@ pub(crate) fn is_valid_unicast_address(addr: SocketAddr) -> bool {
 
 /// The peer the guest named, if it may be reached, as wasmtime's
 /// `is_valid_remote_address` asks: neither unspecified nor at port 0.
-pub(crate) fn to_remote_addr(addr: &IpSocketAddress) -> Option<SocketAddr> {
-    to_socket_addr(addr).filter(|addr| !addr.ip().is_unspecified() && addr.port() != 0)
+pub(crate) fn to_remote_addr(
+    addr: &IpSocketAddress,
+    family: IpAddressFamily,
+) -> Option<SocketAddr> {
+    to_socket_addr(addr, family).filter(|addr| !addr.ip().is_unspecified() && addr.port() != 0)
 }
 
 /// `addr` as the guest reads it.

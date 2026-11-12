@@ -15,7 +15,7 @@ use kobako_runtime::vfs::{File, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
 use kobako_runtime::Errno;
 
-use super::bindings::wasi_sockets_network_0_2_12::ErrorCode;
+use super::bindings::wasi_sockets_network_0_2_12::{ErrorCode, IpAddressFamily};
 use super::MAX_READ_SIZE_ALLOC;
 use crate::wasi::MAX_TABLE_ENTRIES;
 
@@ -29,9 +29,12 @@ pub(crate) fn lock(file: &SharedFile) -> MutexGuard<'_, File> {
 
 /// One socket file every view of a guest socket shares, as handles on one
 /// `struct file` share one `struct socket`: the protocol's half is `S`, and
-/// the last view dropped releases the socket.
+/// the last view dropped releases the socket. It keeps the family the guest
+/// made it of, as wasmtime's socket does, so an address of another family is
+/// refused before the runtime is asked.
 pub(crate) struct SocketFile<S> {
     pub(crate) sock: Arc<S>,
+    pub(crate) family: IpAddressFamily,
     file: SharedFile,
 }
 
@@ -39,15 +42,17 @@ impl<S> Clone for SocketFile<S> {
     fn clone(&self) -> Self {
         Self {
             sock: self.sock.clone(),
+            family: self.family,
             file: self.file.clone(),
         }
     }
 }
 
 impl<S> SocketFile<S> {
-    pub(crate) fn new(sock: Arc<S>, file: File) -> Self {
+    pub(crate) fn new(sock: Arc<S>, family: IpAddressFamily, file: File) -> Self {
         Self {
             sock,
+            family,
             file: Arc::new(Mutex::new(file)),
         }
     }

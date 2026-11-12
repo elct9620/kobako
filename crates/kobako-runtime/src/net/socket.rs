@@ -628,9 +628,20 @@ pub enum AddressFamily {
     Inet6,
 }
 
+impl AddressFamily {
+    /// The family `ip` is an address of, as an address's `sa_family` names it.
+    pub(crate) fn of(ip: IpAddr) -> Self {
+        match ip {
+            IpAddr::V4(_) => Self::Inet,
+            IpAddr::V6(_) => Self::Inet6,
+        }
+    }
+}
+
 /// Refuse a family the guest has no socket of, as `__sock_create` answers
-/// `EAFNOSUPPORT` for a family no `net_proto_family` registered.
-fn check_family(family: AddressFamily) -> Result<(), Errno> {
+/// `EAFNOSUPPORT` for a family no `net_proto_family` registered; an address of
+/// such a family reaches no socket, so a connect to one answers the same.
+pub(crate) fn check_family(family: AddressFamily) -> Result<(), Errno> {
     match family {
         AddressFamily::Inet => Ok(()),
         AddressFamily::Inet6 => Err(Errno::AddressFamilyNotSupported),
@@ -740,9 +751,7 @@ pub(crate) enum Destination {
 /// address it stands for, one no name holds answering `EACCES`; any other
 /// stands as itself.
 pub(crate) fn connect4(net: &Namespace, addr: SocketAddr) -> Result<Destination, Errno> {
-    if addr.is_ipv6() {
-        return Err(Errno::AddressFamilyNotSupported);
-    }
+    check_family(AddressFamily::of(addr.ip()))?;
     match net.translation_of(addr) {
         None => Ok(Destination::Literal(addr)),
         Some(None) => Err(Errno::PermissionDenied),

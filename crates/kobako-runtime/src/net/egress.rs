@@ -12,6 +12,7 @@ use super::http::{
     HttpError, OutgoingRequest, Scheme,
 };
 use super::lookup::{allows_lookup, normalize};
+use super::socket::{check_family, AddressFamily};
 use super::transport::Connector;
 use super::Namespace;
 use crate::cred::Cred;
@@ -98,12 +99,10 @@ pub fn send(
 }
 
 /// Whether a request may reach `addr`, a literal the socket hooks already
-/// passed: the guest has no IPv6, so an IPv6 one answers `EAFNOSUPPORT`, as a
+/// passed: one of a family no socket has answers `EAFNOSUPPORT`, as a
 /// socket's `connect4` does; any other meets `net`'s ruleset as itself.
 fn admit_literal(net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
-    if addr.is_ipv6() {
-        return Err(Errno::AddressFamilyNotSupported);
-    }
+    check_family(AddressFamily::of(addr.ip()))?;
     net.ruleset().admit_literal(addr, Protocol::Http)
 }
 
