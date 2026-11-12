@@ -25,7 +25,7 @@ Each cap has a default and its own way to end a run.
 |---|---|---|
 | `timeout` | 60.0 s | `Kobako::TimeoutError` |
 | `setup_timeout` | 10.0 s | `Kobako::SetupError` at `new` |
-| `memory_limit` | 4 MiB | `Kobako::MemoryLimitError` |
+| `memory_limit` | 4 MiB | `Kobako::MemoryLimitError`; a host buffer past it is `Errno::ENOMEM` in the guest |
 | `stdout_limit`, `stderr_limit` | 1 MiB each | output clipped, no raise |
 | `open_file_limit` | 1024 | `Errno::EMFILE` in the guest |
 | `open_connection_limit` | 6 | `Errno::EAGAIN` in the guest |
@@ -40,7 +40,7 @@ global budget.
 |---|---|
 | `timeout` | wall time inside the guest, Service calls included |
 | `setup_timeout` | instantiating a Guest Binary and reading its ABI version, not compiling it |
-| `memory_limit` | the run's `memory.grow` past its starting memory |
+| `memory_limit` | the run's `memory.grow` past its starting memory, together with the buffers, listings, and lookups the host holds for it |
 | `open_file_limit` | every descriptor one run holds: the standard three, Mounts, sockets, lookups, HTTP requests |
 
 `setup_timeout` applies the first time a path is loaded, and later Sandboxes on

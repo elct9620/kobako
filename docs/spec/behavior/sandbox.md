@@ -1831,3 +1831,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox waiting on a directory a mount's block holds |
 | When | a Timeout fires during the wait |
 | Then | the run raises `Timeout::Error` in the Host App |
+
+## `S-209` The guest's memory and what the host holds for it share one budget
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-121` |
+| relates | `NW-116` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation whose memory budget is partly taken by buffers the host holds for the guest's socket |
+| When | the guest grows its memory past what is left |
+| Then | the growth is refused as the budget's own failure. Linux's memory cgroup counts a task's pages and its socket buffers in one `memory.current` |
