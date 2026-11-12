@@ -3725,7 +3725,7 @@ mod tests {
         );
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds_within(&[], None),
-            [&mount],
+            [&crate::grant::Grant::Mount(mount.clone())],
         );
         let root = Path::root(mount.mnt());
         [
@@ -3883,7 +3883,10 @@ mod tests {
         .expect("/data is a guest path");
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds_within(&[], None),
-            [&plain, &links],
+            [
+                &crate::grant::Grant::Mount(plain.clone()),
+                &crate::grant::Grant::Mount(links.clone()),
+            ],
         );
         let (plain, links) = (Path::root(plain.mnt()), Path::root(links.mnt()));
         assert_eq!(
@@ -4099,7 +4102,7 @@ mod tests {
         let root = Path::root(mount.mnt());
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds_within(&[], None),
-            [&mount],
+            [&crate::grant::Grant::Mount(mount.clone())],
         );
         let opener = {
             let (root, cred) = (root.clone(), cred.clone());
@@ -4935,7 +4938,7 @@ mod tests {
         .expect("/data is a guest path");
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds_within(&[], None),
-            [&mount],
+            [&crate::grant::Grant::Mount(mount.clone())],
         );
         vfs::kern_path::filp_open(&cred, &Path::root(mount.mnt()), path, how).err()
     }
@@ -5587,7 +5590,7 @@ mod tests {
         .with_policy(Arc::new(RefusesMovedName));
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds_within(&[], None),
-            [&mount],
+            [&crate::grant::Grant::Mount(mount.clone())],
         );
         let root = Path::root(mount.mnt());
         let holder = {

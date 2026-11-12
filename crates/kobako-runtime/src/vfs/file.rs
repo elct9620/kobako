@@ -1406,7 +1406,8 @@ mod tests {
         let cred = crate::security::prepare_creds_within(&[], Some(one_listing));
         // A Wasm Driver opens the root before the Policies apply and lists through
         // the Cred they were added to, so both must count against one limit.
-        let restricted = crate::security::restrict_self(&cred, [&mount]);
+        let restricted =
+            crate::security::restrict_self(&cred, [&crate::grant::Grant::Mount(mount.clone())]);
         let open = |cred: &Arc<Cred>| {
             File::root(mount.mnt(), cred).unwrap_or_else(|_| panic!("the root must open"))
         };

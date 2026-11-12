@@ -17,7 +17,6 @@ use std::sync::Arc;
 
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
-use kobako_runtime::mount::Mount;
 use kobako_runtime::net::{HostInet, HyperOutbound, Namespace, OpenConnections};
 use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
@@ -75,7 +74,7 @@ impl Wasi {
             config.open_file_limit,
             prepare_creds(config),
             config.profile,
-            grants.iter().filter_map(to_mount).collect(),
+            grants,
         )?;
         wasi.network = to_network(grants, open_connections, config.connection_limit)?;
         Ok(wasi)
@@ -92,7 +91,7 @@ impl Wasi {
             config.open_file_limit,
             prepare_creds(config),
             Profile::Hermetic,
-            Vec::new(),
+            &[],
         )
     }
 
@@ -108,7 +107,7 @@ impl Wasi {
             None,
             prepare_creds_within(&[], None),
             Profile::Hermetic,
-            Vec::new(),
+            &[],
         )
     }
 
@@ -121,7 +120,7 @@ impl Wasi {
         open_file_limit: Option<usize>,
         opener: Arc<Cred>,
         profile: Profile,
-        mounts: Vec<Mount>,
+        grants: &[Grant],
     ) -> Result<Self, Trap> {
         let stdout = PipeInodeInfo::new(endpoint::pipe_capacity(stdout_limit));
         let stderr = PipeInodeInfo::new(endpoint::pipe_capacity(stderr_limit));
@@ -136,13 +135,13 @@ impl Wasi {
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
-            mounts,
+            grants,
             open_files,
             opener,
             profile,
         )
         .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?;
-        // The Cred the Mounts' Policies restrict, which preview1's table and
+        // The Cred the Grants' policies restrict, which preview1's table and
         // preview2's calls share, as every fd a task holds shares its cred.
         let cred = descriptors.cred().clone();
 
@@ -263,16 +262,6 @@ fn to_network(
         connection_limit,
     )
     .map(Some)
-}
-
-/// A Mount as this invocation presents it. A kind this driver does not
-/// support has no descriptor to stand behind; `Driver::supports` keeps a
-/// frontend from handing one over.
-fn to_mount(grant: &Grant) -> Option<Mount> {
-    match grant {
-        Grant::Mount(mount) => Some(mount.clone()),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

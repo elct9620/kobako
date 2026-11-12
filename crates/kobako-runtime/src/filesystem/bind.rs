@@ -1183,7 +1183,7 @@ mod tests {
         let root = VfsPath::root(mount.mnt());
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds_within(&[], None),
-            [&mount],
+            [&crate::grant::Grant::Mount(mount.clone())],
         );
         let read = OpenHow {
             read: true,
@@ -1253,7 +1253,7 @@ mod tests {
         let opened = vfs::kern_path::filp_open(
             &crate::security::restrict_self(
                 &crate::security::prepare_creds_within(&[], None),
-                [&mount],
+                [&crate::grant::Grant::Mount(mount.clone())],
             ),
             &VfsPath::root(mount.mnt()),
             "public/x",
@@ -1387,7 +1387,7 @@ mod tests {
         let root = vfs::Path::root(mount.mnt());
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds_within(&[], None),
-            [&mount],
+            [&crate::grant::Grant::Mount(mount.clone())],
         );
         let directory = OpenHow {
             read: true,

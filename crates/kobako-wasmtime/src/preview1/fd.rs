@@ -572,7 +572,10 @@ mod tests {
             ends(PipeInodeInfo::from_bytes(Vec::new())).0,
             ends(PipeInodeInfo::new(1)).1,
             ends(PipeInodeInfo::new(1)).1,
-            mounts,
+            &mounts
+                .into_iter()
+                .map(kobako_runtime::grant::Grant::Mount)
+                .collect::<Vec<_>>(),
             kobako_runtime::vfs::OpenFiles::new(limit),
             cred.clone(),
             Profile::Hermetic,

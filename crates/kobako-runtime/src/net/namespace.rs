@@ -33,13 +33,12 @@ const VIRTUAL_SIZE: u32 = 1 << 17;
 /// `LOCAL_ADDRESS`, and the broadcast one above it.
 const MAX_NAMED_ADDRESSES: u32 = VIRTUAL_SIZE - 2;
 
-/// What the guest may reach, which policies judge each lookup and connect, the
-/// backend that dials it, the connections the Sandbox holds open and those
-/// left to this Invocation, and the virtual addresses handed out.
+/// What the guest may reach, which policies judge each lookup, the backend
+/// that dials it, the connections the Sandbox holds open and those left to
+/// this Invocation, and the virtual addresses handed out.
 pub struct Namespace {
     ruleset: Arc<Ruleset>,
     resolve: Vec<Arc<dyn for<'a> Policy<Name<'a>>>>,
-    connect: Vec<Arc<dyn for<'a> Policy<Connection<'a>>>>,
     /// The HTTP layer's request policies and bound credentials.
     egress: EgressProxy,
     family: Arc<dyn ProtocolFamily>,
@@ -128,7 +127,6 @@ impl Namespace {
         Ok(Self {
             ruleset: Arc::new(ruleset),
             resolve: policies.iter().filter_map(|p| p.resolve.clone()).collect(),
-            connect: policies.iter().filter_map(|p| p.connect.clone()).collect(),
             egress: EgressProxy {
                 request: policies.iter().filter_map(|p| p.request.clone()).collect(),
                 bound,
@@ -174,7 +172,7 @@ impl Namespace {
             None => normalize(&host).map_err(|_| HttpError::Denied)?,
         };
         let connection = Connection::new(&host, port, Protocol::Http);
-        if self.judge(cred, &connection).is_err() {
+        if cred.security_socket_connect(&connection).is_err() {
             return Err(HttpError::Denied);
         }
         let reachable = match literal {
@@ -424,18 +422,6 @@ impl Namespace {
         ProtoOps::connect(sock, self, addr)
     }
 
-    /// Judge `connection`, what the guest named, through the socket hooks:
-    /// the modules `cred` holds, then each entry's connect policy, the first
-    /// refusal ending the judging, as Linux's `security_socket_connect` runs
-    /// before the protocol's `connect`.
-    fn judge(&self, cred: &Cred, connection: &Connection<'_>) -> Result<(), FilesystemError> {
-        cred.security_socket_connect(connection)?;
-        match self.connect.iter().all(|policy| policy.allows(connection)) {
-            true => Ok(()),
-            false => Err(FilesystemError::PermissionDenied),
-        }
-    }
-
     /// Whether a request may reach `addr`, a literal the socket hooks already
     /// passed: the guest has no IPv6, so an IPv6 one answers `EAFNOSUPPORT`,
     /// as a socket's `connect4` does; any other meets the ruleset as itself.
@@ -474,7 +460,7 @@ impl Namespace {
             Some(Some((name, _))) => name,
             _ => addr.ip().to_string(),
         };
-        self.judge(cred, &Connection::new(&host, addr.port(), protocol))
+        cred.security_socket_connect(&Connection::new(&host, addr.port(), protocol))
     }
 
     /// What a socket's connect to `addr` reaches once its state check passed,
@@ -567,8 +553,9 @@ mod tests {
 
     use super::super::family::testing::CountsDials;
     use super::*;
+    use crate::grant::Grant;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
-    use crate::security::prepare_creds_within;
+    use crate::security::{prepare_creds_within, restrict_self};
     use crate::vfs::SecurityOperations;
 
     /// Each connection a policy was asked about.
@@ -601,17 +588,22 @@ mod tests {
         }
     }
 
-    fn namespace(allows: &[bool]) -> (Namespace, Arc<CountsDials>, AskedConnections) {
-        limited_namespace(allows, None, None)
+    /// A namespace of one entry per `allows`, and the Cred its entries'
+    /// connect policies restrict.
+    fn namespace(allows: &[bool]) -> (Namespace, Arc<Cred>, Arc<CountsDials>, AskedConnections) {
+        limited_namespace(allows, None, None, &[])
     }
 
-    /// A namespace whose Sandbox holds at most `open` connections at once,
-    /// and whose Invocation makes at most `total`.
+    /// A namespace of one entry per `allows`, whose Sandbox holds at most
+    /// `open` connections at once and whose Invocation makes at most
+    /// `total`, and the Cred the Driver makes for it: `modules`, then the
+    /// entries' connect policies.
     fn limited_namespace(
         allows: &[bool],
         open: Option<usize>,
         total: Option<usize>,
-    ) -> (Namespace, Arc<CountsDials>, AskedConnections) {
+        modules: &[Arc<dyn SecurityOperations>],
+    ) -> (Namespace, Arc<Cred>, Arc<CountsDials>, AskedConnections) {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let networks = allows
             .iter()
@@ -633,7 +625,9 @@ mod tests {
             total,
         )
         .expect("the endpoints compile");
-        (namespace, family, seen)
+        let grants = networks.into_iter().map(Grant::Network).collect::<Vec<_>>();
+        let cred = restrict_self(&prepare_creds_within(modules, None), &grants);
+        (namespace, cred, family, seen)
     }
 
     /// An http entry for `::1` and `127.0.0.1` with a credential, counting how
@@ -692,7 +686,7 @@ mod tests {
             Arc::new(CountsDials::default()),
             Arc::new(crate::net::HyperOutbound::new()),
         );
-        let cred = prepare_creds_within(&[], None);
+        let cred = restrict_self(&prepare_creds_within(&[], None), [&Grant::Network(network)]);
         let get = |authority: &str| OutgoingRequest::new("GET", Scheme::Http, authority);
         let hooked = namespace.send(&cred, get("refused.example:4567")).err();
         let ipv6 = namespace.send(&cred, get("[::1]:4567")).err();
@@ -720,8 +714,7 @@ mod tests {
     // @behavior NW-022
     #[test]
     fn a_connect_past_the_sandboxs_cap_answers_eagain() {
-        let (namespace, family, _) = limited_namespace(&[true], Some(0), None);
-        let cred = prepare_creds_within(&[], None);
+        let (namespace, cred, family, _) = limited_namespace(&[true], Some(0), None, &[]);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::WouldBlock)) && family.dials() == 0,
@@ -841,8 +834,7 @@ mod tests {
     // @behavior NW-018
     #[test]
     fn a_connect_policy_refuses_what_the_endpoints_allow() {
-        let (namespace, family, seen) = namespace(&[true, false]);
-        let cred = prepare_creds_within(&[], None);
+        let (namespace, cred, family, seen) = namespace(&[true, false]);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::PermissionDenied)) && family.dials() == 0,
@@ -859,8 +851,7 @@ mod tests {
     // @behavior NW-018
     #[test]
     fn a_connect_every_policy_allows_dials_the_address() {
-        let (namespace, family, _) = namespace(&[true, true]);
-        let cred = prepare_creds_within(&[], None);
+        let (namespace, cred, family, _) = namespace(&[true, true]);
         let sock = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap())
             .expect("every policy allows");
         settle(&sock);
@@ -874,8 +865,7 @@ mod tests {
     // @behavior NW-151
     #[test]
     fn the_hooks_judge_what_the_guest_named_before_its_family_and_translation() {
-        let (namespace, family, seen) = namespace(&[true]);
-        let cred = prepare_creds_within(&[], None);
+        let (namespace, cred, family, seen) = namespace(&[true]);
         let ipv6 = dial(&namespace, &cred, "[::1]:4567".parse().unwrap()).err();
         let unmapped = dial(&namespace, &cred, "198.18.5.5:4567".parse().unwrap()).err();
         let sock = UdpSock::new(&cred).expect("an unbounded socket is made");
@@ -915,8 +905,8 @@ mod tests {
     // @behavior NW-019
     #[test]
     fn a_security_module_refuses_before_any_entry_policy() {
-        let (namespace, family, seen) = namespace(&[true]);
-        let cred = prepare_creds_within(&[Arc::new(RefusesConnects)], None);
+        let (namespace, cred, family, seen) =
+            limited_namespace(&[true], None, None, &[Arc::new(RefusesConnects)]);
         let answer = dial(&namespace, &cred, "127.0.0.1:4567".parse().unwrap());
         assert!(
             matches!(answer, Err(FilesystemError::PermissionDenied))

@@ -1,13 +1,15 @@
-//! The security modules an Invocation registers: kobako's own rules, and the
-//! Host App's Policy for each Mount that has one. Linux has neither, so they
+//! The security modules an Invocation registers: kobako's own rules, the Host
+//! App's Policy for each Mount that has one, and each network entry's connect
+//! policy. Linux has neither, so they
 //! answer through the hooks it leaves for such modules, and the VFS never
 //! learns what they decide.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::grant::Policy;
+use crate::grant::{Grant, Policy};
 use crate::mount::{Access, Mount, MountRequest};
+use crate::network::Connection;
 use crate::vfs::{
     d_revalidate, Cred, Dentry, FMode, FileSecurity, FileType, FilesystemError, OpenHow, Path,
     SecurityOperations, SecurityPath, VfsMount, VmCommitted, PATH_MAX,
@@ -274,25 +276,45 @@ pub fn prepare_creds_within(
     Cred::within(security, memory_limit.map(VmCommitted::new))
 }
 
-/// `cred` with each Mount's Policy added, the modules it held and the memory
-/// held on its behalf shared, so what either Cred charges counts against one
-/// limit, as `landlock_restrict_self` adds a domain to the task's Cred.
-pub fn restrict_self<'a>(cred: &Cred, mounts: impl IntoIterator<Item = &'a Mount>) -> Arc<Cred> {
-    cred.with_modules(policies_of(mounts))
+/// An entry's connect policy, judging what the guest named, as one more LSM
+/// answers `security_socket_connect`.
+struct EntryPolicy(Arc<dyn for<'a> Policy<Connection<'a>>>);
+
+impl SecurityOperations for EntryPolicy {
+    fn socket_connect(&self, connection: &Connection<'_>) -> Result<(), FilesystemError> {
+        match self.0.allows(connection) {
+            true => Ok(()),
+            false => Err(FilesystemError::PermissionDenied),
+        }
+    }
+}
+
+/// `cred` with each Mount's Policy and each network entry's connect policy
+/// added, the modules it held and the memory held on its behalf shared, so
+/// what either Cred charges counts against one limit, as
+/// `landlock_restrict_self` adds a domain ruling both paths and ports.
+pub fn restrict_self<'a>(cred: &Cred, grants: impl IntoIterator<Item = &'a Grant>) -> Arc<Cred> {
+    cred.with_modules(policies_of(grants))
 }
 
 fn policies_of<'a>(
-    mounts: impl IntoIterator<Item = &'a Mount>,
+    grants: impl IntoIterator<Item = &'a Grant>,
 ) -> Vec<Arc<dyn SecurityOperations>> {
-    mounts
+    grants
         .into_iter()
-        .filter_map(|mount| {
-            let policy = mount.policy()?;
-            Some(Arc::new(MountPolicy {
-                mnt: mount.mnt().clone(),
-                at: mount.at().to_string(),
-                policy: policy.clone(),
-            }) as Arc<dyn SecurityOperations>)
+        .filter_map(|grant| match grant {
+            Grant::Mount(mount) => {
+                let policy = mount.policy()?;
+                Some(Arc::new(MountPolicy {
+                    mnt: mount.mnt().clone(),
+                    at: mount.at().to_string(),
+                    policy: policy.clone(),
+                }) as Arc<dyn SecurityOperations>)
+            }
+            Grant::Network(network) => {
+                let policy = network.policies().connect?;
+                Some(Arc::new(EntryPolicy(policy)) as Arc<dyn SecurityOperations>)
+            }
         })
         .collect()
 }
@@ -340,7 +362,10 @@ mod tests {
             .with_policy(Arc::new(RefusesChangesInQ));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = restrict_self(&prepare_creds_within(&[], None), [&guarded]);
+        let cred = restrict_self(
+            &prepare_creds_within(&[], None),
+            [&Grant::Mount(guarded.clone())],
+        );
         let write = OpenHow {
             write: true,
             ..Default::default()
@@ -376,7 +401,10 @@ mod tests {
         let mount = Mount::new("/data", filesystem, Access::ReadWrite)
             .expect("/data is a guest path")
             .with_policy(policy.clone());
-        let cred = restrict_self(&prepare_creds_within(&[], None), [&mount]);
+        let cred = restrict_self(
+            &prepare_creds_within(&[], None),
+            [&Grant::Mount(mount.clone())],
+        );
         let opened = crate::vfs::kern_path::filp_open(
             &cred,
             &Path::root(mount.mnt()),
@@ -412,7 +440,10 @@ mod tests {
         )
         .expect("/data is a guest path");
         let mount = prepare(mount);
-        let cred = restrict_self(&prepare_creds_within(&[], None), [&mount]);
+        let cred = restrict_self(
+            &prepare_creds_within(&[], None),
+            [&Grant::Mount(mount.clone())],
+        );
         let root = Path::root(mount.mnt());
         let how = crate::vfs::OpenHow {
             read: true,
@@ -494,7 +525,10 @@ mod tests {
             .with_policy(Arc::new(Counts::default()));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = restrict_self(&prepare_creds_within(&[], None), [&guarded]);
+        let cred = restrict_self(
+            &prepare_creds_within(&[], None),
+            [&Grant::Mount(guarded.clone())],
+        );
         let how = crate::vfs::OpenHow {
             read: true,
             directory: true,
