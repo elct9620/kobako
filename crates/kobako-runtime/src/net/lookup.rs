@@ -29,6 +29,8 @@ pub trait Resolver: Send + Sync {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LookupError {
+    /// No A-label spells the name, so it is no domain name at all.
+    InvalidName,
     /// The name resolves to nothing, or no entry lets the guest look it up;
     /// the two answer alike, so a refusal reads as NXDOMAIN.
     NameUnresolvable,
@@ -181,7 +183,7 @@ impl FileOperations for LookupFile {
 /// lowercase, with no trailing dot, and an IDN as its A-label. A name no
 /// A-label spells has no lookup.
 pub(crate) fn normalize(name: &str) -> Result<String, LookupError> {
-    crate::network::to_a_label(name).ok_or(LookupError::NameUnresolvable)
+    crate::network::to_a_label(name).ok_or(LookupError::InvalidName)
 }
 
 /// A lookup of `name` in `net`. The name is normalized, then each entry's

@@ -1,5 +1,6 @@
 //! What the Wasm Driver answers each preview2 import. Without a network Grant
-//! the guest makes no socket, as WASI says a host without a network answers;
+//! the guest makes no socket, as wasmtime-wasi's host with sockets disallowed
+//! answers;
 //! with one, each connect passes the Invocation's ruleset and dials through
 //! its Protocol Family. The clock subscriptions, the streams, and `poll` wait
 //! on the runtime's wait primitive.
@@ -318,7 +319,7 @@ impl SocketsHost for Invocation {
         if self.wasi().table().is_full() {
             return Err(ErrorCode::NewSocketLimit.into());
         }
-        let lookup = resolve(namespace, &name).map_err(|err| to_lookup_error_code(err, true))?;
+        let lookup = resolve(namespace, &name).map_err(to_lookup_error_code)?;
         let file = lookup.alloc_file(self.wasi().cred());
         Ok(self.table_mut().push_file(table::ResolveAddressStream {
             lookup,
@@ -339,7 +340,7 @@ impl SocketsHost for Invocation {
         let cred = self.wasi().cred();
         let all = match self.network().alloc_virtual_addresses(cred, &lookup) {
             None => return Err(ErrorCode::WouldBlock.into()),
-            Some(answer) => answer.map_err(|err| to_lookup_error_code(err, false))?,
+            Some(answer) => answer.map_err(to_lookup_error_code)?,
         };
         let Some(at) = all.get(handed) else {
             return Ok(None);
@@ -364,9 +365,9 @@ impl SocketsHost for Invocation {
         self.table_mut().delete(handle).map(drop)
     }
 
-    /// Without a network Grant no socket is made, as WASI's `not-supported`
-    /// says of a host without one; the guest is IPv4-only, so IPv6 is not
-    /// supported either.
+    /// Without a network Grant no socket is made, answered `access-denied` as
+    /// wasmtime-wasi's host with sockets disallowed answers; a family the
+    /// runtime makes no socket of answers `not-supported`.
     fn tcp_create_socket_create_tcp_socket(
         &mut self,
         address_family: IpAddressFamily,
@@ -656,8 +657,7 @@ impl SocketsHost for Invocation {
         self.table_mut().delete(handle).map(drop)
     }
 
-    /// Without a network Grant no socket is made, and the guest is IPv4-only,
-    /// as a TCP socket's creation answers.
+    /// Made as a TCP socket's creation makes one.
     fn udp_create_socket_create_udp_socket(
         &mut self,
         address_family: IpAddressFamily,
@@ -1605,6 +1605,22 @@ mod tests {
                 Ok(Err(ErrorCode::PermanentResolverFailure))
             ),
             "resolve-addresses with no network entry must answer permanent-resolver-failure"
+        );
+    }
+
+    // @behavior NW-197
+    #[test]
+    fn a_name_no_a_label_spells_is_refused_as_an_invalid_argument() {
+        let mut guest = network_guest(network::Endpoint::new("example.com", 443).unwrap());
+        let network = guest.instance_network_instance_network().unwrap();
+        assert!(
+            matches!(
+                guest
+                    .ip_name_lookup_resolve_addresses(network, "xn--a".to_string())
+                    .into_answer(),
+                Ok(Err(ErrorCode::InvalidArgument))
+            ),
+            "resolve-addresses of xn--a, which no A-label spells, must answer invalid-argument"
         );
     }
 

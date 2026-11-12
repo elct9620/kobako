@@ -7,7 +7,9 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use kobako_runtime::net::LookupError;
 use kobako_runtime::Errno;
 
-use super::bindings::wasi_sockets_network_0_2_12::{ErrorCode, IpSocketAddress, Ipv4SocketAddress};
+use super::bindings::wasi_sockets_network_0_2_12::{
+    ErrorCode, IpSocketAddress, Ipv4SocketAddress, Ipv6SocketAddress,
+};
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 
@@ -33,7 +35,7 @@ pub(crate) fn to_asked_size(held: u32) -> u64 {
 /// The hop limit an `IP_TTL` read answers, which the runtime keeps within a
 /// byte.
 pub(crate) fn to_hop_limit(ttl: u32) -> u8 {
-    u8::try_from(ttl).unwrap_or(u8::MAX)
+    u8::try_from(ttl).expect("the runtime keeps a hop limit within a byte")
 }
 
 /// A buffer size a set takes; zero has none, as WIT answers it
@@ -73,26 +75,32 @@ pub(crate) fn to_remote_addr(addr: &IpSocketAddress) -> Option<SocketAddr> {
     to_socket_addr(addr).filter(|addr| !addr.ip().is_unspecified() && addr.port() != 0)
 }
 
-/// `addr` as the guest reads it; an IPv6 one reads as the unspecified IPv4
-/// address, since the guest sees none.
+/// `addr` as the guest reads it.
 pub(crate) fn from_socket_addr(addr: SocketAddr) -> IpSocketAddress {
-    let (ip, port) = match addr {
-        SocketAddr::V4(v4) => (*v4.ip(), v4.port()),
-        SocketAddr::V6(v6) => (Ipv4Addr::UNSPECIFIED, v6.port()),
-    };
-    let [a, b, c, d] = ip.octets();
-    IpSocketAddress::Ipv4(Ipv4SocketAddress {
-        port,
-        address: (a, b, c, d),
-    })
+    match addr {
+        SocketAddr::V4(v4) => {
+            let [a, b, c, d] = v4.ip().octets();
+            IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port: v4.port(),
+                address: (a, b, c, d),
+            })
+        }
+        SocketAddr::V6(v6) => {
+            let [a, b, c, d, e, f, g, h] = v6.ip().segments();
+            IpSocketAddress::Ipv6(Ipv6SocketAddress {
+                port: v6.port(),
+                flow_info: v6.flowinfo(),
+                address: (a, b, c, d, e, f, g, h),
+                scope_id: v6.scope_id(),
+            })
+        }
+    }
 }
 
-/// The error code a lookup's failure answers. A name no A-label spells is
-/// refused as it is handed over, as an invalid argument; the same failure from
-/// a lookup's answer is a name that resolves to nothing.
-pub(crate) fn to_lookup_error_code(err: LookupError, handed_over: bool) -> ErrorCode {
+/// The error code a lookup's failure answers.
+pub(crate) fn to_lookup_error_code(err: LookupError) -> ErrorCode {
     match err {
-        LookupError::NameUnresolvable if handed_over => ErrorCode::InvalidArgument,
+        LookupError::InvalidName => ErrorCode::InvalidArgument,
         LookupError::NameUnresolvable => ErrorCode::NameUnresolvable,
         LookupError::TemporaryFailure => ErrorCode::TemporaryResolverFailure,
         _ => ErrorCode::PermanentResolverFailure,
