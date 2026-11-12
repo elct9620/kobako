@@ -5,6 +5,7 @@
 //! the registered Blocking, as a lock's slow path does.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::task::Waker;
 use std::time::{Duration, Instant};
 
 use crate::sched;
@@ -14,6 +15,9 @@ use crate::vfs::FilesystemError;
 #[derive(Default)]
 pub struct WaitQueueHead {
     waiters: Mutex<Vec<Arc<Waiter>>>,
+    /// The tasks waiting here, each woken once and then gone, as an entry
+    /// `init_waitqueue_func_entry` makes with `autoremove_wake_function`.
+    tasks: Mutex<Vec<Waker>>,
 }
 
 impl WaitQueueHead {
@@ -22,6 +26,20 @@ impl WaitQueueHead {
     pub fn wake_up(&self) {
         for waiter in self.waiters().iter() {
             waiter.wake();
+        }
+        let tasks = std::mem::take(&mut *self.tasks.lock().unwrap_or_else(PoisonError::into_inner));
+        for task in tasks {
+            task.wake();
+        }
+    }
+
+    /// Have the task `waker` stands for woken by the next wake here, once, as
+    /// `add_wait_queue` adds an entry whose wake function is the task's; a
+    /// task already waiting is not added twice.
+    pub(crate) fn add(&self, waker: &Waker) {
+        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        if !tasks.iter().any(|task| task.will_wake(waker)) {
+            tasks.push(waker.clone());
         }
     }
 
@@ -183,6 +201,33 @@ mod tests {
             "do_poll with no timeout over a queue another thread wakes once its event arrives \
              must answer what the poll then finds at once, and leave the queue, got {answer:?} \
              after {spent:?}"
+        );
+    }
+
+    /// A task's wake, counted.
+    #[derive(Default)]
+    struct CountsWakes(std::sync::atomic::AtomicUsize);
+
+    impl std::task::Wake for CountsWakes {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn a_task_waiting_on_a_queue_is_woken_once_by_its_next_wake() {
+        let queue = WaitQueueHead::default();
+        let wakes = Arc::new(CountsWakes::default());
+        let waker = Waker::from(wakes.clone());
+        queue.add(&waker);
+        queue.add(&waker);
+        queue.wake_up();
+        queue.wake_up();
+        assert_eq!(
+            wakes.0.load(Ordering::SeqCst),
+            1,
+            "a task added to a wait queue twice must be woken once by the next wake_up and not \
+             by a later one, as an autoremoving wait entry leaves once it wakes"
         );
     }
 

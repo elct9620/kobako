@@ -18,10 +18,10 @@ use super::family::ProtocolFamily;
 use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
-    connect4, ensure_within, filter, set_hop_limit, take_connect_outcome, to_error, BindHash,
-    InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+    connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome, to_error,
+    BindHash, Destination, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
-use crate::network::Protocol;
+use crate::network::{Protocol, Ruleset};
 use crate::vfs::{Cred, FilesystemError, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -98,6 +98,9 @@ struct State {
     /// The keepalive probes the guest asked for; the host socket takes them
     /// as it is dialed.
     keepalive: KeepAlive,
+    /// Whether each write leaves without Nagle's delay, as `TCP_NODELAY`
+    /// sets `tp->nonagle`; Linux's default waits.
+    nodelay: bool,
     /// The socket itself once released with bytes still to send, held until
     /// they and the FIN leave, as Linux keeps an orphan in `FIN_WAIT1`.
     orphan: Option<Arc<TcpSock>>,
@@ -136,6 +139,7 @@ impl TcpSock {
                     interval: TCP_KEEPALIVE_INTVL,
                     count: TCP_KEEPALIVE_PROBES,
                 },
+                nodelay: false,
                 orphan: None,
             }),
             wait: Arc::default(),
@@ -188,13 +192,44 @@ impl TcpSock {
                 return Err(err);
             }
         }
-        // A connect starts with no failure pending, as `tcp_connect_init`
-        // clears `sk_err`.
+        self.start_connect(&mut state, addr, peer);
+        Ok(())
+    }
+
+    /// Connect to `dest`, the destination an egress proxy already judged by
+    /// its name, through what the socket layer judges after the hooks: the
+    /// socket's state, a port from `ports`, and `ruleset`'s filter. The hooks
+    /// already judged the name the guest asked for, so they see no real
+    /// address, and the request the proxy dials for already counts against
+    /// the caps, so the socket takes no place of its own.
+    pub(crate) fn connect_upstream(
+        &self,
+        ports: &Arc<BindHash>,
+        ruleset: &Ruleset,
+        dest: &Destination,
+    ) -> Result<(), FilesystemError> {
+        self.check_state()?;
+        self.hold_port(ports)?;
+        let real = filter_with(ruleset, &*self.family, dest, Protocol::Http).inspect_err(|_| {
+            self.state().inet.put_port();
+        })?;
+        self.start_connect(&mut self.state(), real, real);
+        Ok(())
+    }
+
+    /// Begin connecting to `addr` for the guest's `peer`: no failure pending,
+    /// as `tcp_connect_init` clears `sk_err`, then the host socket's dial.
+    fn start_connect(&self, state: &mut State, addr: SocketAddr, peer: SocketAddr) {
         state.inet.error = None;
         state.inet.peer = Some(peer);
         state.phase = Phase::Connecting;
-        self.dial_host(&mut state, addr);
-        Ok(())
+        self.dial_host(state, addr);
+    }
+
+    /// The queue a task or a poll waits on for this socket, as `sk_sleep`
+    /// answers a socket's wait queue.
+    pub(crate) fn sk_sleep(&self) -> &Arc<WaitQueueHead> {
+        &self.wait
     }
 
     /// Hold a free port from `ports` as the guest's own, unless one is held.
@@ -231,6 +266,7 @@ impl TcpSock {
     fn set_options(socket: SockRef<'_>, state: &State) -> io::Result<()> {
         socket.set_tcp_keepalive(&state.keepalive.to_params())?;
         socket.set_keepalive(state.keepalive.on)?;
+        socket.set_tcp_nodelay(state.nodelay)?;
         set_hop_limit(socket, state.inet.ttl)
     }
 
@@ -424,14 +460,14 @@ impl TcpSock {
     /// host refuse, as a failed `setsockopt` changes nothing.
     fn set_options_with(&self, change: impl FnOnce(&mut State)) -> Result<(), FilesystemError> {
         let mut state = self.state();
-        let kept = (state.keepalive, state.inet.ttl);
+        let kept = (state.keepalive, state.nodelay, state.inet.ttl);
         change(&mut state);
         let Some((stream, _)) = &state.host else {
             return Ok(());
         };
         let set = Self::set_options(SockRef::from(stream), &state);
         set.map_err(|err| {
-            (state.keepalive, state.inet.ttl) = kept;
+            (state.keepalive, state.nodelay, state.inet.ttl) = kept;
             to_error(&err)
         })
     }
@@ -612,6 +648,7 @@ impl ProtoOps for TcpSock {
             SockOpt::KeepIdle => Ok(state.keepalive.idle),
             SockOpt::KeepIntvl => Ok(state.keepalive.interval),
             SockOpt::KeepCnt => Ok(state.keepalive.count),
+            SockOpt::NoDelay => Ok(u32::from(state.nodelay)),
             _ => state.inet.getsockopt(opt),
         }
     }
@@ -634,6 +671,7 @@ impl ProtoOps for TcpSock {
                 ensure_within(value, MAX_TCP_KEEPCNT)?;
                 self.set_options_with(|state| state.keepalive.count = value)
             }
+            SockOpt::NoDelay => self.set_options_with(|state| state.nodelay = value != 0),
             _ => {
                 let mut guard = self.state();
                 let state = &mut *guard;
@@ -752,6 +790,24 @@ mod tests {
             "a guest's TCP socket connected through the Protocol Family must leave the stream's \
              TCP_NODELAY off, as Linux's tcp_init_sock does, since WASI gives the guest no \
              option to set it"
+        );
+    }
+
+    #[test]
+    fn a_socket_asked_for_tcp_nodelay_gives_it_to_its_host_socket() {
+        let (sock, _file, _peer) = connected_socket();
+        sock.setsockopt(SockOpt::NoDelay, 1)
+            .expect("TCP takes TCP_NODELAY");
+        let nodelay = sock
+            .state()
+            .host
+            .as_ref()
+            .map(|(stream, _)| stream.nodelay().unwrap());
+        assert_eq!(
+            (sock.getsockopt(SockOpt::NoDelay), nodelay),
+            (Ok(1), Some(true)),
+            "a TCP socket asked for TCP_NODELAY must read it back and pass it to the host \
+             socket it dialed, so each write leaves without Nagle's delay"
         );
     }
 

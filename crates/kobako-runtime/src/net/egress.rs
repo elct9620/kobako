@@ -83,13 +83,7 @@ pub fn send(
     };
     let mut request = request;
     request.swaps = swaps;
-    let connector = Connector::new(
-        host,
-        port,
-        net.ruleset().clone(),
-        net.family().clone(),
-        net.resolver().clone(),
-    );
+    let connector = Connector::new(net, cred, host, port);
     net.within_connection_budget(HttpError::ConnectionLimitReached, || {
         Exchange::start(
             net.outbound().clone(),

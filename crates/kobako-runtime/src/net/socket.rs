@@ -17,8 +17,8 @@ use crate::wait::PollTable;
 
 use super::connections::{open, OpenConnections, Place};
 use super::family::admitted_addresses_of;
-use super::{Namespace, TcpSock, UdpSock};
-use crate::network::{Connection, Protocol};
+use super::{Namespace, ProtocolFamily, TcpSock, UdpSock};
+use crate::network::{Connection, Protocol, Ruleset};
 
 /// How much a socket holds each way before it stops reading and refuses
 /// more, as `sk_rcvbuf` and `sk_sndbuf` bound a Linux socket and net core's
@@ -95,6 +95,8 @@ pub enum SockOpt {
     KeepIntvl,
     /// `TCP_KEEPCNT`.
     KeepCnt,
+    /// `TCP_NODELAY`, which sends each write without Nagle's delay.
+    NoDelay,
 }
 
 /// The guest's own end of every socket it connects, kept out of what a lookup
@@ -668,7 +670,7 @@ pub fn create_tcp_socket(
 ) -> Result<Arc<TcpSock>, FilesystemError> {
     check_family(family)?;
     let sock = TcpSock::new(net.family().clone(), cred)?;
-    net.hold_tcp_socket(&sock);
+    net.tcp_sockets().hold(&sock);
     Ok(sock)
 }
 
@@ -782,21 +784,28 @@ pub(crate) fn filter(
     dest: &Destination,
     protocol: Protocol,
 ) -> Result<SocketAddr, FilesystemError> {
+    filter_with(net.ruleset(), &**net.family(), dest, protocol)
+}
+
+/// The real address a `protocol` connection to `dest` dials once `ruleset`
+/// lets it, judged against the host's own addresses as `family` reads them;
+/// `EACCES` when it does not.
+pub(crate) fn filter_with(
+    ruleset: &Ruleset,
+    family: &dyn ProtocolFamily,
+    dest: &Destination,
+    protocol: Protocol,
+) -> Result<SocketAddr, FilesystemError> {
     match dest {
         Destination::Literal(addr) => {
-            net.ruleset().admit_literal(*addr, protocol)?;
+            ruleset.admit_literal(*addr, protocol)?;
             Ok(*addr)
         }
-        Destination::Named { name, real, port } => admitted_addresses_of(
-            &**net.family(),
-            net.ruleset(),
-            name,
-            &[*real],
-            *port,
-            protocol,
-        )
-        .pop()
-        .ok_or(FilesystemError::PermissionDenied),
+        Destination::Named { name, real, port } => {
+            admitted_addresses_of(family, ruleset, name, &[*real], *port, protocol)
+                .pop()
+                .ok_or(FilesystemError::PermissionDenied)
+        }
     }
 }
 

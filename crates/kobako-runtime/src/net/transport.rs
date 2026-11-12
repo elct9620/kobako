@@ -1,53 +1,57 @@
 //! The TCP link under an HTTP request: the connector that reaches the one
-//! authority a request named, through the ruleset and the Protocol Family,
-//! and the non-blocking connection the reactor drives for it.
+//! authority a request named, and the connection it opened. The connector
+//! dials through a TCP socket of the Invocation's own, as an egress proxy
+//! dials through the kernel, so its upstream passes the socket layer's
+//! filter, holds a virtual port, and counts its buffers against the
+//! Invocation's memory, as a guest's socket does.
 
 use std::fmt;
 use std::future::poll_fn;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Shutdown, SocketAddr};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, PoisonError};
-use std::task::{Context, Poll, Waker};
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::Place;
-use super::family::admitted_addresses_of;
 use super::http::HttpError;
 use super::lookup::{NameLookup, Resolver};
-use super::reactor::{Reactor, Ready, Registration};
-use super::socket::take_connect_outcome;
-use super::ProtocolFamily;
+use super::namespace::TcpSockets;
+use super::socket::{BindHash, Destination};
+use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
 use crate::network::{Protocol, Ruleset};
+use crate::vfs::{Cred, FilesystemError};
 
 /// The only dialer the outbound seam has: it reaches the one authority the
-/// request named, resolving a name on the host and dialing each address the
-/// ruleset lets it lead to, exactly, in turn.
+/// request named, resolving a name on the host and dialing each real address
+/// in turn through a socket the ruleset filters.
 pub struct Connector {
     host: String,
     port: u16,
     ruleset: Arc<Ruleset>,
     family: Arc<dyn ProtocolFamily>,
     resolver: Arc<dyn Resolver>,
+    ports: Arc<BindHash>,
+    tcp_sockets: Arc<TcpSockets>,
+    cred: Arc<Cred>,
     /// The request's place, which a lookup of the authority holds too.
     pub(crate) place: Option<Arc<Place>>,
 }
 
 impl Connector {
-    pub(crate) fn new(
-        host: String,
-        port: u16,
-        ruleset: Arc<Ruleset>,
-        family: Arc<dyn ProtocolFamily>,
-        resolver: Arc<dyn Resolver>,
-    ) -> Self {
+    /// The connector for `host` at `port` in `net`, dialing as `cred`.
+    pub(crate) fn new(net: &Namespace, cred: &Arc<Cred>, host: String, port: u16) -> Self {
         Self {
             host,
             port,
-            ruleset,
-            family,
-            resolver,
+            ruleset: net.ruleset().clone(),
+            family: net.family().clone(),
+            resolver: net.resolver().clone(),
+            ports: net.ports_of(Protocol::Http).clone(),
+            tcp_sockets: net.tcp_sockets().clone(),
+            cred: cred.clone(),
             place: None,
         }
     }
@@ -58,39 +62,41 @@ impl Connector {
     }
 
     /// A connection to the authority, once one of its addresses answers. The
-    /// connector tries each admitted address in turn, as an HTTP client's
-    /// connector does, while a guest's TCP socket keeps a loop of its own.
+    /// connector tries each real address in turn, as an HTTP client's
+    /// connector does, while a guest's TCP socket keeps a loop of its own; an
+    /// address the filter refuses is passed over, and none admitted is
+    /// denied.
     pub async fn dial(&self) -> Result<Transport, HttpError> {
-        let addrs = match self.host.parse::<IpAddr>() {
-            Ok(ip) => vec![SocketAddr::new(ip, self.port)],
-            Err(_) => {
-                let real = self.resolve().await?;
-                admitted_addresses_of(
-                    &*self.family,
-                    &self.ruleset,
-                    &self.host,
-                    &real,
-                    self.port,
-                    Protocol::Http,
-                )
-            }
+        let dests = match self.host.parse::<IpAddr>() {
+            Ok(ip) => vec![Destination::Literal(SocketAddr::new(ip, self.port))],
+            Err(_) => self
+                .resolve()
+                .await?
+                .into_iter()
+                .map(|real| Destination::Named {
+                    name: self.host.clone(),
+                    real,
+                    port: self.port,
+                })
+                .collect(),
         };
-        if addrs.is_empty() {
-            return Err(HttpError::Denied);
-        }
-        let mut last = HttpError::ConnectionRefused;
-        for addr in addrs {
-            let opened = self
-                .family
-                .connect(addr)
-                .and_then(Transport::new)
-                .map_err(|err| HttpError::from_io(&err));
-            match opened {
-                Ok(connection) => match connection.wait_for_connect().await {
-                    Ok(()) => return Ok(connection),
-                    Err(err) => last = HttpError::from_io(&err),
-                },
-                Err(err) => last = err,
+        let mut last = HttpError::Denied;
+        for dest in &dests {
+            let sock = TcpSock::new(self.family.clone(), &self.cred)
+                .map_err(|err| HttpError::from_errno(&err))?;
+            self.tcp_sockets.hold(&sock);
+            match sock.connect_upstream(&self.ports, &self.ruleset, dest) {
+                Err(FilesystemError::PermissionDenied) => continue,
+                Err(err) => {
+                    last = HttpError::from_errno(&err);
+                    continue;
+                }
+                Ok(()) => {}
+            }
+            let connection = Transport::new(sock)?;
+            match connection.wait_for_connect().await {
+                Ok(()) => return Ok(connection),
+                Err(err) => last = HttpError::from_errno(&err),
             }
         }
         Err(last)
@@ -118,87 +124,61 @@ impl fmt::Debug for Connector {
     }
 }
 
-/// The TCP connection the connector opened, non-blocking, its readiness
-/// watched by the reactor, read and written through tokio's I/O traits.
+/// The connection the connector opened: its TCP socket, read and written
+/// through tokio's I/O traits, a task waiting on the socket's wait queue as a
+/// guest's poll does.
 pub struct Transport {
-    stream: mio::net::TcpStream,
-    registration: Registration,
-    waiters: Arc<Waiters>,
-}
-
-/// The task waiting to read and the one waiting to write, woken as the
-/// reactor sees the connection change.
-#[derive(Default)]
-struct Waiters {
-    read: Mutex<Option<Waker>>,
-    write: Mutex<Option<Waker>>,
-}
-
-impl Ready for Waiters {
-    fn on_event(&self) {
-        for waiter in [&self.read, &self.write] {
-            if let Some(waker) = waiter.lock().unwrap_or_else(PoisonError::into_inner).take() {
-                waker.wake();
-            }
-        }
-    }
+    sock: Arc<TcpSock>,
 }
 
 impl Transport {
-    /// The connection `stream` begins, sent without Nagle's delay, as an HTTP
+    /// The connection `sock` begins, sent without Nagle's delay, as an HTTP
     /// client writes each request whole; a guest's own socket keeps Linux's
     /// default.
-    fn new(stream: std::net::TcpStream) -> io::Result<Self> {
-        stream.set_nodelay(true)?;
-        let mut stream = mio::net::TcpStream::from_std(stream);
-        let waiters = Arc::new(Waiters::default());
-        let ready: Arc<dyn Ready> = waiters.clone();
-        let registration = Reactor::current()?.register(&mut stream, Arc::downgrade(&ready))?;
-        Ok(Self {
-            stream,
-            registration,
-            waiters,
-        })
+    fn new(sock: Arc<TcpSock>) -> Result<Self, HttpError> {
+        sock.setsockopt(SockOpt::NoDelay, 1)
+            .map_err(|err| HttpError::from_errno(&err))?;
+        Ok(Self { sock })
     }
 
-    /// Wait until the connect under way settles, as `SO_ERROR` does and
-    /// Linux's `inet_wait_for_connect` waits for.
-    async fn wait_for_connect(&self) -> io::Result<()> {
-        poll_fn(|cx| {
-            self.attempt(cx, false, || {
-                take_connect_outcome(&self.stream).unwrap_or(Err(io::ErrorKind::WouldBlock.into()))
-            })
-        })
-        .await
+    /// Wait until the connect under way settles, as Linux's
+    /// `inet_wait_for_connect` waits for.
+    async fn wait_for_connect(&self) -> Result<(), FilesystemError> {
+        poll_fn(|cx| self.attempt(cx, || self.sock.finish_connect())).await
     }
 
-    /// `op` once it stops answering `WouldBlock`, the waker registered first,
-    /// so an event between the two is not lost.
+    /// `op` once it stops answering `WouldBlock`, the task added to the
+    /// socket's wait queue first, so a wake between the two is not lost.
     fn attempt<T>(
         &self,
         cx: &mut Context<'_>,
-        read: bool,
-        mut op: impl FnMut() -> io::Result<T>,
-    ) -> Poll<io::Result<T>> {
-        loop {
-            match op() {
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                done => return Poll::Ready(done),
-            }
-            let waiter = if read {
-                &self.waiters.read
-            } else {
-                &self.waiters.write
-            };
-            *waiter.lock().unwrap_or_else(PoisonError::into_inner) = Some(cx.waker().clone());
-            match op() {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => return Poll::Pending,
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                done => return Poll::Ready(done),
-            }
+        mut op: impl FnMut() -> Result<T, FilesystemError>,
+    ) -> Poll<Result<T, FilesystemError>> {
+        match op() {
+            Err(FilesystemError::WouldBlock) => {}
+            done => return Poll::Ready(done),
+        }
+        self.sock.sk_sleep().add(cx.waker());
+        match op() {
+            Err(FilesystemError::WouldBlock) => Poll::Pending,
+            done => Poll::Ready(done),
         }
     }
+}
+
+/// `err` as the I/O error tokio-rustls and hyper carry, of the kind
+/// `to_error` reads back.
+fn to_io(err: FilesystemError) -> io::Error {
+    let kind = match err {
+        FilesystemError::ConnectionRefused => io::ErrorKind::ConnectionRefused,
+        FilesystemError::ConnectionReset => io::ErrorKind::ConnectionReset,
+        FilesystemError::ConnectionAborted => io::ErrorKind::ConnectionAborted,
+        FilesystemError::TimedOut => io::ErrorKind::TimedOut,
+        FilesystemError::BrokenPipe => io::ErrorKind::BrokenPipe,
+        FilesystemError::NotConnected => io::ErrorKind::NotConnected,
+        _ => io::ErrorKind::Other,
+    };
+    kind.into()
 }
 
 impl AsyncRead for Transport {
@@ -208,10 +188,8 @@ impl AsyncRead for Transport {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        let read = this.attempt(cx, true, || {
-            io::Read::read(&mut &this.stream, buf.initialize_unfilled())
-        });
-        read.map(|read| read.map(|n| buf.advance(n)))
+        let read = this.attempt(cx, || this.sock.recvmsg(buf.initialize_unfilled()));
+        read.map(|read| read.map(|(n, _)| buf.advance(n)).map_err(to_io))
     }
 }
 
@@ -222,7 +200,7 @@ impl AsyncWrite for Transport {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        this.attempt(cx, false, || io::Write::write(&mut &this.stream, buf))
+        this.attempt(cx, || this.sock.sendmsg(buf)).map_err(to_io)
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -230,12 +208,14 @@ impl AsyncWrite for Transport {
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(self.stream.shutdown(std::net::Shutdown::Write))
+        Poll::Ready(self.sock.shutdown(Shutdown::Write).map_err(to_io))
     }
 }
 
+/// The connection's end releases its socket, which sends what it still
+/// holds before its FIN, as a closed socket does.
 impl Drop for Transport {
     fn drop(&mut self) {
-        self.registration.deregister(&mut self.stream);
+        self.sock.release();
     }
 }

@@ -874,7 +874,14 @@ impl HttpError {
         if err.kind() == io::ErrorKind::InvalidData {
             return Self::TlsProtocol;
         }
-        match to_error(err) {
+        Self::from_errno(&to_error(err))
+    }
+
+    /// The code a connection failing with `err` answers; memory the socket
+    /// could not reserve is the seam's own failure.
+    pub(crate) fn from_errno(err: &FilesystemError) -> Self {
+        match err {
+            FilesystemError::OutOfMemory => Self::Internal,
             FilesystemError::TimedOut => Self::ConnectionTimeout,
             FilesystemError::ConnectionReset | FilesystemError::ConnectionAborted => {
                 Self::ConnectionTerminated
@@ -1099,6 +1106,54 @@ mod tests {
             "a guest's request past an open_connection_limit of 1 must answer \
              ConnectionLimitReached while a released request's lookup still resolves, and send \
              once the resolver returned"
+        );
+    }
+
+    // @behavior NW-196
+    #[test]
+    fn a_request_dials_through_a_socket_of_the_invocations_own() {
+        let (port, server) = serve_once();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut entry = Builder::default();
+        entry.endpoint(
+            Endpoint::new("localhost", port)
+                .unwrap()
+                .with_addresses(vec![crate::network::Addresses::Local]),
+        );
+        let recorded = seen.clone();
+        entry.connect_policy(move |connection: &crate::network::Connection<'_>| {
+            recorded.lock().unwrap().push(connection.host.to_string());
+            true
+        });
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let namespace =
+            Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()));
+        let cred_within = |limit| {
+            crate::security::restrict_self(
+                &prepare_creds_within(&[], limit),
+                [&crate::grant::Grant::Network(network.clone())],
+            )
+        };
+        let request = || greeting_request(&format!("localhost:{port}"));
+        let cramped = crate::net::send(
+            &namespace,
+            &cred_within(Some(2 * MAX_SOCKET_BUFFER)),
+            request(),
+        )
+        .map(|exchange| read_response(&exchange).map(|(head, _)| head.status));
+        let roomy = crate::net::send(&namespace, &cred_within(None), request())
+            .map(|exchange| read_response(&exchange).map(|(head, _)| head.status));
+        server.join().unwrap();
+        assert_eq!(
+            (cramped, roomy, seen.lock().unwrap().clone()),
+            (
+                Ok(Err(HttpError::Internal)),
+                Ok(Ok(200)),
+                vec!["localhost".to_string(), "localhost".to_string()]
+            ),
+            "a guest's request must fail before it reaches the server when the Invocation's \
+             memory cannot hold its upstream socket's buffers, reach it with room, and show the \
+             connect policy only the host the guest named, never an address it resolved to"
         );
     }
 

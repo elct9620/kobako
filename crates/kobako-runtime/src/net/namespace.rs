@@ -51,7 +51,7 @@ pub struct Namespace {
     udp_ports: Arc<BindHash>,
     /// Every TCP socket made here, so an orphan still sending ends with the
     /// Invocation.
-    tcp_sockets: Mutex<Vec<Weak<TcpSock>>>,
+    tcp_sockets: Arc<TcpSockets>,
 }
 
 /// Each real address a name looked up resolved to, with the name, at its
@@ -74,13 +74,30 @@ impl Translations {
     }
 }
 
+/// Every TCP socket an Invocation made, the guest's and the L7 proxy's
+/// upstream ones alike, so an orphan still sending ends with the Invocation.
+#[derive(Default)]
+pub(crate) struct TcpSockets(Mutex<Vec<Weak<TcpSock>>>);
+
+impl TcpSockets {
+    /// Hold `sock`, so it ends with the Invocation should it be orphaned
+    /// still sending, as a namespace's exit ends its sockets.
+    pub(crate) fn hold(&self, sock: &Arc<TcpSock>) {
+        let mut sockets = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        sockets.retain(|sock| sock.strong_count() > 0);
+        sockets.push(Arc::downgrade(sock));
+    }
+}
+
 /// The Invocation's end lets go of every orphan still sending, so nothing it
 /// made outlives it.
 impl Drop for Namespace {
     fn drop(&mut self) {
         let sockets = std::mem::take(
-            self.tcp_sockets
-                .get_mut()
+            &mut *self
+                .tcp_sockets
+                .0
+                .lock()
                 .unwrap_or_else(PoisonError::into_inner),
         );
         for sock in sockets.iter().filter_map(Weak::upgrade) {
@@ -138,7 +155,7 @@ impl Namespace {
             translations: Mutex::default(),
             tcp_ports: BindHash::new(),
             udp_ports: BindHash::new(),
-            tcp_sockets: Mutex::new(Vec::new()),
+            tcp_sockets: Arc::default(),
         })
     }
 
@@ -288,15 +305,9 @@ impl Namespace {
         &self.ruleset
     }
 
-    /// Hold `sock`, made here, so it ends with the Invocation should it be
-    /// orphaned still sending, as a namespace's exit ends its sockets.
-    pub(crate) fn hold_tcp_socket(&self, sock: &Arc<TcpSock>) {
-        let mut sockets = self
-            .tcp_sockets
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        sockets.retain(|sock| sock.strong_count() > 0);
-        sockets.push(Arc::downgrade(sock));
+    /// The TCP sockets made here, which end with the Invocation.
+    pub(crate) fn tcp_sockets(&self) -> &Arc<TcpSockets> {
+        &self.tcp_sockets
     }
 
     /// What `addr` stands for when it lies in the virtual range: its name and
