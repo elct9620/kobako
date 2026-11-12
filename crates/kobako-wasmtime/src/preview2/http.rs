@@ -5,7 +5,7 @@
 //! as a host that sends nothing does.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use kobako_runtime::net::{self, Exchange, FieldError, MemoryCharge, RequestBody};
 use kobako_runtime::vfs::PollMask;
@@ -28,8 +28,6 @@ pub(crate) struct BodyLink {
     body: Arc<RequestBody>,
     handed: AtomicBool,
     finished: AtomicBool,
-    /// The trailers the guest ended the body with.
-    trailers: Mutex<Option<Arc<net::Fields>>>,
     /// Whether the guest dropped the body without finishing it, which fails
     /// its request, as wasmtime's `abort` does.
     aborted: AtomicBool,
@@ -231,15 +229,6 @@ impl Invocation {
         }
         outgoing.headers = request.headers.entries();
         outgoing.body = request.link.body.take();
-        if let Some(trailers) = request
-            .link
-            .trailers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take()
-        {
-            outgoing.trailers = trailers.entries();
-        }
         // The exchange reserves the request's parts itself, so the guest's
         // copies give theirs back before it does.
         drop((request.headers, request.memory));
@@ -343,7 +332,6 @@ impl HttpHost for Invocation {
             body: RequestBody::new(cred),
             handed: AtomicBool::new(false),
             finished: AtomicBool::new(false),
-            trailers: Mutex::new(None),
             aborted: AtomicBool::new(false),
         });
         self.table_mut().push(resource::OutgoingRequest(Request {
@@ -449,18 +437,19 @@ impl HttpHost for Invocation {
             .map(Ok)
     }
 
-    /// End the body with `trailers`, so its request may leave carrying them,
-    /// as wasmtime-wasi-http hands a body's trailers on with it.
+    /// End the body, so its request may leave. Trailers holding a field
+    /// answer `HTTP-request-denied` and fail the request: an egress proxy
+    /// sends none by default, as Envoy drops HTTP/1 trailers, and the request
+    /// policies never see them, so dropping them would succeed differently.
     fn types_outgoing_body_finish(
         &mut self,
         this: resource::OutgoingBody,
         trailers: Option<resource::Fields>,
     ) -> Result<(), error::HttpError> {
-        *this
-            .link
-            .trailers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = trailers.map(|trailers| trailers.entries);
+        if trailers.is_some_and(|trailers| !trailers.entries.entries().is_empty()) {
+            this.link.aborted.store(true, Ordering::Release);
+            return Err(ErrorCode::HTTPRequestDenied.into());
+        }
         this.link.finished.store(true, Ordering::Release);
         Ok(())
     }
@@ -1191,86 +1180,59 @@ mod tests {
 
     // @behavior NW-193
     #[test]
-    fn a_body_finished_with_trailers_sends_them() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        // The lines past the body's last chunk: its trailer section.
-        let server = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut next_line = || {
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                line.trim_end().to_string()
-            };
-            while !next_line().is_empty() {}
-            while next_line() != "0" {}
-            let trailers = std::iter::from_fn(|| Some(next_line()))
-                .take_while(|line| !line.is_empty())
-                .collect::<Vec<_>>();
-            (&stream)
-                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
-                .unwrap();
-            trailers
-        });
-        let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
-        let mut guest = guest(Some(vec![endpoint]));
-        let started = Instant::now();
-        run_task(Some(started + Wait::from_secs(10)), || {
-            let headers = guest.types_fields_new()?;
-            guest
-                .types_fields_append(headers, "trailer".to_string(), b"x-checksum".to_vec())
-                .into_answer()?
-                .expect("a header appends");
-            let headers = guest.take_handle(headers)?;
-            let request = guest.types_outgoing_request_new(headers)?;
-            // hyper sends no body on a GET of unknown length.
-            guest
-                .types_outgoing_request_set_method(request, Method::Post)?
-                .expect("POST is a method");
-            guest
-                .types_outgoing_request_set_scheme(request, Some(Scheme::HTTP))?
-                .expect("http is a scheme");
-            guest
-                .types_outgoing_request_set_authority(request, Some(format!("127.0.0.1:{port}")))?
-                .expect("an authority");
+    fn a_body_finished_with_trailers_is_refused_and_fails_its_request() {
+        let mut guest = guest(Some(vec![
+            network::Endpoint::new("example.com", 80).unwrap()
+        ]));
+        // Whether `finish` with `trailers` refuses, and what the request's
+        // future answers then.
+        let mut finished_with = |trailer: Option<(&str, &[u8])>| {
+            let request = greeting_request(&mut guest, "example.com").unwrap();
             let body = guest
-                .types_outgoing_request_body(request)?
+                .types_outgoing_request_body(request)
+                .unwrap()
                 .expect("the body is handed out once");
-            let stream = guest
-                .types_outgoing_body_write(body)?
-                .expect("the stream is handed out once");
-            guest
-                .streams_output_stream_blocking_write_and_flush(stream, b"abc".to_vec())
-                .into_answer()?
-                .expect("the body takes its bytes");
-            guest.streams_output_stream_drop(stream)?;
-            let trailers = guest.types_fields_new()?;
-            guest
-                .types_fields_append(trailers, "x-checksum".to_string(), b"900150983cd2".to_vec())
-                .into_answer()?
-                .expect("a trailer appends");
-            let trailers = guest.take_handle(trailers)?;
-            let request = guest.take_handle(request)?;
+            let request = guest.take_handle(request).unwrap();
             let future = guest
                 .outgoing_handler_handle(request, None)
-                .into_answer()?
-                .expect("an endpoint names the authority");
-            let body = guest.take_handle(body)?;
-            guest
+                .into_answer()
+                .unwrap()
+                .expect("the request waits on its body");
+            let trailers = guest.types_fields_new().unwrap();
+            if let Some((name, value)) = trailer {
+                guest
+                    .types_fields_append(trailers, name.to_string(), value.to_vec())
+                    .into_answer()
+                    .unwrap()
+                    .expect("a trailer appends");
+            }
+            let trailers = guest.take_handle(trailers).unwrap();
+            let body = guest.take_handle(body).unwrap();
+            let finished = guest
                 .types_outgoing_body_finish(body, Some(trailers))
-                .into_answer()?
-                .expect("the body ends");
-            let ready = guest.types_future_incoming_response_subscribe(future)?;
-            guest.poll_pollable_block(ready)?;
-            Ok::<_, wasmtime::Error>(())
-        })
-        .expect("the request answers");
+                .into_answer()
+                .unwrap();
+            let answer = guest
+                .types_future_incoming_response_get(future)
+                .unwrap()
+                .and_then(|answer| answer.ok())
+                .and_then(|response| response.err());
+            (finished, answer)
+        };
+        let refused = finished_with(Some(("cookie", b"session=1")));
+        let empty = finished_with(None);
         assert_eq!(
-            server.join().unwrap(),
-            ["x-checksum: 900150983cd2"],
-            "outgoing-body.finish with trailers the request's trailer header names must send \
-             them after the body's last chunk, as wasmtime-wasi-http hands them to hyper"
+            (refused, empty.0),
+            (
+                (
+                    Err(ErrorCode::HTTPRequestDenied),
+                    Some(ErrorCode::HTTPProtocolError)
+                ),
+                Ok(())
+            ),
+            "outgoing-body.finish with trailers holding a field must answer HTTP-request-denied \
+             and fail its request, since an egress proxy sends no trailers and the request \
+             policies never see them; trailers holding nothing must end the body"
         );
     }
 

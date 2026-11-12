@@ -2390,7 +2390,7 @@ endpoint "api.example.com", port: 443
 | When | the script gets and posts with a `dest`, and reads a body with `read_body(dest)`. It gives a `dest` beside a block, and starts with `use_ssl:` and a proxy |
 | Then | each body is appended to its `dest`, which stands as the body. A `dest` beside a block raises `ArgumentError`. The proxy raises `NotImplementedError`, as no `use_ssl:` drops it |
 
-## `NW-193` An outgoing body finished with trailers sends them
+## `NW-193` An outgoing body finished with trailers is refused
 
 | Attribute | Value |
 | --- | --- |
@@ -2399,9 +2399,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a request whose `trailer` header names a field, its body written and handed to `handle` |
-| When | the guest finishes the body with trailers holding that field |
-| Then | the request goes out chunked and ends in that trailer. wasmtime-wasi-http hands a body's trailers to hyper, which sends those the `trailer` header names |
+| Given | a request whose body the guest holds, handed to `handle` |
+| When | the guest finishes one body with trailers holding a field, and another with trailers holding none |
+| Then | the first answers `HTTP-request-denied` and fails its request; the second ends the body. An egress proxy sends no trailers by default, as Envoy drops HTTP/1 ones, and the request policies never see them |
 
 ## `NW-194` A bind to port 0 takes a free virtual port
 
