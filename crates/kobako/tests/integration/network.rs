@@ -97,7 +97,7 @@ fn sandbox() -> (Sandbox, ReceivedEntries) {
 
 fn invoke(sandbox: &Sandbox) {
     sandbox
-        .run("App", RunPayload::bytes(Vec::new()))
+        .run("App", RunPayload::from_bytes(Vec::new()))
         .expect("the recording runtime answers every invocation");
 }
 
@@ -166,7 +166,7 @@ fn a_runtime_presenting_no_network_refuses_the_entry() {
 #[test]
 fn a_context_cannot_replace_a_name_never_declared() {
     let (sandbox, received) = sandbox();
-    let result = sandbox.run_with("App", RunPayload::bytes(Vec::new()), |ctx| {
+    let result = sandbox.run_with("App", RunPayload::from_bytes(Vec::new()), |ctx| {
         ctx.network("other", Arc::new(Reaches("api.example.com")))
     });
     assert!(
@@ -184,7 +184,7 @@ fn a_context_replaces_an_entry_for_its_invocation_only() {
         .network("api", Arc::new(Reaches("api.example.com")))
         .unwrap();
     sandbox
-        .run_with("App", RunPayload::bytes(Vec::new()), |ctx| {
+        .run_with("App", RunPayload::from_bytes(Vec::new()), |ctx| {
             ctx.network("api", Arc::new(Reaches("staging.example.com")))
         })
         .unwrap();
@@ -210,7 +210,7 @@ fn a_context_replaces_an_entry_with_what_a_builder_adds() {
         .network("api", Arc::new(Reaches("api.example.com")))
         .unwrap();
     sandbox
-        .run_with("App", RunPayload::bytes(Vec::new()), |ctx| {
+        .run_with("App", RunPayload::from_bytes(Vec::new()), |ctx| {
             ctx.network_with("api", Arc::new(Reaches("staging.example.com")), |net| {
                 net.endpoint(
                     Endpoint::new("extra.example.com", 443).expect("a host and a port stand"),

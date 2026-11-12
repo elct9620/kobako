@@ -68,7 +68,9 @@ fn an_injected_runtime_drives_an_invocation_the_sandbox_set_up() {
         .expect("a hermetic engine meets the floor");
     sandbox.bind_fillable("MyService::KV").unwrap();
 
-    let execution = sandbox.run("App", RunPayload::bytes(vec![0x01])).unwrap();
+    let execution = sandbox
+        .run("App", RunPayload::from_bytes(vec![0x01]))
+        .unwrap();
 
     assert_eq!(
         (execution.payload().unwrap(), bound.lock().unwrap().len()),

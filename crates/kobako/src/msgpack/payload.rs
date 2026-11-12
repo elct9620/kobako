@@ -29,8 +29,8 @@ impl RunPayload<'_> {
     /// The value-tree spelling of a run's arguments: positional and
     /// keyword arguments as wire values, with each host object
     /// auto-wrapped into a Handle from this invocation's table.
-    pub fn values(args: Vec<RunArg>, kwargs: Vec<(String, RunArg)>) -> Self {
-        RunPayload::build(move |handles| encode_values(handles, args, kwargs))
+    pub fn from_values(args: Vec<RunArg>, kwargs: Vec<(String, RunArg)>) -> Self {
+        RunPayload::from_fn(move |handles| encode_values(handles, args, kwargs))
     }
 }
 

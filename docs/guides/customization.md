@@ -124,7 +124,7 @@ Codec's spelling beside it.
 | Position | Byte-level entry | `msgpack` spelling |
 |---|---|---|
 | dispatch arguments and answer | `Receiver` | `ValueReceiver`, `into_receiver` |
-| `run` payload | `RunPayload::bytes`, `RunPayload::build` | `RunPayload::values` |
+| `run` payload | `RunPayload::from_bytes`, `RunPayload::from_fn` | `RunPayload::from_values` |
 | yield | `Yielder::call_payload` | `Yielder::call_values` |
 | invocation result | `Execution::payload` | `Execution::value` |
 | object behind a Handle | `Handles::resolve`, `Execution::resolve` | `resolve_as` |

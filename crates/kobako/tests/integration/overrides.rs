@@ -149,7 +149,7 @@ fn run_with_fills_a_fillable_for_the_invocation() {
         .expect("declare a fillable path");
 
     let value = sandbox
-        .run_with("Worker", RunPayload::values(vec![], vec![]), |ctx| {
+        .run_with("Worker", RunPayload::from_values(vec![], vec![]), |ctx| {
             ctx.bind("Store", Kv("filled").into_receiver())
         })
         .expect("a filled fillable must dispatch to the override object")
@@ -177,14 +177,14 @@ fn run_with_shadows_a_static_binding_for_one_invocation_only() {
         .expect("bind a static Service");
 
     let overridden = sandbox
-        .run_with("Worker", RunPayload::values(vec![], vec![]), |ctx| {
+        .run_with("Worker", RunPayload::from_values(vec![], vec![]), |ctx| {
             ctx.bind("Store", Kv("override").into_receiver())
         })
         .expect("an override shadows the static binding")
         .value()
         .expect("the override object returns its value");
     let plain = sandbox
-        .run("Worker", RunPayload::values(vec![], vec![]))
+        .run("Worker", RunPayload::from_values(vec![], vec![]))
         .expect("the base binding resolves without an override")
         .value()
         .expect("the base object returns its value");
@@ -215,7 +215,7 @@ fn run_with_rejects_an_undeclared_override_before_the_guest_runs() {
         .expect("declare a fillable path");
 
     let err = sandbox
-        .run_with("Worker", RunPayload::values(vec![], vec![]), |ctx| {
+        .run_with("Worker", RunPayload::from_values(vec![], vec![]), |ctx| {
             ctx.bind("Undeclared", Kv("x").into_receiver())
         })
         .expect_err("overriding an undeclared path must fail before the guest runs");

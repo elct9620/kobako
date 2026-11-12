@@ -78,12 +78,12 @@ The Rust SDK splits `#preload` by form and takes a `RunPayload` for `run`.
 |---|---|
 | `preload(code:, name:)` | `preload(name, source)` |
 | `preload(binary:)` | `preload_binary(bytes)` |
-| `run(:Adder, 2, 3)` | `run("Adder", RunPayload::values(args, kwargs))` |
+| `run(:Adder, 2, 3)` | `run("Adder", RunPayload::from_values(args, kwargs))` |
 | `UndefinedEntrypointError#available` | `Failure::available` |
 
 ```rust
 sandbox.preload("Adder", "Adder = ->(a, b) { a + b }")?;
 let sum = sandbox
-    .run("Adder", RunPayload::values(vec![Value::Int(2).into(), Value::Int(3).into()], vec![]))?
+    .run("Adder", RunPayload::from_values(vec![Value::Int(2).into(), Value::Int(3).into()], vec![]))?
     .value()?; // => Value::Int(5)
 ```

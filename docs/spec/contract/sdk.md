@@ -372,24 +372,24 @@ The arguments one `run` carries, in the payload codec's bytes.
 pub struct RunPayload {}
 ```
 
-## `RunPayload::bytes`
+## `RunPayload::from_bytes`
 
 A payload that is already complete.
 
 ```rust
 impl<'a> RunPayload<'a> {
-    pub fn bytes(bytes: impl Into<Vec<u8>>) -> Self {}
+    pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {}
 }
 ```
 
-## `RunPayload::build`
+## `RunPayload::from_fn`
 
 A payload finished once the invocation's Handle table exists, so it can carry
 host objects.
 
 ```rust
 impl<'a> RunPayload<'a> {
-    pub fn build(build: impl FnOnce(&Handles<'_>) -> Result<Vec<u8>, Error> + 'a) -> Self {}
+    pub fn from_fn(build: impl FnOnce(&Handles<'_>) -> Result<Vec<u8>, Error> + 'a) -> Self {}
 }
 ```
 
@@ -648,13 +648,13 @@ One MessagePack argument to `run`: a value, or a host object passed as a Handle.
 pub enum RunArg {}
 ```
 
-## `RunPayload::values`
+## `RunPayload::from_values`
 
 A payload built from MessagePack arguments.
 
 ```rust
 impl RunPayload<'_> {
-    pub fn values(args: Vec<RunArg>, kwargs: Vec<(String, RunArg)>) -> Self {}
+    pub fn from_values(args: Vec<RunArg>, kwargs: Vec<(String, RunArg)>) -> Self {}
 }
 ```
 

@@ -670,14 +670,14 @@ fn run_verb(
             Ok(match invocation["overrides"].as_array() {
                 Some(overrides) => {
                     let stubs = build_override_stubs(overrides, opaques)?;
-                    sandbox.run_with(target, RunPayload::values(args, kwargs), move |ctx| {
+                    sandbox.run_with(target, RunPayload::from_values(args, kwargs), move |ctx| {
                         for (path, object) in stubs {
                             ctx.bind(&path, object)?;
                         }
                         Ok(())
                     })
                 }
-                None => sandbox.run(target, RunPayload::values(args, kwargs)),
+                None => sandbox.run(target, RunPayload::from_values(args, kwargs)),
             })
         }
         other => Err(format!("unknown invocation verb {other:?}")),

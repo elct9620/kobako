@@ -36,14 +36,14 @@ enum Source<'a> {
 
 impl<'a> RunPayload<'a> {
     /// A payload that is already complete.
-    pub fn bytes(bytes: impl Into<Vec<u8>>) -> Self {
+    pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
         RunPayload(Source::Ready(bytes.into()))
     }
 
     /// A payload built against this invocation's Handle table — the form
     /// to use when the entrypoint is handed a capability, since the id
     /// standing for it is issued by that table.
-    pub fn build(build: impl FnOnce(&Handles<'_>) -> Result<Vec<u8>, Error> + 'a) -> Self {
+    pub fn from_fn(build: impl FnOnce(&Handles<'_>) -> Result<Vec<u8>, Error> + 'a) -> Self {
         RunPayload(Source::Deferred(Box::new(build)))
     }
 

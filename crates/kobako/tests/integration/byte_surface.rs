@@ -1,5 +1,5 @@
 //! Integration coverage for the byte-level payload surface — the entries
-//! a host uses when the payload's schema is its own: `RunPayload::bytes`,
+//! a host uses when the payload's schema is its own: `RunPayload::from_bytes`,
 //! `Execution::payload`, `Receiver::call`, and `Yielder::call_payload`.
 //!
 //! The bundled guest speaks MessagePack, so these tests build that schema's
@@ -81,7 +81,10 @@ fn a_run_carries_the_host_s_own_bytes_and_payload_hands_them_back() {
         .expect("preload the entrypoint");
 
     let execution = sandbox
-        .run("Echo", RunPayload::bytes(run_args(Value::Str("hi".into()))))
+        .run(
+            "Echo",
+            RunPayload::from_bytes(run_args(Value::Str("hi".into()))),
+        )
         .expect("the invocation runs");
 
     let bytes = execution

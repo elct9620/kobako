@@ -64,7 +64,7 @@ fn a_run_argument_carrying_a_written_handle_fails_before_the_guest_runs() {
         let err = sandbox
             .run(
                 "Worker",
-                RunPayload::values(vec![RunArg::Value(value.clone())], vec![]),
+                RunPayload::from_values(vec![RunArg::Value(value.clone())], vec![]),
             )
             .expect_err("a run argument carrying a Handle the Host App wrote must fail");
 
@@ -94,7 +94,7 @@ fn a_host_object_handed_to_run_still_crosses_as_a_capability_reference() {
     let value = sandbox
         .run(
             "Worker",
-            RunPayload::values(vec![RunArg::Object(probe.into_receiver())], vec![]),
+            RunPayload::from_values(vec![RunArg::Object(probe.into_receiver())], vec![]),
         )
         .expect("a host object handed to run must reach the guest")
         .value()
