@@ -88,9 +88,9 @@ class TestE2ENetworkAddrinfo < Minitest::Test
   ].freeze
 
   # What the lookups of `localhost` answer, one virtual address for each of
-  # the host's +answers+, only the first carrying the canonical name.
-  def named_lookups(answers)
-    virtual = answers.each_index.map { |index| "198.18.0.#{index}" }
+  # the host's answers, only the first carrying the canonical name.
+  def named_lookups
+    virtual = localhost_answers.map { |real| localhost_virtual_address(real) }
     addrinfos = virtual.map { |ip| ["#<Addrinfo: #{ip}:80 TCP (localhost)>", nil] }
     addrinfos[0] = ["#<Addrinfo: #{virtual[0]}:80 TCP localhost (localhost)>", "localhost"]
     [addrinfos, virtual.map { |ip| ["AF_INET", 80, ip, ip, 2, 1, 6] }]
@@ -98,7 +98,7 @@ class TestE2ENetworkAddrinfo < Minitest::Test
 
   # @behavior NW-141
   def test_a_script_looks_up_a_names_addrinfos_as_crubys
-    expected = LITERAL_LOOKUPS + named_lookups(localhost_answers) + REFUSALS
+    expected = LITERAL_LOOKUPS + named_lookups + REFUSALS
     assert_equal expected, localhost_sandbox(80).eval(LOOKUP_CALLS).value,
                  "Addrinfo.getaddrinfo and Socket.getaddrinfo must answer one entry per kind and address CRuby's " \
                  "does, a virtual address for each address a name leads to, the canonical name on the first entry, " \

@@ -70,7 +70,7 @@ struct Translations {
 impl Translations {
     /// The offsets of `name`'s entries and the real addresses they hold, in
     /// the order its lookup answered them.
-    fn of_name<'a>(&'a self, name: &'a str) -> impl Iterator<Item = (u32, IpAddr)> + 'a {
+    fn entries_by_name<'a>(&'a self, name: &'a str) -> impl Iterator<Item = (u32, IpAddr)> + 'a {
         (0u32..)
             .zip(&self.entries)
             .filter(move |(_, (known, _))| known == name)
@@ -239,7 +239,7 @@ impl Namespace {
             .translations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .of_name(&name)
+            .entries_by_name(&name)
             .map(|(_, real)| real)
             .collect::<Vec<_>>();
         match translated.is_empty() {
@@ -306,7 +306,7 @@ impl Namespace {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let known = translations
-            .of_name(lookup.name())
+            .entries_by_name(lookup.name())
             .map(|(offset, _)| to_virtual(offset))
             .collect::<Vec<_>>();
         if !known.is_empty() {
