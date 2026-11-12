@@ -10,7 +10,7 @@ each invocation ─ Grants ─> runtime ─ preopen ─> guest File
 
 ### Why these scenarios
 
-A mount is a registration, so it is refused once the Sandbox is sealed. A path means one mount, as Docker refuses a duplicate mount point. A mount may sit inside another, and the guest reaches the innermost one. A Context replaces a mount but never adds one.
+A mount is a registration, so it is refused once the Sandbox is sealed. A path means one mount, as Docker refuses a duplicate mount point. A mount may sit inside another, and the guest reaches the innermost one however its path is spelled. A mount hides what its parent holds by its name, and stands even where the parent holds nothing by that name, which Linux refuses; it neither moves nor goes while mounted, as Linux answers EBUSY. A Context replaces a mount but never adds one.
 
 A mount's block judges each access a call makes. An open that may create asks a change, then what it opens for. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way, and anything else it raises belongs to the host.
 
@@ -392,3 +392,52 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox that waits on a directory a mount's block holds |
 | When | the Host App interrupts its Thread |
 | Then | the interrupt is raised while the block still holds the directory |
+
+## `MT-033` A nested mount is reached however the path is spelled
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a writable Tmpfs holding `inner/note` at `/data`, and another holding `note` at `/data/inner` |
+| When | the script reads the note through `/data/./inner/note`, `/data/./inner/../inner/note`, and a link it makes at `/data/link` to `inner/note` |
+| Then | each reads the inner Filesystem's note |
+
+## `MT-034` A nested mount stands where its parent holds nothing by its name
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Tmpfs holding no `inner` at `/data`, and another holding `note` at `/data/inner` |
+| When | the script reads `/data/./inner/note` |
+| Then | it reads the inner Filesystem's note |
+
+## `MT-035` A read-only nested mount refuses a change however the path is spelled
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-078` |
+| relates | `MT-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a writable Tmpfs holding `inner` at `/data`, and a read-only Tmpfs at `/data/inner` |
+| When | the script writes `/data/./inner/new` |
+| Then | it raises `Errno::EROFS`, and the outer Tmpfs holds no `inner/new` |
+
+## `MT-036` A mount point neither moves nor goes
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-027`, `MT-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a writable Tmpfs holding `inner` at `/data`, and another at `/data/inner` |
+| When | the script removes `/data/./inner`, and renames it to `/data/moved` |
+| Then | each raises `Errno::EBUSY`, and both Filesystems keep what they held |
