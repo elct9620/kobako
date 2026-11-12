@@ -10,7 +10,9 @@ each invocation ─ Grants ─> runtime ─ preopen ─> guest File
 
 ### Why these scenarios
 
-A mount is a registration, so it is refused once the Sandbox is sealed. A path means one mount, as Docker refuses a duplicate mount point. A mount may sit inside another, and the guest reaches the innermost one however its path is spelled. A mount hides what its parent holds by its name, and stands even where the parent holds nothing by that name, which Linux refuses; it neither moves nor goes while mounted, as Linux answers EBUSY. A Context replaces a mount but never adds one.
+A mount is a registration, so it is refused once the Sandbox is sealed. A path means one mount, as Docker refuses a duplicate mount point. A Context replaces a mount but never adds one.
+
+A mount may sit inside another, and the guest reaches the innermost one however its path is spelled. It hides what its parent holds by its name. Unlike Linux, it stands even where the parent holds nothing by that name. As in Linux, it neither moves nor goes while mounted.
 
 A mount's block judges each access a call makes. An open that may create asks a change, then what it opens for. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way, and anything else it raises belongs to the host.
 
@@ -24,6 +26,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 ## Includes
 
 - `test/e2e/test_mount.rb`
+- `test/e2e/test_mount_nested.rb`
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
@@ -401,8 +404,8 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a writable Tmpfs holding `inner/note` at `/data`, and another holding `note` at `/data/inner` |
-| When | the script reads the note through `/data/./inner/note`, `/data/./inner/../inner/note`, and a link it makes at `/data/link` to `inner/note` |
+| Given | a Bind at `/data` holding `inner/note` and a link to it, and a Tmpfs holding `note` at `/data/inner` |
+| When | the script reads the note through `/data/./inner/note`, `/data/./inner/../inner/note`, and `/data/link` |
 | Then | each reads the inner Filesystem's note |
 
 ## `MT-034` A nested mount stands where its parent holds nothing by its name
