@@ -286,14 +286,15 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
     Ok(0.into_value(mrb))
 }
 
-/// `connect(host, port)` streams with the peer `host` and `port` name, binding
-/// first if no bind came before, as Linux's autobind does; the host answers a
-/// socket bound already, by `bind` or an earlier `connect`, `invalid-state`
-/// and keeps its end.
+/// `connect(host, port)` streams with the peer `host` and `port` name, or the
+/// first address its name leads to the host lets it stream with, as CRuby's
+/// `udp_connect` tries each; the last refusal raises. It binds first if no
+/// bind came before, as Linux's autobind does; the host answers a socket
+/// bound already, by `bind` or an earlier `connect`, `invalid-state` and
+/// keeps its end.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
     ensure_open(mrb, self_)?;
     let (ips, port, call) = peers_of(mrb, host, port, &no_timeout, "connect(2)")?;
-    let ip = ips[0];
     let failed = |code| to_error(mrb, code, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         match bind(&open.socket, (Ipv4Addr::UNSPECIFIED, 0)) {
@@ -301,16 +302,21 @@ fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Resu
             Err(code) => return Err(failed(code)),
         }
         open.streams = None;
-        let (incoming, outgoing) = open
-            .socket
-            .stream(Some(to_ip_socket_address((ip, port))))
-            .map_err(failed)?;
-        open.streams = Some(Streams {
-            incoming,
-            outgoing,
-            peer: (ip, port),
-        });
-        Ok(())
+        let mut last = None;
+        for ip in ips {
+            match open.socket.stream(Some(to_ip_socket_address((ip, port)))) {
+                Ok((incoming, outgoing)) => {
+                    open.streams = Some(Streams {
+                        incoming,
+                        outgoing,
+                        peer: (ip, port),
+                    });
+                    return Ok(());
+                }
+                Err(code) => last = Some(code),
+            }
+        }
+        Err(failed(last.expect("a peer names at least one address")))
     })?;
     Ok(0.into_value(mrb))
 }
@@ -334,23 +340,22 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
     // The address a send names, and the words its `Errno` carries.
     let addressed = match (send.dest, host_port) {
         (Some(sockaddr), _) => match end_of(mrb, sockaddr)? {
-            (IpAddr::V4(ip), port) => Some((ip, port, call.to_string())),
+            (IpAddr::V4(ip), port) => Some((vec![ip], port, call.to_string())),
             (IpAddr::V6(_), _) => return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", call)),
         },
-        (None, Some((host, port))) => {
-            let (ips, port, call) = peers_of(mrb, host, port, &no_timeout, call)?;
-            Some((ips[0], port, call))
-        }
+        (None, Some((host, port))) => Some(peers_of(mrb, host, port, &no_timeout, call)?),
         (None, None) => None,
     };
-    // Whether the address a send names is the peer, `None` when it names none.
+    // Whether an address the send names is the peer, `None` when it names
+    // none; a name's addresses are tried in turn, as CRuby's `udp_send` tries
+    // each, so one of them naming the peer sends.
     let (names_peer, call) = match addressed {
-        Some((ip, number, call)) => {
+        Some((ips, number, call)) => {
             let names_peer = Datagrams::of(mrb, self_)?.with(mrb, |open| {
                 Ok(open
                     .streams
                     .as_ref()
-                    .is_some_and(|streams| streams.peer == (ip, number)))
+                    .is_some_and(|streams| ips.iter().any(|ip| streams.peer == (*ip, number))))
             })?;
             (Some(names_peer), call)
         }

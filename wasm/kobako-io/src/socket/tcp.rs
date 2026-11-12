@@ -253,9 +253,12 @@ enum Caller {
 }
 
 /// The connection `TCPSocket.new` and `Socket.tcp` open from their
-/// arguments: to the IPv4 address `remote_host` names, or the one its name
-/// leads to, from a local end the script chooses, bound first as the host
-/// lets a bind take it.
+/// arguments: to the IPv4 address `remote_host` names, or each its name
+/// leads to in turn on a socket of its own, as CRuby's
+/// `init_inetsock_internal` tries each, since `wasi:sockets` closes a socket
+/// whose connect failed. A local end the script chooses is bound first, as
+/// the host lets a bind take it. Once every address failed, the last failure
+/// raises; a connect slower than `connect_timeout` raises at once.
 fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> {
     let mut args = args.to_vec();
     let options = args.last().copied().and_then(RHash::from_value);
@@ -273,63 +276,83 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
         (Some(sec), Caller::SocketTcp) => deadline_of(mrb, sec),
     };
     let (ips, port, quoted) = peers_of(mrb, host, port, &resolv_timeout, "connect(2)")?;
-    let ip = ips[0];
-    let named = |call: &str, quoted: String, (ip, port): (Ipv4Addr, u16)| match caller {
-        Caller::TcpSocketNew => quoted,
+    let local = match local.iter().any(|end| !end.is_nil()) {
+        true => {
+            let none = qnil().as_value();
+            Some(local_of(
+                mrb,
+                local.first().copied().unwrap_or(none),
+                local.get(1).copied().unwrap_or(none),
+            )?)
+        }
+        false => None,
+    };
+    let named = |call: &str, quoted: &str, (ip, port): (Ipv4Addr, u16)| match caller {
+        Caller::TcpSocketNew => quoted.to_string(),
         Caller::SocketTcp => format!("{call} for {ip}:{port}"),
     };
-    let call = named("connect(2)", quoted, (ip, port));
-    let failed = |code| to_error(mrb, code, &call);
-    let socket = create_tcp_socket(IpAddressFamily::Ipv4).map_err(failed)?;
-    let network = instance_network();
-    if local.iter().any(|end| !end.is_nil()) {
-        let none = qnil().as_value();
-        let (local_host, local_port) = (
-            local.first().copied().unwrap_or(none),
-            local.get(1).copied().unwrap_or(none),
-        );
-        let (local_ip, local_port, quoted) = local_of(mrb, local_host, local_port)?;
-        let bind_call = named("bind(2)", quoted, (local_ip, local_port));
-        bind(&socket, (local_ip, local_port)).map_err(|code| to_error(mrb, code, &bind_call))?;
-    }
-    socket
-        .start_connect(&network, to_ip_socket_address((ip, port)))
-        .map_err(failed)?;
-    let pollable = socket.subscribe();
-    let (input, output) = loop {
-        match socket.finish_connect() {
-            Ok(streams) => break streams,
-            Err(ErrorCode::WouldBlock) => {
-                let limit = match connect {
-                    Some(sec) => time_interval_of(mrb, sec)?,
-                    None => None,
-                };
-                if wait_within(&pollable, limit) {
-                    continue;
+    let mut last = None;
+    for ip in ips {
+        let attempt = || -> Result<Result<Connection, Error>, Error> {
+            let call = named("connect(2)", &quoted, (ip, port));
+            let failed = |code| to_error(mrb, code, &call);
+            let socket = match create_tcp_socket(IpAddressFamily::Ipv4) {
+                Ok(socket) => socket,
+                Err(code) => return Ok(Err(failed(code))),
+            };
+            if let Some((local_ip, local_port, quoted)) = &local {
+                let bind_call = named("bind(2)", quoted, (*local_ip, *local_port));
+                if let Err(code) = bind(&socket, (*local_ip, *local_port)) {
+                    return Ok(Err(to_error(mrb, code, &bind_call)));
                 }
-                return Err(match caller {
-                    Caller::TcpSocketNew => Error::new(
-                        mrb,
-                        io_timeout_error(mrb)?,
-                        &format!("user specified timeout for {ip} port {port}"),
-                    ),
-                    Caller::SocketTcp => {
-                        errno::error_by_name(mrb, c"ETIMEDOUT", "user specified timeout")
-                    }
-                });
             }
-            Err(code) => return Err(failed(code)),
+            if let Err(code) =
+                socket.start_connect(&instance_network(), to_ip_socket_address((ip, port)))
+            {
+                return Ok(Err(failed(code)));
+            }
+            let pollable = socket.subscribe();
+            let (input, output) = loop {
+                match socket.finish_connect() {
+                    Ok(streams) => break streams,
+                    Err(ErrorCode::WouldBlock) => {
+                        let limit = match connect {
+                            Some(sec) => time_interval_of(mrb, sec)?,
+                            None => None,
+                        };
+                        if wait_within(&pollable, limit) {
+                            continue;
+                        }
+                        return Err(match caller {
+                            Caller::TcpSocketNew => Error::new(
+                                mrb,
+                                io_timeout_error(mrb)?,
+                                &format!("user specified timeout for {ip} port {port}"),
+                            ),
+                            Caller::SocketTcp => {
+                                errno::error_by_name(mrb, c"ETIMEDOUT", "user specified timeout")
+                            }
+                        });
+                    }
+                    Err(code) => return Ok(Err(failed(code))),
+                }
+            };
+            Ok(Ok(Connection {
+                open: RefCell::new(Some(OpenSocket {
+                    input,
+                    output,
+                    socket,
+                    peer: (ip, port),
+                })),
+                io: IoState::new(),
+            }))
+        };
+        match attempt()? {
+            Ok(connection) => return Ok(connection),
+            Err(err) => last = Some(err),
         }
-    };
-    Ok(Connection {
-        open: RefCell::new(Some(OpenSocket {
-            input,
-            output,
-            socket,
-            peer: (ip, port),
-        })),
-        io: IoState::new(),
-    })
+    }
+    Err(last.expect("a peer names at least one address"))
 }
 
 /// The limits `TCPSocket.new`'s keywords set on resolving a name, read only
