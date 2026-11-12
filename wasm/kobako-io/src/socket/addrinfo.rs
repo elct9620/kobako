@@ -12,7 +12,7 @@ use beni::{
     Error, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash, TryConvert, TypedData, Value,
 };
 
-use super::address::{end_of, pack_host, port_of, to_sockaddr};
+use super::address::{end_of, hosts_of, port_of, to_sockaddr};
 use super::basic::{open_socket_of, string_value_of};
 use super::{
     family_of, name_of, resolution_error, socket_error, Family, AF_INET, AF_INET6, EAI_NONAME,
@@ -250,18 +250,12 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     if hints.flags & AI_NUMERICHOST != 0 && !numeric {
         return Err(resolution_error(mrb, EAI_NONAME));
     }
-    let ip = pack_host(mrb, node, passive)?;
-    if hints.family.is_some_and(|family| family != afamily_of(ip)) {
+    let ips = hosts_of(mrb, node, passive)?;
+    if hints
+        .family
+        .is_some_and(|family| ips.iter().all(|ip| family != afamily_of(*ip)))
+    {
         return Err(resolution_error(mrb, EAI_ADDRFAMILY));
-    }
-    // What `inspect` shows past the address and port, as CRuby's
-    // `make_inspectname` drops what they already show.
-    let mut inspectname = name.clone().filter(|name| *name != ip.to_string());
-    if !service.is_nil() && service_text != port.to_string() {
-        inspectname = Some(format!(
-            "{}:{service_text}",
-            inspectname.unwrap_or_default()
-        ));
     }
     // glibc's table: a raw socket takes whichever protocol is asked.
     let kinds = [
@@ -269,21 +263,37 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
         (SOCK_DGRAM, Some(IPPROTO_UDP)),
         (SOCK_RAW, None),
     ];
+    // Each address in the resolver's order, then each kind, as glibc's
+    // `gaih_inet` lists them; only the first carries the canonical name.
     let mut found = Vec::new();
-    for (socktype, protocol) in kinds {
-        if hints.socktype != 0 && hints.socktype != socktype {
+    for ip in ips {
+        if hints.family.is_some_and(|family| family != afamily_of(ip)) {
             continue;
         }
-        if hints.protocol != 0 && protocol.is_some_and(|protocol| protocol != hints.protocol) {
-            continue;
+        // What `inspect` shows past the address and port, as CRuby's
+        // `make_inspectname` drops what they already show.
+        let mut inspectname = name.clone().filter(|name| *name != ip.to_string());
+        if !service.is_nil() && service_text != port.to_string() {
+            inspectname = Some(format!(
+                "{}:{service_text}",
+                inspectname.unwrap_or_default()
+            ));
         }
-        let protocol = protocol.unwrap_or(hints.protocol);
-        let mut info = Addrinfo::new(ip, port, (socktype, protocol));
-        info.inspectname = inspectname.clone();
-        if found.is_empty() && hints.flags & AI_CANONNAME != 0 && !numeric {
-            info.canonname = name.clone();
+        for (socktype, protocol) in kinds {
+            if hints.socktype != 0 && hints.socktype != socktype {
+                continue;
+            }
+            if hints.protocol != 0 && protocol.is_some_and(|protocol| protocol != hints.protocol) {
+                continue;
+            }
+            let protocol = protocol.unwrap_or(hints.protocol);
+            let mut info = Addrinfo::new(ip, port, (socktype, protocol));
+            info.inspectname = inspectname.clone();
+            if found.is_empty() && hints.flags & AI_CANONNAME != 0 && !numeric {
+                info.canonname = name.clone();
+            }
+            found.push(info);
         }
-        found.push(info);
     }
     Ok(found)
 }

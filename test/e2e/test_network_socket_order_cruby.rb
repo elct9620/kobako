@@ -63,18 +63,26 @@ class TestE2ENetworkSocketOrderCruby < Minitest::Test
       outcome.call { TCPSocket.new(0x7f000001, %<port>d).remote_address.ip_address },
       outcome.call { TCPSocket.new(nil, %<port>d).remote_address.ip_address },
       outcome.call { TCPSocket.new(:localhost, %<port>d) },
-      Socket.sockaddr_in(%<port>d, 0x7f000001) == Socket.sockaddr_in(%<port>d, "127.0.0.1")
+      Socket.sockaddr_in(%<port>d, 0x7f000001) == Socket.sockaddr_in(%<port>d, "127.0.0.1"),
+      [0x7f000001, nil, ""].map do |host|
+        TCPSocket.new(host, 1)
+      rescue SystemCallError => e
+        e.message.split(" - ", 2).last
+      end
     ]
   RUBY
 
   # @behavior NW-190
   def test_a_host_reads_as_crubys_host_str
     with_listening_server do |port|
-      value = loopback_sandbox(port).eval(format(HOSTS, port: port)).value
+      value = loopback_sandbox(port, 1).eval(format(HOSTS, port: port)).value
 
-      assert_equal ["127.0.0.1", "127.0.0.1", "TypeError", true], value,
+      assert_equal ["127.0.0.1", "127.0.0.1", "TypeError", true,
+                    ["connect(2) for 2130706433 port 1", "connect(2) for nil port 1",
+                     'connect(2) for "" port 1']], value,
                    "TCPSocket.new and Socket.sockaddr_in must read an Integer host as the IPv4 address it numbers " \
-                   "and nil as the loopback, and refuse a Symbol with TypeError, as CRuby's host_str reads them"
+                   "and nil as the loopback, and refuse a Symbol with TypeError, as CRuby's host_str reads them; " \
+                   "a refused TCPSocket.new must quote the host as the script wrote it, as CRuby's Errno does"
     end
   end
 end

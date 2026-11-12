@@ -2362,8 +2362,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server |
-| When | the script connects naming the host by an Integer, by `nil`, and by a Symbol. It packs a `sockaddr_in` from the Integer |
-| Then | the Integer is the IPv4 address it numbers and `nil` the loopback, as CRuby's `host_str` reads them. The Symbol raises `TypeError` |
+| When | the script connects naming the host by an Integer, by `nil`, and by a Symbol. It packs a `sockaddr_in` from the Integer. Then it connects each of the Integer, `nil`, and `""` to a refusing port |
+| Then | the Integer is the IPv4 address it numbers and `nil` the loopback, as CRuby's `host_str` reads them. The Symbol raises `TypeError`. Each refusal quotes the host as the script wrote it, as `rsock_syserr_fail_host_port` inspects it |
 
 ## `NW-191` A script's socket reads each argument as CRuby's
 

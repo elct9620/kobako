@@ -18,22 +18,23 @@ use crate::wasi::wasi::sockets::network::{
     ErrorCode, IpAddress, IpSocketAddress, Ipv4SocketAddress,
 };
 
-/// The words CRuby's `Errno` carries for a call on `host` and `port`.
-fn to_peer_message(call: &str, host: &str, port: impl std::fmt::Display) -> String {
-    format!("{call} for \"{host}\" port {port}")
+/// The words CRuby's `Errno` carries for a call on `host` and `port`, as
+/// `rsock_syserr_fail_host_port` inspects the host the script passed.
+fn to_peer_message(mrb: &Mrb, call: &str, host: Value, port: impl std::fmt::Display) -> String {
+    format!("{call} for {} port {port}", host.inspect(mrb))
 }
 
-/// The IPv4 address `name` leads to, as kobako's resolver hands out a virtual
-/// one; a name with no address raises `Socket::ResolutionError`, as an
-/// unallowed one does, a Sandbox with no network fails it for good, as
-/// `EAI_FAIL`, and a lookup slower than `timeout` raises `Errno::ETIMEDOUT`,
-/// as CRuby's `resolv_timeout` does.
+/// Each IPv4 address `name` leads to, in the order the resolver prefers, as
+/// kobako's hands out a virtual one for each; a name with no address raises
+/// `Socket::ResolutionError`, as an unallowed one does, a Sandbox with no
+/// network fails it for good, as `EAI_FAIL`, and a lookup slower than
+/// `timeout` raises `Errno::ETIMEDOUT`, as CRuby's `resolv_timeout` does.
 fn resolve(
     mrb: &Mrb,
     name: &str,
     timeout: Option<Duration>,
     call: &str,
-) -> Result<Ipv4Addr, Error> {
+) -> Result<Vec<Ipv4Addr>, Error> {
     let to_lookup_error = |code| match code {
         ErrorCode::PermanentResolverFailure => resolution_error(mrb, EAI_FAIL),
         ErrorCode::TemporaryResolverFailure => resolution_error(mrb, EAI_AGAIN),
@@ -44,11 +45,13 @@ fn resolve(
     };
     let stream = resolve_addresses(&instance_network(), name).map_err(to_lookup_error)?;
     let pollable = stream.subscribe();
+    let mut found = Vec::new();
     loop {
         match stream.resolve_next_address() {
-            Ok(Some(IpAddress::Ipv4((a, b, c, d)))) => return Ok(Ipv4Addr::new(a, b, c, d)),
+            Ok(Some(IpAddress::Ipv4((a, b, c, d)))) => found.push(Ipv4Addr::new(a, b, c, d)),
             Ok(Some(IpAddress::Ipv6(_))) => {}
-            Ok(None) => return Err(resolution_error(mrb, EAI_NONAME)),
+            Ok(None) if found.is_empty() => return Err(resolution_error(mrb, EAI_NONAME)),
+            Ok(None) => return Ok(found),
             Err(ErrorCode::WouldBlock) => {
                 if !wait_within(&pollable, timeout) {
                     return Err(errno::error_by_name(
@@ -93,51 +96,55 @@ pub(super) fn host_of(mrb: &Mrb, host: Value, passive: bool) -> Result<String, E
     })
 }
 
-/// The peer `host` and `port` name for `call`: the IPv4 address
-/// `host` spells, or the one its name leads to within what `resolv_timeout`
-/// reads, with the words CRuby's `Errno` carries for them. The timeout is
-/// read only for a name, as CRuby reads its resolve timeout only where it
-/// must resolve one.
-pub(super) fn peer_of(
+/// The peers `host` and `port` name for `call`, for a connect to try in turn:
+/// the IPv4 address `host` spells, or each one its name leads to within what
+/// `resolv_timeout` reads, with the words CRuby's `Errno` carries for them.
+/// The timeout is read only for a name, as CRuby reads its resolve timeout
+/// only where it must resolve one.
+pub(super) fn peers_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
     resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
     call: &str,
-) -> Result<(Ipv4Addr, u16, String), Error> {
-    end_of_host(mrb, host_of(mrb, host, false)?, port, resolv_timeout, call)
+) -> Result<(Vec<Ipv4Addr>, u16, String), Error> {
+    ends_of_host(mrb, host, false, port, resolv_timeout, call)
 }
 
-/// The end the host text `host_text` and `port` name for `call`.
-fn end_of_host(
+/// The ends `host`, read as `passive` asks, and `port` name for `call`.
+fn ends_of_host(
     mrb: &Mrb,
-    host_text: String,
+    host: Value,
+    passive: bool,
     port: Value,
     resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
     call: &str,
-) -> Result<(Ipv4Addr, u16, String), Error> {
+) -> Result<(Vec<Ipv4Addr>, u16, String), Error> {
+    let host_text = host_of(mrb, host, passive)?;
     let (port, port_text) = port_of(mrb, port)?;
-    let call = to_peer_message(call, &host_text, port_text);
-    let ip = match host_text.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(ip)) => ip,
+    let call = to_peer_message(mrb, call, host, port_text);
+    let ips = match host_text.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => vec![ip],
         Ok(std::net::IpAddr::V6(_)) => {
             return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call))
         }
         Err(_) => resolve(mrb, &host_text, resolv_timeout()?, &call)?,
     };
-    Ok((ip, port, call))
+    Ok((ips, port, call))
 }
 
 /// The local end `host` and `port` name for a bind, and the text naming it in
 /// an error, as CRuby's `rsock_addrinfo` reads them with `AI_PASSIVE`: `nil`
-/// is any address, and the rest as `host_of` reads it. The host decides
-/// which end a bind may take.
+/// is any address, and the rest as `host_of` reads it, a name binding the
+/// first address it leads to, as `init_inetsock_internal` takes the first of
+/// the peer's family. The host decides which end a bind may take.
 pub(super) fn local_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
-    end_of_host(mrb, host_of(mrb, host, true)?, port, &no_timeout, "bind(2)")
+    let (ips, port, call) = ends_of_host(mrb, host, true, port, &no_timeout, "bind(2)")?;
+    Ok((ips[0], port, call))
 }
 
 /// The port `port` names, and its text, as Linux's `getaddrinfo` reads what
@@ -179,15 +186,18 @@ pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
     Ok(())
 }
 
-/// The address `host` names to pack, as CRuby's `rsock_addrinfo` reads it
-/// through `host_of`, `passive` when `AI_PASSIVE` asks: a literal is itself,
-/// and a name the address it leads to. The guest has no IPv6, so `nil` is
-/// IPv4's loopback.
-pub(super) fn pack_host(mrb: &Mrb, host: Value, passive: bool) -> Result<IpAddr, Error> {
+/// The addresses `host` names, as CRuby's `rsock_addrinfo` reads it through
+/// `host_of`, `passive` when `AI_PASSIVE` asks: a literal is itself, and a
+/// name each address it leads to. The guest has no IPv6, so `nil` is IPv4's
+/// loopback.
+pub(super) fn hosts_of(mrb: &Mrb, host: Value, passive: bool) -> Result<Vec<IpAddr>, Error> {
     let text = host_of(mrb, host, passive)?;
     Ok(match text.parse::<IpAddr>() {
-        Ok(ip) => ip,
-        Err(_) => resolve(mrb, &text, None, "getaddrinfo(3)")?.into(),
+        Ok(ip) => vec![ip],
+        Err(_) => resolve(mrb, &text, None, "getaddrinfo(3)")?
+            .into_iter()
+            .map(IpAddr::V4)
+            .collect(),
     })
 }
 
@@ -238,10 +248,11 @@ pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error>
     Ok((ip, u16::from_be_bytes([bytes[2], bytes[3]])))
 }
 
-/// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name.
+/// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name, a
+/// name's first address, as CRuby's packs the first `getaddrinfo` answers.
 fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
     let (port, _) = port_of(mrb, port)?;
-    let ip = pack_host(mrb, host, false)?;
+    let ip = hosts_of(mrb, host, false)?[0];
     Ok(mrb.str_new(&to_sockaddr(ip, port)).as_value())
 }
 

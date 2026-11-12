@@ -10,7 +10,7 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
-use super::address::{end_of, local_of, no_timeout, peer_of, to_ip_socket_address};
+use super::address::{end_of, local_of, no_timeout, peers_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
     exception_option_of, ready_of, receive_past_buffer, send_args_of, IoState, PastBuffer,
@@ -292,7 +292,8 @@ fn udp_socket_bind(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<
 /// and keeps its end.
 fn udp_socket_connect(mrb: &Mrb, self_: Value, host: Value, port: Value) -> Result<Value, Error> {
     ensure_open(mrb, self_)?;
-    let (ip, port, call) = peer_of(mrb, host, port, &no_timeout, "connect(2)")?;
+    let (ips, port, call) = peers_of(mrb, host, port, &no_timeout, "connect(2)")?;
+    let ip = ips[0];
     let failed = |code| to_error(mrb, code, &call);
     Datagrams::of(mrb, self_)?.with(mrb, |open| {
         match bind(&open.socket, (Ipv4Addr::UNSPECIFIED, 0)) {
@@ -336,7 +337,10 @@ fn udp_socket_send(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Err
             (IpAddr::V4(ip), port) => Some((ip, port, call.to_string())),
             (IpAddr::V6(_), _) => return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", call)),
         },
-        (None, Some((host, port))) => Some(peer_of(mrb, host, port, &no_timeout, call)?),
+        (None, Some((host, port))) => {
+            let (ips, port, call) = peers_of(mrb, host, port, &no_timeout, call)?;
+            Some((ips[0], port, call))
+        }
         (None, None) => None,
     };
     // Whether the address a send names is the peer, `None` when it names none.

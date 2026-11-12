@@ -11,7 +11,7 @@ use beni::scan_args::get_kwargs;
 use beni::value::qnil;
 use beni::{Error, ExceptionClass, Module, Mrb, RClass, RHash, TryConvert, TypedData, Value};
 
-use super::address::{local_of, peer_of, to_ip_socket_address};
+use super::address::{local_of, peers_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
 use super::basic::{IoState, Readiness, SocketIo, Wait};
 use super::ip::local_end_of;
@@ -272,7 +272,8 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
         (Some(sec), Caller::TcpSocketNew) => time_interval_of(mrb, sec),
         (Some(sec), Caller::SocketTcp) => deadline_of(mrb, sec),
     };
-    let (ip, port, quoted) = peer_of(mrb, host, port, &resolv_timeout, "connect(2)")?;
+    let (ips, port, quoted) = peers_of(mrb, host, port, &resolv_timeout, "connect(2)")?;
+    let ip = ips[0];
     let named = |call: &str, quoted: String, (ip, port): (Ipv4Addr, u16)| match caller {
         Caller::TcpSocketNew => quoted,
         Caller::SocketTcp => format!("{call} for {ip}:{port}"),
