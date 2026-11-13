@@ -25,7 +25,8 @@
 #   Kobako::Handle sits at the root, for Codec.
 # [A native piece sits at the tier of the constant it registers on]
 #   Kobako::Filesystem and Kobako::Network sit at the root, for the
-#   Catalog; Kobako::Runtime sits with the Sandbox that drives it.
+#   Catalog, and so do the name rules on Kobako itself, for the Catalog and
+#   Transport; Kobako::Runtime sits with the Sandbox that drives it.
 # [Outcome may require <tt>transport/error.rb</tt>]
 #   The gem contract fixes the class name.
 # [<tt>Codec.track_handles</tt> wraps only the decode call]
