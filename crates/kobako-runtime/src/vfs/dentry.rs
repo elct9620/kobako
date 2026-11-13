@@ -14,7 +14,7 @@ use std::thread::ThreadId;
 use lru::LruCache;
 
 use super::file::FileOperations;
-use super::inode::{Inode, InodeOperations, Lookup};
+use super::inode::{Identity, Inode, InodeOperations, Lookup};
 use super::{Errno, FileType, Kstat, OpenHow, SuperBlock};
 use crate::hashtable::Hashtable;
 use crate::locking::seqlock::SeqLock;
@@ -245,7 +245,7 @@ impl Dentry {
     /// must see.
     pub fn add(&self, inode: Option<Arc<Inode>>) {
         match inode {
-            Some(inode) => inode.add_hashed(self),
+            Some(inode) => self.hashtables.iget5_locked(inode).add_hashed(self),
             None => self.rehash(),
         }
     }
@@ -383,7 +383,7 @@ impl Dentry {
         found: Lookup,
     ) -> Result<Option<Arc<Dentry>>, Errno> {
         let inode = match found {
-            Lookup::Found(inode) => inode,
+            Lookup::Found(inode) => self.hashtables.iget5_locked(inode),
             Lookup::Absent => {
                 self.add(None);
                 return Ok(None);
@@ -624,9 +624,37 @@ struct Hashtables {
     /// Those a walk is still looking up, as Linux's `in_lookup_hashtable`, so
     /// any other walk reaching the name waits for that answer.
     in_lookup_hashtable: Mutex<Hashtable<Key, Dentry>>,
+    /// The directories in use, by the identity each reports, as Linux's
+    /// `inode_hashtable`, so a directory a Filesystem answers anew is the
+    /// inode it already was and keeps its one dentry.
+    inode_hashtable: Mutex<Hashtable<Identity, Inode>>,
 }
 
 impl Hashtables {
+    /// The inode in use for the directory `inode` reports, or `inode` itself,
+    /// kept for the next lookup, as `iget5_locked` finds a live inode by its
+    /// number before it hands a new one. A directory removed is found no more,
+    /// and an entry naming no identity is never kept.
+    fn iget5_locked(&self, inode: Arc<Inode>) -> Arc<Inode> {
+        let Some(identity) = inode.identity().filter(|_| inode.kind() == FileType::Dir) else {
+            return inode;
+        };
+        let mut table = self.inode_hashtable();
+        match table.get(&identity) {
+            Some(found) if found.kind() == FileType::Dir && !found.is_deaddir() => found,
+            _ => {
+                table.insert(identity, &inode);
+                inode
+            }
+        }
+    }
+
+    fn inode_hashtable(&self) -> MutexGuard<'_, Hashtable<Identity, Inode>> {
+        self.inode_hashtable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn dentry_hashtable(&self) -> MutexGuard<'_, Hashtable<Key, Dentry>> {
         self.dentry_hashtable
             .lock()
@@ -656,6 +684,7 @@ impl Dentries {
         let hashtables = Arc::new(Hashtables {
             dentry_hashtable: Mutex::default(),
             in_lookup_hashtable: Mutex::default(),
+            inode_hashtable: Mutex::default(),
         });
         Self {
             ops,

@@ -2132,6 +2132,50 @@ mod tests {
         );
     }
 
+    /// A Filesystem answering each lookup of `d` with a new inode for the one
+    /// directory it holds there, as a backend keeping no inode of its own.
+    #[derive(Clone, Default)]
+    struct AnswersAnew;
+
+    impl FileSystemType for AnswersAnew {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
+            sb.d_make_root(vfs::Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
+        }
+    }
+
+    impl InodeOperations for AnswersAnew {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
+            Ok(Kstat::new(FileType::Dir, 0))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
+            let dir = Kstat::new(FileType::Dir, 0).with_identity(1, 7);
+            Ok(match dentry.name().as_str() {
+                "d" => Lookup::Found(Inode::new(&dir, Arc::new(self.clone()))),
+                _ => Lookup::Absent,
+            })
+        }
+    }
+
+    // A second dentry for one directory would hold none of what stands on
+    // the first, such as a mount, and would lock apart from it.
+    // @behavior RT-393
+    #[test]
+    fn a_directory_a_filesystem_answers_anew_keeps_its_one_dentry() {
+        let root =
+            root_of(Filesystem::new(Arc::new(AnswersAnew)).expect("the instance must stand"));
+        let first = reach(&root, "d").expect("d is reached");
+        root.mnt().sb().dentries().unhash(&first);
+        let second = reach(&root, "d").expect("d is reached again");
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "a walk reaching `d` again, after its held dentry left the name table, over a \
+             Filesystem answering each lookup with a new inode of one identity must find the \
+             dentry it held, as iget5_locked finds the directory's live inode"
+        );
+    }
+
     /// A Filesystem handing one directory's inode for `a` and `b` in its root,
     /// whose lookup of `b` answers once the test lets it, counting each.
     #[derive(Clone, Default)]
@@ -3520,8 +3564,16 @@ mod tests {
             self.tmpfs.getattr(dentry)
         }
 
+        /// Once stale, each name stands for another entry than the one it held,
+        /// so what is found there reports an identity of its own.
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
-            self.tmpfs.lookup(dentry)
+            match self.tmpfs.lookup(dentry)? {
+                Lookup::Found(inode) if self.stale.load(Ordering::SeqCst) => {
+                    let replaced = Kstat::new(inode.kind(), 0).with_identity(u64::MAX, u64::MAX);
+                    Ok(Lookup::Found(Inode::new(&replaced, inode.ops().clone())))
+                }
+                found => Ok(found),
+            }
         }
 
         fn create(&self, dentry: &Dentry) -> Result<(), Errno> {

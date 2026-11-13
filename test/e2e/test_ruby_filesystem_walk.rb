@@ -14,6 +14,8 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
   # One file three directories deep, recording each path its `stat` is
   # asked about.
   class DeepFilesystem
+    DIRECTORIES = ["", "a", "a/b", "a/b/c"].freeze
+
     attr_reader :asked
 
     def initialize
@@ -28,10 +30,11 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
 
     def stat(path)
       @asked << path
-      return Stat.new(directory: true, size: 7, ino: 1) if ["", "a", "a/b", "a/b/c"].include?(path)
+      depth = DIRECTORIES.index(path)
+      return Stat.new(directory: true, size: 7, ino: depth + 1) if depth
       raise Errno::ENOENT, path unless path == "a/b/c/note.txt"
 
-      Stat.new(directory: false, size: 4, ino: 2)
+      Stat.new(directory: false, size: 4, ino: DIRECTORIES.size + 1)
     end
   end
 

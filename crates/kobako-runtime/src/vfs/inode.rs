@@ -42,9 +42,9 @@ pub enum Finish {
 /// What one name in a directory turned out to be, as `->lookup` answers.
 pub enum Lookup {
     /// The entry standing at the name, for the runtime to record on the
-    /// dentry, as `d_splice_alias` records it. A Filesystem naming one entry by
-    /// more than one name hands the same one, as `iget5_locked` finds it, and so
-    /// shares its lock.
+    /// dentry, as `d_splice_alias` records it. A directory handed anew under
+    /// the identity of one in use is that one, as `iget5_locked` finds it, so
+    /// it keeps its one dentry and its lock.
     Found(Arc<Inode>),
     /// Nothing stands at the name, as a negative dentry records.
     Absent,
