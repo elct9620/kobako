@@ -20,6 +20,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     let _ = kobako_runtime::sched::register_blocking(Box::new(gvl::GvlFreeWait));
     runtime::register(ruby, kobako)?;
     filesystem::register(ruby, kobako)?;
+    network::register(kobako)?;
     Ok(())
 }
 

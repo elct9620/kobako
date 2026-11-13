@@ -102,19 +102,6 @@ pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     runtime.define_method("run", method!(Runtime::run, 4))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
     runtime.define_method("compile", method!(Runtime::compile, 1))?;
-    runtime.define_singleton_method("validate_mount", function!(filesystem::validate_mount, 3))?;
-    runtime.define_singleton_method(
-        "validate_endpoint",
-        function!(network::validate_endpoint, 1),
-    )?;
-    runtime.define_singleton_method(
-        "validate_credential",
-        function!(network::validate_credential, 1),
-    )?;
-    runtime.define_singleton_method(
-        "validate_network_name",
-        function!(network::validate_network_name, 1),
-    )?;
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::GuestYielder` the dispatcher hands the Proc, not a method on
     // Runtime.

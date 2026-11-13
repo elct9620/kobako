@@ -56,7 +56,7 @@ module Kobako
     def mount(at, filesystem, access: :read, &policy)
       raise ArgumentError, "Kobako::Context is spent; ctx.mount is only valid inside the #eval / #run block" if @spent
 
-      Runtime.validate_mount(at, access, filesystem)
+      Filesystem.validate_mount(at, access, filesystem)
       @replacements.replace(Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy),
                             "cannot override unmounted path #{at.inspect}")
       self

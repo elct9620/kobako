@@ -22,7 +22,8 @@ use ruby::RubyFilesystem;
 use kobako_runtime::filesystem::{Bind, Filesystem, Overlay, Tmpfs};
 use kobako_runtime::Errno;
 
-pub(super) use grants::{to_grants, validate_mount};
+pub(super) use grants::to_grants;
+use grants::validate_mount;
 
 /// Each kind kobako ships is one Filesystem instance, made once with its
 /// Ruby object, so every Mount of that object shares it as a bind mount
@@ -55,6 +56,7 @@ impl DataTypeFunctions for OverlayFs {
 
 pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let module = kobako.define_module("Filesystem")?;
+    module.define_singleton_method("validate_mount", function!(validate_mount, 3))?;
     let tmpfs = module.define_class("Tmpfs", ruby.class_object())?;
     tmpfs.define_singleton_method("new", function!(tmpfs_new, -1))?;
     let bind = module.define_class("Bind", ruby.class_object())?;

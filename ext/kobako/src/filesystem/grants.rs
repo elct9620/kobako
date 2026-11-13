@@ -17,7 +17,7 @@ use crate::{escape, gvl};
 
 /// Refuse a Mount at `mount` time by the same rules an invocation builds
 /// it with, so a mistake raises where it was made.
-pub(crate) fn validate_mount(
+pub(super) fn validate_mount(
     at: Value,
     access: Value,
     filesystem: Value,

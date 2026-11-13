@@ -40,6 +40,8 @@ module Kobako
 
       assert_equal [:http, [:public]], [endpoint.protocol, endpoint.addresses],
                    "Kobako::Network::Endpoint.new with only a host and a port must speak HTTP to the public set"
+      assert [endpoint.host, endpoint.addresses, endpoint.rules].all?(&:frozen?),
+             "Kobako::Network::Endpoint.new must hold its host, addresses, and rules frozen, as data"
     end
 
     MALFORMED_ENDPOINTS = [
@@ -59,6 +61,14 @@ module Kobako
           Network::Endpoint.new(**fields)
         end
       end
+    end
+
+    def test_a_rule_names_its_method_in_uppercase_or_nil_for_any
+      rules = Network::Rules.new.allow(:get, "/repos/**").deny(:any, "/admin").to_a
+
+      assert_equal [[true, "GET", "/repos/**"], [false, nil, "/admin"]],
+                   rules.map { |rule| [rule.allow?, rule.method, rule.path] },
+                   "Rules#allow :get must read back as GET, and Rules#deny :any as nil, the rule for any method"
     end
 
     def test_a_credential_with_another_placement_is_refused

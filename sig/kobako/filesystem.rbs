@@ -4,6 +4,8 @@ module Kobako
 
     type access = :read | :read_write
 
+    def self.validate_mount: (untyped at, untyped access, untyped filesystem) -> nil
+
     # What a Filesystem written in Ruby answers to be mounted. One that
     # also answers _Listable lists its directories, and one answering
     # _Writable takes changes too; each method it lacks is refused alone.

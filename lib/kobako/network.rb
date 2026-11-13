@@ -24,12 +24,14 @@ module Kobako
     # protocol other than +:http+, +:tcp+, or +:udp+, or another address, by
     # the rules an invocation reads the endpoint with.
     class Endpoint < Data.define(:host, :port, :protocol, :addresses, :rules)
-      def initialize(host:, port:, protocol: :http, addresses: [:public], rules: [])
-        host = host.to_s.freeze
-        addresses = Array(addresses).freeze
-        rules = Array(rules).freeze
+      UNWRITTEN = Object.new.freeze # :nodoc:
+      private_constant :UNWRITTEN
+
+      def initialize(host:, port:, protocol: UNWRITTEN, addresses: UNWRITTEN, rules: UNWRITTEN)
+        written = { protocol:, addresses:, rules: }.reject { |_, value| value.equal?(UNWRITTEN) }
+        %i[addresses rules].each { |field| written[field] = Array(written[field]).freeze if written.key?(field) }
+        host, port, protocol, addresses, rules = Network.normalize_endpoint(host, port, written)
         super
-        Runtime.validate_endpoint(self)
       end
     end
 
@@ -48,9 +50,10 @@ module Kobako
       def allow? = @allow
 
       def initialize(allow:, method:, path:)
-        @allow = allow ? true : false
-        @method = method.nil? || method == :any ? nil : method.to_s.upcase.freeze
-        @path = path.to_s.freeze
+        method = method == :any ? nil : method&.to_s
+        @allow, @method, @path = Network.normalize_rule(allow ? true : false, method, path.to_s)
+        @method&.freeze
+        @path.freeze
         freeze
       end
     end
@@ -91,7 +94,7 @@ module Kobako
         @placement = placement.is_a?(String) ? placement.downcase.freeze : placement
         @placeholder = placeholder.to_s.freeze
         @source = source
-        Runtime.validate_credential(self)
+        Network.validate_credential(self)
       end
 
       # The value for +request+, or +nil+ to send nothing.

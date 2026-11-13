@@ -8,7 +8,7 @@ module Kobako
       # no Context could replace it by.
       def initialize(name:, entry:)
         name = name.to_s.freeze
-        Runtime.validate_network_name(name)
+        Kobako::Network.validate_name(name)
 
         if block_given?
           entry = Kobako::Network::Builder.new(entry)

@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{
-    prelude::*, Error as MagnusError, RArray, RClass, RHash, RModule, RString, Ruby, Symbol, Value,
+    function, prelude::*, Error as MagnusError, RArray, RClass, RHash, RModule, RString, Ruby,
+    Symbol, Value,
 };
 
 use kobako_runtime::grant::Grant;
@@ -138,25 +139,105 @@ impl CredentialSource for RubyCredential {
     }
 }
 
-/// Refuse an endpoint as `Kobako::Network::Endpoint.new` makes it, by the
-/// rules an invocation reads it with, so a mistake raises where it was
-/// written, as a Mount's does.
-pub(super) fn validate_endpoint(ruby: &Ruby, endpoint: Value) -> Result<(), MagnusError> {
-    to_endpoint(ruby, endpoint).map(drop)
+/// Defines `Kobako::Network`, whose values ask these functions where they
+/// are written, so a mistake raises there by the rules an invocation reads
+/// the value with, and a value holds what those rules make of it.
+pub(super) fn register(kobako: RModule) -> Result<(), MagnusError> {
+    let network = kobako.define_module("Network")?;
+    network.define_singleton_method("normalize_endpoint", function!(normalize_endpoint, 3))?;
+    network.define_singleton_method("normalize_rule", function!(normalize_rule, 3))?;
+    network.define_singleton_method("validate_credential", function!(validate_credential, 1))?;
+    network.define_singleton_method("validate_name", function!(validate_name, 1))?;
+    Ok(())
+}
+
+/// The endpoint at `host` and `port` with the `protocol`, `addresses`, and
+/// `rules` `written` of it, as `[host, port, protocol, addresses, rules]`:
+/// each one left out takes the contract's default, and `addresses` and
+/// `rules` stay as written.
+fn normalize_endpoint(
+    ruby: &Ruby,
+    host: Value,
+    port: Value,
+    written: RHash,
+) -> Result<(RString, u16, Symbol, RArray, RArray), MagnusError> {
+    let [protocol, addresses, rules] =
+        ["protocol", "addresses", "rules"].map(|name| written.get(ruby.to_symbol(name)));
+    let addresses = addresses.map(RArray::try_convert).transpose()?;
+    let rules = rules.map(RArray::try_convert).transpose()?;
+    let endpoint = build_endpoint(ruby, host, port, protocol, addresses, rules)?;
+    let host = ruby.str_new(&endpoint.host);
+    host.freeze();
+    let addresses = addresses.unwrap_or_else(|| {
+        let addresses = ruby.ary_from_iter(
+            endpoint
+                .addresses
+                .iter()
+                .map(|addresses| addresses_name(ruby, addresses)),
+        );
+        addresses.freeze();
+        addresses
+    });
+    let rules = rules.unwrap_or_else(|| {
+        let rules = ruby.ary_new();
+        rules.freeze();
+        rules
+    });
+    Ok((
+        host,
+        endpoint.port,
+        protocol_name(ruby, endpoint.protocol),
+        addresses,
+        rules,
+    ))
+}
+
+/// The rule taking `allow` on `method`, or any when `nil`, on paths `path`
+/// matches, as `[allow, method, path]`.
+fn normalize_rule(
+    allow: bool,
+    method: Option<String>,
+    path: String,
+) -> (bool, Option<String>, String) {
+    let action = if allow { Action::Allow } else { Action::Deny };
+    let rule = HttpRule::new(action, method.as_deref(), path);
+    (rule.action == Action::Allow, rule.method, rule.path)
 }
 
 /// Refuse a credential's placement as `Kobako::Network::Credential.new`
 /// takes it, by the rule an invocation reads it with.
-pub(super) fn validate_credential(ruby: &Ruby, credential: Value) -> Result<(), MagnusError> {
+fn validate_credential(ruby: &Ruby, credential: Value) -> Result<(), MagnusError> {
     to_placement(ruby, credential.funcall("placement", ())?).map(drop)
 }
 
 /// Refuse an entry's name as `Sandbox#network` takes it, by the rule an
 /// invocation names its Grant with.
-pub(super) fn validate_network_name(ruby: &Ruby, name: RString) -> Result<(), MagnusError> {
+fn validate_name(ruby: &Ruby, name: RString) -> Result<(), MagnusError> {
     Network::new(name.to_string()?, Arc::new(Builder::default()))
         .map(drop)
         .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
+}
+
+/// `protocol` as the Symbol an endpoint's `protocol` names it by.
+fn protocol_name(ruby: &Ruby, protocol: Protocol) -> Symbol {
+    ruby.to_symbol(match protocol {
+        Protocol::Http => "http",
+        Protocol::Tcp => "tcp",
+        Protocol::Udp => "udp",
+        _ => unreachable!("an endpoint speaks only a protocol `to_endpoint` reads"),
+    })
+}
+
+/// `addresses` as an endpoint's `addresses` names it: a Symbol for a set,
+/// or a CIDR String.
+fn addresses_name(ruby: &Ruby, addresses: &Addresses) -> Value {
+    match addresses {
+        Addresses::Public => ruby.to_symbol("public").as_value(),
+        Addresses::Private => ruby.to_symbol("private").as_value(),
+        Addresses::Local => ruby.to_symbol("local").as_value(),
+        Addresses::Cidr(address, prefix) => ruby.str_new(&format!("{address}/{prefix}")).as_value(),
+        _ => unreachable!("an endpoint leads only to addresses `to_addresses` reads"),
+    }
 }
 
 /// The placement a credential's `placement` names: `:bearer`, `:basic`, or
@@ -364,35 +445,58 @@ fn to_ruby_entry(
 
 /// The endpoint a Ruby object answering `host` and `port` stands for, and
 /// `protocol`, `addresses`, and `rules` where it answers them; one it leaves
-/// out takes the default `Kobako::Network::Endpoint` gives it.
+/// out takes the contract's default.
 fn to_endpoint(ruby: &Ruby, object: Value) -> Result<Endpoint, MagnusError> {
+    let answer = |role: &str| -> Result<Option<Value>, MagnusError> {
+        match object.respond_to(role, false)? {
+            true => object.funcall(role, ()).map(Some),
+            false => Ok(None),
+        }
+    };
+    build_endpoint(
+        ruby,
+        object.funcall("host", ())?,
+        object.funcall("port", ())?,
+        answer("protocol")?,
+        answer("addresses")?.map(RArray::try_convert).transpose()?,
+        answer("rules")?.map(RArray::try_convert).transpose()?,
+    )
+}
+
+/// The endpoint at `host` and `port`, speaking `protocol`, leading to
+/// `addresses`, and judging by `rules` where each is given, and otherwise
+/// as the contract's `Endpoint::new` makes it.
+fn build_endpoint(
+    ruby: &Ruby,
+    host: Value,
+    port: Value,
+    protocol: Option<Value>,
+    addresses: Option<RArray>,
+    rules: Option<RArray>,
+) -> Result<Endpoint, MagnusError> {
     let to_arg_error = |message: String| MagnusError::new(ruby.exception_arg_error(), message);
-    let host: String = object
-        .funcall::<_, _, Value>("host", ())?
-        .funcall("to_s", ())?;
-    let port: i64 = object.funcall("port", ())?;
+    let host: String = host.funcall("to_s", ())?;
+    let port = i64::try_convert(port)?;
     let port = u16::try_from(port).map_err(|_| {
         to_arg_error(format!(
             "an endpoint's port must be 1 to 65535, got {host}:{port}"
         ))
     })?;
     let mut endpoint = Endpoint::new(host, port).map_err(|err| to_arg_error(err.to_string()))?;
-    if object.respond_to("protocol", false)? {
-        endpoint = endpoint.with_protocol(
-            match symbol_name_of(object.funcall("protocol", ())?)?.as_deref() {
-                Some("http") => Protocol::Http,
-                Some("tcp") => Protocol::Tcp,
-                Some("udp") => Protocol::Udp,
-                _ => {
-                    return Err(to_arg_error(
-                        "protocol must be :http, :tcp, or :udp".to_string(),
-                    ))
-                }
-            },
-        );
+    if let Some(protocol) = protocol {
+        endpoint = endpoint.with_protocol(match symbol_name_of(protocol)?.as_deref() {
+            Some("http") => Protocol::Http,
+            Some("tcp") => Protocol::Tcp,
+            Some("udp") => Protocol::Udp,
+            _ => {
+                return Err(to_arg_error(
+                    "protocol must be :http, :tcp, or :udp".to_string(),
+                ))
+            }
+        });
     }
-    if object.respond_to("addresses", false)? {
-        let addresses = each_of(object.funcall("addresses", ())?, |address| {
+    if let Some(addresses) = addresses {
+        let addresses = each_of(addresses, |address| {
             to_addresses(address).ok_or_else(|| {
                 to_arg_error(
                     "addresses must be :public, :private, :local, a CIDR, or an IPAddr".to_string(),
@@ -401,8 +505,8 @@ fn to_endpoint(ruby: &Ruby, object: Value) -> Result<Endpoint, MagnusError> {
         })?;
         endpoint = endpoint.with_addresses(addresses);
     }
-    if object.respond_to("rules", false)? {
-        endpoint = endpoint.with_rules(each_of(object.funcall("rules", ())?, to_rule)?);
+    if let Some(rules) = rules {
+        endpoint = endpoint.with_rules(each_of(rules, to_rule)?);
     }
     Ok(endpoint)
 }
