@@ -2593,3 +2593,15 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a loopback server |
 | When | the script names the port as a String, inspects a subclass's session, and calls `body` with a block |
 | Then | the String port reaches the server. `inspect` names the class and the port as text. `body` passes no block and answers the body, as CRuby's does. A request's `Host` and `Connection` are not written back to it, where CRuby's writes them. `NW-105` would refuse them on a request sent again |
+
+## `NW-209` A number a socket call takes converts through to_int
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-088` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | the script builds a `Socket::Option` from an object answering `to_int`, then from `true` |
+| Then | the option holds that number, and `true` raises `TypeError` naming it, as CRuby's `NUM2INT` |

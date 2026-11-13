@@ -944,3 +944,16 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a file |
 | When | the script seeks by the whence `1.5` |
 | Then | it seeks from where it stands, as CRuby's `rb_num2long` truncates a Float |
+
+## `FL-088` A number a file call takes converts through to_int
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-087` |
+| relates | `IO-054` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the script reads a line limited by an object answering `to_int` 2, then by `true` |
+| Then | the line holds two bytes, and `true` raises `TypeError` naming it, as CRuby's `NUM2LONG` |
