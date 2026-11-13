@@ -13,6 +13,7 @@
 
 pub mod abi;
 mod guest;
+mod panic;
 mod preamble;
 pub mod proxy;
 
@@ -23,4 +24,5 @@ pub use guest::Guest;
 pub use kobako_transport::envelope::{
     CompileReply, Flag, Outcome, Preamble, Run, Unsupported, YieldReply,
 };
+pub use panic::sandbox_panic;
 pub use proxy::{dispatch, DispatchError};

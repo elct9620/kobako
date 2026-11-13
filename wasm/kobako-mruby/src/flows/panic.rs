@@ -5,12 +5,14 @@
 use crate::refusal::{Refusal, SANDBOX_ERROR};
 use crate::runtime::Kobako;
 use beni::ReprValue;
-use kobako_transport::envelope::{ErrorRecord, Origin, Outcome, Panic};
+use kobako_transport::envelope::{ErrorRecord, Origin, Outcome, Panic, BOOT_ERROR};
+
+pub(super) use kobako_core::sandbox_panic;
 
 /// Every boot-time failure passes through here, so the host-visible
 /// attribution stays uniform.
 pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
-    sandbox_panic("Kobako::BootError", message)
+    sandbox_panic(BOOT_ERROR, message)
 }
 
 /// The class and wording are the refusal's; this only gives them the
@@ -22,20 +24,6 @@ pub(super) fn panic_for(refusal: &Refusal) -> Panic {
 /// A failure the flow itself detected, outside any guest exception.
 pub(super) fn flow_panic(message: impl Into<String>) -> Panic {
     sandbox_panic(SANDBOX_ERROR, message)
-}
-
-/// No backtrace: the flow detected this failure itself, so no guest stack
-/// stands behind it.
-pub(super) fn sandbox_panic(class: &str, message: impl Into<String>) -> Panic {
-    Panic {
-        origin: Origin::Sandbox,
-        error: ErrorRecord {
-            name: class.into(),
-            message: message.into(),
-            backtrace: Vec::new(),
-        },
-        available: Vec::new(),
-    }
 }
 
 /// Shared by the eval and run entries, so the outcome attribution cannot

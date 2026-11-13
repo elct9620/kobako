@@ -20,7 +20,9 @@ use super::panic::{boot_panic, load_panic, panic_from_error, sandbox_panic};
 use crate::runtime::Kobako;
 use beni::Ccontext;
 use beni::Mrb;
-use kobako_transport::envelope::{Flag, Origin, Panic, Preamble, Snippet};
+use kobako_transport::envelope::{
+    Flag, Origin, Panic, Preamble, Snippet, BYTECODE_ERROR, UNSUPPORTED_FLAG_ERROR,
+};
 
 /// Every entry starts the same way from its Preamble, so the VM an entry
 /// body runs on is set up in one place. Flags come first, since a
@@ -54,7 +56,7 @@ fn apply_flags<G: crate::MrbGuest>(kobako: &Kobako, flags: &[Flag]) -> Result<()
         })?;
         if !recognised && flag.critical {
             return Err(sandbox_panic(
-                "Kobako::UnsupportedFlagError",
+                UNSUPPORTED_FLAG_ERROR,
                 format!(
                     "this Guest Binary does not support the flag {:?}",
                     flag.name
@@ -170,7 +172,7 @@ fn load_bytecode_snippet(kobako: &Kobako, body: &[u8]) -> Result<(), Panic> {
     // A blob breaking that promise can reach only this guest's own linear
     // memory, which the host already treats as hostile.
     let program = unsafe { mrb.read_irep(body) }
-        .map_err(|err| sandbox_panic("Kobako::BytecodeError", err.message(mrb)))?;
+        .map_err(|err| sandbox_panic(BYTECODE_ERROR, err.message(mrb)))?;
     program
         .call::<_, beni::Value>(mrb, ())
         .map(drop)

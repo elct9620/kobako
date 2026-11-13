@@ -2,10 +2,10 @@
 //! the `Guest` entry, and whatever it answers is framed here.
 
 use kobako_transport::envelope::{
-    CompileReply, Downcall, ErrorRecord, Origin, Outcome, Panic, Preamble, Unsupported,
+    CompileReply, Downcall, Outcome, Preamble, Unsupported, TRANSPORT_ERROR,
 };
 
-use crate::{preamble, Guest};
+use crate::{preamble, sandbox_panic, Guest};
 
 /// Answer one downcall request as the encoded message the host reads.
 ///
@@ -22,15 +22,10 @@ pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {
         Ok(_) => {
             Unsupported::new(format!("this guest does not serve tag {:#04x}", request[0])).encode()
         }
-        Err(_) => Outcome::Panic(Panic {
-            origin: Origin::Sandbox,
-            error: ErrorRecord {
-                name: "Kobako::Transport::Error".into(),
-                message: "failed to decode the invocation request".into(),
-                backtrace: Vec::new(),
-            },
-            available: Vec::new(),
-        })
+        Err(_) => Outcome::Panic(sandbox_panic(
+            TRANSPORT_ERROR,
+            "failed to decode the invocation request",
+        ))
         .encode(),
     }
 }
@@ -55,7 +50,7 @@ fn compile<G: Guest>() -> CompileReply {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kobako_transport::envelope::{Run, YieldReply};
+    use kobako_transport::envelope::{Origin, Panic, Run, YieldReply};
 
     /// A guest that opts out of block support by leaving the
     /// `yield_to_block` default in place.

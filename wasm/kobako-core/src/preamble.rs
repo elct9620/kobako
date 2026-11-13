@@ -9,7 +9,9 @@
 use std::io::Read;
 
 use kobako_transport::abi::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
-use kobako_transport::envelope::{ErrorRecord, Origin, Panic, Preamble};
+use kobako_transport::envelope::{Panic, Preamble, BOOT_ERROR};
+
+use crate::sandbox_panic;
 
 /// The Preamble every invocation reads before its entry runs.
 pub(crate) fn read_preamble() -> Result<Preamble, Panic> {
@@ -23,18 +25,9 @@ fn read_preamble_from<R: Read>(input: &mut R) -> Result<Preamble, Panic> {
         .map_err(|err| boot_failure(format!("failed to decode the Sandbox's Preamble: {err}")))
 }
 
-/// The failure a guest reports when it cannot start the Sandbox, under
-/// the class the host raises for it.
+/// The failure a guest reports when it cannot start the Sandbox.
 fn boot_failure(message: String) -> Panic {
-    Panic {
-        origin: Origin::Sandbox,
-        error: ErrorRecord {
-            name: "Kobako::BootError".into(),
-            message,
-            backtrace: Vec::new(),
-        },
-        available: Vec::new(),
-    }
+    sandbox_panic(BOOT_ERROR, message)
 }
 
 /// `None` on EOF, a short read, or a length past the cap, so a hostile
@@ -54,7 +47,7 @@ fn read_framed<R: Read>(input: &mut R) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kobako_transport::envelope::Bindings;
+    use kobako_transport::envelope::{Bindings, Origin};
 
     fn frame_payload(payload: &[u8]) -> std::io::Cursor<Vec<u8>> {
         let mut bytes = (payload.len() as u32).to_be_bytes().to_vec();

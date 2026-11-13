@@ -11,15 +11,11 @@
 
 use crate::codec::CodecError;
 
-/// The wire-layer error class an exchange that did not complete carries.
-/// The one class in this table that is kobako's own namespaced constant
-/// rather than an mruby core class, so a caller delivering a refusal into
-/// a guest frame reaches it through `Kobako` instead of by name.
-pub(crate) const TRANSPORT_ERROR: &str = "Kobako::Transport::Error";
-
-/// The class a failure the guest's own flow detected carries, where no
-/// mruby exception names one.
-pub(crate) const SANDBOX_ERROR: &str = "Kobako::SandboxError";
+// `TRANSPORT_ERROR` is the one class in this table that is kobako's own
+// namespaced constant rather than an mruby core class, so a caller
+// delivering a refusal into a guest frame reaches it through `Kobako`
+// instead of by name.
+pub(crate) use kobako_transport::envelope::{SANDBOX_ERROR, TRANSPORT_ERROR};
 
 /// A place a payload codec is asked to carry a value across.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

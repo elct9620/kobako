@@ -1,13 +1,10 @@
 //! The outcome position: a run's result read back as a value tree.
 
 use kobako_codec::msgpack::codec::{Decoder, Value};
+use kobako_transport::envelope::{SANDBOX_ERROR, TRANSPORT_ERROR};
 
 use crate::error::{Error, Failure};
 use crate::execution::Execution;
-
-/// The wire-level error class, carried as the attribution of
-/// host-detected wire violations on both frontends.
-const WIRE_ERROR_CLASS: &str = "Kobako::Transport::Error";
 
 impl Execution {
     /// The outcome decoded through the default payload codec, with every
@@ -27,7 +24,7 @@ impl Execution {
         match value {
             Value::Handle(id) => self.resolve(*id).map(|_| ()).ok_or_else(|| {
                 Error::Sandbox(Box::new(Failure::host(
-                    "Kobako::SandboxError",
+                    SANDBOX_ERROR,
                     format!("unknown Handle id: {id}"),
                 )))
             }),
@@ -54,7 +51,7 @@ fn decode_value(body: &[u8], budget: Option<usize>) -> Result<Value, Error> {
 fn wire_violation(message: &str, detail: &kobako_codec::msgpack::codec::Error) -> Error {
     Error::Sandbox(Box::new(Failure {
         diagnostic: Some(detail.to_string()),
-        ..Failure::host(WIRE_ERROR_CLASS, message)
+        ..Failure::host(TRANSPORT_ERROR, message)
     }))
 }
 
@@ -86,7 +83,7 @@ mod tests {
             classify(Outcome::Ok(vec![0xd9]), "eval").and_then(|body| decode_value(&body, None));
 
         assert!(
-            matches!(result, Err(Error::Sandbox(f)) if f.name == WIRE_ERROR_CLASS),
+            matches!(result, Err(Error::Sandbox(f)) if f.name == TRANSPORT_ERROR),
             "an ok arm the codec cannot read must attribute to the wire-level error class"
         );
     }

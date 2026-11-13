@@ -26,7 +26,9 @@ use kobako_runtime::snapshot::Capture;
 // The observables the contract already expresses frontend-free: `usage`
 // returns this type, so it is re-exported from here rather than restated.
 pub use kobako_runtime::snapshot::Usage;
-use kobako_transport::envelope::{Origin, Outcome, Panic};
+use kobako_transport::envelope::{
+    Origin, Outcome, Panic, BYTECODE_ERROR, SANDBOX_ERROR, UNSUPPORTED_FLAG_ERROR,
+};
 
 use crate::error::{Error, Failure};
 use crate::handles::{HandleTable, Handles};
@@ -141,7 +143,7 @@ pub(crate) fn classify(outcome: Outcome, verb: &str) -> Result<Vec<u8>, Error> {
         // The Guest Binary answered rather than broke, so the failure is
         // the Sandbox's, worded by the host as for a yield it does not serve.
         Outcome::Unsupported(_) => Err(Error::Sandbox(Box::new(Failure::host(
-            "Kobako::SandboxError",
+            SANDBOX_ERROR,
             format!(
                 "the Sandbox runtime does not support #{verb}; \
                  rebuild it against the kobako version in use"
@@ -163,9 +165,9 @@ fn classify_panic(panic: Panic) -> Error {
     });
     if from_service {
         Error::Service(failure)
-    } else if failure.name == "Kobako::BytecodeError" {
+    } else if failure.name == BYTECODE_ERROR {
         Error::Bytecode(failure)
-    } else if failure.name == "Kobako::UnsupportedFlagError" {
+    } else if failure.name == UNSUPPORTED_FLAG_ERROR {
         Error::UnsupportedFlag(failure)
     } else {
         Error::Sandbox(failure)
