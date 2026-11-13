@@ -141,6 +141,8 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     // buffer is needed on the request side.
     let req_ptr = req_bytes.as_ptr() as u32;
     let req_len = req_bytes.len() as u32;
+    // SAFETY: the import reads `[req_ptr, req_ptr + req_len)`, which
+    // `req_bytes` keeps live and unmoved for the whole call.
     let packed = unsafe { __kobako_upcall(req_ptr, req_len) };
     let (ptr, len) = unpack_ptr_len(packed);
     if len == 0 {
