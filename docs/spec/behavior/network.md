@@ -161,8 +161,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | an entry is given an empty name, or an endpoint whose host is empty or whose port is zero |
-| Then | the entry is refused |
+| When | an entry is given an empty name. An endpoint is given an empty host or a port outside 1 to 65535 |
+| Then | the entry is refused as the Host App's argument error, an endpoint of the Host App's own class too |
 
 ## `NW-009` Without the network, creating a socket answers access-denied
 
