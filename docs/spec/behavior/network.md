@@ -2442,7 +2442,7 @@ endpoint "api.example.com", port: 443
 | When | the guest sends a request to the host, then sends it again with room for the socket |
 | Then | the first fails before it reaches the server, as the upstream's socket cannot hold its buffers. The second reaches it. The policy sees only the host the guest named, never an address it resolved to. The upstream passes only the socket layer's filter, as an egress proxy's does |
 
-## `NW-197` A name no A-label spells is refused as an invalid argument
+## `NW-197` A name no URL host spells is refused as an invalid argument
 
 | Attribute | Value |
 | --- | --- |
@@ -2450,9 +2450,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest given the network |
-| When | it looks up a name no A-label spells |
-| Then | the lookup is refused as `invalid-argument` before it starts, as WASI calls a syntactically invalid domain name |
+| Given | a guest given the network and an endpoint under a wildcard |
+| When | it looks up a name no A-label spells. It looks up a name beneath the wildcard holding a backslash, a space, or a slash |
+| Then | each lookup is refused as `invalid-argument` before it reaches the resolver, as WASI calls a syntactically invalid domain name. A name is read as wasmtime-wasi reads a URL host |
 
 ## `NW-198` A Net::HTTP verb given too many arguments names the count it takes
 
@@ -2491,3 +2491,16 @@ endpoint "api.example.com", port: 443
 | Given | a guest holding a network Grant and IPv4 TCP and UDP sockets |
 | When | it binds, connects, or streams either socket to an IPv6 address |
 | Then | each answers `invalid-argument` before the socket hooks are asked, as WIT names an address of the wrong family |
+
+## `NW-201` A lookup of an address answers the address itself
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-197` |
+| relates | `NW-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest given the network |
+| When | it looks up an IPv4 address in full and in a short form such as `127.1`. It looks up a bare IPv6 address |
+| Then | each answers the address it spells as-is, with no query, as WIT returns an address string. An HTTP authority spelled the same way is judged as that address, as `NW-013` judges a literal |
