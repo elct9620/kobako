@@ -7,7 +7,6 @@
 mod anon_inodes;
 mod bind;
 mod overlay;
-mod path;
 mod pipe;
 mod rdir;
 mod tmpfs;

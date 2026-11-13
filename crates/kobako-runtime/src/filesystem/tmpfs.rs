@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::SystemTime;
 
-use super::path::{ancestors, name, normalize_seed};
 use super::{
     DentryOperations, DirEntry, Errno, FileOperations, FileSystemType, FileType, Filesystem, Iattr,
     InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag, SetTime,
@@ -16,9 +15,12 @@ use crate::vfs::{dir_emit_dots, generic_file_llseek, generic_read_dir, DirContex
 use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
 use whiteout::Whiteout;
 
+mod seed;
 mod tmpfile;
 mod whiteout;
 mod xattr;
+
+use seed::{ancestors, name};
 
 /// Files and directories held in tmpfs. Every Invocation it is handed to
 /// shares it, so what one writes the next reads. What its files hold
@@ -568,13 +570,7 @@ impl Tmpfs {
     {
         let tmpfs = Self::new();
         for (path, contents) in files {
-            let path = normalize_seed(path.as_ref());
-            if path.is_empty() {
-                return Err(SeedError::Root);
-            }
-            if path.split('/').any(|name| name == "..") {
-                return Err(SeedError::DotDot(path));
-            }
+            let path = seed::normalize(path.as_ref())?;
             let mut dir = tmpfs.dir.clone();
             for above in ancestors(&path) {
                 let standing = dir.state().entries.get(name(above)).cloned();
