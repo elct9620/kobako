@@ -275,7 +275,7 @@ A Bind is a live host directory, and an Overlay's Layers may be too.
 | a Bind's host disk | kobako caps no space there; the host directory's own quota does |
 | a Bind's directories stacked past `PATH_MAX` by moves | the host's own tools may refuse or slow on them |
 | a time a guest sets on a Bind's entry, third-party | it stands on the host; a hermetic guest still reads the epoch |
-| a device swapped into a Bind as the guest opens a file | opened once before its refusal |
+| a device swapped into a Bind as the guest opens a file | never opened on Linux; elsewhere opened once before its refusal |
 | a directory the guest lists in steps | a Tmpfs lists as it stands; others hold entries |
 | a directory the host swaps in just as a Policy judges an opened one, third-party | the host's race |
 
