@@ -211,7 +211,7 @@ fn compiling_counts_against_no_invocation() {
 #[cfg(feature = "wasmtime")]
 fn big_module_answers(free: usize, bound: Option<&str>) -> Option<Vec<String>> {
     let mut options = kobako::Options::default();
-    options.memory_limit = None;
+    options.limits.memory_limit = None;
     let mut sandbox = common::real_sandbox_with(options)?;
     let methods: Vec<String> = (1..=200).map(|i| format!("def self.m{i} = {i}")).collect();
     sandbox
@@ -280,8 +280,8 @@ fn first_eval_after_a_runaway_compile() -> (std::time::Duration, kobako::Executi
         "/../../test/fixtures/minimal_runaway_compile.wat"
     );
     let mut options = kobako::Options::default();
-    options.timeout = Some(DEADLINE);
-    options.memory_limit = None;
+    options.limits.timeout = Some(DEADLINE);
+    options.limits.memory_limit = None;
     let mut sandbox = Sandbox::new(FIXTURE, options).expect("the fixture must load");
     sandbox.preload("A", "A = 1").unwrap();
 

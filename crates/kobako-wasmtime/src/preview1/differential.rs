@@ -284,11 +284,9 @@ fn observe<T>(
 
 fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
     let engine = load_engine().expect("shared engine must be constructible");
-    let config = Config {
-        stdout_limit: limit,
-        stderr_limit: limit,
-        ..Config::for_profile(Profile::Hermetic)
-    };
+    let mut config = Config::for_profile(Profile::Hermetic);
+    config.limits.stdout_limit = limit;
+    config.limits.stderr_limit = limit;
     let wasi = Wasi::for_invocation(&config, stdin_bytes(), &[], &sandbox_connections())
         .expect("WASI context must build");
     let mut store = Store::new(engine, Invocation::new(wasi));

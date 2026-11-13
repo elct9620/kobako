@@ -538,12 +538,10 @@ impl Guest {
         grants: &[Grant],
     ) -> Self {
         let engine = load_engine().expect("shared engine must be constructible");
-        let config = Config {
-            memory_limit,
-            open_file_limit,
-            security,
-            ..Config::for_profile(profile)
-        };
+        let mut config = Config::for_profile(profile);
+        config.limits.memory_limit = memory_limit;
+        config.limits.open_file_limit = open_file_limit;
+        config.security = security;
         let wasi = Wasi::for_invocation(&config, Vec::new(), grants, &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(wasi));

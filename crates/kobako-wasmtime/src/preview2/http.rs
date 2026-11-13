@@ -731,7 +731,9 @@ mod tests {
         endpoints: Option<Vec<network::Endpoint>>,
         memory_limit: Option<usize>,
     ) -> Invocation {
-        Invocation::hermetic(endpoints, |config| config.memory_limit = memory_limit)
+        Invocation::hermetic(endpoints, |config| {
+            config.limits.memory_limit = memory_limit
+        })
     }
 
     /// A GET for `/greeting` at `authority` over HTTP.

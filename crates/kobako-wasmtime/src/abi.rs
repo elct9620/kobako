@@ -73,10 +73,8 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../test/fixtures/minimal_spinning_start.wat"
         );
-        let config = Config {
-            setup_timeout: Some(Duration::from_millis(300)),
-            ..Config::for_profile(Profile::Hermetic)
-        };
+        let mut config = Config::for_profile(Profile::Hermetic);
+        config.limits.setup_timeout = Some(Duration::from_millis(300));
         let built = Driver::new(Path::new(FIXTURE), config);
         assert!(
             matches!(&built, Err(SetupError::Dead(message)) if message.contains("within 300ms")),

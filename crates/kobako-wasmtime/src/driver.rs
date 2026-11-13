@@ -49,8 +49,8 @@ impl Driver {
     /// neither leaves the driver.
     pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
         Ok(Self {
-            instance_pre: instance_pre::load_instance_pre(path, config.setup_timeout)?,
-            open_connections: OpenConnections::new(config.open_connection_limit),
+            instance_pre: instance_pre::load_instance_pre(path, config.limits.setup_timeout)?,
+            open_connections: OpenConnections::new(config.limits.open_connection_limit),
             config,
         })
     }
@@ -61,7 +61,7 @@ impl Driver {
     fn new_store(&self, wasi: Wasi) -> Result<WtStore<Invocation>, SetupError> {
         let mut store = WtStore::new(load_engine()?, Invocation::new(wasi));
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
-        trap::arm_deadline(&mut store, self.config.timeout);
+        trap::arm_deadline(&mut store, self.config.limits.timeout);
         store.data_mut().start_wall_clock();
         Ok(store)
     }
@@ -126,8 +126,8 @@ impl Driver {
         usage.memory_peak = data.memory_peak();
         Snapshot::new(
             completion,
-            Capture::new(data.wasi().stdout_bytes(), self.config.stdout_limit),
-            Capture::new(data.wasi().stderr_bytes(), self.config.stderr_limit),
+            Capture::new(data.wasi().stdout_bytes(), self.config.limits.stdout_limit),
+            Capture::new(data.wasi().stderr_bytes(), self.config.limits.stderr_limit),
             usage,
         )
     }

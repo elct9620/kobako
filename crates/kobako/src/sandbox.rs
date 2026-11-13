@@ -15,8 +15,6 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "wasmtime")]
-use kobako_runtime::limits::Limits;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime};
 use kobako_runtime::snapshot::{Completion, Snapshot};
@@ -123,45 +121,16 @@ impl Sandbox {
     pub fn new(wasm_path: impl AsRef<Path>, options: Options) -> Result<Self, Error> {
         // Taken apart whole, so an option added later fails to build here
         // until it reaches the engine.
-        let Options {
-            timeout,
-            setup_timeout,
-            memory_limit,
-            stdout_limit,
-            stderr_limit,
-            open_file_limit,
-            open_connection_limit,
-            connection_limit,
-            profile,
-        } = options;
-        let mut limits = Limits::default();
-        limits.timeout = timeout;
-        limits.setup_timeout = setup_timeout;
-        limits.memory_limit = memory_limit;
-        limits.stdout_limit = stdout_limit;
-        limits.stderr_limit = stderr_limit;
-        limits.open_file_limit = open_file_limit;
-        limits.open_connection_limit = open_connection_limit;
-        limits.connection_limit = connection_limit;
+        let Options { limits, profile } = options;
         limits
             .check()
             .map_err(|zero| Error::Argument(zero.to_string()))?;
         let mut config = Config::default();
-        config.timeout = timeout;
-        config.setup_timeout = setup_timeout;
-        config.memory_limit = memory_limit;
-        config.stdout_limit = stdout_limit;
-        config.stderr_limit = stderr_limit;
-        config.open_file_limit = open_file_limit;
-        config.open_connection_limit = open_connection_limit;
-        config.connection_limit = connection_limit;
+        config.limits = limits;
         config.profile = profile;
         let driver = Driver::new(wasm_path.as_ref(), config).map_err(Error::Setup)?;
-        // The least guest memory one value occupies, so a guest payload may
-        // hold one value for each of these bytes of the memory cap.
-        const VALUE_BYTES: usize = 16;
         let mut sandbox = Sandbox::with_runtime(driver, profile)?;
-        sandbox.value_budget = memory_limit.map(|limit| limit / VALUE_BYTES);
+        sandbox.value_budget = limits.value_budget();
         Ok(sandbox)
     }
 
@@ -534,15 +503,15 @@ mod tests {
     // @behavior S-004 S-203 S-205
     #[test]
     fn absent_caps_take_their_spec_defaults() {
-        let options = Options::default();
-        assert_eq!(options.timeout, Some(Duration::from_secs(60)));
-        assert_eq!(options.setup_timeout, Some(Duration::from_secs(10)));
-        assert_eq!(options.memory_limit, Some(4 * 1024 * 1024));
-        assert_eq!(options.stdout_limit, Some(1 << 20));
-        assert_eq!(options.stderr_limit, Some(1 << 20));
-        assert_eq!(options.open_file_limit, Some(1024));
-        assert_eq!(options.open_connection_limit, Some(6));
-        assert_eq!(options.connection_limit, Some(50));
+        let limits = Options::default().limits;
+        assert_eq!(limits.timeout, Some(Duration::from_secs(60)));
+        assert_eq!(limits.setup_timeout, Some(Duration::from_secs(10)));
+        assert_eq!(limits.memory_limit, Some(4 * 1024 * 1024));
+        assert_eq!(limits.stdout_limit, Some(1 << 20));
+        assert_eq!(limits.stderr_limit, Some(1 << 20));
+        assert_eq!(limits.open_file_limit, Some(1024));
+        assert_eq!(limits.open_connection_limit, Some(6));
+        assert_eq!(limits.connection_limit, Some(50));
     }
 
     // The check runs before the Guest Binary is read, so no artifact is needed.
@@ -550,10 +519,8 @@ mod tests {
     #[cfg(feature = "wasmtime")]
     #[test]
     fn a_cap_of_zero_is_refused_as_an_argument() {
-        let options = Options {
-            memory_limit: Some(0),
-            ..Options::default()
-        };
+        let mut options = Options::default();
+        options.limits.memory_limit = Some(0);
         assert!(
             matches!(
                 Sandbox::new("no-guest.wasm", options),

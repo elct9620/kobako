@@ -8,13 +8,33 @@ use std::time::Duration;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Limits {
+    /// Wall-clock cap for one guest `#eval` / `#run`; the invocation traps
+    /// once it passes.
     pub timeout: Option<Duration>,
+    /// Wall-clock cap for setting the Guest Binary up the first time its
+    /// path is loaded; past it, construction fails.
     pub setup_timeout: Option<Duration>,
+    /// Guest linear-memory cap, in bytes, charged to what one invocation
+    /// grows beyond the image it starts from.
     pub memory_limit: Option<usize>,
+    /// Byte cap for guest stdout capture; output past it is dropped and
+    /// the capture marked truncated.
     pub stdout_limit: Option<usize>,
+    /// Byte cap for guest stderr capture, the same as `stdout_limit`.
     pub stderr_limit: Option<usize>,
+    /// Descriptors one invocation may hold open, the standard ones and
+    /// each Mount's preopen included; an open past it answers `MFILE`.
+    /// Only the guest's descriptors count, as `RLIMIT_NOFILE` counts a
+    /// process's: the host descriptors a Filesystem holds behind one are
+    /// its own, up to two for a file and one for each Layer holding a
+    /// directory, Directory Layers alone holding any.
     pub open_file_limit: Option<usize>,
+    /// Connections one Sandbox holds open at once, each socket, HTTP request,
+    /// and name lookup in flight one; one past it answers `EAGAIN`.
     pub open_connection_limit: Option<usize>,
+    /// Connections one invocation makes in all, each socket and HTTP request
+    /// one, as a budget of subrequests is counted; one past it answers
+    /// `EAGAIN`.
     pub connection_limit: Option<usize>,
 }
 
@@ -39,7 +59,17 @@ impl Default for Limits {
     }
 }
 
+/// The least guest memory one value occupies, so a guest payload may hold one
+/// value for each of these bytes of the memory cap.
+const VALUE_BYTES: usize = 16;
+
 impl Limits {
+    /// The most values a guest payload may make the host build, one for each
+    /// `VALUE_BYTES` of `memory_limit`; none where memory is not capped.
+    pub fn value_budget(&self) -> Option<usize> {
+        self.memory_limit.map(|limit| limit / VALUE_BYTES)
+    }
+
     /// Refuse a cap of zero, which would end every run at once rather than
     /// bound it, as `setrlimit` takes no limit below what a task needs to
     /// start; `None` is how a Host App asks for no cap.
@@ -105,6 +135,20 @@ mod tests {
             },
             "a Sandbox given no caps must start under a 60 s deadline, 10 s of setup, 4 MiB of \
              memory, 1 MiB per output channel, 1024 open files, and 6 open connections of 50"
+        );
+    }
+
+    #[test]
+    fn a_payload_holds_one_value_for_each_sixteen_bytes_of_memory() {
+        let uncapped = Limits {
+            memory_limit: None,
+            ..Limits::default()
+        };
+        assert_eq!(
+            (Limits::default().value_budget(), uncapped.value_budget()),
+            (Some(4 * 1024 * 1024 / 16), None),
+            "Limits::value_budget must allow one value for each 16 bytes of memory_limit, and \
+             none to count where memory is not capped"
         );
     }
 

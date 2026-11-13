@@ -1280,10 +1280,8 @@ mod tests {
 
     /// A guest at `profile`, holding at most `open_file_limit` files.
     fn guest(profile: Profile, open_file_limit: Option<usize>) -> (Store<Invocation>, Instance) {
-        let config = Config {
-            open_file_limit,
-            ..Config::for_profile(profile)
-        };
+        let mut config = Config::for_profile(profile);
+        config.limits.open_file_limit = open_file_limit;
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         instantiate(Invocation::new(wasi))
@@ -1624,7 +1622,7 @@ mod tests {
         open_file_limit: Option<usize>,
     ) -> Invocation {
         Invocation::hermetic(Some(endpoints.into_iter().collect()), |config| {
-            config.open_file_limit = open_file_limit
+            config.limits.open_file_limit = open_file_limit
         })
     }
 

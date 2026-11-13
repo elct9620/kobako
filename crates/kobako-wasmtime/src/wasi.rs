@@ -29,7 +29,7 @@ use kobako_runtime::vfs::OpenFiles;
 /// memory the Driver allots, as Linux's `prepare_creds` gives a task the
 /// LSMs it booted with.
 fn prepare_creds(config: &Config) -> Arc<Cred> {
-    prepare_creds_within(&config.security, config.memory_limit)
+    prepare_creds_within(&config.security, config.limits.memory_limit)
 }
 
 /// The most entries preview1's descriptor table or preview2's resource table
@@ -71,14 +71,14 @@ impl Wasi {
     ) -> Result<Self, InvokeError> {
         let mut wasi = Self::new(
             stdin,
-            config.stdout_limit,
-            config.stderr_limit,
-            config.open_file_limit,
+            config.limits.stdout_limit,
+            config.limits.stderr_limit,
+            config.limits.open_file_limit,
             prepare_creds(config),
             config.profile,
             grants,
         )?;
-        wasi.network = to_network(grants, open_connections, config.connection_limit)?;
+        wasi.network = to_network(grants, open_connections, config.limits.connection_limit)?;
         Ok(wasi)
     }
 
@@ -88,9 +88,9 @@ impl Wasi {
     pub(crate) fn for_compile(config: &Config, stdin: Vec<u8>) -> Result<Self, Trap> {
         Self::new(
             stdin,
-            config.stdout_limit,
-            config.stderr_limit,
-            config.open_file_limit,
+            config.limits.stdout_limit,
+            config.limits.stderr_limit,
+            config.limits.open_file_limit,
             prepare_creds(config),
             Profile::Hermetic,
             &[],
@@ -269,7 +269,7 @@ impl Wasi {
 /// invocation's context as a Driver does.
 #[cfg(test)]
 pub(crate) fn sandbox_connections() -> Arc<OpenConnections> {
-    OpenConnections::new(Config::default().open_connection_limit)
+    OpenConnections::new(Config::default().limits.open_connection_limit)
 }
 
 /// The network an invocation's Grants make, one namespace for every entry,

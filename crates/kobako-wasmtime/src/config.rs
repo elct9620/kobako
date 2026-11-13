@@ -1,57 +1,29 @@
 //! The caps a `Driver` applies to every invocation.
 //!
-//! Every cap a frontend forwards into `Driver::new`. A plain value carrier
+//! What a frontend forwards into `Driver::new`. A plain value carrier
 //! owned by the `Driver` — distinct from the process-wide engine/module
 //! `crate::cache` (which is shared across every sandbox) and from the
 //! per-invocation `crate::invocation::Invocation` (which the wasm engine
 //! mutates from inside a run).
 //!
-//! Its caps are field-for-field the SDK's `kobako::Options`, and deliberately
-//! not shared with it: this struct is free to name a wasmtime type, and
-//! `Options` is not — an engine-free host must still be able to build the SDK.
-//! Both take their defaults from `kobako_runtime::limits::Limits`.
+//! The caps and the profile are the runtime's own types, which the SDK's
+//! `kobako::Options` holds as well; this struct alone may name a wasmtime
+//! type, as an engine-free host must still be able to build the SDK.
 //! The security modules are the Driver's own, as Linux's LSMs are the
 //! kernel's: whoever builds the Driver hands them here.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use kobako_runtime::limits::Limits;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::SecurityOperations;
 
-/// The caps and requested isolation profile for one `Driver`. `None` on
-/// any cap field disables that cap.
+/// The caps and requested isolation profile for one `Driver`.
 #[non_exhaustive]
 pub struct Config {
-    /// Wall-clock cap for one guest `#eval` / `#run`; the invocation traps
-    /// once it passes.
-    pub timeout: Option<Duration>,
-    /// Wall-clock cap for setting the Guest Binary up the first time its
-    /// path is loaded; past it, construction fails.
-    pub setup_timeout: Option<Duration>,
-    /// Guest linear-memory cap, in bytes, charged to what one invocation
-    /// grows beyond the image it starts from.
-    pub memory_limit: Option<usize>,
-    /// Byte cap for guest stdout capture; output past it is dropped and
-    /// the capture marked truncated.
-    pub stdout_limit: Option<usize>,
-    /// Byte cap for guest stderr capture, the same as `stdout_limit`.
-    pub stderr_limit: Option<usize>,
-    /// Descriptors one invocation may hold open, the standard ones and
-    /// each Mount's preopen included; an open past it answers `MFILE`.
-    /// Only the guest's descriptors count, as `RLIMIT_NOFILE` counts a
-    /// process's: the host descriptors a Filesystem holds behind one are
-    /// its own, up to two for a file and one for each Layer holding a
-    /// directory, Directory Layers alone holding any.
-    pub open_file_limit: Option<usize>,
-    /// Connections one Sandbox holds open at once, each socket, HTTP request,
-    /// and name lookup in flight one; one past it answers `EAGAIN`.
-    pub open_connection_limit: Option<usize>,
-    /// Connections one invocation makes in all, each socket and HTTP request
-    /// one, as a budget of subrequests is counted; one past it answers
-    /// `EAGAIN`.
-    pub connection_limit: Option<usize>,
+    /// The caps every invocation runs under; `None` on any of them disables
+    /// that cap.
+    pub limits: Limits,
     /// Isolation profile the frontend requested. `Hermetic` freezes
     /// ambient time and entropy, `Permissive` gives the live host clocks
     /// and entropy, and `Driver::profile` declares it back as the built
@@ -67,16 +39,8 @@ impl Default for Config {
     /// A Sandbox's default caps and floor, and no security module beyond
     /// kobako's own.
     fn default() -> Self {
-        let limits = Limits::default();
         Config {
-            timeout: limits.timeout,
-            setup_timeout: limits.setup_timeout,
-            memory_limit: limits.memory_limit,
-            stdout_limit: limits.stdout_limit,
-            stderr_limit: limits.stderr_limit,
-            open_file_limit: limits.open_file_limit,
-            open_connection_limit: limits.open_connection_limit,
-            connection_limit: limits.connection_limit,
+            limits: Limits::default(),
             profile: Profile::default(),
             security: Vec::new(),
         }
@@ -88,15 +52,17 @@ impl Config {
     /// A config at `profile` that sets no cap, so a test names only the cap it
     /// witnesses.
     pub(crate) fn for_profile(profile: Profile) -> Self {
+        let mut limits = Limits::default();
+        limits.timeout = None;
+        limits.setup_timeout = None;
+        limits.memory_limit = None;
+        limits.stdout_limit = None;
+        limits.stderr_limit = None;
+        limits.open_file_limit = None;
+        limits.open_connection_limit = None;
+        limits.connection_limit = None;
         Config {
-            timeout: None,
-            setup_timeout: None,
-            memory_limit: None,
-            stdout_limit: None,
-            stderr_limit: None,
-            open_file_limit: None,
-            open_connection_limit: None,
-            connection_limit: None,
+            limits,
             profile,
             security: Vec::new(),
         }
@@ -107,38 +73,14 @@ impl Config {
 mod tests {
     use super::*;
 
-    // Literal values, since a frontend that builds a Driver from a default
-    // Config runs the Sandbox under them.
     #[test]
     fn a_default_config_carries_every_frontends_default_caps() {
         let config = Config::default();
         assert_eq!(
-            (
-                config.timeout,
-                config.setup_timeout,
-                config.memory_limit,
-                config.stdout_limit,
-                config.stderr_limit,
-                config.open_file_limit,
-                config.open_connection_limit,
-                config.connection_limit,
-                config.profile,
-                config.security.len()
-            ),
-            (
-                Some(Duration::from_secs(60)),
-                Some(Duration::from_secs(10)),
-                Some(4 * 1024 * 1024),
-                Some(1024 * 1024),
-                Some(1024 * 1024),
-                Some(1024),
-                Some(6),
-                Some(50),
-                Profile::Hermetic,
-                0
-            ),
-            "Config::default must carry the caps every frontend defaults to, and no security \
-             module beyond kobako's own"
+            (config.limits, config.profile, config.security.len()),
+            (Limits::default(), Profile::Hermetic, 0),
+            "Config::default must carry the runtime's default caps and the hermetic floor, and \
+             no security module beyond kobako's own"
         );
     }
 }
