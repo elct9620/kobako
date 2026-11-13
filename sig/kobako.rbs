@@ -1,2 +1,7 @@
 module Kobako
+  def self.constant_name?: (String name) -> bool
+
+  def self.constant_path?: (String path) -> bool
+
+  def self.reserved_path?: (String path) -> bool
 end

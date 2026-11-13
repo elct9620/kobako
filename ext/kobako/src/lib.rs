@@ -11,6 +11,7 @@ mod gvl;
 mod network;
 mod pinned_value;
 mod runtime;
+mod wire;
 
 #[magnus::init]
 fn init(ruby: &Ruby) -> Result<(), Error> {
@@ -21,6 +22,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     runtime::register(ruby, kobako)?;
     filesystem::register(ruby, kobako)?;
     network::register(kobako)?;
+    wire::register(kobako)?;
     Ok(())
 }
 

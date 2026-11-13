@@ -13,6 +13,7 @@ them.
 - `crates/kobako-transport/src/envelope/compile_reply.rs`
 - `crates/kobako-transport/src/envelope/error_record.rs`
 - `crates/kobako-transport/src/envelope/fault.rs`
+- `crates/kobako-transport/src/envelope/name.rs`
 - `crates/kobako-transport/src/envelope/outcome.rs`
 - `crates/kobako-transport/src/envelope/preamble.rs`
 - `crates/kobako-transport/src/envelope/reply.rs`

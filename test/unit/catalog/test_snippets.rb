@@ -37,7 +37,8 @@ module Kobako
     def test_register_rejects_name_not_matching_constant_pattern
       %i[lowercase _Leading 1Digit].each do |bad|
         err = assert_raises(ArgumentError) { @table.register(code: "X", name: bad) }
-        assert_match(/snippet name must match/, err.message)
+        assert_match(/snippet name must be a Ruby constant name/, err.message,
+                     "Catalog::Snippets#register with #{bad.inspect} must be refused, naming the constraint")
       end
     end
 
@@ -46,7 +47,7 @@ module Kobako
     # could never define the constant such a snippet names.
     def test_register_rejects_a_name_longer_than_a_symbol_holds
       err = assert_raises(ArgumentError) { @table.register(code: "X", name: "A#{"b" * 65_534}") }
-      assert_match(/snippet name must match/, err.message,
+      assert_match(/snippet name must be a Ruby constant name/, err.message,
                    "Catalog::Snippets#register with a 65535-byte constant name must be refused, " \
                    "naming the constraint")
     end

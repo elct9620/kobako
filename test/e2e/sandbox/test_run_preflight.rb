@@ -26,7 +26,8 @@ class TestSandboxRunPreflight < Minitest::Test
   # @behavior S-093
   def test_target_must_match_constant_pattern
     err = assert_raises(ArgumentError) { @fixture_sandbox.run(:lowercase) }
-    assert_match(/must match/, err.message)
+    assert_match(/must be a Ruby constant name/, err.message,
+                 "#run with a lowercase entrypoint must be refused at pre-flight, naming the constraint")
   end
 
   # @behavior S-094
@@ -34,7 +35,8 @@ class TestSandboxRunPreflight < Minitest::Test
   # name is refused at pre-flight rather than resolving to something.
   def test_target_rejects_double_colon_segmented_name
     err = assert_raises(ArgumentError) { @fixture_sandbox.run("Outer::Inner") }
-    assert_match(/must match/, err.message)
+    assert_match(/must be a Ruby constant name/, err.message,
+                 "#run with a '::'-joined entrypoint must be refused at pre-flight, naming the constraint")
   end
 
   # @behavior S-175
@@ -42,7 +44,7 @@ class TestSandboxRunPreflight < Minitest::Test
   # name it can hold is the last one pre-flight lets through.
   def test_target_rejects_a_name_longer_than_a_symbol_holds
     err = assert_raises(ArgumentError) { @fixture_sandbox.run("A#{"b" * 65_534}") }
-    assert_match(/must match/, err.message,
+    assert_match(/must be a Ruby constant name/, err.message,
                  "#run with a 65535-byte constant name must be refused at pre-flight, naming the constraint")
   end
 

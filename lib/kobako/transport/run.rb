@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "../constant_name"
 require_relative "../handle"
 require_relative "../codec"
 require_relative "../payload"
@@ -38,9 +37,8 @@ module Kobako
         end
 
         target_str = target.to_s
-        unless CONSTANT_NAME.match?(target_str)
-          raise ArgumentError,
-                "entrypoint must match #{CONSTANT_NAME.inspect} (got #{target.inspect})"
+        unless Kobako.constant_name?(target_str)
+          raise ArgumentError, "entrypoint must be a Ruby constant name (got #{target.inspect})"
         end
 
         target_str.to_sym

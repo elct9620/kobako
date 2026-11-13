@@ -1,15 +1,11 @@
 # frozen_string_literal: true
 
-require_relative "../constant_name"
 require_relative "../errors"
 require_relative "../transport/exposure"
 
 module Kobako
   module Catalog
     class Services # :nodoc:
-      # The Guest Binary keeps this namespace for constants it may add later.
-      RESERVED_NAMESPACE = "Kobako"
-
       def initialize
         @bindings = {} # : Hash[String, Kobako::Transport::Exposure]
       end
@@ -17,9 +13,8 @@ module Kobako
       # The binding records +object+'s Exposure as it stands now.
       def bind(path, object)
         path_str = validate_path(path)
-        if reserved?(path_str)
-          raise ArgumentError,
-                "Service path #{path_str} is in the reserved #{RESERVED_NAMESPACE} namespace"
+        if Kobako.reserved_path?(path_str)
+          raise ArgumentError, "Service path #{path_str} is in the reserved Kobako namespace"
         end
         raise ArgumentError, "Service path #{path_str} conflicts with an existing binding" if collision?(path_str)
 
@@ -48,15 +43,10 @@ module Kobako
 
       def validate_path(path)
         path_str = path.to_s
-        segments = path_str.split("::", -1)
-        return path_str if !segments.empty? && segments.all? { |seg| CONSTANT_NAME.match?(seg) }
+        return path_str if Kobako.constant_path?(path_str)
 
         raise ArgumentError,
               "bind path must be constant-form segments joined by '::' (got #{path.inspect})"
-      end
-
-      def reserved?(path)
-        path.split("::").first == RESERVED_NAMESPACE
       end
 
       # Keeps a name from being both a bound Service and a grouping prefix.

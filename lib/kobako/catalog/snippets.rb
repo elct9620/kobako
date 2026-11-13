@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require_relative "../constant_name"
 require_relative "../snippet"
 
 module Kobako
@@ -98,9 +97,8 @@ module Kobako
         end
 
         name_str = name.to_s
-        unless CONSTANT_NAME.match?(name_str)
-          raise ArgumentError,
-                "snippet name must match #{CONSTANT_NAME.inspect} (got #{name.inspect})"
+        unless Kobako.constant_name?(name_str)
+          raise ArgumentError, "snippet name must be a Ruby constant name (got #{name.inspect})"
         end
 
         name_str.to_sym
