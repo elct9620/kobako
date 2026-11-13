@@ -862,7 +862,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an `http` endpoint naming a loopback server that accepts and never answers |
 | When | the script sends a GET with `read_timeout` set to a tenth of a second |
-| Then | it raises `Net::ReadTimeout`, a `Timeout::Error`, once the limit passes. Each timeout starts at 60 seconds, as CRuby's does. The connect counts against `read_timeout`, since `wasi:http` shows the guest no connect apart |
+| Then | it raises `Net::ReadTimeout`, a `Timeout::Error`, once the limit passes. Each timeout starts at 60 seconds, as CRuby's does. The host bounds the connect by `open_timeout`, raising `Net::OpenTimeout`, and the head by `read_timeout` |
 
 ## `NW-069` A socket past the open file limit answers new-socket-limit
 
@@ -2542,3 +2542,28 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a server whose response head runs past 128 KiB, the most a header list holds |
 | When | the guest sends a request, and sends one under a `memory_limit` holding the request but not that buffer |
 | Then | the first answers `HTTP-protocol-error` once its head passes the buffer. The second fails before it is sent, as each request holds the buffer against the Invocation's memory |
+
+## `NW-205` A request's timeouts end each wait they bound
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+| relates | `NW-068` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint, and requests whose connect, head, or next body part outlasts its timeout |
+| When | each request waits past that timeout |
+| Then | the connect answers `connection-timeout`, and the head `connection-read-timeout`. The body's read fails with `ETIMEDOUT`. A request with no timeout waits on, as wasmtime-wasi-http bounds each wait |
+
+## `NW-206` Request options read back their timeouts and wake the wait they end
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-205` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a network Grant, and a server that never answers |
+| When | it sets each `request-options` timeout and reads it back, then sends a request with a first-byte timeout |
+| Then | each reads what was set, and none before. The future's pollable wakes once the timeout passes, with no timer of the host's own, and the future answers `connection-read-timeout` |
