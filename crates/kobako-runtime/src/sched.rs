@@ -40,13 +40,9 @@ pub(crate) fn schedule(wait: &mut dyn FnMut()) {
     }
 }
 
-thread_local! {
-    static CURRENT: ThreadId = thread::current().id();
-}
-
-/// Who is running, as Linux's `current`.
+/// Who is running, as a lock records Linux's `current` as its owner.
 pub(crate) fn current() -> ThreadId {
-    CURRENT.with(|current| *current)
+    TASK.with(|task| task.borrow().id)
 }
 
 /// A thread as its frontend may interrupt it from another thread, as a signal
@@ -99,8 +95,8 @@ pub(crate) fn sleep_on<T>(waiter: &Arc<Waiter>, sleep: impl FnOnce() -> T) -> T 
 
 /// The task this thread carries out, as Linux's `current`, and when its run is
 /// to stop.
-#[derive(Default)]
 struct Current {
+    id: ThreadId,
     task: Task,
     deadline: Option<Instant>,
     /// How many runs the thread is inside, one within another where a
@@ -109,7 +105,12 @@ struct Current {
 }
 
 thread_local! {
-    static TASK: RefCell<Current> = RefCell::default();
+    static TASK: RefCell<Current> = RefCell::new(Current {
+        id: thread::current().id(),
+        task: Task::default(),
+        deadline: None,
+        depth: 0,
+    });
 }
 
 /// Run `run` as a run that stops waiting once `deadline` passes or its thread
