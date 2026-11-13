@@ -160,29 +160,12 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the options are read |
 | Then | each reports the profile it was given |
 
-## `RT-011` A profile kobako does not name is refused
-
-| Step | Statement |
-| --- | --- |
-| Given | Sandbox options naming a profile kobako does not |
-| When | the options are built |
-| Then | the profile is refused |
-
 ## `RT-012` A runtime that built less than was asked for does not run
 
 | Step | Statement |
 | --- | --- |
 | Given | options requesting a profile |
 | Given | a runtime declaring a profile below it |
-| When | the request is enforced as a floor |
-| Then | the declaration is refused |
-
-## `RT-013` A profile nobody can place ranks below every request
-
-| Step | Statement |
-| --- | --- |
-| Given | options requesting any profile |
-| Given | a runtime declaring a profile kobako does not name |
 | When | the request is enforced as a floor |
 | Then | the declaration is refused |
 
@@ -237,11 +220,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 ## `RT-020` A mode outside the set is not a mode
 
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-033` |
+
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options naming a scheduling mode the set does not |
-| When | the options are built |
-| Then | the mode is refused |
+| Given | a Sandbox construction requesting a scheduling mode the set does not name |
+| When | a Sandbox is constructed |
+| Then | the option is refused |
 
 ## `RT-021` The runtime refuses an unknown mode on its own
 
