@@ -329,17 +329,18 @@ impl Drop for Dir {
 /// What a Tmpfs holds: the bytes of its files, and its entries, each
 /// file and directory and the root counting one as an inode does.
 struct Space {
-    bytes: Budget,
-    inodes: Budget,
+    bytes: Counter,
+    inodes: Counter,
 }
 
-/// How much of one thing is used, and the most that may be.
-struct Budget {
+/// How much of one thing is used, counted against the limit the Host App
+/// set, as shmem counts `used_blocks` against `max_blocks`.
+struct Counter {
     limit: AtomicUsize,
     used: AtomicUsize,
 }
 
-impl Budget {
+impl Counter {
     fn new(limit: Option<usize>) -> Self {
         Self {
             limit: AtomicUsize::new(limit.unwrap_or(usize::MAX)),
@@ -463,8 +464,8 @@ impl Tmpfs {
 
     pub fn new() -> Self {
         let space = Space {
-            bytes: Budget::new(Some(Self::DEFAULT_SIZE)),
-            inodes: Budget::new(inodes_for(Some(Self::DEFAULT_SIZE))),
+            bytes: Counter::new(Some(Self::DEFAULT_SIZE)),
+            inodes: Counter::new(inodes_for(Some(Self::DEFAULT_SIZE))),
         };
         space.inodes.add(1);
         let space = Arc::new(space);
