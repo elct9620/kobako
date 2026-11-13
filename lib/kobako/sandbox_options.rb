@@ -45,13 +45,8 @@ module Kobako
       super(**caps.merge(profile:, gvl:))
     end
 
-    # The least guest memory one value occupies, so a guest payload may hold
-    # one value for each of these bytes of +memory_limit+.
-    VALUE_BYTES = 16
-    private_constant :VALUE_BYTES
-
     def value_budget # :nodoc:
-      memory_limit&./(VALUE_BYTES)
+      Kobako::Runtime.value_budget_of(memory_limit)
     end
   end
 end

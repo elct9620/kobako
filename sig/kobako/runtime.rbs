@@ -26,6 +26,8 @@ module Kobako
       connection_limit: Integer?
     }
 
+    def self.value_budget_of: (Integer? memory_limit) -> Integer?
+
     def self.from_path: (
       String path,
       timeout: (Float | Integer)?,

@@ -1,7 +1,5 @@
 module Kobako
   class SandboxOptions < Data
-    VALUE_BYTES: Integer
-
     attr_reader timeout: Float?
     attr_reader setup_timeout: Float?
     attr_reader memory_limit: Integer?

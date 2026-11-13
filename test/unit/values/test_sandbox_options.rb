@@ -43,7 +43,7 @@ class TestSandboxOptions < Minitest::Test
   # by side so an asymmetry cannot creep in unnoticed. A deadline that
   # never arrives is refused too: the way to ask for none is nil.
   INVALID_CAP_VALUES = {
-    timeout: [0, -1.0, "60", Float::INFINITY, Float::NAN],
+    timeout: [0, -1.0, "60", Float::INFINITY, Float::NAN, 1e300],
     memory_limit: [0, -1, 1.5, "100"],
     stdout_limit: [0, -1, 1.5, "100"],
     stderr_limit: [0, -1, 1.5, "100"],

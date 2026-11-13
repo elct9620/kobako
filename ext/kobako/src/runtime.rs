@@ -22,9 +22,8 @@ mod bridge;
 mod snapshot;
 
 use magnus::{
-    function, method, prelude::*, scan_args::get_kwargs, typed_data::DataTypeFunctions,
-    value::Opaque, Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol, TypedData,
-    Value,
+    function, method, prelude::*, typed_data::DataTypeFunctions, value::Opaque,
+    Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol, TypedData, Value,
 };
 
 use std::path::Path;
@@ -101,6 +100,7 @@ pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 2))?;
     runtime.define_singleton_method("default_options", function!(Runtime::default_options, 0))?;
     runtime.define_singleton_method("normalize_caps", function!(normalize_caps, 1))?;
+    runtime.define_singleton_method("value_budget_of", function!(value_budget_of, 1))?;
     runtime.define_method("eval", method!(Runtime::eval, 3))?;
     runtime.define_method("run", method!(Runtime::run, 4))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
@@ -123,27 +123,32 @@ pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     Ok(())
 }
 
-/// Each cap in `caps`, keyed as `Kobako::SandboxOptions` names it, read as its
-/// kind: a deadline as seconds, a positive finite Numeric, and every other cap
-/// as a positive Integer, `nil` asking for none. One outside its kind is
-/// refused as an argument error, and a zero by the runtime's own check, which
-/// the Rust SDK asks too.
+/// Each cap in `caps`, read as `to_limits` reads it and keyed as
+/// `Kobako::SandboxOptions` names it.
 fn normalize_caps(caps: RHash) -> Result<RHash, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
-    let normalized = ruby.hash_new();
+    caps_of(&ruby, &to_limits(&ruby, caps)?)
+}
+
+/// The most values a guest payload may make the host build under
+/// `memory_limit`, as the runtime's caps count them.
+fn value_budget_of(memory_limit: Option<usize>) -> Option<usize> {
     let mut limits = Limits::default();
-    let deadline = |name: &str| -> Result<Option<Duration>, MagnusError> {
-        let seconds = to_seconds(&ruby, name, caps.fetch(ruby.to_symbol(name))?)?;
-        normalized.aset(ruby.to_symbol(name), seconds)?;
-        Ok(seconds.map(Duration::from_secs_f64))
-    };
+    limits.memory_limit = memory_limit;
+    limits.value_budget()
+}
+
+/// The caps in `caps`, keyed as `Kobako::SandboxOptions` names them, each read
+/// as its kind: a deadline as seconds, a positive finite Numeric, and every
+/// other cap as a positive Integer, `nil` asking for none. One outside its
+/// kind is refused as an argument error, and a zero by the runtime's own
+/// check, which the Rust SDK asks too.
+fn to_limits(ruby: &Ruby, caps: RHash) -> Result<Limits, MagnusError> {
+    let deadline = |name: &str| to_deadline(ruby, name, caps.fetch(ruby.to_symbol(name))?);
+    let count = |name: &str| to_count(ruby, name, caps.fetch(ruby.to_symbol(name))?);
+    let mut limits = Limits::default();
     limits.timeout = deadline("timeout")?;
     limits.setup_timeout = deadline("setup_timeout")?;
-    let count = |name: &str| -> Result<Option<usize>, MagnusError> {
-        let count = to_count(&ruby, name, caps.fetch(ruby.to_symbol(name))?)?;
-        normalized.aset(ruby.to_symbol(name), count)?;
-        Ok(count)
-    };
     limits.memory_limit = count("memory_limit")?;
     limits.stdout_limit = count("stdout_limit")?;
     limits.stderr_limit = count("stderr_limit")?;
@@ -153,13 +158,35 @@ fn normalize_caps(caps: RHash) -> Result<RHash, MagnusError> {
     limits
         .check()
         .map_err(|zero| MagnusError::new(ruby.exception_arg_error(), zero.to_string()))?;
-    Ok(normalized)
+    Ok(limits)
 }
 
-/// The seconds `value` names for the deadline `name`, none for `nil`. A
-/// deadline that never arrives, or is not a number, is refused: the way to
-/// ask for none is `nil`.
-fn to_seconds(ruby: &Ruby, name: &str, value: Value) -> Result<Option<f64>, MagnusError> {
+/// Each cap `limits` holds, keyed as `Kobako::SandboxOptions` names it, a
+/// deadline in seconds.
+fn caps_of(ruby: &Ruby, limits: &Limits) -> Result<RHash, MagnusError> {
+    let caps = ruby.hash_new();
+    let seconds = |deadline: Option<Duration>| deadline.map(|d| d.as_secs_f64());
+    caps.aset(ruby.to_symbol("timeout"), seconds(limits.timeout))?;
+    caps.aset(
+        ruby.to_symbol("setup_timeout"),
+        seconds(limits.setup_timeout),
+    )?;
+    caps.aset(ruby.to_symbol("memory_limit"), limits.memory_limit)?;
+    caps.aset(ruby.to_symbol("stdout_limit"), limits.stdout_limit)?;
+    caps.aset(ruby.to_symbol("stderr_limit"), limits.stderr_limit)?;
+    caps.aset(ruby.to_symbol("open_file_limit"), limits.open_file_limit)?;
+    caps.aset(
+        ruby.to_symbol("open_connection_limit"),
+        limits.open_connection_limit,
+    )?;
+    caps.aset(ruby.to_symbol("connection_limit"), limits.connection_limit)?;
+    Ok(caps)
+}
+
+/// The deadline `value` names in seconds for `name`, none for `nil`. A
+/// deadline that never arrives, is past what a `Duration` counts, or is not a
+/// number, is refused: the way to ask for none is `nil`.
+fn to_deadline(ruby: &Ruby, name: &str, value: Value) -> Result<Option<Duration>, MagnusError> {
     if value.is_nil() {
         return Ok(None);
     }
@@ -173,13 +200,17 @@ fn to_seconds(ruby: &Ruby, name: &str, value: Value) -> Result<Option<f64>, Magn
         ));
     }
     let seconds: f64 = value.funcall("to_f", ())?;
-    if !seconds.is_finite() || seconds < 0.0 {
-        return Err(MagnusError::new(
+    match Duration::try_from_secs_f64(seconds) {
+        Ok(deadline) if seconds.is_finite() => Ok(Some(deadline)),
+        _ => Err(MagnusError::new(
             ruby.exception_arg_error(),
-            format!("{name} must be > 0 (got {})", value.inspect()),
-        ));
+            format!(
+                "{name} must be > 0 and at most {} seconds (got {})",
+                Duration::MAX.as_secs(),
+                value.inspect()
+            ),
+        )),
     }
-    Ok(Some(seconds))
 }
 
 /// The count `value` names for the cap `name`, none for `nil`; anything but
@@ -228,23 +259,7 @@ impl Runtime {
     /// run holds the GVL unless the Host App asks to release it.
     fn default_options() -> Result<RHash, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let limits = Limits::default();
-        let options = ruby.hash_new();
-        let seconds = |deadline: Option<Duration>| deadline.map(|d| d.as_secs_f64());
-        options.aset(ruby.to_symbol("timeout"), seconds(limits.timeout))?;
-        options.aset(
-            ruby.to_symbol("setup_timeout"),
-            seconds(limits.setup_timeout),
-        )?;
-        options.aset(ruby.to_symbol("memory_limit"), limits.memory_limit)?;
-        options.aset(ruby.to_symbol("stdout_limit"), limits.stdout_limit)?;
-        options.aset(ruby.to_symbol("stderr_limit"), limits.stderr_limit)?;
-        options.aset(ruby.to_symbol("open_file_limit"), limits.open_file_limit)?;
-        options.aset(
-            ruby.to_symbol("open_connection_limit"),
-            limits.open_connection_limit,
-        )?;
-        options.aset(ruby.to_symbol("connection_limit"), limits.connection_limit)?;
+        let options = caps_of(&ruby, &Limits::default())?;
         options.aset(
             ruby.to_symbol("profile"),
             to_profile_name(&ruby, Profile::default()),
@@ -258,54 +273,9 @@ impl Runtime {
     /// `default_options` answers each.
     fn from_path(path: String, options: RHash) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        // `get_kwargs` scans at most eight required keywords, so the two
-        // connection caps are taken out first, each still required.
-        let take_cap = |name: &str| -> Result<Option<usize>, MagnusError> {
-            let key = ruby.to_symbol(name);
-            let cap = options.fetch(key)?;
-            options.delete::<_, Value>(key)?;
-            Ok(cap)
-        };
-        let open_connection_limit = take_cap("open_connection_limit")?;
-        let connection_limit = take_cap("connection_limit")?;
-        type Options = (
-            Option<f64>,
-            Option<f64>,
-            Option<usize>,
-            Option<usize>,
-            Option<usize>,
-            Option<usize>,
-            Value,
-            Value,
-        );
-        let options = get_kwargs::<_, Options, (), ()>(
-            options,
-            &[
-                "timeout",
-                "setup_timeout",
-                "memory_limit",
-                "stdout_limit",
-                "stderr_limit",
-                "open_file_limit",
-                "profile",
-                "gvl",
-            ],
-            &[],
-        )?;
-        let (
-            timeout_seconds,
-            setup_timeout_seconds,
-            memory_limit,
-            stdout_limit,
-            stderr_limit,
-            open_file_limit,
-            profile,
-            gvl,
-        ) = options.required;
-        // `SandboxOptions` hands over each deadline already positive and
-        // finite.
-        let timeout = timeout_seconds.map(Duration::from_secs_f64);
-        let setup_timeout = setup_timeout_seconds.map(Duration::from_secs_f64);
+        let limits = to_limits(&ruby, options)?;
+        let profile: Value = options.fetch(ruby.to_symbol("profile"))?;
+        let gvl: Value = options.fetch(ruby.to_symbol("gvl"))?;
         // A value kobako does not name a profile has no profile to stand
         // for, so it is refused rather than read as a weaker one.
         let profile = match symbol_name_of(profile)?.as_deref() {
@@ -334,14 +304,7 @@ impl Runtime {
         };
 
         let mut config = Config::default();
-        config.timeout = timeout;
-        config.setup_timeout = setup_timeout;
-        config.memory_limit = memory_limit;
-        config.stdout_limit = stdout_limit;
-        config.stderr_limit = stderr_limit;
-        config.open_file_limit = open_file_limit;
-        config.open_connection_limit = open_connection_limit;
-        config.connection_limit = connection_limit;
+        config.limits = limits;
         config.profile = profile;
         let driver =
             Driver::new(Path::new(&path), config).map_err(|e| errors::from_setup(&ruby, e))?;
