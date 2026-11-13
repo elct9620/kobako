@@ -24,7 +24,7 @@ use kobako_runtime::network::{
 use kobako_runtime::policy::Policy;
 
 use super::pinned_value::PinnedValue;
-use super::{escape, gvl, symbol_name};
+use super::{escape, gvl, symbol_name_of};
 
 /// A Ruby entry as one invocation reads it: its endpoints, its own
 /// `resolve?`, `connect?`, and `request?` for each it plays, and its
@@ -175,7 +175,7 @@ fn normalize_endpoint(
         None => {
             let addresses = ruby.ary_new();
             for each in &endpoint.addresses {
-                addresses.push(addresses_name(ruby, each)?)?;
+                addresses.push(to_addresses_name(ruby, each)?)?;
             }
             addresses.freeze();
             addresses
@@ -189,7 +189,7 @@ fn normalize_endpoint(
     Ok((
         host,
         endpoint.port,
-        protocol_name(ruby, endpoint.protocol)?,
+        to_protocol_name(ruby, endpoint.protocol)?,
         addresses,
         rules,
     ))
@@ -222,7 +222,7 @@ fn validate_name(ruby: &Ruby, name: RString) -> Result<(), MagnusError> {
 }
 
 /// `protocol` as the Symbol Ruby names it by.
-fn protocol_name(ruby: &Ruby, protocol: Protocol) -> Result<Symbol, MagnusError> {
+fn to_protocol_name(ruby: &Ruby, protocol: Protocol) -> Result<Symbol, MagnusError> {
     Ok(ruby.to_symbol(match protocol {
         Protocol::Http => "http",
         Protocol::Tcp => "tcp",
@@ -241,7 +241,7 @@ fn unnamed(ruby: &Ruby, value: impl std::fmt::Debug) -> MagnusError {
 
 /// `addresses` as an endpoint's `addresses` names it: a Symbol for a set,
 /// or a CIDR String.
-fn addresses_name(ruby: &Ruby, addresses: &Addresses) -> Result<Value, MagnusError> {
+fn to_addresses_name(ruby: &Ruby, addresses: &Addresses) -> Result<Value, MagnusError> {
     Ok(match addresses {
         Addresses::Public => ruby.to_symbol("public").as_value(),
         Addresses::Private => ruby.to_symbol("private").as_value(),
@@ -254,7 +254,7 @@ fn addresses_name(ruby: &Ruby, addresses: &Addresses) -> Result<Value, MagnusErr
 /// The placement a credential's `placement` names: `:bearer`, `:basic`, or
 /// a header's name.
 fn to_placement(ruby: &Ruby, placement: Value) -> Result<Placement, MagnusError> {
-    match symbol_name(placement)?.as_deref() {
+    match symbol_name_of(placement)?.as_deref() {
         Some("bearer") => Ok(Placement::Bearer),
         Some("basic") => Ok(Placement::Basic),
         Some(_) => Err(MagnusError::new(
@@ -331,7 +331,7 @@ static BUILDER: Lazy<RClass> = Lazy::new(|ruby| network_class(ruby, "Builder"));
 
 /// `connection` as the `Kobako::Network::Connection` a Ruby policy reads.
 fn to_connection(ruby: &Ruby, connection: &Connection<'_>) -> Result<Value, MagnusError> {
-    let protocol = protocol_name(ruby, connection.protocol)?;
+    let protocol = to_protocol_name(ruby, connection.protocol)?;
     ruby.get_inner(&CONNECTION).funcall(
         "new",
         (ruby.str_new(connection.host), connection.port, protocol),
@@ -491,7 +491,7 @@ fn build_endpoint(
     })?;
     let mut endpoint = Endpoint::new(host, port).map_err(|err| to_arg_error(err.to_string()))?;
     if let Some(protocol) = protocol {
-        endpoint = endpoint.with_protocol(match symbol_name(protocol)?.as_deref() {
+        endpoint = endpoint.with_protocol(match symbol_name_of(protocol)?.as_deref() {
             Some("http") => Protocol::Http,
             Some("tcp") => Protocol::Tcp,
             Some("udp") => Protocol::Udp,
@@ -535,7 +535,7 @@ fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
 /// carries its prefix apart from its address; the ruleset judges whether the
 /// prefix fits its address.
 fn to_addresses(value: Value) -> Option<Addresses> {
-    match symbol_name(value).ok()?.as_deref() {
+    match symbol_name_of(value).ok()?.as_deref() {
         Some("public") => return Some(Addresses::Public),
         Some("private") => return Some(Addresses::Private),
         Some("local") => return Some(Addresses::Local),

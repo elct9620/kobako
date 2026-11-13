@@ -38,7 +38,7 @@ use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
-use crate::{errors, escape, filesystem, gvl, network, rstring_to_vec, symbol_name};
+use crate::{errors, escape, filesystem, gvl, network, rstring_to_vec, symbol_name_of};
 use snapshot::Snapshot;
 
 /// `kind` arrives as a Symbol so the registry never names the wire's
@@ -166,7 +166,7 @@ impl Runtime {
         options.aset(ruby.to_symbol("connection_limit"), config.connection_limit)?;
         options.aset(
             ruby.to_symbol("profile"),
-            profile_name(&ruby, config.profile),
+            to_profile_name(&ruby, config.profile),
         )?;
         options.aset(ruby.to_symbol("gvl"), ruby.to_symbol("hold"))?;
         Ok(options)
@@ -227,7 +227,7 @@ impl Runtime {
         let setup_timeout = setup_timeout_seconds.map(Duration::from_secs_f64);
         // A value kobako does not name a profile has no profile to stand
         // for, so it is refused rather than read as a weaker one.
-        let profile = match symbol_name(profile)?.as_deref() {
+        let profile = match symbol_name_of(profile)?.as_deref() {
             Some("hermetic") => Profile::Hermetic,
             Some("permissive") => Profile::Permissive,
             _ => {
@@ -241,7 +241,7 @@ impl Runtime {
             }
         };
         // A mode kobako does not name is refused as a profile is.
-        let release_gvl = match symbol_name(gvl)?.as_deref() {
+        let release_gvl = match symbol_name_of(gvl)?.as_deref() {
             Some("hold") => false,
             Some("release") => true,
             _ => {
@@ -272,8 +272,8 @@ impl Runtime {
                 &ruby,
                 SetupError::Dead(format!(
                     "runtime declares isolation profile {}, below the requested floor {}",
-                    profile_name(&ruby, declared).inspect(),
-                    profile_name(&ruby, profile).inspect()
+                    to_profile_name(&ruby, declared).inspect(),
+                    to_profile_name(&ruby, profile).inspect()
                 )),
             ));
         }
@@ -378,12 +378,12 @@ impl Runtime {
     /// profile its `profile:` option requested.
     fn profile(&self) -> Symbol {
         let ruby = Ruby::get().expect("Ruby thread");
-        profile_name(&ruby, self.runtime.profile())
+        to_profile_name(&ruby, self.runtime.profile())
     }
 }
 
 /// `profile` as the Symbol the `profile:` option names it by.
-fn profile_name(ruby: &Ruby, profile: Profile) -> Symbol {
+fn to_profile_name(ruby: &Ruby, profile: Profile) -> Symbol {
     ruby.to_symbol(match profile {
         Profile::Hermetic => "hermetic",
         Profile::Permissive => "permissive",

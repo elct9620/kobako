@@ -34,7 +34,7 @@ fn rstring_to_vec(s: RString) -> Vec<u8> {
 
 /// The name of `value` when it is a Symbol, so each choice an option or a
 /// field names is read the same way.
-fn symbol_name(value: Value) -> Result<Option<String>, Error> {
+fn symbol_name_of(value: Value) -> Result<Option<String>, Error> {
     Symbol::from_value(value)
         .map(|symbol| symbol.name().map(|name| name.into_owned()))
         .transpose()
