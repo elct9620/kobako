@@ -464,7 +464,7 @@ impl Buffers {
     /// Grow a connected TCP socket's send buffer, as `tcp_sndbuf_expand` makes
     /// room for its first window: two of `TCP_INIT_CWND` segments, which pass
     /// the reserved buffer at any MSS. One the guest set stays.
-    pub(crate) fn expand_sndbuf(&mut self) {
+    pub(crate) fn sndbuf_expand(&mut self) {
         if !self.sndbuf_locked {
             self.sndbuf = MAX_SOCKET_BUFFER;
         }

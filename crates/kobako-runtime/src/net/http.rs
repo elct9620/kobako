@@ -589,17 +589,22 @@ impl Exchange {
         let mut state = lock(&self.state);
         if self.expire(&mut state) {
             drop(state);
-            let task = self
-                .task
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take();
-            if let Some(task) = task {
-                task.cancel();
-            }
+            self.cancel_task();
             state = lock(&self.state);
         }
         state
+    }
+
+    /// Drop the task sending the request, with the connection it holds.
+    fn cancel_task(&self) {
+        let task = self
+            .task
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(task) = task {
+            task.cancel();
+        }
     }
 
     /// The soonest a timeout ends the wait under way: the connect until it
@@ -711,14 +716,7 @@ impl Exchange {
 
     /// Let the exchange go, dropping its task with the connection it holds.
     pub fn release(&self) {
-        let task = self
-            .task
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
-        if let Some(task) = task {
-            task.cancel();
-        }
+        self.cancel_task();
         let mut state = lock(&self.state);
         state.body.clear();
         state.head_memory = None;

@@ -377,7 +377,7 @@ impl TcpSock {
             None => return,
             Some(Ok(())) => {
                 state.phase = Phase::Connected;
-                state.inet.buffers.expand_sndbuf();
+                state.inet.buffers.sndbuf_expand();
                 return;
             }
             Some(Err(err)) => err,
