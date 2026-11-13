@@ -32,7 +32,9 @@ use beni::value::qnil;
 use beni::{Error, Exception, ExceptionClass, Module, Mrb, RClass, Symbol, TryConvert, Value};
 
 pub(crate) use address::port_of;
-pub(crate) use basic::{is_open_socket, readiness_of, select_readiness_of, Readiness};
+pub(crate) use basic::{
+    is_open_socket, readiness_of, select_readiness_of, string_value_of, Readiness,
+};
 pub(crate) use buffer::holds_buffered;
 
 use crate::errno;

@@ -1162,3 +1162,89 @@ fn a_seek_before_the_start_or_by_an_unknown_whence_raises_einval() {
          Errno::EINVAL"
     );
 }
+
+fn lines_tmpfs() -> Arc<Tmpfs> {
+    Arc::new([("lines.txt", "one\ntwo\n\n\nthree\nfour")].into_iter().collect())
+}
+
+// @behavior FL-082
+#[test]
+fn a_mode_naming_encodings_opens_as_the_mode_before_them() {
+    let script = r#"
+        print ["r:UTF-8", "rb:BOM|utf-8"].map { |mode| File.open("/data/note.txt", mode, &:gets) }.inspect
+    "#;
+    let Some(answer) = run(script, &[mount(note_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"["hello\n", "hello\n"]"#.to_string()),
+        "File.open with r:UTF-8 or rb:BOM|utf-8 through the bundled guest must open to read, as \
+         CRuby stops reading a mode at its colon"
+    );
+}
+
+// @behavior FL-083
+#[test]
+fn the_path_helpers_read_a_name_as_crubys_do() {
+    let script = r#"
+        print [
+          File.extname("foo."), File.extname("..rb"),
+          File.join("a//", "/b"), File.join("a", ["b", ["c"]]),
+          File.basename("a/\xff").bytes,
+        ].inspect
+    "#;
+    let Some(answer) = run(script, &[mount(note_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"[".", "", "a/b", "a/b/c", [255]]"#.to_string()),
+        "File.extname, File.join, and File.basename through the bundled guest must answer as \
+         CRuby's do"
+    );
+}
+
+// @behavior FL-084
+#[test]
+fn a_file_reads_lines_as_a_socket_does() {
+    let script = r#"
+        lines = File.open("/data/lines.txt") do |f|
+          [f.gets(chomp: true), f.gets(""), f.gets(3), f.readlines(chomp: true)]
+        end
+        refused = File.open("/data/lines.txt") do |f|
+          f.each_line(0) {}
+        rescue ArgumentError => e
+          e.message
+        end
+        print [lines, refused].inspect
+    "#;
+    let Some(answer) = run(script, &[mount(lines_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(
+            r#"[["one", "two\n\n", "thr", ["ee", "four"]], "invalid limit: 0 for each_line"]"#
+                .to_string()
+        ),
+        "File#gets with chomp:, a paragraph separator, and a limit, and File#readlines with chomp:, \
+         through the bundled guest must answer as CRuby's do, and each_line(0) must raise"
+    );
+}
+
+// @behavior FL-085
+#[test]
+fn a_seek_takes_its_whence_by_name() {
+    let script = r#"
+        print File.open("/data/lines.txt") { |f| f.seek(-4, :END); [f.pos, f.read] }.inspect
+    "#;
+    let Some(answer) = run(script, &[mount(lines_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"[16, "four"]"#.to_string()),
+        "File#seek with :END through the bundled guest must stand four bytes before the end"
+    );
+}

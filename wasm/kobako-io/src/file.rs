@@ -15,7 +15,7 @@ use std::io::{self, Write};
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, Object, RClass, Value};
+use beni::{Error, IntoValue, Mrb, Object, RArray, RClass, Value};
 
 use crate::io::{argument_error, Stream};
 use crate::{descriptors, errno};
@@ -246,72 +246,115 @@ fn file_s_rename(mrb: &Mrb, _self: Value, from: Value, to: Value) -> Result<Valu
     Ok(0.into_value(mrb))
 }
 
-/// Join with single separators between the parts, as CRuby does.
-fn file_s_join(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    let mut joined = String::new();
-    for (index, &part) in args.iter().enumerate() {
-        let part = path_arg(mrb, part)?;
-        if index == 0 {
-            joined.push_str(&part);
-            continue;
-        }
-        match (joined.ends_with('/'), part.starts_with('/')) {
-            (true, true) => joined.push_str(&part[1..]),
-            (false, false) => {
-                joined.push('/');
-                joined.push_str(&part);
-            }
-            _ => joined.push_str(&part),
-        }
+/// A path a helper that touches nothing reads, as bytes: one holding a NUL
+/// raises `ArgumentError`, and any other byte is taken as it stands, as
+/// CRuby's `check_path_encoding` refuses only an encoding with no ASCII.
+fn pure_path_arg(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
+    let Some(bytes) = Vec::<u8>::from_value(value) else {
+        return Err(errno::type_error(mrb, value));
+    };
+    if bytes.contains(&0) {
+        return Err(argument_error(mrb, "string contains null byte"));
     }
-    Ok(mrb.str_new(joined.as_bytes()).as_value())
+    Ok(bytes)
+}
+
+/// `File.join(*parts)`, an Array among them joined in its place, as CRuby's
+/// `rb_file_join` does: a part leading with `/` replaces the separators the
+/// joined path ends in, and one without is set after a single `/` unless
+/// the path already ends in one.
+fn file_s_join(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
+    let mut within = Vec::new();
+    let joined = join_parts(mrb, args, &mut within)?;
+    Ok(mrb.str_new(&joined).as_value())
+}
+
+fn join_parts(mrb: &Mrb, parts: &[Value], within: &mut Vec<i64>) -> Result<Vec<u8>, Error> {
+    let mut joined = Vec::new();
+    for (index, &part) in parts.iter().enumerate() {
+        let part = match RArray::from_value(part) {
+            Some(nested) => {
+                let id = part.object_id();
+                if within.contains(&id) {
+                    return Err(argument_error(mrb, "recursive array"));
+                }
+                within.push(id);
+                let nested: Vec<Value> = nested.entries(mrb).collect();
+                let part = join_parts(mrb, &nested, within)?;
+                within.pop();
+                part
+            }
+            None => pure_path_arg(mrb, part)?,
+        };
+        if index > 0 {
+            let tail = joined.len() - joined.iter().rev().take_while(|b| **b == b'/').count();
+            if part.first() == Some(&b'/') {
+                joined.truncate(tail);
+            } else if tail == joined.len() {
+                joined.push(b'/');
+            }
+        }
+        joined.extend_from_slice(&part);
+    }
+    Ok(joined)
 }
 
 /// The last component, trailing separators dropped; `/` for the root.
-fn last_component_of(path: &str) -> &str {
-    let trimmed = path.trim_end_matches('/');
+fn last_component_of(path: &[u8]) -> &[u8] {
+    let trimmed_len = path.len() - path.iter().rev().take_while(|b| **b == b'/').count();
+    let trimmed = &path[..trimmed_len];
     if trimmed.is_empty() {
-        return if path.is_empty() { "" } else { "/" };
+        return if path.is_empty() { b"" } else { b"/" };
     }
-    trimmed.rsplit('/').next().unwrap_or(trimmed)
+    trimmed.rsplit(|b| *b == b'/').next().unwrap_or(trimmed)
+}
+
+/// Where a base's extension starts, as CRuby's `ruby_enc_find_extname` reads
+/// it: its leading dots skipped, then its last dot, a dot at the end naming
+/// `.` alone.
+fn extname_at(base: &[u8]) -> Option<usize> {
+    let leading = base.iter().take_while(|b| **b == b'.').count();
+    base[leading..]
+        .iter()
+        .rposition(|b| *b == b'.')
+        .map(|dot| leading + dot)
 }
 
 fn file_s_basename(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
     let args = scan_args::<(Value,), (Option<Value>,), (), (), (), ()>(mrb)?;
-    let path = path_arg(mrb, args.required.0)?;
-    let mut base = last_component_of(&path).to_string();
+    let path = pure_path_arg(mrb, args.required.0)?;
+    let mut base = last_component_of(&path).to_vec();
     if let Some(suffix) = args.optional.0 {
-        let suffix = path_arg(mrb, suffix)?;
-        if suffix == ".*" {
-            if let Some(dot) = base.rfind('.').filter(|dot| *dot > 0) {
+        let suffix = pure_path_arg(mrb, suffix)?;
+        if suffix == b".*" {
+            if let Some(dot) = extname_at(&base) {
                 base.truncate(dot);
             }
         } else if base.len() > suffix.len() && base.ends_with(&suffix) {
             base.truncate(base.len() - suffix.len());
         }
     }
-    Ok(mrb.str_new(base.as_bytes()).as_value())
+    Ok(mrb.str_new(&base).as_value())
 }
 
 fn file_s_dirname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
-    let path = path_arg(mrb, path)?;
-    let trimmed = path.trim_end_matches('/');
-    let dir = match trimmed.rfind('/') {
-        Some(0) => "/",
-        Some(at) => trimmed[..at].trim_end_matches('/'),
-        None if path.starts_with('/') => "/",
-        None => ".",
+    let path = pure_path_arg(mrb, path)?;
+    let trim_end =
+        |bytes: &[u8]| bytes.len() - bytes.iter().rev().take_while(|b| **b == b'/').count();
+    let trimmed = &path[..trim_end(&path)];
+    let dir: &[u8] = match trimmed.iter().rposition(|b| *b == b'/') {
+        Some(0) => b"/",
+        Some(at) => &trimmed[..trim_end(&trimmed[..at])],
+        None if path.first() == Some(&b'/') => b"/",
+        None => b".",
     };
-    let dir = if dir.is_empty() { "/" } else { dir };
-    Ok(mrb.str_new(dir.as_bytes()).as_value())
+    let dir: &[u8] = if dir.is_empty() { b"/" } else { dir };
+    Ok(mrb.str_new(dir).as_value())
 }
 
 fn file_s_extname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
-    let path = path_arg(mrb, path)?;
+    let path = pure_path_arg(mrb, path)?;
     let base = last_component_of(&path);
-    let ext = match base.rfind('.') {
-        Some(dot) if dot > 0 && dot + 1 < base.len() => &base[dot..],
-        _ => "",
-    };
-    Ok(mrb.str_new(ext.as_bytes()).as_value())
+    let ext = extname_at(base).map_or(&b""[..], |dot| &base[dot..]);
+    Ok(mrb.str_new(ext).as_value())
 }

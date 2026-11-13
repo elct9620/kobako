@@ -21,6 +21,7 @@ mod file;
 mod http;
 mod io;
 mod kernel_ext;
+mod lines;
 mod select;
 mod socket;
 mod stream;

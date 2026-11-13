@@ -22,9 +22,10 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use core::ffi::c_int;
 
-use beni::{Error, Integer, IntoValue, Module, Mrb, RClass, RString, Symbol, Value};
+use beni::{Error, Integer, IntoValue, Module, Mrb, RClass, RString, Symbol, TryConvert, Value};
 
 use crate::io::{argument_error, checked_fd, is_closed, release, required_block, Stream};
+use crate::lines::{ensure_limit, line_args_of, take_line, LineSource};
 use crate::{descriptors, errno};
 
 /// What a stream that may not be read from is refused with.
@@ -53,9 +54,9 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     io.const_set(mrb, c"SEEK_CUR", 1)?;
     io.const_set(mrb, c"SEEK_END", 2)?;
     io.define_method(mrb, c"read", beni::method!(io_read, -1))?;
-    io.define_method(mrb, c"gets", beni::method!(io_gets, 0))?;
+    io.define_method(mrb, c"gets", beni::method!(io_gets, -1))?;
     io.define_method(mrb, c"each_line", beni::method!(io_each_line, -1))?;
-    io.define_method(mrb, c"readlines", beni::method!(io_readlines, 0))?;
+    io.define_method(mrb, c"readlines", beni::method!(io_readlines, -1))?;
     io.define_method(mrb, c"eof?", beni::method!(io_eof_p, 0))?;
     io.define_method(mrb, c"eof", beni::method!(io_eof_p, 0))?;
     io.define_method(mrb, c"seek", beni::method!(io_seek, -1))?;
@@ -163,47 +164,70 @@ fn io_read(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
     Ok(mrb.str_new(&bytes).as_value())
 }
 
-/// One line, its newline kept, or `None` at the end. A read past the
-/// line is given back by seeking, since the host keeps the position.
-fn read_line(fd: i32) -> io::Result<Option<Vec<u8>>> {
-    with_file(fd, |file| {
-        let mut line = Vec::new();
-        let mut buf = [0u8; CHUNK];
-        loop {
+/// A file read line by line: a chunk at a time from its position, a read
+/// past the line given back by seeking, since the host keeps the position.
+struct FileLines {
+    fd: i32,
+    stream: Value,
+}
+
+impl LineSource for FileLines {
+    fn fill(&mut self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
+        with_file(self.fd, |file| {
+            let mut buf = vec![0u8; CHUNK];
             let read = file.read(&mut buf)?;
-            if read == 0 {
-                return Ok((!line.is_empty()).then_some(line));
-            }
-            if let Some(at) = buf[..read].iter().position(|&b| b == b'\n') {
-                line.extend_from_slice(&buf[..=at]);
-                file.seek(SeekFrom::Current(-((read - at - 1) as i64)))?;
-                return Ok(Some(line));
-            }
-            line.extend_from_slice(&buf[..read]);
-        }
+            buf.truncate(read);
+            Ok((read > 0).then_some(buf))
+        })
+        .map_err(|err| read_error(mrb, self.stream, &err))
+    }
+
+    fn give_back(&mut self, mrb: &Mrb, rest: Vec<u8>) -> Result<(), Error> {
+        with_file(self.fd, |file| {
+            file.seek(SeekFrom::Current(-(rest.len() as i64))).map(drop)
+        })
+        .map_err(|err| read_error(mrb, self.stream, &err))
+    }
+}
+
+/// The lines `self_` reads, as every IO reads them.
+fn file_lines(mrb: &Mrb, self_: Value) -> Result<FileLines, Error> {
+    Ok(FileLines {
+        fd: readable_fd(mrb, self_)?,
+        stream: self_,
     })
 }
 
-fn io_gets(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = readable_fd(mrb, self_)?;
-    let line = read_line(fd).map_err(|err| read_error(mrb, self_, &err))?;
+/// `gets(sep = $/, limit = nil, chomp: false)` answers the next line, or
+/// `nil` at the end.
+fn io_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let line_args = line_args_of(mrb, args)?;
+    let line = take_line(mrb, &mut file_lines(mrb, self_)?, &line_args)?;
     Ok(line.map_or(qnil().as_value(), |line| mrb.str_new(&line).as_value()))
 }
 
-fn io_each_line(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
+/// `each_line(sep = $/, limit = nil, chomp: false) { |line| }` yields each
+/// line to the end.
+fn io_each_line(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let block = required_block(mrb, "each_line")?;
-    let fd = readable_fd(mrb, self_)?;
-    while let Some(line) = read_line(fd).map_err(|err| read_error(mrb, self_, &err))? {
+    let line_args = line_args_of(mrb, args)?;
+    ensure_limit(mrb, &line_args, "each_line")?;
+    let mut source = file_lines(mrb, self_)?;
+    while let Some(line) = take_line(mrb, &mut source, &line_args)? {
         let _scope = mrb.arena_scope();
         block.call::<_, Value>(mrb, [mrb.str_new(&line).as_value()])?;
     }
     Ok(self_)
 }
 
-fn io_readlines(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let fd = readable_fd(mrb, self_)?;
+/// `readlines(sep = $/, limit = nil, chomp: false)` answers every line to
+/// the end.
+fn io_readlines(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let line_args = line_args_of(mrb, args)?;
+    ensure_limit(mrb, &line_args, "readlines")?;
+    let mut source = file_lines(mrb, self_)?;
     let lines = mrb.ary_new();
-    while let Some(line) = read_line(fd).map_err(|err| read_error(mrb, self_, &err))? {
+    while let Some(line) = take_line(mrb, &mut source, &line_args)? {
         lines.push(mrb, mrb.str_new(&line).as_value())?;
     }
     Ok(lines.as_value())
@@ -222,11 +246,29 @@ fn io_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 }
 
 fn io_seek(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
-    let args = scan_args::<(i64,), (Option<i64>,), (), (), (), ()>(mrb)?;
+    let args = scan_args::<(i64,), (Option<Value>,), (), (), (), ()>(mrb)?;
     let (offset,) = args.required;
     let (whence,) = args.optional;
-    seek(mrb, self_, offset, whence.unwrap_or(0))?;
+    let whence = match whence {
+        Some(whence) => whence_of(mrb, whence)?,
+        None => 0,
+    };
+    seek(mrb, self_, offset, whence)?;
     Ok(0.into_value(mrb))
+}
+
+/// `whence` as a number, `:SET`, `:CUR`, and `:END` read as the constants
+/// they name, as CRuby's `interpret_seek_whence` reads them.
+fn whence_of(mrb: &Mrb, whence: Value) -> Result<i64, Error> {
+    let Some(name) = Symbol::from_value(whence) else {
+        return i64::try_convert(whence, mrb);
+    };
+    match name.name(mrb)?.as_str() {
+        "SET" => Ok(0),
+        "CUR" => Ok(1),
+        "END" => Ok(2),
+        other => Err(argument_error(mrb, &format!("unknown whence: {other}"))),
+    }
 }
 
 fn io_set_pos(mrb: &Mrb, self_: Value, offset: i64) -> Result<Value, Error> {

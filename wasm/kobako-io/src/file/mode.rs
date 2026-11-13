@@ -96,7 +96,9 @@ fn to_libc(flags: i64) -> Option<c_int> {
 
 /// CRuby's access mode as `File::Constants` flags: `r`, `w`, or `a`, then
 /// any of `+`, `b`, and `t`, with `x` after `w` alone for an exclusive
-/// create. `b` and `t` exclude each other.
+/// create. `b` and `t` exclude each other. What follows a `:` names
+/// encodings, which a guest reading bytes takes and sets aside, as
+/// `rb_io_modestr_fmode` stops there.
 fn from_string(mrb: &Mrb, mode: &str) -> Result<i64, Error> {
     let invalid = || argument_error(mrb, &format!("invalid access mode {mode}"));
     let mut chars = mode.chars();
@@ -107,6 +109,7 @@ fn from_string(mrb: &Mrb, mode: &str) -> Result<i64, Error> {
     let (mut plus, mut binary, mut text, mut exclusive) = (false, false, false, false);
     for c in chars {
         match c {
+            ':' => break,
             '+' => plus = true,
             'b' => binary = true,
             't' => text = true,

@@ -6,13 +6,14 @@ use std::task::Poll;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, Integer, IntoValue, Mrb, RClass, RHash, RString, Symbol, TryConvert, Value};
+use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
 use super::basic::{
     exception_option_of, open_socket_of, outbuf_of, read_length_of, reader_of, ready_of, source_of,
-    strbuf_length_of, string_bytes_of, string_value_of, SocketIo, Wait,
+    strbuf_length_of, string_bytes_of, SocketIo, Wait,
 };
-use crate::io::{argument_error, required_block, would_wait, Direction};
+use crate::io::{required_block, would_wait, Direction};
+use crate::lines::{self, ensure_limit, line_args_of, LineArgs, LineSource};
 use crate::wasi::MAX_READ;
 
 pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
@@ -189,73 +190,28 @@ fn read_partial(
     }
 }
 
-/// The next line, its separator kept unless `chomp`, or `None` at the end.
-/// A limit of zero answers an empty line at once; an empty separator reads a
-/// paragraph, skipping the newlines before and after it, as CRuby's `rspara`
-/// does.
+/// A socket read line by line: its buffer first, then what the host brings,
+/// waiting for it, with what a line read past held for the next read.
+struct SocketLines<'a>(&'a dyn SocketIo);
+
+impl LineSource for SocketLines<'_> {
+    fn fill(&mut self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
+        Ok(ready_of(read_some(mrb, self.0, MAX_READ, Wait::Blocking)?))
+    }
+
+    fn give_back(&mut self, _mrb: &Mrb, rest: Vec<u8>) -> Result<(), Error> {
+        self.0.io().rbuf.borrow_mut().splice(0..0, rest);
+        Ok(())
+    }
+}
+
+/// The next line `source` reads, as `lines::take_line` reads one.
 fn take_line(
     mrb: &Mrb,
     source: &dyn SocketIo,
-    (separator, limit, chomp): &LineArgs,
+    line_args: &LineArgs,
 ) -> Result<Option<Vec<u8>>, Error> {
-    if *limit == Some(0) {
-        return Ok(Some(Vec::new()));
-    }
-    let paragraph = separator.as_deref().is_some_and(<[u8]>::is_empty);
-    if paragraph {
-        skip_newlines(mrb, source)?;
-    }
-    let separator = match paragraph {
-        true => Some(&b"\n\n"[..]),
-        false => separator.as_deref(),
-    };
-    let mut line = Vec::new();
-    loop {
-        if let Some(end) = line_end_of(&line, separator, *limit) {
-            let rest = line.split_off(end);
-            source.io().rbuf.borrow_mut().splice(0..0, rest);
-            break;
-        }
-        match ready_of(read_some(mrb, source, MAX_READ, Wait::Blocking)?) {
-            Some(bytes) => line.extend(bytes),
-            None => break,
-        }
-    }
-    if line.is_empty() {
-        return Ok(None);
-    }
-    if paragraph {
-        skip_newlines(mrb, source)?;
-    }
-    if let Some(separator) = separator.filter(|_| *chomp) {
-        if line.ends_with(separator) {
-            line.truncate(line.len() - separator.len());
-        }
-    }
-    Ok(Some(line))
-}
-
-/// Drop the newlines that stand next, reading on until another byte or the
-/// end comes, as CRuby's `swallow` does around a paragraph.
-fn skip_newlines(mrb: &Mrb, source: &dyn SocketIo) -> Result<(), Error> {
-    while ready_of(refill(mrb, source, Wait::Blocking)?) {
-        let mut held = source.io().rbuf.borrow_mut();
-        let newlines = held.iter().take_while(|byte| **byte == b'\n').count();
-        held.drain(..newlines);
-        if !held.is_empty() {
-            break;
-        }
-    }
-    Ok(())
-}
-
-/// A limit of zero raises `ArgumentError` for `name`, as CRuby's `readlines`
-/// and `each_line` refuse one that would never end.
-fn ensure_limit(mrb: &Mrb, (_, limit, _): &LineArgs, name: &str) -> Result<(), Error> {
-    match limit {
-        Some(0) => Err(argument_error(mrb, &format!("invalid limit: 0 for {name}"))),
-        _ => Ok(()),
-    }
+    lines::take_line(mrb, &mut SocketLines(source), line_args)
 }
 
 /// `gets(sep = $/, limit = nil, chomp: false)` answers the next line, or
@@ -440,79 +396,6 @@ fn socket_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
         reader_of(mrb, self_)?,
         Wait::Blocking,
     )?))
-}
-
-/// What `gets` and its kin take: the separator, `None` to read to the end,
-/// the limit, and whether to chomp the separator.
-type LineArgs = (Option<Vec<u8>>, Option<usize>, bool);
-
-/// `gets(sep = $/, limit = nil, chomp: false)`'s arguments; an empty
-/// separator reads a paragraph, as CRuby's does.
-fn line_args_of(mrb: &Mrb, args: &[Value]) -> Result<LineArgs, Error> {
-    let (args, chomp) = match args.split_last() {
-        Some((last, rest)) if RHash::try_convert(*last, mrb).is_ok() => {
-            let options = RHash::try_convert(*last, mrb)?;
-            let chomp: Value = options.aref(mrb, Symbol::new(mrb, "chomp")?.as_value())?;
-            (rest, chomp.to_bool())
-        }
-        _ => (args, false),
-    };
-    let (separator, limit) = separator_and_limit_of(mrb, args)?;
-    Ok((separator, limit, chomp))
-}
-
-/// `gets(sep = $/, limit = nil)`'s separator, `None` to read to the end, and
-/// its limit.
-fn separator_and_limit_of(
-    mrb: &Mrb,
-    args: &[Value],
-) -> Result<(Option<Vec<u8>>, Option<usize>), Error> {
-    let limit_of = |value: Value| -> Result<Option<usize>, Error> {
-        if value.is_nil() {
-            return Ok(None);
-        }
-        Ok(usize::try_from(i64::try_convert(value, mrb)?).ok())
-    };
-    let separator_of = |value: Value| -> Result<Option<Vec<u8>>, Error> {
-        if value.is_nil() {
-            return Ok(None);
-        }
-        let text = string_value_of(mrb, value)?;
-        // SAFETY: the bytes are copied before the next mruby call.
-        Ok(Some(unsafe { text.as_slice(mrb) }.to_vec()))
-    };
-    // One argument that `rb_check_string_type` finds no String in, through
-    // `to_str`, is the limit, as CRuby's `rb_io_getline_args` reads it, so a
-    // Symbol raises TypeError as a limit.
-    let is_limit = |value: Value| -> Result<bool, Error> {
-        if value.is_nil() || RString::from_value(value).is_some() {
-            return Ok(false);
-        }
-        let to_str = Symbol::new(mrb, "to_str")?.as_value();
-        Ok(!value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_str])?)
-    };
-    match args {
-        [] => Ok((Some(b"\n".to_vec()), None)),
-        [only] if is_limit(*only)? => Ok((Some(b"\n".to_vec()), limit_of(*only)?)),
-        [separator] => Ok((separator_of(*separator)?, None)),
-        [separator, limit] => Ok((separator_of(*separator)?, limit_of(*limit)?)),
-        _ => Err(Error::argnum(mrb, args.len(), 0, 2)),
-    }
-}
-
-/// Where the line `line` starts ends: past its separator, or at its limit,
-/// whichever comes first; `None` while neither is in it.
-fn line_end_of(line: &[u8], separator: Option<&[u8]>, limit: Option<usize>) -> Option<usize> {
-    let by_separator = separator.and_then(|separator| {
-        line.windows(separator.len())
-            .position(|window| window == separator)
-            .map(|at| at + separator.len())
-    });
-    let by_limit = limit.filter(|limit| line.len() >= *limit);
-    match (by_separator, by_limit) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (end, None) | (None, end) => end,
-    }
 }
 
 /// Whether `value` is a socket holding bytes a `gets` read past, which a read

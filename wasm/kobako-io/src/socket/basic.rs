@@ -373,7 +373,7 @@ fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Erro
 
 /// `value` as CRuby's `StringValue` takes it: a String, or what its `to_str`
 /// answers; anything else raises `TypeError`.
-pub(super) fn string_value_of(mrb: &Mrb, value: Value) -> Result<RString, Error> {
+pub(crate) fn string_value_of(mrb: &Mrb, value: Value) -> Result<RString, Error> {
     check_string_type(mrb, value)?.ok_or_else(|| errno::type_error(mrb, value))
 }
 
