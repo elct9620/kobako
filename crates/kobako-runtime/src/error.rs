@@ -46,8 +46,8 @@ pub enum SetupError {
 /// engine fault (`Trap`), a host-side setup fault (`Setup`), or a network
 /// entry whose endpoints the ruleset refused (`Entry`), which each frontend
 /// answers as the Host App's argument error — unified so
-/// the run mechanics can propagate both with `?`; a frontend destructures
-/// it back into the two. Faults after the guest export starts
+/// the run mechanics can propagate each with `?`; a frontend destructures
+/// it back into the three. Faults after the guest export starts
 /// ride in `Completion::Trap` instead, so captures and usage survive them.
 ///
 /// Named for where it comes from — the `Err` of `Runtime::invoke` — so a
