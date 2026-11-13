@@ -1339,7 +1339,7 @@ mod tests {
             Arc::new(RecordsAuthority::default()),
         );
         let cred = prepare_creds_within(&[], None);
-        let mut send = |method: &str, authority: &str| {
+        let send = |method: &str, authority: &str| {
             let mut request = greeting_request(authority);
             request.method = method.to_string();
             crate::net::send(&namespace, &cred, request).is_ok()

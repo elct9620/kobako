@@ -68,10 +68,10 @@ pub fn send(
         Scheme::Http => "http",
         Scheme::Https => "https",
     };
-    let policy_request = Request::new((&host, port), &method, scheme, path, &names);
+    let policy_request = Request::new((&host, port), method, scheme, path, &names);
     let proxy = net.egress();
     let admitted = reachable
-        && net.ruleset().admits_request(&judged, port, &method, path)
+        && net.ruleset().admits_request(&judged, port, method, path)
         && proxy.admits(&policy_request);
     if !admitted {
         return Err(HttpError::Denied);

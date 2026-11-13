@@ -2454,7 +2454,7 @@ mod tests {
                         .into_answer()?
                         .expect("a send buffer size is set");
                 }
-                let mut read = |guest: &mut Invocation| -> wasmtime::Result<(u64, u64)> {
+                let read = |guest: &mut Invocation| -> wasmtime::Result<(u64, u64)> {
                     Ok((
                         guest
                             .tcp_tcp_socket_send_buffer_size(socket)
