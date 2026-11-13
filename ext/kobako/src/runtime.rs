@@ -1,8 +1,9 @@
-//! Host-side magnus shell over the extracted wasmtime driver.
+//! The Ruby handle of the contract `Runtime` a Sandbox runs each
+//! invocation on.
 //!
 //! The Ruby-visible classes are
 //!
-//!   Kobako::Runtime  — wraps a `kobako_wasmtime::Driver`
+//!   Kobako::Runtime  — holds one contract `Runtime`
 //!   Kobako::Snapshot — one invocation's completion + captures + usage
 //!
 //! `Kobako::Runtime` is constructed via `Kobako::Runtime.from_path(path,
@@ -11,8 +12,8 @@
 //! argument, instantiates a fresh instance, and returns a `Snapshot` — the
 //! whole per-invocation result — so the Runtime holds no per-invocation
 //! state and one Runtime is safe to drive concurrently. The run mechanics —
-//! engine/module caches, caps, trap classification — live in the
-//! `kobako-wasmtime` crate behind the `kobako_runtime` contract; no wasm
+//! engine/module caches, caps, trap classification — live in the Wasm
+//! Driver `from_path` builds, behind the `kobako_runtime` contract; no wasm
 //! engine type reaches this crate or the Host App.
 //!
 //! Each module holds one responsibility and opens with its own doc.

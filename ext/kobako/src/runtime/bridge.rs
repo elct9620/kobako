@@ -2,8 +2,8 @@
 //!
 //! The Ruby-Proc `DispatchHandler` and the frame-scoped `GuestYielder`
 //! handle the Proc re-enters the guest through — the one place the
-//! dispatch seam touches `magnus`. The wasm-side dispatch path
-//! (`kobako_wasmtime`'s dispatch module) sees only the contract traits.
+//! dispatch seam touches `magnus`. The Wasm Driver's dispatch path sees
+//! only the contract traits.
 
 use core::cell::{Cell, RefCell};
 use core::ptr::NonNull;
@@ -95,7 +95,7 @@ impl OpenFrames {
 ///
 /// The guest's Store is entered from the fiber that drives the
 /// invocation, and only from it: another fiber runs on its own native
-/// stack, which wasmtime's stack limit and the value budget never saw. A
+/// stack, which the Engine's stack limit and the value budget never saw. A
 /// block run from any other fiber, including one on another thread, is
 /// refused before it reaches the guest.
 ///
@@ -208,7 +208,7 @@ impl DispatchHandler for RubyDispatchHandler {
         // GVL for the whole callback before touching any Ruby VALUE. In hold
         // mode `reenter` runs the body inline — the GVL is already held.
         crate::gvl::reenter(|| {
-            // The wasmtime callback runs on the same Ruby thread that called
+            // The Driver's callback runs on the same Ruby thread that called
             // the active Sandbox invocation (#eval or #run), so `Ruby::get()`
             // is available here once the GVL is held.
             // Panicking with `expect` localises the violation rather than

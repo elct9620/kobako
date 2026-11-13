@@ -1,8 +1,9 @@
 # frozen_string_literal: true
 
 module Kobako
-  # The native wasmtime runtime, defined by the ext; this file adds only the
-  # default Guest Binary path.
+  # The Ruby handle of the contract Runtime a Sandbox runs each invocation
+  # on, defined by the ext; this file adds only the default Guest Binary
+  # path.
   class Runtime # :nodoc:
     # The path is answered whether or not the file exists; from_path is
     # where a missing artifact is refused. A missing +__dir__+ raises
