@@ -33,6 +33,7 @@ use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::SetupError;
+use kobako_runtime::limits::Limits;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets};
@@ -143,30 +144,30 @@ impl DataTypeFunctions for Runtime {}
 
 impl Runtime {
     /// Each option `from_path` takes, keyed as `Kobako::SandboxOptions` names
-    /// it, at the driver's default, so every frontend applies one set. A
+    /// it, at the runtime's default, so every frontend applies one set. A
     /// run holds the GVL unless the Host App asks to release it.
     fn default_options() -> Result<RHash, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let config = Config::default();
+        let limits = Limits::default();
         let options = ruby.hash_new();
         let seconds = |deadline: Option<Duration>| deadline.map(|d| d.as_secs_f64());
-        options.aset(ruby.to_symbol("timeout"), seconds(config.timeout))?;
+        options.aset(ruby.to_symbol("timeout"), seconds(limits.timeout))?;
         options.aset(
             ruby.to_symbol("setup_timeout"),
-            seconds(config.setup_timeout),
+            seconds(limits.setup_timeout),
         )?;
-        options.aset(ruby.to_symbol("memory_limit"), config.memory_limit)?;
-        options.aset(ruby.to_symbol("stdout_limit"), config.stdout_limit)?;
-        options.aset(ruby.to_symbol("stderr_limit"), config.stderr_limit)?;
-        options.aset(ruby.to_symbol("open_file_limit"), config.open_file_limit)?;
+        options.aset(ruby.to_symbol("memory_limit"), limits.memory_limit)?;
+        options.aset(ruby.to_symbol("stdout_limit"), limits.stdout_limit)?;
+        options.aset(ruby.to_symbol("stderr_limit"), limits.stderr_limit)?;
+        options.aset(ruby.to_symbol("open_file_limit"), limits.open_file_limit)?;
         options.aset(
             ruby.to_symbol("open_connection_limit"),
-            config.open_connection_limit,
+            limits.open_connection_limit,
         )?;
-        options.aset(ruby.to_symbol("connection_limit"), config.connection_limit)?;
+        options.aset(ruby.to_symbol("connection_limit"), limits.connection_limit)?;
         options.aset(
             ruby.to_symbol("profile"),
-            to_profile_name(&ruby, config.profile),
+            to_profile_name(&ruby, Profile::default()),
         )?;
         options.aset(ruby.to_symbol("gvl"), ruby.to_symbol("hold"))?;
         Ok(options)

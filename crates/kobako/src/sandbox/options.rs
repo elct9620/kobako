@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use kobako_runtime::limits::Limits;
 use kobako_runtime::profile::Profile;
 
 /// Per-Sandbox caps and profile, the counterpart of the Ruby
@@ -41,18 +42,19 @@ impl Default for Options {
     /// Secure by default: a 60-second deadline, 10 seconds to set the
     /// Guest Binary up, 4 MiB for memory, 1 MiB for each output channel,
     /// 1024 open files, 6 open connections and 50 in all, and the hermetic
-    /// floor — the same defaults the Ruby frontend applies.
+    /// floor.
     fn default() -> Self {
+        let limits = Limits::default();
         Options {
-            timeout: Some(Duration::from_secs(60)),
-            setup_timeout: Some(Duration::from_secs(10)),
-            memory_limit: Some(4 << 20),
-            stdout_limit: Some(1 << 20),
-            stderr_limit: Some(1 << 20),
-            open_file_limit: Some(1024),
-            open_connection_limit: Some(6),
-            connection_limit: Some(50),
-            profile: Profile::Hermetic,
+            timeout: limits.timeout,
+            setup_timeout: limits.setup_timeout,
+            memory_limit: limits.memory_limit,
+            stdout_limit: limits.stdout_limit,
+            stderr_limit: limits.stderr_limit,
+            open_file_limit: limits.open_file_limit,
+            open_connection_limit: limits.open_connection_limit,
+            connection_limit: limits.connection_limit,
+            profile: Profile::default(),
         }
     }
 }

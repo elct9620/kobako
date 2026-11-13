@@ -20,6 +20,7 @@ pub mod error;
 pub mod filesystem;
 pub mod grant;
 mod hashtable;
+pub mod limits;
 mod locking;
 pub mod memcg;
 pub mod mount;

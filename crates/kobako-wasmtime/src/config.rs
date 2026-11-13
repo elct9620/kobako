@@ -9,12 +9,14 @@
 //! Its caps are field-for-field the SDK's `kobako::Options`, and deliberately
 //! not shared with it: this struct is free to name a wasmtime type, and
 //! `Options` is not — an engine-free host must still be able to build the SDK.
+//! Both take their defaults from `kobako_runtime::limits::Limits`.
 //! The security modules are the Driver's own, as Linux's LSMs are the
 //! kernel's: whoever builds the Driver hands them here.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use kobako_runtime::limits::Limits;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::SecurityOperations;
 
@@ -62,24 +64,20 @@ pub struct Config {
 }
 
 impl Default for Config {
-    /// The caps every frontend defaults to: a 60-second deadline, 10
-    /// seconds to set the Guest Binary up, 4 MiB of memory growth, sized
-    /// for a guest whose every value takes 16 bytes, 1 MiB for each output
-    /// channel, 1024 open files, the soft limit Linux gives a process, 6
-    /// open connections and 50 in all, as a Cloudflare Worker may hold 6
-    /// waiting and make 50 subrequests on its free plan, and the hermetic
-    /// floor.
+    /// A Sandbox's default caps and floor, and no security module beyond
+    /// kobako's own.
     fn default() -> Self {
+        let limits = Limits::default();
         Config {
-            timeout: Some(Duration::from_secs(60)),
-            setup_timeout: Some(Duration::from_secs(10)),
-            memory_limit: Some(4 << 20),
-            stdout_limit: Some(1 << 20),
-            stderr_limit: Some(1 << 20),
-            open_file_limit: Some(1024),
-            open_connection_limit: Some(6),
-            connection_limit: Some(50),
-            profile: Profile::Hermetic,
+            timeout: limits.timeout,
+            setup_timeout: limits.setup_timeout,
+            memory_limit: limits.memory_limit,
+            stdout_limit: limits.stdout_limit,
+            stderr_limit: limits.stderr_limit,
+            open_file_limit: limits.open_file_limit,
+            open_connection_limit: limits.open_connection_limit,
+            connection_limit: limits.connection_limit,
+            profile: Profile::default(),
             security: Vec::new(),
         }
     }
@@ -109,8 +107,8 @@ impl Config {
 mod tests {
     use super::*;
 
-    // Literal values, since every frontend applies these defaults as they
-    // stand here.
+    // Literal values, since a frontend that builds a Driver from a default
+    // Config runs the Sandbox under them.
     #[test]
     fn a_default_config_carries_every_frontends_default_caps() {
         let config = Config::default();

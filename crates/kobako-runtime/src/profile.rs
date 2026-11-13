@@ -26,9 +26,13 @@ use std::time::Instant;
 /// each runtime to answer for it. The ordering is the same reason — a
 /// profile inserted between two changes what every existing `>=` means, which
 /// no wildcard could have absorbed either.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+///
+/// A Sandbox defaults to the hermetic floor, so one whose Host App names
+/// none runs under the most isolation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Profile {
     Permissive,
+    #[default]
     Hermetic,
 }
 
