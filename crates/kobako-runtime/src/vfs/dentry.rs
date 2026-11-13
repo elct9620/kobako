@@ -142,9 +142,9 @@ impl Dentry {
         self.mounts.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// A mount standing on it is gone, as `put_mountpoint` clears
-    /// `DCACHE_MOUNTED` once the last one goes.
-    pub(crate) fn put_mountpoint(&self) {
+    /// A mount standing on it is gone, as `unpin_mountpoint` lets go of it and
+    /// `maybe_free_mountpoint` clears `DCACHE_MOUNTED` once the last one goes.
+    pub(crate) fn unpin_mountpoint(&self) {
         self.mounts.fetch_sub(1, Ordering::SeqCst);
     }
 

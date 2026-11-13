@@ -317,7 +317,7 @@ impl Nameidata {
     /// The mount standing on the dentry `name` reaches in the directory the walk
     /// stands in, by whatever spelling or link reached that dentry.
     fn lookup_mnt_by_name(&self, name: &str) -> Result<Option<Arc<VfsMount>>, Errno> {
-        if !self.cred.mnt_ns().mnt_has_children(&self.mnt) {
+        if !self.cred.mnt_ns().has_children(&self.mnt) {
             return Ok(None);
         }
         let dentry = lookup_dentry(self.mnt.sb(), &self.dir, name)?;
@@ -325,7 +325,7 @@ impl Nameidata {
     }
 
     /// The mount standing on `dentry` beneath the mount the walk stands on, as
-    /// Linux's `lookup_mnt` asks `d_mountpoint` before `__lookup_mnt`.
+    /// `__traverse_mounts` asks `DCACHE_MOUNTED` before `lookup_mnt`.
     fn lookup_mnt(&self, dentry: &Arc<Dentry>) -> Option<Arc<VfsMount>> {
         match dentry.d_mountpoint() {
             true => self.cred.mnt_ns().__lookup_mnt(&self.mnt, dentry),

@@ -22,7 +22,7 @@ struct Mounted {
 
 impl Drop for Mounted {
     fn drop(&mut self) {
-        self.mountpoint.put_mountpoint();
+        self.mountpoint.unpin_mountpoint();
     }
 }
 
@@ -77,8 +77,9 @@ impl MntNamespace {
             .map(|child| Arc::clone(&child.mnt))
     }
 
-    /// Whether any mount stands beneath `mnt`, as Linux's `mnt_has_children`.
-    pub(crate) fn mnt_has_children(&self, mnt: &Arc<VfsMount>) -> bool {
+    /// Whether any mount stands beneath `mnt`, as Linux finds its `mnt_mounts`
+    /// not empty.
+    pub(crate) fn has_children(&self, mnt: &Arc<VfsMount>) -> bool {
         self.mounted
             .iter()
             .any(|child| Arc::ptr_eq(&child.parent, mnt))
