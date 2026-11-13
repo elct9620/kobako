@@ -1545,7 +1545,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server |
 | When | the script reads, then sets, `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, `TCP_KEEPCNT`, `SO_RCVBUF`, and `SO_SNDBUF` |
-| Then | each reads Linux's default, refuses with `Errno::EINVAL` what Linux refuses, and reads back what was set. A buffer size reads twice the size set, above Linux's least and within the socket's own buffer |
+| Then | each reads Linux's default within the socket's own buffer. Each refuses with `Errno::EINVAL` what Linux refuses, and reads back what was set. A buffer size reads twice the size set, above Linux's least and within the socket's own buffer |
 
 ## `NW-125` A UDP socket holds its hop limit and receive buffer
 
@@ -2504,3 +2504,15 @@ endpoint "api.example.com", port: 443
 | Given | a guest given the network |
 | When | it looks up an IPv4 address in full and in a short form such as `127.1`. It looks up a bare IPv6 address |
 | Then | each answers the address it spells as-is, with no query, as WIT returns an address string. An HTTP authority spelled the same way is judged as that address, as `NW-013` judges a literal |
+
+## `NW-202` A TCP socket's send buffer grows once it connects
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-124` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a network Grant and two new TCP sockets, one with a send buffer size set |
+| When | it reads each socket's buffer sizes before and after each connects to a loopback server |
+| Then | the send buffer reads Linux's `tcp_wmem` default until the connect, then the socket's own buffer. One set reads what was set throughout, as Linux keeps a set buffer from growing |
