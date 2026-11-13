@@ -194,7 +194,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a runtime is built from that path at each profile in turn |
 | Then | each runtime declares the profile it was built for |
 
-## `RT-017` The runtime refuses an unnameable profile on its own
+## `RT-017` A runtime built with an unnameable profile refuses it
 
 | Step | Statement |
 | --- | --- |
@@ -230,7 +230,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a Sandbox is constructed |
 | Then | the option is refused |
 
-## `RT-021` The runtime refuses an unknown mode on its own
+## `RT-021` A runtime built with an unknown mode refuses it
 
 | Step | Statement |
 | --- | --- |
