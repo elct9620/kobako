@@ -3,6 +3,13 @@
 module Kobako
   module Catalog
     class Mount < Data.define(:at, :access, :filesystem, :policy) # :nodoc:
+      # The Mount at +at+, refused by the rules an invocation builds it with,
+      # so a mistake raises where it was written.
+      def initialize(at:, access:, filesystem:, policy:)
+        Kobako::Filesystem.validate_mount(at, access, filesystem)
+        super
+      end
+
       # The kind and path a Context replaces this Mount at, so a Grant of
       # another kind never meets it.
       def key = [:mount, at]

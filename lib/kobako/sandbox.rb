@@ -100,7 +100,6 @@ module Kobako
     # unknown access, or a call after the first invocation.
     def mount(at, filesystem, access: :read, &policy)
       refuse_once_invoked("mount")
-      Filesystem.validate_mount(at, access, filesystem)
       @grants.register(Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy))
       self
     end
