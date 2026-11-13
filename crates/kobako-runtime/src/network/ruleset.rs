@@ -3,6 +3,7 @@
 //! sets, `metadata` and `reserved`, are kobako's own and sit in no entry, so no
 //! setting reaches them.
 
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use super::{Action, Addresses, Endpoint, EntryError, HttpRule, Protocol};
@@ -153,9 +154,50 @@ fn v6_set_of(ip: Ipv6Addr) -> AddressSet {
     }
 }
 
-/// What an endpoint's host names.
+/// A host the guest names, as wasmtime-wasi's lookup reads one with the URL
+/// host parser, so the hooks, the endpoints, and the resolver judge one
+/// spelling of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum Host {
+pub(crate) enum Host {
+    /// An address, from any IPv4 spelling the parser reads or a bare IPv6 one.
+    Address(IpAddr),
+    /// A name as its A-label: lowercase, with no trailing dot for the root.
+    Name(String),
+}
+
+impl Host {
+    /// `host` as the URL host parser reads it; `None` for one it refuses, as
+    /// for a code point no host holds, and for a name left ending in an empty
+    /// label once the root's one dot is dropped.
+    pub(crate) fn parse(host: &str) -> Option<Self> {
+        match url::Host::parse(host) {
+            Ok(url::Host::Ipv4(ip)) => Some(Self::Address(ip.into())),
+            Ok(url::Host::Ipv6(ip)) => Some(Self::Address(ip.into())),
+            Ok(url::Host::Domain(name)) => {
+                let name = name.strip_suffix('.').unwrap_or(&name);
+                (!name.is_empty() && !name.ends_with('.')).then(|| Self::Name(name.to_string()))
+            }
+            // The parser reads an IPv6 address only in brackets.
+            Err(_) => host
+                .parse::<Ipv6Addr>()
+                .ok()
+                .map(|ip| Self::Address(ip.into())),
+        }
+    }
+}
+
+impl fmt::Display for Host {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Address(ip) => ip.fmt(f),
+            Self::Name(name) => f.write_str(name),
+        }
+    }
+}
+
+/// What an endpoint's host matches.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Pattern {
     /// An exact name.
     Name(String),
     /// Every name ending in this suffix on a label boundary, as `*.` gives it.
@@ -164,10 +206,7 @@ enum Host {
     Cidr(IpAddr, u8),
 }
 
-fn parse_host(host: &str) -> Result<Host, EntryError> {
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return Ok(Host::Cidr(ip, full_prefix_of(ip)));
-    }
+fn parse_host(host: &str) -> Result<Pattern, EntryError> {
     if let Some((ip, prefix)) = host.split_once('/') {
         let ip = ip
             .parse::<IpAddr>()
@@ -177,28 +216,21 @@ fn parse_host(host: &str) -> Result<Host, EntryError> {
             .ok()
             .filter(|p| *p <= full_prefix_of(ip))
             .ok_or_else(|| EntryError(format!("an endpoint's prefix is out of range: {host}")))?;
-        return Ok(Host::Cidr(ip, prefix));
+        return Ok(Pattern::Cidr(ip, prefix));
     }
-    // A name is judged as its A-label, the form the guest's lookup is judged
-    // in, so an IDN an endpoint names matches the name the guest asks for.
-    let a_label = |name: &str| {
-        to_a_label(name)
-            .ok_or_else(|| EntryError(format!("an endpoint's name has no A-label: {host}")))
-    };
+    // A host is read as the guest's is, so an address in any spelling, and
+    // an IDN as its A-label, matches what the guest names.
+    let no_host = || EntryError(format!("an endpoint's host is no address or name: {host}"));
     match host.strip_prefix("*.") {
-        Some(suffix) if !suffix.is_empty() => Ok(Host::Wildcard(a_label(suffix)?)),
-        _ => Ok(Host::Name(a_label(host)?)),
+        Some(suffix) if !suffix.is_empty() => match Host::parse(suffix) {
+            Some(Host::Name(name)) => Ok(Pattern::Wildcard(name)),
+            _ => Err(no_host()),
+        },
+        _ => match Host::parse(host).ok_or_else(no_host)? {
+            Host::Address(ip) => Ok(Pattern::Cidr(ip, full_prefix_of(ip))),
+            Host::Name(name) => Ok(Pattern::Name(name)),
+        },
     }
-}
-
-/// `name` as the resolver, the hooks, and the endpoints judge it: lowercase,
-/// with no trailing dot for the root, and an IDN as its A-label; `None` when no
-/// A-label spells it, as for a name left ending in an empty label.
-pub(crate) fn to_a_label(name: &str) -> Option<String> {
-    let name = name.strip_suffix('.').unwrap_or(name);
-    idna::domain_to_ascii(name)
-        .ok()
-        .filter(|ascii| !ascii.is_empty() && !ascii.ends_with('.'))
 }
 
 /// The address an endpoint judges `ip` as, the IPv4 one an IPv6 address
@@ -236,7 +268,7 @@ fn is_within_net(ip: IpAddr, net: IpAddr, prefix: u8) -> bool {
 }
 
 struct Rule {
-    host: Host,
+    host: Pattern,
     port: u16,
     protocol: Protocol,
     addresses: Vec<Addresses>,
@@ -277,10 +309,10 @@ impl Rule {
     }
 
     /// Whether this rule's host holds `host`, a name or a literal address.
-    fn holds(&self, host: &str) -> bool {
-        match host.parse::<IpAddr>() {
-            Ok(ip) => self.holds_address(ip),
-            Err(_) => self.names(host),
+    fn holds(&self, host: &Host) -> bool {
+        match host {
+            Host::Address(ip) => self.holds_address(*ip),
+            Host::Name(name) => self.names(name),
         }
     }
 
@@ -288,7 +320,7 @@ impl Rule {
     /// judged as the address it stands for and never in the fixed sets.
     fn holds_address(&self, ip: IpAddr) -> bool {
         to_screened(ip).is_some_and(
-            |ip| matches!(self.host, Host::Cidr(net, prefix) if is_within_net(ip, net, prefix)),
+            |ip| matches!(self.host, Pattern::Cidr(net, prefix) if is_within_net(ip, net, prefix)),
         )
     }
 
@@ -311,11 +343,11 @@ impl Rule {
     /// on a label boundary.
     fn names(&self, name: &str) -> bool {
         match &self.host {
-            Host::Name(host) => host == name,
-            Host::Wildcard(suffix) => name
+            Pattern::Name(host) => host == name,
+            Pattern::Wildcard(suffix) => name
                 .strip_suffix(suffix.as_str())
                 .is_some_and(|head| head.len() > 1 && head.ends_with('.')),
-            Host::Cidr(..) => false,
+            Pattern::Cidr(..) => false,
         }
     }
 
@@ -347,7 +379,7 @@ impl Ruleset {
             .into_iter()
             .map(|endpoint| {
                 let host = parse_host(&endpoint.host)?;
-                if matches!(host, Host::Wildcard(_))
+                if matches!(host, Pattern::Wildcard(_))
                     && endpoint
                         .addresses
                         .iter()
@@ -393,7 +425,7 @@ impl Ruleset {
         is_unambiguous(path)
             && self.rules.iter().any(|rule| {
                 rule.serves(port, Protocol::Http)
-                    && matches!(&rule.host, Host::Name(name) if name == host)
+                    && matches!(&rule.host, Pattern::Name(name) if name == host)
                     && rule.allows_request(method, path)
             })
     }
@@ -401,7 +433,7 @@ impl Ruleset {
     /// Whether an `http` endpoint holding `host` at `port` allows `method` on
     /// `path`, the path with no query: endpoints join, so any one allowing it
     /// admits the request.
-    pub fn admits_request(&self, host: &str, port: u16, method: &str, path: &str) -> bool {
+    pub(crate) fn admits_request(&self, host: &Host, port: u16, method: &str, path: &str) -> bool {
         self.rules.iter().any(|rule| {
             rule.serves(port, Protocol::Http)
                 && rule.holds(host)
@@ -598,9 +630,11 @@ mod tests {
             [
                 rules.admits_name("xn--bcher-kva.example"),
                 rules.admits_name("www.xn--r8jz45g.jp"),
-                rules.admits_name(&to_a_label("Rooted.Example.").unwrap()),
+                Host::parse("Rooted.Example.").is_some_and(
+                    |host| matches!(host, Host::Name(name) if rules.admits_name(&name))
+                ),
                 empty_label.is_err(),
-                to_a_label("empty.example..").is_none(),
+                Host::parse("empty.example..").is_none(),
             ],
             [true, true, true, true, true],
             "Ruleset::admits_name must match an endpoint written as an IDN, and a wildcard over \
@@ -670,7 +704,9 @@ mod tests {
             Endpoint::new("open.example.com", 443).unwrap(),
         ])
         .unwrap();
-        let admit = |host, method, path| rules.admits_request(host, 443, method, path);
+        let admit = |host, method, path| {
+            rules.admits_request(&Host::parse(host).unwrap(), 443, method, path)
+        };
         assert_eq!(
             [
                 admit("api.example.com", "GET", "/repos/a/b"),

@@ -726,10 +726,8 @@ impl Outbound for HyperOutbound {
             match tls {
                 None => send_over(Wire(connection), http).await,
                 Some(config) => {
-                    let name = rustls::pki_types::ServerName::try_from(
-                        connector.authority().0.to_string(),
-                    )
-                    .map_err(|_| HttpError::ProtocolError)?;
+                    let name = rustls::pki_types::ServerName::try_from(connector.authority().0)
+                        .map_err(|_| HttpError::ProtocolError)?;
                     let session = tokio_rustls::TlsConnector::from(config)
                         .connect(name, connection)
                         .await
@@ -1251,6 +1249,28 @@ mod tests {
             "a guest's request to an authority spelled in another case, with a trailing dot, or \
              with its scheme's default port must name its server as the endpoint judged it: \
              lowercase, no trailing dot, and no default port"
+        );
+    }
+
+    // @behavior NW-201
+    #[test]
+    fn an_authority_spelling_an_address_short_is_judged_and_named_as_that_address() {
+        let mut entry = Builder::default();
+        entry.endpoint(
+            Endpoint::new("127.0.0.1", 80)
+                .unwrap()
+                .with_addresses(vec![crate::network::Addresses::Local]),
+        );
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let recorded = Arc::new(RecordsAuthority::default());
+        let namespace = Namespace::for_network(&network, Arc::new(HostInet), recorded.clone());
+        let cred = prepare_creds_within(&[], None);
+        let sent = crate::net::send(&namespace, &cred, greeting_request("127.1")).is_ok();
+        assert_eq!(
+            (sent, recorded.0.lock().unwrap().clone()),
+            (true, vec!["127.0.0.1".to_string()]),
+            "a guest's request to the authority 127.1 must pass an endpoint naming 127.0.0.1, \
+             and name its server as that address"
         );
     }
 

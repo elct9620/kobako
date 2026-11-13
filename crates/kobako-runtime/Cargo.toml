@@ -45,9 +45,10 @@ lru = "0.19.0"
 # Reads the host's own addresses, which the ruleset counts as local
 # whatever registry classes them, on POSIX and Windows alike.
 if-addrs = "0.15.0"
-# Turns a name the guest looks up into its A-label, so the hooks and the
-# endpoints judge one spelling of it.
-idna = "1.1.0"
+# Reads a host the guest names as wasmtime-wasi's lookup does, with the URL
+# host parser: an address in any IPv4 spelling, or a name as its A-label, so
+# the hooks and the endpoints judge one spelling of it.
+url = "2.5.8"
 # The default outbound seam: hyper's HTTP/1 client, which binds to no async
 # runtime, driven on kobako's reactor and dialing only through kobako's
 # connector; no default feature, so it decompresses and redirects nothing.

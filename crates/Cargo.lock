@@ -981,7 +981,6 @@ dependencies = [
  "http-body",
  "http-body-util",
  "hyper",
- "idna",
  "if-addrs",
  "kobako-transport",
  "libc",
@@ -993,6 +992,7 @@ dependencies = [
  "socket2",
  "tokio",
  "tokio-rustls",
+ "url",
  "zeroize",
 ]
 

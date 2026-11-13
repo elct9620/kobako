@@ -22,14 +22,14 @@ use super::namespace::TcpSockets;
 use super::socket::{BindHash, Destination};
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
 use crate::cred::Cred;
-use crate::network::{Protocol, Ruleset};
+use crate::network::{Host, Protocol, Ruleset};
 use crate::Errno;
 
 /// The only dialer the outbound seam has: it reaches the one authority the
 /// request named, resolving a name on the host and dialing each real address
 /// in turn through a socket the ruleset filters.
 pub struct Connector {
-    host: String,
+    host: Host,
     port: u16,
     ruleset: Arc<Ruleset>,
     family: Arc<dyn ProtocolFamily>,
@@ -43,7 +43,7 @@ pub struct Connector {
 
 impl Connector {
     /// The connector for `host` at `port` in `net`, dialing as `cred`.
-    pub(crate) fn new(net: &Namespace, cred: &Arc<Cred>, host: String, port: u16) -> Self {
+    pub(crate) fn new(net: &Namespace, cred: &Arc<Cred>, host: Host, port: u16) -> Self {
         Self {
             host,
             port,
@@ -58,8 +58,8 @@ impl Connector {
     }
 
     /// The host and port the request named.
-    pub fn authority(&self) -> (&str, u16) {
-        (&self.host, self.port)
+    pub fn authority(&self) -> (String, u16) {
+        (self.host.to_string(), self.port)
     }
 
     /// A connection to the authority, once one of its addresses answers. The
@@ -68,14 +68,14 @@ impl Connector {
     /// address the filter refuses is passed over, and none admitted is
     /// denied.
     pub async fn dial(&self) -> Result<Transport, HttpError> {
-        let dests = match self.host.parse::<IpAddr>() {
-            Ok(ip) => vec![Destination::Literal(SocketAddr::new(ip, self.port))],
-            Err(_) => self
-                .resolve()
+        let dests = match &self.host {
+            Host::Address(ip) => vec![Destination::Literal(SocketAddr::new(*ip, self.port))],
+            Host::Name(name) => self
+                .resolve(name)
                 .await?
                 .into_iter()
                 .map(|real| Destination::Named {
-                    name: self.host.clone(),
+                    name: name.clone(),
                     real,
                     port: self.port,
                 })
@@ -108,12 +108,12 @@ impl Connector {
         Err(last)
     }
 
-    /// The host's answer for the authority's name, from a lookup holding the
-    /// request's own place, as a guest's lookup holds one, so its thread
+    /// The host's answer for `name`, the authority's, from a lookup holding
+    /// the request's own place, as a guest's lookup holds one, so its thread
     /// counts against the caps until the resolver returns.
-    async fn resolve(&self) -> Result<Vec<IpAddr>, HttpError> {
+    async fn resolve(&self, name: &str) -> Result<Vec<IpAddr>, HttpError> {
         let place = self.place.clone().ok_or(HttpError::Internal)?;
-        let lookup = NameLookup::start_holding(self.resolver.clone(), self.host.clone(), place)
+        let lookup = NameLookup::start_holding(self.resolver.clone(), name.to_string(), place)
             .map_err(|_| HttpError::ConnectionLimitReached)?;
         poll_fn(|cx| lookup.poll_answer(cx))
             .await

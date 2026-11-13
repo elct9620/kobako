@@ -2,13 +2,13 @@
 //! the error code each POSIX name maps to, as the WIT's "typical errors"
 //! lists pair them.
 
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use kobako_runtime::net::LookupError;
 use kobako_runtime::Errno;
 
 use super::bindings::wasi_sockets_network_0_2_12::{
-    ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress, Ipv6SocketAddress,
+    ErrorCode, IpAddress, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress, Ipv6SocketAddress,
 };
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
@@ -84,6 +84,20 @@ pub(crate) fn to_remote_addr(
     family: IpAddressFamily,
 ) -> Option<SocketAddr> {
     to_socket_addr(addr, family).filter(|addr| !addr.ip().is_unspecified() && addr.port() != 0)
+}
+
+/// `ip` as the guest reads it.
+pub(crate) fn to_ip_address(ip: IpAddr) -> IpAddress {
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, c, d] = v4.octets();
+            IpAddress::Ipv4((a, b, c, d))
+        }
+        IpAddr::V6(v6) => {
+            let [a, b, c, d, e, f, g, h] = v6.segments();
+            IpAddress::Ipv6((a, b, c, d, e, f, g, h))
+        }
+    }
 }
 
 /// `addr` as the guest reads it.

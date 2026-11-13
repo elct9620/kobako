@@ -13,7 +13,7 @@ use super::connections::{open, OpenConnections, Place};
 use super::Namespace;
 use crate::cred::Cred;
 use crate::filesystem::anon_inode_getfile;
-use crate::network::Name;
+use crate::network::{Host, Name};
 use crate::vfs::{FMode, File, FileOperations, OpenHow, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
@@ -30,7 +30,8 @@ pub trait Resolver: Send + Sync {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LookupError {
-    /// No A-label spells the name, so it is no domain name at all.
+    /// No URL host spells the name, so it is no domain name or address at
+    /// all.
     InvalidName,
     /// The name resolves to nothing, or no entry lets the guest look it up;
     /// the two answer alike, so a refusal reads as NXDOMAIN.
@@ -44,6 +45,8 @@ pub enum LookupError {
 /// One lookup in flight, then its answer.
 pub struct NameLookup {
     name: String,
+    /// Whether the name spelled an address, which answers as itself.
+    of_address: bool,
     answer: Mutex<Option<Result<Vec<IpAddr>, LookupError>>>,
     wait: Arc<WaitQueueHead>,
 }
@@ -72,6 +75,7 @@ impl NameLookup {
     ) -> Result<Arc<Self>, LookupError> {
         let lookup = Arc::new(Self {
             name,
+            of_address: false,
             answer: Mutex::new(None),
             wait: Arc::default(),
         });
@@ -104,9 +108,26 @@ impl NameLookup {
     pub(crate) fn with_answer(name: String, answer: Result<Vec<IpAddr>, LookupError>) -> Arc<Self> {
         Arc::new(Self {
             name,
+            of_address: false,
             answer: Mutex::new(Some(answer)),
             wait: Arc::default(),
         })
+    }
+
+    /// A lookup of a name spelling `ip`, answered as `ip` itself.
+    fn of_address(ip: IpAddr) -> Arc<Self> {
+        Arc::new(Self {
+            name: ip.to_string(),
+            of_address: true,
+            answer: Mutex::new(Some(Ok(vec![ip]))),
+            wait: Arc::default(),
+        })
+    }
+
+    /// Whether the name spelled an address, answered as itself rather than
+    /// at a virtual one.
+    pub(crate) fn is_of_address(&self) -> bool {
+        self.of_address
     }
 
     /// The answer for a task on the reactor, which the lookup's wait queue
@@ -169,21 +190,18 @@ impl FileOperations for LookupFile {
     }
 }
 
-/// The name the guest asked for as the resolver and the hooks judge it:
-/// lowercase, with no trailing dot, and an IDN as its A-label. A name no
-/// A-label spells has no lookup.
-pub(crate) fn normalize(name: &str) -> Result<String, LookupError> {
-    crate::network::to_a_label(name).ok_or(LookupError::InvalidName)
-}
-
-/// A lookup of `name` in `net`. The name is normalized, then each entry's
-/// `resolve` policy and the endpoints judge it, as a DNS proxy judges a
-/// query before it forwards one; a refused or unmatched name answers as
-/// NXDOMAIN before any query, as a real one would. A name the Invocation
-/// already translated answers its first real addresses again, with no query,
-/// so a resolver cannot rebind it.
+/// A lookup of `name` in `net`. The name is read as a URL host: one spelling
+/// an address answers that address as-is, with no query, as WIT returns an
+/// address string. Each entry's `resolve` policy and the endpoints judge any
+/// other, as a DNS proxy judges a query before it forwards one; a refused or
+/// unmatched name answers as NXDOMAIN before any query, as a real one would.
+/// A name the Invocation already translated answers its first real addresses
+/// again, with no query, so a resolver cannot rebind it.
 pub fn resolve(net: &Namespace, name: &str) -> Result<Arc<NameLookup>, LookupError> {
-    let name = normalize(name)?;
+    let name = match Host::parse(name).ok_or(LookupError::InvalidName)? {
+        Host::Address(ip) => return Ok(NameLookup::of_address(ip)),
+        Host::Name(name) => name,
+    };
     if !allows_lookup(net, &name) || !net.ruleset().admits_name(&name) {
         return Ok(NameLookup::with_answer(
             name,

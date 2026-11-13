@@ -37,7 +37,7 @@ use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::error::{SocketError, StreamError};
 use super::sockets::{
     from_socket_addr, is_valid_unicast_address, to_asked_size, to_buffer_size, to_error_code,
-    to_hop_limit, to_keepalive_secs, to_lookup_error_code, to_nanos, to_remote_addr,
+    to_hop_limit, to_ip_address, to_keepalive_secs, to_lookup_error_code, to_nanos, to_remote_addr,
     to_socket_addr,
 };
 use super::table::SharedFile;
@@ -351,8 +351,7 @@ impl SocketsHost for Invocation {
             return Ok(None);
         };
         self.table_mut().get_mut(this)?.handed = handed + 1;
-        let [a, b, c, d] = at.octets();
-        Ok(Some(IpAddress::Ipv4((a, b, c, d))))
+        Ok(Some(to_ip_address(*at)))
     }
 
     fn ip_name_lookup_resolve_address_stream_subscribe(
@@ -1634,17 +1633,68 @@ mod tests {
 
     // @behavior NW-197
     #[test]
-    fn a_name_no_a_label_spells_is_refused_as_an_invalid_argument() {
-        let mut guest = network_guest(network::Endpoint::new("example.com", 443).unwrap());
+    fn a_name_no_url_host_spells_is_refused_as_an_invalid_argument() {
+        let mut guest = network_guest(network::Endpoint::new("*.example.com", 443).unwrap());
         let network = guest.instance_network_instance_network().unwrap();
-        assert!(
+        let answers = [
+            "xn--a",
+            "a\\.example.com",
+            "a b.example.com",
+            "a/b.example.com",
+        ]
+        .map(|name| {
             matches!(
                 guest
-                    .ip_name_lookup_resolve_addresses(network, "xn--a".to_string())
+                    .ip_name_lookup_resolve_addresses(network, name.to_string())
                     .into_answer(),
                 Ok(Err(ErrorCode::InvalidArgument))
-            ),
-            "resolve-addresses of xn--a, which no A-label spells, must answer invalid-argument"
+            )
+        });
+        assert_eq!(
+            answers, [true; 4],
+            "resolve-addresses of xn--a, which no A-label spells, and of names beneath \
+             *.example.com holding a backslash, a space, or a slash must each answer \
+             invalid-argument before any query"
+        );
+    }
+
+    // @behavior NW-201
+    #[test]
+    fn a_lookup_of_an_address_answers_the_address_itself() {
+        let mut guest = network_guest(network::Endpoint::new("example.com", 443).unwrap());
+        let network = guest.instance_network_instance_network().unwrap();
+        let mut answer_of = |name: &str| -> Vec<IpAddress> {
+            let stream = guest
+                .ip_name_lookup_resolve_addresses(network, name.to_string())
+                .into_answer()
+                .unwrap()
+                .expect("an address needs no endpoint to be looked up");
+            let mut answered = Vec::new();
+            while let Some(address) = guest
+                .ip_name_lookup_resolve_address_stream_resolve_next_address(stream)
+                .into_answer()
+                .unwrap()
+                .expect("an address answers at once, with no query")
+            {
+                answered.push(address);
+            }
+            answered
+        };
+        assert_eq!(
+            [
+                answer_of("10.1.2.3"),
+                answer_of("127.1"),
+                answer_of("0x7f.1"),
+                answer_of("::1"),
+            ],
+            [
+                vec![IpAddress::Ipv4((10, 1, 2, 3))],
+                vec![IpAddress::Ipv4((127, 0, 0, 1))],
+                vec![IpAddress::Ipv4((127, 0, 0, 1))],
+                vec![IpAddress::Ipv6((0, 0, 0, 0, 0, 0, 0, 1))],
+            ],
+            "resolve-addresses of an IPv4 address in full and in a short form, and of a bare \
+             IPv6 address, must each answer the address it spells as-is"
         );
     }
 

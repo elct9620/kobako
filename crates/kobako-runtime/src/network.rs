@@ -10,7 +10,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 pub use builder::Builder;
-pub(crate) use ruleset::to_a_label;
+pub(crate) use ruleset::Host;
 pub use ruleset::{address_set_of, AddressSet, Ruleset};
 
 /// The process's open connection limit, which only a Rust Host App moves.

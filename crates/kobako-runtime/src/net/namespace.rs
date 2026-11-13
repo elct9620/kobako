@@ -224,20 +224,22 @@ impl Namespace {
     /// Allocate the virtual addresses `lookup`'s answer is handed out at, one
     /// for each real address in the order it answered, from the bottom of the
     /// range and never reused; a name already handed them keeps them, as a
-    /// fake-IP pool answers a known host. `None` while the lookup is under
-    /// way, its failure once it failed, and `TemporaryFailure` once the range
-    /// cannot hold them all or `cred`'s memory cannot hold the entries, which
-    /// the table keeps until the Invocation ends.
+    /// fake-IP pool answers a known host; a lookup of an address keeps it as
+    /// itself. `None` while the lookup is under way, its failure once it
+    /// failed, and `TemporaryFailure` once the range cannot hold them all or
+    /// `cred`'s memory cannot hold the entries, which the table keeps until
+    /// the Invocation ends.
     pub fn alloc_virtual_addresses(
         &self,
         cred: &Arc<Cred>,
         lookup: &NameLookup,
-    ) -> Option<Result<Vec<Ipv4Addr>, LookupError>> {
+    ) -> Option<Result<Vec<IpAddr>, LookupError>> {
         let real = match lookup.answer()? {
+            Ok(real) if lookup.is_of_address() => return Some(Ok(real)),
             Ok(real) => real,
             Err(err) => return Some(Err(err)),
         };
-        let to_virtual = |offset: u32| Ipv4Addr::from(VIRTUAL_BASE + offset);
+        let to_virtual = |offset: u32| IpAddr::V4(Ipv4Addr::from(VIRTUAL_BASE + offset));
         let mut translations = self
             .translations
             .lock()
@@ -833,7 +835,7 @@ mod tests {
             .expect("the lookup settled")
             .expect("the range has room")
             .into_iter()
-            .map(|ip| SocketAddr::new(IpAddr::V4(ip), 6379))
+            .map(|ip| SocketAddr::new(ip, 6379))
             .collect()
     }
 

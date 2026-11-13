@@ -3,7 +3,7 @@
 //! request policies, and the credentials bound to its own endpoints. It reads
 //! the namespace's state and decides at layer 7.
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use super::credential::{carries, Swap};
@@ -11,12 +11,12 @@ use super::http::{
     join_authority, split_authority, to_field_name, to_field_value, to_origin_form, Exchange,
     HttpError, OutgoingRequest, Scheme,
 };
-use super::lookup::{allows_lookup, normalize};
+use super::lookup::allows_lookup;
 use super::socket::{check_family, AddressFamily};
 use super::transport::Connector;
 use super::Namespace;
 use crate::cred::Cred;
-use crate::network::{Connection, Credential, Protocol, Request, Ruleset};
+use crate::network::{Connection, Credential, Host, Protocol, Request, Ruleset};
 use crate::policy::Policy;
 use crate::Errno;
 
@@ -44,18 +44,15 @@ pub fn send(
     }
     let (host, port) =
         split_authority(&request.authority, request.scheme).ok_or(HttpError::Denied)?;
-    let literal = host.parse::<IpAddr>().ok();
-    let host = match literal {
-        Some(_) => host,
-        None => normalize(&host).map_err(|_| HttpError::Denied)?,
-    };
+    let judged = Host::parse(&host).ok_or(HttpError::Denied)?;
+    let host = judged.to_string();
     let connection = Connection::new(&host, port, Protocol::Http);
     if cred.security_socket_connect(&connection).is_err() {
         return Err(HttpError::Denied);
     }
-    let reachable = match literal {
-        Some(ip) => admit_literal(net, SocketAddr::new(ip, port)).is_ok(),
-        None => allows_lookup(net, &host),
+    let reachable = match judged {
+        Host::Address(ip) => admit_literal(net, SocketAddr::new(ip, port)).is_ok(),
+        Host::Name(ref name) => allows_lookup(net, name),
     };
     let path = request
         .path_with_query
@@ -74,7 +71,7 @@ pub fn send(
     let policy_request = Request::new((&host, port), &method, scheme, path, &names);
     let proxy = net.egress();
     let admitted = reachable
-        && net.ruleset().admits_request(&host, port, &method, path)
+        && net.ruleset().admits_request(&judged, port, &method, path)
         && proxy.admits(&policy_request);
     if !admitted {
         return Err(HttpError::Denied);
@@ -86,7 +83,7 @@ pub fn send(
     let mut request = request;
     request.authority = join_authority(&host, port, request.scheme);
     request.swaps = swaps;
-    let connector = Connector::new(net, cred, host, port);
+    let connector = Connector::new(net, cred, judged, port);
     net.within_connection_budget(HttpError::ConnectionLimitReached, || {
         Exchange::start(
             net.outbound().clone(),
