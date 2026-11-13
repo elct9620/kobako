@@ -135,13 +135,13 @@ pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
 #[derive(TypedData)]
 #[magnus(class = "Kobako::Runtime", free_immediately, size)]
 struct Runtime {
-    // The magnus-free wasmtime driver that runs every invocation; the
-    // shell only shuttles Ruby values across its boundary. The Runtime
-    // holds no per-invocation state — each `#eval` / `#run` takes its
-    // dispatch handler as an argument and returns its whole result as a
-    // `Snapshot` — so `Driver`'s own `Send + Sync` carries the type with no
-    // interior mutability to guard.
-    driver: Driver,
+    // The runtime every invocation runs on, held behind the contract so the
+    // driver is named only where it is built. The Runtime holds no
+    // per-invocation state — each `#eval` / `#run` takes its dispatch
+    // handler as an argument and returns its whole result as a `Snapshot`
+    // — so the contract's `Send + Sync` carries the type with no interior
+    // mutability to guard.
+    runtime: Box<dyn ContractRuntime + Send + Sync>,
     // Whether each invocation releases Ruby's GVL for its guest span
     // (`gvl: :release`) or holds it throughout (`gvl: :hold`). Fixed at
     // construction; a `bool` carries no interior mutability, so the type
@@ -242,7 +242,7 @@ impl Runtime {
         let driver =
             Driver::new(Path::new(&path), config).map_err(|e| errors::setup_to_magnus(&ruby, e))?;
         Ok(Self {
-            driver,
+            runtime: Box::new(driver),
             release_gvl,
         })
     }
@@ -307,10 +307,10 @@ impl Runtime {
         grants.extend(networks);
         pins.extend(network_pins);
         // Release the GVL around the guest span iff this Sandbox asks for it;
-        // the closure touches no Ruby VALUE (the driver is magnus-free, and a
+        // the closure touches no Ruby VALUE (the runtime is magnus-free, and a
         // guest→host dispatch, or a mount's block, re-acquires the GVL).
         let result = gvl::region(self.release_gvl, || {
-            self.driver.invoke(entry, &preamble, handler, &grants)
+            self.runtime.invoke(entry, &preamble, handler, &grants)
         });
         escape::resume()?;
         result
@@ -321,13 +321,13 @@ impl Runtime {
     /// The bytecode of the source snippets, one binary String each in
     /// order, or `nil` when the guest compiled nothing; no failure raises,
     /// since the Sandbox keeps the source either way. Takes the Preamble an
-    /// invocation sends, `paths` included, so the driver can tell whether
+    /// invocation sends, `paths` included, so the runtime can tell whether
     /// the bytecode still fits it; no dispatch handler is bound, since
     /// compiling runs no script.
     fn compile(&self, preamble: RArray) -> Result<Option<RArray>, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let preamble = to_preamble(&ruby, preamble)?;
-        let bytecodes = gvl::region(self.release_gvl, || self.driver.compile(&preamble));
+        let bytecodes = gvl::region(self.release_gvl, || self.runtime.compile(&preamble));
         escape::resume()?;
         Ok(bytecodes.map(|bytecodes| {
             ruby.ary_from_iter(
@@ -338,11 +338,11 @@ impl Runtime {
         }))
     }
 
-    /// The driver's declaration, which the Sandbox checks against the
+    /// The runtime's declaration, which the Sandbox checks against the
     /// profile its `profile:` option requested.
     fn profile(&self) -> Symbol {
         let ruby = Ruby::get().expect("Ruby thread");
-        match self.driver.profile() {
+        match self.runtime.profile() {
             Profile::Hermetic => ruby.to_symbol("hermetic"),
             Profile::Permissive => ruby.to_symbol("permissive"),
         }
@@ -350,7 +350,7 @@ impl Runtime {
 }
 
 /// The Proc stays GC-rooted for the synchronous `#eval` / `#run` call as a
-/// live method argument on the Ruby stack, so the driver only borrows it
+/// live method argument on the Ruby stack, so the runtime only borrows it
 /// (the safety contract on `kobako_runtime::runtime::Runtime`).
 fn build_handler(dispatch: Value) -> Option<Arc<dyn DispatchHandler>> {
     if dispatch.is_nil() {
