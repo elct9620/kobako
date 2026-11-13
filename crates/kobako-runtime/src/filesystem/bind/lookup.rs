@@ -19,7 +19,10 @@ use super::{to_error, Errno};
 pub(super) fn lookup(parent: &Dir, name: &str) -> Result<String, Errno> {
     #[cfg(target_os = "macos")]
     {
-        macos::lookup(parent, name).map_err(to_error)
+        macos::lookup(parent, name)
+            .map_err(to_error)?
+            .into_string()
+            .map_err(|_| Errno::IllegalSequence)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -80,9 +83,10 @@ fn stored_by_inode(
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use std::ffi::CString;
+    use std::ffi::{CString, OsString};
     use std::io;
     use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStringExt;
 
     use cap_std::fs::Dir;
 
@@ -95,7 +99,9 @@ mod macos {
         data: [u8; 1024],
     }
 
-    pub(super) fn lookup(parent: &Dir, name: &str) -> io::Result<String> {
+    /// The name the volume stores for `name`, as its bytes; `name` itself
+    /// where nothing stands.
+    pub(super) fn lookup(parent: &Dir, name: &str) -> io::Result<OsString> {
         let path = CString::new(name).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
         let mut request = libc::attrlist {
             bitmapcount: libc::ATTR_BIT_MAP_COUNT,
@@ -129,7 +135,7 @@ mod macos {
         if answered != 0 {
             let err = io::Error::last_os_error();
             return match err.kind() {
-                io::ErrorKind::NotFound => Ok(name.to_string()),
+                io::ErrorKind::NotFound => Ok(OsString::from(name)),
                 _ => Err(err),
             };
         }
@@ -143,7 +149,7 @@ mod macos {
             .zip(len)
             .and_then(|(start, len)| reply.data.get(start..start.checked_add(len)?))
             .ok_or(io::ErrorKind::InvalidData)?;
-        String::from_utf8(stored_name.to_vec()).map_err(|_| io::ErrorKind::InvalidData.into())
+        Ok(OsString::from_vec(stored_name.to_vec()))
     }
 }
 
@@ -211,8 +217,8 @@ mod linux {
             assert_eq!(
                 answered,
                 Err(Errno::IllegalSequence),
-                "a host name that is not UTF-8, found by its inode through stored_by_inode, must \
-                 fail as IllegalSequence, as a listing of it does"
+                "a host name that is not UTF-8, spelled by a Bind's lookup of another spelling, \
+                 must fail as an illegal byte sequence, as a listing of it does"
             );
         }
 
