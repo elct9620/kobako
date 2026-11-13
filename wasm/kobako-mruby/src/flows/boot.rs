@@ -70,7 +70,8 @@ fn apply_flags<G: crate::MrbGuest>(kobako: &Kobako, flags: &[Flag]) -> Result<()
 /// On `Err` the slot is cleared, so no caller observes a half-set state.
 fn boot_vm<G: crate::MrbGuest>() -> Result<(), Panic> {
     let mrb = Mrb::open().map_err(|_| boot_panic("failed to start the Sandbox interpreter"))?;
-    super::mrb_slot::MRB.install(mrb);
+    // SAFETY: boot installs before any entry body borrows the slot.
+    unsafe { super::mrb_slot::MRB.install(mrb) };
     let mrb = super::mrb_slot::MRB
         .as_ref()
         .expect("MRB just installed above");
@@ -81,7 +82,9 @@ fn boot_vm<G: crate::MrbGuest>() -> Result<(), Panic> {
                 "Sandbox boot registration failed: {}",
                 e.message(mrb)
             ));
-            super::mrb_slot::MRB.clear();
+            // SAFETY: boot's own borrow ends with the message above, and no
+            // entry body has borrowed the slot yet.
+            unsafe { super::mrb_slot::MRB.clear() };
             return Err(panic);
         }
     };

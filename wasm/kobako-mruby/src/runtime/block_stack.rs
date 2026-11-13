@@ -13,11 +13,10 @@
 //!
 //! ## Cross-Sandbox isolation
 //!
-//! Same argument as `crate::flows::mrb_slot`: each `Kobako::Sandbox` owns
-//! its own `wasmtime::Instance` and therefore its own copy of this
-//! module-level static. The single-threaded wasm execution model
-//! inside any one Instance licenses the `UnsafeCell` interior
-//! mutability used here.
+//! Same argument as `crate::flows::mrb_slot`: each invocation runs on a
+//! fresh instance and therefore its own copy of this module-level static.
+//! The single-threaded wasm execution model inside any one instance
+//! licenses the `UnsafeCell` interior mutability used here.
 
 use beni::Proc;
 

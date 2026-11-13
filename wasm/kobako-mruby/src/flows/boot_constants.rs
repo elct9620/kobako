@@ -35,13 +35,12 @@ impl BootConstantSlot {
     /// Install `names` as the boot-state snapshot, replacing any previous
     /// value.
     ///
-    /// # Safety contract
+    /// # Safety
     ///
-    /// No outstanding borrow from `Self::as_ref` may be live. Boot-shaped
-    /// use — install once, before any entry body reads — satisfies this.
-    fn install(&self, names: Vec<String>) {
-        // SAFETY: see type doc — single-threaded wasm execution, and the
-        // install happens during boot before any read can borrow.
+    /// No borrow from `Self::as_ref` may be live.
+    unsafe fn install(&self, names: Vec<String>) {
+        // SAFETY: single-threaded wasm execution, and the caller holds no
+        // borrow the write would invalidate.
         unsafe { *self.0.get() = Some(names) };
     }
 
@@ -60,7 +59,8 @@ unsafe impl Sync for BootConstantSlot {}
 static BOOT_CONSTANTS: BootConstantSlot = BootConstantSlot::new();
 
 pub(super) fn record(kobako: &Kobako) {
-    BOOT_CONSTANTS.install(kobako.top_level_constants());
+    // SAFETY: boot records before any entry body reads the snapshot.
+    unsafe { BOOT_CONSTANTS.install(kobako.top_level_constants()) };
 }
 
 /// The top-level constants the preloaded snippets contributed — the names

@@ -29,23 +29,24 @@ impl MrbSlot {
     /// Install `mrb` into the slot, dropping any previously held value.
     /// The dropped `Mrb` runs its `mrb_close` automatically.
     ///
-    /// # Safety contract
+    /// # Safety
     ///
-    /// No outstanding `&Mrb` borrow from `Self::as_ref` may be live.
-    /// Boot-shaped use (install once per instance, before any entry
-    /// body borrows) satisfies this naturally.
-    pub(super) fn install(&self, mrb: Mrb) {
-        // SAFETY: see type doc — single-threaded wasm execution + the
-        // lifecycle contract documented in this module's header.
+    /// No `&Mrb` borrow from `Self::as_ref` may be live.
+    pub(super) unsafe fn install(&self, mrb: Mrb) {
+        // SAFETY: single-threaded wasm execution, and the caller holds no
+        // borrow the write would invalidate.
         unsafe { *self.0.get() = Some(mrb) };
     }
 
-    /// After `clear`, any `&Mrb` borrow previously returned by
-    /// `Self::as_ref` is dangling, so no such borrow may be live.
-    pub(super) fn clear(&self) {
-        // SAFETY: see type doc — `clear` runs only on `boot_vm`'s failure
-        // path, after boot's own borrow has ended and before any entry body
-        // borrows through `as_ref`.
+    /// Drop the installed `Mrb`.
+    ///
+    /// # Safety
+    ///
+    /// No `&Mrb` borrow from `Self::as_ref` may be live, since each would
+    /// dangle once the slot is cleared.
+    pub(super) unsafe fn clear(&self) {
+        // SAFETY: single-threaded wasm execution, and the caller holds no
+        // borrow the write would invalidate.
         unsafe { *self.0.get() = None };
     }
 
