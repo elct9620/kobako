@@ -4,7 +4,7 @@
 //! artifact. It is the leaf
 //! shell over the published guest stack: `kobako-mruby` supplies the
 //! `MrbGuest` harness (provided flows + the built-in `KobakoBridge`
-//! gem), `kobako-io` the IO / Kernel capability gem, and
+//! gem), `kobako-io` the IO capability gem, and
 //! `kobako-core` the ABI contract whose `export_guest!` macro emits
 //! the wasm exports here — the exact composition path any
 //! third-party guest takes.

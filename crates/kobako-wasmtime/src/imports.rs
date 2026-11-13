@@ -1,9 +1,10 @@
-//! The host imports a Guest Binary resolves: the WASI preview1 set and
-//! the wire ABI's `__kobako_upcall`.
+//! The host imports a Guest Binary resolves: the WASI preview1 set, the
+//! WASI 0.2 functions a core module links, and the wire ABI's
+//! `__kobako_upcall`.
 //!
-//! Both closures read all their state from the `Invocation` inside the
-//! calling Store, never from a Runtime, so the wiring is the same for
-//! every Sandbox and `crate::instance_pre` can cache what it resolves.
+//! Every import reads its state from the `Invocation` inside the calling
+//! Store, never from a Runtime, so the wiring is the same for every Sandbox
+//! and `crate::instance_pre` can cache what it resolves.
 
 use wasmtime::{AsContextMut, Caller, Linker};
 use wasmtime_wasi::p1;

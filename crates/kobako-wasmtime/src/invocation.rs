@@ -133,8 +133,9 @@ impl Invocation {
         self.limiter.budget().disarm();
     }
 
-    /// Stamped right before the guest export call, so the bracket matches
-    /// the `timeout` accounting and excludes post-run host bookkeeping.
+    /// Stamped as the Store opens, so instantiating the guest and writing its
+    /// request count as the `timeout` counts them, and post-run host
+    /// bookkeeping stays out.
     pub(crate) fn start_wall_clock(&mut self) {
         self.wall_entry = Some(Instant::now());
     }

@@ -51,9 +51,10 @@ pub(super) fn register(kobako: RModule) -> Result<(), MagnusError> {
 #[derive(Default)]
 struct OpenFrames(RefCell<Vec<NonNull<dyn Yielder>>>);
 
-// SAFETY: the stack is pushed and popped by the dispatch frames on the
-// fiber driving the invocation, and read only by a `GuestYielder` that
-// refuses every other fiber, so it is never reached from another thread.
+// SAFETY: every push, pop, and read of the stack runs on a thread holding
+// Ruby's GVL: the dispatch frames push and pop it on the fiber driving the
+// invocation, and a `GuestYielder` reads it before refusing any other fiber,
+// so no two threads reach it at once.
 unsafe impl Send for OpenFrames {}
 unsafe impl Sync for OpenFrames {}
 

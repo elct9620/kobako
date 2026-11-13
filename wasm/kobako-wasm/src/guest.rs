@@ -1,5 +1,5 @@
 //! The bundled guest — `KobakoGuest` composes the published
-//! `kobako-mruby` harness with the `kobako-io` IO / File / Kernel gem and forwards the
+//! `kobako-mruby` harness with the `kobako-io` IO capability gem and forwards the
 //! `kobako_core::Guest` contract to the inherited flows. The
 //! `kobako-regexp` and `kobako-json` capability gems are wired only under
 //! the `regexp` / `json` features, so the default binary stays pure mruby
