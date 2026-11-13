@@ -4,6 +4,12 @@ module Kobako
 
     def self.validate_mount: (untyped at, untyped access, untyped filesystem) -> nil
 
+    def self.validate_endpoint: (Network::Endpoint endpoint) -> nil
+
+    def self.validate_credential: (Network::Credential credential) -> nil
+
+    def self.validate_network_name: (String name) -> nil
+
     def self.from_path: (
       String path,
       timeout: (Float | Integer)?,

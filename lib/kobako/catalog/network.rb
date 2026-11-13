@@ -8,7 +8,7 @@ module Kobako
       # no Context could replace it by.
       def initialize(name:, entry:)
         name = name.to_s.freeze
-        raise ArgumentError, "a network entry's name must not be empty" if name.empty?
+        Runtime.validate_network_name(name)
 
         if block_given?
           entry = Kobako::Network::Builder.new(entry)

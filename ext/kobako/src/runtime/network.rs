@@ -138,6 +138,43 @@ impl CredentialSource for RubyCredential {
     }
 }
 
+/// Refuse an endpoint as `Kobako::Network::Endpoint.new` makes it, by the
+/// rules an invocation reads it with, so a mistake raises where it was
+/// written, as a Mount's does.
+pub(super) fn validate_endpoint(ruby: &Ruby, endpoint: Value) -> Result<(), MagnusError> {
+    to_endpoint(ruby, endpoint).map(drop)
+}
+
+/// Refuse a credential's placement as `Kobako::Network::Credential.new`
+/// takes it, by the rule an invocation reads it with.
+pub(super) fn validate_credential(ruby: &Ruby, credential: Value) -> Result<(), MagnusError> {
+    to_placement(ruby, credential.funcall("placement", ())?).map(drop)
+}
+
+/// Refuse an entry's name as `Sandbox#network` takes it, by the rule an
+/// invocation names its Grant with.
+pub(super) fn validate_network_name(ruby: &Ruby, name: RString) -> Result<(), MagnusError> {
+    Network::new(name.to_string()?, Arc::new(Builder::default()))
+        .map(drop)
+        .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
+}
+
+/// The placement a credential's `placement` names: `:bearer`, `:basic`, or
+/// a header's name.
+fn to_placement(ruby: &Ruby, placement: Value) -> Result<Placement, MagnusError> {
+    match symbol_name_of(placement)?.as_deref() {
+        Some("bearer") => Ok(Placement::Bearer),
+        Some("basic") => Ok(Placement::Basic),
+        Some(_) => Err(MagnusError::new(
+            ruby.exception_arg_error(),
+            "a credential's placement must be :bearer, :basic, or a header name",
+        )),
+        None => Ok(Placement::Header(
+            RString::try_convert(placement)?.to_string()?,
+        )),
+    }
+}
+
 /// The credential a Ruby object answering `placement`, `placeholder`, and
 /// `value` stands for, pinned while the guest may ask it for a value.
 fn to_credential(
@@ -145,18 +182,7 @@ fn to_credential(
     credential: Value,
     pins: &mut Vec<PinnedValue>,
 ) -> Result<Credential, MagnusError> {
-    let placement: Value = credential.funcall("placement", ())?;
-    let placement = match symbol_name_of(placement)?.as_deref() {
-        Some("bearer") => Placement::Bearer,
-        Some("basic") => Placement::Basic,
-        Some(_) => {
-            return Err(MagnusError::new(
-                ruby.exception_arg_error(),
-                "a credential's placement must be :bearer or :basic",
-            ))
-        }
-        None => Placement::Header(RString::try_convert(placement)?.to_string()?),
-    };
+    let placement = to_placement(ruby, credential.funcall("placement", ())?)?;
     let placeholder: String = credential
         .funcall::<_, _, Value>("placeholder", ())?
         .funcall("to_s", ())?;

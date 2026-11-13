@@ -3,24 +3,15 @@ module Kobako
     type protocol = :http | :tcp | :udp
 
     class Endpoint < Data
-      PROTOCOLS: Array[protocol]
-      ADDRESS_SETS: Array[Symbol]
-
       attr_reader host: String
       attr_reader port: Integer
       attr_reader protocol: protocol
-      attr_reader addresses: Array[Symbol | String]
+      attr_reader addresses: Array[Symbol | String | IPAddr]
       attr_reader rules: Array[HttpRule]
 
       def self.new: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped, ?rules: untyped) -> Endpoint
 
       def initialize: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped, ?rules: untyped) -> void
-
-      private
-
-      def to_address: (untyped address) -> (Symbol | String)
-
-      def refuse_malformed: (String host, untyped port, untyped protocol) -> void
     end
 
     class Connection < Data
@@ -54,8 +45,6 @@ module Kobako
     end
 
     class Credential
-      PLACEMENTS: Array[Symbol]
-
       @source: ^(Request) -> String?
 
       attr_reader placement: Symbol | String

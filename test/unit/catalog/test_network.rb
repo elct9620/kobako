@@ -45,9 +45,10 @@ module Kobako
     MALFORMED_ENDPOINTS = [
       { host: "", port: 443 },
       { host: "api.example.com", port: 0 },
+      { host: "api.example.com", port: 70_000 },
       { host: "api.example.com", port: 443, protocol: :ftp },
       { host: "api.example.com", port: 443, addresses: [:carrier] },
-      { host: "api.example.com", port: 443, addresses: ["10.0.0.0/99"] }
+      { host: "api.example.com", port: 443, addresses: ["not-an-address"] }
     ].freeze
 
     # @behavior NW-008
@@ -58,14 +59,6 @@ module Kobako
           Network::Endpoint.new(**fields)
         end
       end
-    end
-
-    def test_a_cidr_given_as_a_string_or_an_ipaddr_is_kept_as_address_and_prefix
-      endpoint = Network::Endpoint.new(host: "cache.internal", port: 6379,
-                                       addresses: [:private, "10.1.2.3/8", IPAddr.new("192.168.0.0/16")])
-
-      assert_equal [:private, "10.0.0.0/8", "192.168.0.0/16"], endpoint.addresses,
-                   "Kobako::Network::Endpoint.new must keep an address set as it is and a CIDR as address/prefix"
     end
 
     def test_a_credential_with_another_placement_is_refused
