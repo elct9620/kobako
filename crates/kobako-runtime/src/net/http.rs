@@ -2034,12 +2034,21 @@ mod tests {
         }
     }
 
-    /// The answer `exchange` settles on, once it settles.
+    /// The answer `exchange` settles on, once it settles. Ten seconds is far
+    /// past any timeout these tests set, so an exchange still unsettled then
+    /// is one whose dial never completed and left no timeout running.
     fn settled(exchange: &Exchange) -> Result<ResponseHead, HttpError> {
+        let give_up = std::time::Instant::now() + Duration::from_secs(10);
         loop {
             match exchange.response() {
                 Some(answer) => break answer,
-                None => thread::sleep(Duration::from_millis(1)),
+                None if std::time::Instant::now() < give_up => {
+                    thread::sleep(Duration::from_millis(1))
+                }
+                None => panic!(
+                    "the exchange never settled: its dial to the loopback listener did not \
+                     complete, so look at the reactor driving the dial before the timeouts"
+                ),
             }
         }
     }
