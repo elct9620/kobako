@@ -29,6 +29,7 @@ pub mod call;
 pub mod compile_reply;
 pub mod error_record;
 pub mod fault;
+pub mod name;
 pub mod outcome;
 pub mod preamble;
 pub mod reply;

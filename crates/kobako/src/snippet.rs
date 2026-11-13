@@ -10,6 +10,7 @@
 //! time.
 
 use kobako_runtime::runtime::Runtime;
+use kobako_transport::envelope::name::is_constant_name;
 use kobako_transport::envelope::{self, Preamble, Snippet};
 
 use crate::error::Error;
@@ -82,17 +83,6 @@ impl Snippets {
     }
 }
 
-/// The guest interns every constant name, and mruby holds a symbol of at
-/// most this many bytes.
-const MAX_SYMBOL_LEN: usize = 65_534;
-
-pub(crate) fn is_constant_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    name.len() <= MAX_SYMBOL_LEN
-        && chars.next().is_some_and(|c| c.is_ascii_uppercase())
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,25 +125,10 @@ mod tests {
         }
     }
 
-    // The bound sits where mruby stops interning, so the longest name it
-    // holds passes and one byte more does not.
-    #[test]
-    fn constant_name_stops_at_the_longest_symbol() {
-        let longest = format!("A{}", "b".repeat(MAX_SYMBOL_LEN - 1));
-        assert!(
-            is_constant_name(&longest),
-            "a {MAX_SYMBOL_LEN}-byte name must pass"
-        );
-        assert!(
-            !is_constant_name(&format!("{longest}b")),
-            "a name one byte past the symbol limit must be refused"
-        );
-    }
-
     // @behavior S-194
     #[test]
     fn register_source_refuses_a_name_past_the_symbol_limit() {
-        let name = format!("A{}", "b".repeat(MAX_SYMBOL_LEN));
+        let name = format!("A{}", "b".repeat(65_534));
         let refused = Snippets::default().register_source(&name, "X = 1");
         assert!(
             matches!(&refused, Err(Error::Argument(message)) if message.contains("constant name")),

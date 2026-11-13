@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime};
 use kobako_runtime::snapshot::{Completion, Snapshot};
+use kobako_transport::envelope::name::is_constant_name;
 #[cfg(feature = "wasmtime")]
 use kobako_wasmtime::{Config, Driver};
 
@@ -29,7 +30,6 @@ use crate::extension::{unresolved, Extension, Extensions};
 use crate::handles::HandleTable;
 use crate::payload::RunPayload;
 use crate::receiver::Receiver;
-use crate::snippet;
 use kobako_runtime::filesystem::Filesystem;
 use kobako_runtime::grant::GrantKind;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
@@ -337,7 +337,7 @@ impl Sandbox {
     where
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
-        if !snippet::is_constant_name(target) {
+        if !is_constant_name(target) {
             return Err(Error::Argument(format!(
                 "entrypoint must be a Ruby constant name (got {target:?})"
             )));

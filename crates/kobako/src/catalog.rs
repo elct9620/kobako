@@ -12,24 +12,13 @@
 use std::sync::Arc;
 
 use kobako_runtime::runtime::Runtime;
+use kobako_transport::envelope::name::{is_constant_path, is_reserved, RESERVED_NAMESPACE};
 use kobako_transport::envelope::{Bindings, Flag, Preamble};
 
 use crate::error::Error;
 use crate::grants::Grants;
 use crate::receiver::Receiver;
-use crate::snippet::{is_constant_name, Snippets};
-
-/// The Guest Binary keeps this namespace for constants it may add later.
-const RESERVED_NAMESPACE: &str = "Kobako";
-
-/// An empty path splits into one empty segment, which no constant name is.
-fn is_constant_path(path: &str) -> bool {
-    path.split("::").all(is_constant_name)
-}
-
-fn is_reserved(path: &str) -> bool {
-    path.split("::").next() == Some(RESERVED_NAMESPACE)
-}
+use crate::snippet::Snippets;
 
 /// Bind-ordered Service registry plus the snippet and flag tables for one
 /// Sandbox.
