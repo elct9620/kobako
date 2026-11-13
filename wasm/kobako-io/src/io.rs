@@ -5,9 +5,9 @@
 //! ## Shape vs. mruby-io
 //!
 //! Drop-in subset of `mrbgems/mruby-io`'s `IO` class: same constructor
-//! signature (`IO.new(fd, mode = nil)`), same write-path surface
-//! (`#write`, `#fileno`, `#print`, `#puts`, `#printf`, `#putc`, `#p`,
-//! `#<<`, `#tty?` / `#isatty`, `#sync` / `#sync=`, `#flush`, `#to_i`).
+//! signature (`IO.new(fd, mode = nil)`), and CRuby's write-path surface
+//! (`#write`, `#fileno`, `#print`, `#puts`, `#printf`, `#putc`, `#<<`,
+//! `#tty?` / `#isatty`, `#sync` / `#sync=`, `#flush`, `#to_i`).
 //! The whole surface is registered as `beni` bridge methods
 //! — the predecessor's `mrblib/io.rb` half is rewritten in Rust so
 //! the gem ships no Ruby boot source and needs no mrbc pipeline.
@@ -35,8 +35,8 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, ExceptionClass, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash,
-    RTypedData, Symbol, TryConvert, TypedData, Value,
+    Error, ExceptionClass, Float, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash,
+    RString, RTypedData, Symbol, TryConvert, TypedData, Value,
 };
 
 use crate::{descriptors, errno};
@@ -88,7 +88,7 @@ pub(crate) fn new(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Err
     let stream = Stream(RefCell::new(State {
         fd: None,
         path: None,
-        sync: true,
+        sync: false,
     }));
     let stream = mrb.wrap_as(stream, class).as_value();
     stream.funcall::<_, _, Value>(mrb, c"initialize", args)?;
@@ -156,7 +156,6 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     io.define_method(mrb, c"puts", beni::method!(io_puts, -1))?;
     io.define_method(mrb, c"printf", beni::method!(io_printf, -1))?;
     io.define_method(mrb, c"putc", beni::method!(io_putc, 1))?;
-    io.define_method(mrb, c"p", beni::method!(io_p, -1))?;
     io.define_method(mrb, c"<<", beni::method!(io_lshift, 1))?;
     io.define_method(mrb, c"tty?", beni::method!(io_tty_p, 0))?;
     io.define_method(mrb, c"isatty", beni::method!(io_tty_p, 0))?;
@@ -171,6 +170,9 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
     let mode_str = mrb.str_new(b"w").as_value();
     let stdout_val = new(mrb, io, &[1i32.into_value(mrb), mode_str])?;
     let stderr_val = new(mrb, io, &[2i32.into_value(mrb), mode_str])?;
+    // Only `STDERR` starts synchronous, as CRuby's; every write goes straight
+    // to `write(2)` whatever the flag reads.
+    Stream::update(mrb, stderr_val, |state| state.sync = true);
 
     mrb.define_global_const(c"STDOUT", stdout_val)?;
     mrb.define_global_const(c"STDERR", stderr_val)?;
@@ -315,49 +317,98 @@ pub(crate) fn is_opened_to_read(fd: i32) -> bool {
     held >= 0 && crate::file::mode::reads(held)
 }
 
-fn io_fileno(mrb: &Mrb, self_: Value) -> Value {
-    fd_of(mrb, self_).into_value(mrb)
+/// A closed stream reports nothing of its descriptor, as CRuby's
+/// `GetOpenFile` refuses one.
+fn open_or_refuse(mrb: &Mrb, self_: Value) -> Result<(), Error> {
+    match is_closed(mrb, self_) {
+        true => Err(errno::io_error(mrb, "closed stream")),
+        false => Ok(()),
+    }
+}
+
+fn io_fileno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    open_or_refuse(mrb, self_)?;
+    Ok(fd_of(mrb, self_).into_value(mrb))
 }
 
 fn io_print(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
+    print_to(mrb, self_, args)
+}
+
+/// Write each of `args` as a String to `out` through its `write`, as
+/// `rb_io_print` does for `IO#print` and `Kernel#print` alike.
+pub(crate) fn print_to(mrb: &Mrb, out: Value, args: &[Value]) -> Result<(), Error> {
     for &val in args {
         let _scope = mrb.arena_scope();
         let s = val.to_r_string(mrb)?;
-        write_one(mrb, self_, s.as_value())?;
+        write_one(mrb, out, s.as_value())?;
     }
     Ok(())
 }
 
 fn io_puts(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
+    puts_lines(mrb, args, &mut |line| write_one(mrb, self_, line))
+}
+
+/// Each piece `puts` writes for `args`, as CRuby's `rb_io_puts` takes them
+/// apart: an Array's elements in turn, one met again inside itself as
+/// `[...]`, a newline after each that lacks one, and a lone newline for
+/// nothing at all.
+pub(crate) fn puts_lines(
+    mrb: &Mrb,
+    args: &[Value],
+    emit: &mut dyn FnMut(Value) -> Result<(), Error>,
+) -> Result<(), Error> {
     if args.is_empty() {
-        return write_newline(mrb, self_);
+        return emit(mrb.str_new(b"\n").as_value());
     }
+    let mut within = Vec::new();
     for &val in args {
-        puts_one(mrb, self_, val)?;
+        puts_one(mrb, val, &mut within, emit)?;
     }
     Ok(())
 }
 
-fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
+fn puts_one(
+    mrb: &Mrb,
+    val: Value,
+    within: &mut Vec<i64>,
+    emit: &mut dyn FnMut(Value) -> Result<(), Error>,
+) -> Result<(), Error> {
     // Downcast on the value's type tag, not its classname: the tag
     // covers Array subclasses too, matching the `is_a?(Array)` check
     // the mrblib predecessor made.
     if let Some(ary) = RArray::from_value(val) {
+        let id = val.object_id();
+        if within.contains(&id) {
+            return line_of(mrb, mrb.str_new(b"[...]").as_value(), emit);
+        }
+        within.push(id);
         // Walk the C-level slots, never a Ruby `#each`: a hostile Array
         // subclass cannot override iteration to drive the recursion past the
         // real elements.
         for elem in ary.entries(mrb) {
-            puts_one(mrb, self_, elem)?;
+            puts_one(mrb, elem, within, emit)?;
         }
+        within.pop();
         return Ok(());
     }
     let _scope = mrb.arena_scope();
-    let s = val.to_r_string(mrb)?;
+    line_of(mrb, val.to_r_string(mrb)?.as_value(), emit)
+}
+
+/// `line`, then a newline unless it ends in one.
+fn line_of(
+    mrb: &Mrb,
+    line: Value,
+    emit: &mut dyn FnMut(Value) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let s = line.to_r_string(mrb)?;
     // SAFETY: the slice is dropped before the next mruby call below.
     let ends_nl = unsafe { s.as_slice(mrb) }.last() == Some(&b'\n');
-    write_one(mrb, self_, s.as_value())?;
+    emit(s.as_value())?;
     if !ends_nl {
-        write_newline(mrb, self_)?;
+        emit(mrb.str_new(b"\n").as_value())?;
     }
     Ok(())
 }
@@ -365,37 +416,68 @@ fn puts_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
 /// `Kernel#sprintf` is reachable through funcall despite being private,
 /// since `mrb_funcall_with_block` does not consult `MRB_METHOD_PRIVATE_FL`.
 fn io_printf(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
-    let formatted = self_.funcall(mrb, c"sprintf", args)?;
-    write_one(mrb, self_, formatted)
+    printf_to(mrb, self_, args)
 }
 
-/// Mirrors mruby-io's `io_putc`; a String's first character is its first
-/// byte in this non-UTF8 build. A number past 64 bits raises `RangeError`,
-/// as CRuby's does.
+/// Write `args` formatted to `out` through its `write`, as `rb_io_write`
+/// writes what `rb_f_sprintf` made.
+pub(crate) fn printf_to(mrb: &Mrb, out: Value, args: &[Value]) -> Result<(), Error> {
+    let formatted = out.funcall(mrb, c"sprintf", args)?;
+    write_one(mrb, out, formatted)
+}
+
+/// A String's first character is its first byte in this non-UTF8 build;
+/// anything else is the C `int` its number converts to, its low byte
+/// written, as CRuby's `NUM2CHR` reads one.
 fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
-    if let Some(int) = Integer::from_value(obj) {
-        let byte = [(int.to_i64(mrb)? & 0xff) as u8];
-        let s = mrb.str_new(&byte).as_value();
-        write_one(mrb, self_, s)?;
-        return Ok(obj);
-    }
-    let s = obj.to_r_string(mrb)?;
-    // SAFETY: the first byte is copied out before the next mruby call.
-    let first = unsafe { s.as_slice(mrb) }.first().copied();
-    if let Some(byte) = first {
-        let one = mrb.str_new(&[byte]).as_value();
-        write_one(mrb, self_, one)?;
+    if let Some(byte) = putc_byte(mrb, obj)? {
+        write_one(mrb, self_, mrb.str_new(&[byte]).as_value())?;
     }
     Ok(obj)
 }
 
-/// The return value mirrors `Kernel#p`.
-fn io_p(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+fn putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
+    if let Some(s) = RString::from_value(obj) {
+        // SAFETY: the first byte is copied out before the next mruby call.
+        return Ok(unsafe { s.as_slice(mrb) }.first().copied());
+    }
+    let number = match (Integer::from_value(obj), Float::from_value(obj)) {
+        (Some(int), _) => int,
+        (None, Some(_)) => obj.funcall(mrb, c"to_i", ())?,
+        (None, None) => return Err(no_integer(mrb, obj)),
+    };
+    let wide = number.to_i64(mrb)?;
+    let narrow = i32::try_from(wide).map_err(|_| {
+        errno::to_error(
+            mrb,
+            mrb.exception_range_error(),
+            &format!("integer {wide} too big to convert to 'int'"),
+        )
+    })?;
+    Ok(Some(narrow as u8))
+}
+
+/// The `TypeError` CRuby's `rb_num2int` raises for what no number stands
+/// for, naming `nil` by value.
+fn no_integer(mrb: &Mrb, obj: Value) -> Error {
+    let message = match obj.is_nil() {
+        true => "no implicit conversion from nil to integer".to_string(),
+        false => format!(
+            "no implicit conversion of {} into Integer",
+            obj.classname(mrb)
+        ),
+    };
+    errno::to_error(mrb, mrb.exception_type_error(), &message)
+}
+
+/// Write each of `args` inspected to `out` through its `write`, answering
+/// what `Kernel#p` answers, as `rb_p_write` does.
+pub(crate) fn p_to(mrb: &Mrb, out: Value, args: &[Value]) -> Result<Value, Error> {
     for &val in args {
         let _scope = mrb.arena_scope();
         let insp: Value = val.funcall(mrb, c"inspect", ())?;
         let nl = mrb.str_new(b"\n").as_value();
-        self_.funcall::<_, _, Value>(mrb, c"write", [insp, nl])?;
+        out.funcall::<_, _, Value>(mrb, c"write", [insp, nl])?;
     }
     Ok(match args {
         [] => qnil().as_value(),
@@ -410,25 +492,28 @@ fn io_lshift(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
 }
 
 /// The sandbox pipes are never terminals.
-fn io_tty_p(_mrb: &Mrb, _self: Value) -> bool {
-    false
+fn io_tty_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
+    open_or_refuse(mrb, self_)?;
+    Ok(false)
 }
 
-/// Defaults to `true`, since the capture pipe is effectively unbuffered.
-fn io_sync(mrb: &Mrb, self_: Value) -> bool {
-    Stream::state(mrb, self_).is_none_or(|state| state.sync)
+fn io_sync(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
+    open_or_refuse(mrb, self_)?;
+    Ok(Stream::state(mrb, self_).is_some_and(|state| state.sync))
 }
 
-/// A no-op for the write path, kept for mruby-io surface compatibility;
-/// the flag keeps only whether `v` is truthy, as CRuby's does.
-fn io_sync_set(mrb: &Mrb, self_: Value, v: Value) -> Value {
+/// The flag keeps only whether `v` is truthy, as CRuby's does; writes go
+/// straight to `write(2)` either way.
+fn io_sync_set(mrb: &Mrb, self_: Value, v: Value) -> Result<Value, Error> {
+    open_or_refuse(mrb, self_)?;
     Stream::update(mrb, self_, |state| state.sync = v.to_bool());
-    v
+    Ok(v)
 }
 
-/// A no-op, since writes go straight to `write(2)`.
-fn io_flush(_mrb: &Mrb, self_: Value) -> Value {
-    self_
+/// Nothing to flush, since writes go straight to `write(2)`.
+fn io_flush(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    open_or_refuse(mrb, self_)?;
+    Ok(self_)
 }
 
 /// Dispatches through `self.write`, so a subclass overriding `#write`
@@ -436,11 +521,6 @@ fn io_flush(_mrb: &Mrb, self_: Value) -> Value {
 fn write_one(mrb: &Mrb, self_: Value, val: Value) -> Result<(), Error> {
     self_.funcall::<_, _, Value>(mrb, c"write", [val])?;
     Ok(())
-}
-
-fn write_newline(mrb: &Mrb, self_: Value) -> Result<(), Error> {
-    let nl = mrb.str_new(b"\n").as_value();
-    write_one(mrb, self_, nl)
 }
 
 /// Which way a call that would wait was going, as CRuby's

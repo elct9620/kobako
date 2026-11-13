@@ -38,31 +38,37 @@ class TestE2EIoKernel < Minitest::Test
   end
 
   # @behavior IO-039
-  # The mask applies to a number a C long holds; past that, CRuby raises
-  # before writing anything rather than masking a big integer.
-  def test_putc_number_past_64_bits_raises_range_error
-    source = "[-> { putc 2**64 + 65 }, -> { $stdout.putc 2**64 + 65 }]" \
+  # The mask applies to a number a C int holds; 2**40 fits 64 bits but not
+  # an int, so CRuby raises before writing anything.
+  def test_putc_number_past_a_c_int_raises_range_error
+    source = "[-> { putc 2**40 + 65 }, -> { $stdout.putc 2**40 + 65 }, -> { putc 2**64 + 65 }]" \
              ".map { |call| begin; call.call; rescue RangeError => e; e.class.to_s; end }"
     execution = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(source)
 
-    assert_equal %w[RangeError RangeError], execution.value,
-                 "Kernel#putc and $stdout.putc with 2**64 + 65 through Sandbox#eval must raise RangeError"
+    assert_equal %w[RangeError RangeError RangeError], execution.value,
+                 "Kernel#putc and $stdout.putc with a number past a C int through Sandbox#eval must raise RangeError"
     assert_empty execution.stdout,
                  "a putc that raised RangeError must write nothing to the capture"
   end
 
   # @behavior IO-023 IO-026
-  # Pinned by mruby-io's mrblib/kernel.rb:95-98: +IO#putc+ returns its
-  # argument, but the Kernel delegator deliberately drops it, so collapsing
-  # the delegator into a one-liner would leak IO#putc's +obj+.
-  def test_kernel_putc_returns_nil
+  def test_kernel_putc_answers_its_character
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     execution = sandbox.eval("putc 65")
 
-    assert_nil execution.value,
-               "Kernel#putc must return nil (mruby-io alignment), not the obj that IO#putc returns"
+    assert_equal 65, execution.value,
+                 "Kernel#putc 65 through Sandbox#eval must answer 65, as CRuby's does"
     assert_equal "A", execution.stdout,
                  "putc 65 must still land on stdout"
+  end
+
+  # @behavior IO-048
+  def test_putc_reads_a_float_and_refuses_what_is_no_number
+    source = "putc 65.0; [:a, nil].map { |c| begin; putc c; rescue TypeError => e; e.class.to_s; end }"
+    execution = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(source)
+
+    assert_equal ["A", %w[TypeError TypeError]], [execution.stdout, execution.value],
+                 "Kernel#putc with 65.0 through Sandbox#eval must write A, and with :a or nil raise TypeError"
   end
 
   # @behavior IO-027 IO-028

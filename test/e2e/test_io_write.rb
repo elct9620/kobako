@@ -56,7 +56,7 @@ class TestE2EIoWrite < Minitest::Test
   # contract value collected into one Array for the outcome path.
   SUPPLEMENTARY_IO_SCRIPT = <<~RUBY
     chained = ($stdout << "a" << "b").equal?($stdout)
-    [chained, $stdout.tty?, $stdout.sync, ($stdout.sync = false),
+    [chained, $stdout.tty?, [$stdout.sync, $stderr.sync], ($stdout.sync = false),
      $stdout.sync, $stdout.flush.equal?($stdout), $stdout.closed?, $stdout.to_i]
   RUBY
 
@@ -70,7 +70,7 @@ class TestE2EIoWrite < Minitest::Test
     execution = sandbox.eval(SUPPLEMENTARY_IO_SCRIPT)
     result = execution.value
 
-    assert_equal [true, false, true, false, false, true, false, 1], result,
+    assert_equal [true, false, [false, true], false, false, true, false, 1], result,
                  "IO supplementary surface (<< self-chain, tty?, sync default/assignment, " \
                  "flush self-return, closed?, to_i alias) must match the mruby-io contract"
     assert_equal "ab", execution.stdout,

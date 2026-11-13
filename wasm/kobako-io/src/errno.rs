@@ -238,7 +238,9 @@ fn errno_class_by_name(mrb: &Mrb, name: &core::ffi::CStr) -> Result<ExceptionCla
     mrb.module_get(c"Errno")?.const_get(mrb, name)
 }
 
-fn to_error(mrb: &Mrb, class: Result<ExceptionClass, Error>, message: &str) -> Error {
+/// An exception of `class` carrying `message`, or the failure to reach the
+/// class.
+pub(crate) fn to_error(mrb: &Mrb, class: Result<ExceptionClass, Error>, message: &str) -> Error {
     match class {
         Ok(class) => Error::new(mrb, class, message),
         Err(err) => err,

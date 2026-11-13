@@ -119,4 +119,23 @@ class TestE2EIoState < Minitest::Test
                  "IO.new with no mode and with nil over a file the guest opened only to write through " \
                  "Sandbox#eval must write and raise IOError on read"
   end
+
+  # A guest asking a file it closed of its descriptor, terminal, flag, and
+  # buffer.
+  CLOSED_SCRIPT = <<~RUBY
+    file = File.open("/data/note.txt")
+    file.close
+    [-> { file.fileno }, -> { file.tty? }, -> { file.sync }, -> { file.sync = true }, -> { file.flush }].map do |call|
+      call.call
+    rescue IOError => e
+      e.message
+    end
+  RUBY
+
+  # @behavior IO-052
+  def test_a_closed_io_answers_nothing_of_its_descriptor
+    assert_equal ["closed stream"] * 5, sandbox.eval(CLOSED_SCRIPT).value,
+                 "fileno, tty?, sync, sync=, and flush on a closed File through Sandbox#eval must each raise " \
+                 "IOError, as CRuby does"
+  end
 end
