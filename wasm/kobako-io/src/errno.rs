@@ -42,6 +42,7 @@ const CODES: &[Code] = &[
         "Address family not supported by protocol",
     ),
     code(c"EAGAIN", 6, 11, "Resource temporarily unavailable"),
+    code(c"EALREADY", 7, 114, "Operation already in progress"),
     code(c"EBADF", 8, 9, "Bad file descriptor"),
     code(c"EBUSY", 10, 16, "Device or resource busy"),
     code(c"ECONNABORTED", 13, 103, "Software caused connection abort"),
@@ -89,8 +90,18 @@ const CODES: &[Code] = &[
     code(c"EPIPE", 64, 32, "Broken pipe"),
     code(c"EROFS", 69, 30, "Read-only file system"),
     code(c"ESPIPE", 70, 29, "Illegal seek"),
+    code(c"ESTALE", 72, 116, "Stale file handle"),
     code(c"ETIMEDOUT", 73, 110, "Connection timed out"),
     code(c"EXDEV", 75, 18, "Invalid cross-device link"),
+];
+
+/// The names Linux gives a number another class already stands for, each
+/// beside that class, as CRuby's `set_syserr` defines a second name for a
+/// number it has seen.
+const ALIASES: &[(&core::ffi::CStr, &core::ffi::CStr)] = &[
+    (c"EWOULDBLOCK", c"EAGAIN"),
+    (c"EDEADLOCK", c"EDEADLK"),
+    (c"EOPNOTSUPP", c"ENOTSUP"),
 ];
 
 /// WASI's `ENOTCAPABLE`: a path outside every mounted filesystem. CRuby
@@ -112,6 +123,10 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
             .define_error(mrb, code.name, system_call)?
             .const_set(mrb, c"Errno", code.linux)?;
     }
+    for (alias, name) in ALIASES {
+        let class: ExceptionClass = errno.const_get(mrb, *name)?;
+        errno.const_set(mrb, *alias, class)?;
+    }
     Ok(())
 }
 
@@ -132,21 +147,38 @@ fn errno_number(mrb: &Mrb, number: Value) -> Result<Option<i32>, Error> {
         .transpose()
 }
 
-/// `SystemCallError.new(message = nil, errno = nil)` and each `Errno`
-/// class's `new(message = nil)`, as CRuby builds them: the message
-/// leads with the code's own, and a known number on `SystemCallError`
-/// answers its `Errno` class.
+/// `SystemCallError.new(message, errno = nil, func = nil)` and each `Errno`
+/// class's `new(message = nil, func = nil)`, as CRuby's `syserr_initialize`
+/// builds them: a lone Integer given `SystemCallError` is its number, the
+/// message leads with the code's own and names `func` before the caller's
+/// message, and a known number on `SystemCallError` answers its `Errno` class.
 fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let own = to_number(mrb, self_);
-    let (message, number) = match (own, args) {
-        (Some(own), [message] | [message, ..]) => (Some(*message), Some(own)),
-        (Some(own), []) => (None, Some(own)),
-        (None, [number]) if i32::from_value(*number).is_some() => (None, i32::from_value(*number)),
-        (None, [message, number, ..]) => (Some(*message), errno_number(mrb, *number)?),
-        (None, [message]) => (Some(*message), None),
-        (None, []) => (None, None),
+    let arity = |expected: &str| {
+        crate::io::argument_error(
+            mrb,
+            &format!(
+                "wrong number of arguments (given {}, expected {expected})",
+                args.len()
+            ),
+        )
+    };
+    let (message, number, func) = match (own, args) {
+        (Some(_), [_, _, _, ..]) => return Err(arity("0..2")),
+        (Some(own), args) => (args.first().copied(), Some(own), args.get(1).copied()),
+        (None, [] | [_, _, _, _, ..]) => return Err(arity("1..3")),
+        (None, [number]) if Integer::from_value(*number).is_some() => {
+            (None, errno_number(mrb, *number)?, None)
+        }
+        (None, [message]) => (Some(*message), None, None),
+        (None, [message, number, rest @ ..]) => (
+            Some(*message),
+            errno_number(mrb, *number)?,
+            rest.first().copied(),
+        ),
     };
     let message = message.filter(|message| !message.is_nil());
+    let func = func.filter(|func| !func.is_nil());
     let known = number.and_then(|number| CODES.iter().find(|code| code.linux == number));
     let class = match (own, known) {
         (None, Some(code)) => errno_class_by_name(mrb, code.name)?,
@@ -159,6 +191,10 @@ fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     };
     if let Some(message) = message {
         let message = String::from_value(message).ok_or_else(|| type_error(mrb, message))?;
+        if let Some(func) = func {
+            let func: String = func.funcall(mrb, c"to_s", ())?;
+            text = format!("{text} @ {func}");
+        }
         text = format!("{text} - {message}");
     }
     let exception = class.new_str(mrb, mrb.str_new(text.as_bytes()));

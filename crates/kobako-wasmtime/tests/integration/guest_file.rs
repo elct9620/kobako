@@ -914,6 +914,66 @@ fn a_system_call_error_number_past_the_errno_range_raises_range_error() {
     );
 }
 
+// @behavior FL-079
+#[test]
+fn a_second_linux_name_for_an_errno_is_the_same_class() {
+    let script = r#"
+        print [Errno::EWOULDBLOCK, Errno::EDEADLOCK, Errno::EOPNOTSUPP].map(&:to_s).inspect
+    "#;
+    let Some(answer) = run(script, &[mount(note_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"["Errno::EAGAIN", "Errno::EDEADLK", "Errno::ENOTSUP"]"#.to_string()),
+        "Errno::EWOULDBLOCK, EDEADLOCK, and EOPNOTSUPP read through the bundled guest must be \
+         the classes Linux numbers alike, as CRuby names them"
+    );
+}
+
+// @behavior FL-080
+#[test]
+fn every_errno_the_runtime_answers_names_a_class() {
+    let script = "print [Errno::ESTALE::Errno, Errno::EALREADY::Errno].inspect";
+    let Some(answer) = run(script, &[mount(note_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("[116, 114]".to_string()),
+        "Errno::ESTALE and Errno::EALREADY read through the bundled guest must stand for the \
+         numbers Linux gives them"
+    );
+}
+
+// @behavior FL-081
+#[test]
+fn a_system_call_error_takes_its_arguments_as_crubys_does() {
+    let script = r#"
+        out = [
+          -> { SystemCallError.new },
+          -> { SystemCallError.new(2**40) },
+          -> { Errno::ENOENT.new("m", "f").message },
+          -> { Errno::ENOENT.new("m", "f", "g") },
+        ].map do |build|
+          build.call
+        rescue ArgumentError, RangeError => e
+          e.class.to_s
+        end
+        print out.inspect
+    "#;
+    let Some(answer) = run(script, &[mount(note_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"["ArgumentError", "RangeError", "No such file or directory @ f - m", "ArgumentError"]"#
+            .to_string()),
+        "SystemCallError.new bare or with 2**40 alone, and Errno::ENOENT.new with a func or three \
+         arguments, through the bundled guest must answer as CRuby's do"
+    );
+}
+
 // @behavior FL-017
 #[test]
 fn a_read_or_write_a_stream_was_not_opened_for_raises_ioerror() {
