@@ -275,7 +275,7 @@ pub struct OutgoingRequest {
 }
 
 /// How long a request waits at each step, as `wasi:http`'s `request-options`
-/// names them; `None` waits on. Each bounds its own wait, as
+/// names them; `None` waits `DEFAULT_TIMEOUT`. Each bounds its own wait, as
 /// wasmtime-wasi-http's does.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -288,6 +288,17 @@ pub struct Timeouts {
     /// For each part of the body after the last, failing the body's read as
     /// `ETIMEDOUT`.
     pub between_bytes: Option<Duration>,
+}
+
+/// How long a wait the request sets no timeout for lasts, as
+/// wasmtime-wasi-http's `default_send_request` bounds each, so a server that
+/// never answers ends the wait even where the run itself has no deadline.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// The bound a wait takes from its timeout, `DEFAULT_TIMEOUT` where none is
+/// set.
+fn bound(timeout: Option<Duration>) -> Duration {
+    timeout.unwrap_or(DEFAULT_TIMEOUT)
 }
 
 impl OutgoingRequest {
@@ -612,7 +623,7 @@ impl Exchange {
 
     /// The soonest a timeout ends the wait under way: the connect until it
     /// opens, then the head, then each part of the body; `None` while nothing
-    /// is awaited or no timeout bounds it.
+    /// is awaited.
     pub fn deadline(&self) -> Option<Instant> {
         self.deadline_of(&lock(&self.state)).map(|(at, _)| at)
     }
@@ -620,16 +631,14 @@ impl Exchange {
     fn deadline_of(&self, state: &State) -> Option<(Instant, Expiry)> {
         match state.phase {
             Phase::Sending => match self.connected.get() {
-                None => self.timeouts.connect.map(|after| {
-                    (
-                        self.started + after,
-                        Expiry::Fail(HttpError::ConnectionTimeout),
-                    )
-                }),
-                Some(at) => self
-                    .timeouts
-                    .first_byte
-                    .map(|after| (*at + after, Expiry::Fail(HttpError::ConnectionReadTimeout))),
+                None => Some((
+                    self.started + bound(self.timeouts.connect),
+                    Expiry::Fail(HttpError::ConnectionTimeout),
+                )),
+                Some(at) => Some((
+                    *at + bound(self.timeouts.first_byte),
+                    Expiry::Fail(HttpError::ConnectionReadTimeout),
+                )),
             },
             Phase::Answered(_)
                 if state.body.is_empty()
@@ -637,7 +646,7 @@ impl Exchange {
                     && !state.body_failed
                     && !state.body_timed_out =>
             {
-                let after = self.timeouts.between_bytes?;
+                let after = bound(self.timeouts.between_bytes);
                 state.last_part.map(|at| (at + after, Expiry::Body))
             }
             Phase::Answered(_) | Phase::Failed(_) => None,
@@ -2087,23 +2096,27 @@ mod tests {
                 ..Timeouts::default()
             },
         );
-        let unbounded = timed(Arc::new(NeverAnswers), Timeouts::default());
+        let sent = Instant::now();
+        let unset = timed(Arc::new(NeverAnswers), Timeouts::default());
+        let unset_bound = unset
+            .deadline()
+            .map(|at| at.saturating_duration_since(sent).as_secs());
         assert_eq!(
             (
                 settled(&unconnected).err(),
                 settled(&unanswered).err(),
-                unbounded.deadline(),
-                unbounded.response()
+                unset_bound,
+                unset.response()
             ),
             (
                 Some(HttpError::ConnectionTimeout),
                 Some(HttpError::ConnectionReadTimeout),
-                None,
+                Some(600),
                 None
             ),
             "a request whose connect outlasts its connect timeout must answer connection-timeout, \
              one connected whose head outlasts its first-byte timeout connection-read-timeout, \
-             and one with no timeout must keep waiting with no deadline"
+             and one setting no timeout must wait on, bounded 600 seconds after it was sent"
         );
     }
 
