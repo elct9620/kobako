@@ -18,12 +18,6 @@
 //! Each module holds one responsibility and opens with its own doc.
 
 mod bridge;
-mod errors;
-mod escape;
-mod filesystem;
-mod gvl;
-mod network;
-mod pinned_value;
 mod snapshot;
 
 use magnus::{
@@ -42,15 +36,8 @@ use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
+use crate::{errors, escape, filesystem, gvl, network, rstring_to_vec};
 use snapshot::Snapshot;
-
-/// The one place the boundary borrows an RString's bytes: the borrow does
-/// not outlive this call, so no Ruby allocation can move the RString
-/// between the borrow and the copy.
-fn rstring_to_vec(s: RString) -> Vec<u8> {
-    // SAFETY: see item doc.
-    unsafe { s.as_slice() }.to_vec()
-}
 
 /// `kind` arrives as a Symbol so the registry never names the wire's
 /// discriminant; an unknown kind raises rather than defaulting.
@@ -107,15 +94,7 @@ fn to_preamble(ruby: &Ruby, parts: RArray) -> Result<Preamble, MagnusError> {
 // Ruby init
 // ---------------------------------------------------------------------------
 
-pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
-    // Error hierarchy lives in `lib/kobako/errors.rb`; the ext raises
-    // directly into those classes through the constructors and mappers
-    // in `runtime/errors.rs` — no intermediate hierarchy is registered.
-
-    // This extension is the only frontend in its process, so the first
-    // registration is the one that stands.
-    let _ = kobako_runtime::sched::register_blocking(Box::new(gvl::GvlFreeWait));
-
+pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 2))?;
     runtime.define_method("eval", method!(Runtime::eval, 3))?;
@@ -139,7 +118,6 @@ pub fn init(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     // `Kobako::GuestYielder` the dispatcher hands the Proc, not a method on
     // Runtime.
     bridge::register(kobako)?;
-    filesystem::register(ruby, kobako)?;
 
     // Snapshot — the per-invocation result object each entry point returns.
     snapshot::register(ruby, kobako)?;

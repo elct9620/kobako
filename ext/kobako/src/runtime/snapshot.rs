@@ -8,7 +8,7 @@ use magnus::{
 use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot};
 use kobako_transport::envelope::Outcome;
 
-use super::errors;
+use crate::errors;
 
 /// A Panic's fields as they cross to Ruby: origin, class, message,
 /// backtrace, and the names the invocation could have used in place of the

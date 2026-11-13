@@ -12,12 +12,12 @@ use kobako_runtime::mount::{Access, Mount, MountRequest};
 use kobako_runtime::policy::Policy;
 
 use super::to_filesystem;
-use crate::runtime::pinned_value::PinnedValue;
-use crate::runtime::{escape, gvl};
+use crate::pinned_value::PinnedValue;
+use crate::{escape, gvl};
 
 /// Refuse a Mount at `mount` time by the same rules an invocation builds
 /// it with, so a mistake raises where it was made.
-pub(in crate::runtime) fn validate_mount(
+pub(crate) fn validate_mount(
     at: Value,
     access: Value,
     filesystem: Value,
@@ -83,7 +83,7 @@ impl Policy<MountRequest<'_>> for RubyPolicy {
 /// `[at, access, filesystem, block]` entries, beside the pins keeping
 /// each Mount's filesystem and block in place while the guest may reach
 /// them; the caller holds both until the invocation returns.
-pub(in crate::runtime) fn to_grants(
+pub(crate) fn to_grants(
     ruby: &Ruby,
     mounts: RArray,
 ) -> Result<(Vec<Grant>, Vec<PinnedValue>), MagnusError> {

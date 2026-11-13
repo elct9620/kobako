@@ -175,11 +175,11 @@ mod tests {
         let msg = other_trap_message(&err);
         assert!(
             msg.contains("indirect call type mismatch"),
-            "a non-cap trap surfaced through Kobako::TrapError must carry the root trap reason, not only the backtrace framing; got: {msg}"
+            "a non-cap trap surfaced to the host must carry the root trap reason, not only the backtrace framing; got: {msg}"
         );
         assert!(
             msg.contains("error while executing"),
-            "a non-cap trap surfaced through Kobako::TrapError must keep the wasm backtrace framing; got: {msg}"
+            "a non-cap trap surfaced to the host must keep the wasm backtrace framing; got: {msg}"
         );
     }
 

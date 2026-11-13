@@ -93,7 +93,7 @@ fn tmpfs_new(args: &[Value]) -> Result<TmpfsFs, MagnusError> {
                 }
                 None => files.push((
                     String::try_convert(key)?,
-                    super::rstring_to_vec(RString::try_convert(value)?),
+                    crate::rstring_to_vec(RString::try_convert(value)?),
                 )),
             }
             Ok(magnus::r_hash::ForEach::Continue)

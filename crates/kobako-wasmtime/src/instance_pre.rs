@@ -1,8 +1,8 @@
 //! Per-path cache of pre-instantiated wasmtime artifacts.
 //!
 //! The host imports (`crate::imports`) and their type-check against the
-//! compiled Module are identical for every `Kobako::Runtime` on the same
-//! Guest Binary. Caching the resolved `InstancePre` per path — together
+//! compiled Module are identical for every `Driver` on the same Guest
+//! Binary. Caching the resolved `InstancePre` per path — together
 //! with the ABI version check it guards (`crate::abi`) — takes both off
 //! the `Driver::new` hot path.
 //!

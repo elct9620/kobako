@@ -25,8 +25,8 @@ use kobako_runtime::vfs::{
 };
 use kobako_runtime::Errno;
 
-use crate::runtime::pinned_value::PinnedValue;
-use crate::runtime::{escape, gvl};
+use crate::pinned_value::PinnedValue;
+use crate::{escape, gvl};
 
 /// The Ruby object behind a Mount or a Layer. Whatever holds it on the
 /// Ruby side keeps it alive and in place: the invocation pinning its

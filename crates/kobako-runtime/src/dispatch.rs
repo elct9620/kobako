@@ -5,8 +5,7 @@
 //! `Call` — target, method, block flag, and the payload bytes it never
 //! reads — then expects a `Reply` back. What the handler *is* — a Ruby
 //! Proc, a Rust closure — is the frontend's concern; the runtime only sees
-//! this trait. The Ruby ext conforms by bridging its dispatch Proc behind
-//! it.
+//! this trait.
 
 use crate::yielder::Yielder;
 use kobako_transport::envelope::{Call, Reply};

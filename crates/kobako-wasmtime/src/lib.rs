@@ -5,8 +5,8 @@
 //! every invocation instantiates a fresh instance from a pre-linked
 //! template and discards the whole Store afterwards — the
 //! per-invocation instance discipline. Everything engine-bound
-//! lives behind the contract surface, so a frontend shell (the Ruby
-//! ext's `Kobako::Runtime`) sees no wasmtime type.
+//! lives behind the contract surface, so a frontend sees no wasmtime
+//! type.
 //!
 //! Each module holds one responsibility and opens with its own doc.
 

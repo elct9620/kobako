@@ -106,8 +106,8 @@ impl Config {
 mod tests {
     use super::*;
 
-    // Literal values, so a drift from the defaults the SDK's Options and
-    // the Ruby frontend apply fails here.
+    // Literal values, so a drift from the defaults every frontend applies
+    // fails here.
     #[test]
     fn a_default_config_carries_every_frontends_default_caps() {
         let config = Config::default();

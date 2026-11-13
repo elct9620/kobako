@@ -4,8 +4,7 @@
 //! A `Driver` is the engine half of a kobako host — the pre-linked
 //! `InstancePre` plus the per-Driver caps — and implements the contract
 //! `Runtime` trait over it. It is free of any frontend type; a frontend
-//! shell (the Ruby ext's `Kobako::Runtime`) only shuttles its
-//! host-language values across the contract boundary.
+//! only shuttles its host-language values across the contract boundary.
 
 use std::path::Path;
 use std::sync::Arc;

@@ -2793,8 +2793,8 @@ impl Policy<MountRequest<'_>> for RecordsAsks {
     }
 }
 
-// The Mount is made read-only, as a Ruby mount with a block is by default,
-// so only a Mount allowing writes lets either through.
+// The Mount is made read-only, so only a Mount allowing writes lets either
+// through.
 // Each Policy is asked only by the open before the call, so a wait or a size
 // asking it as well adds an ask the literal lists below do not hold.
 // @behavior RT-139

@@ -45,10 +45,8 @@ pub enum Entry<'a> {
 /// Safety contract for `handler`: the runtime only *borrows* the handler
 /// for the duration of `invoke` and never roots it. A frontend whose
 /// handler references a GC-managed object (e.g. a Ruby `Proc`) must keep
-/// that object alive — and, under a moving GC, pinned — for the whole call.
-/// The Ruby ext does this by holding the `Proc` on its long-lived Runtime
-/// wrapper and GC-marking it; the runtime itself touches no frontend
-/// value.
+/// that object alive — and, under a moving GC, pinned — for the whole call;
+/// the runtime itself touches no frontend value.
 pub trait Runtime {
     /// `grants` are this Invocation's, each of a kind `supports` declared;
     /// the runtime presents them to the guest and keeps none afterwards.

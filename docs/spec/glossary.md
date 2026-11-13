@@ -333,8 +333,8 @@ One of the two streams guest code writes to: output and error. Each is captured 
 - `crates/kobako-runtime/src/vfs.rs`
 - `crates/kobako-runtime/src/vfs/**/*.rs`
 - `crates/kobako-wasmtime/src/preview1/**/*.rs`
-- `ext/kobako/src/runtime/filesystem.rs`
-- `ext/kobako/src/runtime/filesystem/**/*.rs`
+- `ext/kobako/src/filesystem.rs`
+- `ext/kobako/src/filesystem/**/*.rs`
 - `lib/kobako/filesystem.rb`
 - `docs/filesystem/**/*.md`
 
@@ -430,7 +430,7 @@ Path = mounted Filesystem + Dentry ─▶ Inode ─▶ lookup ─▶ the next Pa
 - `crates/kobako-runtime/src/net/**/*.rs`
 - `crates/kobako-runtime/src/security.rs`
 - `crates/kobako-wasmtime/src/preview2/**/*.rs`
-- `ext/kobako/src/runtime/network.rs`
+- `ext/kobako/src/network.rs`
 - `lib/kobako/network.rb`
 - `lib/kobako/catalog/network.rb`
 - `docs/network/**/*.md`

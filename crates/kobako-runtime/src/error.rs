@@ -2,9 +2,8 @@
 //!
 //! The run path produces these instead of constructing host-language
 //! exceptions directly; each frontend's boundary is the single place that
-//! maps them onto its own error classes (the Ruby ext does so in its error
-//! mapper). Keeping the types frontend-free lets any engine
-//! implementation produce them unchanged.
+//! maps them onto its own error classes. Keeping the types frontend-free
+//! lets any engine implementation produce them unchanged.
 
 use std::fmt;
 

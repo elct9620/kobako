@@ -138,7 +138,7 @@ impl GuestYielder {
         let ruby = Ruby::get().expect("Ruby handle unavailable in the block bridge");
         let innermost = self.open.innermost().filter(|_| self.live.get());
         let Some(mut ptr) = innermost else {
-            return Err(super::errors::trap_err(
+            return Err(crate::errors::trap_err(
                 &ruby,
                 "guest block invoked after the host dispatch frame returned",
             ));
@@ -149,7 +149,7 @@ impl GuestYielder {
                 "guest block called from a thread or fiber other than its invocation's",
             ));
         }
-        let bytes = super::rstring_to_vec(args);
+        let bytes = crate::rstring_to_vec(args);
         // SAFETY: this frame is live, so the innermost frame — this one or
         // a later Call — is still on the Rust stack with its Yielder lent.
         // Only the innermost frame's Ruby code runs, so no other borrow of
@@ -157,7 +157,7 @@ impl GuestYielder {
         let yielder: &mut dyn Yielder = unsafe { ptr.as_mut() };
         let reply = yielder
             .yield_to_block(self.frame, &bytes)
-            .map_err(|t| super::errors::trap_to_magnus(&ruby, t))?;
+            .map_err(|t| crate::errors::trap_to_magnus(&ruby, t))?;
         Ok(match reply {
             YieldReply::Ok(body) => (ruby.to_symbol(ARM_OK), ruby.str_from_slice(&body), None),
             YieldReply::Break => (ruby.to_symbol(ARM_BREAK), ruby.str_from_slice(&[]), None),
@@ -207,7 +207,7 @@ impl DispatchHandler for RubyDispatchHandler {
         // The guest may be running GVL-free (`gvl: :release`); re-acquire the
         // GVL for the whole callback before touching any Ruby VALUE. In hold
         // mode `reenter` runs the body inline — the GVL is already held.
-        super::gvl::reenter(|| {
+        crate::gvl::reenter(|| {
             // The wasmtime callback runs on the same Ruby thread that called
             // the active Sandbox invocation (#eval or #run), so `Ruby::get()`
             // is available here once the GVL is held.
@@ -248,7 +248,7 @@ impl DispatchHandler for RubyDispatchHandler {
             let (arm, body, kind) = match answer {
                 Ok(answer) => answer,
                 Err(error) => {
-                    let _ = super::escape::hold(&ruby, error);
+                    let _ = crate::escape::hold(&ruby, error);
                     return None;
                 }
             };
@@ -260,7 +260,7 @@ impl DispatchHandler for RubyDispatchHandler {
             // the public API, so it fails the dispatch rather than
             // degrading.
             match arm.name().ok()?.as_ref() {
-                ARM_OK => Some(Reply::Ok(super::rstring_to_vec(body))),
+                ARM_OK => Some(Reply::Ok(crate::rstring_to_vec(body))),
                 ARM_BREAK => Some(Reply::Break),
                 ARM_FAULT => Some(Reply::Fault(Fault::new(
                     FaultKind::from_name(&kind?.to_string().ok()?)?,
@@ -272,6 +272,6 @@ impl DispatchHandler for RubyDispatchHandler {
     }
 
     fn abandoned(&self) -> bool {
-        super::escape::pending()
+        crate::escape::pending()
     }
 }

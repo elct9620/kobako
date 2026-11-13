@@ -1,6 +1,5 @@
-//! An entry built in code, adding to one given beside it, as Ruby's
-//! `Kobako::Network::Builder` adds a block's endpoints, credentials, and
-//! policies to an object.
+//! An entry built in code, adding its own endpoints, credentials, and
+//! policies to one given beside it.
 
 use std::sync::Arc;
 

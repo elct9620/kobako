@@ -9,9 +9,8 @@
 //! are `kobako-transport`'s, which this crate takes as given.
 //! Nothing here depends on an engine or a frontend type — each engine
 //! hides its own machinery behind `Runtime`, and each frontend maps
-//! these shapes onto its own host-language surface at its boundary
-//! (for the Ruby ext that is the error mapper in its runtime module),
-//! so the engine stays swappable.
+//! these shapes onto its own host-language surface at its boundary, so
+//! the engine stays swappable.
 
 pub mod cred;
 pub mod dispatch;
