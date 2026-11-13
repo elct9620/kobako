@@ -1870,4 +1870,4 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | an invocation's memory budget, and a linear memory whose declared maximum the budget would allow past |
 | When | the guest grows the memory past its maximum, so the engine fails the growth the budget allowed |
-| Then | the peak reported and what is left of the budget are as before, as `mem_cgroup_cancel_charge` gives a charge back |
+| Then | what is left of the budget is as before. The peak reported keeps the growth, as `page_counter_cancel` keeps a watermark |
