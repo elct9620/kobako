@@ -75,6 +75,18 @@ fn spawn_epoch_ticker(engine: WtEngine) {
     });
 }
 
+/// Whether a test reading the Guest Binaries at `what` may go on, `present`
+/// saying they were built: one missing skips the test locally and fails it
+/// under CI, which always builds them.
+#[cfg(test)]
+pub(crate) fn guest_binary_built(present: bool, what: &str) -> bool {
+    assert!(
+        present || std::env::var_os("CI").is_none(),
+        "{what} missing under CI — run `bundle exec rake wasm:build`"
+    );
+    present
+}
+
 /// A missing file answers `SetupError::ModuleNotBuilt`, the common state of
 /// a fresh clone before `rake compile`.
 pub(crate) fn load_module(path: &Path) -> Result<WtModule, SetupError> {

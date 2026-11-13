@@ -3605,11 +3605,7 @@ mod tests {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        if binaries.is_empty() {
-            assert!(
-                std::env::var_os("CI").is_none(),
-                "data/*.wasm missing under CI — run `bundle exec rake wasm:build`"
-            );
+        if !crate::cache::guest_binary_built(!binaries.is_empty(), "data/*.wasm") {
             return;
         }
         let preview2 = |module: &str| module.starts_with("wasi:") && module.contains("@0.2");

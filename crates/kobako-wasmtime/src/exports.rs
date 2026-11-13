@@ -67,7 +67,7 @@ mod tests {
     use kobako_runtime::profile::Profile;
     use wasmtime::{ExternType, Store};
 
-    use crate::cache::{load_engine, load_module};
+    use crate::cache::{guest_binary_built, load_engine, load_module};
     use crate::config::Config;
     use crate::imports;
     use crate::invocation::Invocation;
@@ -87,11 +87,7 @@ mod tests {
     #[test]
     fn the_guest_binary_exports_the_abi_functions_and_nothing_else() {
         let path = Path::new(WASM);
-        if !path.exists() {
-            assert!(
-                std::env::var_os("CI").is_none(),
-                "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-            );
+        if !guest_binary_built(path.exists(), "data/kobako.wasm") {
             return;
         }
         let module = load_module(path).expect("the Guest Binary must load");
@@ -113,11 +109,7 @@ mod tests {
     #[test]
     fn the_guest_binary_hands_an_empty_list_no_room_and_traps_with_none_left() {
         let path = Path::new(WASM);
-        if !path.exists() {
-            assert!(
-                std::env::var_os("CI").is_none(),
-                "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-            );
+        if !guest_binary_built(path.exists(), "data/kobako.wasm") {
             return;
         }
         let module = load_module(path).expect("the Guest Binary must load");
