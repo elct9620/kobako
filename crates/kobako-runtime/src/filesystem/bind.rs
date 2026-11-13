@@ -371,6 +371,12 @@ fn v9fs_fid_find_inode(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::F
 /// refusing one that already stands.
 fn open_in(dir: &Dir, name: &str, how: &OpenHow, create: bool) -> Result<std::fs::File, Errno> {
     let writes = how.write || how.truncate || create;
+    #[cfg(target_os = "linux")]
+    if !create {
+        if let Some(opened) = open_judged(dir, name, how.read, writes)? {
+            return Ok(opened);
+        }
+    }
     let mut open = CapOpenOptions::new();
     // The host refuses one that creates or truncates without writing; the
     // runtime decides what is written, so such opens write here.
@@ -406,6 +412,53 @@ fn open_in(dir: &Dir, name: &str, how: &OpenHow, create: bool) -> Result<std::fs
             .map_err(to_error)?;
     }
     Ok(file.into_std())
+}
+
+/// The file standing at `name` in `dir`, held by `O_PATH` first, which opens
+/// nothing, and opened only once it stands as a file, through
+/// `/proc/self/fd`, so what opens is the inode judged and no device swapped
+/// in acts on being opened, as gVisor's directfs reopens its control
+/// descriptor. None where the host has no `/proc` to reopen through.
+#[cfg(target_os = "linux")]
+fn open_judged(
+    dir: &Dir,
+    name: &str,
+    read: bool,
+    writes: bool,
+) -> Result<Option<std::fs::File>, Errno> {
+    use rustix::fs::{fstat, open, openat, FileType as HostType, Mode, OFlags};
+    use std::os::fd::AsRawFd;
+
+    let held = openat(
+        dir,
+        name,
+        OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(io::Error::from)
+    .map_err(to_error)?;
+    let stat = fstat(&held).map_err(io::Error::from).map_err(to_error)?;
+    match HostType::from_raw_mode(stat.st_mode) {
+        HostType::RegularFile => {}
+        HostType::Directory => return Err(Errno::IsADirectory),
+        HostType::Symlink => return Err(Errno::FilesystemLoop),
+        _ => return Err(Errno::PermissionDenied),
+    }
+    let access = match (read, writes) {
+        (true, true) => OFlags::RDWR,
+        (false, true) => OFlags::WRONLY,
+        _ => OFlags::RDONLY,
+    };
+    let reopened = open(
+        format!("/proc/self/fd/{}", held.as_raw_fd()).as_str(),
+        access | OFlags::CLOEXEC | OFlags::NOCTTY,
+        Mode::empty(),
+    );
+    match reopened {
+        Ok(fd) => Ok(Some(std::fs::File::from(fd))),
+        Err(rustix::io::Errno::NOENT) => Ok(None),
+        Err(err) => Err(to_error(io::Error::from(err))),
+    }
 }
 
 /// The host may move or remake what a dentry names behind the runtime's
@@ -1747,6 +1800,46 @@ mod tests {
             Ok([Some(Errno::PermissionDenied), Some(Errno::PermissionDenied)]),
             "a FIFO and a device opened through Bind::open must be refused as permission \
              denied without waiting"
+        );
+    }
+
+    // The host reports each open of an entry to a watch on its directory, and
+    // an open by O_PATH opens nothing, so a refusal it reports no open for
+    // never acted on the entry.
+    // @behavior FS-208
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_entry_refused_as_no_file_is_never_opened() {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+        let host = make_fifo_host("fifo-never-opened");
+        let dir = Dir::open_ambient_dir(&host.0, cap_std::ambient_authority())
+            .expect("the host directory must open");
+        // SAFETY: inotify_init1 answers a descriptor nothing else owns, or -1.
+        let watch = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+        assert!(watch >= 0, "the host must give an inotify descriptor");
+        // SAFETY: `watch` was just made and is owned here alone.
+        let watch = unsafe { OwnedFd::from_raw_fd(watch) };
+        let path = std::ffi::CString::new(host.0.as_os_str().as_encoded_bytes())
+            .expect("the host path holds no NUL");
+        // SAFETY: `path` is NUL-terminated and outlives the call.
+        let added =
+            unsafe { libc::inotify_add_watch(watch.as_raw_fd(), path.as_ptr(), libc::IN_OPEN) };
+        assert!(added >= 0, "the host directory must be watched");
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let refused = open_in(&dir, "pipe", &read, false).err();
+        let mut events = [0u8; 256];
+        // SAFETY: `events` is writable for its whole length.
+        let reported =
+            unsafe { libc::read(watch.as_raw_fd(), events.as_mut_ptr().cast(), events.len()) };
+        assert_eq!(
+            (refused, reported),
+            (Some(Errno::PermissionDenied), -1),
+            "a FIFO a Bind is asked to open must be refused as permission denied with no open \
+             of it reported to a watch on its host directory"
         );
     }
 
