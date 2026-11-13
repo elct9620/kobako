@@ -4,9 +4,10 @@
 //! socket answer alike.
 
 use beni::prelude::*;
+use beni::value::qnil;
 use beni::{Error, Mrb, RHash, RString, Symbol, TryConvert, Value};
 
-use crate::io::argument_error;
+use crate::io::{argument_error, required_block};
 use crate::socket::string_value_of;
 
 /// What a stream reads lines from: the next bytes it has, `None` at the end,
@@ -82,6 +83,54 @@ pub(crate) fn ensure_limit(mrb: &Mrb, (_, limit, _): &LineArgs, name: &str) -> R
         Some(0) => Err(argument_error(mrb, &format!("invalid limit: 0 for {name}"))),
         _ => Ok(()),
     }
+}
+
+/// `gets(sep = $/, limit = nil, chomp: false)`: the next line the stream
+/// `source` opens reads, or `nil` at the end.
+pub(crate) fn gets<S: LineSource>(
+    mrb: &Mrb,
+    args: &[Value],
+    source: impl FnOnce() -> Result<S, Error>,
+) -> Result<Value, Error> {
+    let line_args = line_args_of(mrb, args)?;
+    let line = take_line(mrb, &mut source()?, &line_args)?;
+    Ok(line.map_or(qnil().as_value(), |line| mrb.str_new(&line).as_value()))
+}
+
+/// `each_line(sep = $/, limit = nil, chomp: false) { |line| }`: yields each
+/// line the stream `source` opens reads to the end, answering `self_`.
+pub(crate) fn each_line<S: LineSource>(
+    mrb: &Mrb,
+    self_: Value,
+    args: &[Value],
+    source: impl FnOnce() -> Result<S, Error>,
+) -> Result<Value, Error> {
+    let block = required_block(mrb, "each_line")?;
+    let line_args = line_args_of(mrb, args)?;
+    ensure_limit(mrb, &line_args, "each_line")?;
+    let mut source = source()?;
+    while let Some(line) = take_line(mrb, &mut source, &line_args)? {
+        let _scope = mrb.arena_scope();
+        block.call::<_, Value>(mrb, [mrb.str_new(&line).as_value()])?;
+    }
+    Ok(self_)
+}
+
+/// `readlines(sep = $/, limit = nil, chomp: false)`: every line the stream
+/// `source` opens reads to the end.
+pub(crate) fn readlines<S: LineSource>(
+    mrb: &Mrb,
+    args: &[Value],
+    source: impl FnOnce() -> Result<S, Error>,
+) -> Result<Value, Error> {
+    let line_args = line_args_of(mrb, args)?;
+    ensure_limit(mrb, &line_args, "readlines")?;
+    let mut source = source()?;
+    let lines = mrb.ary_new();
+    while let Some(line) = take_line(mrb, &mut source, &line_args)? {
+        lines.push(mrb, mrb.str_new(&line).as_value())?;
+    }
+    Ok(lines.as_value())
 }
 
 /// The next line, its separator kept unless `chomp`, or `None` at the end.

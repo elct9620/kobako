@@ -863,7 +863,7 @@ fn a_system_call_error_keeps_a_number_no_class_names() {
     };
     assert_eq!(
         answer,
-        Ok(r#"["SystemCallError", "Unknown error: 9999", 9999]"#.to_string()),
+        Ok(r#"["SystemCallError", "Unknown error 9999", 9999]"#.to_string()),
         "SystemCallError.new with a number no Errno class names through the bundled guest must \
          keep that number as its errno, as CRuby does"
     );
@@ -1250,5 +1250,26 @@ fn a_seek_takes_its_whence_by_name() {
         answer,
         Ok(r#"[16, "four"]"#.to_string()),
         "File#seek with :END through the bundled guest must stand four bytes before the end"
+    );
+}
+
+// @behavior FL-086
+#[test]
+fn a_seek_by_a_whence_no_name_stands_for_raises_type_error() {
+    let script = r#"
+        File.open("/data/lines.txt") do |f|
+          f.seek(0, :FOO)
+        rescue TypeError => e
+          print e.message
+        end
+    "#;
+    let Some(answer) = run(script, &[mount(lines_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("no implicit conversion of Symbol into Integer".to_string()),
+        "File#seek by :FOO through the bundled guest must raise TypeError, as CRuby's NUM2INT \
+         refuses a Symbol"
     );
 }

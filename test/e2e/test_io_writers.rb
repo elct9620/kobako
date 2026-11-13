@@ -39,6 +39,30 @@ class TestE2EIoWriters < Minitest::Test
                  "must write there, and warn with uplevel: must write its message alone"
   end
 
+  # @behavior IO-055
+  def test_warn_writes_a_hash_it_is_handed_as_a_message
+    source = 'warn({a: 1}); begin; warn("x", foo: 1); rescue ArgumentError => e; e.class.to_s; end'
+    execution = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(source)
+
+    assert_equal ["ArgumentError", "{a: 1}\n"], [execution.value, execution.stderr],
+                 "warn through Sandbox#eval must write a Hash handed as a message, and refuse a keyword " \
+                 "it does not take with ArgumentError"
+  end
+
+  # @behavior IO-054
+  def test_putc_converts_as_crubys_num2chr_does
+    source = <<~RUBY
+      o = Object.new; def o.to_int = 66
+      putc(o)
+      begin; putc(true); rescue TypeError => e; e.message; end
+    RUBY
+    execution = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(source)
+
+    assert_equal ["B", "no implicit conversion of true into Integer"], [execution.stdout, execution.value],
+                 "putc through Sandbox#eval must write the character of an object answering to_int, and " \
+                 "refuse true with a TypeError naming it by value"
+  end
+
   # @behavior IO-051
   def test_an_io_answers_no_p
     source = "begin; $stdout.p(1); rescue NoMethodError => e; e.class.to_s; end"

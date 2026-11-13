@@ -186,7 +186,7 @@ fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     };
     let mut text = match (known, number) {
         (Some(code), _) => code.message.to_string(),
-        (None, Some(number)) => format!("Unknown error: {number}"),
+        (None, Some(number)) => format!("Unknown error {number}"),
         (None, None) => "unknown error".to_string(),
     };
     if let Some(message) = message {
@@ -255,26 +255,22 @@ pub(crate) fn not_implemented(mrb: &Mrb, message: &str) -> Error {
     to_error(mrb, mrb.exception_not_imp_error(), message)
 }
 
-/// WASI's `EBADF` on a file this guest opened: the file was not opened
-/// for the transfer asked of it.
-const WASI_BADF: i32 = 8;
-
 /// The error for `err` from reading or writing, `purpose`, a file this
-/// guest opened: one not opened for it is an `IOError`, as CRuby raises.
+/// guest opened: `EBADF` there means the file was not opened for it, an
+/// `IOError`, as CRuby raises.
 pub(crate) fn from_transfer(mrb: &Mrb, err: &io::Error, path: &str, purpose: &str) -> Error {
-    if err.raw_os_error() == Some(WASI_BADF) {
+    if code_of(err).is_some_and(|code| code.name == c"EBADF") {
         return io_error(mrb, &format!("not opened for {purpose}"));
     }
     from_io(mrb, err, path)
 }
 
-/// The error for `err` from an operation on `path`, as the `Errno` class
-/// the failure names, or an `IOError` for one no class names.
-pub(crate) fn from_io(mrb: &Mrb, err: &io::Error, path: &str) -> Error {
+/// The code `err` names, by its WASI number or else by its kind.
+fn code_of(err: &io::Error) -> Option<&'static Code> {
     let raw = err
         .raw_os_error()
         .map(|raw| if raw == WASI_NOTCAPABLE { 2 } else { raw });
-    let code = CODES
+    CODES
         .iter()
         .find(|code| Some(code.wasi) == raw)
         .or_else(|| {
@@ -291,8 +287,13 @@ pub(crate) fn from_io(mrb: &Mrb, err: &io::Error, path: &str) -> Error {
                 _ => return None,
             };
             CODES.iter().find(|code| code.name == name)
-        });
-    match code {
+        })
+}
+
+/// The error for `err` from an operation on `path`, as the `Errno` class
+/// the failure names, or an `IOError` for one no class names.
+pub(crate) fn from_io(mrb: &Mrb, err: &io::Error, path: &str) -> Error {
+    match code_of(err) {
         Some(code) => error_by_name(mrb, code.name, path),
         None => io_error(mrb, &format!("{err} - {path}")),
     }

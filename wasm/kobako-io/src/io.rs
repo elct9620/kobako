@@ -444,7 +444,7 @@ fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
     let number = match (Integer::from_value(obj), Float::from_value(obj)) {
         (Some(int), _) => int,
         (None, Some(_)) => obj.funcall(mrb, c"to_i", ())?,
-        (None, None) => return Err(no_integer(mrb, obj)),
+        (None, None) => to_int(mrb, obj)?,
     };
     let wide = number.to_i64(mrb)?;
     let narrow = i32::try_from(wide).map_err(|_| {
@@ -457,15 +457,34 @@ fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
     Ok(Some(narrow as u8))
 }
 
+/// The Integer `obj` converts to through its `to_int`, as CRuby's `rb_to_int`
+/// asks; one with no `to_int`, or whose `to_int` answers no Integer, raises
+/// `TypeError`.
+pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
+    let to_int = Symbol::new(mrb, "to_int")?.as_value();
+    if !obj.is_nil() && obj.funcall::<_, _, bool>(mrb, c"respond_to?", [to_int])? {
+        let converted: Value = obj.funcall(mrb, c"to_int", ())?;
+        if let Some(int) = Integer::from_value(converted) {
+            return Ok(int);
+        }
+    }
+    Err(no_integer(mrb, obj))
+}
+
 /// The `TypeError` CRuby's `rb_num2int` raises for what no number stands
-/// for, naming `nil` by value.
+/// for, naming `nil`, `true`, and `false` by value and anything else by
+/// class.
 fn no_integer(mrb: &Mrb, obj: Value) -> Error {
-    let message = match obj.is_nil() {
-        true => "no implicit conversion from nil to integer".to_string(),
-        false => format!(
-            "no implicit conversion of {} into Integer",
-            obj.classname(mrb)
-        ),
+    let message = if obj.is_nil() {
+        "no implicit conversion from nil to integer".to_string()
+    } else {
+        let class = obj.classname(mrb);
+        let name = match class.as_str() {
+            "TrueClass" => "true",
+            "FalseClass" => "false",
+            class => class,
+        };
+        format!("no implicit conversion of {name} into Integer")
     };
     errno::to_error(mrb, mrb.exception_type_error(), &message)
 }

@@ -22,10 +22,11 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use core::ffi::c_int;
 
-use beni::{Error, Integer, IntoValue, Module, Mrb, RClass, RString, Symbol, TryConvert, Value};
+use beni::{Error, Integer, IntoValue, Module, Mrb, RClass, RString, Symbol, Value};
 
-use crate::io::{argument_error, checked_fd, is_closed, release, required_block, Stream};
-use crate::lines::{ensure_limit, line_args_of, take_line, LineSource};
+use crate::file::fstat_of;
+use crate::io::{argument_error, checked_fd, is_closed, release, to_int, Stream};
+use crate::lines::{self, LineSource};
 use crate::{descriptors, errno};
 
 /// What a stream that may not be read from is refused with.
@@ -103,7 +104,7 @@ fn readable_fd(mrb: &Mrb, self_: Value) -> Result<i32, Error> {
 /// Whether the stream stands for a directory opened as a `File`.
 fn is_directory(mrb: &Mrb, self_: Value) -> bool {
     checked_fd(mrb, self_, REACH_REFUSAL)
-        .is_ok_and(|fd| with_file(fd, |file| file.metadata()).is_ok_and(|meta| meta.is_dir()))
+        .is_ok_and(|fd| fstat_of(fd).is_ok_and(|stat| stat.is_dir()))
 }
 
 /// The error a failed read raises: a stream not opened for reading names
@@ -190,47 +191,26 @@ impl LineSource for FileLines {
     }
 }
 
-/// The lines `self_` reads, as every IO reads them.
-fn file_lines(mrb: &Mrb, self_: Value) -> Result<FileLines, Error> {
-    Ok(FileLines {
-        fd: readable_fd(mrb, self_)?,
-        stream: self_,
-    })
+impl FileLines {
+    /// The lines `self_` reads, as every IO reads them.
+    fn new(mrb: &Mrb, self_: Value) -> Result<Self, Error> {
+        Ok(FileLines {
+            fd: readable_fd(mrb, self_)?,
+            stream: self_,
+        })
+    }
 }
 
-/// `gets(sep = $/, limit = nil, chomp: false)` answers the next line, or
-/// `nil` at the end.
 fn io_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let line_args = line_args_of(mrb, args)?;
-    let line = take_line(mrb, &mut file_lines(mrb, self_)?, &line_args)?;
-    Ok(line.map_or(qnil().as_value(), |line| mrb.str_new(&line).as_value()))
+    lines::gets(mrb, args, || FileLines::new(mrb, self_))
 }
 
-/// `each_line(sep = $/, limit = nil, chomp: false) { |line| }` yields each
-/// line to the end.
 fn io_each_line(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let block = required_block(mrb, "each_line")?;
-    let line_args = line_args_of(mrb, args)?;
-    ensure_limit(mrb, &line_args, "each_line")?;
-    let mut source = file_lines(mrb, self_)?;
-    while let Some(line) = take_line(mrb, &mut source, &line_args)? {
-        let _scope = mrb.arena_scope();
-        block.call::<_, Value>(mrb, [mrb.str_new(&line).as_value()])?;
-    }
-    Ok(self_)
+    lines::each_line(mrb, self_, args, || FileLines::new(mrb, self_))
 }
 
-/// `readlines(sep = $/, limit = nil, chomp: false)` answers every line to
-/// the end.
 fn io_readlines(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let line_args = line_args_of(mrb, args)?;
-    ensure_limit(mrb, &line_args, "readlines")?;
-    let mut source = file_lines(mrb, self_)?;
-    let lines = mrb.ary_new();
-    while let Some(line) = take_line(mrb, &mut source, &line_args)? {
-        lines.push(mrb, mrb.str_new(&line).as_value())?;
-    }
-    Ok(lines.as_value())
+    lines::readlines(mrb, args, || FileLines::new(mrb, self_))
 }
 
 /// Whether the position stands at the end; a stream not opened for reading
@@ -240,7 +220,7 @@ fn io_eof_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
     with_file(fd, |file| {
         // A read of nothing asks the host only whether the file reads at all.
         let _read_nothing = file.read(&mut [])?;
-        Ok(file.stream_position()? >= file.metadata()?.len())
+        Ok(file.stream_position()? >= fstat_of(fd)?.size())
     })
     .map_err(|err| read_error(mrb, self_, &err))
 }
@@ -258,17 +238,18 @@ fn io_seek(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
 }
 
 /// `whence` as a number, `:SET`, `:CUR`, and `:END` read as the constants
-/// they name, as CRuby's `interpret_seek_whence` reads them.
+/// they name, as CRuby's `interpret_seek_whence` reads them; any other value
+/// converts as an Integer, as its `NUM2INT` does.
 fn whence_of(mrb: &Mrb, whence: Value) -> Result<i64, Error> {
-    let Some(name) = Symbol::from_value(whence) else {
-        return i64::try_convert(whence, mrb);
-    };
-    match name.name(mrb)?.as_str() {
-        "SET" => Ok(0),
-        "CUR" => Ok(1),
-        "END" => Ok(2),
-        other => Err(argument_error(mrb, &format!("unknown whence: {other}"))),
+    if let Some(name) = Symbol::from_value(whence) {
+        match name.name(mrb)?.as_str() {
+            "SET" => return Ok(0),
+            "CUR" => return Ok(1),
+            "END" => return Ok(2),
+            _ => {}
+        }
     }
+    to_int(mrb, whence)?.to_i64(mrb)
 }
 
 fn io_set_pos(mrb: &Mrb, self_: Value, offset: i64) -> Result<Value, Error> {

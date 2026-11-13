@@ -13,7 +13,7 @@ use super::basic::{
     strbuf_length_of, string_bytes_of, SocketIo, Wait,
 };
 use crate::io::{required_block, would_wait, Direction};
-use crate::lines::{self, ensure_limit, line_args_of, LineArgs, LineSource};
+use crate::lines::{self, line_args_of, LineArgs, LineSource};
 use crate::wasi::MAX_READ;
 
 pub(super) fn init(mrb: &Mrb, basic: RClass) -> Result<(), Error> {
@@ -214,14 +214,8 @@ fn take_line(
     lines::take_line(mrb, &mut SocketLines(source), line_args)
 }
 
-/// `gets(sep = $/, limit = nil, chomp: false)` answers the next line, or
-/// `nil` at the end.
 fn socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let line_args = line_args_of(mrb, args)?;
-    Ok(match take_line(mrb, reader_of(mrb, self_)?, &line_args)? {
-        Some(line) => mrb.str_new(&line).as_value(),
-        None => qnil().as_value(),
-    })
+    lines::gets(mrb, args, || Ok(SocketLines(reader_of(mrb, self_)?)))
 }
 
 /// The `EOFError` a `read` form raises at the end, as CRuby's.
@@ -361,31 +355,12 @@ fn socket_ungetbyte(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Err
     Ok(qnil().as_value())
 }
 
-/// `each_line(sep = $/, limit = nil, chomp: false) { |line| }` yields each
-/// line to the end.
 fn socket_each_line(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let block = required_block(mrb, "each_line")?;
-    let line_args = line_args_of(mrb, args)?;
-    ensure_limit(mrb, &line_args, "each_line")?;
-    let source = reader_of(mrb, self_)?;
-    while let Some(line) = take_line(mrb, source, &line_args)? {
-        let _scope = mrb.arena_scope();
-        block.call::<_, Value>(mrb, [mrb.str_new(&line).as_value()])?;
-    }
-    Ok(self_)
+    lines::each_line(mrb, self_, args, || Ok(SocketLines(reader_of(mrb, self_)?)))
 }
 
-/// `readlines(sep = $/, limit = nil, chomp: false)` answers every line to the
-/// end.
 fn socket_readlines(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let line_args = line_args_of(mrb, args)?;
-    ensure_limit(mrb, &line_args, "readlines")?;
-    let source = reader_of(mrb, self_)?;
-    let lines = mrb.ary_new();
-    while let Some(line) = take_line(mrb, source, &line_args)? {
-        lines.push(mrb, mrb.str_new(&line).as_value())?;
-    }
-    Ok(lines.as_value())
+    lines::readlines(mrb, args, || Ok(SocketLines(reader_of(mrb, self_)?)))
 }
 
 /// `eof?` waits for the next bytes, holding them for the next read, and

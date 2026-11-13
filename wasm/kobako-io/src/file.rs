@@ -23,6 +23,7 @@ use crate::{descriptors, errno};
 pub(crate) mod mode;
 mod stat;
 
+pub(crate) use stat::fstat_of;
 use stat::Stat;
 
 /// What a `File` standing for a descriptor this guest may no longer reach is
@@ -92,13 +93,7 @@ pub(crate) fn require_mount(mrb: &Mrb, call: &str) -> Result<(), Error> {
 /// UTF-8 names nothing WASI can reach, so it fails as the engine would
 /// answer it.
 pub(crate) fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
-    let Some(bytes) = Vec::<u8>::from_value(value) else {
-        return Err(errno::type_error(mrb, value));
-    };
-    if bytes.contains(&0) {
-        return Err(argument_error(mrb, "string contains null byte"));
-    }
-    String::from_utf8(bytes).map_err(|err| {
+    String::from_utf8(path_bytes_of(mrb, value)?).map_err(|err| {
         let path = String::from_utf8_lossy(err.as_bytes());
         errno::error_by_name(mrb, c"EILSEQ", &path)
     })
@@ -246,10 +241,11 @@ fn file_s_rename(mrb: &Mrb, _self: Value, from: Value, to: Value) -> Result<Valu
     Ok(0.into_value(mrb))
 }
 
-/// A path a helper that touches nothing reads, as bytes: one holding a NUL
-/// raises `ArgumentError`, and any other byte is taken as it stands, as
-/// CRuby's `check_path_encoding` refuses only an encoding with no ASCII.
-fn pure_path_arg(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
+/// The bytes of the path `value` names: one holding a NUL raises
+/// `ArgumentError`, and any other byte is taken as it stands, as CRuby's
+/// `check_path_encoding` refuses only an encoding with no ASCII, so a helper
+/// that touches nothing reads any path.
+fn path_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     let Some(bytes) = Vec::<u8>::from_value(value) else {
         return Err(errno::type_error(mrb, value));
     };
@@ -284,10 +280,10 @@ fn join_parts(mrb: &Mrb, parts: &[Value], within: &mut Vec<i64>) -> Result<Vec<u
                 within.pop();
                 part
             }
-            None => pure_path_arg(mrb, part)?,
+            None => path_bytes_of(mrb, part)?,
         };
         if index > 0 {
-            let tail = without_trailing_separators(&joined).len();
+            let tail = trimmed_path_of(&joined).len();
             if part.first() == Some(&b'/') {
                 joined.truncate(tail);
             } else if tail == joined.len() {
@@ -301,14 +297,14 @@ fn join_parts(mrb: &Mrb, parts: &[Value], within: &mut Vec<i64>) -> Result<Vec<u
 
 /// `path` without the separators it ends in, as CRuby's `chompdirsep` finds
 /// where they start.
-fn without_trailing_separators(path: &[u8]) -> &[u8] {
+fn trimmed_path_of(path: &[u8]) -> &[u8] {
     let separators = path.iter().rev().take_while(|b| **b == b'/').count();
     &path[..path.len() - separators]
 }
 
 /// The last component, trailing separators dropped; `/` for the root.
 fn last_component_of(path: &[u8]) -> &[u8] {
-    let trimmed = without_trailing_separators(path);
+    let trimmed = trimmed_path_of(path);
     if trimmed.is_empty() {
         return if path.is_empty() { b"" } else { b"/" };
     }
@@ -328,10 +324,10 @@ fn extname_start_of(base: &[u8]) -> Option<usize> {
 
 fn file_s_basename(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
     let args = scan_args::<(Value,), (Option<Value>,), (), (), (), ()>(mrb)?;
-    let path = pure_path_arg(mrb, args.required.0)?;
+    let path = path_bytes_of(mrb, args.required.0)?;
     let mut base = last_component_of(&path).to_vec();
     if let Some(suffix) = args.optional.0 {
-        let suffix = pure_path_arg(mrb, suffix)?;
+        let suffix = path_bytes_of(mrb, suffix)?;
         if suffix == b".*" {
             if let Some(dot) = extname_start_of(&base) {
                 base.truncate(dot);
@@ -344,11 +340,11 @@ fn file_s_basename(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Er
 }
 
 fn file_s_dirname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
-    let path = pure_path_arg(mrb, path)?;
-    let trimmed = without_trailing_separators(&path);
+    let path = path_bytes_of(mrb, path)?;
+    let trimmed = trimmed_path_of(&path);
     let dir: &[u8] = match trimmed.iter().rposition(|b| *b == b'/') {
         Some(0) => b"/",
-        Some(at) => without_trailing_separators(&trimmed[..at]),
+        Some(at) => trimmed_path_of(&trimmed[..at]),
         None if path.first() == Some(&b'/') => b"/",
         None => b".",
     };
@@ -357,7 +353,7 @@ fn file_s_dirname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> 
 }
 
 fn file_s_extname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
-    let path = pure_path_arg(mrb, path)?;
+    let path = path_bytes_of(mrb, path)?;
     let base = last_component_of(&path);
     let ext = extname_start_of(base).map_or(&b""[..], |dot| &base[dot..]);
     Ok(mrb.str_new(ext).as_value())

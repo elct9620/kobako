@@ -8,8 +8,9 @@
 //! lookup is the same idempotent call every gem uses.
 
 use beni::prelude::*;
+use beni::scan_args::{get_kwargs, scan_args};
 use beni::value::qnil;
-use beni::{Error, Mrb, RHash, RString, Value};
+use beni::{Error, Mrb, RArray, RHash, RString, Value};
 
 use crate::io::{p_to, print_to, printf_to, puts_lines};
 
@@ -66,18 +67,24 @@ fn kernel_putc(mrb: &Mrb, _self: Value, obj: Value) -> Result<Value, Error> {
 
 /// The messages laid out as `puts` lays them out, written to `$stderr` in one
 /// `write`, as `rb_warn_m` hands `Warning.warn` one String; nothing for no
-/// message. `uplevel:` and `category:` are taken and read as nothing, since
-/// the guest names no caller's location and filters no category.
-fn kernel_warn(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    let messages = match args.split_last() {
-        Some((last, rest)) if RHash::from_value(*last).is_some() => rest,
-        _ => args,
-    };
+/// message. A Hash passed as a message is one, and a keyword other than
+/// `uplevel:` and `category:` raises, as CRuby's `warn` declares only those;
+/// both are read as nothing, since the guest names no caller's location and
+/// filters no category.
+fn kernel_warn(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
+    let args = scan_args::<(), (), RArray, (), RHash, ()>(mrb)?;
+    get_kwargs::<_, (), (Option<Value>, Option<Value>), ()>(
+        mrb,
+        args.keywords,
+        &[],
+        &["uplevel", "category"],
+    )?;
+    let messages: Vec<Value> = args.splat.entries(mrb).collect();
     if messages.is_empty() {
         return Ok(qnil().as_value());
     }
     let mut text = Vec::new();
-    puts_lines(mrb, messages, &mut |line| {
+    puts_lines(mrb, &messages, &mut |line| {
         let line = line.to_r_string(mrb)?;
         // SAFETY: the bytes are copied out before the next mruby call.
         text.extend_from_slice(unsafe { line.as_slice(mrb) });
