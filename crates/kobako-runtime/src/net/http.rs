@@ -72,6 +72,12 @@ pub enum FieldError {
 /// own place, so even an empty value counts.
 pub const MAX_FIELD_SIZE: usize = 128 * 1024;
 
+/// The most a response's head, or one read of its body, takes in the seam's
+/// read buffer, as hyper's `max_buf_size` bounds it, so a head the guest could
+/// read as a header list fits and a longer one answers a protocol error. An
+/// exchange holds it against the Invocation's memory.
+const MAX_READ_BUFFER: usize = MAX_FIELD_SIZE;
+
 /// A header list the guest builds or reads, held on its behalf against the
 /// Invocation's memory, as a request's body is, so no list grows the host
 /// past what the guest was allotted.
@@ -451,8 +457,9 @@ pub struct Exchange {
     task: Mutex<Option<Arc<Task>>>,
     /// The request's place against its Sandbox's cap and the process's.
     place: Mutex<Option<Arc<Place>>>,
-    /// What the request and the response's buffer hold, reserved
-    /// against the Invocation's memory until the exchange is released.
+    /// What the request, the seam's read buffer, and the response's buffer
+    /// hold, reserved against the Invocation's memory until the exchange is
+    /// released.
     memory: Mutex<Option<MemoryCharge>>,
 }
 
@@ -460,7 +467,8 @@ impl Exchange {
     /// Send `request` through `seam` on the reactor, dialing through
     /// `connector`; it counts against `open_connections` and the process until
     /// released, and a full count answers `ConnectionLimitReached`. The
-    /// request and the response's buffer count against `cred`'s memory until then.
+    /// request, the seam's read buffer, and the response's buffer count
+    /// against `cred`'s memory until then.
     pub(crate) fn start(
         seam: Arc<dyn Outbound>,
         request: OutgoingRequest,
@@ -468,7 +476,7 @@ impl Exchange {
         open_connections: &Arc<OpenConnections>,
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, HttpError> {
-        let room = request.room() + request.body.len() + MAX_SOCKET_BUFFER;
+        let room = request.room() + request.body.len() + MAX_READ_BUFFER + MAX_SOCKET_BUFFER;
         let memory = MemoryCharge::new(cred, room).map_err(|_| HttpError::Internal)?;
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
         connector.place = Some(place.clone());
@@ -768,7 +776,9 @@ async fn send_over<T>(
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let (mut sender, connection) = hyper::client::conn::http1::handshake(wire)
+    let (mut sender, connection) = hyper::client::conn::http1::Builder::new()
+        .max_buf_size(MAX_READ_BUFFER)
+        .handshake(wire)
         .await
         .map_err(|err| HttpError::from_hyper(&err))?;
     let mut connection: ConnectionTask = Some(Box::pin(async move {
@@ -1149,7 +1159,7 @@ mod tests {
         let request = || greeting_request(&format!("localhost:{port}"));
         let cramped = crate::net::send(
             &namespace,
-            &cred_within(Some(2 * MAX_SOCKET_BUFFER)),
+            &cred_within(Some(MAX_READ_BUFFER + 2 * MAX_SOCKET_BUFFER)),
             request(),
         )
         .map(|exchange| read_response(&exchange).map(|(head, _)| head.status));
@@ -1250,6 +1260,49 @@ mod tests {
              with its scheme's default port must name its server as the endpoint judged it: \
              lowercase, no trailing dot, and no default port"
         );
+    }
+
+    // @behavior NW-204
+    #[test]
+    fn a_response_head_past_the_read_buffer_answers_a_protocol_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 2 {
+                line.clear();
+            }
+            let long = "v".repeat(MAX_FIELD_SIZE * 2);
+            let _ =
+                (&stream).write_all(format!("HTTP/1.1 200 OK\r\nx-long: {long}\r\n").as_bytes());
+        });
+        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port)
+            .unwrap()
+            .with_addresses(vec![crate::network::Addresses::Local])]);
+        let cred = prepare_creds_within(&[], None);
+        let answer = crate::net::send(
+            &namespace,
+            &cred,
+            greeting_request(&format!("127.0.0.1:{port}")),
+        )
+        .expect("the endpoint names the authority");
+        let tight = prepare_creds_within(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER));
+        let unheld = crate::net::send(
+            &namespace,
+            &tight,
+            greeting_request(&format!("127.0.0.1:{port}")),
+        )
+        .err();
+        assert_eq!(
+            (read_response(&answer).err(), unheld),
+            (Some(HttpError::ProtocolError), Some(HttpError::Internal)),
+            "a response whose head runs past 128 KiB must answer a protocol error, and a request \
+             whose Invocation cannot hold the seam's read buffer beside the request must fail \
+             before it is sent"
+        );
+        server.join().unwrap();
     }
 
     // @behavior NW-203
@@ -1812,7 +1865,8 @@ mod tests {
                 Arc::new(CountsDials::default()),
                 Arc::new(AnswersHeader(size)),
             );
-            let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 16 * 1024));
+            let cred =
+                prepare_creds_within(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 16 * 1024));
             let exchange = crate::net::send(
                 &namespace,
                 &cred,
@@ -1852,7 +1906,7 @@ mod tests {
             Arc::new(CountsDials::default()),
             Arc::new(NeverAnswers),
         );
-        let cred = prepare_creds_within(&[], Some(MAX_SOCKET_BUFFER + 40 * 1024));
+        let cred = prepare_creds_within(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 40 * 1024));
         let mut request = OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80");
         request.path_with_query = format!("/{}", "p".repeat(30 * 1024));
         let exchange =
