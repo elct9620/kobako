@@ -9,8 +9,9 @@ use std::collections::VecDeque;
 use std::future::{poll_fn, Future};
 use std::io;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::task::{Context, Poll, Waker};
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use http_body::Body;
@@ -265,9 +266,26 @@ pub struct OutgoingRequest {
     pub path_with_query: String,
     pub headers: Vec<(String, Vec<u8>)>,
     pub body: Vec<u8>,
+    pub timeouts: Timeouts,
     /// The credentials bound to this request, swapped in only by the default
     /// outbound seam and only on the way out, so no other seam reads a secret.
     pub(crate) swaps: Vec<Swap>,
+}
+
+/// How long a request waits at each step, as `wasi:http`'s `request-options`
+/// names them; `None` waits on. Each bounds its own wait, as
+/// wasmtime-wasi-http's does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Timeouts {
+    /// For the connect to the server, answered as `ConnectionTimeout`.
+    pub connect: Option<Duration>,
+    /// For the response's head once connected, answered as
+    /// `ConnectionReadTimeout`.
+    pub first_byte: Option<Duration>,
+    /// For each part of the body after the last, failing the body's read as
+    /// `ETIMEDOUT`.
+    pub between_bytes: Option<Duration>,
 }
 
 impl OutgoingRequest {
@@ -279,6 +297,7 @@ impl OutgoingRequest {
             path_with_query: "/".to_string(),
             headers: Vec::new(),
             body: Vec::new(),
+            timeouts: Timeouts::default(),
             swaps: Vec::new(),
         }
     }
@@ -388,6 +407,8 @@ pub enum HttpError {
     ConnectionRefused,
     /// The connection did not open in time.
     ConnectionTimeout,
+    /// The response's head did not arrive in time.
+    ConnectionReadTimeout,
     /// The connection ended before the response did.
     ConnectionTerminated,
     /// The response was not one HTTP can read.
@@ -430,6 +451,14 @@ pub trait Outbound: Send + Sync {
     fn send_request(&self, request: OutgoingRequest, connector: Connector) -> ResponseFuture;
 }
 
+/// What a timeout ends: the request, failed as the error names, or the body's
+/// next read.
+#[derive(Clone, Copy)]
+enum Expiry {
+    Fail(HttpError),
+    Body,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Phase {
     Sending,
@@ -445,6 +474,10 @@ struct State {
     body: VecDeque<u8>,
     body_ended: bool,
     body_failed: bool,
+    /// The body waited past its timeout for its next part.
+    body_timed_out: bool,
+    /// When the head or the body's last part arrived.
+    last_part: Option<Instant>,
     /// The task waiting for room in the body's buffer.
     filler: Option<Waker>,
 }
@@ -461,6 +494,11 @@ pub struct Exchange {
     /// hold, reserved against the Invocation's memory until the exchange is
     /// released.
     memory: Mutex<Option<MemoryCharge>>,
+    timeouts: Timeouts,
+    started: Instant,
+    /// When the connector's connect opened, which starts the wait for the
+    /// head.
+    connected: Arc<OnceLock<Instant>>,
 }
 
 impl Exchange {
@@ -489,17 +527,23 @@ impl Exchange {
                 body: VecDeque::new(),
                 body_ended: false,
                 body_failed: false,
+                body_timed_out: false,
+                last_part: None,
                 filler: None,
             })),
             wait: Arc::default(),
             task: Mutex::new(None),
             place: Mutex::new(place),
             memory: Mutex::new(Some(memory)),
+            timeouts: request.timeouts,
+            started: Instant::now(),
+            connected: connector.connected.clone(),
         });
         // The task holds what it answers into, never the exchange, so the
         // exchange's last hold, which cancels the task, is never the task's.
         let (state, wait) = (exchange.state.clone(), exchange.wait.clone());
         let cred = cred.clone();
+        connector.wait = Some(wait.clone());
         let sending = seam.send_request(request, connector);
         let task = reactor.spawn(async move {
             match sending.await {
@@ -517,8 +561,14 @@ impl Exchange {
                     };
                     {
                         let mut answered = lock(&state);
+                        // A head arriving past its timeout finds the exchange
+                        // failed already.
+                        if answered.phase != Phase::Sending {
+                            return;
+                        }
                         answered.head_memory = Some(head_memory);
                         answered.phase = Phase::Answered(response.head);
+                        answered.last_part = Some(Instant::now());
                     }
                     wait.wake_up();
                     fill_body(&state, &wait, response.body).await;
@@ -533,8 +583,73 @@ impl Exchange {
         Ok(exchange)
     }
 
+    /// The exchange's state, once any timeout that passed has ended its wait,
+    /// as a timeout read on its next look rather than by a timer.
     fn state(&self) -> MutexGuard<'_, State> {
-        lock(&self.state)
+        let mut state = lock(&self.state);
+        if self.expire(&mut state) {
+            drop(state);
+            let task = self
+                .task
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take();
+            if let Some(task) = task {
+                task.cancel();
+            }
+            state = lock(&self.state);
+        }
+        state
+    }
+
+    /// The soonest a timeout ends the wait under way: the connect until it
+    /// opens, then the head, then each part of the body; `None` while nothing
+    /// is awaited or no timeout bounds it.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.deadline_of(&lock(&self.state)).map(|(at, _)| at)
+    }
+
+    fn deadline_of(&self, state: &State) -> Option<(Instant, Expiry)> {
+        match state.phase {
+            Phase::Sending => match self.connected.get() {
+                None => self.timeouts.connect.map(|after| {
+                    (
+                        self.started + after,
+                        Expiry::Fail(HttpError::ConnectionTimeout),
+                    )
+                }),
+                Some(at) => self
+                    .timeouts
+                    .first_byte
+                    .map(|after| (*at + after, Expiry::Fail(HttpError::ConnectionReadTimeout))),
+            },
+            Phase::Answered(_)
+                if state.body.is_empty()
+                    && !state.body_ended
+                    && !state.body_failed
+                    && !state.body_timed_out =>
+            {
+                let after = self.timeouts.between_bytes?;
+                state.last_part.map(|at| (at + after, Expiry::Body))
+            }
+            Phase::Answered(_) | Phase::Failed(_) => None,
+        }
+    }
+
+    /// End the wait under way once its timeout passed, answering whether it
+    /// did, so the task sending the request can be let go.
+    fn expire(&self, state: &mut State) -> bool {
+        let Some((at, expiry)) = self.deadline_of(state) else {
+            return false;
+        };
+        if Instant::now() < at {
+            return false;
+        }
+        match expiry {
+            Expiry::Fail(err) => state.phase = Phase::Failed(err),
+            Expiry::Body => state.body_timed_out = true,
+        }
+        true
     }
 
     /// The response's head, or why it has none; `None` while the request is
@@ -570,13 +685,15 @@ impl Exchange {
     }
 
     /// Read what the body holds into `buf`: zero at its end, `WouldBlock`
-    /// while it holds nothing yet, and `ConnectionReset` for a body cut short.
+    /// while it holds nothing yet, `ConnectionReset` for a body cut short, and
+    /// `TimedOut` once its next part waited past its timeout.
     fn read(&self, buf: &mut [u8]) -> Result<usize, Errno> {
         let mut state = self.state();
         if state.body.is_empty() {
-            return match (state.body_ended, state.body_failed) {
-                (_, true) => Err(Errno::ConnectionReset),
-                (true, _) => Ok(0),
+            return match (state.body_ended, state.body_failed, state.body_timed_out) {
+                (_, true, _) => Err(Errno::ConnectionReset),
+                (_, _, true) => Err(Errno::TimedOut),
+                (true, _, _) => Ok(0),
                 _ => Err(Errno::WouldBlock),
             };
         }
@@ -648,7 +765,12 @@ impl FileOperations for BodyFile {
         poll_wait(&self.0.wait, table);
         let state = self.0.state();
         let settled = !matches!(state.phase, Phase::Sending);
-        match settled && (!state.body.is_empty() || state.body_ended || state.body_failed) {
+        match settled
+            && (!state.body.is_empty()
+                || state.body_ended
+                || state.body_failed
+                || state.body_timed_out)
+        {
             true => PollMask::IN,
             false => PollMask::default(),
         }
@@ -692,7 +814,10 @@ async fn fill_body(state: &Mutex<State>, wait: &WaitQueueHead, mut body: Respons
         })
         .await;
         let moved = pending.split_to(room.min(pending.len()));
-        lock(state).body.extend(&moved[..]);
+        let mut filled = lock(state);
+        filled.body.extend(&moved[..]);
+        filled.last_part = Some(Instant::now());
+        drop(filled);
         wait.wake_up();
     }
 }
@@ -1893,6 +2018,122 @@ mod tests {
                 std::future::pending().await
             })
         }
+    }
+
+    /// A seam that dials the request's authority, then never answers.
+    struct DialsThenWaits;
+
+    impl Outbound for DialsThenWaits {
+        fn send_request(&self, request: OutgoingRequest, connector: Connector) -> ResponseFuture {
+            Box::pin(async move {
+                let _held = request;
+                let _connection = connector.dial().await?;
+                std::future::pending().await
+            })
+        }
+    }
+
+    /// The answer `exchange` settles on, once it settles.
+    fn settled(exchange: &Exchange) -> Result<ResponseHead, HttpError> {
+        loop {
+            match exchange.response() {
+                Some(answer) => break answer,
+                None => thread::sleep(Duration::from_millis(1)),
+            }
+        }
+    }
+
+    // @behavior NW-205
+    #[test]
+    fn a_request_past_its_connect_or_first_byte_timeout_answers_that_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let timed = |seam: Arc<dyn Outbound>, timeouts: Timeouts| {
+            let mut entry = Builder::default();
+            entry.endpoint(
+                Endpoint::new("127.0.0.1", port)
+                    .unwrap()
+                    .with_addresses(vec![crate::network::Addresses::Local]),
+            );
+            let network = Network::new("web", Arc::new(entry)).unwrap();
+            let namespace = Namespace::for_network(&network, Arc::new(HostInet), seam);
+            let mut request = greeting_request(&format!("127.0.0.1:{port}"));
+            request.timeouts = timeouts;
+            crate::net::send(&namespace, &prepare_creds_within(&[], None), request)
+                .expect("the endpoint names the authority")
+        };
+        let at_once = Some(Duration::ZERO);
+        let unconnected = timed(
+            Arc::new(NeverAnswers),
+            Timeouts {
+                connect: at_once,
+                ..Timeouts::default()
+            },
+        );
+        let unanswered = timed(
+            Arc::new(DialsThenWaits),
+            Timeouts {
+                first_byte: at_once,
+                ..Timeouts::default()
+            },
+        );
+        let unbounded = timed(Arc::new(NeverAnswers), Timeouts::default());
+        assert_eq!(
+            (
+                settled(&unconnected).err(),
+                settled(&unanswered).err(),
+                unbounded.deadline(),
+                unbounded.response()
+            ),
+            (
+                Some(HttpError::ConnectionTimeout),
+                Some(HttpError::ConnectionReadTimeout),
+                None,
+                None
+            ),
+            "a request whose connect outlasts its connect timeout must answer connection-timeout, \
+             one connected whose head outlasts its first-byte timeout connection-read-timeout, \
+             and one with no timeout must keep waiting with no deadline"
+        );
+    }
+
+    // @behavior NW-205
+    #[test]
+    fn a_body_whose_next_part_outlasts_its_timeout_fails_its_read() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 2 {
+                line.clear();
+            }
+            (&stream)
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 10\r\n\r\n")
+                .unwrap();
+            // Hold the connection open with the body unsent until the client
+            // lets it go.
+            let _ = reader.read_line(&mut line);
+        });
+        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port)
+            .unwrap()
+            .with_addresses(vec![crate::network::Addresses::Local])]);
+        let mut request = greeting_request(&format!("127.0.0.1:{port}"));
+        request.timeouts.between_bytes = Some(Duration::ZERO);
+        let exchange = crate::net::send(&namespace, &prepare_creds_within(&[], None), request)
+            .expect("the endpoint names the authority");
+        let head = settled(&exchange).map(|head| head.status);
+        let mut buf = [0; 8];
+        let read = exchange.read(&mut buf);
+        exchange.release();
+        server.join().unwrap();
+        assert_eq!(
+            (head, read),
+            (Ok(200), Err(Errno::TimedOut)),
+            "a body whose next part outlasts its between-bytes timeout must fail its read as \
+             ETIMEDOUT once its head arrived"
+        );
     }
 
     // @behavior NW-156

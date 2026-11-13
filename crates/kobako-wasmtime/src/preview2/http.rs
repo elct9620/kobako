@@ -6,13 +6,13 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use kobako_runtime::net::{self, Exchange, FieldError, MemoryCharge, RequestBody};
-use kobako_runtime::vfs::PollMask;
 
 use super::bindings::wasi_http_types_0_2_12::{
     ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError, IncomingBody,
-    IncomingResponse, Method, OutgoingBody, OutgoingRequest, Scheme,
+    IncomingResponse, Method, OutgoingBody, OutgoingRequest, RequestOptions, Scheme,
 };
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
@@ -56,6 +56,8 @@ pub(crate) struct Request {
     /// What the method, authority, and path the guest set hold, reserved
     /// against the Invocation's memory, as its headers' room is.
     memory: MemoryCharge,
+    /// The options `handle` was given.
+    timeouts: net::Timeouts,
 }
 
 impl Request {
@@ -106,9 +108,9 @@ pub(crate) mod resource {
 
     pub(crate) struct FutureIncomingResponse(pub(crate) FutureState);
 
-    /// Options kobako never hands out, so any the guest names is one it does
-    /// not hold.
-    pub(crate) enum RequestOptions {}
+    /// The timeouts a request is handled with.
+    #[derive(Default)]
+    pub(crate) struct RequestOptions(pub(crate) net::Timeouts);
 
     /// A response whose head its exchange holds once, against the
     /// Invocation's memory.
@@ -145,6 +147,11 @@ fn to_field_trap(err: FieldError) -> wasmtime::Error {
     }
 }
 
+/// `timeout` as the nanoseconds a WASI `duration` counts.
+fn to_nanos(timeout: Option<Duration>) -> Option<u64> {
+    timeout.map(|timeout| u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX))
+}
+
 /// The error code a request's failure answers, carrying no host text.
 fn to_error_code(err: net::HttpError) -> ErrorCode {
     match err {
@@ -152,6 +159,7 @@ fn to_error_code(err: net::HttpError) -> ErrorCode {
         net::HttpError::DestinationNotFound => ErrorCode::DestinationNotFound,
         net::HttpError::ConnectionRefused => ErrorCode::ConnectionRefused,
         net::HttpError::ConnectionTimeout => ErrorCode::ConnectionTimeout,
+        net::HttpError::ConnectionReadTimeout => ErrorCode::ConnectionReadTimeout,
         net::HttpError::ConnectionTerminated => ErrorCode::ConnectionTerminated,
         net::HttpError::ProtocolError => ErrorCode::HTTPProtocolError,
         net::HttpError::ConnectionLimitReached => ErrorCode::ConnectionLimitReached,
@@ -229,6 +237,7 @@ impl Invocation {
         }
         outgoing.headers = request.headers.entries();
         outgoing.body = request.link.body.take();
+        outgoing.timeouts = request.timeouts;
         // The exchange reserves the request's parts itself, so the guest's
         // copies give theirs back before it does.
         drop((request.headers, request.memory));
@@ -342,6 +351,7 @@ impl HttpHost for Invocation {
             headers: entries,
             link,
             memory,
+            timeouts: net::Timeouts::default(),
         }))
     }
 
@@ -470,7 +480,9 @@ impl HttpHost for Invocation {
     ) -> wasmtime::Result<Pollable> {
         self.advance(this)?;
         let pollable = match self.future_mut(this)? {
-            FutureState::Sent(_, file) => table::Pollable::File(file.clone(), PollMask::IN),
+            FutureState::Sent(exchange, file) => {
+                table::Pollable::Exchange(file.clone(), exchange.clone())
+            }
             _ => table::Pollable::Ready,
         };
         self.table_mut().push_child(pollable, this)
@@ -578,7 +590,10 @@ impl HttpHost for Invocation {
         let exchange = body.exchange.clone();
         let file = Arc::new(Mutex::new(exchange.alloc_body_file(self.wasi().cred())));
         self.table_mut()
-            .push_child(table::InputStream::new(Stream::File(file)), this)
+            .push_child(
+                table::InputStream::of_body(Stream::File(file), exchange),
+                this,
+            )
             .map(Ok)
     }
 
@@ -599,16 +614,80 @@ impl HttpHost for Invocation {
         self.table_mut().delete(handle).map(drop)
     }
 
+    /// Options waiting on at every step until one is set.
+    fn types_request_options_new(&mut self) -> wasmtime::Result<RequestOptions> {
+        self.table_mut().push(resource::RequestOptions::default())
+    }
+
+    fn types_request_options_connect_timeout(
+        &mut self,
+        this: RequestOptions,
+    ) -> wasmtime::Result<Option<u64>> {
+        Ok(to_nanos(self.table_mut().get(this)?.0.connect))
+    }
+
+    /// Bound the connect, as wasmtime-wasi-http bounds it, so a request
+    /// whose connect outlasts it answers `connection-timeout`.
+    fn types_request_options_set_connect_timeout(
+        &mut self,
+        this: RequestOptions,
+        duration: Option<u64>,
+    ) -> wasmtime::Result<Result<(), ()>> {
+        self.table_mut().get_mut(this)?.0.connect = duration.map(Duration::from_nanos);
+        Ok(Ok(()))
+    }
+
+    fn types_request_options_first_byte_timeout(
+        &mut self,
+        this: RequestOptions,
+    ) -> wasmtime::Result<Option<u64>> {
+        Ok(to_nanos(self.table_mut().get(this)?.0.first_byte))
+    }
+
+    /// Bound the wait for the response's head once connected, answered as
+    /// `connection-read-timeout`.
+    fn types_request_options_set_first_byte_timeout(
+        &mut self,
+        this: RequestOptions,
+        duration: Option<u64>,
+    ) -> wasmtime::Result<Result<(), ()>> {
+        self.table_mut().get_mut(this)?.0.first_byte = duration.map(Duration::from_nanos);
+        Ok(Ok(()))
+    }
+
+    fn types_request_options_between_bytes_timeout(
+        &mut self,
+        this: RequestOptions,
+    ) -> wasmtime::Result<Option<u64>> {
+        Ok(to_nanos(self.table_mut().get(this)?.0.between_bytes))
+    }
+
+    /// Bound each wait for the body's next part, failing the read that
+    /// outlasts it.
+    fn types_request_options_set_between_bytes_timeout(
+        &mut self,
+        this: RequestOptions,
+        duration: Option<u64>,
+    ) -> wasmtime::Result<Result<(), ()>> {
+        self.table_mut().get_mut(this)?.0.between_bytes = duration.map(Duration::from_nanos);
+        Ok(Ok(()))
+    }
+
+    fn types_request_options_drop(&mut self, handle: RequestOptions) -> wasmtime::Result<()> {
+        self.table_mut().delete(handle).map(drop)
+    }
+
     /// Send `request`, which it takes. Without a network Grant it answers
     /// `HTTP-request-denied` at once, doing nothing first; a request whose body
-    /// has not ended leaves once it does. kobako hands out no options, so
-    /// the lift traps on any the guest names.
+    /// has not ended leaves once it does, bound by the timeouts `options`
+    /// sets.
     fn outgoing_handler_handle(
         &mut self,
         request: resource::OutgoingRequest,
-        _options: Option<resource::RequestOptions>,
+        options: Option<resource::RequestOptions>,
     ) -> Result<FutureIncomingResponse, error::HttpError> {
-        let request = request.0;
+        let mut request = request.0;
+        request.timeouts = options.unwrap_or_default().0;
         if self.wasi().network().is_none() {
             return Err(ErrorCode::HTTPRequestDenied.into());
         }
@@ -686,6 +765,73 @@ mod tests {
                 Ok(Err(ErrorCode::HTTPRequestDenied))
             ),
             "outgoing-handler.handle with no network entry must answer HTTP-request-denied"
+        );
+    }
+
+    // @behavior NW-206
+    #[test]
+    fn request_options_read_back_their_timeouts_and_bound_the_wait_for_the_head() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            // Read the request, then hold the connection with no answer
+            // until the client lets it go.
+            let mut reader = BufReader::new(stream);
+            while reader.read_line(&mut line).unwrap_or(0) > 0 {}
+        });
+        let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
+        let mut guest = guest(Some(vec![endpoint]));
+        let started = Instant::now();
+        let (read_back, answer) = run_task(Some(started + Wait::from_secs(10)), || {
+            let options = guest.types_request_options_new()?;
+            let unset = guest.types_request_options_first_byte_timeout(options)?;
+            let set = [
+                guest.types_request_options_set_connect_timeout(options, Some(7))?,
+                guest.types_request_options_set_first_byte_timeout(options, Some(0))?,
+                guest.types_request_options_set_between_bytes_timeout(options, Some(9))?,
+            ];
+            let read_back = (
+                unset,
+                set,
+                guest.types_request_options_connect_timeout(options)?,
+                guest.types_request_options_between_bytes_timeout(options)?,
+            );
+            guest
+                .types_request_options_set_connect_timeout(options, None)?
+                .unwrap();
+            let options = guest.take_handle(options)?;
+            let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
+            let request = guest.take_handle(request)?;
+            let future = guest
+                .outgoing_handler_handle(request, Some(options))
+                .into_answer()?
+                .expect("an endpoint names the authority");
+            let ready = guest.types_future_incoming_response_subscribe(future)?;
+            guest.poll_pollable_block(ready)?;
+            let answer = guest
+                .types_future_incoming_response_get(future)?
+                .expect("the wait ended with an answer")
+                .expect("the answer is handed out once")
+                .err();
+            guest.poll_pollable_drop(ready)?;
+            guest.types_future_incoming_response_drop(future)?;
+            Ok::<_, wasmtime::Error>((read_back, answer))
+        })
+        .expect("the calls answer");
+        let woke_by_itself = started.elapsed() < Wait::from_secs(5);
+        server.join().unwrap();
+        assert_eq!(
+            (read_back, answer, woke_by_itself),
+            (
+                (None, [Ok(()), Ok(()), Ok(())], Some(7), Some(9)),
+                Some(ErrorCode::ConnectionReadTimeout),
+                true
+            ),
+            "request-options must read back each timeout set, none until set, and a request \
+             handled with a first-byte timeout must wake its future's pollable once the timeout \
+             passes, not at the run's deadline, and answer connection-read-timeout"
         );
     }
 

@@ -20,7 +20,8 @@ use crate::io::{argument_error, current_block, time_interval_of};
 use crate::socket;
 use crate::wasi::wasi::http::outgoing_handler::handle;
 use crate::wasi::wasi::http::types::{
-    ErrorCode, Fields, HeaderError, IncomingBody, Method, OutgoingBody, OutgoingRequest, Scheme,
+    ErrorCode, Fields, HeaderError, IncomingBody, Method, OutgoingBody, OutgoingRequest,
+    RequestOptions, Scheme,
 };
 use crate::wasi::wasi::io::streams::{InputStream, StreamError};
 use crate::wasi::{read_within, wait_within, write_within, MAX_READ};
@@ -398,11 +399,12 @@ fn timeout_of(mrb: &Mrb, self_: Value, name: &core::ffi::CStr) -> Result<Option<
     time_interval_of(mrb, ivar_get(mrb, self_, name)?)
 }
 
-/// How long a request may wait to read and to write. The wait for a response's
-/// head takes the connect too, which `wasi:http` shows the guest no apart from
-/// it, so `read_timeout` bounds the whole wait and `open_timeout` none of it.
+/// How long a request may wait to open, to read, and to write. The host bounds
+/// the connect by `open_timeout` and the wait for the head by `read_timeout`,
+/// as `request-options` lets it, since only the host sees the connect apart.
 #[derive(Clone, Copy)]
 struct Timeouts {
+    open: Option<Duration>,
     read: Option<Duration>,
     write: Option<Duration>,
 }
@@ -410,9 +412,23 @@ struct Timeouts {
 impl Timeouts {
     fn of(mrb: &Mrb, self_: Value) -> Result<Self, Error> {
         Ok(Self {
+            open: timeout_of(mrb, self_, c"@open_timeout")?,
             read: timeout_of(mrb, self_, c"@read_timeout")?,
             write: timeout_of(mrb, self_, c"@write_timeout")?,
         })
+    }
+
+    /// The options a request leaves with: its connect bounded by `open` and
+    /// its head by `read`.
+    fn options(&self) -> RequestOptions {
+        let nanos = |timeout: Option<Duration>| {
+            timeout.map(|timeout| u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX))
+        };
+        let options = RequestOptions::new();
+        // kobako's host takes every timeout, so neither set fails.
+        let _ = options.set_connect_timeout(nanos(self.open));
+        let _ = options.set_first_byte_timeout(nanos(self.read));
+        options
     }
 }
 
@@ -936,14 +952,13 @@ fn send(mrb: &Mrb, parts: &RequestParts<'_>) -> Result<Answer, Error> {
         }
     }
     OutgoingBody::finish(out, None).map_err(|code| to_error(mrb, parts, code))?;
-    let future = handle(request, None).map_err(|code| to_error(mrb, parts, code))?;
+    let options = parts.timeouts.options();
+    let future = handle(request, Some(options)).map_err(|code| to_error(mrb, parts, code))?;
     let response = loop {
         match future.get() {
             Some(answer) => break answer,
             None => {
-                if !wait_within(&future.subscribe(), parts.timeouts.read) {
-                    return Err(net_error(mrb, c"ReadTimeout", "Net::ReadTimeout"));
-                }
+                wait_within(&future.subscribe(), None);
             }
         }
     };

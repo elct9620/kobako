@@ -139,7 +139,7 @@ impl Invocation {
             .into_iter()
             .map(|pollable| pollable.for_wait(profile, has_producer))
             .collect::<Vec<_>>();
-        let due = pollables.iter().filter_map(table::Pollable::due).min();
+        let due = || pollables.iter().filter_map(table::Pollable::due).min();
         self.wait_for(due, |mut table| {
             let ready = (0..pollables.len() as u32)
                 .filter(|i| pollables[*i as usize].is_ready(table.as_deref_mut()))
@@ -150,20 +150,31 @@ impl Invocation {
 
     /// Wait until `ready` answers, or end with `TimeoutTrap` at the deadline
     /// and with `Interrupted` as the frontend interrupts; the wait sleeps
-    /// until the soonest pollable is due, or a queue `ready` registered on
-    /// wakes.
+    /// until the soonest pollable is due, read afresh each turn as an
+    /// exchange's next timeout starts once the last ends, or a queue `ready`
+    /// registered on wakes.
     fn wait_for<T>(
         &self,
-        due: Option<Instant>,
+        due: impl Fn() -> Option<Instant>,
         mut ready: impl FnMut(Option<&mut PollTable>) -> Option<T>,
     ) -> wasmtime::Result<T> {
         if let Some(answer) = ready(None) {
             return Ok(answer);
         }
         loop {
-            let timeout = due.map(|at| at.saturating_duration_since(Instant::now()));
-            match do_poll(timeout, &mut ready) {
-                Ok(Some(answer)) => return Ok(answer),
+            let at = due();
+            let timeout = at.map(|at| at.saturating_duration_since(Instant::now()));
+            // A wake that finds nothing ready yet moved the soonest due ends
+            // this turn, so the next sleeps to the new one.
+            let turn = do_poll(timeout, |table| match ready(table) {
+                Some(answer) => Some(Some(answer)),
+                None => due()
+                    .is_some_and(|due| at.is_none_or(|at| due < at))
+                    .then_some(None),
+            });
+            match turn {
+                Ok(Some(Some(answer))) => return Ok(answer),
+                Ok(Some(None)) => {}
                 Ok(None) => {
                     if let Some(answer) = ready(None) {
                         return Ok(answer);
@@ -268,7 +279,7 @@ impl Invocation {
     /// Wait until `stream`'s poll finds `mask`, or an error or a hang-up.
     fn wait_on(&self, stream: &Stream, mask: PollMask) -> wasmtime::Result<()> {
         let pollable = table::Pollable::File(stream.shared_file(), mask);
-        self.wait_for(None, |table| pollable.is_ready(table).then_some(()))
+        self.wait_for(|| None, |table| pollable.is_ready(table).then_some(()))
     }
 
     /// `call` on a stream still open: one closed answers `closed`, and a call
@@ -979,8 +990,8 @@ impl IoHost for Invocation {
 
     /// A pollable the stream must outlive, as `io.wit` makes it a child.
     fn streams_input_stream_subscribe(&mut self, this: InputStream) -> wasmtime::Result<Pollable> {
-        let file = self.table_mut().get(this)?.stream.shared_file();
-        self.subscribe_file(file, PollMask::IN, this)
+        let pollable = self.table_mut().get(this)?.pollable();
+        self.table_mut().push_child(pollable, this)
     }
 
     fn streams_input_stream_drop(&mut self, handle: InputStream) -> wasmtime::Result<()> {
@@ -1016,10 +1027,13 @@ impl IoHost for Invocation {
             }
             // Registering through the stream's poll puts the wait on its
             // queue, which a socket's writer wakes after each chunk it sends.
-            host.wait_for(None, |table| {
-                let failed = stream.poll(table).contains(PollMask::ERR);
-                (failed || stream.is_drained()).then_some(())
-            })?;
+            host.wait_for(
+                || None,
+                |table| {
+                    let failed = stream.poll(table).contains(PollMask::ERR);
+                    (failed || stream.is_drained()).then_some(())
+                },
+            )?;
             match stream.write(&[]) {
                 Err(Errno::BrokenPipe) if !contents.is_empty() => Ok(()),
                 Ok(_) => Ok(()),
@@ -3635,11 +3649,33 @@ mod tests {
 
     /// The preview2 functions a test answers before a Guest Binary imports
     /// them, each beside the test that holds the answer.
-    const UNIMPORTED_ANSWERS: [(&str, &str, &str); 1] = [(
-        "wasi:sockets/tcp@0.2.12",
-        "[method]tcp-socket.remote-address",
-        "a_looked_up_name_connects_and_reads_back_its_virtual_address",
-    )];
+    const UNIMPORTED_ANSWERS: [(&str, &str, &str); 5] = [
+        (
+            "wasi:sockets/tcp@0.2.12",
+            "[method]tcp-socket.remote-address",
+            "a_looked_up_name_connects_and_reads_back_its_virtual_address",
+        ),
+        (
+            "wasi:http/types@0.2.12",
+            "[method]request-options.connect-timeout",
+            "request_options_read_back_their_timeouts_and_bound_the_wait_for_the_head",
+        ),
+        (
+            "wasi:http/types@0.2.12",
+            "[method]request-options.first-byte-timeout",
+            "request_options_read_back_their_timeouts_and_bound_the_wait_for_the_head",
+        ),
+        (
+            "wasi:http/types@0.2.12",
+            "[method]request-options.between-bytes-timeout",
+            "request_options_read_back_their_timeouts_and_bound_the_wait_for_the_head",
+        ),
+        (
+            "wasi:http/types@0.2.12",
+            "[method]request-options.set-between-bytes-timeout",
+            "request_options_read_back_their_timeouts_and_bound_the_wait_for_the_head",
+        ),
+    ];
 
     #[test]
     fn the_driver_links_only_the_preview2_functions_a_guest_or_a_scenario_calls() {

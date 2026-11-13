@@ -10,8 +10,9 @@ use std::future::poll_fn;
 use std::io;
 use std::net::{IpAddr, Shutdown, SocketAddr};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
+use std::time::Instant;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -23,6 +24,7 @@ use super::socket::{BindHash, Destination};
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
 use crate::cred::Cred;
 use crate::network::{Host, Protocol, Ruleset};
+use crate::wait::WaitQueueHead;
 use crate::Errno;
 
 /// The only dialer the outbound seam has: it reaches the one authority the
@@ -39,6 +41,12 @@ pub struct Connector {
     cred: Arc<Cred>,
     /// The request's place, which a lookup of the authority holds too.
     pub(crate) place: Option<Arc<Place>>,
+    /// When a connect opened, which its exchange's wait for the head starts
+    /// from.
+    pub(crate) connected: Arc<OnceLock<Instant>>,
+    /// The queue its exchange's waiters sleep on, woken as the connect opens,
+    /// so a wait bound by the connect's timeout takes the head's.
+    pub(crate) wait: Option<Arc<WaitQueueHead>>,
 }
 
 impl Connector {
@@ -54,6 +62,8 @@ impl Connector {
             tcp_sockets: net.tcp_sockets().clone(),
             cred: cred.clone(),
             place: None,
+            connected: Arc::default(),
+            wait: None,
         }
     }
 
@@ -100,7 +110,13 @@ impl Connector {
             }
             let connection = Transport { sock };
             match connection.wait_for_connect().await {
-                Ok(()) => return Ok(connection),
+                Ok(()) => {
+                    let _ = self.connected.set(Instant::now());
+                    if let Some(wait) = &self.wait {
+                        wait.wake_up();
+                    }
+                    return Ok(connection);
+                }
                 Err(err) => last = HttpError::from_errno(&err),
             }
         }

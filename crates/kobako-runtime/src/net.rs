@@ -22,7 +22,7 @@ pub use family::{HostInet, ProtocolFamily};
 pub use http::{
     is_authority, is_scheme, is_token, to_field_name, to_field_value, to_origin_form, Exchange,
     FieldError, Fields, HttpError, HyperOutbound, Outbound, OutgoingRequest, RequestBody, Response,
-    ResponseBody, ResponseFuture, ResponseHead, Scheme, MAX_FIELD_SIZE,
+    ResponseBody, ResponseFuture, ResponseHead, Scheme, Timeouts, MAX_FIELD_SIZE,
 };
 pub use lookup::{resolve, LookupError, NameLookup, Resolver};
 pub use namespace::Namespace;

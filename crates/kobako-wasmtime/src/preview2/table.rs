@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
-use kobako_runtime::net::{NameLookup, TcpSock, UdpSock};
+use kobako_runtime::net::{Exchange, NameLookup, TcpSock, UdpSock};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, OpenFiles, PollMask};
 use kobako_runtime::wait::PollTable;
@@ -175,6 +175,8 @@ pub(crate) struct InputStream {
     /// The stream's end, which its TCP socket shares, so a shutdown of the
     /// receiving side closes the stream, as `tcp.wit` has it.
     closed: Arc<AtomicBool>,
+    /// The exchange whose body the stream reads, which bounds each wait.
+    pub(crate) exchange: Option<Arc<Exchange>>,
 }
 
 impl InputStream {
@@ -184,7 +186,29 @@ impl InputStream {
 
     /// A stream whose end `closed` shares with the socket it reads.
     pub(crate) fn with_closed(stream: Stream, closed: Arc<AtomicBool>) -> Self {
-        Self { stream, closed }
+        Self {
+            stream,
+            closed,
+            exchange: None,
+        }
+    }
+
+    /// A stream reading `exchange`'s body.
+    pub(crate) fn of_body(stream: Stream, exchange: Arc<Exchange>) -> Self {
+        Self {
+            exchange: Some(exchange),
+            ..Self::new(stream)
+        }
+    }
+
+    /// A pollable ready once the stream holds something to read, or a
+    /// timeout ends the wait for it.
+    pub(crate) fn pollable(&self) -> Pollable {
+        let file = self.stream.shared_file();
+        match &self.exchange {
+            Some(exchange) => Pollable::Exchange(file, exchange.clone()),
+            None => Pollable::File(file, PollMask::IN),
+        }
     }
 }
 
@@ -312,6 +336,9 @@ pub(crate) enum Pollable {
     /// failed or closed, as `io.wit` has a closed stream's pollable ready at
     /// once.
     Output(Stream, Arc<AtomicBool>, Arc<AtomicBool>),
+    /// An exchange's response or body file, ready once it polls readable, or
+    /// once a timeout the exchange holds passes, which ends its wait.
+    Exchange(SharedFile, Arc<Exchange>),
     /// A TCP socket, ready whenever no connect is under way as it is polled,
     /// as wasmtime's socket pollable reads its operation in progress then,
     /// so one pollable serves the socket's whole life.
@@ -339,6 +366,7 @@ impl Pollable {
         match self {
             Pollable::Clock { at } => Instant::now() >= *at,
             Pollable::File(file, mask) => lock(file).poll(table).is_ready_for(*mask),
+            Pollable::Exchange(file, _) => lock(file).poll(table).is_ready_for(PollMask::IN),
             Pollable::Output(stream, flushing, closed) => {
                 let found = stream.poll(table);
                 closed.load(Ordering::Acquire)
@@ -359,6 +387,7 @@ impl Pollable {
     pub(crate) fn due(&self) -> Option<Instant> {
         match self {
             Pollable::Clock { at } => Some(*at),
+            Pollable::Exchange(_, exchange) => exchange.deadline(),
             _ => None,
         }
     }
@@ -368,7 +397,10 @@ impl Pollable {
     pub(crate) fn is_producer(&self) -> bool {
         matches!(
             self,
-            Pollable::File(..) | Pollable::Output(..) | Pollable::TcpSocket(..)
+            Pollable::File(..)
+                | Pollable::Exchange(..)
+                | Pollable::Output(..)
+                | Pollable::TcpSocket(..)
         )
     }
 }
