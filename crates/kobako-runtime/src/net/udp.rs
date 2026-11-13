@@ -18,8 +18,8 @@ use crate::network::Protocol;
 use socket2::SockRef;
 
 use super::socket::{
-    connect4, filter, set_hop_limit, to_error, BindHash, InetSock, MemoryCharge, ProtoOps, SockOpt,
-    MAX_SOCKET_BUFFER,
+    connect4, filter, set_hop_limit, to_error, BindHash, Buffers, InetSock, MemoryCharge, ProtoOps,
+    SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
 use crate::vfs::PollMask;
@@ -83,7 +83,7 @@ impl UdpSock {
                 receive_queue: VecDeque::new(),
                 rmem_alloc: 0,
                 writable: true,
-                inet: InetSock::new(memory),
+                inet: InetSock::new(memory, Buffers::default()),
             }),
             wait: Arc::default(),
             this: this.clone(),

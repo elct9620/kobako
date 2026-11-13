@@ -2435,6 +2435,66 @@ mod tests {
         (network_guest(endpoint), listener)
     }
 
+    // @behavior NW-202
+    #[test]
+    fn a_tcp_sockets_send_buffer_grows_once_it_connects() {
+        let (mut guest, listener) = guest_and_listener();
+        let port = listener.local_addr().unwrap().port();
+        let sizes = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let mut sizes = Vec::new();
+            for set in [None, Some(1000)] {
+                let socket = guest
+                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                    .into_answer()?
+                    .expect("a network makes a socket");
+                if let Some(size) = set {
+                    guest
+                        .tcp_tcp_socket_set_send_buffer_size(socket, size)
+                        .into_answer()?
+                        .expect("a send buffer size is set");
+                }
+                let mut read = |guest: &mut Invocation| -> wasmtime::Result<(u64, u64)> {
+                    Ok((
+                        guest
+                            .tcp_tcp_socket_send_buffer_size(socket)
+                            .into_answer()?
+                            .expect("the size reads"),
+                        guest
+                            .tcp_tcp_socket_receive_buffer_size(socket)
+                            .into_answer()?
+                            .expect("the size reads"),
+                    ))
+                };
+                let before = read(&mut guest)?;
+                guest
+                    .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                    .into_answer()?
+                    .expect("the endpoint names the listener");
+                let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+                guest.poll_pollable_block(connecting)?;
+                guest
+                    .tcp_tcp_socket_finish_connect(socket)
+                    .into_answer()?
+                    .expect("the listener accepts");
+                sizes.push((before, read(&mut guest)?));
+            }
+            Ok::<_, wasmtime::Error>(sizes)
+        })
+        .unwrap();
+        assert_eq!(
+            sizes,
+            [
+                ((8_192, 32_768), (32_768, 32_768)),
+                ((2_304, 32_768), (2_304, 32_768)),
+            ],
+            "send-buffer-size of a new TCP socket must read Linux's tcp_wmem default of 16384, \
+             halved as wasmtime-wasi halves what Linux doubles, until it connects, then the \
+             socket's own 65536 halved; one set to 1000 must read Linux's least of 4608 halved \
+             before and after; receive-buffer-size reads 65536 halved throughout"
+        );
+    }
+
     // @behavior NW-165
     #[test]
     fn a_read_of_nothing_after_a_failed_read_answers_closed() {

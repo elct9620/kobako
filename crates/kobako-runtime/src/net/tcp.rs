@@ -19,7 +19,7 @@ use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
     connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome, to_error,
-    BindHash, Destination, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+    BindHash, Buffers, Destination, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
 use crate::network::{Protocol, Ruleset};
@@ -134,7 +134,7 @@ impl TcpSock {
                 received_end: false,
                 write_queue: VecDeque::new(),
                 fin_sent: false,
-                inet: InetSock::new(memory),
+                inet: InetSock::new(memory, Buffers::tcp()),
                 keepalive: KeepAlive {
                     on: false,
                     idle: TCP_KEEPALIVE_TIME,
@@ -362,6 +362,7 @@ impl TcpSock {
             None => return,
             Some(Ok(())) => {
                 state.phase = Phase::Connected;
+                state.inet.buffers.expand_sndbuf();
                 return;
             }
             Some(Err(err)) => err,

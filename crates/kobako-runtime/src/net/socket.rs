@@ -233,14 +233,15 @@ pub(crate) struct InetSock {
 }
 
 impl InetSock {
-    /// A socket whose queues hold what `memory` reserved.
-    pub(crate) fn new(memory: MemoryCharge) -> Self {
+    /// A socket whose queues start at `buffers`, within what `memory`
+    /// reserved.
+    pub(crate) fn new(memory: MemoryCharge, buffers: Buffers) -> Self {
         Self {
             num: None,
             sport: None,
             rcv_saddr: Ipv4Addr::UNSPECIFIED,
             peer: None,
-            buffers: Buffers::default(),
+            buffers,
             ttl: IPDEFTTL,
             error: None,
             rcv_shut: false,
@@ -397,24 +398,54 @@ impl InetSock {
 const SOCK_MIN_RCVBUF: usize = 2304;
 const SOCK_MIN_SNDBUF: usize = 4608;
 
+/// What a TCP socket's queues hold until it connects, Linux's `tcp_wmem[1]`
+/// and `tcp_rmem[1]`.
+const TCP_WMEM_DEFAULT: usize = 16 * 1024;
+const TCP_RMEM_DEFAULT: usize = 128 * 1024;
+
 /// How much a socket's queues hold, as `sk_rcvbuf` and `sk_sndbuf`. Each
-/// starts at, and never passes, the buffer its memory reserved, which plays
-/// `rmem_max` and `wmem_max` as twice the most a set takes.
+/// starts at Linux's default and never passes the buffer its memory
+/// reserved, which plays `rmem_max` and `wmem_max` as twice the most a set
+/// takes.
 pub(crate) struct Buffers {
     pub(crate) rcvbuf: usize,
     pub(crate) sndbuf: usize,
+    /// Whether the guest set `SO_SNDBUF`, which Linux's `SOCK_SNDBUF_LOCK`
+    /// keeps from growing.
+    sndbuf_locked: bool,
 }
 
 impl Default for Buffers {
+    /// A datagram socket's, Linux's `rmem_default` and `wmem_default`, both
+    /// past the reserved buffer.
     fn default() -> Self {
-        Self {
-            rcvbuf: MAX_SOCKET_BUFFER,
-            sndbuf: MAX_SOCKET_BUFFER,
-        }
+        Self::within_reserve(MAX_SOCKET_BUFFER, MAX_SOCKET_BUFFER)
     }
 }
 
 impl Buffers {
+    /// A TCP socket's, until it connects.
+    pub(crate) fn tcp() -> Self {
+        Self::within_reserve(TCP_RMEM_DEFAULT, TCP_WMEM_DEFAULT)
+    }
+
+    fn within_reserve(rcvbuf: usize, sndbuf: usize) -> Self {
+        Self {
+            rcvbuf: rcvbuf.min(MAX_SOCKET_BUFFER),
+            sndbuf: sndbuf.min(MAX_SOCKET_BUFFER),
+            sndbuf_locked: false,
+        }
+    }
+
+    /// Grow a connected TCP socket's send buffer, as `tcp_sndbuf_expand` makes
+    /// room for its first window: two of `TCP_INIT_CWND` segments, which pass
+    /// the reserved buffer at any MSS. One the guest set stays.
+    pub(crate) fn expand_sndbuf(&mut self) {
+        if !self.sndbuf_locked {
+            self.sndbuf = MAX_SOCKET_BUFFER;
+        }
+    }
+
     /// Twice `bytes`, within the cap, as `sock_setsockopt` doubles a value to
     /// leave room for its bookkeeping.
     fn to_buffer_room(bytes: usize, least: usize) -> usize {
@@ -427,6 +458,7 @@ impl Buffers {
 
     pub(crate) fn set_sndbuf(&mut self, bytes: usize) {
         self.sndbuf = Self::to_buffer_room(bytes, SOCK_MIN_SNDBUF);
+        self.sndbuf_locked = true;
     }
 }
 
