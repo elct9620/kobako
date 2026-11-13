@@ -73,6 +73,8 @@ sha2 = "0.11"
 # wit-bindgen-core walks the Canonical ABI and re-exports the wit-parser
 # it was built against.
 wit-bindgen-core = "0.63.0"
+# wit-parser reports a malformed `wit/` as `anyhow::Error`, which build.rs
+# hands back to cargo.
 anyhow = "1.0.102"
 
 # rustix reaches the cache directory through one descriptor, checked by
