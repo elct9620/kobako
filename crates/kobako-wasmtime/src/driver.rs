@@ -9,9 +9,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use wasmtime::{
-    AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore, TypedFunc,
-};
+use wasmtime::{AsContextMut, InstancePre as WtInstancePre, ResourceLimiter, Store as WtStore};
 
 use crate::cache::load_engine;
 use crate::config::Config;
@@ -84,29 +82,28 @@ impl Driver {
         Ok(exports)
     }
 
-    /// Disarm runs whether the call returns or traps, so the `wall_time`
-    /// bracket and the memory budget always close; that guarantee is why the
-    /// bracket lives in one place rather than at each call site.
-    fn call_with_caps<Params, Results>(
+    /// Instantiate the guest in `store`, write `request` into it, and call
+    /// `__kobako_downcall` under the invocation's caps, answering the packed
+    /// reply. A fault before the call starts is the outer `Err`, the call's
+    /// own the inner one. Disarm runs whether the call returns or traps, so
+    /// the `wall_time` bracket and the memory budget always close.
+    fn downcall(
         &self,
         store: &mut WtStore<Invocation>,
-        exports: &Exports,
-        export: &TypedFunc<Params, Results>,
-        params: Params,
-    ) -> Result<Results, wasmtime::Error>
-    where
-        Params: wasmtime::WasmParams,
-        Results: wasmtime::WasmResults,
-    {
-        self.arm_memory_budget(store, exports);
+        request: &[u8],
+    ) -> Result<wasmtime::Result<u64>, InvokeError> {
+        let exports = self.instantiate(store)?;
+        let downcall = exports::require(exports.downcall.as_ref())?;
+        let (ptr, len) = endpoint::write_request(&mut guest_of(store), request)?;
+        self.arm_memory_budget(store, &exports);
         // A wait for a lock the call meets ends at the same deadline the guest's
         // code does, so another Sandbox holding it cannot keep this one past it.
         let deadline = store.data().deadline();
         let result = kobako_runtime::sched::run_task(deadline, || {
-            export.call(store.as_context_mut(), params)
+            downcall.call(store.as_context_mut(), (ptr, len))
         });
         disarm_caps(store);
-        result
+        Ok(result)
     }
 
     /// The pre-initialized image's allocation is folded into the memory
@@ -155,11 +152,7 @@ impl ContractRuntime for Driver {
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
         }
-        let exports = self.instantiate(&mut store)?;
-        let downcall = exports::require(exports.downcall.as_ref())?;
-        let request = endpoint::request_of(entry);
-        let (ptr, len) = endpoint::write_request(&mut guest_of(&mut store), &request)?;
-        let called = self.call_with_caps(&mut store, &exports, downcall, (ptr, len));
+        let called = self.downcall(&mut store, &endpoint::request_of(entry))?;
         let completion = match called {
             Ok(packed) => match endpoint::read_outcome(&mut guest_of(&mut store), packed) {
                 Ok(outcome) => Completion::Outcome(outcome),
@@ -190,13 +183,9 @@ impl ContractRuntime for Driver {
     fn compile(&self, preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
         let wasi = Wasi::for_compile(&self.config, endpoint::stdin_content(preamble).ok()?).ok()?;
         let mut store = self.new_store(wasi).ok()?;
-        let exports = self.instantiate(&mut store).ok()?;
-        let downcall = exports::require(exports.downcall.as_ref()).ok()?;
-        let (ptr, len) =
-            endpoint::write_request(&mut guest_of(&mut store), &endpoint::compile_request())
-                .ok()?;
         let packed = self
-            .call_with_caps(&mut store, &exports, downcall, (ptr, len))
+            .downcall(&mut store, &endpoint::compile_request())
+            .ok()?
             .ok()?;
         let reply = endpoint::read_compile_reply(&mut guest_of(&mut store), packed).ok()?;
         endpoint::compiled_bytecodes(preamble, reply)
