@@ -8,6 +8,18 @@
 use super::bytes::{Reader, Writer};
 use super::DecodeError;
 
+/// The name a wire violation carries: an exchange that did not complete.
+pub const TRANSPORT_ERROR: &str = "Kobako::Transport::Error";
+/// The name a guest that could not start the Sandbox carries.
+pub const BOOT_ERROR: &str = "Kobako::BootError";
+/// The name a failure the guest's own flow detected carries, where no script
+/// error names one.
+pub const SANDBOX_ERROR: &str = "Kobako::SandboxError";
+/// The name a Snippet the guest could not load carries.
+pub const BYTECODE_ERROR: &str = "Kobako::BytecodeError";
+/// The name a critical Preamble flag the guest does not know carries.
+pub const UNSUPPORTED_FLAG_ERROR: &str = "Kobako::UnsupportedFlagError";
+
 /// The error's name, message, and backtrace as the guest saw them. `name`
 /// rather than `class` because a guest need not be object-oriented to have
 /// named the error it is reporting.

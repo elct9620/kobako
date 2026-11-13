@@ -447,6 +447,49 @@ A script error as the wire carries it: its class name, message, and backtrace.
 pub struct ErrorRecord {}
 ```
 
+## `TRANSPORT_ERROR`
+
+The name a Panic carries for a wire violation, an exchange that did not
+complete.
+
+```rust
+pub const TRANSPORT_ERROR: &str;
+```
+
+## `BOOT_ERROR`
+
+The name a Panic carries when a Guest could not start the Sandbox.
+
+```rust
+pub const BOOT_ERROR: &str;
+```
+
+## `SANDBOX_ERROR`
+
+The name a Panic carries for a failure the Guest detected itself, where no
+script error names one.
+
+```rust
+pub const SANDBOX_ERROR: &str;
+```
+
+## `BYTECODE_ERROR`
+
+The name a Panic carries when a Guest could not load a Snippet.
+
+```rust
+pub const BYTECODE_ERROR: &str;
+```
+
+## `UNSUPPORTED_FLAG_ERROR`
+
+The name a Panic carries when a Guest does not know a critical Preamble flag. A
+Frontend may retry without that flag.
+
+```rust
+pub const UNSUPPORTED_FLAG_ERROR: &str;
+```
+
 ## `Run`
 
 The Entrypoint an invocation calls and the payload it is called with.
