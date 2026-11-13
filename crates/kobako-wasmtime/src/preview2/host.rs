@@ -1747,7 +1747,7 @@ mod tests {
                     .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
                     .into_answer()?
                     .expect("a network makes a socket");
-                let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress { port, address });
+                let remote = ipv4(address, port);
                 if guest
                     .tcp_tcp_socket_start_connect(socket, network, remote)
                     .into_answer()?
@@ -1804,12 +1804,7 @@ mod tests {
             ],
             None,
         );
-        let at = |port| {
-            IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port,
-                address: (127, 0, 0, 1),
-            })
-        };
+        let at = |port| ipv4((127, 0, 0, 1), port);
         let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let tcp = guest
@@ -1839,10 +1834,7 @@ mod tests {
                 .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
                 .into_answer()?
                 .expect("a network makes a socket");
-            let any = IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port: 0,
-                address: (0, 0, 0, 0),
-            });
+            let any = ipv4((0, 0, 0, 0), 0);
             guest
                 .udp_udp_socket_start_bind(udp, network, any)
                 .into_answer()?
@@ -2028,10 +2020,7 @@ mod tests {
                 .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
                 .into_answer()?
                 .expect("a network makes a socket");
-            let any = IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port: 0,
-                address: (0, 0, 0, 0),
-            });
+            let any = ipv4((0, 0, 0, 0), 0);
             guest
                 .udp_udp_socket_start_bind(udp, network, any)
                 .into_answer()?
@@ -2040,10 +2029,7 @@ mod tests {
                 .udp_udp_socket_finish_bind(udp)
                 .into_answer()?
                 .expect("the bind settles");
-            let peer_at = IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port: udp_port,
-                address: (127, 0, 0, 1),
-            });
+            let peer_at = ipv4((127, 0, 0, 1), udp_port);
             let (incoming, outgoing) = guest
                 .udp_udp_socket_stream(udp, Some(peer_at))
                 .into_answer()?
@@ -2344,18 +2330,8 @@ mod tests {
                 .unwrap()
                 .with_protocol(network::Protocol::Udp),
         );
-        let at = |port| {
-            IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port,
-                address: (127, 0, 0, 1),
-            })
-        };
-        let any = |port| {
-            IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port,
-                address: (0, 0, 0, 0),
-            })
-        };
+        let at = |port| ipv4((127, 0, 0, 1), port);
+        let any = |port| ipv4((0, 0, 0, 0), port);
         let started = Instant::now();
         let (fixed, peerless, answer) = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
@@ -2449,6 +2425,30 @@ mod tests {
         (network_guest(endpoint), listener)
     }
 
+    /// A TCP socket of `guest`'s connected to the loopback listener at
+    /// `port`, and its streams.
+    fn connect_loopback(
+        guest: &mut Invocation,
+        network: Network,
+        port: u16,
+    ) -> wasmtime::Result<(TcpSocket, InputStream, OutputStream)> {
+        let socket = guest
+            .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+            .into_answer()?
+            .expect("a network makes a socket");
+        guest
+            .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+            .into_answer()?
+            .expect("the endpoint names the listener");
+        let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+        guest.poll_pollable_block(connecting)?;
+        let (input, output) = guest
+            .tcp_tcp_socket_finish_connect(socket)
+            .into_answer()?
+            .expect("the listener accepts");
+        Ok((socket, input, output))
+    }
+
     // @behavior NW-202
     #[test]
     fn a_tcp_sockets_send_buffer_grows_once_it_connects() {
@@ -2516,20 +2516,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
-            let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
-                .into_answer()?
-                .expect("a network makes a socket");
-            guest
-                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
-                .into_answer()?
-                .expect("the endpoint names the listener");
-            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
-            guest.poll_pollable_block(connecting)?;
-            let (input, output) = guest
-                .tcp_tcp_socket_finish_connect(socket)
-                .into_answer()?
-                .expect("the listener accepts");
+            let (_, input, output) = connect_loopback(&mut guest, network, port)?;
             let (peer, _) = listener.accept().unwrap();
             // The peer closes with these bytes unread, so it resets.
             guest
@@ -2963,20 +2950,7 @@ mod tests {
         let started = Instant::now();
         let (permitted, within, past) = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
-            let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
-                .into_answer()?
-                .expect("a network makes a socket");
-            guest
-                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
-                .into_answer()?
-                .expect("the endpoint names the listener");
-            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
-            guest.poll_pollable_block(connecting)?;
-            let (_, output) = guest
-                .tcp_tcp_socket_finish_connect(socket)
-                .into_answer()?
-                .expect("the listener accepts");
+            let (_, _, output) = connect_loopback(&mut guest, network, port)?;
             let permitted = guest
                 .streams_output_stream_check_write(output)
                 .into_answer()?
@@ -3006,20 +2980,7 @@ mod tests {
         let started = Instant::now();
         let (empty, byte) = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
-            let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
-                .into_answer()?
-                .expect("a network makes a socket");
-            guest
-                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
-                .into_answer()?
-                .expect("the endpoint names the listener");
-            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
-            guest.poll_pollable_block(connecting)?;
-            let (_, output) = guest
-                .tcp_tcp_socket_finish_connect(socket)
-                .into_answer()?
-                .expect("the listener accepts");
+            let (_, _, output) = connect_loopback(&mut guest, network, port)?;
             guest
                 .streams_output_stream_check_write(output)
                 .into_answer()?
@@ -3049,20 +3010,7 @@ mod tests {
         let started = Instant::now();
         let written = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
-            let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
-                .into_answer()?
-                .expect("a network makes a socket");
-            guest
-                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
-                .into_answer()?
-                .expect("the endpoint names the listener");
-            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
-            guest.poll_pollable_block(connecting)?;
-            let (_, output) = guest
-                .tcp_tcp_socket_finish_connect(socket)
-                .into_answer()?
-                .expect("the listener accepts");
+            let (socket, _, output) = connect_loopback(&mut guest, network, port)?;
             let permit = guest
                 .streams_output_stream_check_write(output)
                 .into_answer()?
@@ -3102,20 +3050,7 @@ mod tests {
         let started = Instant::now();
         let answers = run_task(Some(started + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
-            let socket = guest
-                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
-                .into_answer()?
-                .expect("a network makes a socket");
-            guest
-                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
-                .into_answer()?
-                .expect("the endpoint names the listener");
-            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
-            guest.poll_pollable_block(connecting)?;
-            let (_, output) = guest
-                .tcp_tcp_socket_finish_connect(socket)
-                .into_answer()?
-                .expect("the listener accepts");
+            let (socket, _, output) = connect_loopback(&mut guest, network, port)?;
             guest
                 .tcp_tcp_socket_shutdown(socket, ShutdownType::Send)
                 .into_answer()?
@@ -3256,10 +3191,7 @@ mod tests {
                 .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
                 .into_answer()?
                 .expect("a network makes a socket");
-            let any = IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port: 0,
-                address: (0, 0, 0, 0),
-            });
+            let any = ipv4((0, 0, 0, 0), 0);
             guest
                 .udp_udp_socket_start_bind(socket, network, any)
                 .into_answer()?
@@ -3268,10 +3200,7 @@ mod tests {
                 .udp_udp_socket_finish_bind(socket)
                 .into_answer()?
                 .expect("the bind settles");
-            let peer_address = IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port,
-                address: (127, 0, 0, 1),
-            });
+            let peer_address = ipv4((127, 0, 0, 1), port);
             let (_, outgoing) = guest
                 .udp_udp_socket_stream(socket, Some(peer_address))
                 .into_answer()?
@@ -3291,10 +3220,7 @@ mod tests {
                     }],
                 )
                 .into_answer()?;
-            let elsewhere = IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port,
-                address: (127, 0, 0, 2),
-            });
+            let elsewhere = ipv4((127, 0, 0, 2), port);
             guest
                 .udp_outgoing_datagram_stream_check_send(outgoing)
                 .into_answer()?
@@ -3415,10 +3341,7 @@ mod tests {
                     .into_answer()?
                     .expect("a network makes a socket");
                 let network = guest.instance_network_instance_network()?;
-                let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                    port: listener.local_addr().unwrap().port(),
-                    address: (127, 0, 0, 1),
-                });
+                let remote = ipv4((127, 0, 0, 1), listener.local_addr().unwrap().port());
                 guest
                     .tcp_tcp_socket_start_connect(socket, network, remote)
                     .into_answer()?
@@ -3461,10 +3384,7 @@ mod tests {
                 .into_answer()?
                 .expect("a network makes a socket");
             let network = guest.instance_network_instance_network()?;
-            let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port: listener.local_addr().unwrap().port(),
-                address: (127, 0, 0, 1),
-            });
+            let remote = ipv4((127, 0, 0, 1), listener.local_addr().unwrap().port());
             guest
                 .tcp_tcp_socket_start_connect(socket, network, remote)
                 .into_answer()?
@@ -3623,10 +3543,7 @@ mod tests {
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
                 .into_answer()?
                 .expect("one file is left for the socket");
-            let remote = IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                port,
-                address: (127, 0, 0, 1),
-            });
+            let remote = ipv4((127, 0, 0, 1), port);
             guest
                 .tcp_tcp_socket_start_connect(socket, network, remote)
                 .into_answer()?
