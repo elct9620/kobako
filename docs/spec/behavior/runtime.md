@@ -4336,3 +4336,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | files opened with `O_DSYNC`, with `O_SYNC`, and with `O_RSYNC` |
 | When | the guest asks each for its flags |
 | Then | `O_DSYNC` reports `DSYNC` alone, and `O_SYNC` and `O_RSYNC` each report `DSYNC`, `SYNC`, and `RSYNC`, as Linux's `O_RSYNC` is `O_SYNC` |
+
+## `RT-393` A directory a Filesystem answers anew keeps its one dentry
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-315` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Filesystem answering each lookup of a directory with a new inode reporting one identity |
+| When | a walk reaches the directory again after its held dentry left the name table |
+| Then | the walk finds the dentry it held, as `iget5_locked` finds the directory's live inode by its number |
