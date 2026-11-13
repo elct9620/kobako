@@ -2,7 +2,7 @@
 //! constants it answers for; the helpers every module shares sit beside
 //! them.
 
-use magnus::{Error, RString, Ruby, Symbol, Value};
+use magnus::{prelude::*, Error, RModule, RString, Ruby, Symbol, TryConvert, Value};
 
 mod errors;
 mod escape;
@@ -27,9 +27,21 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
 /// The one place the boundary borrows an RString's bytes: the borrow does
 /// not outlive this call, so no Ruby allocation can move the RString
 /// between the borrow and the copy.
-fn rstring_to_vec(s: RString) -> Vec<u8> {
+fn to_bytes(s: RString) -> Vec<u8> {
     // SAFETY: see item doc.
     unsafe { s.as_slice() }.to_vec()
+}
+
+/// The constant `path` names beneath `Kobako`. `lib/kobako` defines each
+/// one the ext reads before the ext reads it, so a missing one is a wiring
+/// bug and the `unwrap` fails fast.
+fn constant_by_path<T: TryConvert>(ruby: &Ruby, path: &[&str]) -> T {
+    let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
+    let (name, modules) = path.split_last().expect("a path names a constant");
+    let owner = modules
+        .iter()
+        .fold(kobako, |owner, module| owner.const_get(*module).unwrap());
+    owner.const_get(*name).unwrap()
 }
 
 /// The name of `value` when it is a Symbol, so each choice an option or a

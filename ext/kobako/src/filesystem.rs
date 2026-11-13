@@ -96,7 +96,7 @@ fn tmpfs_new(args: &[Value]) -> Result<TmpfsFs, MagnusError> {
                 }
                 None => files.push((
                     String::try_convert(key)?,
-                    crate::rstring_to_vec(RString::try_convert(value)?),
+                    crate::to_bytes(RString::try_convert(value)?),
                 )),
             }
             Ok(magnus::r_hash::ForEach::Continue)
@@ -110,12 +110,12 @@ fn tmpfs_new(args: &[Value]) -> Result<TmpfsFs, MagnusError> {
         Some(nr_inodes) => tmpfs.with_nr_inodes(nr_inodes),
         None => tmpfs,
     }));
-    filesystem.map(TmpfsFs).map_err(cannot_stand)
+    filesystem.map(TmpfsFs).map_err(to_instance_error)
 }
 
 /// A Filesystem whose instance cannot stand, an `ArgumentError` the Host App
 /// can rescue.
-fn cannot_stand(error: Errno) -> MagnusError {
+fn to_instance_error(error: Errno) -> MagnusError {
     let ruby = Ruby::get().expect("Ruby thread");
     MagnusError::new(
         ruby.exception_arg_error(),
@@ -145,7 +145,7 @@ fn bind_new(args: &[Value]) -> Result<BindFs, MagnusError> {
         directory.with_exclusive(exclusive.unwrap_or(false)),
     ))
     .map(BindFs)
-    .map_err(cannot_stand)
+    .map_err(to_instance_error)
 }
 
 /// `Overlay.new(lower:, upper: nil)`: the Filesystems in `lower`, topmost
@@ -187,7 +187,7 @@ fn overlay_new(args: &[Value]) -> Result<OverlayFs, MagnusError> {
         )
     })?;
     Ok(OverlayFs {
-        filesystem: Filesystem::new(Arc::new(overlay)).map_err(cannot_stand)?,
+        filesystem: Filesystem::new(Arc::new(overlay)).map_err(to_instance_error)?,
         layers: lower.into_iter().chain(upper).map(Opaque::from).collect(),
     })
 }
@@ -206,7 +206,7 @@ fn to_filesystem(value: Value) -> Result<Arc<Filesystem>, MagnusError> {
         return Ok(fs.filesystem.clone());
     }
     if let Some(fs) = RubyFilesystem::from_value(value) {
-        return Filesystem::new(Arc::new(fs)).map_err(cannot_stand);
+        return Filesystem::new(Arc::new(fs)).map_err(to_instance_error);
     }
     let ruby = Ruby::get().expect("Ruby thread");
     Err(MagnusError::new(

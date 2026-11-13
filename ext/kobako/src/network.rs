@@ -129,8 +129,7 @@ impl CredentialSource for RubyCredential {
                 credential.funcall::<_, _, Option<RString>>("value", (request,))
             });
             match answer {
-                // SAFETY: the bytes are copied out before Ruby runs again.
-                Ok(Some(value)) => Some(Secret::new(unsafe { value.as_slice() }.to_vec())),
+                Ok(Some(value)) => Some(Secret::new(crate::to_bytes(value))),
                 Ok(None) => None,
                 Err(error) => {
                     let _ = escape::hold(&ruby, error);
@@ -227,12 +226,12 @@ fn to_protocol_name(ruby: &Ruby, protocol: Protocol) -> Result<Symbol, MagnusErr
         Protocol::Http => "http",
         Protocol::Tcp => "tcp",
         Protocol::Udp => "udp",
-        other => return Err(unnamed(ruby, other)),
+        other => return Err(to_unnamed_error(ruby, other)),
     }))
 }
 
 /// A contract value the ext gives no Ruby name.
-fn unnamed(ruby: &Ruby, value: impl std::fmt::Debug) -> MagnusError {
+fn to_unnamed_error(ruby: &Ruby, value: impl std::fmt::Debug) -> MagnusError {
     MagnusError::new(
         ruby.exception_runtime_error(),
         format!("{value:?} has no Ruby name"),
@@ -247,7 +246,7 @@ fn to_addresses_name(ruby: &Ruby, addresses: &Addresses) -> Result<Value, Magnus
         Addresses::Private => ruby.to_symbol("private").as_value(),
         Addresses::Local => ruby.to_symbol("local").as_value(),
         Addresses::Cidr(address, prefix) => ruby.str_new(&format!("{address}/{prefix}")).as_value(),
-        other => return Err(unnamed(ruby, other)),
+        other => return Err(to_unnamed_error(ruby, other)),
     })
 }
 
@@ -314,20 +313,14 @@ fn to_request(ruby: &Ruby, request: &Request<'_>) -> Result<Value, MagnusError> 
     )
 }
 
-/// `lib/kobako/network.rb` defines the classes the ext hands a Ruby policy
-/// before any invocation reads an entry, so a missing one is a wiring bug
-/// and the `unwrap` fails fast.
-fn network_class(ruby: &Ruby, name: &str) -> RClass {
-    let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    let network: RModule = kobako.const_get("Network").unwrap();
-    network.const_get(name).unwrap()
-}
+static REQUEST: Lazy<RClass> =
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["Network", "Request"]));
 
-static REQUEST: Lazy<RClass> = Lazy::new(|ruby| network_class(ruby, "Request"));
+static CONNECTION: Lazy<RClass> =
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["Network", "Connection"]));
 
-static CONNECTION: Lazy<RClass> = Lazy::new(|ruby| network_class(ruby, "Connection"));
-
-static BUILDER: Lazy<RClass> = Lazy::new(|ruby| network_class(ruby, "Builder"));
+static BUILDER: Lazy<RClass> =
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["Network", "Builder"]));
 
 /// `connection` as the `Kobako::Network::Connection` a Ruby policy reads.
 fn to_connection(ruby: &Ruby, connection: &Connection<'_>) -> Result<Value, MagnusError> {

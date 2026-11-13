@@ -149,7 +149,7 @@ impl GuestYielder {
                 "guest block called from a thread or fiber other than its invocation's",
             ));
         }
-        let bytes = crate::rstring_to_vec(args);
+        let bytes = crate::to_bytes(args);
         // SAFETY: this frame is live, so the innermost frame — this one or
         // a later Call — is still on the Rust stack with its Yielder lent.
         // Only the innermost frame's Ruby code runs, so no other borrow of
@@ -157,7 +157,7 @@ impl GuestYielder {
         let yielder: &mut dyn Yielder = unsafe { ptr.as_mut() };
         let reply = yielder
             .yield_to_block(self.frame, &bytes)
-            .map_err(|t| crate::errors::trap_to_magnus(&ruby, t))?;
+            .map_err(|t| crate::errors::from_trap(&ruby, t))?;
         Ok(match reply {
             YieldReply::Ok(body) => (ruby.to_symbol(ARM_OK), ruby.str_from_slice(&body), None),
             YieldReply::Break => (ruby.to_symbol(ARM_BREAK), ruby.str_from_slice(&[]), None),
@@ -260,7 +260,7 @@ impl DispatchHandler for RubyDispatchHandler {
             // the public API, so it fails the dispatch rather than
             // degrading.
             match arm.name().ok()?.as_ref() {
-                ARM_OK => Some(Reply::Ok(crate::rstring_to_vec(body))),
+                ARM_OK => Some(Reply::Ok(crate::to_bytes(body))),
                 ARM_BREAK => Some(Reply::Break),
                 ARM_FAULT => Some(Reply::Fault(Fault::new(
                     FaultKind::from_name(&kind?.to_string().ok()?)?,

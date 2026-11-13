@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use magnus::value::{Opaque, ReprValue};
-use magnus::{prelude::*, Error as MagnusError, RArray, RString, Ruby, Symbol, Value};
+use magnus::{prelude::*, Error as MagnusError, RArray, RString, Ruby, Value};
 
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
@@ -36,10 +36,7 @@ fn to_mount(at: Value, access: Value, filesystem: Value) -> Result<Mount, Magnus
 }
 
 fn to_access(access: Value) -> Result<Access, MagnusError> {
-    let name = Symbol::from_value(access)
-        .map(|symbol| symbol.name())
-        .transpose()?;
-    match name.as_deref() {
+    match crate::symbol_name_of(access)?.as_deref() {
         Some("read") => Ok(Access::Read),
         Some("read_write") => Ok(Access::ReadWrite),
         _ => Err(MagnusError::new(

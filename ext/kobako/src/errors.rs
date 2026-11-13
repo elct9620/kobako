@@ -1,6 +1,6 @@
 //! Ruby error classes (lazy-resolved once the top-level Kobako error
-//! hierarchy is loaded by `lib/kobako/errors.rb`) and the `*_err`
-//! constructors every run-mechanics submodule shares. The ext raises
+//! hierarchy is loaded by `lib/kobako/errors.rb`) and the conversions into
+//! them every Context module shares. The ext raises
 //! directly into the invocation-outcome taxonomy (`TrapError` and its
 //! subclasses) for run-path failures and into the construction-layer
 //! `SetupError` (and its `ModuleNotBuiltError` subclass) for `from_path`
@@ -9,39 +9,34 @@
 //! unchanged.
 
 use magnus::value::Lazy;
-use magnus::{prelude::*, Error as MagnusError, ExceptionClass, RModule, Ruby};
+use magnus::{Error as MagnusError, ExceptionClass, Ruby};
 
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 
-/// `lib/kobako/errors.rb` loads the hierarchy before the ext raises into
-/// it, so a missing constant is a wiring bug and the `unwrap` fails fast.
-fn kobako_error_class(ruby: &Ruby, name: &str) -> ExceptionClass {
-    let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
-    kobako.const_get(name).unwrap()
-}
-
-static SETUP_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| kobako_error_class(ruby, "SetupError"));
+static SETUP_ERROR: Lazy<ExceptionClass> =
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["SetupError"]));
 
 static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> =
-    Lazy::new(|ruby| kobako_error_class(ruby, "ModuleNotBuiltError"));
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["ModuleNotBuiltError"]));
 
-static TRAP_ERROR: Lazy<ExceptionClass> = Lazy::new(|ruby| kobako_error_class(ruby, "TrapError"));
+static TRAP_ERROR: Lazy<ExceptionClass> =
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["TrapError"]));
 
 static TIMEOUT_ERROR: Lazy<ExceptionClass> =
-    Lazy::new(|ruby| kobako_error_class(ruby, "TimeoutError"));
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["TimeoutError"]));
 
 static MEMORY_LIMIT_ERROR: Lazy<ExceptionClass> =
-    Lazy::new(|ruby| kobako_error_class(ruby, "MemoryLimitError"));
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["MemoryLimitError"]));
 
 static SANDBOX_ERROR: Lazy<ExceptionClass> =
-    Lazy::new(|ruby| kobako_error_class(ruby, "SandboxError"));
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["SandboxError"]));
 
 fn error_in(ruby: &Ruby, class: &Lazy<ExceptionClass>, msg: impl Into<String>) -> MagnusError {
     MagnusError::new(ruby.get_inner(class), msg.into())
 }
 
 /// For an invocation-time engine failure that is not a configured cap;
-/// construction-time failures use `setup_to_magnus`.
+/// construction-time failures use `from_setup`.
 pub(super) fn trap_err(ruby: &Ruby, msg: impl Into<String>) -> MagnusError {
     error_in(ruby, &TRAP_ERROR, msg)
 }
@@ -59,11 +54,11 @@ pub(super) fn trap_class(ruby: &Ruby, trap: &Trap) -> ExceptionClass {
 }
 
 /// The verb prefix is left to `Kobako::Context#invoke`.
-pub(super) fn trap_to_magnus(ruby: &Ruby, trap: Trap) -> MagnusError {
+pub(super) fn from_trap(ruby: &Ruby, trap: Trap) -> MagnusError {
     MagnusError::new(trap_class(ruby, &trap), trap.to_string())
 }
 
-pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
+pub(super) fn from_setup(ruby: &Ruby, err: SetupError) -> MagnusError {
     match err {
         // The engine serves every frontend, so the gem adds its own way to
         // build the artifact.
@@ -83,10 +78,10 @@ pub(super) fn setup_to_magnus(ruby: &Ruby, err: SetupError) -> MagnusError {
     }
 }
 
-pub(super) fn to_magnus(ruby: &Ruby, err: InvokeError) -> MagnusError {
+pub(super) fn from_invoke(ruby: &Ruby, err: InvokeError) -> MagnusError {
     match err {
-        InvokeError::Trap(trap) => trap_to_magnus(ruby, trap),
-        InvokeError::Setup(err) => setup_to_magnus(ruby, err),
+        InvokeError::Trap(trap) => from_trap(ruby, trap),
+        InvokeError::Setup(err) => from_setup(ruby, err),
         InvokeError::Entry(err) => MagnusError::new(ruby.exception_arg_error(), err.to_string()),
         // A failure this frontend does not know is still a run that never
         // started, which the taxonomy attributes to the engine.

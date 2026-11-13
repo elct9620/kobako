@@ -32,14 +32,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::error::SetupError;
 use kobako_runtime::limits::Limits;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
-use crate::{errors, escape, filesystem, gvl, network, rstring_to_vec, symbol_name_of};
+use crate::{errors, escape, filesystem, gvl, network, symbol_name_of, to_bytes};
 use snapshot::Snapshot;
 
 /// `kind` arrives as a Symbol so the registry never names the wire's
@@ -57,7 +56,7 @@ fn to_snippets(ruby: &Ruby, entries: RArray) -> Result<Snippets, MagnusError> {
                 body: entry.entry(2)?,
             },
             "bytecode" => Snippet::Bytecode {
-                body: rstring_to_vec(entry.entry(2)?),
+                body: to_bytes(entry.entry(2)?),
             },
             other => {
                 return Err(MagnusError::new(
@@ -264,20 +263,7 @@ impl Runtime {
         config.connection_limit = connection_limit;
         config.profile = profile;
         let driver =
-            Driver::new(Path::new(&path), config).map_err(|e| errors::setup_to_magnus(&ruby, e))?;
-        // The requested profile is a floor: a runtime that built less never
-        // runs untrusted code under less isolation than was asked for.
-        let declared = driver.profile();
-        if declared < profile {
-            return Err(errors::setup_to_magnus(
-                &ruby,
-                SetupError::Dead(format!(
-                    "runtime declares isolation profile {}, below the requested floor {}",
-                    to_profile_name(&ruby, declared).inspect(),
-                    to_profile_name(&ruby, profile).inspect()
-                )),
-            ));
-        }
+            Driver::new(Path::new(&path), config).map_err(|e| errors::from_setup(&ruby, e))?;
         Ok(Self {
             runtime: Box::new(driver),
             release_gvl,
@@ -289,7 +275,7 @@ impl Runtime {
     // argument and returns a `Snapshot` for any completed invocation —
     // success or trap alike. Only a could-not-start fault (a missing export
     // or a fault before the export call) raises directly, as the class
-    // `errors::to_magnus` gives its cause, since it yields no `Snapshot`.
+    // `errors::from_invoke` gives its cause, since it yields no `Snapshot`.
     //
     // `setup` is the invocation's `[paths, snippets, flags, mounts,
     // networks]`: the Preamble's three parts, then the Mounts as
@@ -303,7 +289,7 @@ impl Runtime {
         setup: RArray,
         source: RString,
     ) -> Result<Snapshot, MagnusError> {
-        let source = rstring_to_vec(source);
+        let source = to_bytes(source);
         self.invoke(dispatch, setup, Entry::Eval { source: &source })
     }
 
@@ -319,7 +305,7 @@ impl Runtime {
             setup,
             Entry::Run {
                 entrypoint: &entrypoint,
-                payload: rstring_to_vec(payload),
+                payload: to_bytes(payload),
             },
         )
     }
@@ -352,7 +338,7 @@ impl Runtime {
         escape::resume()?;
         result
             .map(|snapshot| Snapshot::new(snapshot, verb))
-            .map_err(|e| errors::to_magnus(&ruby, e))
+            .map_err(|e| errors::from_invoke(&ruby, e))
     }
 
     /// The bytecode of the source snippets, one binary String each in
@@ -375,8 +361,7 @@ impl Runtime {
         }))
     }
 
-    /// The runtime's declaration, which the Sandbox checks against the
-    /// profile its `profile:` option requested.
+    /// The isolation profile the runtime declares it built.
     fn profile(&self) -> Symbol {
         let ruby = Ruby::get().expect("Ruby thread");
         to_profile_name(&ruby, self.runtime.profile())
