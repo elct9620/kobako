@@ -17,8 +17,9 @@ module Kobako
     def profile: () -> Symbol
     def gvl: () -> Symbol
 
-    # Every keyword beyond wasm_path forwards verbatim to
-    # SandboxOptions.new (the caps + the profile floor).
+    # Every keyword beyond wasm_path lands on the runtime's defaults for
+    # SandboxOptions.new; the runtime judges the profile, the mode, and the
+    # floor.
     def initialize: (
       ?wasm_path: String?,
       **untyped options

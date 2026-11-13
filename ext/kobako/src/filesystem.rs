@@ -1,6 +1,7 @@
 //! The Ruby face of the Filesystem: `Kobako::Filesystem::Tmpfs`,
 //! `Bind`, and `Overlay`, each standing for the `kobako_runtime`
-//! Filesystem of that kind.
+//! Filesystem of that kind, and `Kobako::Filesystem.validate_mount`,
+//! refusing a Mount by the rules an invocation builds it with.
 //!
 //! A kind kobako ships runs in Rust; Ruby only picks it and the access.
 //! Ruby is asked again while the guest runs, through a mount's block and

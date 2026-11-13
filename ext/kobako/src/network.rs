@@ -1,4 +1,6 @@
-//! A Sandbox's network entries as contract Grants. Each entry's endpoints are
+//! The Ruby face of the Network: `Kobako::Network`'s functions, which its
+//! values ask where they are written, and a Sandbox's network entries as
+//! contract Grants. Each entry's endpoints are
 //! read from Ruby as an invocation starts, on the guest thread holding the
 //! GVL, so the runtime judges them as data on any thread; its policies are
 //! asked on the guest thread, re-entering Ruby as a mount's block does. A
