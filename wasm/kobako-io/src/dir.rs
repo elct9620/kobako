@@ -17,7 +17,7 @@ use beni::value::qnil;
 use beni::{Error, IntoValue, Module, Mrb, Proc, RClass, TryConvert, TypedData, Value};
 
 use crate::errno;
-use crate::file::{metadata, path_arg, require_mount};
+use crate::file::{path_arg, require_mount, stat_or_none};
 use crate::io::argument_error;
 
 /// What an opened `Dir` stands for, kept in its payload so a script's
@@ -164,7 +164,7 @@ fn dir_s_each_child(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, E
 }
 
 fn dir_s_exist_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
-    Ok(metadata(mrb, "Dir.exist?", path)?.is_some_and(|m| m.is_dir()))
+    Ok(stat_or_none(mrb, "Dir.exist?", path)?.is_some_and(|found| found.is_dir()))
 }
 
 /// Anything but a directory is not an empty one, as CRuby answers; a

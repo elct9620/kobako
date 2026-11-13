@@ -18,11 +18,12 @@ use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, Object, RClass, Value};
 
 use crate::io::{argument_error, Stream};
-use crate::stream::with_file;
 use crate::{descriptors, errno};
 
 pub(crate) mod mode;
 mod stat;
+
+use stat::Stat;
 
 /// What a `File` standing for a descriptor this guest may no longer reach is
 /// refused with.
@@ -146,8 +147,9 @@ fn file_path(mrb: &Mrb, self_: Value) -> Value {
 
 fn file_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let fd = crate::io::checked_fd(mrb, self_, REACH_REFUSAL)?;
-    let len = with_file(fd, |file| Ok(file.metadata()?.len()))
-        .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label_of(mrb, self_)))?;
+    let len = stat::fstat_of(fd)
+        .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label_of(mrb, self_)))?
+        .size();
     Ok(i64::try_from(len).unwrap_or(i64::MAX).into_value(mrb))
 }
 
@@ -197,30 +199,32 @@ fn file_s_write(mrb: &Mrb, _self: Value, path: Value, data: Value) -> Result<Val
         .into_value(mrb))
 }
 
-pub(crate) fn metadata(mrb: &Mrb, call: &str, path: Value) -> Result<Option<fs::Metadata>, Error> {
+/// What the entry `path` names reports, none where nothing answers, for a
+/// predicate that answers false rather than raise.
+pub(crate) fn stat_or_none(mrb: &Mrb, call: &str, path: Value) -> Result<Option<Stat>, Error> {
     require_mount(mrb, call)?;
     let path = path_arg(mrb, path)?;
-    Ok(fs::metadata(path).ok())
+    Ok(stat::stat_of(&path).ok())
 }
 
 fn file_s_exist_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
-    Ok(metadata(mrb, "File.exist?", path)?.is_some())
+    Ok(stat_or_none(mrb, "File.exist?", path)?.is_some())
 }
 
 fn file_s_file_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
-    Ok(metadata(mrb, "File.file?", path)?.is_some_and(|m| m.is_file()))
+    Ok(stat_or_none(mrb, "File.file?", path)?.is_some_and(Stat::is_file))
 }
 
 fn file_s_directory_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
-    Ok(metadata(mrb, "File.directory?", path)?.is_some_and(|m| m.is_dir()))
+    Ok(stat_or_none(mrb, "File.directory?", path)?.is_some_and(Stat::is_dir))
 }
 
 fn file_s_size(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
     require_mount(mrb, "File.size")?;
     let path = path_arg(mrb, path)?;
-    let len = fs::metadata(&path)
+    let len = stat::stat_of(&path)
         .map_err(|err| errno::from_io(mrb, &err, &path))?
-        .len();
+        .size();
     Ok(i64::try_from(len).unwrap_or(i64::MAX).into_value(mrb))
 }
 

@@ -28,7 +28,7 @@ const S_IFSOCK: u32 = 0xc000;
 /// variables cannot rewrite it.
 #[derive(Clone, Copy)]
 #[beni::wrap(class = "File::Stat", name = "Kobako::File::Stat")]
-struct Stat {
+pub(crate) struct Stat {
     ino: u64,
     nlink: u64,
     size: u64,
@@ -55,6 +55,18 @@ impl Stat {
             S_IFSOCK => "socket",
             _ => "unknown",
         }
+    }
+
+    pub(crate) fn is_file(self) -> bool {
+        self.is(S_IFREG)
+    }
+
+    pub(crate) fn is_dir(self) -> bool {
+        self.is(S_IFDIR)
+    }
+
+    pub(crate) fn size(self) -> u64 {
+        self.size
     }
 
     /// The size, `nil` for an empty entry, as `size?` answers.
@@ -170,6 +182,18 @@ mod raw {
     pub(super) fn fstat(fd: i32) -> io::Result<Stat> {
         crate::stream::with_file(fd, |file| file.metadata().map(report_of))
     }
+}
+
+/// What the entry `path` names reports, a link followed, as `stat(2)`
+/// answers; every class method of `File` and `Dir` that reads an entry's kind
+/// or size asks it here, as `File.stat` does.
+pub(crate) fn stat_of(path: &str) -> io::Result<Stat> {
+    raw::stat(&to_c_path(path))
+}
+
+/// What the file open at `fd` reports, as `fstat(2)` answers.
+pub(crate) fn fstat_of(fd: i32) -> io::Result<Stat> {
+    raw::fstat(fd)
 }
 
 pub(super) fn init(mrb: &Mrb, file: RClass) -> Result<(), Error> {
