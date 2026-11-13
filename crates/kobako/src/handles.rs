@@ -164,4 +164,21 @@ mod tests {
             "a resolved Handle through the Any upcast must recover the concrete receiver type"
         );
     }
+
+    // The table and the bundled codec each hold the wire's Handle range, so
+    // the last id the table issues must be the last one the codec carries.
+    #[test]
+    fn the_last_id_the_table_issues_is_the_last_the_codec_carries() {
+        use kobako_codec::msgpack::codec::{Encoder, Value};
+
+        assert_eq!(
+            (
+                Encoder::encode(&Value::Handle(MAX_HANDLE_ID)).is_ok(),
+                Encoder::encode(&Value::Handle(MAX_HANDLE_ID + 1)).is_ok(),
+            ),
+            (true, false),
+            "the bundled codec must carry the Handle id the SDK's table issues last and refuse \
+             the next, so neither side holds a range the other does not"
+        );
+    }
 }
