@@ -36,12 +36,12 @@ The width of the length prefix that frames a message on stdin.
 pub const FRAME_LEN_SIZE: usize;
 ```
 
-## `MAX_DISPATCH_PAYLOAD`
+## `MAX_MESSAGE_LEN`
 
-The largest Envelope one dispatch may carry in either direction.
+The largest message either side may send, its whole Envelope counted.
 
 ```rust
-pub const MAX_DISPATCH_PAYLOAD: usize;
+pub const MAX_MESSAGE_LEN: usize;
 ```
 
 ## `MAX_FRAME_LEN`

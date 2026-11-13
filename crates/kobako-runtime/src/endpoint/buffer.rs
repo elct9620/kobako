@@ -6,13 +6,13 @@
 //! call it is a `Trap` or an intact runtime, inside a callback it is a
 //! wire failure the guest receives.
 
-use kobako_transport::abi::{unpack_ptr_len, MAX_DISPATCH_PAYLOAD};
+use kobako_transport::abi::{unpack_ptr_len, MAX_MESSAGE_LEN};
 
 use super::{GuestInstance, RUNTIME_INCOMPATIBLE, SANDBOX_RUNTIME_NOT_KOBAKO};
 
 // The size-limit messages here and in the endpoint name the cap as 16 MiB, so
 // moving the cap fails the build until they are reworded with it.
-const _: () = assert!(MAX_DISPATCH_PAYLOAD == 16 << 20);
+const _: () = assert!(MAX_MESSAGE_LEN == 16 << 20);
 
 /// Why a host write into guest memory failed.
 pub(super) enum WriteError<F> {
@@ -61,7 +61,7 @@ pub(super) fn alloc_and_write<G: GuestInstance>(
 /// Copy out the buffer the guest names; a length past the 16 MiB cap is
 /// refused before memory is touched.
 pub(super) fn read_buffer(data: &[u8], ptr: usize, len: usize) -> Result<Vec<u8>, ReadError> {
-    if len > MAX_DISPATCH_PAYLOAD {
+    if len > MAX_MESSAGE_LEN {
         return Err(ReadError::TooLarge);
     }
     let range = guest_buffer_range(ptr, len, data.len()).map_err(|_| ReadError::OutOfBounds)?;
@@ -71,7 +71,7 @@ pub(super) fn read_buffer(data: &[u8], ptr: usize, len: usize) -> Result<Vec<u8>
 /// Every host write boundary routes its length through here, so the
 /// wire-violation reason is uniform.
 pub(super) fn checked_payload_len(len: usize) -> Result<i32, &'static str> {
-    if len > MAX_DISPATCH_PAYLOAD {
+    if len > MAX_MESSAGE_LEN {
         return Err("payload exceeds the 16 MiB limit");
     }
     // The cap above sits below `i32::MAX`, so this conversion cannot wrap.
@@ -100,20 +100,15 @@ pub(super) fn unpack_guest_buffer(packed: u64) -> (usize, usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        checked_payload_len, guest_buffer_range, unpack_guest_buffer, MAX_DISPATCH_PAYLOAD,
-    };
+    use super::{checked_payload_len, guest_buffer_range, unpack_guest_buffer, MAX_MESSAGE_LEN};
 
     // @behavior WE-059
     #[test]
     fn a_transfer_of_nothing_or_at_the_cap_is_admitted() {
         assert_eq!(
-            (
-                checked_payload_len(0),
-                checked_payload_len(MAX_DISPATCH_PAYLOAD)
-            ),
-            (Ok(0), Ok(MAX_DISPATCH_PAYLOAD as i32)),
-            "0 bytes and MAX_DISPATCH_PAYLOAD bytes through checked_payload_len must be admitted"
+            (checked_payload_len(0), checked_payload_len(MAX_MESSAGE_LEN)),
+            (Ok(0), Ok(MAX_MESSAGE_LEN as i32)),
+            "0 bytes and MAX_MESSAGE_LEN bytes through checked_payload_len must be admitted"
         );
     }
 
@@ -121,9 +116,9 @@ mod tests {
     #[test]
     fn a_transfer_past_the_cap_is_refused() {
         assert!(
-            checked_payload_len(MAX_DISPATCH_PAYLOAD + 1).is_err()
+            checked_payload_len(MAX_MESSAGE_LEN + 1).is_err()
                 && checked_payload_len(usize::MAX).is_err(),
-            "one byte past MAX_DISPATCH_PAYLOAD and usize::MAX through checked_payload_len must be \
+            "one byte past MAX_MESSAGE_LEN and usize::MAX through checked_payload_len must be \
              refused"
         );
     }

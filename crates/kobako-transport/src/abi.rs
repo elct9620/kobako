@@ -16,21 +16,21 @@ pub const ABI_VERSION: u32 = 6;
 /// stdin, such as the Preamble.
 pub const FRAME_LEN_SIZE: usize = 4;
 
-/// Single-dispatch size cap: 16 MiB in either direction, applied to the
-/// whole envelope rather than the payload alone. A larger transfer is a
-/// wire violation the receiving side refuses before allocating for it.
-pub const MAX_DISPATCH_PAYLOAD: usize = 16 * 1024 * 1024;
+/// The largest message either side sends: 16 MiB, the whole Envelope
+/// rather than the payload alone. A larger one is a wire violation the
+/// receiving side refuses before allocating for it.
+pub const MAX_MESSAGE_LEN: usize = 16 * 1024 * 1024;
 
 /// Allocation ceiling on a length-prefixed frame. A reader learns a frame's
 /// length before it can check anything else about it, so this bounds what a
 /// declared length may make it allocate. It sits above
-/// `MAX_DISPATCH_PAYLOAD` because it guards the read rather than enforcing
+/// `MAX_MESSAGE_LEN` because it guards the read rather than enforcing
 /// the contract: the host enforces the 16 MiB cap before it sends a frame.
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
 // The read guard must admit every frame the contract allows, so a refusal
 // names the cap rather than the allocation ceiling.
-const _: () = assert!(MAX_FRAME_LEN > MAX_DISPATCH_PAYLOAD);
+const _: () = assert!(MAX_FRAME_LEN > MAX_MESSAGE_LEN);
 
 /// Pack `(ptr, len)` into the u64 the downcall and the upcall answer with: the high 32 bits carry the linear-memory pointer,
 /// the low 32 the byte length. A `len` of zero is the failure signal.
