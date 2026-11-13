@@ -1844,3 +1844,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | an invocation whose memory budget is partly taken by buffers the host holds for the guest's socket |
 | When | the guest grows its memory past what is left |
 | Then | the growth is refused as the budget's own failure. Linux's memory cgroup counts a task's pages and its socket buffers in one `memory.current` |
+
+## `S-210` Source whose bytes are not UTF-8 is refused before the guest runs
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-130` |
+| relates | `S-197` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an evaluation is given a String whose bytes are not UTF-8 |
+| Then | it fails as a Sandbox failure saying the source must be UTF-8 text. UTF-8 bytes in a binary String evaluate as text |
