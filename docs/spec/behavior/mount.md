@@ -444,3 +444,27 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox with a writable Tmpfs holding `inner` at `/data`, and another at `/data/inner` |
 | When | the script removes `/data/./inner`, and renames it to `/data/moved` |
 | Then | each raises `Errno::EBUSY`, and both Filesystems keep what they held |
+
+## `MT-037` A nested mount is reached however the directories above it are spelled
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding `a/b/note` and a link `x` to `a`, and a Tmpfs holding `note` at `/data/a/b` |
+| When | the script reads the note through `/data/./x/b/note`, and through `/data/./A/b/note` where the host folds case |
+| Then | each reads the inner Filesystem's note |
+
+## `MT-038` A nested mount moves with a directory above it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-036` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a writable Tmpfs holding `a/b/note` at `/data`, and a Tmpfs holding `note` at `/data/a/b` |
+| When | the script renames `/data/a` to `/data/c` and reads `/data/c/b/note` |
+| Then | it reads the inner Filesystem's note, as a Linux mount stays on its mount point when a directory above moves |
