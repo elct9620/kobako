@@ -109,13 +109,13 @@ Each part owns one concern. Its dependencies on other kobako parts may only poin
 |---|---|---|
 | `kobako-transport` | the Envelope and the ABI's values | none, ever |
 | `kobako-codec` | the payload Codecs, one namespace and feature per Codec | none |
-| `kobako-runtime` | the contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Snapshot`, `Grant`, `Network` | transport |
+| `kobako-runtime` | the contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Limits`, `Snapshot`, `Grant`, `Network` | transport |
 | `kobako-runtime` | what every Wasm Driver keeps: `endpoint`, `cred`, `vfs`, `security`, `Mount`, `sched`, `wait`, `memcg`, Filesystems, `net` | transport |
 | `kobako-wasmtime` | one Wasm Driver, `kobako_wasmtime::Driver`, and its preview1 and preview2 encodings | runtime, transport |
 | `kobako` | the Rust SDK: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby gem and its own Codec | the native ext |
 | `ext/` | the magnus bridge: Ruby values to Envelopes, objects to a Filesystem or network entry | runtime, transport, wasmtime *(to build the runtime)*, the error and `Network` value classes `lib/` defines |
-| `kobako-core` | the guest ABI: `Guest`, `export_guest!`, the dispatch proxy | transport |
+| `kobako-core` | the guest ABI: `Guest`, `export_guest!`, the dispatch proxy, the Sandbox's Panic | transport |
 | `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the bridge gem | core, transport, codec *(optional)* |
 | `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behavior, no wire | none |
 | `kobako-wasm` | the shipped shell, naming the Codec and the gem set | core, mruby, io, regexp *(optional)*, json *(optional)* |
