@@ -36,6 +36,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_wait.rb`
 - `test/e2e/test_network_socket_direct.rb`
 - `test/e2e/test_network_socket_chars.rb`
+- `test/e2e/test_network_to_str.rb`
 - `test/e2e/test_network_socket_shutdown.rb`
 - `test/e2e/test_network_socket_ends.rb`
 - `test/e2e/test_network_socket_addrinfo.rb`
@@ -1250,7 +1251,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming `localhost` |
 | When | the script opens a `TCPSocket` to it with `resolv_timeout:` shorter than the lookup, and again with `fast_fallback: false` |
-| Then | the first raises `Errno::ETIMEDOUT`, as CRuby's does. The second connects, since a guest that speaks only IPv4 has no fallback to choose |
+| Then | the first raises `Errno::ETIMEDOUT`, as CRuby's does. The second connects, as CRuby's path without fast fallback resolves with no timeout |
 
 ## `NW-101` A script's peeraddr takes CRuby's reverse lookup flags
 
@@ -1756,7 +1757,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a network entry naming `localhost` |
 | When | the script calls `Addrinfo.getaddrinfo` and `Socket.getaddrinfo` for a literal and for `localhost`, with and without a family, kind, and `AI_CANONNAME`. It looks up a name no entry names |
-| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none |
+| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none. A `reverse_lookup` flag CRuby's refuses raises before the lookup |
 
 ## `NW-142` A script reads a socket's ends as Addrinfos
 
@@ -2567,3 +2568,28 @@ endpoint "api.example.com", port: 443
 | Given | a guest holding a network Grant, and a server that never answers |
 | When | it sets each `request-options` timeout and reads it back, then sends a request with a first-byte timeout |
 | Then | each reads what was set, and none before. The future's pollable wakes once the timeout passes, with no timer of the host's own, and the future answers `connection-read-timeout` |
+
+## `NW-207` A value answering to_str stands where CRuby takes a String
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-067` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP endpoint naming a loopback server |
+| When | the script passes objects answering `to_str` as a port, a packed address, and an option's data. It passes them as a string pushed back to a socket, and as a family's name |
+| Then | each reads as the String its `to_str` answers, as CRuby's `StringValue` and `rb_check_string_type` take one |
+
+## `NW-208` A Net::HTTP session reads its port, inspect, and body as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+| relates | `NW-105` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a loopback server |
+| When | the script names the port as a String, inspects a subclass's session, and calls `body` with a block |
+| Then | the String port reaches the server. `inspect` names the class and the port as text. `body` passes no block and answers the body, as CRuby's does. A request's `Host` and `Connection` are not written back to it, where CRuby's writes them. `NW-105` would refuse them on a request sent again |
