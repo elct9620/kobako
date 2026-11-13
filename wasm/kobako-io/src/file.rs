@@ -287,7 +287,7 @@ fn join_parts(mrb: &Mrb, parts: &[Value], within: &mut Vec<i64>) -> Result<Vec<u
             None => pure_path_arg(mrb, part)?,
         };
         if index > 0 {
-            let tail = joined.len() - joined.iter().rev().take_while(|b| **b == b'/').count();
+            let tail = without_trailing_separators(&joined).len();
             if part.first() == Some(&b'/') {
                 joined.truncate(tail);
             } else if tail == joined.len() {
@@ -299,10 +299,16 @@ fn join_parts(mrb: &Mrb, parts: &[Value], within: &mut Vec<i64>) -> Result<Vec<u
     Ok(joined)
 }
 
+/// `path` without the separators it ends in, as CRuby's `chompdirsep` finds
+/// where they start.
+fn without_trailing_separators(path: &[u8]) -> &[u8] {
+    let separators = path.iter().rev().take_while(|b| **b == b'/').count();
+    &path[..path.len() - separators]
+}
+
 /// The last component, trailing separators dropped; `/` for the root.
 fn last_component_of(path: &[u8]) -> &[u8] {
-    let trimmed_len = path.len() - path.iter().rev().take_while(|b| **b == b'/').count();
-    let trimmed = &path[..trimmed_len];
+    let trimmed = without_trailing_separators(path);
     if trimmed.is_empty() {
         return if path.is_empty() { b"" } else { b"/" };
     }
@@ -312,7 +318,7 @@ fn last_component_of(path: &[u8]) -> &[u8] {
 /// Where a base's extension starts, as CRuby's `ruby_enc_find_extname` reads
 /// it: its leading dots skipped, then its last dot, a dot at the end naming
 /// `.` alone.
-fn extname_at(base: &[u8]) -> Option<usize> {
+fn extname_start_of(base: &[u8]) -> Option<usize> {
     let leading = base.iter().take_while(|b| **b == b'.').count();
     base[leading..]
         .iter()
@@ -327,7 +333,7 @@ fn file_s_basename(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Er
     if let Some(suffix) = args.optional.0 {
         let suffix = pure_path_arg(mrb, suffix)?;
         if suffix == b".*" {
-            if let Some(dot) = extname_at(&base) {
+            if let Some(dot) = extname_start_of(&base) {
                 base.truncate(dot);
             }
         } else if base.len() > suffix.len() && base.ends_with(&suffix) {
@@ -339,12 +345,10 @@ fn file_s_basename(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Er
 
 fn file_s_dirname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
     let path = pure_path_arg(mrb, path)?;
-    let trim_end =
-        |bytes: &[u8]| bytes.len() - bytes.iter().rev().take_while(|b| **b == b'/').count();
-    let trimmed = &path[..trim_end(&path)];
+    let trimmed = without_trailing_separators(&path);
     let dir: &[u8] = match trimmed.iter().rposition(|b| *b == b'/') {
         Some(0) => b"/",
-        Some(at) => &trimmed[..trim_end(&trimmed[..at])],
+        Some(at) => without_trailing_separators(&trimmed[..at]),
         None if path.first() == Some(&b'/') => b"/",
         None => b".",
     };
@@ -355,6 +359,6 @@ fn file_s_dirname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> 
 fn file_s_extname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
     let path = pure_path_arg(mrb, path)?;
     let base = last_component_of(&path);
-    let ext = extname_at(base).map_or(&b""[..], |dot| &base[dot..]);
+    let ext = extname_start_of(base).map_or(&b""[..], |dot| &base[dot..]);
     Ok(mrb.str_new(ext).as_value())
 }

@@ -430,13 +430,13 @@ pub(crate) fn printf_to(mrb: &Mrb, out: Value, args: &[Value]) -> Result<(), Err
 /// anything else is the C `int` its number converts to, its low byte
 /// written, as CRuby's `NUM2CHR` reads one.
 fn io_putc(mrb: &Mrb, self_: Value, obj: Value) -> Result<Value, Error> {
-    if let Some(byte) = putc_byte(mrb, obj)? {
+    if let Some(byte) = to_putc_byte(mrb, obj)? {
         write_one(mrb, self_, mrb.str_new(&[byte]).as_value())?;
     }
     Ok(obj)
 }
 
-fn putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
+fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
     if let Some(s) = RString::from_value(obj) {
         // SAFETY: the first byte is copied out before the next mruby call.
         return Ok(unsafe { s.as_slice(mrb) }.first().copied());
