@@ -177,13 +177,16 @@ module Kobako
     #
     # Raises TrapError when the engine stopped the guest, a deadline or
     # memory budget included; SandboxError when the guest failed, +code+ not
-    # being a String or the Guest Binary not starting the run included; and
+    # being UTF-8 text or the Guest Binary not starting the run included; and
     # ServiceError when a Service call failed and the guest left it
     # unrescued.
     def eval(code, &block)
       raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
-      Codec.within_value_budget(@options.value_budget) { begin_invocation.eval(code, &block) }
+      source = code.dup.force_encoding(Encoding::UTF_8)
+      raise SandboxError, "code must be UTF-8 text" unless source.valid_encoding?
+
+      Codec.within_value_budget(@options.value_budget) { begin_invocation.eval(source, &block) }
     end
 
     private

@@ -136,6 +136,17 @@ class TestSandbox < Minitest::Test
     assert_match(/must be a String/, err.message)
   end
 
+  # @behavior S-210
+  def test_eval_refuses_source_whose_bytes_are_not_utf8
+    sandbox = Kobako::Sandbox.new(wasm_path: TestPaths.data("kobako.wasm"))
+    err = assert_raises(Kobako::SandboxError, "Sandbox#eval given bytes that are not UTF-8 must refuse them") do
+      sandbox.eval("1 + \xFF".b)
+    end
+    assert_match(/must be UTF-8 text/, err.message)
+    assert_equal 3, sandbox.eval("1 + 2".b).value,
+                 "Sandbox#eval given UTF-8 bytes in a binary String must evaluate them as text"
+  end
+
   # Sandbox#bind returns the Sandbox so binds chain — the Sandbox-tier proof
   # that #bind delegates to Catalog::Services rather than dropping the call
   # on the floor. Catalog::Services's own contract is pinned in
