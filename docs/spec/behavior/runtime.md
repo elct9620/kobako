@@ -517,7 +517,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | Sandbox options carrying, for each cap in turn, zero, a negative, or a value of the wrong kind |
+| Given | Sandbox options carrying, for each cap in turn, zero, a negative, a wrong kind, or an uncountable deadline |
 | When | the options are built |
 | Then | the cap is refused |
 
