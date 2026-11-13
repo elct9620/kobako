@@ -1164,7 +1164,11 @@ fn a_seek_before_the_start_or_by_an_unknown_whence_raises_einval() {
 }
 
 fn lines_tmpfs() -> Arc<Tmpfs> {
-    Arc::new([("lines.txt", "one\ntwo\n\n\nthree\nfour")].into_iter().collect())
+    Arc::new(
+        [("lines.txt", "one\ntwo\n\n\nthree\nfour")]
+            .into_iter()
+            .collect(),
+    )
 }
 
 // @behavior FL-082
