@@ -70,7 +70,6 @@ impl MemoryBudget {
         let mut charged = self.charged();
         let before = GrowthCharge {
             grown: charged.grown,
-            peak: charged.peak,
         };
         if !charged.armed {
             return Ok(before);
@@ -86,13 +85,11 @@ impl MemoryBudget {
     }
 
     /// Give back `charge`, a growth the Engine failed to make once the budget
-    /// allowed it, so neither what the run holds nor its peak counts memory it
-    /// never had, as `mem_cgroup_cancel_charge` gives back a charge whose
-    /// page never came.
+    /// allowed it, so what the run holds counts no memory it never had, as
+    /// `page_counter_cancel` gives a charge back. The peak keeps it, as the
+    /// watermark the charge raised stays.
     pub fn cancel_growth(&self, charge: GrowthCharge) {
-        let mut charged = self.charged();
-        charged.grown = charge.grown;
-        charged.peak = charge.peak;
+        self.charged().grown = charge.grown;
     }
 
     /// Charge `bytes` the host holds for the guest, refused as ENOMEM where
@@ -127,7 +124,6 @@ impl MemoryBudget {
 #[must_use]
 pub struct GrowthCharge {
     grown: usize,
-    peak: usize,
 }
 
 /// Memory the host holds for a guest, charged to its budget as it is taken

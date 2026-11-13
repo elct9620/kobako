@@ -62,6 +62,7 @@ impl ResourceLimiter for MemoryLimiter {
 
 #[cfg(test)]
 mod tests {
+    use kobako_runtime::memcg::MemoryCharge;
     use wasmtime::{Engine, Memory, MemoryType, Store};
 
     use super::*;
@@ -74,19 +75,20 @@ mod tests {
     // @behavior S-211
     #[test]
     fn a_growth_the_engine_fails_to_make_costs_the_budget_nothing() {
-        let budget = MemoryBudget::new(Some(4 * PAGE));
+        let budget = MemoryBudget::new(Some(3 * PAGE));
         budget.arm(PAGE);
         let mut store = Store::new(&Engine::default(), MemoryLimiter::new(budget.clone()));
         store.limiter(|limiter| limiter);
         let memory = Memory::new(&mut store, MemoryType::new(1, Some(2)))
             .expect("a memory of one page within its maximum must be made");
         let failed = memory.grow(&mut store, 2).is_err();
-        let regrown = memory.grow(&mut store, 1).is_ok();
+        let peak = budget.peak();
+        let held = MemoryCharge::new(&budget, 2 * PAGE).is_ok();
         assert_eq!(
-            (failed, regrown, budget.peak()),
-            (true, true, PAGE),
-            "a growth past a memory's maximum that the budget allowed must fail and give its \
-             charge back, leaving the budget a growth within the maximum and the peak it reached"
+            (failed, peak, held),
+            (true, 2 * PAGE, true),
+            "a growth past a memory's maximum that the budget allowed must fail, give the \
+             budget back for the host to hold, and stay in the peak reported"
         );
     }
 }
