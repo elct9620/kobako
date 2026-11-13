@@ -55,6 +55,27 @@ class TestE2ENetworkHttpTimeout < Minitest::Test
     server&.close
   end
 
+  UNBOUNDED_REQUEST = <<~RUBY
+    http = Net::HTTP.new("127.0.0.1", %<port>d)
+    http.open_timeout = nil
+    http.read_timeout = nil
+    http.get("/")
+  RUBY
+
+  # @behavior NW-210
+  def test_a_request_waiting_on_a_server_that_never_answers_ends_with_the_run
+    with_silent_server do |port|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.3)
+                               .network(:web) { |net| net.endpoint "127.0.0.1", port: port }
+
+      assert_raises(Kobako::TimeoutError,
+                    "Net::HTTP#get with no timeout of its own against a server that never answers must end at " \
+                    "the Sandbox's timeout") do
+        sandbox.eval(format(UNBOUNDED_REQUEST, port: port))
+      end
+    end
+  end
+
   # A loopback server that accepts one connection and holds it unanswered
   # until the test ends.
   def with_silent_server
