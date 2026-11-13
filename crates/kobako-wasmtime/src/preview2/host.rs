@@ -3603,7 +3603,7 @@ mod tests {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        if !crate::cache::guest_binary_built(!binaries.is_empty(), "data/*.wasm") {
+        if !crate::guest_binary::built(!binaries.is_empty(), "data/*.wasm") {
             return;
         }
         let preview2 = |module: &str| module.starts_with("wasi:") && module.contains("@0.2");

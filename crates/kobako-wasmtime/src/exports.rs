@@ -67,8 +67,9 @@ mod tests {
     use kobako_runtime::profile::Profile;
     use wasmtime::{ExternType, Store};
 
-    use crate::cache::{guest_binary_built, load_engine, load_module};
+    use crate::cache::{load_engine, load_module};
     use crate::config::Config;
+    use crate::guest_binary;
     use crate::imports;
     use crate::invocation::Invocation;
     use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
@@ -87,7 +88,7 @@ mod tests {
     #[test]
     fn the_guest_binary_exports_the_abi_functions_and_nothing_else() {
         let path = Path::new(WASM);
-        if !guest_binary_built(path.exists(), "data/kobako.wasm") {
+        if !guest_binary::built(path.exists(), "data/kobako.wasm") {
             return;
         }
         let module = load_module(path).expect("the Guest Binary must load");
@@ -109,7 +110,7 @@ mod tests {
     #[test]
     fn the_guest_binary_hands_an_empty_list_no_room_and_traps_with_none_left() {
         let path = Path::new(WASM);
-        if !guest_binary_built(path.exists(), "data/kobako.wasm") {
+        if !guest_binary::built(path.exists(), "data/kobako.wasm") {
             return;
         }
         let module = load_module(path).expect("the Guest Binary must load");

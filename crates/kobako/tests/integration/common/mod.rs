@@ -6,6 +6,9 @@ use std::path::Path;
 
 use kobako::{Options, Sandbox};
 
+#[path = "../../../../kobako-wasmtime/src/guest_binary.rs"]
+mod guest_binary;
+
 const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
 /// A Sandbox over the bundled guest, or `None` when a local checkout has
@@ -16,11 +19,7 @@ pub fn real_sandbox() -> Option<Sandbox> {
 
 /// `real_sandbox` under the caps `options` set.
 pub fn real_sandbox_with(options: Options) -> Option<Sandbox> {
-    if !Path::new(WASM).exists() {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "data/kobako.wasm missing under CI — run `bundle exec rake wasm:build`"
-        );
+    if !guest_binary::built(Path::new(WASM).exists(), "data/kobako.wasm") {
         return None;
     }
     Some(Sandbox::new(WASM, options).expect("construct the Sandbox"))

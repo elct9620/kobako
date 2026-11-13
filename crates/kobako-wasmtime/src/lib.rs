@@ -18,6 +18,8 @@ mod descriptors;
 mod driver;
 mod exports;
 mod guest;
+#[cfg(test)]
+mod guest_binary;
 mod imports;
 mod instance_pre;
 mod invocation;
