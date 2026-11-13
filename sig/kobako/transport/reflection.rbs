@@ -3,6 +3,13 @@ module Kobako
     module Reflection
       GADGET_OWNERS: Array[Module]
       CALLABLE_ALLOW: Array[Symbol]
+      CLASS_OF: UnboundMethod
+      IS_A: UnboundMethod
+      SINGLETON_CLASS_OF: UnboundMethod
+      SINGLETON_METHODS: UnboundMethod
+      PRIVATE_METHODS: UnboundMethod
+      RESPOND_TO: UnboundMethod
+      PUBLIC_SEND: UnboundMethod
 
       def self.refusal: (Kobako::Transport::Exposure exposure, Symbol name) -> String?
 
@@ -23,6 +30,8 @@ module Kobako
       def self.owner_refusal: (untyped target, Symbol name, Module owner) -> String?
 
       def self.lookup_class: (untyped target) -> Module
+
+      def self.module?: (untyped target) -> bool
 
       def self.ambient_owner?: (Module owner, untyped target) -> bool
     end

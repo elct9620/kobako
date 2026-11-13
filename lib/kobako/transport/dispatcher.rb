@@ -117,9 +117,9 @@ module Kobako
           target = exposure.object
           block = yielder&.to_proc
           if kwargs.empty?
-            target.public_send(name, *args, &block)
+            Reflection::PUBLIC_SEND.bind(target).call(name, *args, &block)
           else
-            target.public_send(name, *args, **kwargs, &block)
+            Reflection::PUBLIC_SEND.bind(target).call(name, *args, **kwargs, &block)
           end
         end
 

@@ -14,15 +14,6 @@ module Kobako
       PREDICATE = :respond_to_guest?
       private_constant :PREDICATE
 
-      # Kernel's own reflection, bound onto each object so a forwarder or a
-      # BasicObject answers from its own method table rather than through
-      # +method_missing+ / +respond_to_missing?+.
-      CLASS_OF = Kernel.instance_method(:class)
-      SINGLETON_CLASS_OF = Kernel.instance_method(:singleton_class)
-      SINGLETON_METHODS = Kernel.instance_method(:singleton_methods)
-      PRIVATE_METHODS = Kernel.instance_method(:private_methods)
-      private_constant :CLASS_OF, :SINGLETON_CLASS_OF, :SINGLETON_METHODS, :PRIVATE_METHODS
-
       CALLABLE = Set.new(Reflection::CALLABLE_ALLOW).freeze
       NOTHING = Set.new.freeze
       private_constant :CALLABLE, :NOTHING
@@ -31,7 +22,7 @@ module Kobako
       # each class's own surface for a caller that makes many references at
       # once (a Handle table), so two objects of one class enumerate it once.
       def self.of(object, surfaces = {})
-        klass = CLASS_OF.bind_call(object)
+        klass = Reflection::CLASS_OF.bind_call(object)
         names = narrows_itself?(object, klass) ? nil : resolve_default_names(object, klass, surfaces)
         new(object: object, names: names)
       end
@@ -53,8 +44,8 @@ module Kobako
         # +respond_to_missing?+ cannot answer for it.
         def narrows_itself?(object, klass)
           klass.method_defined?(PREDICATE) || klass.private_method_defined?(PREDICATE) ||
-            PRIVATE_METHODS.bind_call(object, false).include?(PREDICATE) ||
-            SINGLETON_METHODS.bind_call(object, false).include?(PREDICATE)
+            Reflection::PRIVATE_METHODS.bind_call(object, false).include?(PREDICATE) ||
+            Reflection::SINGLETON_METHODS.bind_call(object, false).include?(PREDICATE)
         end
 
         # A callable keeps its callable names; a class-level surface or a
@@ -76,9 +67,9 @@ module Kobako
         end
 
         def with_singleton(object, names)
-          return names if SINGLETON_METHODS.bind_call(object, false).empty?
+          return names if Reflection::SINGLETON_METHODS.bind_call(object, false).empty?
 
-          names.union(authored_names(SINGLETON_CLASS_OF.bind_call(object))).freeze
+          names.union(authored_names(Reflection::SINGLETON_CLASS_OF.bind_call(object))).freeze
         end
 
         # The public methods +owner+ itself defines in Ruby source.

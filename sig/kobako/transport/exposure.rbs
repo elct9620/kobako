@@ -2,10 +2,6 @@ module Kobako
   module Transport
     class Exposure < Data
       PREDICATE: Symbol
-      CLASS_OF: UnboundMethod
-      SINGLETON_CLASS_OF: UnboundMethod
-      SINGLETON_METHODS: UnboundMethod
-      PRIVATE_METHODS: UnboundMethod
       CALLABLE: Set[Symbol]
       NOTHING: Set[Symbol]
 

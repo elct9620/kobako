@@ -45,6 +45,11 @@ class TestDispatchGuestNarrowing < Minitest::Test
     def hello = "hi"
   end
 
+  # No predicate, and none of Kernel's reflection to ask it through.
+  class Bare < BasicObject
+    def hello = "hi"
+  end
+
   # A dynamic Service resolves names through +method_missing+; its predicate
   # permits every name. respond_to_guest? answers permission, not existence,
   # so a permitted name that the dynamic dispatch cannot satisfy still *runs*
@@ -66,7 +71,7 @@ class TestDispatchGuestNarrowing < Minitest::Test
   def setup
     @handles = Kobako::Catalog::Handles.new
     @services = Kobako::Catalog::Services.new
-    { Cred: Opaque.new, Report: Subset.new, Wide: Widener.new, Open: Plain.new, Dyn: Dynamic.new }
+    { Cred: Opaque.new, Report: Subset.new, Wide: Widener.new, Open: Plain.new, Bare: Bare.new, Dyn: Dynamic.new }
       .each { |name, service| @services.bind("Cfg::#{name}", service) }
     @yield = ->(_bytes) { raise "no block" }
   end
@@ -168,6 +173,14 @@ class TestDispatchGuestNarrowing < Minitest::Test
                  "a method its own class defines on an object without respond_to_guest? through guest dispatch " \
                  "must answer"
     assert_equal "hi", resp.payload
+  end
+
+  # @behavior T-129
+  def test_basic_object_without_predicate_exposes_the_methods_it_defines_itself
+    resp = dispatch("Cfg::Bare", "hello")
+    assert_equal [true, "hi"], [resp.ok?, resp.payload],
+                 "a method its own class defines on a BasicObject without respond_to_guest? through guest dispatch " \
+                 "must answer as an ordinary Service's would"
   end
 
   # @behavior T-130

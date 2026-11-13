@@ -17,6 +17,18 @@ module Kobako
       # callable exposes by default, so the floor and the Exposure agree.
       CALLABLE_ALLOW = %i[call [] yield arity lambda?].freeze
 
+      # Kernel's own reflection and dispatch, bound onto each object so a
+      # forwarder or a BasicObject answers from its own method table rather
+      # than through +method_missing+ / +respond_to_missing?+, for the floor,
+      # the Exposure, and the call alike.
+      CLASS_OF = Kernel.instance_method(:class)
+      IS_A = Kernel.instance_method(:is_a?)
+      SINGLETON_CLASS_OF = Kernel.instance_method(:singleton_class)
+      SINGLETON_METHODS = Kernel.instance_method(:singleton_methods)
+      PRIVATE_METHODS = Kernel.instance_method(:private_methods)
+      RESPOND_TO = Kernel.instance_method(:respond_to?)
+      PUBLIC_SEND = Kernel.instance_method(:public_send)
+
       # The reason +name+ is unreachable through +exposure+, or +nil+ when
       # the dispatch may proceed. Composes the ambient-surface floor with the
       # reference's Exposure, in that order: the Exposure only narrows and
@@ -81,7 +93,7 @@ module Kobako
 
           klass = lookup_class(target)
           return public_method_refusal(target, name, klass) if klass.public_method_defined?(name)
-          return "no public method #{name.inspect} on target" unless target.respond_to?(name)
+          return "no public method #{name.inspect} on target" unless RESPOND_TO.bind_call(target, name)
           return service_refusal(name) if klass.method_defined?(name) || klass.private_method_defined?(name)
 
           owner_refusal(target, name, klass)
@@ -117,9 +129,13 @@ module Kobako
         # singleton class is taken only when it already holds a public
         # method, since asking for it otherwise would create one.
         def lookup_class(target)
-          return target.singleton_class if target.is_a?(Module) || target.singleton_methods.any?
+          return SINGLETON_CLASS_OF.bind_call(target) if module?(target) || SINGLETON_METHODS.bind_call(target).any?
 
-          target.class
+          CLASS_OF.bind_call(target)
+        end
+
+        def module?(target)
+          IS_A.bind_call(target, Module)
         end
 
         # Whatever +Class+ inherits is surface every object shares rather
@@ -132,7 +148,7 @@ module Kobako
         def ambient_owner?(owner, target)
           owner >= Class ||
             GADGET_OWNERS.include?(owner) ||
-            (target.is_a?(Module) && owner.singleton_class?)
+            (module?(target) && owner.singleton_class?)
         end
       end
     end
