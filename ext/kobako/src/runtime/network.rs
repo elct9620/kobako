@@ -344,7 +344,12 @@ fn to_endpoint(ruby: &Ruby, object: Value) -> Result<Endpoint, MagnusError> {
     let host: String = object
         .funcall::<_, _, Value>("host", ())?
         .funcall("to_s", ())?;
-    let port: u16 = object.funcall("port", ())?;
+    let port: i64 = object.funcall("port", ())?;
+    let port = u16::try_from(port).map_err(|_| {
+        to_arg_error(format!(
+            "an endpoint's port must be 1 to 65535, got {host}:{port}"
+        ))
+    })?;
     let mut endpoint = Endpoint::new(host, port).map_err(|err| to_arg_error(err.to_string()))?;
     if object.respond_to("protocol", false)? {
         endpoint = endpoint.with_protocol(

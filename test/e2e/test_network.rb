@@ -98,6 +98,18 @@ class TestE2ENetwork < Minitest::Test
     [public_only, Net::HTTP.new("localhost", %<port>d).get("/").code]
   RUBY
 
+  # @behavior NW-008
+  def test_a_duck_typed_endpoint_with_a_port_out_of_range_raises_argument_error
+    [70_000, 0, -1].each do |port|
+      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).network(:duck,
+                                                                  DuckEntry.new([HostAndPort.new("x.example", port)]))
+
+      assert_raises(ArgumentError,
+                    "Sandbox#network with an endpoint object whose port is #{port} must refuse the run as an " \
+                    "argument error") { sandbox.eval("1") }
+    end
+  end
+
   # @behavior NW-078
   def test_a_duck_typed_endpoint_takes_the_defaults_and_an_ipaddr
     with_http_server do |port, _seen|
