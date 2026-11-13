@@ -10,6 +10,7 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use socket2::SockRef;
 
 use crate::cred::Cred;
+use crate::memcg::MemoryCharge;
 use crate::vfs::{
     alloc_file_pseudo, Dentry, FMode, File, FileOperations, FileSystemType, FileType, Inode,
     InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
@@ -514,57 +515,6 @@ pub(crate) fn ensure_within(value: u32, max: u32) -> Result<(), Errno> {
     match (1..=max).contains(&value) {
         true => Ok(()),
         false => Err(Errno::InvalidInput),
-    }
-}
-
-/// Memory the host holds for a guest, reserved against the Invocation's as it
-/// is taken and given back as it is let go, as `sk_forward_alloc` reserves
-/// what the memory cgroup charges a socket: a producer's buffers, or a part of
-/// a request the guest builds.
-pub struct MemoryCharge {
-    cred: Arc<Cred>,
-    bytes: usize,
-}
-
-impl MemoryCharge {
-    /// Reserve `bytes` for `cred`, refused past its memory as `ENOMEM`.
-    pub fn new(cred: &Arc<Cred>, bytes: usize) -> Result<Self, Errno> {
-        cred.security_vm_enough_memory(bytes)?;
-        Ok(Self {
-            cred: cred.clone(),
-            bytes,
-        })
-    }
-
-    /// A charge for `cred` that reserves nothing yet.
-    pub fn empty(cred: &Arc<Cred>) -> Self {
-        Self {
-            cred: cred.clone(),
-            bytes: 0,
-        }
-    }
-
-    /// The bytes it reserves.
-    pub fn bytes(&self) -> usize {
-        self.bytes
-    }
-
-    /// Reserve `bytes` in place of what it held, taking only the growth and
-    /// giving back the rest; refused past its memory as `ENOMEM`, keeping what
-    /// it held.
-    pub fn resize(&mut self, bytes: usize) -> Result<(), Errno> {
-        match bytes.checked_sub(self.bytes) {
-            Some(growth) => self.cred.security_vm_enough_memory(growth)?,
-            None => self.cred.vm_unacct_memory(self.bytes - bytes),
-        }
-        self.bytes = bytes;
-        Ok(())
-    }
-}
-
-impl Drop for MemoryCharge {
-    fn drop(&mut self) {
-        self.cred.vm_unacct_memory(self.bytes);
     }
 }
 

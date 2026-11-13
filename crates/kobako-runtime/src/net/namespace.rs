@@ -12,8 +12,9 @@ use super::egress::EgressProxy;
 use super::http::Outbound;
 use super::lookup::{LookupError, NameLookup, Resolver};
 use super::socket::BindHash;
-use super::{MemoryCharge, OpenConnections, ProtocolFamily, TcpSock};
+use super::{OpenConnections, ProtocolFamily, TcpSock};
 use crate::cred::Cred;
+use crate::memcg::MemoryCharge;
 use crate::network::{EntryError, Name, Network, Protocol, Ruleset};
 use crate::policy::Policy;
 
@@ -268,7 +269,7 @@ impl Namespace {
             .sum::<usize>();
         let charged = match &mut translations.memory {
             Some(memory) => memory.resize(memory.bytes() + held),
-            None => MemoryCharge::new(cred, held).map(|memory| {
+            None => MemoryCharge::new(cred.memory_budget(), held).map(|memory| {
                 translations.memory = Some(memory);
             }),
         };

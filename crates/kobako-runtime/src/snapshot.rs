@@ -66,8 +66,9 @@ pub enum Completion {
 /// Resource usage of one guest invocation, each measured across the span
 /// its cap governs: `wall_time` is the seconds from setting the guest up to
 /// its export call returning, the span the deadline covers; `memory_peak`
-/// is the high-water `memory.grow` delta in bytes past the entry-time
-/// baseline. `Default` (all zeros) is the pre-invocation sentinel.
+/// is the most `memory_limit` counted at once, in bytes: the guest's growth
+/// past the entry-time baseline and what the host held for it.
+/// `Default` (all zeros) is the pre-invocation sentinel.
 #[derive(Clone, Copy, Default)]
 #[non_exhaustive]
 pub struct Usage {

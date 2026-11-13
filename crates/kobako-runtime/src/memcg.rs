@@ -95,15 +95,66 @@ impl MemoryBudget {
         Ok(())
     }
 
-    /// `bytes` charged earlier are held no more, as `mem_cgroup_uncharge`
-    /// gives them back.
-    pub(crate) fn uncharge(&self, bytes: usize) {
+    /// `bytes` charged earlier are held no more, as `memcg_uncharge` gives
+    /// them back.
+    fn uncharge(&self, bytes: usize) {
         let mut charged = self.charged();
         charged.held = charged.held.saturating_sub(bytes);
     }
 
     fn charged(&self) -> std::sync::MutexGuard<'_, Charged> {
         self.charged.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Memory the host holds for a guest, charged to its budget as it is taken
+/// and given back as it is let go, as `obj_cgroup_charge` and
+/// `obj_cgroup_uncharge` count what the kernel holds for a cgroup by the byte:
+/// a socket's queues, a listing, or a part of a request the guest builds.
+pub struct MemoryCharge {
+    budget: Arc<MemoryBudget>,
+    bytes: usize,
+}
+
+impl MemoryCharge {
+    /// Charge `bytes` to `budget`, refused past its limit as `ENOMEM`.
+    pub fn new(budget: &Arc<MemoryBudget>, bytes: usize) -> Result<Self, Errno> {
+        budget.try_charge(bytes)?;
+        Ok(Self {
+            budget: budget.clone(),
+            bytes,
+        })
+    }
+
+    /// A charge to `budget` that holds nothing yet.
+    pub fn empty(budget: &Arc<MemoryBudget>) -> Self {
+        Self {
+            budget: budget.clone(),
+            bytes: 0,
+        }
+    }
+
+    /// The bytes it holds.
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    /// Hold `bytes` in place of what it held, charging only the growth and
+    /// giving back the rest; refused past the limit as `ENOMEM`, keeping what
+    /// it held.
+    pub fn resize(&mut self, bytes: usize) -> Result<(), Errno> {
+        match bytes.checked_sub(self.bytes) {
+            Some(growth) => self.budget.try_charge(growth)?,
+            None => self.budget.uncharge(self.bytes - bytes),
+        }
+        self.bytes = bytes;
+        Ok(())
+    }
+}
+
+impl Drop for MemoryCharge {
+    fn drop(&mut self) {
+        self.budget.uncharge(self.bytes);
     }
 }
 

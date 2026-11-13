@@ -8,7 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use kobako_runtime::net::{self, Exchange, FieldError, MemoryCharge, RequestBody};
+use kobako_runtime::memcg::MemoryCharge;
+use kobako_runtime::net::{self, Exchange, FieldError, RequestBody};
 
 use super::bindings::wasi_http_types_0_2_12::{
     ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError, IncomingBody,
@@ -336,7 +337,7 @@ impl HttpHost for Invocation {
     ) -> wasmtime::Result<OutgoingRequest> {
         let entries = headers.entries;
         let cred = self.wasi().cred().clone();
-        let memory = MemoryCharge::empty(&cred);
+        let memory = MemoryCharge::empty(cred.memory_budget());
         let link = Arc::new(BodyLink {
             body: RequestBody::new(cred),
             handed: AtomicBool::new(false),

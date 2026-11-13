@@ -2,9 +2,8 @@
 //! goes on, as 9p's `fid->rdir` holds what its server sent, so a caller reading in
 //! small steps costs one listing, not one per step.
 
-use std::sync::Arc;
-
 use crate::cred::Cred;
+use crate::memcg::MemoryCharge;
 use crate::vfs::{Dentry, DirContext, DirEntry, FileType};
 use crate::Errno;
 
@@ -16,32 +15,14 @@ pub struct Rdir(Option<Listing>);
 struct Listing {
     entries: Vec<DirEntry>,
     /// Gives the entries' bytes back once the listing goes.
-    _charge: Charge,
+    _charge: MemoryCharge,
 }
 
-/// Bytes a listing counts for as long as it holds them, as shmem pairs
-/// `shmem_acct_size` with `shmem_unacct_size`.
-struct Charge {
-    cred: Arc<Cred>,
-    bytes: usize,
-}
-
-impl Charge {
-    fn account(cred: &Arc<Cred>, entries: &[DirEntry]) -> Result<Self, Errno> {
-        let names: usize = entries.iter().map(|entry| entry.name.capacity()).sum();
-        let bytes = size_of_val(entries) + names;
-        cred.security_vm_enough_memory(bytes)?;
-        Ok(Self {
-            cred: cred.clone(),
-            bytes,
-        })
-    }
-}
-
-impl Drop for Charge {
-    fn drop(&mut self) {
-        self.cred.vm_unacct_memory(self.bytes);
-    }
+/// Charge the bytes `entries` hold to `cred` for as long as the listing holds
+/// them.
+fn charge(cred: &Cred, entries: &[DirEntry]) -> Result<MemoryCharge, Errno> {
+    let names: usize = entries.iter().map(|entry| entry.name.capacity()).sum();
+    MemoryCharge::new(cred.memory_budget(), size_of_val(entries) + names)
 }
 
 impl Rdir {
@@ -67,7 +48,7 @@ impl Rdir {
                 let mut entries = dots(dentry)?;
                 entries.extend(read);
                 entries.shrink_to_fit();
-                let _charge = Charge::account(ctx.cred(), &entries)?;
+                let _charge = charge(ctx.cred(), &entries)?;
                 Listing { entries, _charge }
             }
         };

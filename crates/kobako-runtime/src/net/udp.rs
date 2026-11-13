@@ -18,10 +18,11 @@ use crate::network::Protocol;
 use socket2::SockRef;
 
 use super::socket::{
-    connect4, filter, set_hop_limit, to_error, BindHash, Buffers, InetSock, MemoryCharge, ProtoOps,
-    SkState, SockOpt, MAX_SOCKET_BUFFER,
+    connect4, filter, set_hop_limit, to_error, BindHash, Buffers, InetSock, ProtoOps, SkState,
+    SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
+use crate::memcg::MemoryCharge;
 use crate::vfs::PollMask;
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 use crate::Errno;
@@ -86,7 +87,7 @@ impl UdpSock {
     /// of the most size, which an empty queue takes past the buffer.
     pub(crate) fn new(cred: &Arc<Cred>) -> Result<Arc<Self>, Errno> {
         let reserve = MAX_SOCKET_BUFFER.max(truesize_of(MAX_DATAGRAM));
-        let memory = MemoryCharge::new(cred, reserve)?;
+        let memory = MemoryCharge::new(cred.memory_budget(), reserve)?;
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 host: None,

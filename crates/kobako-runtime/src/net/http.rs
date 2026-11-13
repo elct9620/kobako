@@ -22,11 +22,12 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::{open, OpenConnections, Place};
 use super::credential::Swap;
 use super::reactor::{Reactor, Task};
-use super::socket::{to_error, MemoryCharge};
+use super::socket::to_error;
 use super::transport::Connector;
 use super::{new_platform_tls, MAX_SOCKET_BUFFER};
 use crate::cred::Cred;
 use crate::filesystem::anon_inode_getfile;
+use crate::memcg::MemoryCharge;
 use crate::vfs::{FMode, File, FileOperations, Kiocb, OpenHow, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 use crate::Errno;
@@ -103,7 +104,7 @@ impl Fields {
         Arc::new(Self {
             list: Mutex::new(List {
                 entries: Vec::new(),
-                room: MemoryCharge::empty(&cred),
+                room: MemoryCharge::empty(cred.memory_budget()),
             }),
         })
     }
@@ -119,7 +120,8 @@ impl Fields {
             .iter()
             .map(|(name, value)| room_of(name, value))
             .sum();
-        let room = MemoryCharge::new(&cred, room).map_err(|_| FieldError::OutOfMemory)?;
+        let room =
+            MemoryCharge::new(cred.memory_budget(), room).map_err(|_| FieldError::OutOfMemory)?;
         Ok(Arc::new(Self {
             list: Mutex::new(List { entries, room }),
         }))
@@ -333,7 +335,7 @@ struct WrittenBody {
 impl RequestBody {
     /// An empty body, its bytes charged to `cred`.
     pub fn new(cred: Arc<Cred>) -> Arc<Self> {
-        let room = MemoryCharge::empty(&cred);
+        let room = MemoryCharge::empty(cred.memory_budget());
         Arc::new(Self {
             cred,
             written: Mutex::new(WrittenBody {
@@ -372,7 +374,7 @@ impl RequestBody {
     pub fn take(&self) -> Vec<u8> {
         let mut written = self.written();
         let bytes = std::mem::take(&mut written.bytes);
-        written.room = MemoryCharge::empty(&self.cred);
+        written.room = MemoryCharge::empty(self.cred.memory_budget());
         bytes
     }
 }
@@ -515,7 +517,8 @@ impl Exchange {
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, HttpError> {
         let room = request.room() + request.body.len() + MAX_READ_BUFFER + MAX_SOCKET_BUFFER;
-        let memory = MemoryCharge::new(cred, room).map_err(|_| HttpError::Internal)?;
+        let memory =
+            MemoryCharge::new(cred.memory_budget(), room).map_err(|_| HttpError::Internal)?;
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
         connector.place = Some(place.clone());
         let place = Some(place);
@@ -554,7 +557,7 @@ impl Exchange {
                         .iter()
                         .map(|(name, value)| room_of(name, value))
                         .sum();
-                    let Ok(head_memory) = MemoryCharge::new(&cred, room) else {
+                    let Ok(head_memory) = MemoryCharge::new(cred.memory_budget(), room) else {
                         lock(&state).phase = Phase::Failed(HttpError::Internal);
                         wait.wake_up();
                         return;
@@ -2150,9 +2153,9 @@ mod tests {
         request.path_with_query = format!("/{}", "p".repeat(30 * 1024));
         let exchange =
             crate::net::send(&namespace, &cred, request).expect("an endpoint names the authority");
-        let while_sent = MemoryCharge::new(&cred, 20 * 1024).is_ok();
+        let while_sent = MemoryCharge::new(cred.memory_budget(), 20 * 1024).is_ok();
         exchange.release();
-        let after = MemoryCharge::new(&cred, 20 * 1024).is_ok();
+        let after = MemoryCharge::new(cred.memory_budget(), 20 * 1024).is_ok();
         assert_eq!(
             (while_sent, after),
             (false, true),

@@ -239,16 +239,4 @@ impl Cred {
     pub(crate) fn security_socket_bind(&self, address: SocketAddr) -> Result<(), Errno> {
         self.call_int_hook(|module| module.socket_bind(address))
     }
-
-    /// Charge `bytes` more held on this caller's behalf, refusing them past its
-    /// budget, as `security_vm_enough_memory_mm` ends in `__vm_enough_memory`.
-    pub(crate) fn security_vm_enough_memory(&self, bytes: usize) -> Result<(), Errno> {
-        self.memory_budget().try_charge(bytes)
-    }
-
-    /// `bytes` charged earlier are held no more, as `vm_unacct_memory` gives
-    /// them back.
-    pub(crate) fn vm_unacct_memory(&self, bytes: usize) {
-        self.memory_budget().uncharge(bytes);
-    }
 }

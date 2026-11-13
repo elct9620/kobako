@@ -19,10 +19,10 @@ use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
     connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome, to_error,
-    BindHash, Buffers, Destination, InetSock, MemoryCharge, ProtoOps, SkState, SockOpt,
-    MAX_SOCKET_BUFFER,
+    BindHash, Buffers, Destination, InetSock, ProtoOps, SkState, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
+use crate::memcg::MemoryCharge;
 use crate::network::{Protocol, Ruleset};
 use crate::vfs::PollMask;
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -135,7 +135,7 @@ impl TcpSock {
         family: Arc<dyn ProtocolFamily>,
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, Errno> {
-        let memory = MemoryCharge::new(cred, 2 * MAX_SOCKET_BUFFER)?;
+        let memory = MemoryCharge::new(cred.memory_budget(), 2 * MAX_SOCKET_BUFFER)?;
         Ok(Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 phase: Phase::Unconnected,
