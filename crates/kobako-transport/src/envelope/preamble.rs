@@ -68,9 +68,10 @@ impl Preamble {
         let mut reader = Reader::new(bytes);
         let count = reader.read_u32()? as usize;
         // Each record costs at least six bytes, its two leading bytes and a
-        // body length, so a count past the bytes left can never be
-        // satisfied; refusing it bounds the work.
-        if count > reader.remaining().len() {
+        // body length, so a count past what the bytes left can hold can never
+        // be satisfied; refusing it bounds the work.
+        const MIN_RECORD_LEN: usize = 2 + size_of::<u32>();
+        if count > reader.remaining().len() / MIN_RECORD_LEN {
             return Err(DecodeError::new(
                 "Preamble declares more records than it holds",
             ));
