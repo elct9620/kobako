@@ -2555,7 +2555,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an `http` endpoint, and requests whose connect, head, or next body part outlasts its timeout |
 | When | each request waits past that timeout |
-| Then | the connect answers `connection-timeout`, and the head `connection-read-timeout`. The body's read fails with `ETIMEDOUT`. A request with no timeout waits on, as wasmtime-wasi-http bounds each wait |
+| Then | the connect answers `connection-timeout`, and the head `connection-read-timeout`. The body's read fails with `ETIMEDOUT`. A timeout the request leaves unset bounds its wait at 600 seconds, as wasmtime-wasi-http's does |
 
 ## `NW-206` Request options read back their timeouts and wake the wait they end
 
@@ -2605,3 +2605,16 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox |
 | When | the script builds a `Socket::Option` from an object answering `to_int`, then from `true` |
 | Then | the option holds that number, and `true` raises `TypeError`, as CRuby's `NUM2INT` |
+
+## `NW-210` A request waiting on a server that never answers ends with the run
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-205` |
+| relates | `NW-173` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a short timeout, and an `http` endpoint naming a server that accepts and never answers |
+| When | the script sends a request that sets no timeout of its own |
+| Then | the run ends at its deadline with `Kobako::TimeoutError` |
