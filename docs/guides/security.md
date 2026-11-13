@@ -175,7 +175,7 @@ patches, not a kobako release.
 | Windows | the system certificate store | online, end certificate |
 | Linux | the distribution's CA bundle, or `SSL_CERT_FILE` | none |
 
-The store is read once per process, when the first Sandbox is built. Revocation
+The store is read once per process, when the first network entry is made. Revocation
 fetches on macOS and Windows are host egress no endpoint judges. Setting
 `SSL_CERT_FILE` changes what every guest trusts, and an inspection root installed
 on the host sees each credential swapped in.

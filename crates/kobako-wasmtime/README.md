@@ -17,7 +17,6 @@ contract surface.
 | Ambient denial | under the default hermetic profile, frozen clocks and a constant RNG |
 | Filesystems | a preopen per Mount, and its own capped descriptor table |
 | WASI 0.2 imports | the `wasi:sockets`, `wasi:http` client, `wasi:io`, and clock subscriptions a core module links, generated from `wit/` |
-| Trust store | the host's TLS roots, read once as the first Driver is built |
 
 Each invocation discards its Store once it ends, so nothing one leaves
 behind reaches the next. The kobako Ruby gem's native ext is the first

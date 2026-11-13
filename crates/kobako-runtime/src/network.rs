@@ -27,12 +27,14 @@ pub struct Network {
 
 impl Network {
     /// The entry `entry` under `name`, refused for an empty name, which no
-    /// Context could replace it by.
+    /// Context could replace it by. The host's trust store is read here the
+    /// first time, on the thread building the Sandbox.
     pub fn new(name: impl Into<String>, entry: Arc<dyn Entry>) -> Result<Self, EntryError> {
         let name = name.into();
         if name.is_empty() {
             return Err(EntryError("an entry's name must not be empty".to_string()));
         }
+        crate::net::load_platform_verifier();
         Ok(Self { name, entry })
     }
 

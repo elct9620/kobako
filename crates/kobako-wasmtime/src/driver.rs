@@ -50,10 +50,6 @@ impl Driver {
     /// Engine is shared by the process and the Module cached per path;
     /// neither leaves the driver.
     pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
-        // The host's trust store is read once, here, on the thread building the
-        // Driver, which holds its frontend's lock, rather than on the reactor,
-        // which would read the environment beside it.
-        let _ = kobako_runtime::net::new_platform_tls();
         Ok(Self {
             instance_pre: instance_pre::load_instance_pre(path, config.setup_timeout)?,
             open_connections: OpenConnections::new(config.open_connection_limit),
