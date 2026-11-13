@@ -72,7 +72,7 @@ pub(super) fn local_end_of(
 
 /// Refuses a `reverse_lookup` flag CRuby's refuses: one of `nil`, `true`,
 /// `false`, `:hostname`, or `:numeric` passes.
-fn ensure_reverse_lookup_flag(mrb: &Mrb, flag: Value) -> Result<(), Error> {
+pub(super) fn ensure_reverse_lookup_flag(mrb: &Mrb, flag: Value) -> Result<(), Error> {
     if !flag.to_bool() || Qtrue::from_value(flag).is_some() {
         return Ok(());
     }

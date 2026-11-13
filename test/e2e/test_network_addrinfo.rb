@@ -104,4 +104,21 @@ class TestE2ENetworkAddrinfo < Minitest::Test
                  "does, a virtual address for each address a name leads to, the canonical name on the first entry, " \
                  "and Socket::ResolutionError for a family the address lacks and a name no entry names"
   end
+
+  REVERSE_LOOKUP_FLAGS = <<~RUBY
+    [:bogus, 1, :numeric].map do |flag|
+      Socket.getaddrinfo("127.0.0.1", 80, nil, :STREAM, nil, nil, flag).size
+    rescue StandardError => e
+      [e.class.to_s, e.message]
+    end
+  RUBY
+
+  # @behavior NW-141
+  def test_socket_getaddrinfo_refuses_a_reverse_lookup_flag_as_crubys
+    assert_equal [["ArgumentError", "invalid reverse_lookup flag: :bogus"],
+                  ["TypeError", "wrong argument type Integer (expected Symbol)"], 1],
+                 localhost_sandbox(80).eval(REVERSE_LOOKUP_FLAGS).value,
+                 "Socket.getaddrinfo with a reverse_lookup flag of :bogus must raise ArgumentError and one of 1 " \
+                 "TypeError, as CRuby's rsock_revlookup_flag does, and :numeric must look up"
+  end
 end

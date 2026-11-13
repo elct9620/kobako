@@ -7,7 +7,7 @@ use std::time::Duration;
 use beni::prelude::*;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
-use super::basic::string_value_of;
+use super::basic::{string_bytes_of, string_value_of};
 use super::{resolution_error, to_error, EAI_AGAIN, EAI_FAIL, EAI_NONAME, EAI_SERVICE};
 use crate::errno;
 use crate::io::argument_error;
@@ -151,14 +151,13 @@ pub(super) fn local_of(
 /// CRuby hands it: `nil` or `""` is port 0, and an Integer or a String of
 /// digits keeps its low 16 bits. The guest has no services database, so any
 /// other String raises `EAI_SERVICE`, as Linux without one does.
-pub(super) fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
+pub(crate) fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
     let text = if port.is_nil() {
         String::new()
     } else if Integer::from_value(port).is_some() {
         i64::try_convert(port, mrb)?.to_string()
     } else {
-        let bytes = Vec::<u8>::from_value(port).ok_or_else(|| errno::type_error(mrb, port))?;
-        String::from_utf8_lossy(&bytes).into_owned()
+        String::from_utf8_lossy(&string_bytes_of(mrb, port)?).into_owned()
     };
     if text.is_empty() {
         return Ok((0, text));
@@ -230,7 +229,7 @@ pub(super) fn to_sockaddr(ip: IpAddr, port: u16) -> Vec<u8> {
 /// The end a packed `sockaddr_in` or `sockaddr_in6` holds; a String no IPv4
 /// or IPv6 `sockaddr` lays out raises `ArgumentError`, as CRuby's.
 pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error> {
-    let bytes = Vec::<u8>::from_value(sockaddr).ok_or_else(|| errno::type_error(mrb, sockaddr))?;
+    let bytes = string_bytes_of(mrb, sockaddr)?;
     if bytes.len() < 2 {
         return Err(argument_error(mrb, "too short sockaddr"));
     }

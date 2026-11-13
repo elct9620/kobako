@@ -62,6 +62,23 @@ class TestE2ENetworkHttpCruby < Minitest::Test
              res.http_version, res.code_type.to_s]
   RUBY
 
+  SESSION_SHAPE = <<~RUBY
+    class Session < Net::HTTP; end
+    session = Session.new("127.0.0.1", "%<port>d")
+    response = session.get("/")
+    [session.inspect, response.code, response.body { |_| raise "body passed its block" }]
+  RUBY
+
+  # @behavior NW-208
+  def test_a_session_reads_its_port_inspect_and_body_as_crubys
+    with_http_server do |port, _seen|
+      assert_equal ["#<Session 127.0.0.1:#{port} open=false>", "201", "ok"],
+                   http_sandbox(port).eval(format(SESSION_SHAPE, port: port)).value,
+                   "Net::HTTP given its port as a String must reach the server, inspect must name the subclass " \
+                   "and the port as text, and body with a block must pass none and answer the body"
+    end
+  end
+
   # @behavior NW-062
   def test_request_and_response_helpers_answer_as_cruby
     with_http_server do |port, seen|

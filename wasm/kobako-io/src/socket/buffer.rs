@@ -10,7 +10,7 @@ use beni::{Error, Integer, IntoValue, Mrb, RClass, RHash, RString, Symbol, TryCo
 
 use super::basic::{
     exception_option_of, open_socket_of, outbuf_of, read_length_of, reader_of, ready_of, source_of,
-    strbuf_length_of, string_value_of, SocketIo, Wait,
+    strbuf_length_of, string_bytes_of, string_value_of, SocketIo, Wait,
 };
 use crate::io::{argument_error, required_block, would_wait, Direction};
 use crate::wasi::MAX_READ;
@@ -385,12 +385,7 @@ fn socket_ungetc(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Error>
             })?;
             vec![byte]
         }
-        None => {
-            let text = RString::try_convert(pushed, mrb)
-                .map_err(|_| crate::errno::type_error(mrb, pushed))?;
-            // SAFETY: the bytes are copied before the next mruby call.
-            unsafe { text.as_slice(mrb) }.to_vec()
-        }
+        None => string_bytes_of(mrb, pushed)?,
     };
     push_back(source, &bytes);
     Ok(qnil().as_value())
@@ -405,13 +400,7 @@ fn socket_ungetbyte(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Err
     }
     match Integer::from_value(pushed) {
         Some(_) => push_back(source, &[i64::try_convert(pushed, mrb)? as u8]),
-        None => {
-            let text = RString::try_convert(pushed, mrb)
-                .map_err(|_| crate::errno::type_error(mrb, pushed))?;
-            // SAFETY: the bytes are copied before the next mruby call.
-            let bytes = unsafe { text.as_slice(mrb) }.to_vec();
-            push_back(source, &bytes);
-        }
+        None => push_back(source, &string_bytes_of(mrb, pushed)?),
     }
     Ok(qnil().as_value())
 }

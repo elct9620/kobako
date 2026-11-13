@@ -16,7 +16,7 @@ use beni::{
 };
 
 use crate::errno;
-use crate::io::{argument_error, current_block, time_interval_of};
+use crate::io::{argument_error, current_block, split_options, time_interval_of};
 use crate::socket;
 use crate::wasi::wasi::http::outgoing_handler::handle;
 use crate::wasi::wasi::http::types::{
@@ -440,19 +440,20 @@ fn http_port(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     ivar_get(mrb, self_, c"@port")
 }
 
+/// The port a session dials, read as `TCPSocket.open` reads the one CRuby's
+/// hands it.
 fn port_of(mrb: &Mrb, self_: Value) -> Result<u16, Error> {
-    let port = ivar_get(mrb, self_, c"@port")?;
-    u16::try_from(i64::try_convert(port, mrb)?)
-        .map_err(|_| argument_error(mrb, "port out of range"))
+    socket::port_of(mrb, ivar_get(mrb, self_, c"@port")?).map(|(port, _)| port)
 }
 
 /// `inspect`: the address, the port, and whether a session is open, as
 /// CRuby's `#<Net::HTTP example.com:80 open=false>`.
 fn http_inspect(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
+    let class = to_text(mrb, self_.funcall::<_, _, Value>(mrb, c"class", ())?)?;
     let address = to_text(mrb, ivar_get(mrb, self_, c"@address")?)?;
-    let port = ivar_get(mrb, self_, c"@port")?.inspect(mrb);
+    let port = to_text(mrb, ivar_get(mrb, self_, c"@port")?)?;
     let open = http_started_p(mrb, self_)?;
-    Ok(format!("#<Net::HTTP {address}:{port} open={open}>").into_value(mrb))
+    Ok(format!("#<{class} {address}:{port} open={open}>").into_value(mrb))
 }
 
 fn uses_ssl(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
@@ -516,11 +517,8 @@ fn http_started_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 /// `use_ssl: true` takes 443, as CRuby's does.
 fn http_s_start(mrb: &Mrb, class: RClass, args: &[Value]) -> Result<Value, Error> {
     let block = current_block(mrb)?;
-    let mut positional = args.to_vec();
-    let options = positional.last().copied().and_then(RHash::from_value);
-    if options.is_some() {
-        positional.pop();
-    }
+    let (positional, options) = split_options(args);
+    let mut positional = positional.to_vec();
     if let Some(options) = options {
         let use_ssl: Value = options.aref(mrb, Symbol::new(mrb, "use_ssl")?)?;
         let port_given = positional.get(1).is_some_and(|port| !port.is_nil());
@@ -1253,11 +1251,10 @@ fn response_message(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     ivar_get(mrb, self_, c"@message")
 }
 
-/// `body`: the body, read to the end, as net-http's `read_body` with no
-/// `dest` reads it.
+/// `body`: the body, read to the end, as net-http's `body` calls `read_body`
+/// with neither a `dest` nor the block it was given.
 fn response_body(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
-    let block = current_block(mrb)?;
-    read_body_into(mrb, self_, block)
+    read_body_into(mrb, self_, None)
 }
 
 /// `read_body(dest = nil) { |chunk| }`: the body, read to the end, each chunk

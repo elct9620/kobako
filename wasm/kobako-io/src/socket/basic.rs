@@ -9,9 +9,7 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::scan_args::get_kwargs;
 use beni::value::qnil;
-use beni::{
-    Error, Integer, IntoValue, Mrb, Qfalse, RClass, RHash, RString, Symbol, TryConvert, Value,
-};
+use beni::{Error, Integer, IntoValue, Mrb, Qfalse, RClass, RString, Symbol, TryConvert, Value};
 
 use super::address::to_sockaddr;
 use super::buffer::{eof_error, fill};
@@ -19,7 +17,7 @@ use super::ip::to_addr_array;
 use super::option::Refusal;
 use super::tcp::Connection;
 use crate::errno;
-use crate::io::{argument_error, would_wait, Direction};
+use crate::io::{argument_error, split_options, would_wait, Direction};
 use crate::wasi::wasi::io::poll::Pollable;
 
 /// Whether one call waits for the socket, as Linux's `MSG_DONTWAIT` chooses
@@ -237,10 +235,7 @@ pub(super) fn exception_option_of<'a>(
     mrb: &Mrb,
     args: &'a [Value],
 ) -> Result<(&'a [Value], bool), Error> {
-    let Some((last, rest)) = args.split_last() else {
-        return Ok((args, true));
-    };
-    let Some(options) = RHash::from_value(*last) else {
+    let (rest, Some(options)) = split_options(args) else {
         return Ok((args, true));
     };
     let kw = get_kwargs::<_, (), (Option<Value>,), ()>(mrb, options, &[], &["exception"])?;
@@ -379,15 +374,31 @@ fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Erro
 /// `value` as CRuby's `StringValue` takes it: a String, or what its `to_str`
 /// answers; anything else raises `TypeError`.
 pub(super) fn string_value_of(mrb: &Mrb, value: Value) -> Result<RString, Error> {
+    check_string_type(mrb, value)?.ok_or_else(|| errno::type_error(mrb, value))
+}
+
+/// `value` as CRuby's `rb_check_string_type` takes it: a String, or what its
+/// `to_str` answers, `None` for a value with no `to_str`; a `to_str` answering
+/// no String raises `TypeError`.
+pub(super) fn check_string_type(mrb: &Mrb, value: Value) -> Result<Option<RString>, Error> {
     if let Some(string) = RString::from_value(value) {
-        return Ok(string);
+        return Ok(Some(string));
     }
     let to_str = Symbol::new(mrb, "to_str")?.as_value();
     if !value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_str])? {
-        return Err(errno::type_error(mrb, value));
+        return Ok(None);
     }
     let string = value.funcall::<_, _, Value>(mrb, c"to_str", ())?;
-    RString::from_value(string).ok_or_else(|| errno::type_error(mrb, value))
+    RString::from_value(string)
+        .map(Some)
+        .ok_or_else(|| errno::type_error(mrb, value))
+}
+
+/// The bytes of `value` as CRuby's `StringValue` takes it.
+pub(super) fn string_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
+    let string = string_value_of(mrb, value)?;
+    // SAFETY: the bytes are copied out before any later mruby call.
+    Ok(unsafe { string.as_slice(mrb) }.to_vec())
 }
 
 /// The bytes of `mesg`, as CRuby's `send` takes them through `StringValue`.

@@ -8,16 +8,15 @@ use std::net::{IpAddr, Ipv4Addr};
 use beni::prelude::*;
 use beni::scan_args::get_kwargs;
 use beni::value::qnil;
-use beni::{
-    Error, Integer, IntoValue, Module, Mrb, RArray, RClass, RHash, TryConvert, TypedData, Value,
-};
+use beni::{Error, Integer, IntoValue, Module, Mrb, RArray, RClass, TryConvert, TypedData, Value};
 
 use super::address::{end_of, hosts_of, port_of, to_sockaddr};
 use super::basic::{open_socket_of, string_value_of};
+use super::ip::ensure_reverse_lookup_flag;
 use super::{
     family_of, name_of, resolution_error, socket_error, Family, AF_INET, AF_INET6, EAI_NONAME,
 };
-use crate::io::argument_error;
+use crate::io::{argument_error, split_options};
 
 /// Linux's socket kinds, and the protocols each IP kind carries.
 pub(super) const SOCK_STREAM: i64 = 1;
@@ -322,12 +321,11 @@ fn hints_of(mrb: &Mrb, args: &[Value]) -> Result<Hints, Error> {
 /// name and service lead to. `timeout:` is taken and read no further, as
 /// CRuby's `call_getaddrinfo` on Linux never reads it.
 fn addrinfo_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
-    let mut args = args.to_vec();
-    if let Some(options) = args.last().copied().and_then(RHash::from_value) {
-        args.pop();
+    let (args, options) = split_options(args);
+    if let Some(options) = options {
         get_kwargs::<_, (), (Option<Value>,), ()>(mrb, options, &[], &["timeout"])?;
     }
-    let (node, service, rest) = match args.as_slice() {
+    let (node, service, rest) = match args {
         [node, service, rest @ ..] if rest.len() <= 4 => (*node, *service, rest),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 6)),
     };
@@ -627,6 +625,9 @@ fn socket_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value
         _ => return Err(Error::argnum(mrb, args.len(), 2, 7)),
     };
     let hints = hints_of(mrb, &rest[..rest.len().min(4)])?;
+    if let Some(flag) = rest.get(4) {
+        ensure_reverse_lookup_flag(mrb, *flag)?;
+    }
     let answer = mrb.ary_new();
     for info in lookup(mrb, node, service, &hints)? {
         let family = afamily_of(info.ip);

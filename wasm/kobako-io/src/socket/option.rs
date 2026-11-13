@@ -5,10 +5,10 @@
 
 use beni::prelude::*;
 use beni::{
-    Error, IntoValue, Mrb, Qfalse, Qtrue, RClass, RString, RTypedData, TryConvert, TypedData, Value,
+    Error, IntoValue, Mrb, Qfalse, Qtrue, RClass, RTypedData, TryConvert, TypedData, Value,
 };
 
-use super::basic::open_socket_of;
+use super::basic::{open_socket_of, string_bytes_of};
 use super::{family_of, name_of, socket_error, to_error, Family, AF_INET, AF_INET6};
 use crate::errno;
 use crate::wasi::wasi::sockets::network::ErrorCode;
@@ -227,16 +227,7 @@ fn data_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     if beni::Integer::from_value(value).is_some() {
         return Ok(i32::try_convert(value, mrb)?.to_le_bytes().to_vec());
     }
-    bytes_of(mrb, value)
-}
-
-/// The bytes of the String `value`, as CRuby's `StringValue` takes it.
-fn bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
-    match RString::from_value(value) {
-        // SAFETY: the bytes are copied out before any later mruby call.
-        Some(text) => Ok(unsafe { text.as_slice(mrb) }.to_vec()),
-        None => Err(errno::type_error(mrb, value)),
-    }
+    string_bytes_of(mrb, value)
 }
 
 /// The `int` a value of `bytes` carries for `setsockopt(2)`, which takes at
@@ -527,7 +518,7 @@ fn option_s_new(
     optname: Value,
     data: Value,
 ) -> Result<Value, Error> {
-    let data = bytes_of(mrb, data)?;
+    let data = string_bytes_of(mrb, data)?;
     new_option(mrb, class, (family, level, optname), data)
 }
 

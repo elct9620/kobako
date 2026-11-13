@@ -18,7 +18,7 @@ use super::ip::local_end_of;
 use super::option::{set_tcp_option, tcp_option, Refusal};
 use super::{bind, stream_error, to_error};
 use crate::errno;
-use crate::io::{current_block, time_interval_of, yield_and_close, Direction};
+use crate::io::{current_block, split_options, time_interval_of, yield_and_close, Direction};
 use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
@@ -260,12 +260,8 @@ enum Caller {
 /// the host lets a bind take it. Once every address failed, the last failure
 /// raises; a connect slower than `connect_timeout` raises at once.
 fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> {
-    let mut args = args.to_vec();
-    let options = args.last().copied().and_then(RHash::from_value);
-    if options.is_some() {
-        args.pop();
-    }
-    let (host, port, local) = match args.as_slice() {
+    let (args, options) = split_options(args);
+    let (host, port, local) = match args {
         [host, port, local @ ..] if local.len() <= 2 => (*host, *port, local),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 4)),
     };
@@ -295,7 +291,15 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
     for ip in ips {
         let attempt = || -> Result<Result<Connection, Error>, Error> {
             let call = named("connect(2)", &quoted, (ip, port));
-            let failed = |code| to_error(mrb, code, &call);
+            // CRuby's `rsock_syserr_fail_host_port` raises ETIMEDOUT as
+            // `IO::TimeoutError`, while `Socket.tcp` raises it as itself.
+            let failed = |code| match (code, caller) {
+                (ErrorCode::Timeout, Caller::TcpSocketNew) => match io_timeout_error(mrb) {
+                    Ok(class) => Error::new(mrb, class, &call),
+                    Err(err) => err,
+                },
+                (code, _) => to_error(mrb, code, &call),
+            };
             let socket = match create_tcp_socket(IpAddressFamily::Ipv4) {
                 Ok(socket) => socket,
                 Err(code) => return Ok(Err(failed(code))),
@@ -324,11 +328,9 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
                             continue;
                         }
                         return Err(match caller {
-                            Caller::TcpSocketNew => Error::new(
-                                mrb,
-                                io_timeout_error(mrb)?,
-                                &format!("user specified timeout for {ip} port {port}"),
-                            ),
+                            Caller::TcpSocketNew => {
+                                Error::new(mrb, io_timeout_error(mrb)?, "Connect timed out!")
+                            }
                             Caller::SocketTcp => {
                                 errno::error_by_name(mrb, c"ETIMEDOUT", "user specified timeout")
                             }
@@ -364,8 +366,9 @@ struct Timeouts {
 }
 
 /// The limits `resolv_timeout:` and `connect_timeout:` set, refusing any
-/// keyword CRuby's does not take. `fast_fallback:` chooses between IPv6 and
-/// IPv4 attempts, so on a guest that speaks only IPv4 it changes nothing.
+/// keyword CRuby's does not take. `fast_fallback: false` drops
+/// `resolv_timeout:`, as CRuby's path without fast fallback resolves with no
+/// timeout.
 fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
     let Some(options) = options else {
         return Ok(Timeouts {
@@ -379,7 +382,11 @@ fn timeouts_of(mrb: &Mrb, options: Option<RHash>) -> Result<Timeouts, Error> {
         &[],
         &["resolv_timeout", "connect_timeout", "fast_fallback"],
     )?;
-    let (resolv, connect, _fast_fallback) = kw.optional;
+    let (resolv, connect, fast_fallback) = kw.optional;
+    let resolv = match fast_fallback {
+        Some(fast_fallback) if !fast_fallback.to_bool() => None,
+        _ => resolv,
+    };
     Ok(Timeouts { resolv, connect })
 }
 

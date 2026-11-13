@@ -35,8 +35,8 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, ExceptionClass, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RTypedData,
-    Symbol, TryConvert, TypedData, Value,
+    Error, ExceptionClass, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash,
+    RTypedData, Symbol, TryConvert, TypedData, Value,
 };
 
 use crate::{descriptors, errno};
@@ -513,6 +513,18 @@ pub(crate) fn would_wait(
         Direction::Write => "wait_writable",
     };
     Ok(Symbol::new(mrb, name)?.as_value())
+}
+
+/// The positional arguments of `args` and the keyword Hash trailing them, as
+/// mruby hands a method declared with a rest argument its keywords.
+pub(crate) fn split_options(args: &[Value]) -> (&[Value], Option<RHash>) {
+    match args.split_last() {
+        Some((last, rest)) => match RHash::from_value(*last) {
+            Some(options) => (rest, Some(options)),
+            None => (args, None),
+        },
+        None => (args, None),
+    }
 }
 
 /// Returned as `Err`, so the bridge frame raises it only after the Rust

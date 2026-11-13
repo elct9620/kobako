@@ -38,7 +38,7 @@ class TestE2ENetworkTcpArguments < Minitest::Test
     rescue Errno::ETIMEDOUT => e
       e.message
     end
-    [timed_out, TCPSocket.new("localhost", %<port>d, resolv_timeout: 5, fast_fallback: false).peeraddr[1]]
+    [timed_out, TCPSocket.new("localhost", %<port>d, resolv_timeout: 0.000001, fast_fallback: false).peeraddr[1]]
   RUBY
 
   # @behavior NW-100
@@ -48,7 +48,7 @@ class TestE2ENetworkTcpArguments < Minitest::Test
 
       assert_equal ["Connection timed out - user specified timeout", port], value,
                    "TCPSocket.new with a resolv_timeout: shorter than the lookup must raise Errno::ETIMEDOUT, " \
-                   "and with fast_fallback: false must connect"
+                   "and with fast_fallback: false must read no resolv_timeout: and connect"
     end
   end
 

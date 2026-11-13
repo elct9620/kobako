@@ -29,10 +29,9 @@ use std::ffi::CString;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{
-    Error, Exception, ExceptionClass, Module, Mrb, RClass, RString, Symbol, TryConvert, Value,
-};
+use beni::{Error, Exception, ExceptionClass, Module, Mrb, RClass, Symbol, TryConvert, Value};
 
+pub(crate) use address::port_of;
 pub(crate) use basic::{is_open_socket, readiness_of, select_readiness_of, Readiness};
 pub(crate) use buffer::holds_buffered;
 
@@ -144,12 +143,13 @@ enum Family {
 }
 
 /// The name a Symbol or a String spells, `None` for any other value, as
-/// CRuby's `ext/socket` reads a family, a level, or an option by name.
+/// CRuby's `constant_arg` reads a family, a level, or an option by name
+/// through `rb_check_string_type`.
 fn name_of(mrb: &Mrb, value: Value) -> Result<Option<String>, Error> {
     if let Some(symbol) = Symbol::from_value(value) {
         return symbol.name(mrb).map(Some);
     }
-    match RString::from_value(value) {
+    match basic::check_string_type(mrb, value)? {
         Some(text) => text.to_string(mrb).map(Some),
         None => Ok(None),
     }
