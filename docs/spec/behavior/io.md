@@ -16,6 +16,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 
 - `test/e2e/test_io_write.rb`
 - `test/e2e/test_io_kernel.rb`
+- `test/e2e/test_io_writers.rb`
 - `test/e2e/test_io_state.rb`
 - `test/e2e/test_io_wait.rb`
 - `test/e2e/test_io_position.rb`
@@ -77,13 +78,13 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | When | guest code asks the standard output stream whether it is a terminal |
 | Then | it is not |
 
-## `IO-008` A captured stream is synchronous to begin with
+## `IO-008` Only standard error is synchronous to begin with
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | guest code reads the standard output stream's sync flag |
-| Then | it is true |
+| When | guest code reads the sync flag of standard output and of standard error |
+| Then | it is false for standard output and true for standard error, as CRuby's |
 
 ## `IO-009` Setting the sync flag answers what was assigned
 
@@ -222,13 +223,13 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | When | guest code puts a character by a number larger than a byte |
 | Then | the capture holds the low byte of that number |
 
-## `IO-026` Putting a character answers nothing
+## `IO-026` Putting a character answers that character
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
 | When | guest code's last expression puts a character |
-| Then | the invocation answers nothing |
+| Then | the invocation answers that character, as CRuby's `Kernel#putc` does |
 
 ## `IO-027` The writing delegators are not callable on a receiver
 
@@ -340,7 +341,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | When | it reads the flag back |
 | Then | it is true |
 
-## `IO-039` A character number past 64 bits raises RangeError
+## `IO-039` A character number past a C int raises RangeError
 
 | Attribute | Value |
 | --- | --- |
@@ -349,7 +350,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | guest code puts a character by a number past 64 bits, through `Kernel` and through `$stdout` |
+| When | guest code puts a character by a number past a C `int`, through `Kernel` and through `$stdout` |
 | Then | each raises `RangeError` and the capture holds nothing |
 
 ## `IO-040` An IO over a file this guest opened reads its mode as File.open does
@@ -448,3 +449,75 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a script waiting on `$stdout`, through `wait_writable` and `IO.select` |
 | When | it gives a timeout of NaN, a negative number, infinity, a Float past 2 ** 63, or the Integer just below |
 | Then | NaN, infinity, and the large Float raise `RangeError`, and the negative one `ArgumentError`, as CRuby's `rb_time_interval` refuses each. The Integer waits, as CRuby reads an Integer as itself. `IO.select` reads the timeout before the IOs it is given. It so refuses a bad one even over a socket holding buffered bytes |
+
+## `IO-048` A character is read from a Float, and nothing else that is no number
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-025` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code puts a character by `65.0`, then by `:a` and by `nil` |
+| Then | the first writes `A`, and the others raise `TypeError`, as CRuby's `NUM2CHR` reads one |
+
+## `IO-049` The Kernel writers reach a rebound channel through its write
+
+| Attribute | Value |
+| --- | --- |
+| relates | `IO-027` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose script rebinds `$stdout` and `$stderr` to objects answering only `write` |
+| When | the script calls `print`, `printf`, `p`, and `warn` |
+| Then | each reaches the rebound object's `write`, as CRuby's `rb_io_write` does |
+
+## `IO-050` printf and warn take their arguments as CRuby's do
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-049` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | the script calls `printf` and `warn` bare, `printf` with `$stderr` first, and `warn` with `uplevel:` |
+| Then | the bare calls write nothing, `printf` writes to standard error, and `warn` writes its message alone |
+
+## `IO-051` An IO answers no p
+
+| Attribute | Value |
+| --- | --- |
+| relates | `IO-027` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code calls `p` on `$stdout` |
+| Then | it raises `NoMethodError`, as CRuby's IO defines no `p` |
+
+## `IO-052` A closed IO answers nothing of its descriptor
+
+| Attribute | Value |
+| --- | --- |
+| relates | `IO-012` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Mount, and a file the script opened and closed |
+| When | the script asks it for `fileno`, `tty?`, `sync`, `sync=`, and `flush` |
+| Then | each raises `IOError`, as CRuby's `GetOpenFile` refuses a closed stream |
+
+## `IO-053` An Array holding itself is put as a placeholder
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-032` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code puts an Array that holds itself |
+| Then | the capture holds `[...]` on its own line, as CRuby's `rb_exec_recursive` writes |
