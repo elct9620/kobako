@@ -2529,3 +2529,16 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint allowing GET and denying DELETE on one path, another with no rules, and a recording request policy |
 | When | the guest sends that path by `GET`, `get`, and `delete`, and sends `get` to the other endpoint |
 | Then | a method matches an allowing rule only in its case, as HTTP methods are case-sensitive. A denied method stays refused in any case. The policy sees `get` as sent |
+
+## `NW-204` A response's head past the read buffer answers a protocol error
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-156` |
+| relates | `NW-081` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a server whose response head runs past 128 KiB, the most a header list holds |
+| When | the guest sends a request, and sends one under a `memory_limit` holding the request but not that buffer |
+| Then | the first answers `HTTP-protocol-error` once its head passes the buffer. The second fails before it is sent, as each request holds the buffer against the Invocation's memory |
