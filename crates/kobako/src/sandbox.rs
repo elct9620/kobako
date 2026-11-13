@@ -550,8 +550,10 @@ mod tests {
     #[cfg(feature = "wasmtime")]
     #[test]
     fn a_cap_of_zero_is_refused_as_an_argument() {
-        let mut options = Options::default();
-        options.memory_limit = Some(0);
+        let options = Options {
+            memory_limit: Some(0),
+            ..Options::default()
+        };
         assert!(
             matches!(
                 Sandbox::new("no-guest.wasm", options),

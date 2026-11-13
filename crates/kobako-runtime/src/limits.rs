@@ -111,10 +111,14 @@ mod tests {
     // @behavior RT-058
     #[test]
     fn a_cap_of_zero_is_refused() {
-        let mut limits = Limits::default();
-        limits.connection_limit = Some(0);
-        let mut deadline = Limits::default();
-        deadline.timeout = Some(Duration::ZERO);
+        let limits = Limits {
+            connection_limit: Some(0),
+            ..Limits::default()
+        };
+        let deadline = Limits {
+            timeout: Some(Duration::ZERO),
+            ..Limits::default()
+        };
         assert_eq!(
             (
                 limits.check().map_err(|e| e.to_string()),
