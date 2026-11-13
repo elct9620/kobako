@@ -74,7 +74,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
 }
 
 /// The path a stream's errors name: a `File`'s own, or its descriptor.
-pub(crate) fn label(mrb: &Mrb, self_: Value) -> String {
+pub(crate) fn label_of(mrb: &Mrb, self_: Value) -> String {
     Stream::state(mrb, self_)
         .and_then(|state| state.path)
         .unwrap_or_else(|| "IO".to_string())
@@ -109,7 +109,7 @@ fn is_directory(mrb: &Mrb, self_: Value) -> bool {
 /// that, and a directory, which has nothing to read, `EISDIR`, as CRuby's
 /// `read(2)` does.
 fn read_error(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
-    let path = label(mrb, self_);
+    let path = label_of(mrb, self_);
     if is_directory(mrb, self_) {
         return errno::error_by_name(mrb, c"EISDIR", &path);
     }
@@ -120,7 +120,7 @@ fn read_error(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
 /// a directory, where Linux's would seek, so a directory raises `EISDIR`;
 /// any other failure its own name.
 fn position_error(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
-    let path = label(mrb, self_);
+    let path = label_of(mrb, self_);
     if is_directory(mrb, self_) {
         return errno::error_by_name(mrb, c"EISDIR", &path);
     }
@@ -238,7 +238,7 @@ fn io_set_pos(mrb: &Mrb, self_: Value, offset: i64) -> Result<Value, Error> {
 /// `EINVAL`, as `lseek(2)` answers it.
 fn seek(mrb: &Mrb, self_: Value, offset: i64, whence: i64) -> Result<(), Error> {
     let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
-    let invalid = || errno::error_by_name(mrb, c"EINVAL", &label(mrb, self_));
+    let invalid = || errno::error_by_name(mrb, c"EINVAL", &label_of(mrb, self_));
     let to = match whence {
         0 => SeekFrom::Start(u64::try_from(offset).map_err(|_| invalid())?),
         1 => SeekFrom::Current(offset),
@@ -355,7 +355,7 @@ fn io_pwrite(mrb: &Mrb, self_: Value, data: Value, offset: i64) -> Result<Value,
         return Err(errno::from_transfer(
             mrb,
             &err,
-            &label(mrb, self_),
+            &label_of(mrb, self_),
             "writing",
         ));
     }
@@ -368,7 +368,7 @@ fn sync(mrb: &Mrb, self_: Value, data_only: bool) -> Result<Value, Error> {
         true => file.sync_data(),
         false => file.sync_all(),
     })
-    .map_err(|err| errno::from_io(mrb, &err, &label(mrb, self_)))?;
+    .map_err(|err| errno::from_io(mrb, &err, &label_of(mrb, self_)))?;
     Ok(0.into_value(mrb))
 }
 
@@ -414,7 +414,7 @@ fn io_advise(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
         unsafe { raw::posix_fadvise(fd, offset.unwrap_or(0), len.unwrap_or(0), advice as c_int) };
     if refused != 0 {
         let err = io::Error::from_raw_os_error(refused);
-        return Err(errno::from_io(mrb, &err, &label(mrb, self_)));
+        return Err(errno::from_io(mrb, &err, &label_of(mrb, self_)));
     }
     Ok(qnil().as_value())
 }
@@ -450,7 +450,7 @@ fn io_close(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let refusal = failed.then(io::Error::last_os_error);
     release(mrb, self_);
     match refusal {
-        Some(err) => Err(errno::from_io(mrb, &err, &label(mrb, self_))),
+        Some(err) => Err(errno::from_io(mrb, &err, &label_of(mrb, self_))),
         None => Ok(qnil().as_value()),
     }
 }

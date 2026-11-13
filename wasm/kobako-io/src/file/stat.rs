@@ -290,7 +290,7 @@ fn stat_socket_p(mrb: &Mrb, self_: Value) -> Result<bool, Error> {
 fn file_stat(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let fd = crate::io::checked_fd(mrb, self_, REACH_REFUSAL)?;
     let stat = raw::fstat(fd)
-        .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label(mrb, self_)))?;
+        .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label_of(mrb, self_)))?;
     Ok(report_value(mrb, stat))
 }
 
@@ -298,7 +298,7 @@ fn file_stat(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// path rather than the descriptor.
 fn file_lstat(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     crate::io::checked_fd(mrb, self_, REACH_REFUSAL)?;
-    let path = crate::stream::label(mrb, self_);
+    let path = crate::stream::label_of(mrb, self_);
     let path = mrb.str_new(path.as_bytes()).as_value();
     Ok(report_value(
         mrb,

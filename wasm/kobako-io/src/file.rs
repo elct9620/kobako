@@ -147,7 +147,7 @@ fn file_path(mrb: &Mrb, self_: Value) -> Value {
 fn file_size(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let fd = crate::io::checked_fd(mrb, self_, REACH_REFUSAL)?;
     let len = with_file(fd, |file| Ok(file.metadata()?.len()))
-        .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label(mrb, self_)))?;
+        .map_err(|err| errno::from_io(mrb, &err, &crate::stream::label_of(mrb, self_)))?;
     Ok(i64::try_from(len).unwrap_or(i64::MAX).into_value(mrb))
 }
 
@@ -159,7 +159,7 @@ fn file_truncate(mrb: &Mrb, self_: Value, length: i64) -> Result<Value, Error> {
     // SAFETY: `fd` is a file this guest opened; the call takes no buffer.
     if unsafe { ftruncate(fd, length) } != 0 {
         let err = io::Error::last_os_error();
-        let label = crate::stream::label(mrb, self_);
+        let label = crate::stream::label_of(mrb, self_);
         return Err(errno::from_transfer(mrb, &err, &label, "writing"));
     }
     Ok(0.into_value(mrb))
@@ -264,7 +264,7 @@ fn file_s_join(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> 
 }
 
 /// The last component, trailing separators dropped; `/` for the root.
-fn last_component(path: &str) -> &str {
+fn last_component_of(path: &str) -> &str {
     let trimmed = path.trim_end_matches('/');
     if trimmed.is_empty() {
         return if path.is_empty() { "" } else { "/" };
@@ -275,7 +275,7 @@ fn last_component(path: &str) -> &str {
 fn file_s_basename(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
     let args = scan_args::<(Value,), (Option<Value>,), (), (), (), ()>(mrb)?;
     let path = path_arg(mrb, args.required.0)?;
-    let mut base = last_component(&path).to_string();
+    let mut base = last_component_of(&path).to_string();
     if let Some(suffix) = args.optional.0 {
         let suffix = path_arg(mrb, suffix)?;
         if suffix == ".*" {
@@ -304,7 +304,7 @@ fn file_s_dirname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> 
 
 fn file_s_extname(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
     let path = path_arg(mrb, path)?;
-    let base = last_component(&path);
+    let base = last_component_of(&path);
     let ext = match base.rfind('.') {
         Some(dot) if dot > 0 && dot + 1 < base.len() => &base[dot..],
         _ => "",

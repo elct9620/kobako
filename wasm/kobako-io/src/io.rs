@@ -267,7 +267,7 @@ fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
             };
             if n < 0 && !descriptors::is_channel(fd) {
                 let err = std::io::Error::last_os_error();
-                let label = crate::stream::label(mrb, self_);
+                let label = crate::stream::label_of(mrb, self_);
                 return Err(errno::from_transfer(mrb, &err, &label, "writing"));
             }
             if n <= 0 {
@@ -316,7 +316,7 @@ pub(crate) fn is_opened_to_read(fd: i32) -> bool {
 }
 
 fn io_fileno(mrb: &Mrb, self_: Value) -> Value {
-    read_fd(mrb, self_).into_value(mrb)
+    fd_of(mrb, self_).into_value(mrb)
 }
 
 fn io_print(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
@@ -575,7 +575,7 @@ pub(crate) fn time_interval_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>
 
 /// The value may be stale: a copy keeps it after the original closes it,
 /// so a caller that forwards it to a syscall must re-validate it first.
-fn read_fd(mrb: &Mrb, self_: Value) -> i32 {
+fn fd_of(mrb: &Mrb, self_: Value) -> i32 {
     Stream::state(mrb, self_)
         .and_then(|state| state.fd)
         .unwrap_or(0)
@@ -599,7 +599,7 @@ pub(crate) fn checked_fd(mrb: &Mrb, self_: Value, refusal: &str) -> Result<i32, 
     if is_closed(mrb, self_) {
         return Err(errno::io_error(mrb, "closed stream"));
     }
-    let fd = read_fd(mrb, self_);
+    let fd = fd_of(mrb, self_);
     if !descriptors::is_reachable(fd) {
         return Err(argument_error(mrb, refusal));
     }

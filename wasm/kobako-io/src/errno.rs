@@ -149,7 +149,7 @@ fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let message = message.filter(|message| !message.is_nil());
     let known = number.and_then(|number| CODES.iter().find(|code| code.linux == number));
     let class = match (own, known) {
-        (None, Some(code)) => errno_class(mrb, code.name)?,
+        (None, Some(code)) => errno_class_by_name(mrb, code.name)?,
         _ => ExceptionClass::from_value(self_).ok_or_else(|| type_error(mrb, self_))?,
     };
     let mut text = match (known, number) {
@@ -198,7 +198,7 @@ pub(crate) fn type_error(mrb: &Mrb, value: Value) -> Error {
     )
 }
 
-fn errno_class(mrb: &Mrb, name: &core::ffi::CStr) -> Result<ExceptionClass, Error> {
+fn errno_class_by_name(mrb: &Mrb, name: &core::ffi::CStr) -> Result<ExceptionClass, Error> {
     mrb.module_get(c"Errno")?.const_get(mrb, name)
 }
 
@@ -263,7 +263,7 @@ pub(crate) fn from_io(mrb: &Mrb, err: &io::Error, path: &str) -> Error {
 /// The `Errno` class `name` names, carrying `message` whole, as CRuby's
 /// `raise e, message` re-raises one with a message of its own.
 pub(crate) fn error_with_message(mrb: &Mrb, name: &core::ffi::CStr, message: &str) -> Error {
-    to_error(mrb, errno_class(mrb, name), message)
+    to_error(mrb, errno_class_by_name(mrb, name), message)
 }
 
 /// Whether the guest has an `Errno` class for the POSIX name `name`.
@@ -282,7 +282,7 @@ fn strerror(name: &core::ffi::CStr) -> &'static str {
 /// The `Errno` class `name` names, carrying its message alone, as CRuby
 /// raises one for an IO that names no path.
 pub(crate) fn error_alone(mrb: &Mrb, name: &core::ffi::CStr) -> Error {
-    to_error(mrb, errno_class(mrb, name), strerror(name))
+    to_error(mrb, errno_class_by_name(mrb, name), strerror(name))
 }
 
 /// The message the `Errno` class `name` carries for an operation on `path`.
@@ -292,5 +292,5 @@ pub(crate) fn message_of(name: &core::ffi::CStr, path: &str) -> String {
 
 /// The `Errno` class `name` names, from an operation on `path`.
 pub(crate) fn error_by_name(mrb: &Mrb, name: &core::ffi::CStr, path: &str) -> Error {
-    to_error(mrb, errno_class(mrb, name), &message_of(name, path))
+    to_error(mrb, errno_class_by_name(mrb, name), &message_of(name, path))
 }
