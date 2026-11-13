@@ -5,7 +5,10 @@
 use crate::refusal::{Refusal, SANDBOX_ERROR};
 use crate::runtime::Kobako;
 use beni::ReprValue;
-use kobako_transport::envelope::{ErrorRecord, Origin, Outcome, Panic, BOOT_ERROR};
+use kobako_transport::envelope::{
+    ErrorRecord, Origin, Outcome, Panic, BOOT_ERROR, NO_SERVICE_ERROR, SERVICE_ARGUMENT_ERROR,
+    SERVICE_ERROR,
+};
 
 pub(super) use kobako_core::sandbox_panic;
 
@@ -48,11 +51,7 @@ pub(super) fn value_outcome<G: crate::MrbGuest>(
 /// `Kobako::class_by_kind` picks from. Named rather than matched by shape:
 /// a guest is free to define its own `ServiceError`, and what it calls
 /// its exceptions must not decide what the host attributes them to.
-const SERVICE_ERROR_CLASSES: [&str; 3] = [
-    "Kobako::ServiceError",
-    "Kobako::NoServiceError",
-    "Kobako::ServiceArgumentError",
-];
+const SERVICE_ERROR_CLASSES: [&str; 3] = [SERVICE_ERROR, NO_SERVICE_ERROR, SERVICE_ARGUMENT_ERROR];
 
 /// Mirrors the host-side rules: an exception a Service capability raised
 /// attributes to the Service, everything else to the sandbox.

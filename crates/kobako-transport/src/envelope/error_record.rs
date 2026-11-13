@@ -19,6 +19,15 @@ pub const SANDBOX_ERROR: &str = "Kobako::SandboxError";
 pub const BYTECODE_ERROR: &str = "Kobako::BytecodeError";
 /// The name a critical Preamble flag the guest does not know carries.
 pub const UNSUPPORTED_FLAG_ERROR: &str = "Kobako::UnsupportedFlagError";
+/// The name a Run whose entrypoint the guest cannot resolve carries.
+pub const UNDEFINED_ENTRYPOINT_ERROR: &str = "Kobako::UndefinedEntrypointError";
+/// The name a Service call that failed carries, where no Fault category
+/// narrows it.
+pub const SERVICE_ERROR: &str = "Kobako::ServiceError";
+/// The name a call to a Service the host does not hold carries.
+pub const NO_SERVICE_ERROR: &str = "Kobako::NoServiceError";
+/// The name a Service call the host refused for its arguments carries.
+pub const SERVICE_ARGUMENT_ERROR: &str = "Kobako::ServiceArgumentError";
 
 /// The error's name, message, and backtrace as the guest saw them. `name`
 /// rather than `class` because a guest need not be object-oriented to have

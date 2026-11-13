@@ -27,7 +27,7 @@
 //!    value as an ok Outcome or convert the raised exception into a
 //!    Panic Outcome.
 
-use kobako_transport::envelope::{Outcome, Panic, Preamble, Run};
+use kobako_transport::envelope::{Outcome, Panic, Preamble, Run, UNDEFINED_ENTRYPOINT_ERROR};
 
 pub(crate) fn run<G: crate::MrbGuest>(preamble: Preamble, run: Run) -> Outcome {
     call_entrypoint::<G>(&preamble, run).unwrap_or_else(Outcome::Panic)
@@ -68,7 +68,7 @@ fn call_entrypoint<G: crate::MrbGuest>(preamble: &Preamble, run: Run) -> Result<
         return Err(Panic {
             available,
             ..panic::sandbox_panic(
-                "Kobako::UndefinedEntrypointError",
+                UNDEFINED_ENTRYPOINT_ERROR,
                 format!("undefined entrypoint: {}", run.entrypoint),
             )
         });

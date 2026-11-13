@@ -41,7 +41,9 @@ pub mod unsupported;
 pub use call::{Call, Target};
 pub use compile_reply::CompileReply;
 pub use error_record::{
-    ErrorRecord, BOOT_ERROR, BYTECODE_ERROR, SANDBOX_ERROR, TRANSPORT_ERROR, UNSUPPORTED_FLAG_ERROR,
+    ErrorRecord, BOOT_ERROR, BYTECODE_ERROR, NO_SERVICE_ERROR, SANDBOX_ERROR,
+    SERVICE_ARGUMENT_ERROR, SERVICE_ERROR, TRANSPORT_ERROR, UNDEFINED_ENTRYPOINT_ERROR,
+    UNSUPPORTED_FLAG_ERROR,
 };
 pub use fault::{Fault, FaultKind};
 pub use outcome::{Origin, Outcome, Panic};
