@@ -47,7 +47,7 @@ impl Invocation {
     /// The guest's growth is charged to the budget `wasi`'s Cred charges what
     /// the host holds for it to, so both count against one `memory_limit`.
     pub(crate) fn new(wasi: Wasi) -> Self {
-        let limiter = MemoryLimiter(wasi.cred().memory_budget().clone());
+        let limiter = MemoryLimiter::new(wasi.cred().memory_budget().clone());
         Self {
             wasi,
             calls: Calls::default(),
@@ -124,13 +124,13 @@ impl Invocation {
     /// image's initial allocation and the high-water mark of earlier
     /// invocations do not consume the budget.
     pub(crate) fn arm_memory_budget(&mut self, baseline: usize) {
-        self.limiter.0.arm(baseline);
+        self.limiter.budget().arm(baseline);
     }
 
     /// Disarmed once the export returns, so post-run host bookkeeping such
     /// as reading the answer back is not charged to the script.
     pub(crate) fn disarm_memory_budget(&mut self) {
-        self.limiter.0.disarm();
+        self.limiter.budget().disarm();
     }
 
     /// Stamped right before the guest export call, so the bracket matches
@@ -150,7 +150,7 @@ impl Invocation {
     }
 
     pub(crate) fn memory_peak(&self) -> usize {
-        self.limiter.0.peak()
+        self.limiter.budget().peak()
     }
 }
 

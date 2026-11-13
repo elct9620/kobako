@@ -64,11 +64,16 @@ impl MemoryBudget {
     }
 
     /// Charge the guest's memory growing to `desired` bytes, refused where it
-    /// and what the host holds would pass the limit.
-    pub fn charge_growth(&self, desired: usize) -> Result<(), MemoryLimitExceeded> {
+    /// and what the host holds would pass the limit. What it answers gives the
+    /// charge back should the growth then fail.
+    pub fn charge_growth(&self, desired: usize) -> Result<GrowthCharge, MemoryLimitExceeded> {
         let mut charged = self.charged();
+        let before = GrowthCharge {
+            grown: charged.grown,
+            peak: charged.peak,
+        };
         if !charged.armed {
-            return Ok(());
+            return Ok(before);
         }
         let grown = desired.saturating_sub(charged.baseline);
         let total = grown.saturating_add(charged.held);
@@ -77,7 +82,17 @@ impl MemoryBudget {
         }
         charged.grown = grown;
         charged.peak = charged.peak.max(total);
-        Ok(())
+        Ok(before)
+    }
+
+    /// Give back `charge`, a growth the Engine failed to make once the budget
+    /// allowed it, so neither what the run holds nor its peak counts memory it
+    /// never had, as `mem_cgroup_cancel_charge` gives back a charge whose
+    /// page never came.
+    pub fn cancel_growth(&self, charge: GrowthCharge) {
+        let mut charged = self.charged();
+        charged.grown = charge.grown;
+        charged.peak = charge.peak;
     }
 
     /// Charge `bytes` the host holds for the guest, refused as ENOMEM where
@@ -105,6 +120,14 @@ impl MemoryBudget {
     fn charged(&self) -> std::sync::MutexGuard<'_, Charged> {
         self.charged.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+/// What the guest's growth stood at before one charge, which a growth the
+/// Engine fails to make gives back through `MemoryBudget::cancel_growth`.
+#[must_use]
+pub struct GrowthCharge {
+    grown: usize,
+    peak: usize,
 }
 
 /// Memory the host holds for a guest, charged to its budget as it is taken
