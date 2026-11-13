@@ -47,13 +47,15 @@ Gem::Specification.new do |spec|
   # depends on it. The workspace manifest and lock at `crates/` root must
   # never ship: a member listed there but absent from the gem would break
   # `cargo` at install; without them the shipped crates resolve as
-  # standalone packages under the root manifest's `exclude`.
+  # standalone packages under the root manifest's `exclude`. A crate's
+  # `tests/` stays out, as each crate's own `exclude` keeps it off crates.io.
   gemspec = File.basename(__FILE__)
   ext_crates = %w[crates/kobako-transport/ crates/kobako-runtime/ crates/kobako-wasmtime/]
   spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |ls|
     ls.readlines("\x0", chomp: true).reject do |f|
       (f == gemspec) ||
         (f.start_with?("crates/") && !f.start_with?(*ext_crates)) ||
+        f.match?(%r{\Acrates/[^/]+/tests/}) ||
         f.start_with?(*%w[bin/ Gemfile Gemfile.lock .gitignore test/ .github/ .cargo/ .rubocop.yml
                           tasks/ build_config/ wasm/ docs/ benchmark/ examples/ .powerloop/
                           .spec/ .sumi.json .claude/ AGENTS.md Rakefile Steepfile
