@@ -1,6 +1,6 @@
 # Preview1 Encoding
 
-The Wasm Driver encodes each WASI preview1 file call onto the VFS in `kobako-runtime`, which decides every answer a guest sees. The Wasm Driver keeps only what preview1 itself defines and what a Linux syscall entry checks before the VFS. The layers are in [`README.md`](README.md); why the split sits there is in [`../isolation/README.md`](../isolation/README.md).
+The Wasm Driver encodes each WASI preview1 file call onto the VFS in `kobako-runtime`, which decides every answer a guest sees. The Wasm Driver keeps only what preview1's own shape needs, its syscall entry's checks included. The layers are in [`README.md`](README.md); why the split sits there is in [`../isolation/README.md`](../isolation/README.md).
 
 ```
 +-------+  preview1  +-------------+  asks  +-----+  asks  +------------+
@@ -9,7 +9,7 @@ The Wasm Driver encodes each WASI preview1 file call onto the VFS in `kobako-run
                        encodes                decides
 ```
 
-A judgment belongs to the Wasm Driver when it would vanish with preview2, or when it is a check a syscall entry makes itself. Every other judgment belongs to `kobako-runtime`.
+The WASI call starts the syscall, so `kobako-runtime` holds a judgment only when every Wasm Driver would make it. A check that needs preview1's shape would vanish with preview2, so the Wasm Driver holds it. A descriptor number, a guest buffer, and a flag encoding are such shapes.
 
 ## Three ABIs
 
@@ -72,7 +72,7 @@ The Profile mask hides times, inode numbers, and a link's size; `kobako-runtime`
 
 ## Driver Decisions
 
-These judgments encode preview1 or repeat a syscall entry's checks, so the Wasm Driver holds them. They group by theme.
+These judgments need preview1's shape, so no other Wasm Driver would make them. They group by theme.
 
 | Theme | Rows |
 |---|---|
@@ -113,7 +113,7 @@ Each entry's name passes `verify_dirent_name` before it is written. Linux would 
 
 ### Error Order
 
-Which error answers first is fixed at a Linux syscall entry, before the VFS, so the Wasm Driver keeps that order.
+Which error answers first is fixed at a Linux syscall entry, before the VFS. Each row turns on a preview1 argument or a witx code, so the Wasm Driver keeps it.
 
 | Judgment | Precedent |
 |---|---|
