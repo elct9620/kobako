@@ -53,11 +53,5 @@ module Kobako
     }
 
     def value_budget: () -> Integer?
-
-    private
-
-    def normalize_timeout: ((Float | Integer)? timeout, String name) -> Float?
-
-    def normalize_limit: (Integer? limit, String name) -> Integer?
   end
 end

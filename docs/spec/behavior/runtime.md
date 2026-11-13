@@ -78,6 +78,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako/tests/integration/runtime_injection.rs`
 - `crates/kobako-runtime/src/profile.rs`
 - `crates/kobako-runtime/src/vfs/stat.rs`
+- `crates/kobako-runtime/src/limits.rs`
+- `crates/kobako/src/sandbox.rs`
 
 ## `RT-001` Threads holding their own Sandboxes hold their own guest state
 

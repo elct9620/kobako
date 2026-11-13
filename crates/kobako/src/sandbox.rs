@@ -15,6 +15,8 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "wasmtime")]
+use kobako_runtime::limits::Limits;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime};
 use kobako_runtime::snapshot::{Completion, Snapshot};
@@ -132,6 +134,18 @@ impl Sandbox {
             connection_limit,
             profile,
         } = options;
+        let mut limits = Limits::default();
+        limits.timeout = timeout;
+        limits.setup_timeout = setup_timeout;
+        limits.memory_limit = memory_limit;
+        limits.stdout_limit = stdout_limit;
+        limits.stderr_limit = stderr_limit;
+        limits.open_file_limit = open_file_limit;
+        limits.open_connection_limit = open_connection_limit;
+        limits.connection_limit = connection_limit;
+        limits
+            .check()
+            .map_err(|zero| Error::Argument(zero.to_string()))?;
         let mut config = Config::default();
         config.timeout = timeout;
         config.setup_timeout = setup_timeout;
@@ -529,5 +543,21 @@ mod tests {
         assert_eq!(options.open_file_limit, Some(1024));
         assert_eq!(options.open_connection_limit, Some(6));
         assert_eq!(options.connection_limit, Some(50));
+    }
+
+    // The check runs before the Guest Binary is read, so no artifact is needed.
+    // @behavior RT-058
+    #[cfg(feature = "wasmtime")]
+    #[test]
+    fn a_cap_of_zero_is_refused_as_an_argument() {
+        let mut options = Options::default();
+        options.memory_limit = Some(0);
+        assert!(
+            matches!(
+                Sandbox::new("no-guest.wasm", options),
+                Err(Error::Argument(message)) if message.starts_with("memory_limit must be > 0")
+            ),
+            "a memory_limit of zero through Sandbox::new must be refused as an argument error naming it"
+        );
     }
 }

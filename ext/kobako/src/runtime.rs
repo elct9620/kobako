@@ -100,6 +100,7 @@ pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 2))?;
     runtime.define_singleton_method("default_options", function!(Runtime::default_options, 0))?;
+    runtime.define_singleton_method("normalize_caps", function!(normalize_caps, 1))?;
     runtime.define_method("eval", method!(Runtime::eval, 3))?;
     runtime.define_method("run", method!(Runtime::run, 4))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
@@ -120,6 +121,86 @@ pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     Snapshot::class(ruby);
 
     Ok(())
+}
+
+/// Each cap in `caps`, keyed as `Kobako::SandboxOptions` names it, read as its
+/// kind: a deadline as seconds, a positive finite Numeric, and every other cap
+/// as a positive Integer, `nil` asking for none. One outside its kind is
+/// refused as an argument error, and a zero by the runtime's own check, which
+/// the Rust SDK asks too.
+fn normalize_caps(caps: RHash) -> Result<RHash, MagnusError> {
+    let ruby = Ruby::get().expect("Ruby thread");
+    let normalized = ruby.hash_new();
+    let mut limits = Limits::default();
+    let deadline = |name: &str| -> Result<Option<Duration>, MagnusError> {
+        let seconds = to_seconds(&ruby, name, caps.fetch(ruby.to_symbol(name))?)?;
+        normalized.aset(ruby.to_symbol(name), seconds)?;
+        Ok(seconds.map(Duration::from_secs_f64))
+    };
+    limits.timeout = deadline("timeout")?;
+    limits.setup_timeout = deadline("setup_timeout")?;
+    let count = |name: &str| -> Result<Option<usize>, MagnusError> {
+        let count = to_count(&ruby, name, caps.fetch(ruby.to_symbol(name))?)?;
+        normalized.aset(ruby.to_symbol(name), count)?;
+        Ok(count)
+    };
+    limits.memory_limit = count("memory_limit")?;
+    limits.stdout_limit = count("stdout_limit")?;
+    limits.stderr_limit = count("stderr_limit")?;
+    limits.open_file_limit = count("open_file_limit")?;
+    limits.open_connection_limit = count("open_connection_limit")?;
+    limits.connection_limit = count("connection_limit")?;
+    limits
+        .check()
+        .map_err(|zero| MagnusError::new(ruby.exception_arg_error(), zero.to_string()))?;
+    Ok(normalized)
+}
+
+/// The seconds `value` names for the deadline `name`, none for `nil`. A
+/// deadline that never arrives, or is not a number, is refused: the way to
+/// ask for none is `nil`.
+fn to_seconds(ruby: &Ruby, name: &str, value: Value) -> Result<Option<f64>, MagnusError> {
+    if value.is_nil() {
+        return Ok(None);
+    }
+    if !value.is_kind_of(ruby.class_numeric()) {
+        return Err(MagnusError::new(
+            ruby.exception_arg_error(),
+            format!(
+                "{name} must be Numeric or nil, got {}",
+                value.class().inspect()
+            ),
+        ));
+    }
+    let seconds: f64 = value.funcall("to_f", ())?;
+    if !seconds.is_finite() || seconds < 0.0 {
+        return Err(MagnusError::new(
+            ruby.exception_arg_error(),
+            format!("{name} must be > 0 (got {})", value.inspect()),
+        ));
+    }
+    Ok(Some(seconds))
+}
+
+/// The count `value` names for the cap `name`, none for `nil`; anything but
+/// an Integer a `usize` holds is refused.
+fn to_count(ruby: &Ruby, name: &str, value: Value) -> Result<Option<usize>, MagnusError> {
+    if value.is_nil() {
+        return Ok(None);
+    }
+    let count = magnus::Integer::from_value(value)
+        .and_then(|integer| integer.to_u64().ok())
+        .and_then(|count| usize::try_from(count).ok());
+    match count {
+        Some(count) => Ok(Some(count)),
+        None => Err(MagnusError::new(
+            ruby.exception_arg_error(),
+            format!(
+                "{name} must be a positive Integer or nil, got {}",
+                value.inspect()
+            ),
+        )),
+    }
 }
 
 #[derive(TypedData)]

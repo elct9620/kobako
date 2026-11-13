@@ -2,9 +2,9 @@
 
 require "test_helper"
 
-# Kobako::SandboxOptions normalises the per-Sandbox caps and holds the
-# profile and gvl it was given; the runtime judges those two as Sandbox.new
-# builds it. Pure Ruby — no native ext — so it runs on a clean checkout.
+# Kobako::SandboxOptions holds the per-Sandbox caps as the runtime reads them,
+# and the profile and gvl it was given; the runtime judges those two as
+# Sandbox.new builds it.
 class TestSandboxOptions < Minitest::Test
   # Every option SandboxOptions.new requires, so a test names only the one
   # it is about.

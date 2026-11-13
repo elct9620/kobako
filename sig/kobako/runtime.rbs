@@ -15,6 +15,17 @@ module Kobako
       gvl: Symbol
     }
 
+    def self.normalize_caps: (Hash[Symbol, untyped] caps) -> {
+      timeout: Float?,
+      setup_timeout: Float?,
+      memory_limit: Integer?,
+      stdout_limit: Integer?,
+      stderr_limit: Integer?,
+      open_file_limit: Integer?,
+      open_connection_limit: Integer?,
+      connection_limit: Integer?
+    }
+
     def self.from_path: (
       String path,
       timeout: (Float | Integer)?,

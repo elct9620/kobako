@@ -33,19 +33,16 @@ module Kobako
   #                   Sandboxes on different Threads run in parallel; +:hold+.
   #
   # Raises ArgumentError for a cap outside these shapes. The runtime judges
-  # +profile+ and +gvl+ as Sandbox.new builds it.
+  # every cap, and +profile+ and +gvl+ as Sandbox.new builds it.
   class SandboxOptions < Data.define(:timeout, :setup_timeout, :memory_limit, :stdout_limit, :stderr_limit,
                                      :open_file_limit, :open_connection_limit, :connection_limit, :profile, :gvl)
     # Every option is required; Sandbox.new fills each one left out from
     # the runtime's defaults.
     def initialize(timeout:, setup_timeout:, memory_limit:, stdout_limit:, stderr_limit:, open_file_limit:,
                    open_connection_limit:, connection_limit:, profile:, gvl:)
-      timeout = normalize_timeout(timeout, "timeout")
-      setup_timeout = normalize_timeout(setup_timeout, "setup_timeout")
-      memory_limit, stdout_limit, stderr_limit, open_file_limit, open_connection_limit, connection_limit =
-        { memory_limit:, stdout_limit:, stderr_limit:, open_file_limit:, open_connection_limit:, connection_limit: }
-        .map { |name, limit| normalize_limit(limit, name.to_s) }
-      super
+      caps = Kobako::Runtime.normalize_caps({ timeout:, setup_timeout:, memory_limit:, stdout_limit:, stderr_limit:,
+                                              open_file_limit:, open_connection_limit:, connection_limit: })
+      super(**caps.merge(profile:, gvl:))
     end
 
     # The least guest memory one value occupies, so a guest payload may hold
@@ -55,29 +52,6 @@ module Kobako
 
     def value_budget # :nodoc:
       memory_limit&./(VALUE_BYTES)
-    end
-
-    private
-
-    # A zero or negative timeout would either fire instantly or never, both
-    # more surprising than an early ArgumentError.
-    def normalize_timeout(timeout, name)
-      return nil if timeout.nil?
-      raise ArgumentError, "#{name} must be Numeric or nil, got #{timeout.class}" unless timeout.is_a?(Numeric)
-
-      seconds = timeout.to_f
-      raise ArgumentError, "#{name} must be > 0 (got #{timeout})" unless seconds.positive? && seconds.finite?
-
-      seconds
-    end
-
-    def normalize_limit(limit, name)
-      return nil if limit.nil?
-      unless limit.is_a?(Integer) && limit.positive?
-        raise ArgumentError, "#{name} must be a positive Integer or nil, got #{limit.inspect}"
-      end
-
-      limit
     end
   end
 end
