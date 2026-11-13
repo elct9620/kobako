@@ -65,6 +65,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `crates/kobako-runtime/src/snapshot.rs`
 - `crates/kobako-runtime/src/memcg.rs`
 - `crates/kobako-wasmtime/src/trap.rs`
+- `crates/kobako-wasmtime/src/limiter.rs`
 - `crates/kobako/src/sandbox.rs`
 - `crates/kobako/src/snippet.rs`
 - `crates/kobako/src/catalog.rs`
@@ -1857,3 +1858,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox |
 | When | an evaluation is given a String whose bytes are not UTF-8 |
 | Then | it fails as a Sandbox failure saying the source must be UTF-8 text. UTF-8 bytes in a binary String evaluate as text |
+
+## `S-211` A growth the engine fails to make costs the memory budget nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-115` |
+| relates | `S-209` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation's memory budget, and a linear memory whose declared maximum the budget would allow past |
+| When | the guest grows the memory past its maximum, so the engine fails the growth the budget allowed |
+| Then | the peak reported and what is left of the budget are as before, as `mem_cgroup_cancel_charge` gives a charge back |
