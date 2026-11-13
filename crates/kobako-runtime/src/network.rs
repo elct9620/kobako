@@ -187,7 +187,7 @@ pub struct Policies {
 pub struct Request<'a> {
     /// The host, lowercase, and the port.
     pub authority: (&'a str, u16),
-    /// Uppercase.
+    /// As the guest sent it, since a method is case-sensitive.
     pub method: &'a str,
     /// `http` or `https`.
     pub scheme: &'a str,
@@ -321,21 +321,15 @@ impl HttpRule {
         }
     }
 
-    /// Whether this rule speaks to `method` on `path`.
+    /// Whether this rule speaks to `method` on `path`, the method in its own
+    /// case, as RFC 9110 holds a method case-sensitive.
     pub(crate) fn matches(&self, method: &str, path: &str) -> bool {
-        self.names_method(method) && glob_matches(&self.path, path)
-    }
-
-    /// Whether this rule speaks to `method`, or to any.
-    fn names_method(&self, method: &str) -> bool {
-        self.method
-            .as_deref()
-            .is_none_or(|own| own.eq_ignore_ascii_case(method))
+        self.method.as_deref().is_none_or(|own| own == method) && glob_matches(&self.path, path)
     }
 
     /// Whether this rule speaks to `method` on `path` as a lenient server
     /// routes it, ignoring case and a trailing slash, so that a deny refuses
-    /// every spelling such a server serves as the denied path.
+    /// every spelling such a server serves as the denied method and path.
     pub(crate) fn matches_leniently(&self, method: &str, path: &str) -> bool {
         let (pattern, path) = (self.path.to_ascii_lowercase(), path.to_ascii_lowercase());
         let untrailed = |path: &str| -> String {
@@ -344,7 +338,10 @@ impl HttpRule {
                 _ => path.to_string(),
             }
         };
-        self.names_method(method) && glob_matches(&untrailed(&pattern), &untrailed(&path))
+        self.method
+            .as_deref()
+            .is_none_or(|own| own.eq_ignore_ascii_case(method))
+            && glob_matches(&untrailed(&pattern), &untrailed(&path))
     }
 }
 

@@ -129,9 +129,9 @@ module Kobako
     end
 
     # One HTTP request the guest sends, as a +request?+ policy is handed it:
-    # the +host+ lowercase and the +port+, the +method+ uppercase, the
-    # +scheme+, the +path+ with no query, and the +header_names+ lowercase,
-    # never a header's value.
+    # the +host+ lowercase and the +port+, the +method+ as sent, since a
+    # method is case-sensitive, the +scheme+, the +path+ with no query, and
+    # the +header_names+ lowercase, never a header's value.
     class Request
       attr_reader :host, :port, :method, :scheme, :path, :header_names
 

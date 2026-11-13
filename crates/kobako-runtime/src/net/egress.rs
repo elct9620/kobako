@@ -58,7 +58,7 @@ pub fn send(
         .path_with_query
         .split_once('?')
         .map_or(request.path_with_query.as_str(), |(path, _)| path);
-    let method = request.method.to_ascii_uppercase();
+    let method = request.method.as_str();
     let names = request
         .headers
         .iter()

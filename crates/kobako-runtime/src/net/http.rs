@@ -1252,6 +1252,62 @@ mod tests {
         );
     }
 
+    // @behavior NW-203
+    #[test]
+    fn a_requests_method_is_judged_as_it_is_sent() {
+        use crate::network::{Action, HttpRule};
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorded = seen.clone();
+        let mut entry = Builder::default();
+        entry
+            .endpoint(
+                Endpoint::new("127.0.0.1", 80)
+                    .unwrap()
+                    .with_addresses(vec![crate::network::Addresses::Local])
+                    .with_rules(vec![
+                        HttpRule::new(Action::Allow, Some("GET"), "/greeting"),
+                        HttpRule::new(Action::Deny, Some("DELETE"), "/greeting"),
+                        HttpRule::new(Action::Allow, Some("delete"), "/greeting"),
+                    ]),
+            )
+            .endpoint(
+                Endpoint::new("127.0.0.1", 81)
+                    .unwrap()
+                    .with_addresses(vec![crate::network::Addresses::Local]),
+            )
+            .request_policy(move |sent: &crate::network::Request<'_>| {
+                recorded.lock().unwrap().push(sent.method.to_string());
+                true
+            });
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let namespace = Namespace::for_network(
+            &network,
+            Arc::new(HostInet),
+            Arc::new(RecordsAuthority::default()),
+        );
+        let cred = prepare_creds_within(&[], None);
+        let mut send = |method: &str, authority: &str| {
+            let mut request = greeting_request(authority);
+            request.method = method.to_string();
+            crate::net::send(&namespace, &cred, request).is_ok()
+        };
+        let sent = [
+            send("GET", "127.0.0.1"),
+            send("get", "127.0.0.1"),
+            send("delete", "127.0.0.1"),
+            send("get", "127.0.0.1:81"),
+        ];
+        assert_eq!(
+            (sent, seen.lock().unwrap().clone()),
+            (
+                [true, false, false, true],
+                vec!["GET".to_string(), "get".to_string()]
+            ),
+            "a request by get must match no rule allowing GET, a request by delete must stay \
+             refused by a rule denying DELETE, and the request policy must see get as sent"
+        );
+    }
+
     // @behavior NW-201
     #[test]
     fn an_authority_spelling_an_address_short_is_judged_and_named_as_that_address() {
