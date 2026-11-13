@@ -956,4 +956,4 @@ disable_file flag -> no File constant
 | --- | --- |
 | Given | an invocation handed a Mount holding a file |
 | When | the script reads a line limited by an object answering `to_int` 2, then by `true` |
-| Then | the line holds two bytes, and `true` raises `TypeError` naming it, as CRuby's `NUM2LONG` |
+| Then | the line holds two bytes, and `true` raises `TypeError`, as CRuby's `NUM2LONG` |

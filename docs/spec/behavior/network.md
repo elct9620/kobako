@@ -2604,4 +2604,4 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a Sandbox |
 | When | the script builds a `Socket::Option` from an object answering `to_int`, then from `true` |
-| Then | the option holds that number, and `true` raises `TypeError` naming it, as CRuby's `NUM2INT` |
+| Then | the option holds that number, and `true` raises `TypeError`, as CRuby's `NUM2INT` |

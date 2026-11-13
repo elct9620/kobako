@@ -532,7 +532,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | --- | --- |
 | Given | a Sandbox |
 | When | guest code puts an object answering `to_int`, then `true` |
-| Then | the capture holds that object's character, and `true` raises `TypeError` naming `true` |
+| Then | the capture holds that object's character, and `true` raises `TypeError` |
 
 ## `IO-055` warn writes a Hash it is handed as a message
 
