@@ -62,6 +62,52 @@ class TestE2EMountNested < Minitest::Test
     end
   end
 
+  # A Sandbox with a Bind over +host+ at +/data+, holding its own +a/b/note+,
+  # and a Tmpfs holding +note+ at +/data/a/b+.
+  def deep(host)
+    FileUtils.mkdir_p(File.join(host, "a", "b"))
+    File.write(File.join(host, "a", "b", "note"), "outer")
+    Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                   .mount("/data", Kobako::Filesystem::Bind.new(host), access: :read_write)
+                   .mount("/data/a/b", Kobako::Filesystem::Tmpfs.new("note" => "inner"), access: :read)
+  end
+
+  # @behavior MT-037
+  def test_a_nested_mount_is_reached_through_a_link_above_it
+    skip "this host makes no links" if Gem.win_platform?
+    TestPaths.host_directory do |host|
+      sandbox = deep(host)
+      File.symlink("a", File.join(host, "x"))
+
+      assert_equal "inner", sandbox.eval('File.read("/data/./x/b/note")').value,
+                   "File.read through a link to a directory above a nested Sandbox#mount must reach that mount"
+    end
+  end
+
+  # @behavior MT-037
+  def test_a_nested_mount_is_reached_by_a_folded_spelling_above_it
+    skip "a Bind on this host refuses a spelling its listing lacks" if Gem.win_platform?
+    TestPaths.host_directory do |host|
+      sandbox = deep(host)
+      skip "the host directory matches names exactly" unless File.exist?(File.join(host, "A"))
+
+      assert_equal "inner", sandbox.eval('File.read("/data/./A/b/note")').value,
+                   "File.read spelling a directory above a nested Sandbox#mount in another case on a folding " \
+                   "host must reach that mount"
+    end
+  end
+
+  # @behavior MT-038
+  def test_a_nested_mount_moves_with_a_directory_above_it
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                             .mount("/data", Kobako::Filesystem::Tmpfs.new("a/b/note" => "outer"), access: :read_write)
+                             .mount("/data/a/b", Kobako::Filesystem::Tmpfs.new("note" => "inner"), access: :read)
+    script = 'File.rename("/data/a", "/data/c"); File.read("/data/c/b/note")'
+
+    assert_equal "inner", sandbox.eval(script).value,
+                 "File.read beneath a directory renamed above a nested Sandbox#mount must reach that mount"
+  end
+
   # @behavior MT-034
   def test_a_nested_mount_stands_where_its_parent_holds_nothing_by_its_name
     sandbox = nested(Kobako::Filesystem::Tmpfs.new, Kobako::Filesystem::Tmpfs.new("note" => "inner"))

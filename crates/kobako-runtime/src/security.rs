@@ -307,7 +307,7 @@ pub fn restrict_self<'a>(cred: &Cred, grants: impl IntoIterator<Item = &'a Grant
         Grant::Network(_) => None,
     });
     cred.with_modules(policies_of(grants.iter().copied()))
-        .with_mnt_ns(MntNamespace::new(mounts))
+        .with_mnt_ns(MntNamespace::new(&cred.with_modules(Vec::new()), mounts))
 }
 
 fn policies_of<'a>(

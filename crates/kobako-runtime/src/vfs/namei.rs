@@ -142,6 +142,12 @@ pub(crate) fn d_revalidate(
     dir: &Dentry,
     dentry: &Arc<Dentry>,
 ) -> Result<bool, Errno> {
+    // A mount point stays whatever its Filesystem answers: Linux's
+    // `d_invalidate` detaches the mounts on it, which would show the guest
+    // what they hid.
+    if dentry.d_mountpoint() {
+        return Ok(true);
+    }
     let asked = RENAME_LOCK.read_seqbegin();
     let valid = match dentry.ops() {
         Some(ops) => ops.revalidate(dir.inode_ops()?.as_ref(), dentry)?,
@@ -229,7 +235,11 @@ fn lookup_fast(
 /// dcache holds or, failing that, one found holding that directory's lock
 /// shared, as Linux's `walk_component` tries `lookup_fast` before
 /// `lookup_slow`.
-fn lookup_dentry(sb: &SuperBlock, parent: &Arc<Dentry>, name: &str) -> Result<Arc<Dentry>, Errno> {
+pub(super) fn lookup_dentry(
+    sb: &SuperBlock,
+    parent: &Arc<Dentry>,
+    name: &str,
+) -> Result<Arc<Dentry>, Errno> {
     match lookup_fast(sb, parent, name)? {
         Some(dentry) => Ok(dentry),
         None => lookup_slow(sb, parent, name),
@@ -303,40 +313,25 @@ fn parts(path: &str) -> VecDeque<String> {
     path.split('/').map(str::to_string).collect()
 }
 
-/// Whether two dentries a lookup answered stand for one entry, as a host
-/// folding case answers two spellings with one inode.
-fn same_entry(one: &Arc<Dentry>, other: &Arc<Dentry>) -> bool {
-    match (one.inode(), other.inode()) {
-        (Some(one), Some(other)) => {
-            Arc::ptr_eq(&one, &other)
-                || one
-                    .identity()
-                    .is_some_and(|id| Some(id) == other.identity())
-        }
-        _ => false,
-    }
-}
-
 impl Nameidata {
     /// The mount standing on `name` in the directory the walk stands in, as
     /// `__lookup_mnt` answers for a mount point: one standing on that very name,
     /// or on another name the Filesystem answers with the same entry.
     fn lookup_mnt(&self, name: &str) -> Result<Option<Arc<VfsMount>>, Errno> {
-        let mounted = self.cred.mnt_ns().mounted_in(&self.mnt, &self.dir);
-        if mounted.is_empty() {
+        if !self.cred.mnt_ns().holds_mounts_beneath(&self.mnt) {
             return Ok(None);
         }
-        if let Some((_, mnt)) = mounted.iter().find(|(at, _)| *at == name) {
-            return Ok(Some(Arc::clone(mnt)));
+        let dentry = lookup_dentry(self.mnt.sb(), &self.dir, name)?;
+        Ok(self.mount_on(&dentry))
+    }
+
+    /// The mount standing on `dentry`, which the walk found in the directory it
+    /// stands in, as `__lookup_mnt` answers for a mount point.
+    fn mount_on(&self, dentry: &Arc<Dentry>) -> Option<Arc<VfsMount>> {
+        match dentry.d_mountpoint() {
+            true => self.cred.mnt_ns().lookup_mnt(&self.mnt, dentry),
+            false => None,
         }
-        let sb = self.mnt.sb();
-        let found = lookup_dentry(sb, &self.dir, name)?;
-        for (at, mnt) in mounted {
-            if same_entry(&lookup_dentry(sb, &self.dir, at)?, &found) {
-                return Ok(Some(Arc::clone(mnt)));
-            }
-        }
-        Ok(None)
     }
 
     /// Step onto the root of `mnt`, keeping where the walk stood, as
@@ -350,11 +345,11 @@ impl Nameidata {
     /// Step into the directory `name` names, or onto the mount standing there,
     /// or follow the link standing there.
     fn walk_component(&mut self, name: &str) -> Result<(), Errno> {
-        if let Some(mnt) = self.lookup_mnt(name)? {
+        let dentry = lookup_dentry(self.mnt.sb(), self.dentry(), name)?;
+        if let Some(mnt) = self.mount_on(&dentry) {
             self.traverse_mounts(mnt);
             return Ok(());
         }
-        let dentry = lookup_dentry(self.mnt.sb(), self.dentry(), name)?;
         let inode = dentry.inode().ok_or(Errno::NotFound)?;
         match inode.kind() {
             FileType::Symlink => self.pick_link(&dentry),

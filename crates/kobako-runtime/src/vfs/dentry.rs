@@ -8,6 +8,7 @@
 
 use std::any::Any;
 use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::thread::ThreadId;
 
@@ -65,6 +66,9 @@ pub struct Dentry {
     /// Wakes the walks waiting while another looks this name up, as Linux's
     /// `d_wait_lookup` waits for `DCACHE_PAR_LOOKUP` to clear.
     wait: Condvar,
+    /// How many mount namespaces stand a mount on it, as Linux's
+    /// `DCACHE_MOUNTED` marks a mount point while any mount stands there.
+    mounts: AtomicUsize,
 }
 
 /// Where a walk asking for a lookup stands, as `d_alloc_parallel` answers.
@@ -129,7 +133,24 @@ impl Dentry {
             fsdata: OnceLock::new(),
             ops,
             wait: Condvar::new(),
+            mounts: AtomicUsize::new(0),
         })
+    }
+
+    /// A mount stands on it from now on, as Linux's `d_set_mounted`.
+    pub(crate) fn d_set_mounted(&self) {
+        self.mounts.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A mount standing on it is gone, as `put_mountpoint` clears
+    /// `DCACHE_MOUNTED` once the last one goes.
+    pub(crate) fn put_mountpoint(&self) {
+        self.mounts.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// Whether a mount stands on it, as Linux's `d_mountpoint`.
+    pub(crate) fn d_mountpoint(&self) -> bool {
+        self.mounts.load(Ordering::SeqCst) > 0
     }
 
     /// What answers about this name, the same for every dentry of one
@@ -185,7 +206,7 @@ impl Dentry {
 
     /// Each name from the Filesystem's root down to this directory, as Linux's
     /// `__dentry_path` walks up until `IS_ROOT`.
-    pub(crate) fn names(&self) -> Vec<String> {
+    fn names(&self) -> Vec<String> {
         RENAME_LOCK.read(|| {
             let mut names = Vec::new();
             let mut at = self.get();

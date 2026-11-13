@@ -1,22 +1,29 @@
-//! Which mount stands on which name, as Linux's mount namespace holds the
+//! Which mount stands on which dentry, as Linux's mount namespace holds the
 //! tree `__lookup_mnt` answers from, so a walk reaching a mount point by any
-//! spelling steps onto what is mounted there.
+//! spelling, through any link, or after a directory above it moved steps onto
+//! what is mounted there.
 
 use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::mount::VfsMount;
+use super::namei::{filename_parentat, lookup_dentry};
+use super::path::Path;
+use crate::cred::Cred;
 
-/// One mount standing on a name beneath another, as Linux's `struct mount`
-/// keeps `mnt_parent` and `mnt_mountpoint`. The mount point is kept as names
-/// rather than a dentry: a mount stands even where its parent holds nothing by
-/// that name, which Linux never lets a mount do.
+/// One mount standing on a dentry of another, as Linux's `struct mount` keeps
+/// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
+/// stands, so a walk finds that one dentry and no other.
 struct Mounted {
     parent: Arc<VfsMount>,
-    /// The names from the parent's root to the directory holding the mount point.
-    dir: Vec<String>,
-    name: String,
+    mountpoint: Arc<Dentry>,
     mnt: Arc<VfsMount>,
+}
+
+impl Drop for Mounted {
+    fn drop(&mut self) {
+        self.mountpoint.put_mountpoint();
+    }
 }
 
 /// The mounts one Invocation reaches, each under the one whose path holds its
@@ -28,8 +35,17 @@ pub(crate) struct MntNamespace {
 
 impl MntNamespace {
     /// The tree the mounts at their absolute guest paths make: each one beneath
-    /// the mount whose path holds it most closely, none above one no other holds.
-    pub(crate) fn new<'a>(mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>) -> Self {
+    /// the mount whose path holds it most closely, none above one no other
+    /// holds. Each stands on the dentry its path reaches in that parent as
+    /// `cred` walks it, following links, as `do_mount` looks its target up with
+    /// `LOOKUP_FOLLOW`. The last name may stand for nothing, which Linux never
+    /// lets a mount do, so the parent's name is hidden even once made. A mount
+    /// whose directories above it stand nowhere in its parent is reached by no
+    /// walk.
+    pub(crate) fn new<'a>(
+        cred: &Arc<Cred>,
+        mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>,
+    ) -> Self {
         let mounts: Vec<_> = mounts.into_iter().collect();
         let mounted = mounts
             .iter()
@@ -38,16 +54,11 @@ impl MntNamespace {
                     .iter()
                     .filter(|(above, _)| beneath(above, at))
                     .max_by_key(|(above, _)| above.len())?;
-                let mut names: Vec<String> = at[parent_at.len()..]
-                    .split('/')
-                    .filter(|name| !name.is_empty())
-                    .map(str::to_string)
-                    .collect();
-                let name = names.pop()?;
+                let mountpoint = mountpoint(cred, parent, &at[parent_at.len()..])?;
+                mountpoint.d_set_mounted();
                 Some(Mounted {
                     parent: Arc::clone(parent),
-                    dir: names,
-                    name,
+                    mountpoint,
                     mnt: Arc::clone(mnt),
                 })
             })
@@ -55,27 +66,33 @@ impl MntNamespace {
         Self { mounted }
     }
 
-    /// Each name in `dir` beneath `mnt` a mount stands on, with what stands
-    /// there, as `__lookup_mnt` is asked for each child of a mount.
-    pub(crate) fn mounted_in(
+    /// The mount standing on `dentry` beneath `mnt`, as `__lookup_mnt` answers.
+    pub(crate) fn lookup_mnt(
         &self,
         mnt: &Arc<VfsMount>,
-        dir: &Dentry,
-    ) -> Vec<(&str, &Arc<VfsMount>)> {
-        let mut children = self
-            .mounted
+        dentry: &Arc<Dentry>,
+    ) -> Option<Arc<VfsMount>> {
+        self.mounted
             .iter()
-            .filter(|child| Arc::ptr_eq(&child.parent, mnt))
-            .peekable();
-        if children.peek().is_none() {
-            return Vec::new();
-        }
-        let names = dir.names();
-        children
-            .filter(|child| child.dir == names)
-            .map(|child| (child.name.as_str(), &child.mnt))
-            .collect()
+            .find(|child| Arc::ptr_eq(&child.parent, mnt) && Arc::ptr_eq(&child.mountpoint, dentry))
+            .map(|child| Arc::clone(&child.mnt))
     }
+
+    /// Whether any mount stands beneath `mnt`, so a walk through one with none
+    /// asks nothing more, as Linux's `d_mountpoint` spares `__lookup_mnt`.
+    pub(crate) fn holds_mounts_beneath(&self, mnt: &Arc<VfsMount>) -> bool {
+        self.mounted
+            .iter()
+            .any(|child| Arc::ptr_eq(&child.parent, mnt))
+    }
+}
+
+/// The dentry `path` reaches beneath the root of `parent` as `cred` walks it,
+/// none where a directory above its last name stands nowhere.
+fn mountpoint(cred: &Arc<Cred>, parent: &Arc<VfsMount>, path: &str) -> Option<Arc<Dentry>> {
+    let path = path.trim_start_matches('/');
+    let nd = filename_parentat(cred, &Path::root(parent), path).ok()?;
+    lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()
 }
 
 /// Whether the guest path `inner` lies strictly beneath `outer`.
