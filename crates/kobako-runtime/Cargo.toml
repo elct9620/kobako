@@ -24,6 +24,9 @@ repository = "https://github.com/elct9620/kobako"
 readme = "README.md"
 keywords = ["wasm", "mruby", "sandbox", "wasi"]
 categories = ["wasm", "virtualization"]
+# The tests reach files only this repository holds, so a copy of the crate
+# taken to customize builds without them.
+exclude = ["tests/"]
 
 # The fixed tier: the Envelope this contract routes and attributes
 # through. The version pin rides the linked release group; the path keeps
