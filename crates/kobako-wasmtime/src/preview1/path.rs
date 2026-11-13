@@ -69,7 +69,7 @@ pub(crate) fn create_directory(
     fd: u32,
     path: GuestPtr<str>,
 ) -> Answer {
-    let path = mem.path(path)?;
+    let path = mem.read_path(path)?;
     Ok(retry_eagain(|| {
         vfs::filename_mkdirat(wasi.cred(), &start_of(wasi, fd), &path)
     })?)
@@ -82,7 +82,7 @@ pub(crate) fn filestat_get(
     flags: types::Lookupflags,
     path: GuestPtr<str>,
 ) -> Answer<types::Filestat> {
-    let path = mem.path(path)?;
+    let path = mem.read_path(path)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     let stat = retry_eagain(|| vfs::vfs_fstatat(wasi.cred(), &start_of(wasi, fd), &path, follow))?;
     Ok(to_filestat(wasi.cred(), stat))
@@ -96,7 +96,7 @@ pub(crate) fn filestat_set_times(
     path: GuestPtr<str>,
     times: &Iattr,
 ) -> Answer {
-    let path = mem.path(path)?;
+    let path = mem.read_path(path)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     Ok(retry_eagain(|| {
         vfs::do_utimes_path(wasi.cred(), &start_of(wasi, fd), &path, follow, times)
@@ -110,7 +110,7 @@ pub(crate) fn link(
     new: (u32, GuestPtr<str>),
     flags: types::Lookupflags,
 ) -> Answer {
-    let (old_path, new_path) = (mem.path(old.1)?, mem.path(new.1)?);
+    let (old_path, new_path) = (mem.read_path(old.1)?, mem.read_path(new.1)?);
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     Ok(retry_eagain(|| {
         let (from, to) = (start_of(wasi, old.0), start_of(wasi, new.0));
@@ -152,7 +152,7 @@ pub(crate) fn open(
     // whatever the path names.
     let op = vfs::build_open_flags(&how)?;
     let new = wasi.descriptors().lowest_unused().ok_or(Errno::Mfile)?;
-    let path = mem.path(path)?;
+    let path = mem.read_path(path)?;
     let file = retry_eagain(|| vfs::do_file_open(wasi.cred(), &start_of(wasi, fd), &path, &op))?;
     wasi.descriptors_mut()
         .place(new, Descriptor::for_file(file));
@@ -170,7 +170,7 @@ pub(crate) fn readlink(
     if buf_len == 0 {
         return Err(Errno::Inval.into());
     }
-    let path = mem.path(path)?;
+    let path = mem.read_path(path)?;
     let target = retry_eagain(|| vfs::do_readlinkat(wasi.cred(), &start_of(wasi, fd), &path))?;
     write_link(mem, &target, buf, buf_len)
 }
@@ -194,7 +194,7 @@ pub(crate) fn remove_directory(
     fd: u32,
     path: GuestPtr<str>,
 ) -> Answer {
-    let path = mem.path(path)?;
+    let path = mem.read_path(path)?;
     Ok(retry_eagain(|| {
         vfs::filename_rmdir(wasi.cred(), &start_of(wasi, fd), &path)
     })?)
@@ -206,7 +206,7 @@ pub(crate) fn rename(
     old: (u32, GuestPtr<str>),
     new: (u32, GuestPtr<str>),
 ) -> Answer {
-    let (from_path, to_path) = (mem.path(old.1)?, mem.path(new.1)?);
+    let (from_path, to_path) = (mem.read_path(old.1)?, mem.read_path(new.1)?);
     Ok(retry_eagain(|| {
         let (from, to) = (start_of(wasi, old.0), start_of(wasi, new.0));
         vfs::filename_renameat2(wasi.cred(), &from, &from_path, &to, &to_path)
@@ -220,7 +220,7 @@ pub(crate) fn symlink(
     fd: u32,
     new_path: GuestPtr<str>,
 ) -> Answer {
-    let (target, path) = (mem.path(old_path)?, mem.path(new_path)?);
+    let (target, path) = (mem.read_path(old_path)?, mem.read_path(new_path)?);
     // wasi-testsuite's symlink_create has a guest make no link to an absolute
     // path, where Linux would make one; a guest walks none of them anyway. It
     // is refused once the start is found, where the link would be made.
@@ -242,7 +242,7 @@ pub(crate) fn unlink_file(
     fd: u32,
     path: GuestPtr<str>,
 ) -> Answer {
-    let path = mem.path(path)?;
+    let path = mem.read_path(path)?;
     Ok(retry_eagain(|| {
         vfs::filename_unlinkat(wasi.cred(), &start_of(wasi, fd), &path)
     })?)

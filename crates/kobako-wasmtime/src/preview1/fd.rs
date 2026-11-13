@@ -63,13 +63,13 @@ fn directory_rights_inheriting() -> Rights {
 
 /// What `fd` stands for, a file that stands only for its path included, as
 /// `fdget_raw` takes one.
-fn descriptor(wasi: &Wasi, fd: u32) -> Answer<&Descriptor> {
+fn get_descriptor(wasi: &Wasi, fd: u32) -> Answer<&Descriptor> {
     wasi.descriptors().get(fd).ok_or_else(|| Errno::Badf.into())
 }
 
 /// The open file `fd` stands for, refusing one that stands only for its path,
 /// as `fdget` does.
-pub(crate) fn file(wasi: &Wasi, fd: u32) -> Answer<&File> {
+pub(crate) fn get_file(wasi: &Wasi, fd: u32) -> Answer<&File> {
     match wasi.descriptors().get(fd) {
         Some(descriptor) if !descriptor.file.is_path() => Ok(&descriptor.file),
         _ => Err(Errno::Badf.into()),
@@ -78,7 +78,7 @@ pub(crate) fn file(wasi: &Wasi, fd: u32) -> Answer<&File> {
 
 /// The open file `fd` stands for, to change, refusing one that stands only for
 /// its path, as `fdget` does.
-fn file_mut(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
+fn get_file_mut(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
     match wasi.descriptors_mut().get_mut(fd) {
         Some(descriptor) if !descriptor.file.is_path() => Ok(&mut descriptor.file),
         _ => Err(Errno::Badf.into()),
@@ -87,8 +87,8 @@ fn file_mut(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
 
 /// The open file `fd` stands for, in a call about its position. wasi-testsuite
 /// has a directory refuse one, where Linux would seek it.
-fn seekable_file(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
-    match file_mut(wasi, fd)? {
+fn get_seekable(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
+    match get_file_mut(wasi, fd)? {
         file if file.is_directory() => Err(Errno::Badf.into()),
         file => Ok(file),
     }
@@ -97,7 +97,7 @@ fn seekable_file(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
 /// A call any file or directory answers, which preview1 refuses for
 /// stdio.
 fn refuse_stream(wasi: &Wasi, fd: u32) -> Answer {
-    match descriptor(wasi, fd)?.file.is_stream() {
+    match get_descriptor(wasi, fd)?.file.is_stream() {
         true => Err(Errno::Badf.into()),
         false => Ok(()),
     }
@@ -176,11 +176,11 @@ fn to_iattr(
 }
 
 pub(crate) fn advise(wasi: &mut Wasi, fd: u32, offset: u64, len: u64) -> Answer {
-    Ok(file_mut(wasi, fd)?.fadvise(offset, len)?)
+    Ok(get_file_mut(wasi, fd)?.fadvise(offset, len)?)
 }
 
 pub(crate) fn allocate(wasi: &mut Wasi, fd: u32, offset: u64, len: u64) -> Answer {
-    Ok(file_mut(wasi, fd)?.fallocate(offset, len)?)
+    Ok(get_file_mut(wasi, fd)?.fallocate(offset, len)?)
 }
 
 pub(crate) fn close(wasi: &mut Wasi, fd: u32) -> Answer {
@@ -193,11 +193,11 @@ pub(crate) fn close(wasi: &mut Wasi, fd: u32) -> Answer {
 }
 
 pub(crate) fn sync(wasi: &mut Wasi, fd: u32, datasync: bool) -> Answer {
-    Ok(file_mut(wasi, fd)?.fsync(datasync)?)
+    Ok(get_file_mut(wasi, fd)?.fsync(datasync)?)
 }
 
 pub(crate) fn fdstat_get(wasi: &Wasi, fd: u32) -> Answer<types::Fdstat> {
-    let descriptor = descriptor(wasi, fd)?;
+    let descriptor = get_descriptor(wasi, fd)?;
     Ok(to_fdstat(
         &descriptor.file,
         descriptor.preopen_path.is_some(),
@@ -248,7 +248,7 @@ fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
 }
 
 pub(crate) fn fdstat_set_flags(wasi: &mut Wasi, fd: u32, flags: Fdflags) -> Answer {
-    file_mut(wasi, fd)?.setfl(
+    get_file_mut(wasi, fd)?.setfl(
         flags.contains(Fdflags::APPEND),
         flags.contains(Fdflags::NONBLOCK),
     );
@@ -262,7 +262,7 @@ pub(crate) fn fdstat_set_rights(wasi: &Wasi, fd: u32) -> Answer {
 }
 
 pub(crate) fn filestat_get(wasi: &Wasi, fd: u32) -> Answer<types::Filestat> {
-    let stat = descriptor(wasi, fd)?.file.getattr()?;
+    let stat = get_descriptor(wasi, fd)?.file.getattr()?;
     Ok(to_filestat(wasi.cred(), stat))
 }
 
@@ -272,11 +272,11 @@ pub(crate) fn filestat_set_size(wasi: &mut Wasi, fd: u32, size: u64) -> Answer {
     if i64::try_from(size).is_err() {
         return Err(Errno::Inval.into());
     }
-    Ok(file_mut(wasi, fd)?.truncate(size)?)
+    Ok(get_file_mut(wasi, fd)?.truncate(size)?)
 }
 
 pub(crate) fn filestat_set_times(wasi: &Wasi, fd: u32, times: &Iattr) -> Answer {
-    let file = file(wasi, fd)?;
+    let file = get_file(wasi, fd)?;
     Ok(retry_eagain(|| {
         wasi.walk_guard().check(file.path())?;
         vfs::do_utimes_fd(wasi.cred(), file.path(), times)
@@ -290,14 +290,14 @@ pub(crate) fn pread(
     iovs: types::IovecArray,
     offset: u64,
 ) -> Answer<types::Size> {
-    let buf = mem.first_non_empty_iovec(iovs)?;
-    let file = file_mut(wasi, fd)?;
+    let buf = mem.read_first_non_empty_iovec(iovs)?;
+    let file = get_file_mut(wasi, fd)?;
     file.may_pread(offset)?;
     Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
 }
 
 pub(crate) fn prestat_get(wasi: &Wasi, fd: u32) -> Answer<types::Prestat> {
-    match &descriptor(wasi, fd)?.preopen_path {
+    match &get_descriptor(wasi, fd)?.preopen_path {
         Some(at) => Ok(types::Prestat::Dir(types::PrestatDir {
             pr_name_len: at.len() as u32,
         })),
@@ -312,7 +312,7 @@ pub(crate) fn prestat_dir_name(
     path: GuestPtr<u8>,
     path_len: u32,
 ) -> Answer {
-    match &descriptor(wasi, fd)?.preopen_path {
+    match &get_descriptor(wasi, fd)?.preopen_path {
         Some(at) => {
             let name = at.as_bytes();
             if name.len() > path_len as usize {
@@ -331,8 +331,8 @@ pub(crate) fn pwrite(
     ciovs: types::CiovecArray,
     offset: u64,
 ) -> Answer<types::Size> {
-    let buf = mem.first_non_empty_ciovec(ciovs)?;
-    let file = file_mut(wasi, fd)?;
+    let buf = mem.read_first_non_empty_ciovec(ciovs)?;
+    let file = get_file_mut(wasi, fd)?;
     file.may_pwrite(offset)?;
     Ok(file.pwrite(mem.bytes(buf)?, offset)? as u32)
 }
@@ -343,8 +343,8 @@ pub(crate) fn read(
     fd: u32,
     iovs: types::IovecArray,
 ) -> Answer<types::Size> {
-    let buf = mem.first_non_empty_iovec(iovs)?;
-    let file = file_mut(wasi, fd)?;
+    let buf = mem.read_first_non_empty_iovec(iovs)?;
+    let file = get_file_mut(wasi, fd)?;
     file.may_read()?;
     // Bounded before the file is asked, as a trap takes no bytes from a pipe.
     Ok(file.read(mem.bytes_mut(buf)?)? as u32)
@@ -415,7 +415,7 @@ pub(crate) fn readdir(
     cookie: u64,
 ) -> Answer<types::Size> {
     let cred = wasi.cred().clone();
-    let dir = file_mut(wasi, fd)?;
+    let dir = get_file_mut(wasi, fd)?;
     // preview1 names where a listing goes on by its cookie, as wasi-libc's
     // `seekdir` moves a directory's position before `getdents`; a listing going
     // on from where the last one stopped needs no seek.
@@ -484,7 +484,7 @@ pub(crate) fn seek(wasi: &mut Wasi, fd: u32, offset: i64, whence: types::Whence)
         types::Whence::Cur => Whence::Cur,
         types::Whence::End => Whence::End,
     };
-    Ok(seekable_file(wasi, fd)?.llseek(offset, whence)?)
+    Ok(get_seekable(wasi, fd)?.llseek(offset, whence)?)
 }
 
 pub(crate) fn tell(wasi: &mut Wasi, fd: u32) -> Answer<u64> {
@@ -497,8 +497,8 @@ pub(crate) fn write(
     fd: u32,
     ciovs: types::CiovecArray,
 ) -> Answer<types::Size> {
-    let buf = mem.first_non_empty_ciovec(ciovs)?;
-    let file = file_mut(wasi, fd)?;
+    let buf = mem.read_first_non_empty_ciovec(ciovs)?;
+    let file = get_file_mut(wasi, fd)?;
     file.may_write()?;
     Ok(file.write(mem.bytes(buf)?)? as u32)
 }

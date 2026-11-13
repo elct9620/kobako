@@ -66,7 +66,7 @@ impl<'a, 'm> GuestMemory<'a, 'm> {
 
     /// A guest path, which preview1 requires to be UTF-8, charged to the
     /// call's fuel before it is read, as wasmtime-wasi charges it.
-    pub(crate) fn path(&self, ptr: GuestPtr<str>) -> Answer<String> {
+    pub(crate) fn read_path(&self, ptr: GuestPtr<str>) -> Answer<String> {
         self.consume(ptr.len(), 1)?;
         let bytes = self.memory.as_cow(ptr.as_bytes())?;
         String::from_utf8(bytes.into_owned()).map_err(|_| Errno::Ilseq.into())
@@ -76,19 +76,22 @@ impl<'a, 'm> GuestMemory<'a, 'm> {
     /// buffer is empty. Like wasmtime-wasi, kobako moves one buffer per call,
     /// and the buffer itself is bounded only once the call has found its
     /// descriptor.
-    pub(crate) fn first_non_empty_iovec(&self, iovs: types::IovecArray) -> Answer<GuestPtr<[u8]>> {
-        self.first_non_empty(iovs, |iov: types::Iovec| (iov.buf, iov.buf_len))
+    pub(crate) fn read_first_non_empty_iovec(
+        &self,
+        iovs: types::IovecArray,
+    ) -> Answer<GuestPtr<[u8]>> {
+        self.read_first_non_empty(iovs, |iov: types::Iovec| (iov.buf, iov.buf_len))
     }
 
-    /// The first non-empty buffer of `ciovs`, as `first_non_empty_iovec`.
-    pub(crate) fn first_non_empty_ciovec(
+    /// The first non-empty buffer of `ciovs`, as `read_first_non_empty_iovec`.
+    pub(crate) fn read_first_non_empty_ciovec(
         &self,
         ciovs: types::CiovecArray,
     ) -> Answer<GuestPtr<[u8]>> {
-        self.first_non_empty(ciovs, |ciov: types::Ciovec| (ciov.buf, ciov.buf_len))
+        self.read_first_non_empty(ciovs, |ciov: types::Ciovec| (ciov.buf, ciov.buf_len))
     }
 
-    fn first_non_empty<T: GuestType>(
+    fn read_first_non_empty<T: GuestType>(
         &self,
         array: GuestPtr<[T]>,
         buffer: impl Fn(T) -> (GuestPtr<u8>, u32),
@@ -129,7 +132,7 @@ mod tests {
         }
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes.0);
         let taken = GuestMemory::new(&mut memory, HOSTCALL_FUEL)
-            .first_non_empty_iovec(GuestPtr::new((0, 3)))
+            .read_first_non_empty_iovec(GuestPtr::new((0, 3)))
             .unwrap_or_else(|_| panic!("the iovecs must be read"));
         assert_eq!(
             (taken.offset_base(), taken.len()),
@@ -155,7 +158,7 @@ mod tests {
         let answer = |bytes: &mut [u8], count: u32| {
             let mut memory = wiggle::GuestMemory::Unshared(bytes);
             GuestMemory::new(&mut memory, HOSTCALL_FUEL)
-                .first_non_empty_iovec(GuestPtr::new((0, count)))
+                .read_first_non_empty_iovec(GuestPtr::new((0, count)))
                 .err()
                 .and_then(|err| err.downcast().ok())
         };

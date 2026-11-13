@@ -5,11 +5,11 @@
 //! `BADF`, as Linux's socket calls take theirs through `fdget`.
 
 use super::errno::{Answer, Errno};
-use super::fd::file;
+use super::fd::get_file;
 use crate::wasi::Wasi;
 
 /// Refuse a socket call on `fd`, which never names a socket.
 pub(crate) fn refuse_socket_call<T>(wasi: &Wasi, fd: u32) -> Answer<T> {
-    file(wasi, fd)?;
+    get_file(wasi, fd)?;
     Err(Errno::Notsock.into())
 }

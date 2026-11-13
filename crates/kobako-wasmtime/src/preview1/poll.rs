@@ -16,7 +16,7 @@ use kobako_runtime::vfs::PollMask;
 use wiggle::{GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
-use super::fd::file;
+use super::fd::get_file;
 use super::memory::GuestMemory;
 use super::types::{self, Clockid, Eventrwflags, Eventtype, Subclockflags, SubscriptionU};
 use crate::invocation::Invocation;
@@ -129,7 +129,7 @@ fn poll_descriptor(
     subscribed: types::SubscriptionFdReadwrite,
     event: PollMask,
 ) -> Answer<Errno> {
-    let Ok(file) = file(invocation.wasi(), subscribed.file_descriptor.into()) else {
+    let Ok(file) = get_file(invocation.wasi(), subscribed.file_descriptor.into()) else {
         return Ok(Errno::Badf);
     };
     match file.poll(None).contains(event) {
