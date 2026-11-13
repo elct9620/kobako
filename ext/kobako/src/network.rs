@@ -22,7 +22,7 @@ use kobako_runtime::network::{
 use kobako_runtime::policy::Policy;
 
 use super::pinned_value::PinnedValue;
-use super::{escape, gvl};
+use super::{escape, gvl, symbol_name};
 
 /// A Ruby entry as one invocation reads it: its endpoints, its own
 /// `resolve?`, `connect?`, and `request?` for each it plays, and its
@@ -252,7 +252,7 @@ fn addresses_name(ruby: &Ruby, addresses: &Addresses) -> Result<Value, MagnusErr
 /// The placement a credential's `placement` names: `:bearer`, `:basic`, or
 /// a header's name.
 fn to_placement(ruby: &Ruby, placement: Value) -> Result<Placement, MagnusError> {
-    match symbol_name_of(placement)?.as_deref() {
+    match symbol_name(placement)?.as_deref() {
         Some("bearer") => Ok(Placement::Bearer),
         Some("basic") => Ok(Placement::Basic),
         Some(_) => Err(MagnusError::new(
@@ -489,7 +489,7 @@ fn build_endpoint(
     })?;
     let mut endpoint = Endpoint::new(host, port).map_err(|err| to_arg_error(err.to_string()))?;
     if let Some(protocol) = protocol {
-        endpoint = endpoint.with_protocol(match symbol_name_of(protocol)?.as_deref() {
+        endpoint = endpoint.with_protocol(match symbol_name(protocol)?.as_deref() {
             Some("http") => Protocol::Http,
             Some("tcp") => Protocol::Tcp,
             Some("udp") => Protocol::Udp,
@@ -533,7 +533,7 @@ fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
 /// carries its prefix apart from its address; the ruleset judges whether the
 /// prefix fits its address.
 fn to_addresses(value: Value) -> Option<Addresses> {
-    match symbol_name_of(value).ok()?.as_deref() {
+    match symbol_name(value).ok()?.as_deref() {
         Some("public") => return Some(Addresses::Public),
         Some("private") => return Some(Addresses::Private),
         Some("local") => return Some(Addresses::Local),
@@ -553,10 +553,4 @@ fn to_addresses(value: Value) -> Option<Addresses> {
     let address: IpAddr = address.parse().ok()?;
     let prefix: u8 = prefix.parse().ok()?;
     Some(Addresses::Cidr(address, prefix))
-}
-
-fn symbol_name_of(value: Value) -> Result<Option<String>, MagnusError> {
-    Symbol::from_value(value)
-        .map(|symbol| symbol.name().map(|name| name.into_owned()))
-        .transpose()
 }

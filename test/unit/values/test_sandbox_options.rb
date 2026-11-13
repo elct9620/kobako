@@ -2,12 +2,9 @@
 
 require "test_helper"
 
-# Kobako::SandboxOptions normalises the per-Sandbox caps and the
-# isolation-profile floor, and owns the PROFILES order comparison
-# (#enforce_floor) that Sandbox.new delegates its construction floor
-# check to. Pure Ruby — no native ext — so it runs on a clean checkout.
-# The profile option is the one non-cap: nil is NOT a disable switch there
-# — the no-floor request is an explicit :permissive.
+# Kobako::SandboxOptions normalises the per-Sandbox caps and holds the
+# profile and gvl it was given; the runtime judges those two as Sandbox.new
+# builds it. Pure Ruby — no native ext — so it runs on a clean checkout.
 class TestSandboxOptions < Minitest::Test
   # Every option SandboxOptions.new requires, so a test names only the one
   # it is about.
@@ -68,78 +65,18 @@ class TestSandboxOptions < Minitest::Test
 
   # @behavior RT-010
   def test_known_profiles_pass_through
-    Kobako::SandboxOptions::PROFILES.each do |profile|
+    %i[permissive hermetic].each do |profile|
       assert_equal profile, options(profile: profile).profile,
                    "profile #{profile.inspect} through SandboxOptions.new must be readable back unchanged"
     end
   end
 
-  # @behavior RT-011
-  def test_rejects_an_unknown_profile
-    # nil included deliberately: the no-floor request is an explicit
-    # :permissive, so profile has no nil-disable form.
-    [nil, :sealed, "hermetic", 1].each do |bad|
-      assert_raises(ArgumentError, "profile #{bad.inspect} through SandboxOptions.new must be rejected") do
-        options(profile: bad)
-      end
-    end
-  end
-
   # @behavior RT-019
   def test_gvl_modes_pass_through
-    Kobako::SandboxOptions::GVL_MODES.each do |mode|
+    %i[hold release].each do |mode|
       assert_equal mode, options(gvl: mode).gvl,
                    "gvl mode #{mode.inspect} through SandboxOptions.new must be readable back unchanged"
     end
-  end
-
-  # @behavior RT-020
-  def test_rejects_gvl_outside_the_mode_set
-    # nil included deliberately: gvl is requested as an explicit mode, so
-    # it has no nil-disable form — anything off GVL_MODES is rejected.
-    [nil, :auto, "release", 1].each do |bad|
-      assert_raises(ArgumentError, "gvl #{bad.inspect} through SandboxOptions.new must be rejected") do
-        options(gvl: bad)
-      end
-    end
-  end
-
-  # @behavior RT-012
-  # The floor check's failing branch is witnessed here, on the
-  # order's owner, with a plain declared value — the bundled runtime
-  # always builds the requested profile, so no real runtime can hand
-  # Sandbox.new a below-floor declaration.
-  def test_enforce_floor_rejects_a_declaration_below_the_requested_floor
-    err = assert_raises(Kobako::SetupError,
-                        "a runtime declaring :permissive must fail a :hermetic floor") do
-      options(profile: :hermetic).enforce_floor(:permissive)
-    end
-    assert_match(/permissive/, err.message)
-    assert_match(/hermetic/, err.message)
-  end
-
-  # @behavior RT-013
-  # Fail-closed: a declaration the gem cannot place in the order ranks
-  # below every floor. Witnessed against the :permissive
-  # floor because that is the profile an unknown declaration could most
-  # plausibly slip past.
-  def test_enforce_floor_ranks_an_unknown_declaration_below_every_floor
-    err = assert_raises(Kobako::SetupError,
-                        "an unknown declaration must rank below even the :permissive floor, failing closed") do
-      options(profile: :permissive).enforce_floor(:isolated)
-    end
-    assert_match(/isolated/, err.message)
-  end
-
-  # @behavior RT-014
-  # The passing branch: a declaration at the floor constructs, and a
-  # runtime that can only build a stronger profile satisfies a weaker
-  # request by declaring what it built. The contract is "returns
-  # without raising" — the return value is void — and minitest turns
-  # any raise into a failure, so the bare calls are the whole witness.
-  def test_enforce_floor_accepts_a_declaration_at_or_above_the_floor
-    options(profile: :hermetic).enforce_floor(:hermetic)
-    options(profile: :permissive).enforce_floor(:hermetic)
   end
 
   private

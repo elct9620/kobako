@@ -188,12 +188,8 @@ module Kobako
 
     private
 
-    # A runtime whose declared profile falls below the request never runs
-    # guest code.
     def build_runtime
-      runtime = Kobako::Runtime.from_path(@wasm_path, **@options.to_h)
-      @options.enforce_floor(runtime.profile)
-      runtime
+      Kobako::Runtime.from_path(@wasm_path, **@options.to_h)
     end
 
     # The one place the Preamble's parts are put together, for a compile

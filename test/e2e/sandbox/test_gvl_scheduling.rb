@@ -16,9 +16,11 @@ require "test_helper"
 class TestE2EGvlScheduling < Minitest::Test
   include E2eGuestHelper
 
+  GVL_MODES = %i[hold release].freeze
+
   # @behavior RT-022
   def test_release_runs_a_plain_eval_identically_to_hold
-    values = Kobako::SandboxOptions::GVL_MODES.map do |mode|
+    values = GVL_MODES.map do |mode|
       Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode).eval("2 ** 10").value
     end
 
@@ -29,7 +31,7 @@ class TestE2EGvlScheduling < Minitest::Test
 
   # @behavior RT-023
   def test_release_preserves_a_guest_to_host_dispatch_result
-    values = Kobako::SandboxOptions::GVL_MODES.map do |mode|
+    values = GVL_MODES.map do |mode|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
       sandbox.bind("Echo::Shout", ->(text) { "#{text}!" })
       sandbox.eval("Echo::Shout.call('gvl')").value
@@ -42,7 +44,7 @@ class TestE2EGvlScheduling < Minitest::Test
 
   # @behavior RT-024
   def test_release_preserves_a_nested_dispatch_result
-    values = Kobako::SandboxOptions::GVL_MODES.map do |mode|
+    values = GVL_MODES.map do |mode|
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
       sandbox.bind("A::Step", ->(name:, &blk) { "A[#{name}]:#{blk.call}" })
       sandbox.bind("B::Fetch", ->(key) { "fetched:#{key}" })
@@ -56,7 +58,7 @@ class TestE2EGvlScheduling < Minitest::Test
 
   # @behavior RT-025
   def test_release_preserves_the_stdout_capture
-    captures = Kobako::SandboxOptions::GVL_MODES.map do |mode|
+    captures = GVL_MODES.map do |mode|
       execution = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode).eval("$stdout.write('hi from guest')")
       [execution.stdout, execution.stdout_truncated?]
     end
@@ -70,7 +72,7 @@ class TestE2EGvlScheduling < Minitest::Test
   # Releasing the lock changes scheduling only, so a failure keeps its
   # class, guest class and message across the modes.
   def test_release_fails_a_failing_invocation_the_same_way_as_hold
-    failures = Kobako::SandboxOptions::GVL_MODES.map do |mode|
+    failures = GVL_MODES.map do |mode|
       err = assert_raises(Kobako::SandboxError) do
         Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode).eval("raise ArgumentError, 'bad input'")
       end

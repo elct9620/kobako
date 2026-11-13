@@ -31,12 +31,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
+use kobako_runtime::error::SetupError;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
-use crate::{errors, escape, filesystem, gvl, network, rstring_to_vec};
+use crate::{errors, escape, filesystem, gvl, network, rstring_to_vec, symbol_name};
 use snapshot::Snapshot;
 
 /// `kind` arrives as a Symbol so the registry never names the wire's
@@ -192,8 +193,8 @@ impl Runtime {
             Option<usize>,
             Option<usize>,
             Option<usize>,
-            Symbol,
-            Symbol,
+            Value,
+            Value,
         );
         let options = get_kwargs::<_, Options, (), ()>(
             options,
@@ -223,26 +224,29 @@ impl Runtime {
         // finite.
         let timeout = timeout_seconds.map(Duration::from_secs_f64);
         let setup_timeout = setup_timeout_seconds.map(Duration::from_secs_f64);
-        // A name kobako does not give a profile has no profile to stand for,
-        // so it is refused rather than read as a weaker one.
-        let profile = match profile.name()?.as_ref() {
-            "hermetic" => Profile::Hermetic,
-            "permissive" => Profile::Permissive,
-            other => {
+        // A value kobako does not name a profile has no profile to stand
+        // for, so it is refused rather than read as a weaker one.
+        let profile = match symbol_name(profile)?.as_deref() {
+            Some("hermetic") => Profile::Hermetic,
+            Some("permissive") => Profile::Permissive,
+            _ => {
                 return Err(MagnusError::new(
                     ruby.exception_arg_error(),
-                    format!("profile must be :permissive or :hermetic, got :{other}"),
+                    format!(
+                        "profile must be :permissive or :hermetic, got {}",
+                        profile.inspect()
+                    ),
                 ));
             }
         };
         // A mode kobako does not name is refused as a profile is.
-        let release_gvl = match gvl.name()?.as_ref() {
-            "hold" => false,
-            "release" => true,
-            other => {
+        let release_gvl = match symbol_name(gvl)?.as_deref() {
+            Some("hold") => false,
+            Some("release") => true,
+            _ => {
                 return Err(MagnusError::new(
                     ruby.exception_arg_error(),
-                    format!("gvl must be :hold or :release, got :{other}"),
+                    format!("gvl must be :hold or :release, got {}", gvl.inspect()),
                 ));
             }
         };
@@ -259,6 +263,19 @@ impl Runtime {
         config.profile = profile;
         let driver =
             Driver::new(Path::new(&path), config).map_err(|e| errors::setup_to_magnus(&ruby, e))?;
+        // The requested profile is a floor: a runtime that built less never
+        // runs untrusted code under less isolation than was asked for.
+        let declared = driver.profile();
+        if declared < profile {
+            return Err(errors::setup_to_magnus(
+                &ruby,
+                SetupError::Dead(format!(
+                    "runtime declares isolation profile {}, below the requested floor {}",
+                    profile_name(&ruby, declared).inspect(),
+                    profile_name(&ruby, profile).inspect()
+                )),
+            ));
+        }
         Ok(Self {
             runtime: Box::new(driver),
             release_gvl,

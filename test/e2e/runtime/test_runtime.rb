@@ -73,9 +73,7 @@ class TestRuntime < Minitest::Test
 
   # @behavior RT-017
   # An unknown +profile+ must fail closed as +ArgumentError+ rather than
-  # fall back to a weaker one. +SandboxOptions+ validates the Sandbox path;
-  # this exercises the ext's defence-in-depth guard on a direct +from_path+
-  # call.
+  # fall back to a weaker one.
   def test_from_path_raises_argument_error_for_an_unknown_profile
     err = assert_raises(ArgumentError,
                         "an unknown profile through from_path must raise ArgumentError, " \
@@ -88,8 +86,7 @@ class TestRuntime < Minitest::Test
 
   # @behavior RT-021
   # Mirror of the profile guard: an unrecognized gvl mode fails closed
-  # as +ArgumentError+ on a direct +from_path+ call. +SandboxOptions+
-  # validates the Sandbox path; this exercises the ext's defence-in-depth.
+  # as +ArgumentError+ on a direct +from_path+ call.
   def test_from_path_raises_argument_error_for_unrecognized_gvl_mode
     err = assert_raises(ArgumentError,
                         "an unknown gvl mode through from_path must raise ArgumentError, not fall back to a mode") do

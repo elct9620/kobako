@@ -1,7 +1,5 @@
 module Kobako
   class SandboxOptions < Data
-    PROFILES: Array[Symbol]
-    GVL_MODES: Array[Symbol]
     VALUE_BYTES: Integer
 
     attr_reader timeout: Float?
@@ -56,14 +54,10 @@ module Kobako
 
     def value_budget: () -> Integer?
 
-    def enforce_floor: (Symbol declared) -> void
-
     private
 
     def normalize_timeout: ((Float | Integer)? timeout, String name) -> Float?
 
     def normalize_limit: (Integer? limit, String name) -> Integer?
-
-    def normalize_choice: (untyped value, Array[Symbol] choices, String name) -> Symbol
   end
 end

@@ -3,12 +3,10 @@
 require "test_helper"
 
 # Sandbox.new(profile:) requests the isolation profile the runtime builds
-# and declares. This class covers the request path through the real ext;
-# the floor-check branches (a runtime below the requested profile and the
-# fail-closed ranking of an unknown one) live with the PROFILES order's
-# owner and are witnessed on SandboxOptions#enforce_floor in
-# test_sandbox_options.rb — the bundled runtime always builds the
-# requested profile, so no real runtime reaches them.
+# and declares, and Sandbox.new(gvl:) the mode it runs under; the runtime
+# judges both as it is built. The floor's failing branch is witnessed by
+# the Rust SDK, which can hand a Sandbox a runtime of its own: the bundled
+# runtime always builds the requested profile.
 class TestSandboxProfile < Minitest::Test
   include GuestGuard
 
@@ -28,16 +26,31 @@ class TestSandboxProfile < Minitest::Test
                  "profile: :permissive through Sandbox.new must construct and read back the requested profile"
   end
 
-  # @behavior RT-033 RT-034
-  # Sandbox.new forwards every non-wasm_path keyword verbatim to
-  # SandboxOptions, so both refusals have to surface through the Sandbox
-  # entry point unchanged — a forwarding that swallowed either would
-  # leave the per-value coverage in test_sandbox_options.rb unreachable.
-  def test_option_keywords_forward_to_sandbox_options_rejection
-    assert_raises(ArgumentError, "an unknown profile through Sandbox.new must be rejected") do
-      Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, profile: :sealed)
+  # @behavior RT-033
+  # nil included deliberately: the no-floor request is an explicit
+  # :permissive, so profile has no nil-disable form.
+  def test_a_profile_kobako_does_not_name_is_refused
+    [nil, :sealed, "hermetic", 1].each do |bad|
+      assert_raises(ArgumentError, "profile #{bad.inspect} through Sandbox.new must be refused") do
+        Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, profile: bad)
+      end
     end
-    assert_raises(ArgumentError, "an unknown keyword through Sandbox.new must be rejected") do
+  end
+
+  # @behavior RT-020
+  # nil included deliberately: gvl is requested as an explicit mode, so it
+  # has no nil-disable form.
+  def test_a_mode_outside_the_set_is_refused
+    [nil, :auto, "release", 1].each do |bad|
+      assert_raises(ArgumentError, "gvl #{bad.inspect} through Sandbox.new must be refused") do
+        Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, gvl: bad)
+      end
+    end
+  end
+
+  # @behavior RT-034
+  def test_a_keyword_the_options_do_not_take_is_refused
+    assert_raises(ArgumentError, "an unknown keyword through Sandbox.new must be refused") do
       Kobako::Sandbox.new(wasm_path: FIXTURE_PATH, bogus: 1)
     end
   end

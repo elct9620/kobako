@@ -39,7 +39,7 @@ class TestRuntimeConstruction < Minitest::Test
   # can reach something besides WASI and that import.
   # @behavior RT-064
   def test_the_host_links_nothing_beyond_the_abi_import_on_either_profile
-    Kobako::SandboxOptions::PROFILES.each do |profile|
+    %i[permissive hermetic].each do |profile|
       err = assert_raises(Kobako::SetupError) do
         Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_unlinkable.wat"), profile: profile)
       end
