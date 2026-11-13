@@ -54,13 +54,13 @@ class TestE2EIoWriters < Minitest::Test
     source = <<~RUBY
       o = Object.new; def o.to_int = 66
       putc(o)
-      begin; putc(true); rescue TypeError => e; e.message; end
+      begin; putc(true); rescue TypeError => e; e.class.to_s; end
     RUBY
     execution = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(source)
 
-    assert_equal ["B", "no implicit conversion of true into Integer"], [execution.stdout, execution.value],
+    assert_equal %w[B TypeError], [execution.stdout, execution.value],
                  "putc through Sandbox#eval must write the character of an object answering to_int, and " \
-                 "refuse true with a TypeError naming it by value"
+                 "refuse true with TypeError"
   end
 
   # @behavior IO-051

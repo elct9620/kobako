@@ -455,7 +455,7 @@ fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
 /// The Integer `obj` stands for, as CRuby's `rb_num2long` reads it: an
 /// Integer as itself, a Float truncated, and anything else through its
 /// `to_int`, as `rb_to_int` asks; one with no `to_int`, or whose `to_int`
-/// answers no Integer, raises `TypeError`.
+/// answers no Integer, raises the `TypeError` mruby's own coercion words.
 pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
     if let Some(int) = Integer::from_value(obj) {
         return Ok(int);
@@ -470,25 +470,7 @@ pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
             return Ok(int);
         }
     }
-    Err(no_integer(mrb, obj))
-}
-
-/// The `TypeError` CRuby's `rb_num2int` raises for what no number stands
-/// for, naming `nil`, `true`, and `false` by value and anything else by
-/// class.
-fn no_integer(mrb: &Mrb, obj: Value) -> Error {
-    let message = if obj.is_nil() {
-        "no implicit conversion from nil to integer".to_string()
-    } else {
-        let class = obj.classname(mrb);
-        let name = match class.as_str() {
-            "TrueClass" => "true",
-            "FalseClass" => "false",
-            class => class,
-        };
-        format!("no implicit conversion of {name} into Integer")
-    };
-    errno::to_error(mrb, mrb.exception_type_error(), &message)
+    Integer::try_convert(obj, mrb)
 }
 
 /// Write each of `args` inspected to `out` through its `write`, answering
