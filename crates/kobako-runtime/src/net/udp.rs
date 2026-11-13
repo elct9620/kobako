@@ -19,7 +19,7 @@ use socket2::SockRef;
 
 use super::socket::{
     connect4, filter, set_hop_limit, to_error, BindHash, Buffers, InetSock, MemoryCharge, ProtoOps,
-    SockOpt, MAX_SOCKET_BUFFER,
+    SkState, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
 use crate::vfs::PollMask;
@@ -60,6 +60,16 @@ struct State {
     /// queue still answers EAGAIN, as `__skb_recv_udp` does, and once the
     /// writing side is, a send answers `EPIPE`.
     inet: InetSock,
+}
+
+impl State {
+    /// The `sk_state` it stands in: established once it names a peer.
+    fn sk_state(&self) -> SkState {
+        match self.inet.peer {
+            Some(_) => SkState::Established,
+            None => SkState::Close,
+        }
+    }
 }
 
 /// One UDP socket, shared by the socket file and the reactor.
@@ -247,10 +257,8 @@ impl ProtoOps for UdpSock {
     /// `inet_dgram_connect` autobinds one through `inet_autobind`.
     fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         let mut state = self.state();
-        let connected = state.inet.peer.is_some();
-        state
-            .inet
-            .bind(addr, connected, net.ports_of(Protocol::Udp))
+        let sk_state = state.sk_state();
+        state.inet.bind(addr, sk_state, net.ports_of(Protocol::Udp))
     }
 
     /// One datagram, cut to `buf`, and the peer it came from as the guest
@@ -343,8 +351,8 @@ impl ProtoOps for UdpSock {
     /// connected to no peer marks them and answers `ENOTCONN`.
     fn shutdown(&self, how: Shutdown) -> Result<(), Errno> {
         let mut state = self.state();
-        let connected = state.inet.peer.is_some();
-        let shut = state.inet.shutdown(how, connected);
+        let sk_state = state.sk_state();
+        let shut = state.inet.shutdown(how, sk_state);
         drop(state);
         self.wait.wake_up();
         shut
@@ -356,10 +364,7 @@ impl ProtoOps for UdpSock {
 
     fn getname(&self, peer: bool) -> Result<SocketAddr, Errno> {
         let state = self.state();
-        match peer {
-            false => Ok(state.inet.getsockname()),
-            true => state.inet.peer.ok_or(Errno::NotConnected),
-        }
+        state.inet.getname(peer, state.sk_state())
     }
 
     /// The buffers and the hop limit; UDP has no TCP option.

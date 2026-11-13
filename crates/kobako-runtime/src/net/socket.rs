@@ -19,6 +19,7 @@ use crate::Errno;
 
 use super::connections::{open, OpenConnections, Place};
 use super::family::admitted_addresses_of;
+use super::namespace::TcpSockets;
 use super::{Namespace, ProtocolFamily, TcpSock, UdpSock};
 use crate::network::{Connection, Protocol, Ruleset};
 
@@ -195,6 +196,19 @@ impl Drop for BoundPort {
     }
 }
 
+/// Where a socket stands as the calls TCP and UDP share read Linux's
+/// `sk_state`: a UDP socket naming a peer is `TCP_ESTABLISHED`, as
+/// `__ip4_datagram_connect` sets it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SkState {
+    /// `TCP_CLOSE`: connected to nothing, or back from a failure.
+    Close,
+    /// `TCP_SYN_SENT`: a connect under way.
+    SynSent,
+    /// `TCP_ESTABLISHED`.
+    Established,
+}
+
 /// What every inet socket holds beside its protocol's own state, as Linux's
 /// `inet_sock` sits beneath `tcp_sock` and `udp_sock`.
 pub(crate) struct InetSock {
@@ -254,20 +268,20 @@ impl InetSock {
 
     /// Take `addr` as the socket's own end, its port from `hash`, as
     /// `__inet_bind` does: an IPv6 address answers `EAFNOSUPPORT`, and a
-    /// socket holding a port, or `connected` and so bound by its connect,
+    /// socket holding a port, or past `TCP_CLOSE` and so bound by its connect,
     /// `EINVAL`. Port 0 takes a free virtual port, and a named port one no
     /// other socket holds, either answering `EADDRINUSE` once none is left,
     /// as `inet_csk_get_port` does.
     pub(crate) fn bind(
         &mut self,
         addr: SocketAddr,
-        connected: bool,
+        state: SkState,
         hash: &Arc<BindHash>,
     ) -> Result<(), Errno> {
         let IpAddr::V4(ip) = addr.ip() else {
             return Err(Errno::AddressFamilyNotSupported);
         };
-        if self.num.is_some() || connected {
+        if self.num.is_some() || state != SkState::Close {
             return Err(Errno::InvalidInput);
         }
         let bound = match addr.port() {
@@ -290,14 +304,23 @@ impl InetSock {
         }
     }
 
-    /// The guest's own end, as `inet_getname` reads `inet_rcv_saddr`, or the
-    /// guest's own virtual address once it names a peer, and `inet_sport`.
-    pub(crate) fn getsockname(&self) -> SocketAddr {
+    /// The peer as the guest named it, or the guest's own end, as
+    /// `inet_getname` answers TCP and UDP alike. A peer answers `ENOTCONN`
+    /// unless one is named and the socket is past `TCP_SYN_SENT`. The own end
+    /// reads `inet_rcv_saddr`, or the guest's own virtual address once it
+    /// names a peer, and `inet_sport`.
+    pub(crate) fn getname(&self, peer: bool, state: SkState) -> Result<SocketAddr, Errno> {
+        if peer {
+            return match state {
+                SkState::Established => self.peer.ok_or(Errno::NotConnected),
+                SkState::Close | SkState::SynSent => Err(Errno::NotConnected),
+            };
+        }
         let ip = match (self.rcv_saddr.is_unspecified(), self.peer) {
             (true, Some(_)) => LOCAL_ADDRESS,
             _ => self.rcv_saddr,
         };
-        SocketAddr::from((ip, self.sport.unwrap_or(0)))
+        Ok(SocketAddr::from((ip, self.sport.unwrap_or(0))))
     }
 
     /// Hold a free port from `hash` as a connect begins, unless the socket
@@ -335,13 +358,13 @@ impl InetSock {
     }
 
     /// Shut the sides `how` names, as `inet_shutdown` does for TCP and UDP
-    /// alike: a socket not `connected` marks them still and answers
-    /// `ENOTCONN`.
-    pub(crate) fn shutdown(&mut self, how: Shutdown, connected: bool) -> Result<(), Errno> {
+    /// alike: a socket in `TCP_CLOSE` marks them still and answers
+    /// `ENOTCONN`. A protocol disconnects one in `TCP_SYN_SENT` itself.
+    pub(crate) fn shutdown(&mut self, how: Shutdown, state: SkState) -> Result<(), Errno> {
         self.mark_shutdown(how);
-        match connected {
-            true => Ok(()),
-            false => Err(Errno::NotConnected),
+        match state {
+            SkState::Close => Err(Errno::NotConnected),
+            SkState::SynSent | SkState::Established => Ok(()),
         }
     }
 
@@ -694,8 +717,19 @@ impl TcpSock {
         family: AddressFamily,
     ) -> Result<Arc<Self>, Errno> {
         check_family(family)?;
-        let sock = Self::new(net.family().clone(), cred)?;
-        net.tcp_sockets().hold(&sock);
+        Self::create_kern(net.family(), net.tcp_sockets(), cred)
+    }
+
+    /// A TCP socket the runtime makes for itself, as `sock_create_kern` does:
+    /// it connects through `family`, `sockets` holds it until the Invocation
+    /// ends, and its buffers count against `cred`'s memory.
+    pub(crate) fn create_kern(
+        family: &Arc<dyn ProtocolFamily>,
+        sockets: &TcpSockets,
+        cred: &Arc<Cred>,
+    ) -> Result<Arc<Self>, Errno> {
+        let sock = Self::new(family.clone(), cred)?;
+        sockets.hold(&sock);
         Ok(sock)
     }
 }

@@ -83,9 +83,8 @@ impl Connector {
         };
         let mut last = HttpError::Denied;
         for dest in &dests {
-            let sock = TcpSock::new(self.family.clone(), &self.cred)
+            let sock = TcpSock::create_kern(&self.family, &self.tcp_sockets, &self.cred)
                 .map_err(|err| HttpError::from_errno(&err))?;
-            self.tcp_sockets.hold(&sock);
             // Set before the dial, so the host socket takes it as it is
             // made, as an HTTP client writes each request whole; a guest's
             // own socket keeps Linux's default.

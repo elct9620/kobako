@@ -19,7 +19,8 @@ use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
     connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome, to_error,
-    BindHash, Buffers, Destination, InetSock, MemoryCharge, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
+    BindHash, Buffers, Destination, InetSock, MemoryCharge, ProtoOps, SkState, SockOpt,
+    MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
 use crate::network::{Protocol, Ruleset};
@@ -79,6 +80,15 @@ impl Phase {
     /// Whether a failed connect or a reset closed it.
     fn is_closed(&self) -> bool {
         matches!(self, Phase::Failed | Phase::Reset)
+    }
+
+    /// The `sk_state` it stands in.
+    fn sk_state(&self) -> SkState {
+        match self {
+            Phase::Connecting => SkState::SynSent,
+            Phase::Connected => SkState::Established,
+            Phase::Unconnected | Phase::Failed | Phase::Reset => SkState::Close,
+        }
     }
 }
 
@@ -173,8 +183,7 @@ impl TcpSock {
     /// this returns at once and a poll finds the socket writable once it
     /// settles. The socket counts against `open_connections` and the process
     /// until released, and a full count answers `EAGAIN`, never a Trap, so one
-    /// Sandbox cannot end another's run; the port it held goes back then, as
-    /// `tcp_v4_connect`'s failure puts it.
+    /// Sandbox cannot end another's run.
     pub(crate) fn dial(
         &self,
         addr: SocketAddr,
@@ -182,13 +191,8 @@ impl TcpSock {
         open_connections: &Arc<OpenConnections>,
     ) -> Result<(), Errno> {
         let mut state = self.state();
-        match state.inet.open_place(open_connections) {
-            Ok(Some(place)) => state.inet.place = Some(place),
-            Ok(None) => {}
-            Err(err) => {
-                state.inet.put_port();
-                return Err(err);
-            }
+        if let Some(place) = state.inet.open_place(open_connections)? {
+            state.inet.place = Some(place);
         }
         self.start_connect(&mut state, addr, peer);
         Ok(())
@@ -207,12 +211,23 @@ impl TcpSock {
         dest: &Destination,
     ) -> Result<(), Errno> {
         self.check_state()?;
+        self.connect_from_port(ports, || {
+            let real = filter_with(ruleset, &*self.family, dest, Protocol::Http)?;
+            self.start_connect(&mut self.state(), real, real);
+            Ok(())
+        })
+    }
+
+    /// Hold a port from `ports`, then `connect`, putting the port back if it
+    /// fails, as `tcp_v4_connect` hashes a port before the SYN meets the
+    /// filter and its one `failure:` puts it.
+    fn connect_from_port(
+        &self,
+        ports: &Arc<BindHash>,
+        connect: impl FnOnce() -> Result<(), Errno>,
+    ) -> Result<(), Errno> {
         self.hold_port(ports)?;
-        let real = filter_with(ruleset, &*self.family, dest, Protocol::Http).inspect_err(|_| {
-            self.state().inet.put_port();
-        })?;
-        self.start_connect(&mut self.state(), real, real);
-        Ok(())
+        connect().inspect_err(|_| self.state().inet.put_port())
     }
 
     /// Begin connecting to `addr` for the guest's `peer`: no failure pending,
@@ -489,11 +504,10 @@ impl ProtoOps for TcpSock {
         self.check_state()?;
         let dest = connect4(net, addr)?;
         net.within_connection_budget(Errno::WouldBlock, || {
-            self.hold_port(net.ports_of(Protocol::Tcp))?;
-            let real = filter(net, &dest, Protocol::Tcp).inspect_err(|_| {
-                self.state().inet.put_port();
-            })?;
-            self.dial(real, addr, net.open_connections())
+            self.connect_from_port(net.ports_of(Protocol::Tcp), || {
+                let real = filter(net, &dest, Protocol::Tcp)?;
+                self.dial(real, addr, net.open_connections())
+            })
         })
     }
 
@@ -502,10 +516,8 @@ impl ProtoOps for TcpSock {
     /// a reset closed is back in `TCP_CLOSE`.
     fn bind(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         let mut state = self.state();
-        let connected = matches!(state.phase, Phase::Connecting | Phase::Connected);
-        state
-            .inet
-            .bind(addr, connected, net.ports_of(Protocol::Tcp))
+        let sk_state = state.phase.sk_state();
+        state.inet.bind(addr, sk_state, net.ports_of(Protocol::Tcp))
     }
 
     /// What the receive buffer holds, up to `buf`'s length, as
@@ -611,8 +623,8 @@ impl ProtoOps for TcpSock {
             self.wait.wake_up();
             return Ok(());
         }
-        let connected = state.phase == Phase::Connected;
-        let shut = state.inet.shutdown(how, connected);
+        let sk_state = state.phase.sk_state();
+        let shut = state.inet.shutdown(how, sk_state);
         self.pump_and_wake(state);
         shut
     }
@@ -623,11 +635,7 @@ impl ProtoOps for TcpSock {
 
     fn getname(&self, peer: bool) -> Result<SocketAddr, Errno> {
         let state = self.state();
-        match (peer, &state.phase) {
-            (false, _) => Ok(state.inet.getsockname()),
-            (true, Phase::Connected) => state.inet.peer.ok_or(Errno::NotConnected),
-            (true, _) => Err(Errno::NotConnected),
-        }
+        state.inet.getname(peer, state.phase.sk_state())
     }
 
     /// Its own keepalive flag and probes, never the host's, beside the
