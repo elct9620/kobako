@@ -872,3 +872,51 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount |
 | When | the script builds `SystemCallError` bare, then with 2⁴⁰ alone, and `Errno::ENOENT` with `m` and `f`, then with three |
 | Then | they raise `ArgumentError`, `RangeError`, read `No such file or directory @ f - m`, and raise `ArgumentError` |
+
+## `FL-082` A mode naming encodings opens as the mode before them
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-026` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the script opens it with `r:UTF-8` and with `rb:BOM\|utf-8` |
+| Then | each opens to read, as CRuby's `rb_io_modestr_fmode` stops at the `:` |
+
+## `FL-083` The path helpers read a name as CRuby's do
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script asks `extname` of `foo.` and `..rb`, joins `a//` with `/b` and `a` with an Array. It asks `basename` of bytes not UTF-8 |
+| Then | they answer `.`, nothing, `a/b`, the parts joined, and the bytes as they stand |
+
+## `FL-084` A file reads lines as a socket does
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-095` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file of lines and a blank run |
+| When | the script reads it with `gets(chomp: true)`, `gets("")`, `gets(3)`, and `readlines(chomp: true)` |
+| Then | each answers as CRuby's `rb_io_getline` does, and `each_line(0)` raises `ArgumentError` |
+
+## `FL-085` A seek takes its whence by name
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-021` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the script seeks four bytes before `:END` |
+| Then | it stands four bytes before the end, as CRuby's `interpret_seek_whence` reads `:END` |
