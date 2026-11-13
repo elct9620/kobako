@@ -9,24 +9,18 @@ require "test_helper"
 # The profile option is the one non-cap: nil is NOT a disable switch there
 # — the no-floor request is an explicit :permissive.
 class TestSandboxOptions < Minitest::Test
-  # Pins the literal default values (60 s / 10 s / 4 MiB / 1 MiB / 1024 /
-  # 6 / 50), not just the DEFAULT_* constants, so a drift in either
-  # direction is caught here.
-  # @behavior S-004 S-203 S-205
-  def test_absent_caps_take_their_spec_defaults
-    defaults = { timeout: 60.0, setup_timeout: 10.0, memory_limit: 4_194_304, stdout_limit: 1 << 20,
-                 stderr_limit: 1 << 20, open_file_limit: 1024, open_connection_limit: 6, connection_limit: 50 }
-
-    assert_equal defaults, Kobako::SandboxOptions.new.to_h.slice(*defaults.keys),
-                 "each cap left out of SandboxOptions.new must take its default"
-  end
+  # Every option SandboxOptions.new requires, so a test names only the one
+  # it is about.
+  GIVEN = { timeout: 60.0, setup_timeout: 10.0, memory_limit: 4 << 20, stdout_limit: 1 << 20,
+            stderr_limit: 1 << 20, open_file_limit: 1024, open_connection_limit: 6, connection_limit: 50,
+            profile: :hermetic, gvl: :hold }.freeze
 
   # @behavior S-005
   def test_explicit_nil_disables_each_cap
     caps = %i[timeout setup_timeout memory_limit stdout_limit stderr_limit open_file_limit open_connection_limit
               connection_limit].to_h { |cap| [cap, nil] }
 
-    assert_equal caps, Kobako::SandboxOptions.new(**caps).to_h.slice(*caps.keys),
+    assert_equal caps, options(**caps).to_h.slice(*caps.keys),
                  "an explicit nil must switch each cap off, leaving its bound unenforced"
   end
 
@@ -35,16 +29,16 @@ class TestSandboxOptions < Minitest::Test
     caps = { timeout: 1.5, memory_limit: 2 << 20, stdout_limit: 100, stderr_limit: 200, open_file_limit: 8,
              open_connection_limit: 3, connection_limit: 9 }
 
-    assert_equal caps, Kobako::SandboxOptions.new(**caps).to_h.slice(*caps.keys),
+    assert_equal caps, options(**caps).to_h.slice(*caps.keys),
                  "each cap set on SandboxOptions.new must read back as it was given"
   end
 
   # @behavior S-007
   def test_integer_timeout_is_coerced_to_float
-    options = Kobako::SandboxOptions.new(timeout: 5)
+    timeout = options(timeout: 5).timeout
 
-    assert_kind_of Float, options.timeout
-    assert_equal 5.0, options.timeout
+    assert_kind_of Float, timeout
+    assert_equal 5.0, timeout
   end
 
   # timeout accepts any positive finite Numeric; the other caps demand a
@@ -66,22 +60,16 @@ class TestSandboxOptions < Minitest::Test
     INVALID_CAP_VALUES.each do |cap, values|
       values.each do |bad|
         assert_raises(ArgumentError, "#{cap} #{bad.inspect} through SandboxOptions.new must be rejected") do
-          Kobako::SandboxOptions.new(cap => bad)
+          options(cap => bad)
         end
       end
     end
   end
 
-  # @behavior RT-009
-  def test_absent_profile_takes_the_hermetic_default
-    assert_equal :hermetic, Kobako::SandboxOptions.new.profile,
-                 "an absent profile through SandboxOptions.new must default to the strictest floor, :hermetic"
-  end
-
   # @behavior RT-010
   def test_known_profiles_pass_through
     Kobako::SandboxOptions::PROFILES.each do |profile|
-      assert_equal profile, Kobako::SandboxOptions.new(profile: profile).profile,
+      assert_equal profile, options(profile: profile).profile,
                    "profile #{profile.inspect} through SandboxOptions.new must be readable back unchanged"
     end
   end
@@ -92,21 +80,15 @@ class TestSandboxOptions < Minitest::Test
     # :permissive, so profile has no nil-disable form.
     [nil, :sealed, "hermetic", 1].each do |bad|
       assert_raises(ArgumentError, "profile #{bad.inspect} through SandboxOptions.new must be rejected") do
-        Kobako::SandboxOptions.new(profile: bad)
+        options(profile: bad)
       end
     end
-  end
-
-  # @behavior RT-018
-  def test_absent_gvl_takes_the_hold_default
-    assert_equal :hold, Kobako::SandboxOptions.new.gvl,
-                 "an absent gvl through SandboxOptions.new must default to :hold, the GVL-holding mode"
   end
 
   # @behavior RT-019
   def test_gvl_modes_pass_through
     Kobako::SandboxOptions::GVL_MODES.each do |mode|
-      assert_equal mode, Kobako::SandboxOptions.new(gvl: mode).gvl,
+      assert_equal mode, options(gvl: mode).gvl,
                    "gvl mode #{mode.inspect} through SandboxOptions.new must be readable back unchanged"
     end
   end
@@ -117,7 +99,7 @@ class TestSandboxOptions < Minitest::Test
     # it has no nil-disable form — anything off GVL_MODES is rejected.
     [nil, :auto, "release", 1].each do |bad|
       assert_raises(ArgumentError, "gvl #{bad.inspect} through SandboxOptions.new must be rejected") do
-        Kobako::SandboxOptions.new(gvl: bad)
+        options(gvl: bad)
       end
     end
   end
@@ -130,7 +112,7 @@ class TestSandboxOptions < Minitest::Test
   def test_enforce_floor_rejects_a_declaration_below_the_requested_floor
     err = assert_raises(Kobako::SetupError,
                         "a runtime declaring :permissive must fail a :hermetic floor") do
-      Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor(:permissive)
+      options(profile: :hermetic).enforce_floor(:permissive)
     end
     assert_match(/permissive/, err.message)
     assert_match(/hermetic/, err.message)
@@ -144,7 +126,7 @@ class TestSandboxOptions < Minitest::Test
   def test_enforce_floor_ranks_an_unknown_declaration_below_every_floor
     err = assert_raises(Kobako::SetupError,
                         "an unknown declaration must rank below even the :permissive floor, failing closed") do
-      Kobako::SandboxOptions.new(profile: :permissive).enforce_floor(:isolated)
+      options(profile: :permissive).enforce_floor(:isolated)
     end
     assert_match(/isolated/, err.message)
   end
@@ -156,7 +138,13 @@ class TestSandboxOptions < Minitest::Test
   # without raising" — the return value is void — and minitest turns
   # any raise into a failure, so the bare calls are the whole witness.
   def test_enforce_floor_accepts_a_declaration_at_or_above_the_floor
-    Kobako::SandboxOptions.new(profile: :hermetic).enforce_floor(:hermetic)
-    Kobako::SandboxOptions.new(profile: :permissive).enforce_floor(:hermetic)
+    options(profile: :hermetic).enforce_floor(:hermetic)
+    options(profile: :permissive).enforce_floor(:hermetic)
+  end
+
+  private
+
+  def options(**given)
+    Kobako::SandboxOptions.new(**GIVEN, **given)
   end
 end

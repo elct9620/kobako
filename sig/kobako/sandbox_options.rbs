@@ -1,16 +1,7 @@
 module Kobako
   class SandboxOptions < Data
-    DEFAULT_TIMEOUT_SECONDS: Float
-    DEFAULT_SETUP_TIMEOUT_SECONDS: Float
-    DEFAULT_MEMORY_LIMIT: Integer
-    DEFAULT_OUTPUT_LIMIT: Integer
-    DEFAULT_OPEN_FILE_LIMIT: Integer
-    DEFAULT_OPEN_CONNECTION_LIMIT: Integer
-    DEFAULT_CONNECTION_LIMIT: Integer
-    DEFAULT_PROFILE: Symbol
     PROFILES: Array[Symbol]
     GVL_MODES: Array[Symbol]
-    DEFAULT_GVL: Symbol
     VALUE_BYTES: Integer
 
     attr_reader timeout: Float?
@@ -25,29 +16,29 @@ module Kobako
     attr_reader gvl: Symbol
 
     def self.new: (
-      ?timeout: (Float | Integer)?,
-      ?setup_timeout: (Float | Integer)?,
-      ?memory_limit: Integer?,
-      ?stdout_limit: Integer?,
-      ?stderr_limit: Integer?,
-      ?open_file_limit: Integer?,
-      ?open_connection_limit: Integer?,
-      ?connection_limit: Integer?,
-      ?profile: Symbol,
-      ?gvl: Symbol
+      timeout: (Float | Integer)?,
+      setup_timeout: (Float | Integer)?,
+      memory_limit: Integer?,
+      stdout_limit: Integer?,
+      stderr_limit: Integer?,
+      open_file_limit: Integer?,
+      open_connection_limit: Integer?,
+      connection_limit: Integer?,
+      profile: Symbol,
+      gvl: Symbol
     ) -> SandboxOptions
 
     def initialize: (
-      ?timeout: (Float | Integer)?,
-      ?setup_timeout: (Float | Integer)?,
-      ?memory_limit: Integer?,
-      ?stdout_limit: Integer?,
-      ?stderr_limit: Integer?,
-      ?open_file_limit: Integer?,
-      ?open_connection_limit: Integer?,
-      ?connection_limit: Integer?,
-      ?profile: Symbol,
-      ?gvl: Symbol
+      timeout: (Float | Integer)?,
+      setup_timeout: (Float | Integer)?,
+      memory_limit: Integer?,
+      stdout_limit: Integer?,
+      stderr_limit: Integer?,
+      open_file_limit: Integer?,
+      open_connection_limit: Integer?,
+      connection_limit: Integer?,
+      profile: Symbol,
+      gvl: Symbol
     ) -> void
 
     def to_h: () -> {

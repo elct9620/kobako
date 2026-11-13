@@ -59,7 +59,7 @@ class TestPoolConstruction < Minitest::Test
   # Sandbox refuses is refused by the Sandbox, where it is first built.
   # @behavior PL-026
   def test_a_refused_sandbox_option_surfaces_unchanged_at_the_checkout_that_built_it
-    expected = assert_raises(ArgumentError) { Kobako::SandboxOptions.new(timeout: -1) }
+    expected = assert_raises(ArgumentError) { Kobako::Sandbox.new(timeout: -1) }
 
     pool = Kobako::Pool.new(slots: 1, timeout: -1)
     err = assert_raises(ArgumentError) { pool.with { |_sandbox| nil } }

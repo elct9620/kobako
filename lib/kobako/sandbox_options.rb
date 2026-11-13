@@ -4,81 +4,47 @@ require_relative "errors"
 
 module Kobako
   # The options a Sandbox was built with, read through Sandbox#options or
-  # directly on the Sandbox, as in Sandbox#timeout. A cap left out takes its
-  # default, and +nil+ switches it off.
+  # directly on the Sandbox, as in Sandbox#timeout. An option Sandbox.new
+  # leaves out takes the runtime's default, given below, and +nil+ switches a
+  # cap off.
   #
-  # [+timeout+]       Float seconds one invocation may run.
+  # [+timeout+]       Float seconds one invocation may run; 60.
   # [+setup_timeout+] Float seconds the Guest Binary may take to be set up
-  #                   the first time its path is loaded.
-  # [+memory_limit+]  Integer bytes one invocation may grow guest memory by.
+  #                   the first time its path is loaded; 10.
+  # [+memory_limit+]  Integer bytes one invocation may grow guest memory by;
+  #                   4 MiB.
   # [+stdout_limit+, +stderr_limit+]
-  #                   Integer bytes kept from each output channel.
+  #                   Integer bytes kept from each output channel; 1 MiB.
   # [+open_file_limit+]
   #                   Integer descriptors one invocation may hold open, the
-  #                   standard ones and each Mount's included.
+  #                   standard ones and each Mount's included; 1024.
   # [+open_connection_limit+]
   #                   Integer connections the Sandbox holds open at once, each
-  #                   socket, HTTP request, and name lookup in flight one.
+  #                   socket, HTTP request, and name lookup in flight one; 6.
   # [+connection_limit+]
   #                   Integer connections one invocation makes in all, each
-  #                   socket and HTTP request one.
-  # [+profile+]       The isolation the runtime must provide, one of PROFILES.
-  # [+gvl+]           How an invocation holds Ruby's GVL, one of GVL_MODES.
+  #                   socket and HTTP request one; 50.
+  # [+profile+]       The isolation the runtime must provide, one of PROFILES;
+  #                   +:hermetic+.
+  # [+gvl+]           How an invocation holds Ruby's GVL, one of GVL_MODES;
+  #                   +:hold+.
   #
   # Raises ArgumentError for a value outside these shapes, and SetupError
   # when the runtime provides less isolation than +profile+ asks for.
   class SandboxOptions < Data.define(:timeout, :setup_timeout, :memory_limit, :stdout_limit, :stderr_limit,
                                      :open_file_limit, :open_connection_limit, :connection_limit, :profile, :gvl)
-    # The default +timeout+: 60 seconds.
-    DEFAULT_TIMEOUT_SECONDS = 60.0
-
-    # The default +setup_timeout+: 10 seconds.
-    DEFAULT_SETUP_TIMEOUT_SECONDS = 10.0
-
-    # The default +memory_limit+: 4 MiB of growth past the guest's starting
-    # memory, sized for a guest whose every value takes 16 bytes.
-    DEFAULT_MEMORY_LIMIT = 4 << 20
-
-    # The default +stdout_limit+ and +stderr_limit+: 1 MiB each.
-    DEFAULT_OUTPUT_LIMIT = 1 << 20
-
-    # The default +open_file_limit+: 1024, the soft limit Linux gives a
-    # process.
-    DEFAULT_OPEN_FILE_LIMIT = 1024
-
-    # The default +open_connection_limit+: 6, after the six connections a
-    # Cloudflare Worker may have waiting at once; kobako counts every socket,
-    # request, and lookup the Sandbox holds open.
-    DEFAULT_OPEN_CONNECTION_LIMIT = 6
-
-    # The default +connection_limit+: 50, a Cloudflare Worker's subrequests
-    # on its free plan.
-    DEFAULT_CONNECTION_LIMIT = 50
-
     # The isolation profiles, weakest first. +:hermetic+ denies the guest the
     # clock and entropy; +:permissive+ leaves them live.
     PROFILES = %i[permissive hermetic].freeze
-
-    # The default +profile+, the strictest.
-    DEFAULT_PROFILE = :hermetic
 
     # +:hold+ keeps the GVL through the invocation; +:release+ drops it while
     # the guest runs, so Sandboxes on different Threads run in parallel.
     GVL_MODES = %i[hold release].freeze
 
-    # The default +gvl+, +:hold+.
-    DEFAULT_GVL = :hold
-
-    def initialize(timeout: DEFAULT_TIMEOUT_SECONDS,
-                   setup_timeout: DEFAULT_SETUP_TIMEOUT_SECONDS,
-                   memory_limit: DEFAULT_MEMORY_LIMIT,
-                   stdout_limit: DEFAULT_OUTPUT_LIMIT,
-                   stderr_limit: DEFAULT_OUTPUT_LIMIT,
-                   open_file_limit: DEFAULT_OPEN_FILE_LIMIT,
-                   open_connection_limit: DEFAULT_OPEN_CONNECTION_LIMIT,
-                   connection_limit: DEFAULT_CONNECTION_LIMIT,
-                   profile: DEFAULT_PROFILE,
-                   gvl: DEFAULT_GVL)
+    # Every option is required; Sandbox.new fills each one left out from
+    # the runtime's defaults.
+    def initialize(timeout:, setup_timeout:, memory_limit:, stdout_limit:, stderr_limit:, open_file_limit:,
+                   open_connection_limit:, connection_limit:, profile:, gvl:)
       timeout = normalize_timeout(timeout, "timeout")
       setup_timeout = normalize_timeout(setup_timeout, "setup_timeout")
       memory_limit, stdout_limit, stderr_limit, open_file_limit, open_connection_limit, connection_limit =

@@ -166,8 +166,8 @@ class TestE2ECaps < Minitest::Test
 
   # The allocation +test_memory_limit_traps_single_invocation_past_default_cap+
   # proves traps under the default budget, so its completing here proves nil
-  # reaches the limiter as unbounded rather than falling back to
-  # DEFAULT_MEMORY_LIMIT.
+  # reaches the limiter as unbounded rather than falling back to the default
+  # memory cap.
   # @behavior S-009
   def test_nil_caps_disable_enforcement_rather_than_fall_back_to_defaults
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: nil, memory_limit: nil)
@@ -175,6 +175,6 @@ class TestE2ECaps < Minitest::Test
     assert_equal 100, sandbox.eval('a = []; 100.times { a << ("x" * 50_000) }; a.size').value,
                  "with both caps disabled, an allocation that traps under the default " \
                  "4 MiB cap must complete — nil disables the cap rather than falling back " \
-                 "to DEFAULT_MEMORY_LIMIT"
+                 "to the default memory cap"
   end
 end

@@ -63,9 +63,12 @@ pub struct Config {
 
 impl Default for Config {
     /// The caps every frontend defaults to: a 60-second deadline, 10
-    /// seconds to set the Guest Binary up, 4 MiB for memory, 1 MiB for
-    /// each output channel, 1024 open files, 6 open connections and 50 in
-    /// all, and the hermetic floor.
+    /// seconds to set the Guest Binary up, 4 MiB of memory growth, sized
+    /// for a guest whose every value takes 16 bytes, 1 MiB for each output
+    /// channel, 1024 open files, the soft limit Linux gives a process, 6
+    /// open connections and 50 in all, as a Cloudflare Worker may hold 6
+    /// waiting and make 50 subrequests on its free plan, and the hermetic
+    /// floor.
     fn default() -> Self {
         Config {
             timeout: Some(Duration::from_secs(60)),
@@ -106,8 +109,8 @@ impl Config {
 mod tests {
     use super::*;
 
-    // Literal values, so a drift from the defaults every frontend applies
-    // fails here.
+    // Literal values, since every frontend applies these defaults as they
+    // stand here.
     #[test]
     fn a_default_config_carries_every_frontends_default_caps() {
         let config = Config::default();

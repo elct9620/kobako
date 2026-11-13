@@ -36,7 +36,7 @@ module Kobako
     # for.
     def initialize(wasm_path: nil, **)
       @wasm_path = wasm_path || Kobako::Runtime.default_path
-      @options = SandboxOptions.new(**)
+      @options = SandboxOptions.new(**Kobako::Runtime.default_options, **)
       @services = Kobako::Catalog::Services.new
       @snippets = Catalog::Snippets.new
       @flags = Catalog::Flags.new

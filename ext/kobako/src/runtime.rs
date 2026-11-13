@@ -97,6 +97,7 @@ fn to_preamble(ruby: &Ruby, parts: RArray) -> Result<Preamble, MagnusError> {
 pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> {
     let runtime = kobako.define_class("Runtime", ruby.class_object())?;
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 2))?;
+    runtime.define_singleton_method("default_options", function!(Runtime::default_options, 0))?;
     runtime.define_method("eval", method!(Runtime::eval, 3))?;
     runtime.define_method("run", method!(Runtime::run, 4))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
@@ -152,9 +153,39 @@ struct Runtime {
 impl DataTypeFunctions for Runtime {}
 
 impl Runtime {
+    /// Each option `from_path` takes, keyed as `Kobako::SandboxOptions` names
+    /// it, at the driver's default, so every frontend applies one set. A
+    /// run holds the GVL unless the Host App asks to release it.
+    fn default_options() -> Result<RHash, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let config = Config::default();
+        let options = ruby.hash_new();
+        let seconds = |deadline: Option<Duration>| deadline.map(|d| d.as_secs_f64());
+        options.aset(ruby.to_symbol("timeout"), seconds(config.timeout))?;
+        options.aset(
+            ruby.to_symbol("setup_timeout"),
+            seconds(config.setup_timeout),
+        )?;
+        options.aset(ruby.to_symbol("memory_limit"), config.memory_limit)?;
+        options.aset(ruby.to_symbol("stdout_limit"), config.stdout_limit)?;
+        options.aset(ruby.to_symbol("stderr_limit"), config.stderr_limit)?;
+        options.aset(ruby.to_symbol("open_file_limit"), config.open_file_limit)?;
+        options.aset(
+            ruby.to_symbol("open_connection_limit"),
+            config.open_connection_limit,
+        )?;
+        options.aset(ruby.to_symbol("connection_limit"), config.connection_limit)?;
+        options.aset(
+            ruby.to_symbol("profile"),
+            profile_name(&ruby, config.profile),
+        )?;
+        options.aset(ruby.to_symbol("gvl"), ruby.to_symbol("hold"))?;
+        Ok(options)
+    }
+
     /// The only Ruby-facing constructor, so Engine and Module are never
-    /// visible to Ruby. Every option is a required keyword: the defaults
-    /// belong to `Kobako::SandboxOptions`, which names the keys.
+    /// visible to Ruby. Every option is a required keyword, as
+    /// `default_options` answers each.
     fn from_path(path: String, options: RHash) -> Result<Self, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         // `get_kwargs` scans at most eight required keywords, so the two
@@ -342,11 +373,16 @@ impl Runtime {
     /// profile its `profile:` option requested.
     fn profile(&self) -> Symbol {
         let ruby = Ruby::get().expect("Ruby thread");
-        match self.runtime.profile() {
-            Profile::Hermetic => ruby.to_symbol("hermetic"),
-            Profile::Permissive => ruby.to_symbol("permissive"),
-        }
+        profile_name(&ruby, self.runtime.profile())
     }
+}
+
+/// `profile` as the Symbol the `profile:` option names it by.
+fn profile_name(ruby: &Ruby, profile: Profile) -> Symbol {
+    ruby.to_symbol(match profile {
+        Profile::Hermetic => "hermetic",
+        Profile::Permissive => "permissive",
+    })
 }
 
 /// The Proc stays GC-rooted for the synchronous `#eval` / `#run` call as a

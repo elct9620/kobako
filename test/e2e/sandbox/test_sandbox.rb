@@ -29,8 +29,21 @@ class TestSandbox < Minitest::Test
     assert_equal FIXTURE_PATH, sandbox.wasm_path
   end
 
+  # Literal values, since the runtime is where every default comes from.
+  # @behavior S-004 S-203 S-205 RT-009 RT-018
+  def test_options_left_out_take_the_runtime_defaults
+    defaults = { timeout: 60.0, setup_timeout: 10.0, memory_limit: 4 << 20, stdout_limit: 1 << 20,
+                 stderr_limit: 1 << 20, open_file_limit: 1024, open_connection_limit: 6, connection_limit: 50,
+                 profile: :hermetic, gvl: :hold }
+
+    assert_equal defaults, Kobako::Sandbox.new(wasm_path: FIXTURE_PATH).options.to_h,
+                 "each option left out of Sandbox.new must take its default: a 60 s deadline, 10 s to set up, " \
+                 "4 MiB of memory, 1 MiB per output, 1024 files, 6 open connections and 50 in all, the " \
+                 "hermetic profile, and holding the GVL"
+  end
+
   # Sandbox.new delegates cap normalization to SandboxOptions, whose
-  # per-rule matrix (defaults, nil-disable, rejection, coercion) is
+  # per-rule matrix (nil-disable, rejection, coercion) is
   # pinned ext-free in TestSandboxOptions; one witness reading every
   # cap back — with the Integer timeout observed as its coerced Float —
   # proves the normalized values flow through, so the matrix is not
@@ -47,8 +60,8 @@ class TestSandbox < Minitest::Test
   end
 
   # The gvl scheduling mode normalizes through SandboxOptions and delegates
-  # back on the Sandbox, same as the caps; its per-rule matrix (default,
-  # rejection) is pinned ext-free in TestSandboxOptions, so one witness
+  # back on the Sandbox, same as the caps; its rejection is pinned ext-free
+  # in TestSandboxOptions, so one witness
   # reading a non-default mode back proves the delegation flows through.
   # @behavior S-003
   def test_gvl_delegates_to_sandbox_options
