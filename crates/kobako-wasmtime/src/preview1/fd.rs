@@ -210,7 +210,8 @@ fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
     fs_flags.set(Fdflags::APPEND, file.append());
     fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
     fs_flags.set(Fdflags::DSYNC, file.dsync());
-    fs_flags.set(Fdflags::SYNC, file.sync());
+    // Linux's `O_RSYNC` is `O_SYNC`, so a file opened to sync holds both.
+    fs_flags.set(Fdflags::SYNC | Fdflags::RSYNC, file.sync());
     let (fs_rights_base, fs_rights_inheriting) = if file.is_stream() {
         let mut rights = Rights::empty();
         rights.set(Rights::FD_READ, file.readable());
@@ -808,7 +809,7 @@ mod tests {
         );
     }
 
-    // @behavior RT-251
+    // @behavior RT-392
     #[test]
     fn a_descriptor_reports_how_far_it_was_opened_to_sync() {
         let tmpfs: kobako_runtime::filesystem::Tmpfs = [("f", "x")].into_iter().collect();
@@ -818,33 +819,34 @@ mod tests {
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        let root = Path::root(mount.mnt());
         let mut wasi = wasi_of(vec![mount], None);
-        let cred = wasi.cred().clone();
-        let mut reported = |dsync, sync| {
-            let mut how = OpenHow::default();
-            how.write = true;
-            how.dsync = dsync;
-            how.sync = sync;
-            let opened = vfs::do_file_open(&cred, &root, "f", &flags_of(&how))
+        let mut bytes = b"f".to_vec();
+        let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
+        let mem = GuestMemory::new(&mut memory, 64);
+        let mut reported = |fdflags| {
+            let call = PathOpen {
+                dirflags: types::Lookupflags::empty(),
+                oflags: types::Oflags::empty(),
+                rights_base: Rights::FD_WRITE,
+                fdflags,
+            };
+            let fd = path_open(&mut wasi, &mem, 3, GuestPtr::new((0, 1)), &call)
                 .unwrap_or_else(|_| panic!("the file must open"));
-            let fd = wasi
-                .descriptors_mut()
-                .push(Descriptor::for_file(opened))
-                .unwrap_or_else(|| panic!("the table must have room"));
-            let Ok(stat) = fdstat_get(&wasi, fd) else {
+            let Ok(stat) = fdstat_get(&wasi, fd.into()) else {
                 panic!("the descriptor must report itself");
             };
-            (
-                stat.fs_flags.contains(Fdflags::DSYNC),
-                stat.fs_flags.contains(Fdflags::SYNC),
-            )
+            stat.fs_flags & (Fdflags::DSYNC | Fdflags::SYNC | Fdflags::RSYNC)
         };
+        let every = Fdflags::DSYNC | Fdflags::SYNC | Fdflags::RSYNC;
         assert_eq!(
-            (reported(true, false), reported(false, true)),
-            ((true, false), (true, true)),
-            "fd_fdstat_get must report DSYNC alone for a file opened O_DSYNC, and both for one \
-             opened O_SYNC, whose bits hold O_DSYNC's as Linux's do"
+            [
+                reported(Fdflags::DSYNC),
+                reported(Fdflags::SYNC),
+                reported(Fdflags::RSYNC)
+            ],
+            [Fdflags::DSYNC, every, every],
+            "fd_fdstat_get must report DSYNC alone for a file path_open opened O_DSYNC, and DSYNC, \
+             SYNC, and RSYNC for one opened O_SYNC or O_RSYNC, as Linux's O_RSYNC is O_SYNC"
         );
     }
 
