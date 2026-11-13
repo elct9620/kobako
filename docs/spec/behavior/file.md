@@ -256,7 +256,7 @@ disable_file flag -> no File constant
 | --- | --- |
 | Given | an invocation handed a Mount |
 | When | the script builds `SystemCallError` with 9999 |
-| Then | it reads `Unknown error: 9999`, and its `errno` is 9999 |
+| Then | it reads `Unknown error 9999`, as glibc's `strerror` words it, and its `errno` is 9999 |
 
 ## `FL-020` A file past 2 GiB reports its whole size
 
@@ -920,3 +920,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a file |
 | When | the script seeks four bytes before `:END` |
 | Then | it stands four bytes before the end, as CRuby's `interpret_seek_whence` reads `:END` |
+
+## `FL-086` A seek by a whence no name stands for raises TypeError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-085` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the script seeks by the Symbol `:FOO` |
+| Then | it raises `TypeError`, as CRuby's `NUM2INT` refuses a Symbol |

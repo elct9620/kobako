@@ -521,3 +521,27 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox |
 | When | guest code puts an Array that holds itself |
 | Then | the capture holds `[...]` on its own line, as CRuby's `rb_exec_recursive` writes |
+
+## `IO-054` Putting a character converts as CRuby's NUM2CHR does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-026` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code puts an object answering `to_int`, then `true` |
+| Then | the capture holds that object's character, and `true` raises `TypeError` naming `true` |
+
+## `IO-055` warn writes a Hash it is handed as a message
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-050` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code warns with a Hash, then with a keyword `warn` does not take |
+| Then | standard error holds the Hash, and the keyword raises `ArgumentError` |
