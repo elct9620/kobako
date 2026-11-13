@@ -6,7 +6,7 @@ use magnus::{
 };
 
 use kobako_runtime::snapshot::{Completion, Snapshot as RuntimeSnapshot};
-use kobako_transport::envelope::{Outcome, SANDBOX_ERROR};
+use kobako_transport::envelope::{Origin, Outcome, SANDBOX_ERROR};
 
 use crate::errors;
 
@@ -69,7 +69,7 @@ impl Snapshot {
             Completion::Outcome(Outcome::Unsupported(_)) => Ok((
                 ruby.str_from_slice(&[]),
                 Some((
-                    "sandbox".to_owned(),
+                    Origin::Sandbox.name().to_owned(),
                     SANDBOX_ERROR.to_owned(),
                     format!(
                         "the Sandbox runtime does not support #{}; \
